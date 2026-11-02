@@ -14,6 +14,8 @@ fn git(repo: &Path, args: &[&str]) -> Vec<u8> {
         .arg("-C")
         .arg(repo)
         .args(args)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .output()
@@ -694,4 +696,95 @@ sys.stdout.write('__PACER_BEGIN__\ncode=137\nkilled=0\n\n__PACER_DONE__='+nonce[
         !completed.exists(),
         "timed-out SSH must not complete or emit a successful receipt"
     );
+}
+
+#[tokio::test]
+async fn large_valid_bundle_matches_typescript_blob_header_reads_and_full_verification() {
+    let mut f = Fixture::new();
+    let mut seed = 0x519c_2f17_b4a6_d803u64;
+    let payload: Vec<u8> = (0..2 * 1024 * 1024)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed as u8
+        })
+        .collect();
+    fs::write(f.remote.join("large"), payload).unwrap();
+    git(&f.remote, &["add", "large"]);
+    git(&f.remote, &["commit", "--amend", "--no-edit", "-q"]);
+    f.head = text(&f.remote, &["rev-parse", "HEAD"]);
+    let bytes = f.bytes();
+    assert!(bytes.len() > 1024 * 1024);
+    let source = f.root.join("large.bundle");
+    fs::write(&source, &bytes).unwrap();
+    let oracle = Command::new("bun")
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .args(["-e", "import {execProcess} from './src/exec/process.ts';const [repo,file]=Bun.argv.slice(-2);const input=new Blob([await Bun.file(file).arrayBuffer()]);const results=[];for(const op of ['verify','list-heads'])results.push(await execProcess({argv:['/usr/bin/git','-C',repo,'bundle',op,'/dev/fd/0'],cwd:repo,env:process.env,stdinBlob:input,timeoutMs:10000,maxStdoutBytes:1048576}));console.log(JSON.stringify(results));"])
+        .arg(&f.repo).arg(&source).env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("HOME", &f.root).env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output().unwrap();
+    assert!(
+        oracle.status.success(),
+        "{}",
+        String::from_utf8_lossy(&oracle.stderr)
+    );
+    let rows: Vec<serde_json::Value> = serde_json::from_slice(&oracle.stdout).unwrap();
+    for row in &rows {
+        assert_eq!(row["code"], 0, "{row}");
+        assert_eq!(row["timedOut"], false);
+    }
+    assert_eq!(
+        rows[1]["stdout"].as_str().unwrap().trim(),
+        format!("{} refs/heads/{}", f.head, f.branch)
+    );
+    // Host-issued synthetic source: an existing binary reads a temp fixture.
+    let argv = vec!["ssh".into(), source.to_str().unwrap().into()];
+    let mut stage = NativeBundle::prepare(
+        &f.root,
+        BundleSpec {
+            argv: argv.clone(),
+            executable: "/bin/cat".into(),
+            env: HashMap::new(),
+            timeout_ms: 10000,
+            max_bytes: 50 * 1024 * 1024,
+        },
+    )
+    .unwrap();
+    let staged = stage
+        .stage(
+            &serde_json::json!({"argv":argv,"timeoutMs":10000,"maxBytes":50*1024*1024}),
+            deadline(),
+        )
+        .await
+        .unwrap();
+    let mut ticket = stage.claim(staged["handle"].as_str().unwrap()).unwrap();
+    let result = f
+        .native()
+        .verify(&mut ticket, &f.base, &f.branch, deadline())
+        .await;
+    assert!(
+        result.is_ok(),
+        "bundle bytes={}, TS={}, native={:?}",
+        bytes.len(),
+        String::from_utf8_lossy(&oracle.stdout),
+        result.as_ref().err()
+    );
+    let verified = result.unwrap();
+    assert_eq!(verified.head(), f.head);
+    assert_eq!(verified.commits(), 1);
+    assert_eq!(bytes, fs::read(source).unwrap());
+    let local = Command::new("git")
+        .arg("-C")
+        .arg(&f.repo)
+        .args(["cat-file", "-e", &f.head])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(!local.status.success());
+    ticket.dispose().unwrap();
 }

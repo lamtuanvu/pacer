@@ -62,18 +62,25 @@ pub async fn run(
         result
     });
     let (mut written, mut out_end, mut err_end) = (false, false, false);
-    let mut status = None;
+    let mut status: Option<std::process::ExitStatus> = None;
+    let mut early_close = false;
     let (mut ob, mut eb) = (vec![0; 65536], vec![0; 65536]);
     let end = deadline.min(Instant::now() + Duration::from_millis(timeout_ms));
     let result = loop {
-        if status.is_some() && out_end && err_end {
-            break Ok(false);
+        if status.is_some() && out_end && err_end && written {
+            // Header readers may close stdin early. Only a completed successful
+            // child can make that BrokenPipe benign; all other guards still apply.
+            break if early_close && !status.is_some_and(|s| s.success()) {
+                Err(denied())
+            } else {
+                Ok(false)
+            };
         }
         tokio::select! {
-            v=&mut write,if !written => {written=true;if v.is_err() && !input.is_empty(){break Err(denied());}},
+            v=&mut write,if !written => {written=true;if let Err(error)=v {if error.kind()==std::io::ErrorKind::BrokenPipe {early_close=true;}else{break Err(denied());}}},
             v=stdout.read(&mut ob),if !out_end => {match v{Ok(0)=>out_end=true,Ok(n)=>{if out.len()+err.len()+n>max_bytes{break Err(BrokerError::Invalid("host output exceeds bound"));}out.extend_from_slice(&ob[..n]);},Err(_)=>break Err(denied())}},
             v=stderr.read(&mut eb),if !err_end => {match v{Ok(0)=>err_end=true,Ok(n)=>{if out.len()+err.len()+n>max_bytes{break Err(BrokerError::Invalid("host output exceeds bound"));}err.extend_from_slice(&eb[..n]);},Err(_)=>break Err(denied())}},
-            v=child.wait(),if status.is_none() && out_end && err_end=>{match v{Ok(s)=>status=Some(s),Err(_)=>break Err(denied())}},
+            v=child.wait(),if status.is_none() && out_end && err_end && written=>{match v{Ok(s)=>status=Some(s),Err(_)=>break Err(denied())}},
             _=tokio::time::sleep_until(end.into())=>break Ok(true),
         }
     };
