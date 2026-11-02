@@ -609,7 +609,7 @@ export function opJsonSchemas(): Record<string, { description: string; params: u
   }));
 }
 
-export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDeps = {}): Promise<unknown> {
+export function parseOpParams(ctx: Ctx, name: string, params: unknown): unknown {
   if (isUpgradeOperation(name) && isExecutorSession(ctx)) throw new CoreError("not_allowed", UPGRADE_REFUSAL);
   authorizeWorkOperation(ctx,name,params);
   // Executors cannot spend the assistant's budget or read its history through pacer's own clients.
@@ -619,5 +619,10 @@ export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDe
   const def = OPS[name];
   const parsed = def.params.safeParse(params ?? {});
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`).join("; "));
-  return await def.handler(ctx, parsed.data, deps);
+  return parsed.data;
+}
+
+export async function callOp(ctx: Ctx, name: string, params: unknown, deps: OpDeps = {}): Promise<unknown> {
+  const parsed = parseOpParams(ctx, name, params);
+  return await OPS[name].handler(ctx, parsed, deps);
 }

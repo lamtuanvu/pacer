@@ -35,8 +35,9 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         ctx,
         port,
         token: "token".into(),
-        registry: registry(""),
+        registry: service_registry(""),
         scoped_work: false,
+        plugins: crate::native::plugins::Service::default(),
         forward_log_follow: false,
     });
     let server = tokio::spawn(async move {
@@ -136,8 +137,9 @@ async fn public_listener_forwards_to_available_core() {
         ctx,
         port,
         token: "token".into(),
-        registry: registry(""),
+        registry: service_registry(""),
         scoped_work: false,
+        plugins: crate::native::plugins::Service::default(),
         forward_log_follow: false,
     });
     let server = tokio::spawn(async move {

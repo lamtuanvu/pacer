@@ -1,0 +1,22 @@
+[package]
+name = "pacer-plugin-ops"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+icu_collator = { version = "=2.4.0", features = ["unstable"] }
+pacer-plugin-protocol = { path = "../plugin-protocol" }
+pacer-foundation = { path = "../foundation" }
+serde.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip", "unbounded_depth"] }
+tokio.workspace = true
+ryu-js = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

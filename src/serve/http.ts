@@ -1,4 +1,5 @@
 import { autoCleanSweep } from "../core/tasks";
+import { pluginNativeRoute } from "./plugin-native";
 import { startTaskHistory } from "../tasks/history";
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant } from "../dispatch/work";
@@ -160,6 +161,7 @@ export function startServer(
         }
         // The front door's heartbeat: an answer proves this event loop is responsive.
         if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid });
+        if (pathname === "/_internal/plugins") return pluginNativeRoute(getCtx(), req);
         if (pathname === "/_internal/app-page") {
           const params = new URL(req.url).searchParams;
           const status = Number(params.get("status") ?? 200);
