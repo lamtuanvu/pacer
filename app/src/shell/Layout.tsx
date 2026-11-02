@@ -24,6 +24,8 @@ import { useNavigation } from "../navigation";
 import { OfflineNotice } from "./OfflineNotice";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
+import { isDesktop, windowControls } from "../data/desktop";
+import { registerViewClose } from "./shell-commands";
 import { commands, keys } from "../keys/instance";
 import { SidePanel } from "../ds/SidePanel";
 import { AppFrame } from "./AppFrame";
@@ -38,6 +40,29 @@ function AssistantLoader(props: { route: Route; narrow: boolean; repo: string | 
   const [View, setView] = useState<typeof import("./assistant/AssistantHost").default>();
   useEffect(() => { void import("./assistant/AssistantHost").then(m => setView(() => m.default), () => undefined); }, []);
   return View ? <View {...props} /> : null;
+}
+
+interface LayoutCloseState {
+  dockAvailable: boolean; dockOpen: boolean; workPanels: boolean; newTaskPanels: boolean; inspectorOpen: boolean; taskPanels: boolean; detailsOpen: boolean; scopeOpen: boolean; tasksOpen: boolean; hasLeft: boolean; leftOpen: boolean;
+  setDockOpen: (open: boolean) => void; setInspectorOpen: (open: boolean) => void; setDetailsOpen: (open: boolean) => void; setScopeOpen: (open: boolean) => void; setTasksOpen: (open: boolean) => void; setLeftOpen: (open: boolean) => void;
+}
+interface LayoutCloseDocument {
+  querySelector(selector: string): { parentElement: { querySelector(selector: string): { disabled: boolean; click(): void } | null } | null } | null;
+}
+/** The same close cascade used by the desktop command, with a small document seam for tests. */
+export function closeLayoutView(state: LayoutCloseState, document: LayoutCloseDocument): boolean {
+  const { dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen } = state;
+  // Reuse the selected workspace tab's existing close action, including its state cleanup.
+  const tab = document.querySelector('[id^="workspace-panels-"][role="tab"][aria-selected="true"]');
+  const close = tab?.parentElement?.querySelector('button[aria-label^="Close "]');
+  if (close && !close.disabled) { close.click(); return true; }
+  if (dockAvailable && dockOpen) { setDockOpen(false); return true; }
+  if ((workPanels || newTaskPanels) && inspectorOpen) { setInspectorOpen(false); return true; }
+  if (taskPanels && detailsOpen) { setDetailsOpen(false); return true; }
+  if (workPanels && scopeOpen) { setScopeOpen(false); return true; }
+  if (taskPanels && tasksOpen) { setTasksOpen(false); return true; }
+  if (hasLeft && leftOpen) { setLeftOpen(false); return true; }
+  return false;
 }
 
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
@@ -118,6 +143,12 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
       dockAvailable ? toggleDock : undefined, workPanels || newTaskPanels ? () => setInspectorOpen(!inspectorOpen) : taskPanels ? () => setDetailsOpen(!detailsOpen) : undefined).map(command => commands.register(command));
     return () => offs.forEach(off => off());
   }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen, workPanels, scopeOpen, inspectorOpen, newTaskPanels, route.name]);
+  useLayoutEffect(() => {
+    if (!isDesktop()) return;
+    return registerViewClose(commands, { apple: isMacPlatform(), hide: () => { void windowControls().close(); }, close: () => {
+      return closeLayoutView({ dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen }, document);
+    } });
+  }, [dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, route.name]);
   // Dispatcher commands exist only where the service offers the operation (UI-13).
   const paused = !!state.snapshot?.pause, ops = state.features.ops, api = context?.api;
   // The UI has its own API client, separate from the store's snapshot transport.
