@@ -7,9 +7,14 @@ pub mod discovery;
 #[path = "discovery_tests.rs"]
 mod discovery_tests;
 pub mod heartbeat;
+mod js_trim;
 #[cfg(test)]
 #[path = "listener_tests.rs"]
 mod listener_tests;
+mod log_sse;
+#[cfg(test)]
+#[path = "log_sse_tests.rs"]
+mod log_sse_tests;
 #[cfg(target_os = "macos")]
 mod native_bootstrap;
 #[cfg(target_os = "macos")]
@@ -71,6 +76,7 @@ struct Listener {
     token: String,
     registry: Registry<'static>,
     scoped_work: bool,
+    forward_log_follow: bool,
 }
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
@@ -125,6 +131,37 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
             Err(error) => native_error(error),
         };
+    }
+    if !state.scoped_work
+        && !state.forward_log_follow
+        && auth != auth::AuthKind::Task
+        && req.uri().path().starts_with("/v3/tasks/")
+        && req.uri().path().ends_with("/log")
+        && req.uri().query().is_some_and(|query| {
+            form_urlencoded::parse(query.as_bytes())
+                .find(|(key, _)| key == "follow")
+                .is_some_and(|(_, value)| value == "1")
+        })
+    {
+        if req.method() != axum::http::Method::GET {
+            return native_json(
+                StatusCode::METHOD_NOT_ALLOWED,
+                CoreError::new(Code::InvalidInput, "method not allowed").body(),
+            );
+        }
+        if let Some(id) = req
+            .uri()
+            .path()
+            .strip_prefix("/v3/tasks/")
+            .and_then(|p| p.strip_suffix("/log"))
+            && !id.contains('/')
+            && !id.is_empty()
+        {
+            if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+                eprintln!("native http.task_log_follow");
+            }
+            return log_sse::follow(ctx, id.to_owned(), state.core.clone()).await;
+        }
     }
     if let Some(response) = app_assets::route(&req) {
         return response;
@@ -183,6 +220,9 @@ pub async fn run_serve(
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
     let registry = registry(if scoped_work { "*" } else { forward });
+    let forward_log_follow = forward.split(',').any(|name| {
+        js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.task_log_follow"
+    });
     let token = auth::ensure_token(&ctx)?;
     // Requests clone the context; the listener needs only the pacer home.
     ctx.env.clear();
@@ -223,6 +263,7 @@ pub async fn run_serve(
         token,
         registry,
         scoped_work,
+        forward_log_follow,
     });
     let app = Router::new()
         .fallback(any(handle))

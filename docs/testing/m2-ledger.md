@@ -13,7 +13,17 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.diff` | Forwarded | Needs the full git argv, snapshot fallback and file tree parity fixture. |
 | `task.get`, `task.list`, `task.prune`, `task.restore` | Forwarded | Queue/lifecycle and retention behavior belong to later cutovers. |
 
-The native `activity.list` reads the TypeScript activity JSONL, and `task.log` reads the shared SQLite task record and output files. `task.log` opens the existing adapter, which may import or migrate the store as described in P3-C. This slice does not move the `/v3/tasks/<id>/log?follow=1` SSE route or any `/v2` route.
+The native `activity.list` reads the TypeScript activity JSONL, and `task.log` reads the shared SQLite task record and output files. `task.log` opens the existing adapter, which may import or migrate the store as described in P3-C.
+
+PR #585 adds the native `/v3/tasks/<id>/log?follow=1` SSE route. It retains a read-only SQLite connection, detects database replacement, and drains bounded output chunks before `done`. When a read needs a legacy JSON import, an older schema migration, or malformed-record semantics, it calls the existing TypeScript `task.log` fallback with the current byte offsets. That core read performs the shared durable import; no per-stream import cache or new Rust state writer is used. The same fallback applies after a stream connects. All `/v2` routes and `/v3/events` remain forwarded.
+
+Like the TypeScript reference, follow mode resets the stderr byte offset to zero
+when a task has no run record. If a later poll sees a restored run, its stderr
+starts at byte zero. A missing stderr file on an existing run retains the offset.
+The connected v3/v2 regression observes the missing-run poll before restoring it.
+The independent TaskStore importer matrix uses separate Rust and TypeScript homes
+and compares accepted/rejected records and the Rust database contents for every
+numeric validation field (`rev`, `createdAt`, attempt `startedAt` and `endedAt`).
 
 ## Config library boundary
 
