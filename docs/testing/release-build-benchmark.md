@@ -47,6 +47,24 @@ build cache: `setup-bun` runs with `no-cache: true`, and no cache action is used
 so nothing is restored from another branch or run. Artifact downloads come only
 from the current run. Artifacts are retained for seven days and are not releases.
 
+Candidate and CLI handoffs are downloaded by the exact artifact ID that the
+producer's upload step returned, with `merge-multiple: false` set explicitly.
+`actions/download-artifact` then extracts each artifact into
+`<path>/<artifact name>/`, so consumers read
+`candidate/candidate-<run>-<attempt>/candidate.json` (`CANDIDATE_PATH`, which is
+required) and `source/cli-<platform>-<run>-<attempt>/` (`SOURCE`). The artifact
+name is part of the path, so an ID that resolved to another artifact fails
+closed. Promotion downloads each handoff by its exact name, and the action
+extracts single-name downloads flat into `handoffs/<variant>/`. Hosted run
+41437535098 failed in `cli-linux-arm64` because it read a flat
+`candidate/candidate.json`.
+
+`test/release-experiment-artifacts.test.ts` models how the pinned upload and
+download actions place files and simulates the whole job graph against this
+workflow. It is a model of the pinned action source, not a hosted run: transport,
+artifact digest validation, retention and permissions are not exercised, and a
+change of action pin needs the model rechecked.
+
 ## Running a trial
 
 Only after the reviewer approves the exact commit, a maintainer pushes it:
@@ -100,8 +118,9 @@ flowchart LR
 ```
 
 The focused security checks remain on the benchmark path. Focused validation
-runs the identity, benchmark, handoff and workflow-isolation tests, the release
-pair, desktop release and release workflow tests, and typecheck. CLI handoffs
+runs the identity, benchmark, handoff, workflow-isolation and artifact-placement
+tests, the release pair, desktop release and release workflow tests, and
+typecheck. CLI handoffs
 bind the run, attempt, SHA, version and variant configuration, and consumers
 recompute every size and SHA-256 value from consumer-supplied names. macOS jobs
 refuse a configured local signing identity. Desktop packages are built with
@@ -136,7 +155,7 @@ FAIL/UNVERIFIED and does not invent timings.
 
 ```sh
 bun install --frozen-lockfile
-bun run test test/release-experiment-identity.test.ts test/release-experiment-benchmark.test.ts test/release-experiment.test.ts test/release-experiment-workflow.test.ts
+bun run test test/release-experiment-identity.test.ts test/release-experiment-benchmark.test.ts test/release-experiment.test.ts test/release-experiment-workflow.test.ts test/release-experiment-artifacts.test.ts
 bun run typecheck
 actionlint .github/workflows/release-build-benchmark.yml
 git diff --check

@@ -65,7 +65,8 @@ jobs:
         run: >-
           bun run test test/release-experiment-identity.test.ts
           test/release-experiment-benchmark.test.ts test/release-experiment.test.ts
-          test/release-experiment-workflow.test.ts test/release-pair-build.test.ts
+          test/release-experiment-workflow.test.ts test/release-experiment-artifacts.test.ts
+          test/release-pair-build.test.ts
           test/release-pair-packages.test.ts test/release-pair-orchestration.test.ts
           test/desktop-release-build.test.ts test/desktop-release-workflow.test.ts
           test/release-workflow.test.ts
@@ -82,6 +83,8 @@ jobs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     env:
       CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      # artifact-ids downloads nest each artifact under <path>/<artifact name>/.
+      CANDIDATE_PATH: candidate/candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.json
       VERSION: ${{ needs.candidate.outputs.version }}
       PLATFORM: darwin-arm64
     steps:
@@ -97,6 +100,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          merge-multiple: false
           path: candidate
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
@@ -128,8 +132,11 @@ jobs:
     timeout-minutes: 60
     env:
       CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      # artifact-ids downloads nest each artifact under <path>/<artifact name>/.
+      CANDIDATE_PATH: candidate/candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.json
       VERSION: ${{ needs.candidate.outputs.version }}
       PLATFORM: darwin-arm64
+      SOURCE: source/cli-darwin-arm64-${{ github.run_id }}-${{ github.run_attempt }}
       TARGET: aarch64-apple-darwin
       BUNDLES: app
       ARCH: aarch64
@@ -146,14 +153,16 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          merge-multiple: false
           path: candidate
       - name: Download matching CLI handoff
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.cli-darwin-arm64.outputs.artifact }}
+          merge-multiple: false
           path: source
       - name: Check producer identity and digest; smoke received pair
-        run: bun scripts/release/experiment.ts verify "cli-$PLATFORM" source
+        run: bun scripts/release/experiment.ts verify "cli-$PLATFORM" "$SOURCE"
       - name: Install locked root and desktop dependencies
         run: |
           bun install --frozen-lockfile
@@ -168,7 +177,7 @@ jobs:
       - name: Stage verified native CLI pair
         env:
           TAURI_TARGET_TRIPLE: ${{ env.TARGET }}
-        run: desktop/scripts/stage-cli.sh "source/pacer-$PLATFORM"
+        run: desktop/scripts/stage-cli.sh "$SOURCE/pacer-$PLATFORM"
       - name: Build unsigned app and update helper
         working-directory: desktop
         env:
@@ -179,15 +188,15 @@ jobs:
       - name: Stage and archive complete unsigned app
         run: |
           mkdir -p "dist/release/$VERSION" "out/desktop-$PLATFORM"
-          cp source/pacer-* source/manifest.json source/SHA256SUMS "dist/release/$VERSION/"
+          cp "$SOURCE"/pacer-* "$SOURCE/manifest.json" "$SOURCE/SHA256SUMS" "dist/release/$VERSION/"
           cp -R "desktop/src-tauri/target/$TARGET/release/bundle/macos/pacer.app" "dist/release/$VERSION/pacer.app"
           cp "desktop/src-tauri/target/$TARGET/release/pacer-update-helper" "dist/release/$VERSION/pacer-update-helper"
           stage=$(bun scripts/release/desktop.ts "dist/release/$VERSION" "$ARCH")
           ditto -c -k --sequesterRsrc --keepParent "$stage/pacer.app" "out/desktop-$PLATFORM/pacer-$VERSION-$PLATFORM-unsigned.zip"
       - name: Seal desktop source handoff and smoke extracted artifacts
         run: |
-          bun scripts/release/experiment.ts seal "desktop-$PLATFORM" "out/desktop-$PLATFORM" source
-          bun scripts/release/experiment.ts smoke-desktop "desktop-$PLATFORM" "out/desktop-$PLATFORM" source
+          bun scripts/release/experiment.ts seal "desktop-$PLATFORM" "out/desktop-$PLATFORM" "$SOURCE"
+          bun scripts/release/experiment.ts smoke-desktop "desktop-$PLATFORM" "out/desktop-$PLATFORM" "$SOURCE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-darwin-arm64-${{ github.run_id }}-${{ github.run_attempt }}
@@ -205,6 +214,8 @@ jobs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     env:
       CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      # artifact-ids downloads nest each artifact under <path>/<artifact name>/.
+      CANDIDATE_PATH: candidate/candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.json
       VERSION: ${{ needs.candidate.outputs.version }}
       PLATFORM: darwin-x64
     steps:
@@ -220,6 +231,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          merge-multiple: false
           path: candidate
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
@@ -251,8 +263,11 @@ jobs:
     timeout-minutes: 60
     env:
       CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      # artifact-ids downloads nest each artifact under <path>/<artifact name>/.
+      CANDIDATE_PATH: candidate/candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.json
       VERSION: ${{ needs.candidate.outputs.version }}
       PLATFORM: darwin-x64
+      SOURCE: source/cli-darwin-x64-${{ github.run_id }}-${{ github.run_attempt }}
       TARGET: x86_64-apple-darwin
       BUNDLES: app
       ARCH: x86_64
@@ -269,14 +284,16 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          merge-multiple: false
           path: candidate
       - name: Download matching CLI handoff
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.cli-darwin-x64.outputs.artifact }}
+          merge-multiple: false
           path: source
       - name: Check producer identity and digest; smoke received pair
-        run: bun scripts/release/experiment.ts verify "cli-$PLATFORM" source
+        run: bun scripts/release/experiment.ts verify "cli-$PLATFORM" "$SOURCE"
       - name: Install locked root and desktop dependencies
         run: |
           bun install --frozen-lockfile
@@ -291,7 +308,7 @@ jobs:
       - name: Stage verified native CLI pair
         env:
           TAURI_TARGET_TRIPLE: ${{ env.TARGET }}
-        run: desktop/scripts/stage-cli.sh "source/pacer-$PLATFORM"
+        run: desktop/scripts/stage-cli.sh "$SOURCE/pacer-$PLATFORM"
       - name: Build unsigned app and update helper
         working-directory: desktop
         env:
@@ -302,15 +319,15 @@ jobs:
       - name: Stage and archive complete unsigned app
         run: |
           mkdir -p "dist/release/$VERSION" "out/desktop-$PLATFORM"
-          cp source/pacer-* source/manifest.json source/SHA256SUMS "dist/release/$VERSION/"
+          cp "$SOURCE"/pacer-* "$SOURCE/manifest.json" "$SOURCE/SHA256SUMS" "dist/release/$VERSION/"
           cp -R "desktop/src-tauri/target/$TARGET/release/bundle/macos/pacer.app" "dist/release/$VERSION/pacer.app"
           cp "desktop/src-tauri/target/$TARGET/release/pacer-update-helper" "dist/release/$VERSION/pacer-update-helper"
           stage=$(bun scripts/release/desktop.ts "dist/release/$VERSION" "$ARCH")
           ditto -c -k --sequesterRsrc --keepParent "$stage/pacer.app" "out/desktop-$PLATFORM/pacer-$VERSION-$PLATFORM-unsigned.zip"
       - name: Seal desktop source handoff and smoke extracted artifacts
         run: |
-          bun scripts/release/experiment.ts seal "desktop-$PLATFORM" "out/desktop-$PLATFORM" source
-          bun scripts/release/experiment.ts smoke-desktop "desktop-$PLATFORM" "out/desktop-$PLATFORM" source
+          bun scripts/release/experiment.ts seal "desktop-$PLATFORM" "out/desktop-$PLATFORM" "$SOURCE"
+          bun scripts/release/experiment.ts smoke-desktop "desktop-$PLATFORM" "out/desktop-$PLATFORM" "$SOURCE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-darwin-x64-${{ github.run_id }}-${{ github.run_attempt }}
@@ -328,6 +345,8 @@ jobs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     env:
       CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      # artifact-ids downloads nest each artifact under <path>/<artifact name>/.
+      CANDIDATE_PATH: candidate/candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.json
       VERSION: ${{ needs.candidate.outputs.version }}
       PLATFORM: linux-x64
     steps:
@@ -343,6 +362,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          merge-multiple: false
           path: candidate
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
@@ -375,8 +395,11 @@ jobs:
     timeout-minutes: 60
     env:
       CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      # artifact-ids downloads nest each artifact under <path>/<artifact name>/.
+      CANDIDATE_PATH: candidate/candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.json
       VERSION: ${{ needs.candidate.outputs.version }}
       PLATFORM: linux-x64
+      SOURCE: source/cli-linux-x64-${{ github.run_id }}-${{ github.run_attempt }}
       TARGET: x86_64-unknown-linux-gnu
       BUNDLES: appimage,deb
       ARCH: x86_64
@@ -393,14 +416,16 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          merge-multiple: false
           path: candidate
       - name: Download matching CLI handoff
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.cli-linux-x64.outputs.artifact }}
+          merge-multiple: false
           path: source
       - name: Check producer identity and digest; smoke received pair
-        run: bun scripts/release/experiment.ts verify "cli-$PLATFORM" source
+        run: bun scripts/release/experiment.ts verify "cli-$PLATFORM" "$SOURCE"
       - name: Install Linux desktop dependencies
         run: |
           sudo apt-get update
@@ -419,11 +444,11 @@ jobs:
       - name: Stage verified native CLI pair
         env:
           TAURI_TARGET_TRIPLE: ${{ env.TARGET }}
-        run: desktop/scripts/stage-cli.sh "source/pacer-$PLATFORM"
+        run: desktop/scripts/stage-cli.sh "$SOURCE/pacer-$PLATFORM"
       - name: Build unsigned AppImage and deb with the verified pair
         env:
           CARGO_NET_OFFLINE: 'true'
-        run: desktop/scripts/build-linux-bundles.sh "source/pacer-$PLATFORM" "$VERSION" "$TARGET"
+        run: desktop/scripts/build-linux-bundles.sh "$SOURCE/pacer-$PLATFORM" "$VERSION" "$TARGET"
       - name: Collect exact Linux bundles
         run: |
           bundle="desktop/src-tauri/target/$TARGET/release/bundle"
@@ -432,8 +457,8 @@ jobs:
           cp "$bundle"/deb/*.deb "out/desktop-$PLATFORM/pacer-$VERSION-$PLATFORM-unsigned.deb"
       - name: Seal desktop source handoff and smoke extracted artifacts
         run: |
-          bun scripts/release/experiment.ts seal "desktop-$PLATFORM" "out/desktop-$PLATFORM" source
-          bun scripts/release/experiment.ts smoke-desktop "desktop-$PLATFORM" "out/desktop-$PLATFORM" source
+          bun scripts/release/experiment.ts seal "desktop-$PLATFORM" "out/desktop-$PLATFORM" "$SOURCE"
+          bun scripts/release/experiment.ts smoke-desktop "desktop-$PLATFORM" "out/desktop-$PLATFORM" "$SOURCE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-linux-x64-${{ github.run_id }}-${{ github.run_attempt }}
@@ -451,6 +476,8 @@ jobs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
     env:
       CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      # artifact-ids downloads nest each artifact under <path>/<artifact name>/.
+      CANDIDATE_PATH: candidate/candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.json
       VERSION: ${{ needs.candidate.outputs.version }}
       PLATFORM: linux-arm64
     steps:
@@ -466,6 +493,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          merge-multiple: false
           path: candidate
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
@@ -498,8 +526,11 @@ jobs:
     timeout-minutes: 60
     env:
       CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      # artifact-ids downloads nest each artifact under <path>/<artifact name>/.
+      CANDIDATE_PATH: candidate/candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.json
       VERSION: ${{ needs.candidate.outputs.version }}
       PLATFORM: linux-arm64
+      SOURCE: source/cli-linux-arm64-${{ github.run_id }}-${{ github.run_attempt }}
       TARGET: aarch64-unknown-linux-gnu
       BUNDLES: appimage,deb
       ARCH: aarch64
@@ -516,14 +547,16 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          merge-multiple: false
           path: candidate
       - name: Download matching CLI handoff
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.cli-linux-arm64.outputs.artifact }}
+          merge-multiple: false
           path: source
       - name: Check producer identity and digest; smoke received pair
-        run: bun scripts/release/experiment.ts verify "cli-$PLATFORM" source
+        run: bun scripts/release/experiment.ts verify "cli-$PLATFORM" "$SOURCE"
       - name: Install Linux desktop dependencies
         run: |
           sudo apt-get update
@@ -542,11 +575,11 @@ jobs:
       - name: Stage verified native CLI pair
         env:
           TAURI_TARGET_TRIPLE: ${{ env.TARGET }}
-        run: desktop/scripts/stage-cli.sh "source/pacer-$PLATFORM"
+        run: desktop/scripts/stage-cli.sh "$SOURCE/pacer-$PLATFORM"
       - name: Build unsigned AppImage and deb with the verified pair
         env:
           CARGO_NET_OFFLINE: 'true'
-        run: desktop/scripts/build-linux-bundles.sh "source/pacer-$PLATFORM" "$VERSION" "$TARGET"
+        run: desktop/scripts/build-linux-bundles.sh "$SOURCE/pacer-$PLATFORM" "$VERSION" "$TARGET"
       - name: Collect exact Linux bundles
         run: |
           bundle="desktop/src-tauri/target/$TARGET/release/bundle"
@@ -555,8 +588,8 @@ jobs:
           cp "$bundle"/deb/*.deb "out/desktop-$PLATFORM/pacer-$VERSION-$PLATFORM-unsigned.deb"
       - name: Seal desktop source handoff and smoke extracted artifacts
         run: |
-          bun scripts/release/experiment.ts seal "desktop-$PLATFORM" "out/desktop-$PLATFORM" source
-          bun scripts/release/experiment.ts smoke-desktop "desktop-$PLATFORM" "out/desktop-$PLATFORM" source
+          bun scripts/release/experiment.ts seal "desktop-$PLATFORM" "out/desktop-$PLATFORM" "$SOURCE"
+          bun scripts/release/experiment.ts smoke-desktop "desktop-$PLATFORM" "out/desktop-$PLATFORM" "$SOURCE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: desktop-linux-arm64-${{ github.run_id }}-${{ github.run_attempt }}
@@ -572,6 +605,8 @@ jobs:
     timeout-minutes: 10
     env:
       CANDIDATE_DIGEST: ${{ needs.candidate.outputs.digest }}
+      # artifact-ids downloads nest each artifact under <path>/<artifact name>/.
+      CANDIDATE_PATH: candidate/candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.json
       VERSION: ${{ needs.candidate.outputs.version }}
       NEEDS_JSON: ${{ toJSON(needs) }}
     steps:
@@ -587,6 +622,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           artifact-ids: ${{ needs.candidate.outputs.artifact }}
+          merge-multiple: false
           path: candidate
       - name: Download cli-darwin-arm64
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

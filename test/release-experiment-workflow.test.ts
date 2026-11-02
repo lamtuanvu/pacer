@@ -102,7 +102,7 @@ test("experiment DAG has independent target handoffs and an always-running repor
 test("focused security and release checks stay on the benchmark path", () => {
   const jobs = workflow().jobs;
   const focused = jobs.focused.steps.map((s: any) => s.run ?? "").join("\n");
-  for (const file of ["release-experiment-identity", "release-experiment-benchmark", "release-experiment", "release-experiment-workflow",
+  for (const file of ["release-experiment-identity", "release-experiment-benchmark", "release-experiment", "release-experiment-workflow", "release-experiment-artifacts",
     "release-pair-build", "release-pair-packages", "release-pair-orchestration", "desktop-release-build", "desktop-release-workflow", "release-workflow"]) {
     expect(focused).toContain(`test/${file}.test.ts`);
     expect(existsSync(`test/${file}.test.ts`)).toBe(true);

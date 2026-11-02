@@ -233,7 +233,9 @@ if (import.meta.main) {
         throw error;
       }
     } else {
-      const candidate = readCandidate(process.env.CANDIDATE_PATH ?? "candidate/candidate.json", process.env.CANDIDATE_DIGEST, identity);
+      // Required: artifact-ids downloads nest under the artifact name, so no flat default is assumed.
+      if (!process.env.CANDIDATE_PATH) throw Error("Missing CANDIDATE_PATH");
+      const candidate = readCandidate(process.env.CANDIDATE_PATH, process.env.CANDIDATE_DIGEST, identity);
       if (action === "promote") {
         const decision = promote(candidate, identity, "handoffs", JSON.parse(process.env.NEEDS_JSON ?? "{}"));
         mkdirSync("simulation", { recursive: true });
