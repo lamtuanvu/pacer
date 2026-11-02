@@ -10,7 +10,7 @@ rust-version.workspace = true
 test-ops = ["pacer-server/test-ops"]
 
 [dependencies]
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 thiserror.workspace = true
 pacer-foundation = { path = "../foundation" }
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }

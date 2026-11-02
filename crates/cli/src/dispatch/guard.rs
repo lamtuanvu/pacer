@@ -24,7 +24,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 0;
     }
     let stdin = read_hook_stdin();
-    let is_bash = serde_json::from_str::<Value>(&stdin)
+    let is_bash = parse_js_json(&stdin)
         .ok()
         .and_then(|raw| raw.get("tool_name")?.as_str().map(str::to_owned))
         .is_some_and(|name| name == "Bash");
@@ -54,6 +54,42 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     println!("{output}");
     0
+}
+
+// JSON.parse accepts lone UTF-16 surrogates, while serde_json requires Unicode
+// scalar values. The guard only observes ASCII property names and "Bash", so
+// replacing surrogate escapes preserves every value relevant to its decision.
+fn parse_js_json(input: &str) -> Result<Value, serde_json::Error> {
+    let bytes = input.as_bytes();
+    let mut normalized = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    let mut in_string = false;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_string && byte == b'\\' && index + 1 < bytes.len() {
+            if bytes[index + 1] == b'u' && index + 6 <= bytes.len() {
+                let digits = std::str::from_utf8(&bytes[index + 2..index + 6]);
+                if digits
+                    .ok()
+                    .and_then(|s| u16::from_str_radix(s, 16).ok())
+                    .is_some_and(|n| (0xd800..=0xdfff).contains(&n))
+                {
+                    normalized.extend_from_slice(b"\\ufffd");
+                    index += 6;
+                    continue;
+                }
+            }
+            normalized.extend_from_slice(&bytes[index..index + 2]);
+            index += 2;
+            continue;
+        }
+        if byte == b'"' {
+            in_string = !in_string;
+        }
+        normalized.push(byte);
+        index += 1;
+    }
+    serde_json::from_slice(&normalized)
 }
 
 fn read_hook_stdin() -> String {
@@ -135,7 +171,7 @@ fn report_denial(env: &std::collections::HashMap<String, String>, planner: &str)
                     .body_mut()
                     .read_to_string()
                     .ok()
-                    .is_some_and(|body| serde_json::from_str::<Value>(&body).is_ok())
+                    .is_some_and(|body| parse_js_json(&body).is_ok_and(|value| !value.is_null()))
         })
 }
 

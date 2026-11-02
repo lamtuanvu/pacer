@@ -26,6 +26,8 @@ test.skipIf(!front)("strict executor guard has byte-exact TS frames and exit cod
       { planner: "codex", stdin: '{"tool_name":"bash"}', expected: denial("codex") },
       { planner: "codex", stdin: "{}", expected: denial("codex"), emptyMarkers: true },
       { planner: "claude-code", stdin: '{"tool_name":"Bash"}', expected: "" },
+      ...['"\\ud800"', '1e400', '-1e400', '{"nested":["\\udfff",1e400]}'].map(value =>
+        ({ planner: "claude-code", stdin: `{"tool_name":"Bash","other":${value}}`, expected: "" })),
       { planner: "claude-code", stdin: Buffer.concat([Buffer.from('{"tool_name":"Bash","other":"'), Buffer.from([0xff]), Buffer.from('"}')]), expected: "" },
       { planner: "cursor", stdin: '{"tool_name":"Bash"}', expected: '{"permission":"allow"}\n' },
       { planner: "unknown", stdin: "bad json", expected: "" },
@@ -138,8 +140,8 @@ test.skipIf(!front)("strict guard flags malformed and stalled successful denial 
   try {
     const address = server.address();
     if (!address || typeof address === "string") throw Error("no test port");
-    for (const scenario of ["malformed", "stalled"] as const) {
-      body = scenario === "stalled" ? "stall" : "not-json";
+    for (const scenario of ["malformed", "stalled", "null", "surrogate", "overflow", "array", "false"] as const) {
+      body = ({ malformed:"not-json", stalled:"stall", null:"null", surrogate:'"\\ud800"', overflow:"1e400", array:"[]", false:"false" })[scenario];
       for (const [runtime, argv] of [["ts", [process.execPath, cli]], ["rust", [front!]]] as const) {
         const home = join(root, `${scenario}-${runtime}`); mkdirSync(home);
         const env = { ...process.env, HOME:home, PACER_HOME:join(home,".pacer"), PACER_ROLE:"executor",
@@ -153,7 +155,9 @@ test.skipIf(!front)("strict guard flags malformed and stalled successful denial 
             Bun.sleep(3500).then(() => ({code:-1}))]);
           expect(completed.code, `${scenario}/${runtime}`).toBe(0);
           expect(await new Response(child.stdout).text()).toBe(denial("codex"));
-          expect(readFileSync(env.PACER_GUARD_FAILURE_MARKER,"utf8")).toBe("guard-report-failed");
+          if (["malformed", "stalled", "null"].includes(scenario))
+            expect(readFileSync(env.PACER_GUARD_FAILURE_MARKER,"utf8")).toBe("guard-report-failed");
+          else expect(existsSync(env.PACER_GUARD_FAILURE_MARKER)).toBe(false);
         } finally { child.kill(); await child.exited; }
       }
     }
