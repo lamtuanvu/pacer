@@ -1,13 +1,14 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { buildAccounts, buildExecutors, buildPlanner } from "../src/api/read-model/capacity";
 import { apiTasks } from "../src/api/read-model/tasks";
 import { writeJsonAtomic } from "../src/fsutil";
 import { join } from "node:path";
 import { capacityFixture, record } from "./read-model-helpers";
 
-import { rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
+import { buildRustProbe, rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
 import type { ApiTask } from "../src/api/read-model/types";
 
+beforeAll(buildRustProbe, 600_000);
 afterAll(closeRustProbe);
 
 test("Rust capacity matches TS for priority, failure precedence, shared caps, checks, and eligibility", async () => {

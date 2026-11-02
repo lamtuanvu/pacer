@@ -1,5 +1,4 @@
 import { expect } from "bun:test";
-import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { taskDatabase } from "../src/tasks/store";
 import { join, resolve, relative } from "node:path";
@@ -14,6 +13,17 @@ import type { Status } from "../src/engine/status";
 import pkg from "../package.json";
 
 const root = resolve(import.meta.dir, "..");
+const target = globalThis.process.env.CARGO_TARGET_DIR ?? join(root, ".work", "target-read-model");
+let build: Promise<void> | undefined;
+export function buildRustProbe(): Promise<void> {
+  return build ??= (async () => {
+    const child = Bun.spawn(["cargo", "build", "-q", "--locked", "-p", "pacer-read-model", "--example", "read_model_probe"], {
+      cwd: root, env: { ...globalThis.process.env, CARGO_TARGET_DIR: target }, stdout: "inherit", stderr: "inherit",
+    });
+    const code = await child.exited;
+    if (code !== 0) throw new Error(`Rust read-model probe build failed with exit code ${code}`);
+  })();
+}
 let process: ReturnType<typeof Bun.spawn<"pipe", "pipe", "inherit">> | undefined;
 let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 let pending = "";
@@ -52,8 +62,6 @@ function capture(ctx: Ctx, input: Record<string, unknown>, expected: unknown) {
 }
 export async function rustRequest(ctx: Ctx, request: Record<string, unknown>, expected?: unknown): Promise<unknown> {
   if (!process) {
-    const target = globalThis.process.env.CARGO_TARGET_DIR ?? join(root, ".work", "target-read-model");
-    execFileSync("cargo", ["build", "-q", "--locked", "-p", "pacer-read-model", "--example", "read_model_probe"], { cwd: root, env: { ...globalThis.process.env, CARGO_TARGET_DIR: target }, stdio: "inherit" });
     process = Bun.spawn([join(resolve(root, target), "debug", "examples", "read_model_probe")], { stdin: "pipe", stdout: "pipe", stderr: "inherit" });
     reader = process.stdout.getReader();
   }

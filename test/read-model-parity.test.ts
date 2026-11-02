@@ -1,4 +1,4 @@
-import { afterAll, expect, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { liveSnapshot as tsSnapshot, liveV2Snapshot as tsV2Snapshot, eventsSince } from "../src/api/events";
@@ -16,10 +16,11 @@ import { toBudget } from "../src/link/budget";
 import { OUTBOX_KEEP, OUTBOX_MAX_BYTES } from "../src/link/store";
 import { capacityFixture, record } from "./read-model-helpers";
 import { snapshotTasks } from "../src/api/read-model/tasks";
-import { rustSnapshot, rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
+import { buildRustProbe, rustSnapshot, rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
 import type { Ctx } from "../src/types";
 import { toV2Event, v3OnlyEvent, V3_CURSOR_BASE } from "../src/api/v2-compat";
 
+beforeAll(buildRustProbe, 600_000);
 afterAll(closeRustProbe);
 
 test("snapshot golden covers populated state, errors, boundaries, and legacy transport", () => {
