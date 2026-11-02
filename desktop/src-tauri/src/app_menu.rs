@@ -242,9 +242,9 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         enabled: Mutex::new(HashSet::new()),
         page: Mutex::new(PageBridge::default()),
     });
-    if let Some(window) = app.get_webview_window("main") {
-        window.set_menu(menu)?;
-    }
+    // macOS menus are app-wide; WebviewWindow::set_menu is a no-op there. The bridge
+    // only routes commands to the main window, so the tray popover never receives them.
+    app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref();
         match id {

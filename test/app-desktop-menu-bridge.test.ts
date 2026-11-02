@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createKeyRegistry } from "../app/src/keys/registry";
 import { createCommandRegistry } from "../app/src/keys/commands";
 import { attachDesktopMenuBridge, MENU_COMMANDS, type MenuHost } from "../app/src/shell/desktop-menu-bridge";
-import { closeLayoutView } from "../app/src/shell/Layout";
+import { closeLayoutView, closeOpenDialog } from "../app/src/shell/Layout";
 import { registerViewClose } from "../app/src/shell/shell-commands";
 
 function setup() {
@@ -79,11 +79,13 @@ test("Rust menu ids match the page menu allowlist", () => {
   expect([...new Set(ids)].sort()).toEqual([...MENU_COMMANDS].sort());
 });
 
-test("native menus install only on macOS and only on main", () => {
+test("native menus install only on macOS, app-wide, and route commands only to main", () => {
   const source = readFileSync("desktop/src-tauri/src/app_menu.rs", "utf8");
   expect(source).toContain('#[cfg(target_os = "macos")]\npub fn install');
-  expect(source).toContain('get_webview_window("main")');
-  expect(source).not.toContain("app.set_menu(");
+  // WebviewWindow::set_menu is a no-op on macOS; the menu must be set on the app.
+  expect(source).toContain("app.set_menu(menu)?;");
+  expect(source).not.toMatch(/window\.set_menu\(/);
+  expect(source).toContain('tauri::EventTarget::webview_window("main")');
   expect(readFileSync("desktop/src-tauri/src/main.rs", "utf8")).toContain(".enable_macos_default_menu(false)");
   expect(source).toContain('#[cfg(not(target_os = "macos"))]\npub fn install<R: tauri::Runtime>');
   const nonMac = source.split('#[cfg(not(target_os = "macos"))]')[1]!.split('#[cfg(target_os = "macos")]')[0]!;
@@ -153,4 +155,12 @@ test("Layout Close reports no closable view for absent, closed or unavailable pa
   off(); await flush();
   const items = s.calls.at(-1)!.args!.items as { id: string; enabled: boolean }[];
   expect(items.find(item => item.id === "view.close")?.enabled).toBe(false); bridgeOff();
+});
+
+test("Layout Close cancels the topmost open dialog before panels or hiding", () => {
+  const events: string[] = [];
+  const dialog = (name: string) => ({ dispatchEvent: (event: Event) => { events.push(`${name}:${event.type}:${event.cancelable}`); return true; } });
+  expect(closeOpenDialog({ querySelectorAll: selector => { expect(selector).toBe("dialog[open]"); return [dialog("palette"), dialog("help")]; } })).toBe(true);
+  expect(events).toEqual(["help:cancel:true"]);
+  expect(closeOpenDialog({ querySelectorAll: () => [] })).toBe(false);
 });

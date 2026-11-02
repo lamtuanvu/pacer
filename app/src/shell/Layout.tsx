@@ -49,6 +49,13 @@ interface LayoutCloseState {
 interface LayoutCloseDocument {
   querySelector(selector: string): { parentElement: { querySelector(selector: string): { disabled: boolean; click(): void } | null } | null } | null;
 }
+/** An open dialog closes before any panel, through the same cancel path as Escape. The last open dialog is the topmost. */
+export function closeOpenDialog(document: { querySelectorAll(selector: string): ArrayLike<{ dispatchEvent(event: Event): boolean }> }): boolean {
+  const open = document.querySelectorAll("dialog[open]"), top = open[open.length - 1];
+  if (!top) return false;
+  top.dispatchEvent(new Event("cancel", { cancelable: true }));
+  return true;
+}
 /** The same close cascade used by the desktop command, with a small document seam for tests. */
 export function closeLayoutView(state: LayoutCloseState, document: LayoutCloseDocument): boolean {
   const { dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen } = state;
@@ -146,7 +153,7 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
   useLayoutEffect(() => {
     if (!isDesktop()) return;
     return registerViewClose(commands, { apple: isMacPlatform(), hide: () => { void windowControls().close(); }, close: () => {
-      return closeLayoutView({ dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen }, document);
+      return closeOpenDialog(document) || closeLayoutView({ dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen }, document);
     } });
   }, [dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, route.name]);
   // Dispatcher commands exist only where the service offers the operation (UI-13).
