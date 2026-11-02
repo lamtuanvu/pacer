@@ -9,31 +9,49 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Button, IconButton } from "../ds/Button";
-import { SessionClient, type SessionState } from "./client";
+import { type SessionState } from "./client";
+import { sessionRuntime, type SessionRuntime } from "./runtime";
 import { filesFromPaste } from "../model/attachments";
 import { terminalDocument } from "./document";
 import { classifyTerminalLink, findWrappedFileLinks, shouldActivateTerminalLink, type TerminalLink } from "./links";
 import { FIND_EVENT } from "../shell/shell-commands";
 export interface TerminalActions { find: () => void; clear: () => void; reader: () => void; release: () => void }
-export interface TerminalViewProps { preview?:boolean; externalControls?:boolean; autoControl?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; id:string; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null }
+export interface TerminalViewProps { preview?:boolean; externalControls?:boolean; autoControl?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; id:string; attempt?:number|null; attemptStartedAt?:number; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; driving?:boolean; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,preview=false,externalControls=false,autoControl=true}:TerminalViewProps){
+export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,driving=false,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,preview=false,externalControls=false,autoControl=true}:TerminalViewProps){
  const dialogs=useDialogs();
- const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionClient>();
+ const [acquisition,setAcquisition]=useState(0);
+ const [acquired,setRuntime]=useState<SessionRuntime|null>(null);
+ const runtime=acquired?.target===`${shell?'terminal':'task'}:${id}`?acquired:null;
+ useEffect(()=>{try{setRuntime(sessionRuntime(id,url,shell)??null);}catch{setRuntime(null);setError('Terminal limit reached. Hide or hand back a session before opening another.');setState(s=>({...s,status:'error'}));}},[id,url,shell,acquisition]);
+ useEffect(()=>{runtime?.update({control,live,attempt,attemptStartedAt,cols,rows,label,autoControl});},[runtime,control,live,attempt,attemptStartedAt,cols,rows,label,autoControl]);
+ const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionRuntime>();
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
- const [reader,setReader]=useState(false),[error,setError]=useState(''),[generation,setGeneration]=useState(0),[exitAt,setExitAt]=useState('');
+ const [reader,setReader]=useState(false),[error,setError]=useState(''),[exitAt,setExitAt]=useState('');
  const terminal=useRef<Terminal>(),searchAddon=useRef<SearchAddon>(),taken=useRef(false);
+ const viewRef=useRef({control,live});viewRef.current={control,live};
+ const resizeRef=useRef(resize);resizeRef.current=resize;
  const openFileRef=useRef(onOpenFile);openFileRef.current=onOpenFile;
  const [findOpen,setFindOpen]=useState(false),[caseSensitive,setCaseSensitive]=useState(false),[matches,setMatches]=useState({count:0,index:0});
  const [search,setSearch]=useState(''),[searchFound,setSearchFound]=useState<boolean|null>(null);
  useEffect(()=>{
+  if(!runtime)return;
   if(!mount.current||!pane.current)return;
   setError('');setExitAt('');
   const nonce=document.querySelector<HTMLMetaElement>('meta[name="pacer-style-nonce"]')?.content??'';
   // xterm multiplies the measured 14px glyph cell at the 12px code size.
-  const term=new Terminal({documentOverride:terminalDocument(document,nonce),cols,rows,disableStdin:true,screenReaderMode:reader,fontFamily:getComputedStyle(mount.current).getPropertyValue('--font-mono').trim(),fontSize:parseFloat(getComputedStyle(mount.current).getPropertyValue('--type-code-size')),lineHeight:19/14,scrollback:10000,convertEol:false});
-  terminal.current=term;const fit=new FitAddon();term.loadAddon(fit);
-  if(shell){const addon=new SearchAddon();term.loadAddon(addon);searchAddon.current=addon;addon.onDidChangeResults(result=>setMatches({count:result.resultCount,index:result.resultIndex+1}));}
+  const owned=runtime.ownTerminal(()=>{
+   const term=new Terminal({documentOverride:terminalDocument(document,nonce),cols,rows,disableStdin:true,screenReaderMode:reader,fontFamily:getComputedStyle(mount.current!).getPropertyValue('--font-mono').trim(),fontSize:parseFloat(getComputedStyle(mount.current!).getPropertyValue('--type-code-size')),lineHeight:19/14,scrollback:10000,convertEol:false});
+   const fit=new FitAddon();term.loadAddon(fit);
+   const host=document.createElement('div');host.className='pc-terminal-mount';host.style.width='100%';host.style.height='100%';
+   mount.current!.append(host);term.open(host);
+   const search=new SearchAddon();if(shell)term.loadAddon(search);
+   return {value:{term,fit,host,search},renderer:{reset:(cols:number,rows:number)=>{term.reset();term.resize(cols,rows);},write:(bytes:Uint8Array)=>term.write(bytes),state:(s:SessionState)=>{term.options.disableStdin=!s.you;if(term.cols!==s.cols||term.rows!==s.rows)term.resize(s.cols,s.rows);}},dispose:()=>{term.dispose();host.remove();}};
+  });
+  const {term,fit,host}=owned;
+  if(pane.current.clientWidth&&pane.current.clientHeight)mount.current.append(host);
+  terminal.current=term;searchAddon.current=shell?owned.search:undefined;
+  const results=shell?owned.search.onDidChangeResults(result=>setMatches({count:result.resultCount,index:result.resultIndex+1})):undefined;
   const activate=(event:MouseEvent,target:TerminalLink|null)=>{
    if(!target||!shouldActivateTerminalLink(!!client.current?.state.you,event))return;
    if(target.kind==='file'&&!openFileRef.current)return;
@@ -43,7 +61,7 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
   };
   term.options.linkHandler={allowNonHttpProtocols:!!onOpenFile,activate:(event,uri)=>activate(event,classifyTerminalLink(uri,true)),
    hover:(_event,uri)=>{if(term.element)term.element.title=uri;},leave:()=>{if(term.element)term.element.removeAttribute('title');}};
-  term.loadAddon(new WebLinksAddon((event,uri)=>activate(event,classifyTerminalLink(uri,false))));
+  const webLinks=new WebLinksAddon((event,uri)=>activate(event,classifyTerminalLink(uri,false)));term.loadAddon(webLinks);
   const fileLinks=onOpenFile?term.registerLinkProvider({provideLinks(bufferLineNumber,callback){
    const buffer=term.buffer.active,row=bufferLineNumber-1;
    let first=row,last=row;
@@ -65,7 +83,7 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
     leave:()=>{if(term.element)term.element.removeAttribute('title');},
    })));
   }}):undefined;
-  term.open(mount.current);
+
   const applyTheme=()=>{
    const style=getComputedStyle(mount.current!);
    const token=(name:string)=>style.getPropertyValue(`--terminal-${name}`).trim();
@@ -75,32 +93,34 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
     brightBlack:token('bright-black'),brightRed:token('bright-red'),brightGreen:token('bright-green'),brightYellow:token('bright-yellow'),brightBlue:token('bright-blue'),brightMagenta:token('bright-magenta'),brightCyan:token('bright-cyan'),brightWhite:token('bright-white')};
   };
   applyTheme();const observer=new MutationObserver(applyTheme);observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme','class']});const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',applyTheme);
-  const endpoint=new URL(url??`/v2/tasks/${encodeURIComponent(id)}/session`,location.href);endpoint.protocol=['https:','wss:'].includes(endpoint.protocol)?'wss:':'ws:';
   let lastYou=false,lastCols=cols,lastRows=rows;
   let resizeTimer:ReturnType<typeof setTimeout>|undefined;
   const scale=()=>{
-   if(!mount.current||!pane.current)return;
+   if(!mount.current||!pane.current||host.parentElement!==mount.current)return;
    // A hidden pane (another tab is open) measures 0×0; fitting it would shrink the agent's PTY.
    if(!pane.current.clientWidth||!pane.current.clientHeight)return;
-   if(client.current?.state.you){mount.current.style.transform='';mount.current.style.width='100%';mount.current.style.height='100%';if(resize){fit.fit();client.current.resize(term.cols,term.rows);}return;}
+   if(client.current?.state.you){mount.current.style.transform='';mount.current.style.width='100%';mount.current.style.height='100%';if(resizeRef.current&&viewRef.current.control&&viewRef.current.live){fit.fit();client.current.resize(term.cols,term.rows);}return;}
    // Followers preserve authoritative PTY geometry and scroll at the normal font size.
    mount.current.style.width=`${term.cols*term.options.fontSize!*0.61}px`;mount.current.style.height=`${term.rows*term.options.fontSize!*1.2}px`;
    const screen=mount.current.querySelector<HTMLElement>('.xterm-screen');
    if(screen){mount.current.style.width=`${screen.offsetWidth}px`;mount.current.style.height=`${screen.offsetHeight}px`;mount.current.style.transform='';}
   };
-  const connection=new SessionClient({url:endpoint.href,label,cols,rows,control:control&&live,autoControl:autoControl&&!takeRequested,onSnapshot:s=>{term.reset();term.resize(s.cols,s.rows);term.write(s.scrollbackAnsi);term.write(s.screenAnsi,scale);},onOutput:bytes=>term.write(bytes),onState:s=>{setState(s);term.options.disableStdin=!s.you;if(term.cols!==s.cols||term.rows!==s.rows)term.resize(s.cols,s.rows);if(s.status==='exited')setExitAt(clock(Date.now()/1000,Date.now()/1000));if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}});
+  const connection=runtime;
+  const renderer={reset:(cols:number,rows:number)=>{term.reset();term.resize(cols,rows);},write:(bytes:Uint8Array)=>term.write(bytes),state:(s:SessionState)=>{setState(s);if(s.status==='exited')setExitAt(clock(Date.now()/1000,Date.now()/1000));if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}};
+  const detach=runtime.attach(renderer,{control,live,autoControl});
+  const visibility=()=>{const visible=!!pane.current?.clientWidth&&!!pane.current?.clientHeight;runtime.setVisible(renderer,visible);if(visible&&mount.current&&host.parentElement!==mount.current)mount.current.append(host);};
   client.current=connection;
-  term.attachCustomKeyEventHandler(event=>{if(connection.state.you&&event.ctrlKey&&event.code==='BracketRight'){if(event.type==='keydown')connection.release();event.preventDefault();event.stopPropagation();return false;}
+  const keys=(event:KeyboardEvent)=>{if(connection.state.you&&event.ctrlKey&&event.code==='BracketRight'){if(event.type==='keydown')connection.release();event.preventDefault();event.stopPropagation();return false;}
    // A watcher's keys never reach the agent; let Tab move focus out of the terminal.
    if(!connection.state.you&&event.key==='Tab')return false;
    // Nothing a watcher types reaches the agent, so Ctrl combinations go to the app's shortcuts instead of being consumed here.
    if(!connection.state.you&&event.ctrlKey)return false;
-   return true;});
-  const input=term.onData(data=>connection.input(data));
-  const resizer=new ResizeObserver(()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(scale,150);});resizer.observe(pane.current);
-  connection.connect();scale();
-  return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();connection.dispose();fileLinks?.dispose();term.dispose();client.current=undefined;terminal.current=undefined;searchAddon.current=undefined;};
- },[id,url,label,control,resize,live,shell,preview,conversation,generation]);
+   return true;};
+  const input=term.onData(data=>{if(host.parentElement===mount.current&&viewRef.current.control&&viewRef.current.live)connection.input(data);});
+  const resizer=new ResizeObserver(()=>{visibility();clearTimeout(resizeTimer);resizeTimer=setTimeout(scale,150);});resizer.observe(pane.current);
+  term.attachCustomKeyEventHandler(keys);visibility();scale();
+  return ()=>{clearTimeout(resizeTimer);resizer.disconnect();observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();detach();results?.dispose();webLinks.dispose();fileLinks?.dispose();if(host.parentElement===mount.current)host.remove();client.current=undefined;terminal.current=undefined;searchAddon.current=undefined;};
+ },[runtime,shell,preview,conversation]);
  useEffect(()=>{if(terminal.current)terminal.current.options.screenReaderMode=reader;},[reader]);
  useLayoutEffect(()=>{onActions?.({find:()=>setFindOpen(true),clear:()=>terminal.current?.clear(),reader:()=>setReader(value=>!value),release:()=>client.current?.release()});return()=>onActions?.(null);},[id]);
  useEffect(()=>{onInputLocked?.(state.status==='live'&&!state.you);},[state.status,state.you,onInputLocked]);
@@ -116,7 +136,7 @@ export function TerminalView({id,url,label='pacer app',cols=120,rows=40,control=
  const hint=state.you?`Keystrokes go to your ${shell?'shell':'agent'}. Ctrl/⌘-click links; Ctrl-] to release.`:shell?'Nothing you type reaches the shell until you take control.':conversation?'Nothing you type reaches the agent. Closing this window leaves your conversation running.':'Nothing you type reaches the agent.';
  const readerToggle=<label><Checkbox checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label>;
  const toggleControl=()=>{if(state.you)client.current?.release();else{void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).catch(e=>setError(String(e)));}};
- const reconnect=()=>setGeneration(n=>n+1);
+ const reconnect=()=>{if(runtime&&!runtime.disposed)runtime.reconnect();else setAcquisition(n=>n+1);};
  const find=(backward=false)=>{if(!search.trim()){searchAddon.current?.clearDecorations();setSearchFound(null);return;}setSearchFound(backward?searchAddon.current?.findPrevious(search,{caseSensitive,decorations:{matchBackground:getComputedStyle(mount.current!).getPropertyValue('--warn-bg').trim(),activeMatchBackground:getComputedStyle(mount.current!).getPropertyValue('--info-bg').trim(),matchOverviewRuler:getComputedStyle(mount.current!).getPropertyValue('--ink-muted').trim(),activeMatchColorOverviewRuler:getComputedStyle(mount.current!).getPropertyValue('--ink').trim()}})??false:searchAddon.current?.findNext(search,{caseSensitive,decorations:{matchBackground:getComputedStyle(mount.current!).getPropertyValue('--warn-bg').trim(),activeMatchBackground:getComputedStyle(mount.current!).getPropertyValue('--info-bg').trim(),matchOverviewRuler:getComputedStyle(mount.current!).getPropertyValue('--ink-muted').trim(),activeMatchColorOverviewRuler:getComputedStyle(mount.current!).getPropertyValue('--ink').trim()}})??false);};
  return <section className={`pc-terminal-view${footer?' pc-terminal-view--fill':''}`} data-session-control={state.you?'true':'false'} onKeyDownCapture={e=>{if(shell&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();e.stopPropagation();setFindOpen(true);}if(shell&&e.key==='Escape'&&findOpen){e.preventDefault();e.stopPropagation();setFindOpen(false);terminal.current?.focus();}}} onKeyDown={e=>{if(state.you)e.stopPropagation();}}
   onPasteCapture={event=>{if(!onFiles)return;const files=filesFromPaste(event);if(files.length){event.preventDefault();event.stopPropagation();const text=event.clipboardData?.getData('text/plain');if(text&&state.you)terminal.current?.paste(text);onFiles(files);}}}
