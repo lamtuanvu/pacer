@@ -1,4 +1,4 @@
-use serde_json::{Map, Value};
+use serde_json::{Map, Number, Value};
 use std::{path::Path, process::Command};
 
 fn utf16_len(s: &str) -> usize {
@@ -6,6 +6,35 @@ fn utf16_len(s: &str) -> usize {
 }
 fn codepoint_len(s: &str) -> usize {
     s.chars().count()
+}
+
+/// JSON.parse represents every number as binary64, including integer lexemes.
+/// Canonicalize integral values where serde_json can retain an integer exactly.
+fn js_numbers(value: &Value) -> Value {
+    match value {
+        Value::Number(original) => {
+            let Some(n) = original.as_f64().filter(|n| n.is_finite()) else {
+                return value.clone();
+            };
+            if n == 0.0 && n.is_sign_negative() {
+                Number::from_f64(n).map_or_else(|| value.clone(), Value::Number)
+            } else if n.fract() == 0.0 && (0.0..18_446_744_073_709_551_616.0).contains(&n) {
+                Value::Number(Number::from(n as u64))
+            } else if n.fract() == 0.0 && (-9_223_372_036_854_775_808.0..0.0).contains(&n) {
+                Value::Number(Number::from(n as i64))
+            } else {
+                Number::from_f64(n).map_or_else(|| value.clone(), Value::Number)
+            }
+        }
+        Value::Array(items) => Value::Array(items.iter().map(js_numbers).collect()),
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(key, item)| (key.clone(), js_numbers(item)))
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
 }
 
 /// ECMAScript WhiteSpace and LineTerminator, used by String.prototype.trim.
@@ -115,6 +144,8 @@ fn copy_if_present(from: &Value, to: &mut Map<String, Value>, source: &str, targ
 
 /// Parse the public task delegate fields. Unknown caller fields are discarded, as in Zod's object schema.
 pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, AdmissionError> {
+    let normalized = js_numbers(raw);
+    let raw = &normalized;
     if !raw.is_object() {
         return Err(AdmissionError("delegate input must be an object".into()));
     }

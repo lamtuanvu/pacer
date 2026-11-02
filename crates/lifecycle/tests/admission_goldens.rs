@@ -186,6 +186,17 @@ fn trim_and_numeric_goldens() {
                     if let Some(title) = row.get("title") {
                         assert_eq!(&parsed["input"]["title"], title, "{id}");
                     }
+                    if let Some(path) = row.get("outputPath").and_then(Value::as_array) {
+                        let mut selected = &parsed;
+                        for part in path {
+                            selected = if let Some(key) = part.as_str() {
+                                &selected[key]
+                            } else {
+                                &selected[part.as_u64().unwrap() as usize]
+                            };
+                        }
+                        assert_eq!(selected, &row["expectedValue"], "{id} output");
+                    }
                 }
             }
             if let Some(input) = row.get("input") {

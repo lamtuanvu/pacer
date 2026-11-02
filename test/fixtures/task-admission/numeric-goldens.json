@@ -965,5 +965,592 @@
       }
     },
     "accept": false
+  },
+  {
+    "id": "acceptance_timeout_min-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "acceptance_timeout_min": 1.0
+    },
+    "accept": true,
+    "outputPath": [
+      "brief",
+      "acceptanceTimeoutMin"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "acceptance_timeout_min-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "acceptance_timeout_min": 1e2
+    },
+    "accept": true,
+    "outputPath": [
+      "brief",
+      "acceptanceTimeoutMin"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "timeout_min-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "timeout_min": 1.0
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "timeoutMin"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "timeout_min-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "timeout_min": 1e2
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "timeoutMin"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "context-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": 1.0
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "requirements",
+      "context"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "context-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": 1e2
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "requirements",
+      "context"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "maxDepth-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDepth": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxDepth"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "maxDepth-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDepth": 1e1
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxDepth"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "maxDescendants-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDescendants": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxDescendants"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "maxDescendants-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDescendants": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxDescendants"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "maxConcurrent-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxConcurrent": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxConcurrent"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "maxConcurrent-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxConcurrent": 1e1
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxConcurrent"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "maxAttempts-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxAttempts": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxAttempts"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "maxAttempts-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxAttempts": 1e1
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxAttempts"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "priority-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "priority": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "priority"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "priority-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "priority": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "priority"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "expiresAt-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "expiresAt"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "expiresAt-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "expiresAt"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "estimatePct-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "estimatePct": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "estimatePct"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "estimatePct-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "estimatePct": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "estimatePct"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "per_minute-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": 1.0
+            }
+          }
+        ]
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "rules",
+      0,
+      "limits",
+      "per_minute"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "per_minute-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": 1e2
+            }
+          }
+        ]
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "rules",
+      0,
+      "limits",
+      "per_minute"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "max_bytes-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "max_bytes": 1.0
+            }
+          }
+        ]
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "rules",
+      0,
+      "limits",
+      "max_bytes"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "max_bytes-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "max_bytes": 1e2
+            }
+          }
+        ]
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "rules",
+      0,
+      "limits",
+      "max_bytes"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "max_turns-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "max_turns": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "max_turns"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "max_turns-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "max_turns": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "max_turns"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "interval_s-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": 10.0
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "interval_s"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "interval_s-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": 1e2
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "interval_s"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "max_nudges-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": 1.0
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "max_nudges"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "max_nudges-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": 1e2
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "max_nudges"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "escalate_after_s-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": 10.0
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "escalate_after_s"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "escalate_after_s-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": 1e2
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "escalate_after_s"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "expiresAt-binary64-rounding",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": 9007199254740993
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "expiresAt"
+    ],
+    "expectedValue": 9007199254740992
+  },
+  {
+    "id": "priority-negative-zero",
+    "raw": {"goal": "work", "dispatch": {"priority": -0.0}},
+    "accept": true,
+    "outputPath": ["input", "dispatch", "priority"],
+    "expectedValue": -0.0
   }
 ]

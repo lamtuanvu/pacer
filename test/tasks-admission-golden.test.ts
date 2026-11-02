@@ -71,7 +71,7 @@ test("brief parser rejects an empty default repository", () => {
 });
 
 for (const file of ["trim-goldens.json", "numeric-goldens.json", "string-length-goldens.json"]) {
-  const rows = JSON.parse(readFileSync(new URL(`./fixtures/task-admission/${file}`, import.meta.url), "utf8")) as Array<{id:string;raw?:Record<string,unknown>;input?:unknown;accept:boolean;title?:string}>;
+  const rows = JSON.parse(readFileSync(new URL(`./fixtures/task-admission/${file}`, import.meta.url), "utf8")) as Array<{id:string;raw?:Record<string,unknown>;input?:unknown;accept:boolean;title?:string;outputPath?:(string|number)[];expectedValue?:number}>;
   for (const row of rows) test(`${file}: ${row.id}`, () => {
     const ctx = fakeCtx();
     if (row.raw) {
@@ -79,6 +79,11 @@ for (const file of ["trim-goldens.json", "numeric-goldens.json", "string-length-
       else {
         const parsed = parseDelegateBrief(row.raw, ctx.home);
         if (row.title !== undefined) expect(parsed.title).toBe(row.title);
+        if (row.outputPath) {
+          let selected: unknown = parsed;
+          for (const part of row.outputPath[0] === "input" ? row.outputPath.slice(1) : row.outputPath) selected = (selected as Record<string | number, unknown>)[part];
+          expect(selected).toBe(row.expectedValue);
+        }
       }
     }
     if (row.input) expect(validateInput(strategy, row.input as Parameters<typeof validateInput>[1]).length === 0).toBe(row.accept);
