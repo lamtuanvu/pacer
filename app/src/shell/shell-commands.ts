@@ -30,3 +30,8 @@ export function registerShellCommands(commands: CommandRegistry, keys: KeyRegist
   ];
   return () => offs.forEach(off => off());
 }
+
+/** Close is always available on desktop: a view gets first refusal, then the native window hides. */
+export function registerViewClose(commands: CommandRegistry, deps: { apple: boolean; close: () => boolean; hide: () => void }): () => void {
+  return commands.register({ id: "view.close", title: "Close", group: "View", keys: modShortcut("w", deps.apple), allowInControl: deps.apple, run: () => { if (!deps.close()) deps.hide(); } });
+}
