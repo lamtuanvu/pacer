@@ -1,6 +1,8 @@
 //! JavaScript JSON string preservation at native state and wire boundaries.
+mod edit;
 pub mod js_semantics;
 mod parse;
+pub use edit::EditError;
 use serde::{Serialize, Serializer};
 use serde_json::{Value, value::RawValue};
 use std::collections::BTreeMap;
