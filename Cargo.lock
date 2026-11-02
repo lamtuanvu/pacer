@@ -1462,6 +1462,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-read-model"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-store",
+ "regex",
+ "rusqlite",
+ "ryu-js",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "pacer-server"
 version = "0.0.0"
 dependencies = [
