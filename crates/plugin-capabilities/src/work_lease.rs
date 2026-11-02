@@ -55,8 +55,12 @@ fn mutate<T>(
     let pinned = private(&path, false)?;
     for suffix in ["-journal", "-wal", "-shm"] {
         let p = PathBuf::from(format!("{}{suffix}", path.display()));
-        if p.exists() {
-            private(&p, false)?;
+        match fs::symlink_metadata(&p) {
+            Ok(_) => {
+                private(&p, false)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(denied()),
         }
     }
     // SQLite NOFOLLOW also rejects symlinked ancestors such as macOS /var.
@@ -124,6 +128,9 @@ impl WorkLease {
         })
     }
     pub fn begin(home: &Path, id: &str, label: &str) -> Result<Self, BrokerError> {
+        if id.is_empty() {
+            return Err(BrokerError::Invalid("desktop work blocker"));
+        }
         static OWNER: OnceLock<String> = OnceLock::new();
         let owner = OWNER
             .get_or_init(|| uuid::Uuid::new_v4().to_string())
@@ -206,8 +213,7 @@ impl WorkLease {
                 && r["dispatchId"] == binding["dispatchId"]
                 && matches!(r["state"].as_str(), Some("stopped" | "released"))
                 && r["processAction"] == "closed_agent_terminal"
-                && r.get("close")
-                    .is_none_or(|c| c["handle"] == binding["terminal"] && c["ptyKilled"] == true);
+                && closure_proof(r.get("close"), &binding["terminal"]);
             if valid {
                 leases.retain(|l| l["id"] != self.id);
             }
@@ -216,13 +222,27 @@ impl WorkLease {
     }
 }
 
+fn closure_proof(close: Option<&Value>, terminal: &Value) -> bool {
+    let Some(close) = close else { return true };
+    let falsy = match close {
+        Value::Null => true,
+        Value::Bool(value) => !value,
+        Value::Number(value) => value.as_f64() == Some(0.0),
+        Value::String(value) => value.is_empty(),
+        Value::Array(_) | Value::Object(_) => false,
+    };
+    falsy
+        || (close.get("handle").is_some_and(|handle| handle == terminal)
+            && close["ptyKilled"] == true)
+}
+
 fn valid_uuid(v: &Value) -> bool {
     v.as_str().is_some_and(|s| {
         s.len() == 36
             && [8, 13, 18, 23].iter().all(|i| s.as_bytes()[*i] == b'-')
             && uuid::Uuid::parse_str(s).is_ok()
             && (s == "00000000-0000-0000-0000-000000000000"
-                || s.eq_ignore_ascii_case("ffffffff-ffff-ffff-ffff-ffffffffffff")
+                || s == "ffffffff-ffff-ffff-ffff-ffffffffffff"
                 || (matches!(s.as_bytes()[14], b'1'..=b'8')
                     && matches!(
                         s.as_bytes()[19].to_ascii_lowercase(),
