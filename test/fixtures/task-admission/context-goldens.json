@@ -1,0 +1,10 @@
+[
+  {"id":"negative-zero","aJson":"{\"a\":-0.0}","bJson":"{\"a\":0}","same":true},
+  {"id":"decimal-integer","aJson":"{\"a\":1.0}","bJson":"{\"a\":1}","same":true},
+  {"id":"integer-keys","aJson":"{\"10\":1,\"2\":2,\"a\":3}","bJson":"{\"2\":2,\"10\":1,\"a\":3}","same":true},
+  {"id":"nested-integer-keys","aJson":"[{\"10\":-0.0,\"2\":1e20}]","bJson":"[{\"2\":100000000000000000000,\"10\":0}]","same":true},
+  {"id":"string-order","aJson":"{\"a\":1,\"b\":2}","bJson":"{\"b\":2,\"a\":1}","same":false},
+  {"id":"not-an-index","aJson":"{\"01\":1,\"b\":2}","bJson":"{\"b\":2,\"01\":1}","same":false},
+  {"id":"index-upper-bound","aJson":"{\"4294967294\":1,\"a\":2}","bJson":"{\"a\":2,\"4294967294\":1}","same":true},
+  {"id":"index-out-of-range","aJson":"{\"4294967295\":1,\"a\":2}","bJson":"{\"a\":2,\"4294967295\":1}","same":false}
+]

@@ -41,13 +41,30 @@ fn lock_path(ctx: &Ctx, name: &str) -> Result<PathBuf, LockError> {
         return Err(LockError::InvalidName);
     }
     let dir = ctx.pacer_home.join("orca");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&dir)?;
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    }
+    #[cfg(not(unix))]
     fs::create_dir_all(&dir)?;
     Ok(dir.join(format!("{name}.lock")))
 }
 
 fn try_acquire(file: &PathBuf, stale: Duration) -> Result<Option<Guard>, LockError> {
     loop {
-        match OpenOptions::new().write(true).create_new(true).open(file) {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(file) {
             Ok(_) => return Ok(Some(Guard(file.clone()))),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 match fs::metadata(file) {

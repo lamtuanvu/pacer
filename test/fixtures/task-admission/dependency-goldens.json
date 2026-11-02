@@ -1,0 +1,5 @@
+[
+  {"id":"missing-and-unreviewed","dependencies":["missing","open","rejected"],"tasks":{"open":{},"rejected":{"review":{"accepted":false}}},"waivers":[],"expected":["missing","open","rejected"]},
+  {"id":"accepted-and-waived","dependencies":["accepted","waived","pending"],"tasks":{"accepted":{"review":{"accepted":true}},"waived":{},"pending":{}},"waivers":["waived"],"expected":["pending"]},
+  {"id":"order-and-duplicates","dependencies":["b","a","b"],"tasks":{},"waivers":[],"expected":["b","a","b"]}
+]
