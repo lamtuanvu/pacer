@@ -90,3 +90,28 @@ test("passive Claude refresh reports unchanged rather than making old data fresh
   const result = await refreshAccountUsage(ctx, "claude-code");
   expect(result).toMatchObject({ capability: "passive-log", outcome: "unchanged", capturedAt: null });
 });
+
+
+test("independent Codex polling recovers persisted 0h and exhausted quota without dispatch", async () => {
+  const { accountEvidenceScope, mergeEvidence, readEvidence } = await import("../src/core/evidence");
+  const { emptyEvidence, evidenceFact, readingEvidence } = await import("../src/engine/evidence");
+  const { evaluateEligibility } = await import("../src/engine/eligibility");
+  const ctx = setup(), strategy = loadStrategy(ctx), account = strategy.accounts.codex;
+  const scope = accountEvidenceScope(account);
+  await mergeEvidence(ctx, scope, { ...emptyEvidence(), budget: [evidenceFact(scope, "session-log", ctx.now - 86400, null, "quota_observed",
+    { name: "0h", usedPct: null, resetsAt: null, lengthS: 0, paced: false })] });
+  const poll = async () => {
+    await refreshAccountUsage(ctx, "codex");
+    const reading = await readAccountUsage(ctx, account, [strategy.runners.codex], false, true, strategy.hosts);
+    return mergeEvidence(ctx, scope, readingEvidence(scope, reading, "quota"));
+  };
+  const { invocations } = syntheticCodex(ctx, 100);
+  const exhausted = await poll();
+  expect(evaluateEligibility({ now: ctx.now, scope, usage: "quota", allowPaid: false, evidence: exhausted.evidence, restrictions: [] }).state).toBe("ineligible");
+  expect(readEvidence(ctx, scope).evidence.facts.budget.some(f => f.value.name === "0h")).toBe(false);
+  ctx.now += 60;
+  syntheticCodex(ctx, 15);
+  const recovered = await poll();
+  expect(evaluateEligibility({ now: ctx.now, scope, usage: "quota", allowPaid: false, evidence: recovered.evidence, restrictions: [] }).state).toBe("eligible");
+  expect(readFileSync(invocations, "utf8").trim().split("\n")).toHaveLength(2);
+});
