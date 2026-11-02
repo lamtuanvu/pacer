@@ -208,7 +208,10 @@ impl NativeRead {
                 let Some(name) = name.to_str() else {
                     continue;
                 };
-                if !(name.starts_with("rollout-") && name.ends_with(".jsonl")) {
+                if !(name.starts_with("rollout-")
+                    && name.ends_with(".jsonl")
+                    && !name.contains(['\n', '\r', '\u{2028}', '\u{2029}']))
+                {
                     continue;
                 }
                 let logical = Path::new(dir).join(&relative);

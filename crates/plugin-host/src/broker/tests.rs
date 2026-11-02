@@ -535,6 +535,11 @@ async fn numeric_broker_fields_match_typescript_request_schemas() {
             "bytes",
             ["1.0", "1e2", "1.5", "9007199254740992"],
         ),
+        (
+            "capability.fs.beginWrite",
+            "mode",
+            ["384.0", "3.84e2", "1.5", "9007199254740992"],
+        ),
     ];
     let mut requests = Vec::new();
     for (method, field, values) in cases {

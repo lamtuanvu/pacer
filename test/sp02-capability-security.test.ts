@@ -31,6 +31,15 @@ async function denied(operation: Promise<unknown>) {
   await expect(operation).rejects.toMatchObject({ code: "capability_denied" });
 }
 
+test("listing excludes rollout names containing JavaScript line terminators", async () => {
+  const f = await resources();
+  try {
+    for (const c of ["\n", "\r", "\u2028", "\u2029"]) writeFileSync(join(f.sessions, `rollout-a${c}b.jsonl`), "no");
+    const result = await answerFilesystem(f.authority, provider.manifest.capabilities[0].scopes, "capability.fs.list", { dir: f.sessions, glob: "rollout-*.jsonl" }) as { files: { path: string }[] };
+    expect(result.files.map(file => file.path)).toEqual([f.allowed]);
+  } finally { await f.authority.revoke(); }
+});
+
 test("host-issued read authority permits its log but refuses absent, revoked and expired authority", async () => {
   const f = await resources();
   const call = (authority = f.authority) => answerCapability(f.ctx, provider, "capability.fs.read", { path: f.allowed }, authority);

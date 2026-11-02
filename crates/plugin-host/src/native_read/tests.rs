@@ -302,6 +302,45 @@ fn listing_keeps_newest_after_more_than_one_thousand_matches() {
 }
 
 #[test]
+fn listing_rejects_javascript_line_terminators_in_issued_names() {
+    let root = std::env::temp_dir().join(format!("pacer-list-lines-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("rollout-good.jsonl"), "ok").unwrap();
+    for c in ['\n', '\r', '\u{2028}', '\u{2029}'] {
+        fs::write(root.join(format!("rollout-a{c}b.jsonl")), "no").unwrap();
+    }
+    let resource = ReadResource {
+        path: root.to_str().unwrap().into(),
+        kind: "codex-logs".into(),
+    };
+    let reader = NativeRead::prepare(std::slice::from_ref(&resource)).unwrap();
+    let authority = CallAuthority::new(
+        crate::CallResources {
+            reads: vec![resource],
+            ..Default::default()
+        },
+        ["fs.read".into()],
+        std::time::Instant::now() + std::time::Duration::from_secs(5),
+    );
+    let result = reader
+        .list(
+            &json!({"dir":root,"glob":"rollout-*.jsonl"}),
+            &[format!("{}/**", root.display())],
+            &ScopeRoots::default(),
+            &authority,
+            std::time::Instant::now() + std::time::Duration::from_secs(5),
+        )
+        .unwrap();
+    let files = result["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        files[0]["path"],
+        root.join("rollout-good.jsonl").to_str().unwrap()
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn listing_skips_hidden_directories_and_prunes_nonrecursive_globs() {
     let root = std::env::temp_dir().join(format!("pacer-list-glob-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(root.join(".hidden")).unwrap();
