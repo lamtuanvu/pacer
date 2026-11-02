@@ -159,3 +159,37 @@ fn duplicate_winners_remain_exact_through_subsequent_edits() {
     value.copy("/b/x", "/a").unwrap();
     exact(&value, r#"{"a":"\ud802","b":{"x":"\ud802"}}"#);
 }
+
+#[test]
+fn string_access_preserves_units_and_validates_the_existing_pointer_grammar() {
+    let value = wire(r#"{"a/b~":["\ud800","�","😀"],"plain":"ok","n":null}"#);
+    assert_eq!(value.string_at("/a~1b~0/0").unwrap().units(), &[0xd800]);
+    assert_eq!(value.string_at("/a~1b~0/1").unwrap().units(), &[0xfffd]);
+    assert_eq!(
+        value.string_at("/a~1b~0/2").unwrap().units(),
+        &[0xd83d, 0xde00]
+    );
+    assert_eq!(value.string_at("/plain").unwrap().units(), &[111, 107]);
+    assert!(matches!(
+        value.string_at("/a~1b~0/00"),
+        Err(EditError::InvalidPointer)
+    ));
+    assert!(matches!(
+        value.string_at("/a~2b"),
+        Err(EditError::InvalidPointer)
+    ));
+    assert!(matches!(
+        value.string_at("/a~1b~0/9"),
+        Err(EditError::OutOfBounds)
+    ));
+    assert!(matches!(value.string_at("/n"), Err(EditError::WrongType)));
+    assert!(matches!(
+        value.string_at("/missing"),
+        Err(EditError::NotFound)
+    ));
+    let mut root = wire(r#""old""#);
+    root.set_string("", Utf16String::from_units(vec![0xdc00, 0xfffd]))
+        .unwrap();
+    assert_eq!(root.string_at("").unwrap().units(), &[0xdc00, 0xfffd]);
+    exact(&root, r#""\udc00�""#);
+}

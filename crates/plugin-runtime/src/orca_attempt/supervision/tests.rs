@@ -97,10 +97,10 @@ async fn wait_rejects_unsafe_ids_without_reading_or_deleting_outside_mail() {
 async fn live_answer_rejects_unsafe_worker_before_reattachment() {
     for dispatch in unsafe_ids() {
         let (home, mut attempt) = fixture();
-        attempt.update(|task| {
-            task["interactionMode"] = json!("conversation");
-            task["brief"]["qa"] = json!([{"q":"question","a":"answer"}]);
-            task["live"] = json!({"backend":"orca","worker":dispatch,"terminal":"terminal","executor":"codex#work@host"});
+        attempt.edit(|task| {
+            task.put("/interactionMode", WireReply::new(json!("conversation")))?;
+            task.put("/brief/qa", WireReply::new(json!([{"q":"question","a":"answer"}])))?;
+            task.put("/live", WireReply::new(json!({"backend":"orca","worker":dispatch,"terminal":"terminal","executor":"codex#work@host"})))
         }).unwrap();
         assert!(attempt.live_answer().await.is_err(), "{dispatch:?}");
         assert!(!attempt.reattach);
@@ -242,4 +242,30 @@ fn recent_output_does_not_pull_old_limits_across_prompt_echo_slots() {
     );
     let long = "x".repeat(9000);
     assert_eq!(super::wait_output(&[&long], "").1.len(), 9000);
+}
+
+#[test]
+fn exact_task_snapshots_keep_legacy_missing_and_null_revision_defaults() {
+    for rev in [None, Some(Value::Null)] {
+        let (home, mut attempt) = fixture();
+        let mut task = attempt.task().unwrap();
+        task.as_object_mut().unwrap().remove("rev");
+        if let Some(rev) = rev {
+            task["rev"] = rev;
+        }
+        attempt
+            .store
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE tasks SET record=? WHERE id=?",
+                rusqlite::params![task.to_string(), TASK],
+            )
+            .unwrap();
+        attempt
+            .edit(|edit| edit.put("/baseBranch", WireReply::new(json!("main"))))
+            .unwrap();
+        assert_eq!(attempt.task().unwrap()["rev"], 2);
+        fs::remove_dir_all(home).unwrap();
+    }
 }

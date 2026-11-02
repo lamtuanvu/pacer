@@ -87,6 +87,19 @@ fn relative<'a>(path: &'a str, base: &str) -> Option<&'a str> {
 }
 
 impl WireReply {
+    /// Read exact UTF-16 text using the same pointer grammar as explicit edits.
+    pub fn string_at(&self, path: &str) -> Result<Utf16String, EditError> {
+        let tokens = tokens(path)?;
+        let text = at(&self.preview, &tokens)?
+            .as_str()
+            .ok_or(EditError::WrongType)?;
+        Ok(self
+            .strings
+            .get(&pointer(&tokens))
+            .cloned()
+            .unwrap_or_else(|| Utf16String::from_units(text.encode_utf16().collect())))
+    }
+
     /// Copy a subtree with its exact UTF-16 strings. The empty pointer copies
     /// the whole document; malformed escapes and noncanonical array indices fail.
     pub fn subtree(&self, path: &str) -> Result<Self, EditError> {

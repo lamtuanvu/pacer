@@ -147,11 +147,16 @@ impl OrcaAttempt {
                         .unwrap_or("The executor needs a decision.");
                     let task = self.task()?;
                     if task.get("question").is_none() {
-                        self.store.update_with_strings(
+                        self.store.edit_with_strings(
                             &self.task_id,
                             crate::native_run::rev(&task)?,
                             now(),
-                            |t| t["question"] = json!({"text":"","at":now()}),
+                            |t| {
+                                t.put(
+                                    "/question",
+                                    crate::WireReply::new(json!({"text":"","at":now()})),
+                                )
+                            },
                             &[(
                                 "/question/text".into(),
                                 crate::Utf16String::slice(text, 0, 1000),
@@ -544,19 +549,21 @@ impl OrcaAttempt {
                     Ok(())
                 })
                 .await?;
-            self.update(|t| {
-                if t["live"]["worker"] == dispatch {
-                    t.as_object_mut().map(|o| o.remove("live"));
+            self.edit(|t| {
+                if t.preview()["live"]["worker"] == dispatch {
+                    t.remove("/live")?;
                 }
+                Ok(())
             })?;
         } else {
             if let Some(lease) = &self.lease {
                 lease.finish()?;
             }
-            self.update(|t| {
-                if t["live"]["worker"] == dispatch {
-                    t["live"]["since"] = json!(now());
+            self.edit(|t| {
+                if t.preview()["live"]["worker"] == dispatch {
+                    t.put("/live/since", crate::WireReply::new(json!(now())))?;
                 }
+                Ok(())
             })?;
         }
         let removed = if !keep {
@@ -690,10 +697,11 @@ impl OrcaAttempt {
                     Ok(())
                 })
                 .await?;
-            self.update(|t| {
-                if t["live"]["worker"] == dispatch {
-                    t.as_object_mut().map(|o| o.remove("live"));
+            self.edit(|t| {
+                if t.preview()["live"]["worker"] == dispatch {
+                    t.remove("/live")?;
                 }
+                Ok(())
             })?;
             stopped?;
         }

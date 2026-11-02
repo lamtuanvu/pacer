@@ -1,6 +1,6 @@
 //! Host composition of the TS Orca preparation and launch policy. Never plugin input.
 use super::orca_attempt::{client::OrcaClient, journal::Journal, real};
-use crate::{BrokerError, OrcaAttemptSpec, OrcaPlacement, native_command::denied};
+use crate::{BrokerError, OrcaAttemptSpec, OrcaPlacement, WireReply, native_command::denied};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -63,6 +63,39 @@ pub fn resolve_placement(task: &Value, strategy: &str, busy: bool, dirty: bool) 
         )
     };
     json!({"mode":mode,"why":why})
+}
+// The scalar resolver selects policy; stored text is derived from this same
+// exact decision snapshot, never from a later CAS revision's preview.
+fn resolve_placement_wire(
+    task: &WireReply,
+    strategy: &str,
+    busy: bool,
+    dirty: bool,
+) -> Result<WireReply, pacer_store::StoreError> {
+    let preview = task.preview();
+    let mut resolved = WireReply::new(resolve_placement(preview, strategy, busy, dirty));
+    if ["current", "new"].contains(&preview["placement"]["requested"].as_str().unwrap_or("")) {
+        let reason = if preview["placement"]["reason"].is_string() {
+            task.string_at("/placement/reason")?
+        } else {
+            crate::Utf16String::from_units(Vec::new())
+        };
+        let units = reason.units();
+        let space = |u: &u16| matches!(*u, 0x0009..=0x000d | 0x0020 | 0x00a0 | 0x1680 | 0x2000..=0x200a | 0x2028 | 0x2029 | 0x202f | 0x205f | 0x3000 | 0xfeff);
+        let start = units.iter().position(|u| !space(u)).unwrap_or(units.len());
+        let end = units
+            .iter()
+            .rposition(|u| !space(u))
+            .map_or(start, |n| n + 1);
+        let mut why: Vec<u16> = "agent: ".encode_utf16().collect();
+        if start == end {
+            why.extend("no reason given".encode_utf16());
+        } else {
+            why.extend_from_slice(&units[start..end]);
+        }
+        resolved.set_string("/why", crate::Utf16String::from_units(why))?;
+    }
+    Ok(resolved)
 }
 pub fn account_environment(
     account: &Value,
@@ -316,7 +349,8 @@ pub(super) async fn compose(
     attempt: &mut crate::OrcaAttempt,
     policy: &OrcaPolicy,
 ) -> Result<Value, BrokerError> {
-    let task = attempt.task()?;
+    let task_wire = attempt.task_wire()?;
+    let task = task_wire.preview();
     let id = policy.provider["id"].as_str().ok_or_else(denied)?;
     let agent = selected_agent(&policy.provider).ok_or_else(denied)?;
     let repo = task["brief"]["repo"].as_str().ok_or_else(denied)?;
@@ -377,7 +411,8 @@ pub(super) async fn compose(
         );
     }
     let strategy = policy.execution["worktree"].as_str().unwrap_or("new-child");
-    let resolved = resolve_placement(&task, strategy, active, dirty);
+    let resolved_wire = resolve_placement_wire(&task_wire, strategy, active, dirty)?;
+    let resolved = resolved_wire.preview();
     if resolved["mode"] == "current" && resolved["why"] == "strategy default" && dirty {
         return Ok(
             json!({"ok":false,"reason":"current worktree has uncommitted changes","refuse":true}),
@@ -536,19 +571,27 @@ pub(super) async fn compose(
         launch: vec![agent.into()],
         account_env: HashMap::new(),
     };
-    attempt.update(|t| {
+    attempt.edit(|t| {
         if let Some(sha) = sha {
-            t["baseSha"] = json!(sha);
+            t.put("/baseSha", WireReply::new(json!(sha)))?;
         }
-        let mut p = t["placement"].as_object().cloned().unwrap_or_default();
-        p.entry("requested").or_insert(json!("auto"));
-        for (k, v) in resolved.as_object().into_iter().flatten() {
-            p.insert(k.clone(), v.clone());
+        let mut placement = if t.preview()["placement"].is_object() {
+            t.subtree("/placement")?
+        } else {
+            WireReply::new(json!({}))
+        };
+        if placement.preview().get("requested").is_none() {
+            placement.put("/requested", WireReply::new(json!("auto")))?;
         }
-        t["placement"] = Value::Object(p);
-        if !retry {
-            t.as_object_mut().map(|o| o.remove("worktree"));
+        for k in resolved.as_object().into_iter().flatten().map(|(k, _)| k) {
+            let path = format!("/{k}");
+            placement.put(&path, resolved_wire.subtree(&path)?)?;
         }
+        t.put("/placement", placement)?;
+        if !retry && t.preview().get("worktree").is_some() {
+            t.remove("/worktree")?;
+        }
+        Ok(())
     })?;
     Ok(json!({"ok":true}))
 }
