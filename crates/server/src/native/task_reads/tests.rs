@@ -235,3 +235,19 @@ async fn task_log_accepts_integral_json_offsets() {
             == Code::UnknownTask
     );
 }
+
+#[test]
+fn log_reads_at_or_past_eof_preserve_cursor_and_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("stdout");
+    fs::write(&path, b"hello").unwrap();
+    for offset in [5, 6, 1_u64 << 32, 9_007_199_254_740_991] {
+        assert_eq!(
+            read_from(Some(&path), offset).unwrap(),
+            (String::new(), offset)
+        );
+    }
+    assert_eq!(fs::read(&path).unwrap(), b"hello");
+    fs::write(&path, b"").unwrap();
+    assert_eq!(read_from(Some(&path), 0).unwrap(), (String::new(), 0));
+}

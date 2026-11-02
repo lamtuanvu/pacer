@@ -300,6 +300,15 @@ fn read_from(file: Option<&Path>, offset: u64) -> Result<(String, u64), CoreErro
         }
         Err(error) => return Err(CoreError::new(Code::Internal, error.to_string())),
     };
+    // Some filesystems reject seeks to valid JS cursors far beyond EOF. Match
+    // the TS reader's empty result and retain the requested cursor in that case.
+    let length = file
+        .metadata()
+        .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?
+        .len();
+    if offset >= length {
+        return Ok((String::new(), offset));
+    }
     file.seek(SeekFrom::Start(offset))
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
     let mut bytes = vec![0; 256 * 1024];

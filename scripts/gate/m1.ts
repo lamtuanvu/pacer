@@ -22,11 +22,35 @@ export function validateM1Artifacts(dir: string): { version: string; front: stri
 }
 
 export function validateNativeRegistry(source: string): void {
-  const testOps = /#\[cfg\(feature = "test-ops"\)\]\s*static OPS: &\[NativeOp\] = &\[([\s\S]*?)\];/.exec(source);
-  const productionOps = /#\[cfg\(not\(feature = "test-ops"\)\)\]\s*static OPS: &\[NativeOp\] = &\[\];/.test(source);
-  if (!testOps || !productionOps) throw Error("Cannot verify feature-gated native registry");
-  const names = [...testOps[1].matchAll(/name:\s*"([^"]+)"/g)].map(match => match[1]);
-  if (names.length !== 2 || !names.includes("test.echo") || !names.includes("_debug.native")) {
+  // Recognize only the literal, per-entry registry shape. Any unparsed entry or
+  // attribute must fail closed rather than silently hiding an ungated test op.
+  // OPS may occur only at its declaration and the registry constructor; alternate
+  // static/const bindings (including conditional ones) need explicit review.
+  const registry = /(?:^|\n)static OPS: &\[NativeOp\] = &\[([\s\S]*?)\];/.exec(source);
+  if (!registry || [...source.matchAll(/\bOPS\b/g)].length !== 2) {
+    throw Error("Cannot verify feature-gated native registry");
+  }
+  if (/#\[[^\]]*\]\s*$/.test(source.slice(0, registry.index))) {
+    throw Error("Cannot verify feature-gated native registry");
+  }
+  const entry = /\s*(#\[cfg\(feature = "test-ops"\)\]\s*)?NativeOp\s*\{\s*name:\s*"([^"\n]+)",\s*call:\s*[A-Za-z_][A-Za-z0-9_:]*,\s*\},/y;
+  const testNames: string[] = [], productionNames: string[] = [];
+  let position = 0;
+  while (registry[1].slice(position).trim()) {
+    entry.lastIndex = position;
+    const match = entry.exec(registry[1]);
+    if (!match) throw Error("Cannot verify feature-gated native registry");
+    const [, gated, name] = match;
+    if (!gated && (name === "test.echo" || name === "_debug.native")) {
+      throw Error("Cannot verify feature-gated native registry");
+    }
+    (gated ? testNames : productionNames).push(name);
+    position = entry.lastIndex;
+  }
+  if (productionNames.sort().join(",") !== "activity.list,task.log") {
+    throw Error("Cannot verify feature-gated native registry");
+  }
+  if (testNames.sort().join(",") !== "_debug.native,test.echo") {
     throw Error("Native test operation coverage changed");
   }
 }

@@ -54,6 +54,9 @@ test.skipIf(!front)("activity.list and task.log match forced forwarding with exa
     ["task.log", `{"id":"${task.id}","stdout":2.0,"stderr":2.0}`],
     ["task.log", `{"id":"${task.id}","stdout":1e2}`],
     ["task.log", `{"id":"${task.id}","stdout":9007199254740991}`],
+    ["task.log", `{"id":"${task.id}","stderr":9007199254740991}`],
+    ["task.log", `{"id":"${task.id}","stdout":110,"stderr":10}`],
+    ["task.log", `{"id":"${task.id}","stdout":111,"stderr":11}`],
     ["task.log", `{"id":"${task.id}","stdout":9007199254740992}`],
     ["task.log", `{"id":"${task.id}","stdout":-9007199254740992}`],
     ["task.log", `{"id":"${task.id}","stdout":0.5}`],
@@ -92,6 +95,12 @@ test.skipIf(!front)("activity.list and task.log match forced forwarding with exa
   const offset100 = cases.findIndex(([op, params]) => op === "task.log" && params.includes('"stdout":1e2'));
   expect(native[offset2]?.result?.stdout).toStartWith("234");
   expect(native[offset100]?.result?.stdout).toStartWith("012");
+  for (const stream of ["stdout", "stderr"] as const) {
+    const maxCursor = cases.findIndex(([op, params]) => op === "task.log" && params.includes(`"${stream}":9007199254740991`));
+    expect(native[maxCursor]?.result?.[stream]).toBe("");
+    expect(native[maxCursor]?.result?.next?.[stream]).toBe(Number.MAX_SAFE_INTEGER);
+    expect(native[maxCursor]?.result?.done).toBe(false);
+  }
   expect(files.map(path => readFileSync(path).toString("base64"))).toEqual(before);
 
   for (const [receipt, done] of [
