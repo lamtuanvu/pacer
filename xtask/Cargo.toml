@@ -9,7 +9,7 @@ rust-version.workspace = true
 [dependencies]
 toml = "0.8"
 typify = "0.4"
-schemars = "0.8"
+schemars = "1.2"
 quote = "1"
 syn = { version = "2", features = ["visit-mut"] }
 prettyplease = "0.2"
