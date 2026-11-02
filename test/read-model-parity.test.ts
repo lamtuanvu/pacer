@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { liveSnapshot, liveV2Snapshot, eventsSince } from "../src/api/events";
 import { handleV2 } from "../src/api/http";
@@ -145,6 +145,8 @@ test("outbox conversion retains non-discovery attention, notify, and config for 
 const golden = join(import.meta.dir, "fixtures", "read-model", "ts-golden.json");
 const normalize = (value: unknown, home: string, ids: string[]): unknown => {
   let json = JSON.stringify(value);
+  // macOS temp homes resolve through /private; repo paths are recorded resolved.
+  json = json.replaceAll(realpathSync(home), "$HOME");
   json = json.replaceAll(home, "$HOME");
   json = json.replaceAll(home.split("/").at(-1)!, "FIXTURE_HOME");
   json = json.replace(/local:[0-9a-f]{12}/g, "local:FIXTURE");
