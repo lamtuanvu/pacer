@@ -305,6 +305,18 @@ test("strategy save reason uses the JavaScript trim character set", () => {
   }
 });
 
+test("strategy save headers preserve the same characters as TypeScript", () => {
+  const binary = configBinary();
+  for (const char of [...Array.from({length: 32}, (_, i) => String.fromCharCode(i)), "\u007f", "\u0085"]) {
+    const tsHome = home(), rsHome = home(), ctx = fakeCtx({pacerHome: tsHome});
+    const draft = {from: "default", description: `x${char}y`}, reason = `reason${char}end`;
+    strategy.save(ctx, "review", draft, reason);
+    rust(binary, {op: "strategy.save", home: rsHome, name: "review", draft, reason,
+      nowIso: new Date(ctx.now * 1000).toISOString()});
+    expect(readFileSync(join(rsHome, "strategies/review.yaml"))).toEqual(readFileSync(join(tsHome, "strategies/review.yaml")));
+  }
+});
+
 test("routing rule insertion keeps surviving YAML nodes", async () => {
   const binary = configBinary();
   const tsHome = home(), rsHome = home();

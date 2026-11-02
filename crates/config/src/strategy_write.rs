@@ -301,13 +301,7 @@ fn apply_draft(mut raw: Value, draft: &Value) -> Result<Value, StrategyError> {
 
 fn one_line(text: &str) -> String {
     text.chars()
-        .map(|ch| {
-            if ch == '\r' || ch == '\n' || ch.is_control() {
-                ' '
-            } else {
-                ch
-            }
-        })
+        .map(|ch| if ch <= '\u{001f}' { ' ' } else { ch })
         .collect()
 }
 
