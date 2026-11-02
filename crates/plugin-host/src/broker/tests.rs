@@ -1186,3 +1186,67 @@ async fn native_exact_file_read_does_not_invoke_adapter() {
     assert_eq!(echo.calls, 0);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+async fn file_transfer_numeric_effects_match_typescript() {
+    use std::process::Command;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("bun")
+        .current_dir(root)
+        .args(["run", "test/fixtures/plugin-transfer-effects.ts"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let mut actual = Vec::new();
+    for literal in ["3.0", "3e0", "1.5", "9007199254740992"] {
+        let mut b = broker(10000);
+        let mut e = Echo { calls: 0 };
+        let bytes: Value = serde_json::from_str(literal).unwrap();
+        let begin = b
+            .handle(
+                "capability.fs.beginWrite",
+                json!({"path":"/tmp/issued","bytes":bytes,"mode":384}),
+                &mut e,
+            )
+            .await;
+        let mut effects = Vec::new();
+        let accepted = if let Ok(value) = begin {
+            let handle = value["handle"].as_str().unwrap();
+            let offset: Value = serde_json::from_str("0e0").unwrap();
+            if b.handle(
+                "capability.fs.writeChunk",
+                json!({"handle":handle,"offset":offset,"base64":"YWJj"}),
+                &mut e,
+            )
+            .await
+            .is_ok()
+            {
+                if let Ok(value) = b
+                    .handle(
+                        "capability.fs.commitWrite",
+                        json!({"handle":handle}),
+                        &mut e,
+                    )
+                    .await
+                {
+                    effects.push(value);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        assert_eq!(e.calls, effects.len());
+        actual.push(json!({"accepted":accepted,"effects":effects}));
+    }
+    assert_eq!(actual, expected);
+}
