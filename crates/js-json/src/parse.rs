@@ -85,6 +85,14 @@ fn parse(
         let mut value = serde_json::Map::new();
         for (key, raw) in fields {
             let next = format!("{path}/{}", key.replace('~', "~0").replace('/', "~1"));
+            if value.contains_key(&key) {
+                strings.retain(|path, _| {
+                    path != &next
+                        && !path
+                            .strip_prefix(&next)
+                            .is_some_and(|suffix| suffix.starts_with('/'))
+                });
+            }
             value.insert(key, parse(&raw, &next, strings, depth + 1)?);
         }
         return Ok(Value::Object(value));
@@ -109,6 +117,16 @@ impl WireReply {
         let mut strings = BTreeMap::new();
         let preview = parse(&raw, "", &mut strings, 0)?;
         Ok(Self { preview, strings })
+    }
+    /// Scalar previews cannot identify array elements after arbitrary mutation.
+    pub fn has_array_strings(&self) -> bool {
+        self.strings.keys().any(|path| {
+            path.match_indices('/').any(|(index, _)| {
+                self.preview
+                    .pointer(&path[..index])
+                    .is_some_and(Value::is_array)
+            })
+        })
     }
     /// Preserve exact non-scalar fields while metadata is mutated through the
     /// scalar preview. Explicit text replacement uses replace, even for U+FFFD.

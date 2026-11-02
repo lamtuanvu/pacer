@@ -477,23 +477,14 @@ impl NativeGit {
             if records.len() != commits as usize {
                 return Err(denied());
             }
-            let signoff = regex::Regex::new(r"^.*<([^>]+)>").map_err(|_| denied())?;
+            let signoff = regex::Regex::new(r"(?:^|[\n\r\u{2028}\u{2029}])(?i-u:Signed-off-by:)[^\n\r\u{2028}\u{2029}]*<([^>]+)>").map_err(|_| denied())?;
             for record in records {
                 let mut parts = record.trim_start_matches('\n').splitn(3, '\0');
                 if parts.next() != Some(email.as_str()) || parts.next() != Some(email.as_str()) {
                     return Err(denied());
                 }
-                for line in parts
-                    .next()
-                    .unwrap_or_default()
-                    .split(['\n', '\r', '\u{2028}', '\u{2029}'])
-                {
-                    if line.to_ascii_lowercase().starts_with("signed-off-by:")
-                        && let Some(capture) = signoff.captures(&line["signed-off-by:".len()..])
-                        && capture.get(1).is_some_and(|m| m.as_str() != email)
-                    {
-                        return Err(denied());
-                    }
+                if signoff.captures_iter(parts.next().unwrap_or_default()).any(|capture| capture[1] != email) {
+                    return Err(denied());
                 }
             }
             // The stage remains pinned through inspection; never import reopened writable bytes.

@@ -176,18 +176,24 @@ async fn cancelled_spawn_keeps_the_child_owned_until_explicit_reaping() {
     )
     .unwrap();
     let params = json!({"argv":cmd.argv,"timeoutMs":10000});
-    {
+    let pid = {
         let run = process.spawn(&params, Instant::now() + Duration::from_secs(10));
         tokio::pin!(run);
-        tokio::select! {result=&mut run=>panic!("unexpected early result {result:?}"),_=async{while !pidfile.exists(){tokio::time::sleep(Duration::from_millis(5)).await;}}=>{}}
-    }
-    let pid: i32 = std::fs::read_to_string(&pidfile)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+        tokio::select! {
+            result = &mut run => panic!("unexpected early result {result:?}"),
+            result = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if let Ok(text) = std::fs::read_to_string(&pidfile)
+                        && let Ok(pid) = text.trim().parse::<i32>()
+                        && pid > 0 { break pid; }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }) => result,
+        }
+    };
     process.revoke();
     process.retire_owned().await.unwrap();
+    let pid = pid.unwrap_or_else(|_| panic!("timed out waiting for a parseable child PID"));
     assert!(nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }

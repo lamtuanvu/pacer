@@ -98,6 +98,8 @@ pub(crate) fn truthy(value: Option<&Value>) -> bool {
         Some(Value::Bool(true) | Value::Array(_) | Value::Object(_)) => true,
     }
 }
+/// Indexed or identity fields; a lossy preview would diverge from the row.
+const PROTECTED_TEXT: [&str; 4] = ["/id", "/state", "/rev", "/brief/repo"];
 fn valid(task: &Value, id: &str) -> bool {
     field(task, "id") == Some(id)
         && is_task_id(id)
@@ -584,8 +586,9 @@ impl TaskStore {
             self.update_locked(id, expected_rev, now, mutate)
         })?
     }
-    /// Atomic question-text publication for native UTF-16 clipping. Only the
-    /// question text may be overlaid; identity/state/revision follow normal CAS.
+    /// Atomic lossless text publication. Each listed string field is replaced
+    /// by its exact UTF-16 text, even where its lossy preview is unchanged.
+    /// Identity, state, revision and repo cannot be overlaid; they follow CAS.
     pub fn update_with_strings(
         &mut self,
         id: &str,
@@ -709,6 +712,11 @@ impl TaskStore {
             .optional()?
             .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
         let original = WireReply::parse(&text)?;
+        // The Value-based mutation closure loses the identity of non-scalar
+        // strings in arrays. Refuse writes rather than persist a shifted value.
+        if original.has_array_strings() {
+            return Err(StoreError::CompatibilityRequired);
+        }
         let mut task = original.preview().clone();
         let rev = revision(&task).unwrap_or(1);
         if rev != expected_rev {
@@ -730,9 +738,14 @@ impl TaskStore {
         if !valid(&task, id) {
             return Err(StoreError::InvalidRecord);
         }
+        // An overlay survives when the closure leaves its lossy preview equal.
+        // A closure cannot store text equal to that preview (for example a
+        // literal U+FFFD over a lone surrogate); that requires `strings`.
         let mut wire = original.preserving(task.clone());
         for (path, text) in strings {
-            if path != "/question/text" || !task.pointer(path).is_some_and(Value::is_string) {
+            if PROTECTED_TEXT.contains(&path.as_str())
+                || !task.pointer(path).is_some_and(Value::is_string)
+            {
                 return Err(StoreError::InvalidRecord);
             }
             wire.replace(path, text.clone());

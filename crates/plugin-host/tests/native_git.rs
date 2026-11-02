@@ -456,3 +456,36 @@ async fn cancelled_base_bundle_still_cleans_its_temporary_ref() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
 }
+
+#[tokio::test]
+async fn signoffs_match_typescript_full_body_oracle() {
+    for body in [
+        "result\n\nSigned-off-by: Other <other@invalid.test\n>",
+        "result\nSigned-off-by: Fixture <fixture@invalid.test>",
+        "result\rSigned-off-by: Other <other@invalid.test>",
+        "result\rSigned-off-by: Fixture <fixture@invalid.test>",
+        "result\u{2028}Signed-off-by: Other <other@invalid.test>",
+        "result\u{2028}Signed-off-by: Fixture <fixture@invalid.test>",
+        "result\u{2029}Signed-off-by: Fixture <fixture@invalid.test>",
+        "result\u{2029}Signed-off-by: Other <other@invalid.test>",
+        "result\nSigned-off-by: Other <other@invalid.test>",
+        "result\nSigned-off-by: <other@invalid.test> <fixture@invalid.test>",
+        "result\nSigned-off-by: Fixture <fixture@invalid.test\n>",
+    ] {
+        let f = Fixture::new();
+        git(
+            &f.remote,
+            &["commit", "--amend", "--cleanup=verbatim", "-qm", body],
+        );
+        let actual_body = String::from_utf8(git(&f.remote, &["log", "-1", "--format=%B"])).unwrap();
+        let oracle = Command::new("bun").args(["-e", "const body = process.argv[1]; const matches = [...body.matchAll(/^Signed-off-by:.*<([^>]+)>/gim)]; process.stdout.write(String(matches.every(m => m[1] === 'fixture@invalid.test')))", &actual_body]).output().unwrap();
+        assert!(oracle.status.success());
+        let allowed = oracle.stdout == b"true";
+        let mut ticket = f.ticket(&f.bytes()).await;
+        let result = f
+            .native()
+            .verify(&mut ticket, &f.base, &f.branch, deadline())
+            .await;
+        assert_eq!(result.is_ok(), allowed, "body: {body:?}");
+    }
+}
