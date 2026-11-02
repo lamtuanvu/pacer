@@ -1,7 +1,26 @@
 #![allow(clippy::unwrap_used)]
 
-use pacer_lifecycle::{SlotLimits, parse_delegate_brief, queue_capacity, slot_use, validate_input};
+use pacer_lifecycle::{
+    ExecutorResolution, SlotLimits, ValidationContext, parse_delegate_brief, queue_capacity,
+    slot_use, validate_input,
+};
 use serde_json::{Value, json};
+
+fn check(input: &Value) -> Vec<String> {
+    let executor = match input["executor"].as_str() {
+        Some("claude-code") => ExecutorResolution::Planner,
+        Some("codex") => ExecutorResolution::Other,
+        _ => ExecutorResolution::Unknown,
+    };
+    validate_input(
+        input,
+        true,
+        &ValidationContext {
+            configured_providers: &["claude-code", "codex"],
+            executor,
+        },
+    )
+}
 
 #[test]
 fn brief_goldens() {
@@ -62,10 +81,10 @@ fn slot_and_validation_edge_cases() {
         json!({"byExecutor":{"codex":2},"byHost":{},"local":2})
     );
     let input = json!({"brief":{"goal":" Check ","repo":"/tmp","acceptanceTimeoutMin":1}});
-    assert!(validate_input(&input, true).is_empty());
+    assert!(check(&input).is_empty());
     let input = json!({"brief":{"goal":" ","repo":"relative","acceptanceTimeoutMin":121}});
     assert_eq!(
-        validate_input(&input, true),
+        check(&input),
         [
             "goal is required",
             "repo must be an absolute path",
@@ -149,7 +168,7 @@ fn direct_validation_number_and_utf16_goldens() {
     .unwrap();
     for row in rows {
         assert_eq!(
-            validate_input(&row["input"], true),
+            check(&row["input"]),
             row["problems"]
                 .as_array()
                 .unwrap()
@@ -200,7 +219,7 @@ fn trim_and_numeric_goldens() {
                 }
             }
             if let Some(input) = row.get("input") {
-                let problems = validate_input(input, true);
+                let problems = check(input);
                 assert_eq!(
                     problems.is_empty(),
                     row["accept"] == true,

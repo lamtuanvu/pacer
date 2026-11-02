@@ -277,8 +277,24 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
     Ok(serde_json::json!({"brief":brief,"input":input}))
 }
 
+/// Strategy resolution supplied by the caller for the requested executor.
+pub struct ValidationContext<'a> {
+    pub configured_providers: &'a [&'a str],
+    pub executor: ExecutorResolution,
+}
+
+pub enum ExecutorResolution {
+    Unknown,
+    Planner,
+    Other,
+}
+
 /// Synchronous checks shared by initial admission and policy revalidation.
-pub fn validate_input(input: &Value, repo_validated: bool) -> Vec<String> {
+pub fn validate_input(
+    input: &Value,
+    repo_validated: bool,
+    context: &ValidationContext<'_>,
+) -> Vec<String> {
     let mut problems = Vec::new();
     let brief = &input["brief"];
     if input.get("title").is_some_and(|v| {
@@ -326,6 +342,49 @@ pub fn validate_input(input: &Value, repo_validated: bool) -> Vec<String> {
     }) {
         problems.push("invalid source".into());
     }
+    if let Some(kind) = input
+        .get("kind")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        let kinds = [
+            "boilerplate",
+            "tests",
+            "docs",
+            "rename",
+            "migration",
+            "feature",
+            "debug",
+            "refactor",
+            "performance",
+            "unfamiliar-code",
+            "research",
+        ];
+        if !kinds.contains(&kind) {
+            problems.push(format!(
+                "unknown kind \"{kind}\" (allowed: {})",
+                kinds.join(", ")
+            ));
+        }
+    }
+    if let Some(executor) = input
+        .get("executor")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        match context.executor {
+            ExecutorResolution::Unknown => problems.push(format!(
+                "unknown executor \"{executor}\" (configured: {})",
+                context.configured_providers.join(", ")
+            )),
+            ExecutorResolution::Planner
+                if input.pointer("/dispatch/allowDelegation") != Some(&Value::Bool(true)) =>
+            {
+                problems.push(format!("\"{executor}\" is the planner; pick an executor"))
+            }
+            _ => {}
+        }
+    }
     if input
         .get("timeoutMin")
         .is_some_and(|v| !v.as_f64().is_some_and(|n| (1.0..=240.0).contains(&n)))
@@ -343,6 +402,27 @@ pub fn validate_input(input: &Value, repo_validated: bool) -> Vec<String> {
             .is_some_and(|s| ["current", "new", "auto"].contains(&s))
     }) {
         problems.push("worktree must be one of current, new, auto".into());
+    }
+    if input
+        .get("worktree_reason")
+        .is_some_and(|v| !v.as_str().is_some_and(|s| utf16_len(s) <= 200))
+    {
+        problems.push("worktree_reason must be a string of at most 200 characters".into());
+    }
+    if input.get("group").is_some_and(|v| {
+        !v.as_str().is_some_and(|s| {
+            let bytes = s.as_bytes();
+            (1..=40).contains(&bytes.len())
+                && bytes[0].is_ascii_alphanumeric()
+                && bytes
+                    .iter()
+                    .all(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'-')
+        })
+    }) {
+        problems.push(
+            "group must be 1–40 characters, starting alphanumeric, of letters, digits, - and _"
+                .into(),
+        );
     }
     problems
 }

@@ -3,5 +3,7 @@ mod brief;
 mod capacity;
 mod schema;
 
-pub use brief::{AdmissionError, parse_delegate_brief, validate_input};
+pub use brief::{
+    AdmissionError, ExecutorResolution, ValidationContext, parse_delegate_brief, validate_input,
+};
 pub use capacity::{SlotLimits, queue_capacity, slot_use};

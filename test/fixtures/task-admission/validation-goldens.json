@@ -1,8 +1,188 @@
 [
-  {"id":"title-codepoint-pass-but-utf16-fail","input":{"brief":{"goal":"work","repo":"/tmp"},"title":"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"},"problems":["title must be 1–60 characters after trimming"]},
-  {"id":"request-codepoint-pass-but-utf16-fail","input":{"brief":{"goal":"work","repo":"/tmp"},"requestId":"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"},"problems":["request_id must be 1–128 characters"]},
-  {"id":"integer-float","input":{"brief":{"goal":"work","repo":"/tmp","acceptanceTimeoutMin":1.0}},"problems":[]},
-  {"id":"integer-exponent","input":{"brief":{"goal":"work","repo":"/tmp","acceptanceTimeoutMin":1e2}},"problems":[]},
-  {"id":"integer-fraction","input":{"brief":{"goal":"work","repo":"/tmp","acceptanceTimeoutMin":1.5}},"problems":["acceptance_timeout_min must be an integer between 1 and 120"]},
-  {"id":"timeout-fraction","input":{"brief":{"goal":"work","repo":"/tmp"},"timeoutMin":1.5},"problems":[]}
+  {
+    "id": "title-codepoint-pass-but-utf16-fail",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    "problems": [
+      "title must be 1–60 characters after trimming"
+    ]
+  },
+  {
+    "id": "request-codepoint-pass-but-utf16-fail",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "requestId": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    "problems": [
+      "request_id must be 1–128 characters"
+    ]
+  },
+  {
+    "id": "integer-float",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp",
+        "acceptanceTimeoutMin": 1.0
+      }
+    },
+    "problems": []
+  },
+  {
+    "id": "integer-exponent",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp",
+        "acceptanceTimeoutMin": 100.0
+      }
+    },
+    "problems": []
+  },
+  {
+    "id": "integer-fraction",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp",
+        "acceptanceTimeoutMin": 1.5
+      }
+    },
+    "problems": [
+      "acceptance_timeout_min must be an integer between 1 and 120"
+    ]
+  },
+  {
+    "id": "timeout-fraction",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "timeoutMin": 1.5
+    },
+    "problems": []
+  },
+  {
+    "id": "invalid-kind",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "kind": "invalid"
+    },
+    "problems": [
+      "unknown kind \"invalid\" (allowed: boilerplate, tests, docs, rename, migration, feature, debug, refactor, performance, unfamiliar-code, research)"
+    ]
+  },
+  {
+    "id": "unknown-executor",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "executor": "missing"
+    },
+    "problems": [
+      "unknown executor \"missing\" (configured: claude-code, codex)"
+    ]
+  },
+  {
+    "id": "planner",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "executor": "claude-code"
+    },
+    "problems": [
+      "\"claude-code\" is the planner; pick an executor"
+    ]
+  },
+  {
+    "id": "planner-allowed",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "executor": "claude-code",
+      "dispatch": {
+        "allowDelegation": true
+      }
+    },
+    "problems": []
+  },
+  {
+    "id": "other-executor",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "executor": "codex"
+    },
+    "problems": []
+  },
+  {
+    "id": "reason-utf16",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "worktree_reason": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    },
+    "problems": [
+      "worktree_reason must be a string of at most 200 characters"
+    ]
+  },
+  {
+    "id": "reason-type",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "worktree_reason": 3
+    },
+    "problems": [
+      "worktree_reason must be a string of at most 200 characters"
+    ]
+  },
+  {
+    "id": "group-invalid",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "group": "bad!"
+    },
+    "problems": [
+      "group must be 1–40 characters, starting alphanumeric, of letters, digits, - and _"
+    ]
+  },
+  {
+    "id": "group-valid",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "group": "a-B_9"
+    },
+    "problems": []
+  }
 ]
