@@ -1,5 +1,6 @@
+import { useUniqueId as useId } from './useUniqueId';
 import type { ComponentChildren } from "preact";
-import { useId } from "preact/hooks";
+
 import { Checkbox, Switch, connectControl, findControl } from "./Controls";
 import { Pill, type PillProps } from "./Pill";
 

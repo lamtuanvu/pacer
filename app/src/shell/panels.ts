@@ -1,19 +1,14 @@
-import { useState } from "preact/hooks";
+import { useWorkspaceKey, useWorkspaceState } from "../workspace/state";
 import type { Command } from "../keys/commands";
 
-/** Panel open state that survives reloads; per-window choices use session storage. Storage may be missing or refuse access, so the default always wins then. */
+/** Panel preferences keep their existing storage outside workspace drafts. */
 export function usePanelState(id: string, defaultOpen: boolean, perWindow = false): [boolean, (open: boolean) => void] {
-  const key = `pacer.panel.${id}`;
-  const read = () => {
-    try { const saved = (perWindow ? sessionStorage : localStorage).getItem(key); return saved === null ? defaultOpen : saved === "1"; }
-    catch { return defaultOpen; }
-  };
-  const [saved, setSaved] = useState<Record<string, boolean>>(() => ({ [key]: read() }));
-  const open = saved[key] ?? read();
-  return [open, next => {
-    setSaved(previous => ({ ...previous, [key]: next }));
-    try { (perWindow ? sessionStorage : localStorage).setItem(key, next ? "1" : "0"); } catch { /* keep the in-memory state */ }
-  }];
+ const key = useWorkspaceKey(undefined, "shell-panels");
+ const storageKey = `pacer.panel.${id}`;
+ let initial = defaultOpen;
+ try { const saved = (perWindow ? sessionStorage : localStorage).getItem(storageKey); if (saved !== null) initial = saved === '1'; } catch {}
+ const [open, setOpen] = useWorkspaceState(key, `panel:${id}`, initial);
+ return [open, next => { setOpen(next); try { (perWindow ? sessionStorage : localStorage).setItem(storageKey, next ? '1' : '0'); } catch {} }];
 }
 
 /**

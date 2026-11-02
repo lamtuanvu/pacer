@@ -1,6 +1,7 @@
+import { useUniqueId as useId } from './useUniqueId';
 import { cloneElement, type VNode } from "preact";
 import { createPortal } from "preact/compat";
-import { useId, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Kbd } from "./Kbd";
 
 /** Body-level overlay; hover/focus opens it and Escape dismisses it. */

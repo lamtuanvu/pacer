@@ -46,7 +46,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
   return (
     <SettingsBoard id="accounts" title="Agents" caption="Who plans, who executes, and what each one is allowed to use."
       >
-      <AgentsIntro tab="accounts" actions={<><Button onClick={() => void action.run("account.signin", {interactive:"account-add-orca"})}>Link an Orca account</Button><Button variant="primary" aria-expanded={adding} onClick={() => setAdding(v => !v)}>Add account</Button></>}/>
+      <AgentsIntro tab="accounts" actions={<><Button onClick={() => void action.run("account.signin", {interactive:"account-add-orca"})} disabled={!!action.unavailable}>Link an Orca account</Button><Button variant="primary" aria-expanded={adding} onClick={() => setAdding(v => !v)}>Add account</Button></>}/>
       <div className="u3-accounts-info"><Icon name="lock"/><span>An account is where quota comes from. pacer never reads or copies an agent's own sign-in. Endpoint keys stay in your keychain and are used by reference.</span></div>
       <ResourceState resource={query} empty="No accounts yet. Add an account to get started.">
         <div className="u3-table-wrap u3-agents-table">
@@ -98,7 +98,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                           ) : accountNeedsSignIn(readiness) ? (
                             <Disclosure className="pc-disclosure" summary={<>Fix sign-in<span className="sr-only"> for {accountLabel(account)}</span></>}>
                               <p>Use the agent’s own sign-in to reconnect this account.</p>
-                              <Button size="sm" disabled={action.busy} onClick={() => void action.run("account.signin", { name: account.name })}>Sign in</Button>
+                              <Button size="sm" disabled={!!action.unavailable || (action.busy)} onClick={() => void action.run("account.signin", { name: account.name })}>Sign in</Button>
                             </Disclosure>
                           ) : null}
                         </div>
@@ -117,7 +117,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
             <Field label="Account name"><TextInput value={name} required pattern="[a-z0-9][a-z0-9-]*" onInput={e => setName(e.currentTarget.value)} /></Field>
             <Field label="Agent"><ChoicePicker value={kind} options={[{ value: "codex", agent: "codex", label: "Codex" }, { value: "claude", agent: "claude", label: "Claude Code" }]} onValueChange={setKind} /></Field>
           </div>
-          <Button type="submit" disabled={action.busy}>Create account</Button>
+          <Button type="submit" disabled={!!action.unavailable || (action.busy)}>Create account</Button>
           <p><TextAction href={scoped("#/settings/add-executor")}>Connect an API endpoint through Add agent</TextAction></p>
         </form>
       )}

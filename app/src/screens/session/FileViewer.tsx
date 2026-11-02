@@ -1,3 +1,4 @@
+import { useUniqueId as useId } from '../../ds/useUniqueId';
 import type { ComponentChildren, JSX } from "preact";
 import type { SessionFileResult } from "../../../../src/session/files";
 import { Button, IconButton } from "../../ds/Button";
@@ -7,7 +8,7 @@ import { Kbd } from "../../ds/Kbd";
 import { Tabs } from "../../ds/Patterns";
 import { PanelTabs, type PanelTab } from "../../ds/PanelTabs";
 import { Pill } from "../../ds/Pill";
-import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { blockedResources, htmlPreviewDocument, type BlockedResource } from "./preview-html";
 
 /** Mirrors MAX_FILE_BYTES in src/session/openat.ts (the service's read bound); a test keeps them equal. */

@@ -1,3 +1,4 @@
+import { workspaceKey, workspaceManager } from '../app/src/workspace/manager';
 import {executorLabel} from "../src/view-model/words";
 import { desktopStatus } from "./fixtures/desktop-update/status";
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
@@ -360,6 +361,9 @@ test('adding another executor clears all previous choices and returns to agent s
  const saved=new Map<string,string>();
  const key='pacer.settings.add-executor';
  saved.set(key,JSON.stringify({step:'4',agent:'claude-code',host:'devbox',account:'team',model:'old',rank:'1',createdId:executor.id,jobId:job.id}));
+ workspaceManager.clearIdentity('pending');
+ const scope=workspaceKey('pending',undefined,key);
+ workspaceManager.set(scope,`draft:${key}`,JSON.parse(saved.get(key)!));
  const oldStorage=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
  const oldVNode=options.vnode;
  let startAnother:(()=>void)|undefined;
@@ -372,9 +376,10 @@ test('adding another executor clears all previous choices and returns to agent s
   const html=render(<AddExecutor/>);
   expect(html).toContain('Which agent?');
   expect(html).not.toContain('is ready');
-  expect(JSON.parse(saved.get(key)!)).toEqual({step:'1',agent:'codex',account:'',host:'',maxTasks:'1',model:'',kinds:'',createdId:'',jobId:''});
+  expect(workspaceManager.get(scope,`draft:${key}`,{})).toEqual({step:'1',agent:'codex',account:'',host:'',maxTasks:'1',model:'',kinds:'',createdId:'',jobId:''});
  } finally {
   options.vnode=oldVNode;
+  workspaceManager.clearIdentity('pending');
   if(oldStorage)Object.defineProperty(globalThis,'sessionStorage',oldStorage);else Reflect.deleteProperty(globalThis,'sessionStorage');
  }
 });
@@ -384,6 +389,9 @@ test('OK clears completed executor state before returning to the executor list',
  const {options}=await import('preact');
  const key='pacer.settings.add-executor';
  const saved=new Map([[key,JSON.stringify({step:'4',agent:'claude-code',host:'devbox',account:'team',model:'old',rank:'1',createdId:executor.id,jobId:job.id})]]);
+ workspaceManager.clearIdentity('pending');
+ const scope=workspaceKey('pending',undefined,key);
+ workspaceManager.set(scope,`draft:${key}`,JSON.parse(saved.get(key)!));
  const oldStorage=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
  const oldVNode=options.vnode;
  let finish:(()=>void)|undefined;
@@ -395,12 +403,13 @@ test('OK clears completed executor state before returning to the executor list',
   expect(finish).toBeDefined();
   expect(href).toBe('#/settings/executors');
   finish!();
-  expect(saved.has(key)).toBe(false);
+  expect(workspaceManager.has(scope,`draft:${key}`)).toBe(false);
   const html=render(<AddExecutor/>);
   expect(html).toContain('Which agent?');
   expect(html).not.toContain('is ready');
  } finally {
   options.vnode=oldVNode;
+  workspaceManager.clearIdentity('pending');
   if(oldStorage)Object.defineProperty(globalThis,'sessionStorage',oldStorage);else Reflect.deleteProperty(globalThis,'sessionStorage');
  }
 });

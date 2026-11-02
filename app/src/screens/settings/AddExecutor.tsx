@@ -122,9 +122,9 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
               // The OpenCode account and its executor are created together; step 4 then runs the test task as the check.
               ? <OpencodeSetup onUseUrl={() => setUrlForm(true)} onCreated={account => { patch({ account, createdId: `opencode#${account}`, step: "4" }); accounts.reload(); }} />
               : <>{draft.agent === "opencode" && <p><Button variant="quiet" size="sm" onClick={() => setUrlForm(false)}>Back to providers</Button></p>}
-                <div className="u3-actions"><Button size="sm" onClick={() => setAddingAccount(value => !value)} aria-expanded={addingAccount}>Sign in to another account</Button><Button size="sm" onClick={() => void action.run("account.signin",{interactive:"account-add-orca"})}>Link an Orca account</Button></div>{addingAccount && <WizardAccount agent={draft.agent} onCreated={account => { patch({ account }); accounts.reload(); setAddingAccount(false); }} />}</>}
+                <div className="u3-actions"><Button size="sm" onClick={() => setAddingAccount(value => !value)} aria-expanded={addingAccount}>Sign in to another account</Button><Button size="sm" onClick={() => void action.run("account.signin",{interactive:"account-add-orca"})} disabled={!!action.unavailable}>Link an Orca account</Button></div>{addingAccount && <WizardAccount agent={draft.agent} onCreated={account => { patch({ account }); accounts.reload(); setAddingAccount(false); }} />}</>}
             {draft.account && accountNeedsSignIn(accounts.data?.find(a => a.name === draft.account) ?? { kind: "endpoint" }) &&
-              <Button disabled={action.busy} onClick={() => void action.run("account.signin", { name: draft.account })}>Sign in to {draft.account}</Button>}
+              <Button disabled={!!action.unavailable || (action.busy)} onClick={() => void action.run("account.signin", { name: draft.account })}>Sign in to {draft.account}</Button>}
           </>}
         </>}
         {step === 3 && <>
@@ -155,7 +155,7 @@ export function AddExecutor({ host: prefillHost = "", initialDraft = {}, initial
           {job ? <CheckList unboxed label="Test task" items={job.steps.map(s => ({ id: s.name, label: settingsText(s.name), state: s.state, note: s.detail ? settingsText(s.detail) : undefined }))} /> : <p className="u3-muted">Creates a scratch worktree, asks the agent for a small change, then checks the result.</p>}
           {job?.error && <p role="alert">{job.error.message}{job.error.hint && ` · ${job.error.hint}`}</p>}
           {ready && <p role="status"><strong>{executorLabel(draft.createdId)} is ready.</strong> Test task passed.</p>}
-          {!ready && <div className="u3-actions"><Button variant="primary" busy={action.busy || job?.state === "running"} onClick={() => void finish()}>{job?.state === "running" ? "Running test task…" : locked ? job ? "Run test task again" : "Run test task" : "Add agent and run test task"}</Button></div>}
+          {!ready && <div className="u3-actions"><Button variant="primary" busy={action.busy || job?.state === "running"} onClick={() => void finish()} disabled={!!action.unavailable}>{job?.state === "running" ? "Running test task…" : locked ? job ? "Run test task again" : "Run test task" : "Add agent and run test task"}</Button></div>}
           </div>
         </>}
         {resumeError && <p role="status">{resumeError}</p>}
@@ -355,7 +355,7 @@ function WizardAccount({
               )}
             </>
           )}
-          <Button type="submit" disabled={action.busy}>
+          <Button type="submit" disabled={!!action.unavailable || (action.busy)}>
             Create account
           </Button>
         </form>
@@ -364,7 +364,7 @@ function WizardAccount({
       )}
       {native && (
         <Button
-          disabled={action.busy}
+          disabled={!!action.unavailable || (action.busy)}
           onClick={() =>
             void action.run("account.signin", {
               interactive: "account-add-orca",

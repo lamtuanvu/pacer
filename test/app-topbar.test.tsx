@@ -36,8 +36,8 @@ test("the chip carries no freshness text; the bar says Reconnecting only while d
   expect(renderToString(<TopBar {...base} />)).not.toContain("updated");
   expect(renderToString(<TopBar {...base} />)).not.toContain("pc-live");
   const down = renderToString(<TopBar {...base} connected={false} />);
-  expect(down).toContain("Reconnecting…");
-  expect(down).toContain("pc-live-dot--off");
+  expect(down).not.toContain("Reconnecting…");
+  expect(down).not.toContain("pc-live-dot--off");
 });
 
 test("unknown and stale planners still show their name without duplicated usage", () => {

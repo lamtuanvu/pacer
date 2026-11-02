@@ -1,3 +1,4 @@
+import { useWorkspaceKey, useWorkspaceState } from '../../workspace/state';
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -26,7 +27,7 @@ const change = (now: number, before: number, up: "good" | "warn", unit = ""): { 
 
 
 export function Insights({ query }: { query: RouteQuery }) {
-  const [period, setPeriod] = useState<PeriodKey>("7d");
+  const [period, setPeriod] = useWorkspaceState<PeriodKey>(useWorkspaceKey(), "period", "7d");
   const now = Date.now();
   const range = useMemo(() => periodRange(period, now), [period]);
   const chart = useMemo(() => chartRange(now), []);

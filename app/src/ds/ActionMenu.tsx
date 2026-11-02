@@ -1,4 +1,5 @@
-import { useLayoutEffect, useId, useRef, useState } from "preact/hooks";
+import { useUniqueId as useId } from './useUniqueId';
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Icon } from "./icons";
 import { Button, IconButton } from "./Button";
 import styles from "./action-menu.css" with { type: "text" };

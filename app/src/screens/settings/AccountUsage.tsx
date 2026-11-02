@@ -50,7 +50,7 @@ export function AccountUsage({account,reload,sourceError}:{account:Account;reloa
   return <Stack space="compact">
     {dialogs.dialog}
     {capability.action==="unsupported"||capability.action==="unmetered"?<span className="u3-muted">{capability.description}</span>:<>
-      <Button size="sm" variant="quiet" busy={action.busy||running} disabled={action.busy||running||!state.connected} onClick={()=>void check()}>Check usage<span className="sr-only"> for {account.name}</span></Button>
+      <Button size="sm" variant="quiet" busy={action.busy||running} disabled={!!action.unavailable || (action.busy||running||!state.connected)} onClick={()=>void check()}>Check usage<span className="sr-only"> for {account.name}</span></Button>
       {!state.connected&&<span className="u3-muted">Reconnecting. Check usage when the service reconnects.</span>}
       <span role="status" aria-live="polite" aria-atomic="true" className="u3-muted">{status}</span>
     </>}

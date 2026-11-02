@@ -1,4 +1,5 @@
-import { useEffect, useId, useState } from "preact/hooks";
+import { useUniqueId as useId } from '../../ds/useUniqueId';
+import { useEffect, useState } from "preact/hooks";
 import { IconButton } from "../../ds/Button";
 import { SubtaskToggle } from "../../ds/SubtaskToggle";
 import { AgentMark } from "../../ds/AgentMark";
@@ -25,8 +26,8 @@ function SessionNode({ node, selectedId, query, nested = false }: { node: TaskNo
  </div>;
 }
 export function TaskNavigator({selectedId,nodes,query=''}: { selectedId: string; nodes: TaskNodeView[]; query?: string }) {
- const panel = useFrame()?.sessions;
- return <nav className="pc-task-nav" aria-label="Task navigator"><div className="pc-task-nav__head"><strong>Sessions</strong>{panel && <IconButton id="pc-side-panel-left-toggle" size="sm" variant="quiet" icon="panel-left" aria-label="Hide Sessions" title="Hide Sessions" aria-expanded={panel.open} aria-controls="pc-side-panel-left" onClick={panel.toggle}/>}</div><div className="pc-task-nav__scroll">
+ const panel = useFrame()?.sessions, toggleId=useId();
+ return <nav className="pc-task-nav" aria-label="Task navigator"><div className="pc-task-nav__head"><strong>Sessions</strong>{panel && <IconButton id={toggleId} size="sm" variant="quiet" icon="panel-left" aria-label="Hide Sessions" title="Hide Sessions" aria-expanded={panel.open} aria-controls="pc-side-panel-left" onClick={panel.toggle}/>}</div><div data-scroll-id="task-navigator" className="pc-task-nav__scroll">
   {nodes.map(node => <SessionNode key={node.id} node={node} selectedId={selectedId} query={query}/>)}
  </div></nav>;
 }

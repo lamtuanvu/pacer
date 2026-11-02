@@ -20,6 +20,7 @@ import type { ResultPageProps } from "./LazyResultPage";
 
 export interface WorkResult { nodes: { taskId: string; parentId: string | null; review: {accepted: boolean} | null; waivedChildren: string[]; retryEligibility?: {allowed: boolean; reason?: string} }[] }
 export function useResultAction() {
+  useTaskContext();
   const runner = useActions(), inFlight = useRef(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   async function run(op: string, params: Record<string, unknown>, done: (result: unknown) => void | Promise<void>) {
@@ -33,7 +34,7 @@ export function useResultAction() {
     } catch (error) { setError(error); }
     finally { inFlight.current = false; setBusy(false); }
   }
-  return {run, busy, error};
+  return {run, busy, error, unavailable: runner?.unavailable()};
 }
 export const tokenCount = (total: number | null | undefined) => total == null ? "Unknown tokens" : `${Intl.NumberFormat("en", {notation: "compact", maximumFractionDigits: 1}).format(total)} tokens`;
 export function ResultHeader({task, query, failure, actions, requesting, subtasks}: {task: TaskDetail; query: RouteQuery; failure?: boolean; actions?: ComponentChildren; requesting?: boolean; subtasks?: number}) {

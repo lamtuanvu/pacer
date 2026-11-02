@@ -1,3 +1,4 @@
+import { useWorkspaceKey, useWorkspaceState, useViewActive } from '../../workspace/state';
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from '../../../../src/core/task-detail';
@@ -27,7 +28,9 @@ import { messageQuestion } from '../../model/task-answer';
 /** A task's session: the terminal in the page, its facts and End session in the title bar, Changes and Details in the right panel. */
 export function SessionRoute({id, result, work, tab}:{id:string; result?:ComponentChildren; work?:ComponentChildren; tab?:SessionPanelTab}) {
  const {state,api}=useTaskContext(),runner=useActions(),frame=useFrame();
- const [panelTab,setPanelTab]=useState<SessionPanelTab>(tab??'details');
+ const [panelTab,setPanelTab]=useWorkspaceState<SessionPanelTab>(useWorkspaceKey(id),'rightTab',tab??'details');
+ const visible=useViewActive();
+ useEffect(()=>{if(visible&&tab)setPanelTab(tab);},[visible,tab]);
  const dialogs=useDialogs();
  const [shortcutError,setShortcutError]=useState('');
  const [endBusy,setEndBusy]=useState(false);
@@ -47,13 +50,14 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
   finally{if(!abort.signal.aborted){setTakeoverBusy(false);setTakeoverStarting(false);takeoverAbort.current=undefined;}}
  };
  useEffect(()=>{
+  if(!visible)return;
   const pending=new URLSearchParams(location.hash.split('?')[1]).get('takeover');
   if(pending==='starting'||pending==='driving'){
    history.replaceState(null,'',location.href.replace(/([?&])takeover=(starting|driving)(&?)/,(_,before,_state,after)=>after?before:''));
    void takeOver(pending);
   }
   return ()=>{takeoverAbort.current?.abort();};
- },[id]);
+ },[id,visible]);
  const invoke=async(action:Action)=>{
   const confirmation=runner.needsConfirm(action);
   if(confirmation&&!await dialogs.confirm(confirmation,action.label,action.label))return;
@@ -77,7 +81,7 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
  retryOptions:task.data.retryOptions.map(option=>({id:option.id,agent:markAgent(option.id),label:option.id,available:option.state==='ready',reason:reasonCopy(option.reason),action:actions.find(a=>a.op==='task.retry'&&a.params.executor===option.id)??{label:active?'Stop and retry':'Retry',op:'task.retry',params:{id,executor:option.id,expect_rev:task.data!.rev},confirm:active?`Stop and retry on ${option.id}?`:undefined}})),
  changes:{data:diff.data?sessionChangeText(diff.data):undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
- useEffect(()=>stop?keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}):undefined,[!!stop]);
+ useEffect(()=>visible&&stop?keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}):undefined,[!!stop,visible]);
  const openPanel=(tab:SessionPanelTab)=>{setPanelTab(tab);if(frame?.details&&!frame.details.open)frame.details.toggle();};
  const t=task.data,unsettled=!!t&&!active&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy;
  // One next step per state, in the panel that holds it; a closed panel must not hide it (UI-13, UI-14).

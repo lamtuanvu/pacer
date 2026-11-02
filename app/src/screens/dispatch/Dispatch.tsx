@@ -1,3 +1,4 @@
+import { useWorkspaceKey, useWorkspaceState } from '../../workspace/state';
 import { LazyWorkPanels } from "../../shell/panels/LazyWorkPanels";
 import styles from "./dispatch.css" with { type: "text" };
 import type { ComponentChildren } from "preact";
@@ -318,7 +319,7 @@ export function EmptyDispatch({ query, sampleTask }: { query: RouteQuery; sample
 export function SampleTask({ query }: { query: RouteQuery }) {
   const action = useAction();
   const { state } = useTaskContext();
-  return <><Button size="sm" disabled={!state.connected} title={!state.connected ? "pacer is offline" : undefined} busy={action.busy} onClick={() => void action.run<{ task_id: string }>("onboarding.try", {}, result => { location.hash = withQuery(`#/workspace?task=${encodeURIComponent(result.task_id)}`, query); })}>Try a sample task</Button><ErrorMessage error={action.error} />{action.message && <span role="status">{action.message}</span>}</>;
+  return <><Button size="sm" disabled={!state.connected} title={!state.connected ? "pacer is offline" : undefined} busy={action.busy} onClick={() => void action.run<{ task_id: string }>("onboarding.try", {}, result => { location.hash = withQuery(`#/workspace?task=${encodeURIComponent(result.task_id)}`, query); })}>Try a sample task</Button>{action.unavailable&&<span className="muted">{action.unavailable}</span>}<ErrorMessage error={action.error} />{action.message && <span role="status">{action.message}</span>}</>;
 }
 function FirstRunData({ snapshot, query }: { snapshot: ClientSnapshot; query: RouteQuery }) {
   const { state } = useTaskContext();
@@ -495,7 +496,7 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const { checklist } = useContext(SetupContext);
   const runner = useActions();
   useAttentionKeys(query);
-  const [period, setPeriod] = useState<Period>("7d");
+  const [period, setPeriod] = useWorkspaceState<Period>(useWorkspaceKey(), "period", "7d");
   const supported = state.features.ops.has("routing.route"), scope = dispatchScope(query, useNarrow(query));
   // The explanation needs a repository and a goal; new work has no goal yet, so it asks about a generic one.
   const repo = explainRepo(scope.repo, state.snapshot?.repos);

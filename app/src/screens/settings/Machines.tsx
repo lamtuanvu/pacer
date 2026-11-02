@@ -200,7 +200,7 @@ function ThisMachine({ initialData }: { initialData?: ConfigData }) {
     {(dirty || conflict) && <div className="u3-save-bar">
       <div className="u3-actions">
         <Button disabled={!(dirty || conflict) || action.busy} onClick={reset}>Discard</Button>
-        <Button ref={saveButton} variant="primary" busy={action.busy} disabled={!dirty || conflict || action.busy || !!capError || !!loadError} onClick={() => void save()}>Save changes</Button>
+        <Button ref={saveButton} variant="primary" busy={action.busy} disabled={!!action.unavailable || (!dirty || conflict || action.busy || !!capError || !!loadError)} onClick={() => void save()}>Save changes</Button>
       </div>
     </div>}
     <ErrorMessage error={readError} />
@@ -245,7 +245,7 @@ export function AddHost({ initialAliases }: { initialAliases?: (string | { name:
       <TextInput className="u3-host-name" value={name} required pattern="[a-z0-9][a-z0-9-]*" disabled={!!added || !ssh} aria-invalid={!!ssh && !!problem} onInput={e => setName(e.currentTarget.value)} />
       <span className="u3-muted">Lower-case letters, digits, hyphens.</span></div></Field>
     <div className="u3-heading"><strong>3 · Check it</strong>
-      {!passed && <Button size="sm" variant="primary" busy={add.busy || check.busy} disabled={!!problem || !state.connected} onClick={() => void connect()}>{added ? "Check again" : "Connect and check"}</Button>}{added && (check.error || job?.state === "failed") && <TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(added)}`)}>Manage {added}</TextAction>}</div>
+      {!passed && <Button size="sm" variant="primary" busy={add.busy || check.busy} disabled={!!add.unavailable || (!!problem || !state.connected)} onClick={() => void connect()}>{added ? "Check again" : "Connect and check"}</Button>}{added && (check.error || job?.state === "failed") && <TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(added)}`)}>Manage {added}</TextAction>}</div>
     {!state.connected && <p className="u3-muted">Reconnecting. Connect and check will be available when the service reconnects.</p>}
     {problem && ssh && !added && <p className="u3-muted">{problem}</p>}
     {job && <CheckList label={`Checks for ${added}`} items={checkItems(job)} />}
