@@ -13,7 +13,7 @@ test("CI keeps production and test-enabled front doors separate for native dispa
   const steps = load("ci.yml").jobs.test!.steps;
   const build = steps.find(step => step.name === "Build production and native dispatch test front doors");
   expect(build).toBeDefined();
-  expect(build!.if).toBe("${{ needs.changes.outputs.bun == 'true' }}");
+  expect(build!.if).toBe("${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}");
   expect(steps.indexOf(build!)).toBeLessThan(steps.findIndex(step => step.name === "Test"));
   const lines = build!.run!.trim().split("\n").map(line => line.trim());
   expect(lines.filter(line => line.startsWith("cargo build --locked -p pacer"))).toEqual([
@@ -143,30 +143,23 @@ for (const mismatch of ["tree", "merge", "base", "branch"]) {
   });
 }
 
-test("Release verify prebuilds Rust fixtures before the test timeout starts", () => {
-  const steps = load("release.yml").jobs.verify!.steps;
-  const build = steps.findIndex(s => s.run === "cargo build --locked -p pacer-fixtures --bin pacer-fixture");
+test("Each M1 build prebuilds and supplies the SQLite proof binary", () => {
+  const steps = load("release.yml").jobs.build!.steps;
+  const build = steps.findIndex(s => s.run === "cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof");
+  const gate = steps.findIndex(s => s.run?.includes("bun run gate:m1 --release-dir"));
   expect(build).toBeGreaterThan(-1);
-  expect(build).toBeLessThan(steps.findIndex(s => s.run === "bun run test"));
+  expect(gate).toBeGreaterThan(build);
+  expect(steps[gate]!.env?.PACER_SQLITE_PROOF_BIN).toBe("${{ github.workspace }}/target/debug/pacer-sqlite-proof");
 });
 
-test("Release verify and each M1 build prebuild and supply the SQLite proof binary", () => {
-  const release = load("release.yml");
-  const proofBuild = "cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof";
-  const proofPath = "${{ github.workspace }}/target/debug/pacer-sqlite-proof";
-  for (const [jobName, invocation] of [
-    ["verify", "bun run test"],
-    ["build", "bun run gate:m1 --release-dir"],
-  ]) {
-    const steps = release.jobs[jobName]!.steps;
-    const build = steps.findIndex(s => s.run === proofBuild);
-    const testStep = steps.findIndex(s => s.run?.includes(invocation));
-    expect(build).toBeGreaterThan(-1);
-    expect(testStep).toBeGreaterThan(build);
-    expect(steps[testStep]!.env?.PACER_SQLITE_PROOF_BIN).toBe(proofPath);
-  }
+test("Each M1 build prebuilds and supplies the task store probe binary", () => {
+  const steps = load("release.yml").jobs.build!.steps;
+  const build = steps.findIndex(s => s.run === "cargo build --locked -p pacer-store --bin task_store_probe");
+  const gate = steps.findIndex(s => s.run?.includes("bun run gate:m1 --release-dir"));
+  expect(build).toBeGreaterThan(-1);
+  expect(gate).toBeGreaterThan(build);
+  expect(steps[gate]!.env?.PACER_STORE_PROBE_BIN).toBe("${{ github.workspace }}/target/debug/task_store_probe");
 });
-
 
 test("Release tag accepts a squash commit with the tested tree", () => {
   const subject = "chore: release 0.5.0 (#220)";
