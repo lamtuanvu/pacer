@@ -1,6 +1,6 @@
 //! Additional execution validation performed by config's effective-value read.
 use crate::settings::SettingsError;
-use serde_json::Value;
+use crate::yaml_value::Value;
 
 pub(crate) fn validate(raw: &Value) -> Result<(), SettingsError> {
     const KEYS: &[&str] = &[
@@ -32,7 +32,7 @@ pub(crate) fn validate(raw: &Value) -> Result<(), SettingsError> {
     let backend = raw
         .get("backend")
         .filter(|v| !v.is_null())
-        .map(super::settings::js_string)
+        .map(Value::string)
         .unwrap_or("auto".into());
     if !["auto", "orca", "direct"].contains(&backend.as_str()) {
         problems.push(format!(
@@ -43,7 +43,7 @@ pub(crate) fn validate(raw: &Value) -> Result<(), SettingsError> {
     let worktree = raw
         .get("worktree")
         .filter(|v| !v.is_null())
-        .map(super::settings::js_string)
+        .map(Value::string)
         .unwrap_or(
             if base.is_some() {
                 "new-child"

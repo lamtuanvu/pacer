@@ -1,3 +1,4 @@
+import {exerciseNativeConfig} from "./native-config";
 import { exerciseSettings } from './settings';
 import { exercisePublication } from './publication';
 import { exerciseIntegrations } from "./integrations";
@@ -36,6 +37,7 @@ const usage = `usage: bun run live <command> [--id <id>]
   integrations --id <id>          exercise fixed private integration refresh fixtures
   updater --id <id>               exercise fixed disposable CLI updater fixtures (ui-seeded sandbox)
   repair --id <id>                exercise fixed disposable core self-repair fixtures (ui-seeded sandbox)
+  native-config --id <id>         exercise fixed native/forwarded config writes over stdio and HTTP
   native-stdio --id <id>          exercise fixed protocol-3 stdio exchange in a native test-ops sandbox
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
@@ -169,6 +171,11 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live repair --id <id>");
     await exerciseRepair(loadSession(id));
 
+    return 0;
+  }
+  if (command === "native-config") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live native-config --id <id>");
+    await exerciseNativeConfig(loadSession(id));
     return 0;
   }
   if (command === "native-stdio") {
