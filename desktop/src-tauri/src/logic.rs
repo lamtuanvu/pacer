@@ -824,6 +824,15 @@ impl Lifecycle {
         *self = Self::default();
     }
 }
+/// A gateway outage is a disconnect once this desktop has used the service.
+/// Before first connection, preserve the startup diagnosis of an unexpected responder.
+pub fn health_response_for_connection(status: u16, value: &Value, previously_connected: bool) -> HealthProbe {
+    if previously_connected && (500..600).contains(&status) {
+        HealthProbe::NoAnswer
+    } else {
+        health_response(status, value)
+    }
+}
 pub fn health_response(status: u16, value: &Value) -> HealthProbe {
     match status {
         200 => health_probe(value),
@@ -1087,6 +1096,13 @@ pub fn session_error(status: Option<u16>) -> &'static str {
         "sessionExpired"
     } else {
         "stopped"
+    }
+}
+pub fn recovery_status(state: &str) -> &'static str {
+    if matches!(state, "oldService" | "outdatedService" | "unverifiedService" | "oldApp" | "protocol") {
+        "incompatible"
+    } else {
+        "reconnecting"
     }
 }
 pub fn recovery_page(error: &str) -> &'static str {
@@ -2457,6 +2473,30 @@ mod tests {
             assert_eq!(snapshot_seq(1000000000002, &snapshot, false), 1000000000002);
         }
         assert!(volume_waiting(&json!({"protocol":"3.0.0","snapshot":{"service":{}}})).is_none());
+    }
+    #[test]
+    fn gateway_health_failure_after_connection_is_reconnecting() {
+        for status in [500, 502, 503, 504] {
+            for body in ["<html>Bad Gateway</html>", "", r#"{"error":"gateway"}"#] {
+                let value = serde_json::from_str(body).unwrap_or(Value::Null);
+                let probe = health_response_for_connection(status, &value, true);
+                assert_eq!(probe, HealthProbe::NoAnswer);
+                let action = Lifecycle::default().step(0, probe, JobState::Unknown, false);
+                assert_eq!(action, RecoveryAction::Wait);
+                let page = shell_page(false, action, probe, JobState::Unknown, true, true);
+                assert_eq!(recovery_status(page), "reconnecting");
+            }
+        }
+    }
+    #[test]
+    fn gateway_health_before_first_connection_keeps_startup_classification() {
+        assert_eq!(health_response_for_connection(502, &Value::Null, false), HealthProbe::Invalid);
+        assert_eq!(Lifecycle::default().step(0, HealthProbe::Invalid, JobState::Unknown, false), RecoveryAction::Protocol);
+        assert_eq!(health_response_for_connection(503, &Value::Null, false), HealthProbe::NoAnswer);
+        assert_eq!(health_response_for_connection(200, &Value::Null, true), HealthProbe::Invalid);
+        for reason in ["protocol", "oldApp", "oldService", "unverifiedService"] {
+            assert_eq!(recovery_status(reason), "incompatible");
+        }
     }
     #[test]
     fn protocol_major_only() {

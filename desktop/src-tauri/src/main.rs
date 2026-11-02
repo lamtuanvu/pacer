@@ -802,7 +802,7 @@ fn recovery(app: &AppHandle, state: &str) {
     if changed {
         desktop_log!("pacer lifecycle: showing the {state} page");
     }
-    app.state::<ipc_transport::Bridge>().status(serde_json::json!({"type":"status","status": if matches!(state,"oldService"|"outdatedService"|"unverifiedService"|"oldApp"|"protocol") {"incompatible"} else {"reconnecting"},"reason":state}));
+    app.state::<ipc_transport::Bridge>().status(serde_json::json!({"type":"status","status": logic::recovery_status(state),"reason":state}));
     render_diagnosis(app);
     render_takeover(app);
     let title = match state {

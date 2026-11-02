@@ -558,7 +558,13 @@ impl Session {
             .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?
             .json()
             .await
-            .map_err(|_| "Invalid service response".into())
+            .map_err(|error| {
+                if error.is_decode() {
+                    if path == "/v3/hello" { "protocol" } else { "Invalid service response" }
+                } else {
+                    "stopped"
+                }.into()
+            })
     }
 }
 
@@ -978,7 +984,7 @@ async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> 
     app.state::<Shell>().update_transaction.store(false, Ordering::SeqCst);
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let probe = health(client).await;
+        let probe = health(client, true).await;
         let shell = app.state::<Shell>();
         let transaction = shell.update_transaction.load(Ordering::SeqCst)
             || shell.adoption.lock().unwrap().is_some();
@@ -1625,6 +1631,8 @@ pub async fn run(app: AppHandle) {
     let mut attempts = logic::Reconnect::default();
     let mut previous = String::new();
     let mut first_run = FirstRun::default();
+    // Keep connection history after recovery clears the current session.
+    let mut previously_connected = false;
     loop {
         let waiting_for_service_choice = logic::waiting_for_choice(
             app.state::<Shell>().diagnosis.lock().unwrap().as_ref().map(|d| d.page),
@@ -1643,7 +1651,7 @@ pub async fn run(app: AppHandle) {
         if app.state::<Shell>().retry.swap(false, Ordering::SeqCst) {
             path = Cli::login_path().await;
         }
-        let probe = health(&probe_client).await;
+        let probe = health(&probe_client, previously_connected).await;
         // Preserve ownership for sustained failed probes, including stale heartbeats.
         let (job, owner) = if matches!(
             probe,
@@ -1790,6 +1798,7 @@ pub async fn run(app: AppHandle) {
                         result = connected(&app, &cli, &mut first_run) => result,
                         result = monitor_health(&app, &probe_client) => result,
                     };
+                    previously_connected |= app.state::<Shell>().session.lock().unwrap().is_some();
                     if let Err(error) = result {
                         if matches!(error.as_str(), "outdatedService" | "unverifiedService" | "takeover") {
                             desktop_log!("pacer lifecycle: live service release needs user review; waiting for choice");
@@ -1836,6 +1845,62 @@ pub async fn run(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn health_gateway_http_bodies_respect_connection_history() {
+        use std::io::{Read, Write};
+        for (status, body, prior, expected) in [
+            (502, "<html>Bad Gateway</html>", true, crate::logic::HealthProbe::NoAnswer),
+            (502, "", true, crate::logic::HealthProbe::NoAnswer),
+            (502, "<html>Bad Gateway</html>", false, crate::logic::HealthProbe::Invalid),
+            (502, "", false, crate::logic::HealthProbe::Invalid),
+            (200, "<html>bad hello</html>", true, crate::logic::HealthProbe::Invalid),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = std::thread::spawn(move || {
+                // The lifecycle checks the TCP listener before requesting /health.
+                drop(listener.accept().unwrap());
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 4096];
+                stream.read(&mut request).unwrap();
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            });
+            let client = reqwest::Client::builder().no_proxy().build().unwrap();
+            let probe = super::health_on_port(&client, port, prior).await;
+            server.join().unwrap();
+            assert_eq!(probe, expected, "HTTP {status}, {body:?}, prior={prior}");
+        }
+    }
+    #[tokio::test]
+    async fn hello_http_failures_and_malformed_success_are_distinct() {
+        use std::io::{Read, Write};
+        for (status, body, expected) in [
+            (502, "<html>Bad Gateway</html>", "stopped"),
+            (502, "", "stopped"),
+            (200, "<html>Bad Gateway</html>", "protocol"),
+            (200, "", "protocol"),
+            (200, "{}", "protocol"),
+            (200, r#"{"protocol":"4.0.0"}"#, "oldApp"),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 4096];
+                stream.read(&mut request).unwrap();
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            });
+            let session = super::Session::for_capture_test(reqwest::Client::builder().no_proxy().build().unwrap(), origin);
+            let result = match session.json("/v3/hello").await {
+                Ok(hello) => crate::logic::check_hello(&hello).map_err(str::to_owned),
+                Err(error) => Err(error),
+            };
+            server.join().unwrap();
+            assert_eq!(result, Err(expected.to_owned()), "HTTP {status}, {body:?}");
+            let page = crate::logic::recovery_page(expected);
+            assert_eq!(crate::logic::recovery_status(page), if expected == "stopped" { "reconnecting" } else { "incompatible" });
+        }
+    }
     #[test]
     fn cancelled_native_connect_closes_its_late_result() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -2399,9 +2464,11 @@ fn service_port() -> u16 {
         .and_then(|s| s.parse().ok())
         .unwrap_or(4317)
 }
-async fn health(client: &Client) -> logic::HealthProbe {
+async fn health(client: &Client, previously_connected: bool) -> logic::HealthProbe {
+    health_on_port(client, service_port(), previously_connected).await
+}
+async fn health_on_port(client: &Client, port: u16, previously_connected: bool) -> logic::HealthProbe {
     use logic::HealthProbe;
-    let port = service_port();
     match tokio::time::timeout(
         Duration::from_secs(2),
         tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)),
@@ -2421,10 +2488,12 @@ async fn health(client: &Client) -> logic::HealthProbe {
             .send()
             .await?;
         let status = response.status().as_u16();
-        if status == 503 {
-            return Ok(logic::health_response(status, &Value::Null));
+        // Classify failed HTTP responses before decoding: gateways may return HTML
+        // or no body. Only successful malformed responses indicate a protocol error.
+        if status != 200 {
+            return Ok(logic::health_response_for_connection(status, &Value::Null, previously_connected));
         }
-        response.json::<Value>().await.map(|value| logic::health_response(status, &value))
+        response.json::<Value>().await.map(|value| logic::health_response_for_connection(status, &value, previously_connected))
     })
     .await
     {
