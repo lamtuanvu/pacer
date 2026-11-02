@@ -1,9 +1,10 @@
 //! Task-scoped critical sections shared with the TypeScript host's task lock.
-use crate::{StoreError, TaskStore};
+use crate::{StoreError, TaskEdit, TaskStore};
 use pacer_foundation::{
     Ctx,
     lock::{LockOptions, with_lock},
 };
+use pacer_js_json::WireReply;
 use serde_json::Value;
 /// Only constructed while the shared task lock is held. Do not retain it across await.
 pub struct LockedTask<'a> {
@@ -11,6 +12,16 @@ pub struct LockedTask<'a> {
     id: &'a str,
 }
 impl LockedTask<'_> {
+    /// Edit exact task text under this already-held task lock and the store's
+    /// revision transaction. The returned reply is lossless.
+    pub fn edit(
+        &mut self,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&mut TaskEdit) -> Result<(), StoreError>,
+    ) -> Result<WireReply, StoreError> {
+        self.store.edit_locked(self.id, expected_rev, now, mutate)
+    }
     pub fn read(&mut self) -> Result<Value, StoreError> {
         self.store
             .read(self.id)?
