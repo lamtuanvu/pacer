@@ -6,7 +6,11 @@ pub mod discovery;
 #[path = "discovery_tests.rs"]
 mod discovery_tests;
 pub mod heartbeat;
+mod js_trim;
 mod log_sse;
+#[cfg(test)]
+#[path = "log_sse_tests.rs"]
+mod log_sse_tests;
 #[cfg(target_os = "macos")]
 mod native_bootstrap;
 #[cfg(target_os = "macos")]
@@ -193,9 +197,9 @@ pub async fn run_serve(
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
     let registry = registry(if scoped_work { "*" } else { forward });
-    let forward_log_follow = forward
-        .split(',')
-        .any(|name| name.trim() == "*" || name.trim() == "http.task_log_follow");
+    let forward_log_follow = forward.split(',').any(|name| {
+        js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.task_log_follow"
+    });
     let token = auth::ensure_token(&ctx)?;
     // Requests clone the context; the listener needs only the pacer home.
     ctx.env.clear();

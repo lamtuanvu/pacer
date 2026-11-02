@@ -1,6 +1,6 @@
 //! The v3 task-log follow stream. The persisted task store remains shared with the core.
 #![allow(clippy::result_large_err)]
-use super::native_error;
+use super::{js_trim::js_trim, native_error};
 use axum::{
     body::{Body, Bytes},
     http::{HeaderValue, StatusCode},
@@ -39,9 +39,7 @@ fn log_frame(stdout: &str, stderr: &str) -> String {
     )
 }
 fn finite_js_number(text: &str) -> bool {
-    let text = text.trim_matches(|c: char| {
-        matches!(c, '\t'..='\r' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
-    });
+    let text = js_trim(text);
     if text.is_empty() {
         return false;
     }
@@ -116,7 +114,7 @@ fn read_chunk(ctx: &Ctx, id: &str, offsets: &mut Offsets) -> Result<Chunk, CoreE
     let exited = run_dir.is_some_and(|dir| {
         std::fs::read_to_string(Path::new(dir).join("exit"))
             .ok()
-            .map(|text| text.trim().to_owned())
+            .map(|text| js_trim(&text).to_owned())
             .is_some_and(|text| finite_js_number(&text))
     });
     Ok(Chunk {
@@ -304,6 +302,61 @@ mod tests {
         let expected: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
         let actual: Vec<bool> = VALUES.iter().map(|value| finite_js_number(value)).collect();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn exit_receipt_trim_matches_javascript() {
+        const VALUES: &[&str] = &[
+            "\u{0085} 2",
+            "\u{feff} 2",
+            "\u{2028}2\u{2029}",
+            "\u{00a0}2",
+            "\u{1680}2",
+            "\u{2000}2",
+            "\u{2001}2",
+            "\u{2002}2",
+            "\u{2003}2",
+            "\u{2004}2",
+            "\u{2005}2",
+            "\u{2006}2",
+            "\u{2007}2",
+            "\u{2008}2",
+            "\u{2009}2",
+            "\u{200a}2",
+            "\u{202f}2",
+            "\u{205f}2",
+            "\u{3000}2",
+            "\t2\n",
+        ];
+        let input = serde_json::to_string(VALUES).unwrap();
+        let code = format!(
+            "console.log(JSON.stringify({input}.map(s => {{ const t=s.trim(); return t!=='' && Number.isFinite(Number(t)); }})))"
+        );
+        let output = std::process::Command::new("bun")
+            .args(["-e", &code])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let expected: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let run = home.path().join("run");
+        std::fs::create_dir(&run).unwrap();
+        let mut store = TaskStore::open(home.path()).unwrap();
+        store.insert(&json!({"id":ID,"rev":1,"state":"running","createdAt":1000.0,"brief":{"repo":"/tmp/repo"},"attempts":[],"run":{"dir":run}}), 1000.0).unwrap();
+        let ctx = Ctx::with(
+            home.path().into(),
+            home.path().into(),
+            Default::default(),
+            1000.0,
+        );
+        for (value, expected) in VALUES.iter().zip(expected) {
+            std::fs::write(run.join("exit"), value).unwrap();
+            assert_eq!(
+                read_chunk(&ctx, ID, &mut Offsets::default()).unwrap().done,
+                expected,
+                "{value:?}"
+            );
+        }
     }
 
     #[test]

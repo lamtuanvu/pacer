@@ -1,4 +1,5 @@
 //! The non-internal startServer.fetch authentication checks, in wire order.
+use super::js_trim::js_trim;
 use axum::{
     body::Body,
     http::{HeaderValue, Request, StatusCode},
@@ -39,7 +40,7 @@ pub fn safe_equal(left: &str, right: &str) -> bool {
 pub fn ensure_token(ctx: &Ctx) -> io::Result<String> {
     let path = ctx.pacer_home.join("token");
     match fs::read_to_string(&path) {
-        Ok(token) if !token.trim().is_empty() => return Ok(token.trim().to_owned()),
+        Ok(token) if !js_trim(&token).is_empty() => return Ok(js_trim(&token).to_owned()),
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
@@ -168,7 +169,7 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
     let cookie = header("cookie")
         .unwrap_or("")
         .split(';')
-        .map(str::trim)
+        .map(js_trim)
         .find_map(|part| part.strip_prefix("pacer_session="));
     if !(app || api)
         || !cookie.is_some_and(|value| {
