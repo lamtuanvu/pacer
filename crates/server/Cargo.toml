@@ -13,6 +13,7 @@ test-ops = []
 tokio.workspace = true
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
+pacer-store = { path = "../store" }
 pacer-mdns = { path = "../mdns" }
 
 axum = { version = "0.8", features = ["ws"] }

@@ -131,12 +131,12 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
         {
             return None;
         }
-        if merged["match"]
-            .get("kind")
-            .is_some_and(|v| v.as_str().is_none_or(str::is_empty))
-            || merged["require"]
-                .get("minTier")
-                .is_some_and(|v| !matches!(v.as_str(), Some("small" | "medium" | "frontier")))
+        if merged["match"].get("kind").is_some_and(|v| {
+            v.as_str()
+                .is_none_or(|s| s.is_empty() || codepoint_len(s) > 256)
+        }) || merged["require"]
+            .get("minTier")
+            .is_some_and(|v| !matches!(v.as_str(), Some("small" | "medium" | "frontier")))
             || merged["require"]
                 .get("tools")
                 .is_some_and(|v| !v.is_boolean())

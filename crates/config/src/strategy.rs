@@ -125,7 +125,7 @@ fn duration(value: &Value) -> Option<f64> {
     }
     let text = js_trim(value.as_str()?);
     let unit = text.chars().last()?;
-    let n = decimal(js_trim(&text[..text.len() - 1]))?;
+    let n = decimal(js_trim(&text[..text.len() - unit.len_utf8()]))?;
     Some(
         n * match unit {
             's' => 1.,

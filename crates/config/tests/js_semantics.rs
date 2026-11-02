@@ -29,10 +29,20 @@ fn set_path(root: &mut Value, path: &str, value: Value) {
 
 #[test]
 fn numeric_and_string_fields_match_js_validation() {
-    let base = json!({"planner":{"agent":"codex","account":"codex"},"accounts":{"codex":{"kind":"codex"}},"hosts":{"build":{"ssh":"worker"}},"runners":{"codex":{"agent":"codex","account":"codex","models":[{"id":"provider/model"}]}},"dispatch":{"steps":[{"id":"one"}],"discovery":{"runners":["runner"]}},"messaging":{"rules":[{"effect":"allow","limits":{}}]}});
+    let base = json!({"planner":{"agent":"codex","account":"codex"},"accounts":{"codex":{"kind":"codex"},"edge":{"kind":"endpoint","usage":"metered","connection":{"api":"openai-compatible","base_url":"https://example.com/v1","key":"env:EDGE_KEY","models":[{"id":"fast","context":32000,"output":4000,"tools":true}]}}},"hosts":{"build":{"ssh":"worker"}},"runners":{"codex":{"agent":"codex","account":"codex","models":[{"id":"provider/model"}]}},"dispatch":{"steps":[{"id":"one"}],"discovery":{"runners":["runner"]}},"messaging":{"rules":[{"effect":"allow","limits":{}}]}});
     let fields = [
         "task_retention_days",
+        "accounts.edge.connection.models.0.context",
+        "accounts.edge.connection.models.0.output",
         "execution.local_max_tasks",
+        "execution.local_load_limit",
+        "accounts.codex.budget.weekly_usd",
+        "accounts.codex.budget.weekly_tokens",
+        "pacing.fill_threshold",
+        "pacing.planner_reserve",
+        "pacing.planner_reserve_headroom",
+        "dispatch.reservePct",
+        "dispatch.comfortablePct",
         "hosts.build.max_tasks",
         "runners.codex.max_tasks",
         "runners.codex.models.0.context",
@@ -69,6 +79,9 @@ fn numeric_and_string_fields_match_js_validation() {
         }
     }
     for (field, sample) in [
+        ("accounts.codex.cooldown", "1é".to_owned()),
+        ("dispatch.steps.0.match.kind", "😀".repeat(256)),
+        ("dispatch.steps.0.match.kind", "😀".repeat(257)),
         ("terminal.open", "{cmd}é".repeat(400)),
         ("terminal.open", format!("{{cmd}}{}", "😀".repeat(997))),
         ("terminal.open", format!("{{cmd}}{}", "😀".repeat(998))),
