@@ -14,7 +14,8 @@ test("M1 gate requires test operations to remain feature-gated", () => {
   }
   expect(() => validateNativeRegistry(source.replaceAll('#[cfg(feature = "test-ops")]', '#[cfg(not(feature = "test-ops"))]'))).toThrow("feature-gated native registry");
   expect(() => validateNativeRegistry(source.replace('call: echo,', 'call: echo, extra: true,'))).toThrow("feature-gated native registry");
-  expect(() => validateNativeRegistry(source.replace('name: "task.log"', 'name: "test.leaked"'))).toThrow("feature-gated native registry");
+  // New production operations need no gate edit; only the known test operations must stay gated.
+  expect(() => validateNativeRegistry(source.replace('name: "task.log"', 'name: "task.cancel"'))).not.toThrow();
   expect(() => validateNativeRegistry(source.replace('name: "test.echo"', 'name: "different.echo"'))).toThrow("coverage changed");
   expect(() => validateNativeRegistry(source.replace("static OPS:", '#[cfg(feature = "test-ops")]\nstatic OPS:'))).toThrow("feature-gated native registry");
   const alternate = source.replace("static OPS:", '#[cfg(feature = "test-ops")]\nstatic OPS:')

@@ -34,7 +34,7 @@ export function validateNativeRegistry(source: string): void {
     throw Error("Cannot verify feature-gated native registry");
   }
   const entry = /\s*(#\[cfg\(feature = "test-ops"\)\]\s*)?NativeOp\s*\{\s*name:\s*"([^"\n]+)",\s*call:\s*[A-Za-z_][A-Za-z0-9_:]*,\s*\},/y;
-  const testNames: string[] = [], productionNames: string[] = [];
+  const testNames: string[] = [];
   let position = 0;
   while (registry[1].slice(position).trim()) {
     entry.lastIndex = position;
@@ -44,11 +44,8 @@ export function validateNativeRegistry(source: string): void {
     if (!gated && (name === "test.echo" || name === "_debug.native")) {
       throw Error("Cannot verify feature-gated native registry");
     }
-    (gated ? testNames : productionNames).push(name);
+    if (gated) testNames.push(name);
     position = entry.lastIndex;
-  }
-  if (productionNames.sort().join(",") !== "activity.list,task.log") {
-    throw Error("Cannot verify feature-gated native registry");
   }
   if (testNames.sort().join(",") !== "_debug.native,test.echo") {
     throw Error("Native test operation coverage changed");
