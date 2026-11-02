@@ -57,7 +57,7 @@ export async function projectMessagingWrite(ctx: Ctx, repo: string, expectRev: n
     throw new CoreError("invalid_input", "Invalid project messaging revision or repository");
   if (value && !entrySchema.omit({ rev: true }).safeParse(value).success)
     throw new CoreError("invalid_input", "Invalid project messaging policy");
-  privateDir(ctx.pacerHome);
+  privateDir(ctx.pacerHome, ctx.pacerHome);
   return withLock(ctx, "project-messaging", async () => {
     const { data, error } = readProjectMessaging(ctx);
     if (error) throw new CoreError("invalid_input", error, "Repair project-messaging.json before changing it.");

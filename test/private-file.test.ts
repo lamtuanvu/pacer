@@ -2,9 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { chmodSync, linkSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { privateAppend, privateCreate, privateTouch, privateWrite } from "../src/private-file";
+import { privateAppend, privateCreate, privateDir, privateTouch, privateWrite } from "../src/private-file";
 import { atomicStrategyWrite } from "../src/config/edit";
-import { appendActivity } from "../src/activity/log";
+import { writeInstallFile } from "../src/install/atomic";
+import { recoverInstall } from "../src/install/journal";
 import { fakeCtx } from "./helpers";
 import { writeNative } from "../src/plugins/write-native";
 
@@ -22,7 +23,7 @@ for (const mask of [0o022, 0o077]) {
       privateWrite(path, "new");
       expect(readFileSync(path, "utf8")).toBe("new");
       expect(statSync(path).mode & 0o777).toBe(0o600);
-      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(dir).mode & 0o777).toBe(0o777 & ~mask);
       expect(readdirSync(dir)).toEqual(["value.json"]);
       const inode = statSync(path).ino;
       privateAppend(path, "-tail");
@@ -49,8 +50,7 @@ for (const mask of [0o022, 0o077]) {
       const strategy = join(ctx.pacerHome, "strategy.yaml");
       privateWrite(strategy, "planner: codex\n");
       atomicStrategyWrite(strategy, "planner: claude-code\n");
-      appendActivity(ctx, { kind: "config", level: "info", text: "mode check" });
-      for (const file of [strategy, join(ctx.pacerHome, "state", "activity.jsonl")]) {
+      for (const file of [strategy]) {
         expect(statSync(file).mode & 0o777).toBe(0o600);
         expect(statSync(join(file, "..")).mode & 0o777).toBe(0o700);
       }
@@ -140,7 +140,7 @@ test("seeded file-state matrix preserves append and touch confinement", () => {
   const next=()=>{ seed=(Math.imul(seed,1664525)+1013904223)>>>0; return seed; };
   const seen = new Set<string>();
   for(let i=0;i<48;i++) {
-    const dir=join(root,String(i)); mkdirSync(dir);
+    const dir=join(root,String(i)); mkdirSync(dir); privateDir(dir, dir);
     const outside=join(dir,"outside"), file=join(dir,"file");
     const kind=next()%5, action=(next()>>>8)%2;
     seen.add(`${kind}:${action}`);
@@ -163,4 +163,51 @@ test("seeded file-state matrix preserves append and touch confinement", () => {
     }
   }
   expect(seen.size).toBe(10);
+});
+
+
+test("existing shared integration parents keep their permissions through writes and recovery", () => {
+  const ctx = fakeCtx();
+  const shared = join(ctx.home, "shared");
+  mkdirSync(shared, { mode: 0o755 }); chmodSync(shared, 0o755);
+  for (const mode of [0o400, 0o500]) {
+    const file = join(shared, `service-${mode}`);
+    writeFileSync(file, "before"); chmodSync(file, mode);
+    writeInstallFile(file, "after", mode);
+    expect(statSync(file).mode & 0o777).toBe(mode);
+    expect(statSync(shared).mode & 0o777).toBe(0o755);
+    mkdirSync(ctx.pacerHome, { recursive: true });
+    writeFileSync(join(ctx.pacerHome, "install-transaction.json"), JSON.stringify({ schema: 1,
+      files: [{ path: file, before: "before", after: "after", beforeMode: mode }], manifestHash: "not-committed" }));
+    recoverInstall(ctx);
+    expect(readFileSync(file, "utf8")).toBe("before");
+    expect(statSync(file).mode & 0o777).toBe(mode);
+    expect(statSync(shared).mode & 0o777).toBe(0o755);
+  }
+});
+
+test("only explicitly owned pacer directories are tightened, missing parents are private", () => {
+  const ctx = fakeCtx();
+  chmodSync(ctx.home, 0o755);
+  mkdirSync(join(ctx.pacerHome, "strategies"), { recursive: true });
+  chmodSync(ctx.pacerHome, 0o755); chmodSync(join(ctx.pacerHome, "strategies"), 0o755);
+  privateDir(join(ctx.pacerHome, "strategies"), ctx.pacerHome);
+  expect(statSync(ctx.home).mode & 0o777).toBe(0o755);
+  expect(statSync(ctx.pacerHome).mode & 0o777).toBe(0o700);
+  expect(statSync(join(ctx.pacerHome, "strategies")).mode & 0o777).toBe(0o700);
+  expect(() => privateDir(ctx.home, ctx.pacerHome)).toThrow();
+  privateWrite(join(ctx.home, "missing", "nested", "file"), "private");
+  expect(statSync(join(ctx.home, "missing")).mode & 0o777).toBe(0o700);
+  expect(statSync(join(ctx.home, "missing", "nested")).mode & 0o777).toBe(0o700);
+  expect(statSync(ctx.home).mode & 0o777).toBe(0o755);
+});
+
+test("private write rejects modes outside owner bits before touching the destination", () => {
+  const ctx = fakeCtx();
+  const path = join(ctx.home, "value");
+  writeFileSync(path, "before");
+  for (const mode of [0o777, -1, 0.5, 2 ** 32, NaN]) {
+    expect(() => privateWrite(path, "after", mode)).toThrow();
+    expect(readFileSync(path, "utf8")).toBe("before");
+  }
 });

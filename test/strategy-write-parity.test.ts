@@ -129,7 +129,7 @@ test("strategy activation and removal match TS results, errors, and bytes on iso
   }
 }, 120_000);
 
-test("TS strategy activation retains its existing write behavior", () => {
+test("TS strategy activation atomically replaces the marker with private state", () => {
   for (const mask of [0o022, 0o077]) {
     const previous = process.umask(mask);
     try {
@@ -138,9 +138,9 @@ test("TS strategy activation retains its existing write behavior", () => {
       chmodSync(join(home, "active"), 0o644);
       const previousInode = statSync(join(home, "active")).ino;
       useStrategy(fakeCtx({ pacerHome: home }), "work");
-      expect(statSync(home).mode & 0o777).toBe(0o755);
-      expect(statSync(join(home, "active")).mode & 0o777).toBe(0o644);
-      expect(statSync(join(home, "active")).ino).toBe(previousInode);
+      expect(statSync(home).mode & 0o777).toBe(0o700);
+      expect(statSync(join(home, "active")).mode & 0o777).toBe(0o600);
+      expect(statSync(join(home, "active")).ino).not.toBe(previousInode);
       expect(readdirSync(home).filter(name => /^active\..*\.tmp$/.test(name))).toEqual([]);
       rmSync(home, { recursive: true, force: true });
     } finally {

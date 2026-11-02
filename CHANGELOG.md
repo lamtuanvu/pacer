@@ -6,7 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Security
 
-- Harden TypeScript strategy and project policy state, activity logs, and private integration writes with 0600 files and 0700 directories; use atomic replacement for rewritten state and validated O_APPEND for logs.
+- Harden TypeScript strategy, project policy and integration writes with atomic private-file replacement. Preserve existing shared directory permissions and integration rollback owner modes; create missing directories with 0700 and tighten only explicitly owned pacer state directories.
 
 ### Added
 

@@ -46,7 +46,7 @@ export async function writeProjectStrategy(ctx: Ctx, key: string, values: string
   if (!projectKey(key) || !Number.isSafeInteger(expectRev) || expectRev < 0 || expectRev >= Number.MAX_SAFE_INTEGER || (values !== null && !executors.safeParse(values).success)) {
     throw new CoreError("invalid_input", "Invalid project strategy", "Choose a repository and at least one distinct configured executor.");
   }
-  privateDir(ctx.pacerHome);
+  privateDir(ctx.pacerHome, ctx.pacerHome);
   return withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
     const data = readProjectStrategies(ctx), current = projectRevision(data, key);
     if (current !== expectRev) throw new CoreError("conflict", "Project strategy changed in another client", "Reload the project strategy and review your changes.", { expected: expectRev, actual: current });

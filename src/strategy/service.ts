@@ -74,7 +74,7 @@ export function save(ctx:Ctx,name:string,draft:Draft,reason:string,opts:{overwri
   const {yaml,strategy}=materialize(ctx,draft), path=join(ctx.pacerHome,"strategies",`${name}.yaml`);
   if(existsSync(path)&&!opts.overwrite) throw new Error(`strategy "${name}" already exists; use overwrite:true to replace it`);
   if(existsSync(path)&&loadStrategy(ctx).name===name&&!opts.activeOk) throw new Error(`strategy "${name}" is active; overwriting changes live routing; use activeOk:true to approve`);
-  privateDir(join(ctx.pacerHome,"strategies"));
+  privateDir(join(ctx.pacerHome,"strategies"), ctx.pacerHome);
   const who=line(opts.who??ctx.env.PACER_AGENT??ctx.env.ORCA_AGENT??"agent");
   const content=`# ${line(draft.description??summarize(strategy))}\n# created by ${who} on ${new Date(ctx.now*1000).toISOString()}: ${line(reason)}\n${yaml}`;
   if (existsSync(path) && !opts.overwrite) throw new Error(`strategy "${name}" already exists`);

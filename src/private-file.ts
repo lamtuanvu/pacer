@@ -14,19 +14,23 @@ function components(path: string): string[] {
   return absolute.split(sep).filter(Boolean);
 }
 
-function directoryFd(path: string): number {
+function directoryFd(path: string, pacerHome?: string): number {
   const native = writeNative();
   let fd = openSync(sep, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   let enteredOwnedTree = false;
   try {
     const parts = components(path);
+    const home = pacerHome === undefined ? undefined : components(pacerHome);
+    if (home && (!home.length || home.length > parts.length || home.some((part, index) => part !== parts[index])))
+      throw new Error("Refusing to tighten a directory outside PACER_HOME");
     for (let index = 0; index < parts.length; index++) {
       const part = parts[index]!;
       let next: number;
+      let created = false;
       try { next = native.openAt(fd, part, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | WRITE_CLOEXEC); }
       catch (error) {
         if (!(error instanceof NativeWriteError) || error.errno !== 2) throw error;
-        try { native.mkdirAt(fd, part, 0o700); }
+        try { native.mkdirAt(fd, part, 0o700); created = true; }
         catch (mkdirError) {
           if (!(mkdirError instanceof NativeWriteError) || mkdirError.errno !== 17) throw mkdirError;
         }
@@ -38,14 +42,14 @@ function directoryFd(path: string): number {
       if (!stat.isDirectory() || (enteredOwnedTree && !owned(stat)) || (index === parts.length - 1 && !owned(stat)))
         throw new Error(`Refusing unowned state directory: ${path}`);
       if (owned(stat)) enteredOwnedTree = true;
-      if (index === parts.length - 1 && (stat.mode & 0o777) !== 0o700) fchmodSync(fd, 0o700);
+      if ((created || (home && index >= home.length - 1)) && (stat.mode & 0o777) !== 0o700) fchmodSync(fd, 0o700);
     }
     return fd;
   } catch (error) { closeSync(fd); throw error; }
 }
 
-/** Secure an existing directory as well as one created by this write. */
-export function privateDir(path: string): void { closeSync(directoryFd(path)); }
+/** Tighten only explicitly owned PACER_HOME directories; shared ancestors retain their modes. */
+export function privateDir(path: string, pacerHome: string): void { closeSync(directoryFd(path, pacerHome)); }
 
 /** Open a private regular file without following any path component. */
 export function privateOpen(path: string, truncate = false): number {
@@ -63,7 +67,8 @@ export function privateOpen(path: string, truncate = false): number {
 }
 
 /** Replace a state file without exposing a partially written value. */
-export function privateWrite(path: string, value: string | Uint8Array, mode: 0o600 | 0o700 = 0o600): void {
+export function privateWrite(path: string, value: string | Uint8Array, mode: number = 0o600): void {
+  if (!Number.isInteger(mode) || mode < 0 || (mode & ~0o700) !== 0) throw new Error("Invalid private file mode");
   const dir = directoryFd(dirname(path));
   const temporary = `${basename(path)}.pacer-${randomUUID()}.tmp`;
   const native = writeNative();
