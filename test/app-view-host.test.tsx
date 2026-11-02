@@ -155,7 +155,7 @@ test('in-place takeover uses the action runner once without changing the trace o
  }
 });
 
-test.skipIf(!browserPath)('hidden LazyTerminal stays mounted and log eviction frees text and cursor while retaining drafts and follow mode', async () => {
+test.skipIf(!browserPath)('hidden LazyTerminal stays mounted and log eviction frees text while retaining drafts and follow mode', async () => {
  const build=await Bun.build({entrypoints:['test/fixtures/app-view-lifecycle.tsx'],target:'browser',plugins:[{name:'terminal-lifecycle',setup(builder){
   builder.onResolve({filter:/^\.\/term$/},()=>({path:'term',namespace:'terminal-lifecycle'}));
   builder.onLoad({filter:/.*/,namespace:'terminal-lifecycle'},()=>({loader:'tsx',contents:`import {h} from 'preact';import {useEffect} from 'preact/hooks';export function TerminalView(){useEffect(()=>{window.terminalMounted=(window.terminalMounted??0)+1;return()=>{window.terminalUnmounted=(window.terminalUnmounted??0)+1;};},[]);return h('span',{},'attached terminal');}`}));
@@ -168,6 +168,6 @@ test.skipIf(!browserPath)('hidden LazyTerminal stays mounted and log eviction fr
   await page.evaluate(()=>(window as any).lifecycleFixture.hide());await page.waitForTimeout(150);
   expect(await page.evaluate(()=>(window as any).terminalUnmounted??0)).toBe(0);expect(await page.evaluate(()=>(window as any).lifecycleFixture.snapshot().text)).toBe('log text');
   await page.evaluate(()=>(window as any).lifecycleFixture.evict());await page.waitForFunction(()=>(window as any).terminalUnmounted===1);await page.waitForTimeout(150);
-  expect(await page.evaluate(()=>(window as any).lifecycleFixture.snapshot())).toEqual({text:'',cursor:false,draft:'keep draft',follow:false});
+  expect(await page.evaluate(()=>(window as any).lifecycleFixture.snapshot())).toEqual({text:'',draft:'keep draft',follow:false});
  }finally{await browser.close();}
 },20000);
