@@ -51,10 +51,7 @@ permissions in the plugin, `strategy.yaml` and `home/orca/` lock paths, a held
 `plugins` or `plugin-settings` lock, and all other plugin IDs. An atomic claim file consumes permission
 before forwarding, so a failed or uncertain request cannot be retried; start a
 new sandbox for another attempt. The service still checks its normal session
-authentication. The seed also permits the exact guarded CLI request
-`api call plugin.remove --params '{"id":"fx-live-remove"}' --json`.
-It uses the sandbox owner bearer token without cookies or browser headers, and
-consumes the same one-use proxy permission. Ordinary CLI removal stays refused. The ordinary D8 refusal below remains in force for every other
+authentication. The ordinary D8 refusal below remains in force for every other
 `plugin.remove` request. After removal, confirm the response, absent folder and
 absent plugin list entry, then record the result in the live report. The
 `updater`, `repair` and Codex integration repair fixtures, and shells without a

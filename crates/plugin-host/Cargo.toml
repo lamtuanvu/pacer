@@ -8,11 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 pacer-plugin-protocol = { path = "../plugin-protocol" }
-pacer-foundation = { path = "../foundation" }
-sha2 = "0.10"
-ryu-js = "1"
 serde.workspace = true
-# Correct IEEE-754 rounding for JSON decimal/exponent inputs, like JSON.parse.
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 semver = "1"
 base64 = "0.22"
@@ -24,13 +20,13 @@ thiserror.workspace = true
 tokio.workspace = true
 unicode-normalization = "0.1.24"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+sha2 = "0.10"
 hmac = "0.12"
 getrandom = "0.4"
+ryu-js = "1"
 sha1 = "0.10"
 pacer-store = { path = "../store" }
+pacer-foundation = { path = "../foundation" }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-tempfile = "3"

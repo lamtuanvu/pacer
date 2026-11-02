@@ -25,15 +25,7 @@ fn debug(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
     })
 }
 
-fn plugin_install(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
-    Box::pin(async move { pacer_plugin_ops::public::retired_install(params) })
-}
-
 static OPS: &[NativeOp] = &[
-    NativeOp {
-        name: "plugin.install",
-        call: plugin_install,
-    },
     NativeOp {
         name: "activity.list",
         call: task_reads::activity_list,
@@ -99,7 +91,7 @@ mod tests {
     #[test]
     fn forward_override_removes_only_selected_native_ops() {
         assert!(registry("").get("activity.list").is_some());
-        assert!(registry("").get("plugin.install").is_some());
+        assert!(registry("").get("plugin.install").is_none());
         assert!(registry("plugin.install").get("plugin.install").is_none());
         assert!(registry("").get("task.log").is_some());
         assert!(registry("activity.list").get("activity.list").is_none());
@@ -110,10 +102,23 @@ mod tests {
     }
 
     #[test]
-    fn service_registers_the_whole_plugin_slice_with_individual_fallbacks() {
+    fn service_registers_only_read_operations_with_individual_fallbacks() {
         for name in pacer_plugin_ops::public::OPERATIONS {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
+        }
+        for name in [
+            "plugin.install",
+            "plugin.enable",
+            "plugin.disable",
+            "plugin.remove",
+            "plugin.ui.render",
+            "plugin.ui.action",
+            "plugin.ui.visibility",
+            "plugin.settings.set",
+        ] {
+            assert!(super::service_registry("").get(name).is_none(), "{name}");
+            assert!(registry("").get(name).is_none(), "{name}");
         }
         assert!(super::service_registry("*").names().is_empty());
         // A stdio child owns a separate TS registry, with no private service adapter.

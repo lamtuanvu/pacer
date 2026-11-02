@@ -57,7 +57,8 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |
 | 3 | `pacer-config` (`crates/config`) | Strategy, YAML editor, config areas (publishes config changes through `pacer-store`) | 3,000–3,800 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
-| 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities, archives | 3,000–4,000 | `reqwest` |
+| 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities | 3,000–4,000 | `reqwest` |
+| 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations, settings reads and JSON compatibility | ≤ 5,000 | none |
 | 5 | `pacer-engine` (`crates/engine`) | Pacing, usage broker, status | 1,500–2,000 | none |
 | 5 | `pacer-install` (`crates/install`) | Setup, onboarding, agent integrations, accounts, Orca panel installer, executor guard | 3,500–4,500 | none |
 | 5 | `pacer-wasm-host` (`crates/wasm-host`) | Wasm component transport (feature `wasm`) | 800–1,200 | `wasmtime` |

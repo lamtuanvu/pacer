@@ -8,9 +8,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `config.set` | Forwarded | Rust `pacer_config::settings::set_setting` ports all 16 pure keys, including whole-strategy validation, normalization, errors, byte-preserving edits, diff and undo. Publication and public routing stay in TypeScript. |
 | `host.account.add` | Forwarded | SSH account configuration and host adapter dependencies remain in TypeScript. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
-| `plugin.install` | Native | Retired operation: exact `not_allowed` response; TypeScript remains the forced-forward and `/v2` fallback. |
-| `plugin.list`, `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.doctor` | Native HTTP | Rust handles public operations and persistence; Core supplies generation-bound process snapshots, RPC, stop and event publication over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
-| `plugin.ui.list`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.get`, `plugin.settings.set` | Native HTTP | Rust owns surface checks, document validation/cache/rate limits and settings CAS. The same Core plugin process owner serves RPC; TS remains the fallback. |
+| `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
+| `plugin.install`, `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Forwarded | All mutations, including the retired install response, remain in TypeScript. Future cutovers must establish mutation parity and live evidence before registration. |
 | `task.log` | Native | `src/api/ops.ts` is the forward fallback; `src/api/http.ts` uses it for follow mode SSE. |
 | `task.dismiss` | Forwarded | Needs linked activity publication, task event and cleanup. The P3-B publisher from #553 is absent from this base. |
 | `task.diff` | Forwarded | Needs the full git argv, snapshot fallback and file tree parity fixture. |
@@ -28,28 +27,45 @@ The independent TaskStore importer matrix uses separate Rust and TypeScript home
 and compares accepted/rejected records and the Rust database contents for every
 numeric validation field (`rev`, `createdAt`, attempt `startedAt` and `endedAt`).
 
-P4c provides the complete plugin operation table in
-`pacer_plugin_host::public::PublicRegistry`, plus settings/config persistence,
-closed UI documents, archive verification and publisher trust. The registry takes
-an explicit authoritative process runtime; without it, process-owning operations
-select TypeScript fallback. The HTTP service supplies that adapter through its
-supervised Core's authenticated `/_internal/plugins` channel. The public listener
-rejects all private routes. Requests pin a Core generation and never retry
-mutations after an uncertain IPC outcome. The native UI cache follows Core
-invalidation and is discarded when Core restarts. Stdio retains its existing TS
-process owner and forwards these eleven operations; `plugin.install` is native
-on both transports. `PACER_FORWARD_OPS` can force any HTTP operation back to
-TypeScript. The registry never creates a second plugin host.
+P4c registers exactly four HTTP reads through
+`pacer_plugin_ops::public::PublicRegistry`: `plugin.list`, `plugin.doctor`,
+`plugin.ui.list` and `plugin.settings.get`. There is no public
+`plugin.get`, archive inspection or publisher-trust read operation to register.
+The registry requires an authoritative process runtime; without it, every plugin
+operation forwards. The HTTP service supplies its supervised Core's single
+process owner through the generation-authenticated `/_internal/plugins` channel.
+The public listener rejects that channel. UI rendering remains TypeScript-owned,
+including document validation, caches and invalidation after mutations.
+`PACER_FORWARD_OPS` can
+force each native read back to TypeScript. Stdio keeps all plugin operations in
+TypeScript; no second plugin process owner is created. Native JSON envelopes are
+bounded before recursive value handling. HTTP bodies, pre-effect private prepare responses or
+settings records beyond 512 levels forward the original read to TS; settings
+files are left intact. Oversized aggregate prepare snapshots also forward before
+any diagnostic call; successful diagnostic payloads are discarded because TS
+ignores them. No operation is replayed after a diagnostic RPC. The bound is not a public JSON/schema rejection.
 
-Archive inspection/signature verification/extraction and publisher trust are
-native library implementations. They have no new public operation (`plugin.install`
-remains retired) and no runtime caller in this cutover. Their shared-fixture parity
-is library evidence, with live behavior UNVERIFIED under the unserved-library
-exception in `.project/decisions.md`.
+## Deferred P4c mutation and distribution work
+
+- Enable, disable and remove, including strategy edits, process stop/reset and
+  publication, remain TypeScript operations. The new Rust strategy mutation
+  implementation and its shared YAML-editor changes have been removed from this
+  slice; the shared editor is unchanged from main.
+- UI rendering, actions, visibility and settings saves remain TypeScript operations.
+  The new unserved Rust UI validation/cache and settings mutation helpers and their
+  sole-use fixtures/tests have been removed with this narrowing.
+- Rust signed archive inspection, verification/extraction and publisher trust are
+  deferred and removed from this PR, along with their new dependency tree and
+  distribution-only fixtures. TypeScript archive and publisher implementations
+  and their established tests remain. The recorded unserved-library CT-11
+  exception does not waive RUST-7, and is not used to accept archive parity gaps.
+- The next mutation/distribution slice must cover the reviewed block/flow/anchor/
+  CRLF strategy shapes, archive overflow/null/UTF-16 identity rules and all archive
+  parser branches before registering a runtime caller. No waiver is claimed.
 
 ## Config library boundary
 
-This slice registers no native operation and changes no TypeScript runtime code.
+The earlier config-library slice registers no native config operation and changes no TypeScript config runtime code.
 The TypeScript handlers remain the runtime reference and fallback. The Rust
 settings functions operate on an explicitly supplied strategy path/name; the
 service caller must serialize writers and publish exactly one config change after

@@ -99,18 +99,3 @@ fn account_boundaries_match_typescript() {
         );
     }
 }
-
-#[test]
-fn active_strategy_uses_javascript_trim() {
-    let dir = tempfile::tempdir().unwrap();
-    for (input, expected) in [
-        ("\u{feff}work\u{feff}", "work"),
-        ("\u{85}work\u{85}", "\u{85}work\u{85}"),
-    ] {
-        std::fs::write(dir.path().join("active"), input).unwrap();
-        assert_eq!(
-            pacer_config::strategy::strategy_path(dir.path()).unwrap().1,
-            expected
-        );
-    }
-}

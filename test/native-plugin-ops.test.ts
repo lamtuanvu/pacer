@@ -26,6 +26,20 @@ test.skipIf(!front)("native raw JSON decoding matches fetch and JSON.parse bound
         expect(value.error.code).toBe("invalid_input");
         responses.push(value);
       }
+      const deep = "[".repeat(2000) + "0" + "]".repeat(2000);
+      const deepStore = `{"fx-ui":{"rev":9,"values":{"deep":${deep}}}}`;
+      writeFileSync(join(s.state, "plugin-settings.json"), deepStore);
+      const deepRead = await s.post("plugin.settings.get", { plugin: "fx-ui" });
+      expect(deepRead.result.rev).toBe(9);
+      expect(JSON.stringify(deepRead.result.values.deep)).toBe(deep);
+      expect(readFileSync(join(s.state, "plugin-settings.json"), "utf8")).toBe(deepStore);
+      const deepBody = await raw("plugin.list", `{"ignored":${deep}}`);
+      expect(deepBody.result.plugins.some((p: any) => p.id === "fx-ui")).toBe(true);
+      const deeper = "[".repeat(5000) + "0" + "]".repeat(5000);
+      expect((await raw("plugin.list", `{"ignored":${deeper}}`)).result.plugins.some((p: any) => p.id === "fx-ui")).toBe(true);
+      // A failed deep-state response must never kill the public service.
+      expect((await s.post("plugin.list", {})).result.plugins.length).toBeGreaterThan(0);
+      writeFileSync(join(s.state, "plugin-settings.json"), "{}");
       const get = '{"plugin":"fx-ui"}';
       responses.push(await raw("plugin.settings.get", Buffer.concat([Buffer.from([239, 187, 191]), Buffer.from(get)])));
       const badUtf8 = Buffer.from('{"plugin":"fx-ui","values":{"items":["X"]},"expect_rev":0}');
@@ -92,7 +106,7 @@ async function service(forward = "", homeKind = "absolute") {
   } };
 }
 
-test.skipIf(!front)("the whole public plugin operation set matches forced TypeScript fallback", async () => {
+test.skipIf(!front)("native reads and forwarded mutations match forced TypeScript fallback", async () => {
   const results: unknown[][] = [];
   for (const forward of ["", "*"]) {
     const s = await service(forward), actual: unknown[] = [];
@@ -144,14 +158,16 @@ test.skipIf(!front)("the whole public plugin operation set matches forced TypeSc
       results.push(actual);
     } finally {
       const log = await s.stop();
-      if (!forward && results.length > 0) for (const op of ["plugin.list", "plugin.enable", "plugin.disable", "plugin.remove", "plugin.doctor", "plugin.ui.list", "plugin.ui.render", "plugin.ui.action", "plugin.ui.visibility", "plugin.settings.get", "plugin.settings.set", "plugin.install"]) expect(log).toContain(`native ${op}`);
-      else if (forward) expect(log).not.toMatch(/^native plugin\./m);
+      if (!forward && results.length > 0) {
+        for (const op of ["plugin.list", "plugin.doctor", "plugin.ui.list", "plugin.settings.get"]) expect(log).toContain(`native ${op}`);
+        for (const op of ["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.render", "plugin.ui.action", "plugin.ui.visibility", "plugin.settings.set", "plugin.install"]) expect(log).not.toContain(`native ${op}`);
+      } else if (forward) expect(log).not.toMatch(/^native plugin\./m);
     }
   }
   expect(results[0]).toEqual(results[1]);
 }, 90000);
 
-test.skipIf(!front)("native settings CAS, ready-plugin veto and private modes", async () => {
+test.skipIf(!front)("forwarded settings CAS and ready-plugin veto remain visible to native reads", async () => {
   const s = await service();
   const lockMode = existsSync(join(s.state, "orca")) ? statSync(join(s.state, "orca")).mode & 0o777 : 0o700;
   try {
@@ -166,7 +182,7 @@ test.skipIf(!front)("native settings CAS, ready-plugin veto and private modes", 
     expect(veto.error).toMatchObject({ code: "invalid_input", data: { errors: [{ path: "items", message: "too vague" }] } });
     expect((await s.post("plugin.settings.get", { plugin: "fx-ui" })).result.rev).toBe(1);
     const { statSync } = await import("node:fs");
-    for (const file of ["strategy.yaml", "plugin-settings.json"]) expect(statSync(join(s.state, file)).mode & 0o777).toBe(0o600);
+    expect(statSync(join(s.state, "plugin-settings.json")).mode & 0o777).toBe(0o600);
     expect(statSync(join(s.state, "orca")).mode & 0o777).toBe(lockMode);
   } finally { await s.stop(); }
 }, 45000);
@@ -316,7 +332,7 @@ test.skipIf(!front)("deep render returns the document error and cannot serve sta
 import {serve,stdinLines} from '@pacer/plugin';
 import {readFileSync} from 'node:fs';
 const manifest=JSON.parse(readFileSync('pacer-plugin.json','utf8'));
-let n=0;await serve({manifest,input:stdinLines(),handlers:{'ui.render':async()=>{let document={type:'text',text:'valid'};if(++n>1)for(let i=0;i<70;i++)document={type:'stack',gap:'related',children:[document]};return {document,ttlS:-0}}}});`);
+let n=0;await serve({manifest,input:stdinLines(),handlers:{'ui.render':async()=>{let document={type:'text',text:'valid'};if(++n%2===0)for(let i=0;i<300;i++)document={type:'stack',gap:'related',children:[document]};return {document,ttlS:-0}}}});`);
       await s.post("plugin.enable", { id: "fx-ui", grant: true });
       const params = { plugin: "fx-ui", surface: "activity", id: "checklist", context };
       const response = await fetch(`${s.base}/v3/ops/plugin.ui.render`, { method: "POST", headers: { Authorization: `Bearer ${s.token}`, "Content-Type": "application/json" }, body: JSON.stringify(params) });
@@ -327,6 +343,8 @@ let n=0;await serve({manifest,input:stdinLines(),handlers:{'ui.render':async()=>
       await Bun.sleep(30);
       const result = await s.post("plugin.ui.render", params);
       expect(result).toEqual({ error: { code: "invalid_input", message: "This plugin's view couldn't be shown" } });
+      await Bun.sleep(1100); // The forwarded renderer allows two calls per second.
+      expect((await s.post("plugin.ui.render", params)).result.document.text).toBe("valid");
       outcomes.push(result);
     } finally { await s.stop(); }
   }
@@ -418,3 +436,75 @@ test.skipIf(!front)("lone-surrogate action lengths use Zod code-point limits", a
     } finally { await s.stop(); }
   }
 }, 60000);
+
+test.skipIf(!front)("private read bridge accepts the full public body budget including UTF8 replacement expansion", async () => {
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    try {
+      const bodies = [
+        Buffer.from(JSON.stringify({ ignored: "x".repeat(256 * 1024 - 20) })),
+        Buffer.concat([Buffer.from('{"ignored":"'), Buffer.alloc(256 * 1024 - 40, 255), Buffer.from('"}')]),
+      ];
+      for (const body of bodies) {
+        expect(body.length).toBeLessThanOrEqual(256 * 1024);
+        const response = await fetch(`${s.base}/v3/ops/plugin.list`, {
+          method: "POST", headers: { Authorization: `Bearer ${s.token}`, "Content-Type": "application/json" },
+          body: new Uint8Array(body), signal: AbortSignal.timeout(15000),
+        });
+        const result = await response.json() as any;
+        expect(response.status, JSON.stringify(result)).toBe(200);
+        expect(result.result.plugins.some((p: any) => p.id === "fx-ui")).toBe(true);
+      }
+    } finally { await s.stop(); }
+  }
+}, 45000);
+
+test.skipIf(!front)("native listing uses authoritative TypeScript grants with deeply nested YAML config", async () => {
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    try {
+      const strategy = join(s.state, "strategy.yaml");
+      const deep = "[".repeat(1000) + "0" + "]".repeat(1000);
+      writeFileSync(strategy, `planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  config:\n    fx-ui:\n      deep: ${deep}\n`);
+      const result = await s.post("plugin.list", {});
+      expect(result.result.plugins.some((p: any) => p.id === "fx-ui")).toBe(true);
+      expect(readFileSync(strategy, "utf8")).toContain(deep);
+    } finally { await s.stop(); }
+  }
+}, 30000);
+
+test.skipIf(!front)("oversized prepare snapshots use TypeScript before a native read", async () => {
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    try {
+      for (let i = 0; i < 9; i++) {
+        const id = `fx-large-${i}`, dir = join(s.state, "plugins", id);
+        mkdirSync(dir);
+        writeFileSync(join(dir, "pacer-plugin.json"), JSON.stringify({ id, version: "1.0.0", publisher: "fixture", host: ">=1.6.0", entry: "main", contributes: { usage: { data: "x".repeat(950000) } } }));
+        writeFileSync(join(dir, "main"), "");
+      }
+      const result = await s.post("plugin.list", {});
+      expect(result.result.plugins.filter((p: any) => p.id.startsWith("fx-large-")).length).toBe(9);
+      expect((await s.post("plugin.settings.get", { plugin: "fx-ui" })).error.code).toBe("plugin_unavailable");
+    } finally { await s.stop(); }
+  }
+}, 45000);
+
+test.skipIf(!front)("doctor ignores a deep ping payload and calls the plugin once", async () => {
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    try {
+      writeFileSync(join(s.plugin, "main.ts"), `#!/usr/bin/env bun
+import {serve,stdinLines} from '@pacer/plugin';
+import {readFileSync,writeFileSync} from 'node:fs';
+const manifest=JSON.parse(readFileSync('pacer-plugin.json','utf8'));
+let n=0;await serve({manifest,input:stdinLines(),handlers:{'diagnostic.ping':async()=>{writeFileSync('ping-count',String(++n));return JSON.parse('['.repeat(2000)+'0'+']'.repeat(2000));}}});`);
+      await s.post("plugin.enable", { id: "fx-ui", grant: true });
+      for (let n = 1; n <= 2; n++) {
+        const result = await s.post("plugin.doctor", { id: "fx-ui" });
+        expect(result.result.reports[0].ok).toBe(true);
+        expect(readFileSync(join(s.plugin, "ping-count"), "utf8")).toBe(String(n));
+      }
+    } finally { await s.stop(); }
+  }
+}, 45000);

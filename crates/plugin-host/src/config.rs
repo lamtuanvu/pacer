@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// Parsed snapshot of the shared `plugins:` strategy section.
+/// Read-only snapshot of the `plugins:` strategy section. TypeScript owns edits in P4a.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct PluginsConfig {

@@ -114,7 +114,6 @@ export interface DoctorReport { id: string; ok: boolean; state: PluginState; ser
 interface ClassifierGeneration { fingerprint: string; manifest: PluginManifest; config: Record<string, unknown> }
 
 interface Entry {
-  nativeIdentity: string; nativeUiRevision: number; nativeSurfaceRevisions: Map<string, number>;
   id: string; manifest: PluginManifest | null; bundled: boolean; dir: string | null;
   state: PluginState; error: string | null; served: string[]; pluginProtocol: string | null;
   process?: PluginProcess; starting?: Promise<PluginProcess>; queue: SerialCalls;
@@ -1501,7 +1500,7 @@ export class PluginRegistry {
 
   private entry(id: string, manifest: PluginManifest | null, bundled: boolean, dir: string | null): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { nativeIdentity: randomUUID(), nativeUiRevision: 0, nativeSurfaceRevisions: new Map(), id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: new SerialCalls(), authorities: new Map(), crashes: [], nextStartAt: 0, stopping: false, invalidatedAt: 0, invalidatePending: undefined, lastInvalidLog: new Map(), renders: new Map(), actions: [], inflight: new Set(), cache: new Map() }; this.entries.set(id, e); }
+    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: new SerialCalls(), authorities: new Map(), crashes: [], nextStartAt: 0, stopping: false, invalidatedAt: 0, invalidatePending: undefined, lastInvalidLog: new Map(), renders: new Map(), actions: [], inflight: new Set(), cache: new Map() }; this.entries.set(id, e); }
     e.manifest = manifest; e.bundled = bundled; e.dir = dir;
     return e;
   }
@@ -1619,7 +1618,7 @@ export class PluginRegistry {
   private setState(ctx: Ctx, e: Entry, state: PluginState, error: string | null = null): void {
     if (e.state === state && e.error === error) return;
     e.state = state; e.error = error;
-    if (state === "disabled" || state === "needs_grant" || state === "refused" || state === "failing") { e.cache.clear(); e.nativeUiRevision++; }
+    if (state === "disabled" || state === "needs_grant" || state === "refused" || state === "failing") e.cache.clear();
     if (ctx.readOnly) return; // Passive usage must not create durable plugin event storage.
     this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state, error } } }])).catch(() => {});
     if (state === "failing") appendActivity(ctx, { kind: "plugin_state", level: "warn", text: `Plugin ${e.id} is failing · ${error ?? "unknown error"}` });
@@ -1696,35 +1695,15 @@ export class PluginRegistry {
   /** The plugin's current state with no refresh, no start and no event; null when the registry has not loaded it. */
   peek(id: string): PluginState | null { return this.entries.get(id)?.state ?? null; }
 
-  /** Private Root/Core bridge. Snapshots never acquire plugin process ownership. */
+  /** Private Core bridge for native reads; this registry remains the process owner. */
   nativeSnapshot(ctx: Ctx) {
     this.refresh(ctx);
+    const cfg = pluginsConfig(ctx);
     return [...this.entries.values()].map(e => ({
-      id: e.id, manifest: e.manifest, bundled: e.bundled, state: e.state,
+      id: e.id, manifest: e.manifest, bundled: e.bundled, state: e.state, grant: cfg.installed[e.id] ?? null,
       error: e.error, pid: e.process?.pid ?? null, served: e.served,
       protocol: e.pluginProtocol, restarts: e.crashes.length,
-      epoch: `${e.nativeIdentity}:${e.nativeUiRevision}`,
-      surfaceEpochs: Object.fromEntries(e.nativeSurfaceRevisions),
     }));
-  }
-
-  async nativeStop(ctx: Ctx, id: string): Promise<void> { await this.stop(this.findEntry(ctx, id)); }
-
-  nativeReset(ctx: Ctx, id: string): void {
-    const e = this.findEntry(ctx, id);
-    e.crashes = []; e.nextStartAt = 0;
-    if (e.state === "failing") e.state = "idle";
-    this.refresh(ctx);
-  }
-
-  nativeCacheInvalidator(ctx: Ctx, id: string, surfaceId: string): () => void {
-    const e = this.findEntry(ctx, id);
-    return () => this.dropSurfaceCache(e, surfaceId);
-  }
-
-  private dropSurfaceCache(e: Entry, surfaceId: string): void {
-    e.nativeSurfaceRevisions.set(surfaceId, (e.nativeSurfaceRevisions.get(surfaceId) ?? 0) + 1);
-    for (const k of [...e.cache.keys()]) if (k.startsWith(`${surfaceId}\u0000`)) e.cache.delete(k);
   }
 
   list(ctx: Ctx): PluginInfo[] {
@@ -1927,8 +1906,6 @@ export class PluginRegistry {
 
   /** Drop cached documents and tell clients to re-render. Coalesced to one event per second with a trailing event, so the last change is never lost. */
   invalidate(ctx: Ctx, e: Entry, id: string | null): void {
-    if (id === null) e.nativeUiRevision++;
-    else e.nativeSurfaceRevisions.set(id, (e.nativeSurfaceRevisions.get(id) ?? 0) + 1);
     for (const k of [...e.cache.keys()]) if (id === null || k.startsWith(`${id}\u0000`)) e.cache.delete(k);
     e.invalidatePending = e.invalidatePending === undefined ? id : (e.invalidatePending === id ? id : null);
     const fire = () => {
@@ -1993,7 +1970,7 @@ export class PluginRegistry {
     e.actions.push(now); e.inflight.add(surfaceId);
     try {
       const out = await this.call<{ result: "done" | "refresh"; message?: string }>(ctx, id, "ui.action", { surface, id: surfaceId, action, context, requestId, ...(values ? { values } : {}) });
-      if (out.result === "refresh") this.dropSurfaceCache(e, surfaceId);
+      if (out.result === "refresh") for (const k of [...e.cache.keys()]) if (k.startsWith(`${surfaceId}\u0000`)) e.cache.delete(k);
       return out;
     } finally { e.inflight.delete(surfaceId); }
   }

@@ -79,6 +79,18 @@ struct Listener {
     plugins: crate::native::plugins::Service,
     forward_log_follow: bool,
 }
+async fn forward_plugin_read(
+    state: &Listener,
+    parts: axum::http::request::Parts,
+    bytes: axum::body::Bytes,
+    auth: auth::AuthKind,
+) -> Response {
+    let Some(target) = state.core.target().await else {
+        return proxy::unavailable(false);
+    };
+    proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth).await
+}
+
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
     let ctx = state.ctx.at_now();
@@ -120,7 +132,8 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         {
             return native_error(CoreError::new(Code::TooLarge, "body exceeds 256 KiB"));
         }
-        let bytes = match axum::body::to_bytes(req.into_body(), max + 1).await {
+        let (parts, body) = req.into_parts();
+        let bytes = match axum::body::to_bytes(body, max + 1).await {
             Ok(bytes) if bytes.len() <= max => bytes,
             _ => return native_error(CoreError::new(Code::TooLarge, "body exceeds 256 KiB")),
         };
@@ -132,14 +145,17 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         };
         let params: Value = match decoded {
             Ok(params) => params,
+            Err(error) if plugin && error == pacer_plugin_ops::json::NESTING_FALLBACK => {
+                return forward_plugin_read(&state, parts, bytes, auth).await;
+            }
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
         let result = if op.name.starts_with("plugin.") && op.name != "plugin.install" {
             if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                 eprintln!("native {}", op.name);
             }
-            // A disconnected HTTP waiter must not cancel an admitted mutation:
-            // disk writes, owner refresh and publication form one operation.
+            // Reads use the same authoritative process generation as the Core.
+            // Mutating plugin operations are absent from this native registry.
             let state = Arc::clone(&state);
             let name = op.name;
             match tokio::spawn(
@@ -153,6 +169,16 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         } else {
             call_native(&ctx, op, params, None).await
         };
+        if plugin
+            && result.as_ref().is_err_and(|error| {
+                error.code == Code::Unavailable
+                    && error.message == pacer_plugin_ops::json::NESTING_FALLBACK
+            })
+        {
+            // All registered plugin operations are reads. Unsupported native
+            // envelopes may be replayed safely against the TS reference.
+            return forward_plugin_read(&state, parts, bytes, auth).await;
+        }
         return match result {
             Ok(result) if plugin => {
                 plugin_json(StatusCode::OK, serde_json::json!({"result":result}))

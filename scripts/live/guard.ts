@@ -1,4 +1,3 @@
-import { REMOVE_FIXTURE_ID } from "./seed";
 import { refusedOp } from "./proxy";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -6,7 +5,7 @@ import { pacerArgv, sandboxEnv, type Session } from "./core";
 import { runSessionStreamFaultProxy } from "./session-stream-fault";
 
 /** D3 applies before dispatch, including calls made by the TUI or task runner. */
-export function refusal(args: string[], seedRemoval = false): string | undefined {
+export function refusal(args: string[]): string | undefined {
   const [command, action] = args;
   if (command === "api" && action === "--stdio") return "D3: stdio can execute local operations; use api call through the guarded service";
   if (command === "api" && action === "call") {
@@ -14,12 +13,6 @@ export function refusal(args: string[], seedRemoval = false): string | undefined
     for (let i = 2; i < args.length; i++) {
       if (["--params", "--params-file"].includes(args[i])) { i++; continue; }
       if (!args[i].startsWith("-")) { name = args[i]; break; }
-    }
-    if (seedRemoval && args.length === 6 && args[2] === "plugin.remove" && args[3] === "--params" && args[5] === "--json") {
-      try {
-        const body = JSON.parse(args[4]);
-        if (body && Object.keys(body).length === 1 && body.id === REMOVE_FIXTURE_ID) return undefined;
-      } catch { /* Ordinary D3 refusal below. */ }
     }
     if (!name || refusedOp("POST", `/v3/ops/${name}`)) return "D3: generic operation changes the real user environment";
   }
@@ -66,17 +59,12 @@ export function executorRefusal(args: string[], outer: NodeJS.ProcessEnv): strin
 if (import.meta.main) {
   try {
     const [sessionFile, ...args] = process.argv.slice(2);
-    let session: Session | undefined;
-    let reason = refusal(args) ?? executorRefusal(args, process.env);
-    if (reason && !refusal(args, true) && !executorRefusal(args, process.env)) {
-      session = JSON.parse(readFileSync(sessionFile, "utf8")) as Session;
-      if (session.seed === "plugin-remove") reason = undefined;
-    }
+    const reason = refusal(args) ?? executorRefusal(args, process.env);
     if (reason) {
       console.error(`Live validation guard refused: ${reason}`);
       process.exit(3);
     }
-    session ??= JSON.parse(readFileSync(sessionFile, "utf8")) as Session;
+    const session = JSON.parse(readFileSync(sessionFile, "utf8")) as Session;
     if (args.length === 3 && args[0] === "plugin" && args[1] === "run" && args[2] === "pacer-ssh") {
       process.exit(await runSessionStreamFaultProxy(session, args));
     }

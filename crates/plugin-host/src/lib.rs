@@ -74,5 +74,3 @@ pub use process::{
 pub use registry::{HostMode, PluginState, Registry, RegistryError};
 pub use spawn_spec::{SpawnCapture, SpawnMode};
 pub use transfers::{TransferError, TransferKind, Transfers};
-
-pub use manifest::{normalize_ui, valid_plugin_id};

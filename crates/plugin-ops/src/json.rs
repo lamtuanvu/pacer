@@ -111,21 +111,6 @@ fn encode(units: &[u16]) -> String {
     }
     out
 }
-/// Import values produced by Rust/YAML rather than this decoder. Keep all
-/// in-memory plugin strings in the same quoted representation.
-pub(crate) fn from_utf8(value: Value) -> Value {
-    match value {
-        Value::String(s) => Value::String(encode(&s.encode_utf16().collect::<Vec<_>>())),
-        Value::Array(items) => Value::Array(items.into_iter().map(from_utf8).collect()),
-        Value::Object(fields) => Value::Object(
-            fields
-                .into_iter()
-                .map(|(k, v)| (encode(&k.encode_utf16().collect::<Vec<_>>()), from_utf8(v)))
-                .collect(),
-        ),
-        other => other,
-    }
-}
 pub fn string(s: &str) -> String {
     let mut out = String::from("\"");
     for c in char::decode_utf16(utf16(s)) {
@@ -149,9 +134,12 @@ pub fn string(s: &str) -> String {
     out.push('"');
     out
 }
-/// Bound IPC decoding before serde's recursive visitor. A 70-deep view is valid
-/// JSON and reaches document validation; pathological envelopes fail explicitly.
-/// Decode deeper ordinary envelopes on an owned larger stack, never a Tokio worker.
+/// Signals an unsupported native envelope, never malformed JSON. The HTTP
+/// read dispatcher forwards the original request to TypeScript on this signal.
+pub const NESTING_FALLBACK: &str = "JSON nesting requires TypeScript fallback";
+
+/// Bound native serde values before they reach recursive clone/serialize/drop
+/// on a Tokio worker. Deep ordinary JSON remains valid and selects TS fallback.
 pub fn parse(bytes: &[u8]) -> Result<Value, String> {
     let source = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
     let mut chars = source.chars().peekable();
@@ -195,7 +183,7 @@ pub fn parse(bytes: &[u8]) -> Result<Value, String> {
                 depth = depth.saturating_sub(1);
             }
             if deepest > 512 {
-                return Err("JSON nesting exceeds 512 levels".into());
+                return Err(NESTING_FALLBACK.into());
             }
             wire.push(c);
             continue;
