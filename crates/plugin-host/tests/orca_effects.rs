@@ -145,3 +145,64 @@ async fn native_status_filters_inherited_attestations_and_parses_keepalives() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+async fn broker_lossless_delivery_preserves_surrogates_after_the_same_ownership_gates() {
+    use pacer_plugin_host::{
+        CallAuthority, CallResources, CapabilityBroker, Utf16String, WireReply, parse_manifest,
+    };
+    use std::time::{Duration, Instant};
+    struct Lossless;
+    impl CapabilityEffect for Lossless {
+        async fn call(&mut self, _: &str, _: Value) -> Result<Value, BrokerError> {
+            panic!("scalar path would lose the UTF-16 unit")
+        }
+        async fn call_wire(&mut self, _: &str, _: Value) -> Result<WireReply, BrokerError> {
+            let mut reply = WireReply::new(json!({"body":"preview"}));
+            reply.replace("/body", Utf16String::slice("😀", 1, 2));
+            Ok(reply)
+        }
+    }
+    let manifest=parse_manifest(json!({"id":"pacer-exec-orca","version":"1.0.0","publisher":"fixture","host":">=1.10.0","capabilities":[{"name":"orca","scopes":[]}]})).unwrap();
+    let resource:CallResources=serde_json::from_value(json!({"orcaAttempt":{"taskId":"t-20261102-125719-c5fb","attempt":1,"providerId":"pacer-exec-orca","executor":"codex","session":"host"}})).unwrap();
+    let mut broker = CapabilityBroker::new(
+        manifest,
+        CallAuthority::new(
+            resource,
+            ["orca".into()],
+            Instant::now() + Duration::from_secs(10),
+        ),
+        vec![],
+    );
+    let mut effect = Lossless;
+    assert!(
+        broker
+            .handle_wire(
+                "capability.orca.wait",
+                json!({"taskId":"foreign","attempt":1}),
+                &mut effect
+            )
+            .await
+            .is_err()
+    );
+    let reply = broker
+        .handle_wire(
+            "capability.orca.wait",
+            json!({"taskId":"t-20261102-125719-c5fb","attempt":1}),
+            &mut effect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(reply.to_json().unwrap(), r#"{"body":"\ude00"}"#);
+    broker.revoke();
+    assert!(
+        broker
+            .handle_wire(
+                "capability.orca.wait",
+                json!({"taskId":"t-20261102-125719-c5fb","attempt":1}),
+                &mut effect
+            )
+            .await
+            .is_err()
+    );
+}

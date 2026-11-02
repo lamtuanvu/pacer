@@ -76,6 +76,14 @@ layer = 2
 layer = 3
 [crates.pacer-sessions]
 layer = 3
+[crates.pacer-js-json]
+layer = 0
+[crates.pacer-bun-glob]
+layer = 1
+[crates.pacer-plugin-wire]
+layer = 1
+[crates.pacer-plugin-runtime]
+layer = 3
 [crates.pacer-plugin-host]
 layer = 4
 heavy = ["reqwest"]

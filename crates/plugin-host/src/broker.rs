@@ -1,59 +1,31 @@
 //! Admission and transport for plugin-to-host capability calls in the shadow host.
 //! Effects are supplied by the future native owner; this layer never calls the TS host.
 use crate::authority::AuthorityError;
+use crate::{BrokerError, CapabilityEffect};
 use crate::{
     CallAuthority, HostLeaseBroker, NativeRead, ParsedManifest, ProviderSnapshot, ScopeRoots,
     TransferKind, Transfers,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
-use std::{
-    future::Future,
-    time::{Duration, Instant},
-};
-use thiserror::Error;
+use std::time::{Duration, Instant};
 use tokio::time::timeout_at;
 
-#[derive(Debug, Error)]
-pub enum BrokerError {
-    #[error("Policy hash key cannot be accessed safely")]
-    PolicyKey,
-    #[error("{0}")]
-    PolicyVeto(String),
-    #[error(transparent)]
-    Authority(#[from] AuthorityError),
-    #[error("invalid capability parameters: {0}")]
-    Invalid(&'static str),
-    #[error("capability deadline passed")]
-    Timeout,
-    #[error("effect failed: {0}")]
-    Effect(String),
-    #[error("host lease failed: {0}")]
-    HostLease(String),
-}
-
-/// Effects receive already admitted arguments. Implementations must retain their
-/// own filesystem descriptor, executable identity and network redirect checks.
-pub trait CapabilityEffect {
-    /// Only a host-issued owner may admit lifecycle methods without a wire resource.
-    fn owns_lifecycle(&self, _method: &str, _plugin_id: &str, _scopes: &[String]) -> bool {
-        false
-    }
-    fn native_host_sessions(&self) -> bool {
-        false
-    }
-    fn call(
-        &mut self,
-        method: &str,
-        params: Value,
-    ) -> impl Future<Output = Result<Value, BrokerError>>;
-    fn provider_snapshot(&self, _alias: &str) -> Option<ProviderSnapshot> {
-        None
-    }
-}
-
+/// A caller cannot interleave another capability or a reentrant revocation with
+/// an outstanding owning call. This excludes JS observer races structurally.
+/// ```compile_fail
+/// use pacer_plugin_host::{CapabilityBroker, CapabilityEffect};
+/// use serde_json::json;
+/// async fn reenter<E: CapabilityEffect>(b: &mut CapabilityBroker, e: &mut E) {
+///     let pending = b.handle("capability.orca.wait", json!({}), e);
+///     b.revoke();
+///     let _ = pending.await;
+/// }
+/// ```
 pub struct CapabilityBroker {
     manifest: ParsedManifest,
+    cleanup: Option<Result<(), BrokerError>>,
+    write_cleanup: Option<BrokerError>,
     authority: CallAuthority,
     transfers: Transfers,
     file_write: Option<(String, String, Option<u64>)>,
@@ -73,6 +45,8 @@ pub struct CapabilityBroker {
 impl CapabilityBroker {
     pub fn new(manifest: ParsedManifest, authority: CallAuthority, features: Vec<String>) -> Self {
         Self {
+            cleanup: None,
+            write_cleanup: None,
             manifest,
             authority,
             transfers: Transfers::default(),
@@ -94,15 +68,58 @@ impl CapabilityBroker {
         self.authority.revoke();
         self.transfers.revoke();
         self.file_write = None;
+        if let Some(writer) = &self.native_write
+            && let Err(error) = writer.retirement()
+        {
+            self.write_cleanup = Some(error);
+        }
         self.native_write = None;
-        self.native_process = None;
+        if let Some(process) = self.native_process.as_mut() {
+            process.revoke();
+        }
         self.native_http = None;
         self.native_worktree = None;
-        self.native_duplex = None;
-        self.native_bundle = None;
+        if let Some(duplex) = self.native_duplex.as_mut() {
+            duplex.revoke();
+        }
+        if let Some(bundle) = self.native_bundle.as_mut() {
+            bundle.revoke();
+        }
         if let Some(hosts) = &mut self.hosts {
             hosts.revoke();
         }
+    }
+    pub async fn revoke_owned<E: CapabilityEffect>(
+        &mut self,
+        effect: &mut E,
+    ) -> Result<(), BrokerError> {
+        self.revoke();
+        if let Some(result) = &self.cleanup {
+            return result.clone();
+        }
+        let process = if let Some(process) = self.native_process.as_mut() {
+            process.retire_owned().await
+        } else {
+            Ok(())
+        };
+        let duplex = if let Some(duplex) = self.native_duplex.as_mut() {
+            duplex.retire_owned().await
+        } else {
+            Ok(())
+        };
+        let bundle = if let Some(bundle) = self.native_bundle.as_mut() {
+            bundle.retire_owned().await
+        } else {
+            Ok(())
+        };
+        let effect = retire_effect(effect).await;
+        let result = process
+            .and(duplex)
+            .and(bundle)
+            .and(effect)
+            .and_then(|()| self.write_cleanup.clone().map_or(Ok(()), Err));
+        self.cleanup = Some(result.clone());
+        result
     }
     pub fn authority(&self) -> &CallAuthority {
         &self.authority
@@ -112,6 +129,9 @@ impl CapabilityBroker {
         root: &std::path::Path,
         resources: &[crate::WriteResource],
     ) -> Result<Self, BrokerError> {
+        if self.native_write.is_some() {
+            return Ok(self);
+        }
         self.native_write = Some(crate::NativeWrite::prepare(root, resources)?);
         Ok(self)
     }
@@ -163,11 +183,72 @@ impl CapabilityBroker {
         mut self,
         resources: &[crate::ReadResource],
     ) -> Result<Self, BrokerError> {
+        if self.native_read.is_some() {
+            return Ok(self);
+        }
         self.native_read = Some(NativeRead::prepare(resources)?);
         Ok(self)
     }
 
     pub async fn handle<E: CapabilityEffect>(
+        &mut self,
+        method: &str,
+        params: Value,
+        effect: &mut E,
+    ) -> Result<Value, BrokerError> {
+        self.handle_deliverable(method, params, effect, |result| {
+            serde_json::to_vec(result).is_ok_and(|bytes| bytes.len() < crate::MAX_LINE_BYTES)
+        })
+        .await
+    }
+    /// Transport supplies its complete reply-envelope check before a staged
+    /// handle or byte cursor becomes observable. Rust's exclusive mutable borrow
+    /// also prevents the reentrant staging windows possible in JavaScript.
+    pub async fn handle_deliverable<E: CapabilityEffect>(
+        &mut self,
+        method: &str,
+        params: Value,
+        effect: &mut E,
+        fits: impl FnOnce(&Value) -> bool,
+    ) -> Result<Value, BrokerError> {
+        let kind = match method {
+            "capability.fs.beginWrite" | "capability.fs.writeChunk" => {
+                Some(TransferKind::FileWrite)
+            }
+            "capability.net.http.body.begin" | "capability.net.http.body.stageChunk" => {
+                Some(TransferKind::HttpUpload)
+            }
+            "capability.net.http" | "capability.net.http.body.readChunk" => {
+                Some(TransferKind::HttpResponse)
+            }
+            _ => None,
+        };
+        let saved = kind.map(|kind| (kind, self.transfers.clone(), self.file_write.clone()));
+        let result = self.handle_admitted(method, params, effect).await;
+        let accepted = match &result {
+            Ok(value) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fits(value)))
+                .unwrap_or(false),
+            Err(_) => false,
+        };
+        if self.authority.active().is_err() {
+            self.revoke_owned(effect).await?;
+            return match result {
+                Err(error) => Err(error),
+                Ok(_) => Err(AuthorityError::Expired.into()),
+            };
+        }
+        if !accepted {
+            if let Some((kind, prior, file)) = saved {
+                self.transfers.restore_kind(&prior, kind);
+                if kind == TransferKind::FileWrite {
+                    self.file_write = file;
+                }
+            }
+            return result.and_then(|_| Err(BrokerError::Invalid("reply envelope")));
+        }
+        result
+    }
+    async fn handle_admitted<E: CapabilityEffect>(
         &mut self,
         method: &str,
         params: Value,
@@ -273,9 +354,23 @@ impl CapabilityBroker {
                 }
             }
             "capability.fs.read" | "capability.fs.stat" | "capability.fs.readRange" => {
-                let path = field("path")?;
-                self.authority.read(path)?;
-                if !self.scope_roots.declares_path(&scopes, path)? {
+                let normalized = crate::authority::normalize_path(field("path")?);
+                let path = normalized.as_str();
+                forwarded["path"] = json!(path);
+                let issued = if method == "capability.fs.stat" {
+                    self.authority.read_metadata(path)?
+                } else {
+                    self.authority.read(path)?
+                };
+                let directory = issued.kind == "codex-logs"
+                    && crate::authority::normalize_path(&issued.path)
+                        == crate::authority::normalize_path(path);
+                let declared = if directory {
+                    self.scope_roots.declares_directory(&scopes, path)?
+                } else {
+                    self.scope_roots.declares_path(&scopes, path)?
+                };
+                if !declared {
                     return Err(AuthorityError::Denied("undeclared read scope".into()).into());
                 }
             }
@@ -742,7 +837,7 @@ impl CapabilityBroker {
                             return Err(error);
                         }
                         Err(_) => {
-                            self.revoke();
+                            self.revoke_owned(effect).await?;
                             return Err(BrokerError::Timeout);
                         }
                     }
@@ -797,7 +892,7 @@ impl CapabilityBroker {
                     Ok(value) => value,
                     Err(_) => {
                         hosts.close(session).ok();
-                        self.revoke();
+                        self.revoke_owned(effect).await?;
                         return Err(BrokerError::Timeout);
                     }
                 };
@@ -845,8 +940,14 @@ impl CapabilityBroker {
                 let deadline = self
                     .authority
                     .deadline()
-                    .min(Instant::now() + Duration::from_secs(120));
+                    .min(Instant::now() + Duration::from_millis(timeout_ms));
                 let result = timeout_at(deadline.into(), effect.call(method, forwarded)).await;
+                // A nested cancellation may reach us after the absolute deadline
+                // before Tokio's timer is polled. Expiry still owns that result.
+                if Instant::now() >= deadline || result.is_err() {
+                    self.revoke_owned(effect).await?;
+                    return Err(BrokerError::Timeout);
+                }
                 let hosts = self
                     .hosts
                     .as_mut()
@@ -855,6 +956,10 @@ impl CapabilityBroker {
                     .finish(session)
                     .map_err(|e| BrokerError::HostLease(e.to_string()))?;
                 self.authority.active()?;
+                if effect.provider_snapshot(&snapshot.alias).as_ref() != Some(&snapshot) {
+                    self.revoke_owned(effect).await?;
+                    return Err(BrokerError::HostLease("provider changed".into()));
+                }
                 return result.map_err(|_| BrokerError::Timeout)?;
             }
             "capability.hosts.close" => {
@@ -972,7 +1077,9 @@ impl CapabilityBroker {
             } else {
                 method
             };
-            let result = native.answer(op, &forwarded)?;
+            let result = native.answer_owned(op, &forwarded, || {
+                self.authority.active().map_err(Into::into)
+            })?;
             self.authority.active()?;
             return Ok(result);
         }
@@ -1349,3 +1456,11 @@ fn capability(method: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests;
+
+async fn retire_effect<E: CapabilityEffect>(effect: &mut E) -> Result<(), BrokerError> {
+    tokio::time::timeout(Duration::from_secs(10), effect.retire())
+        .await
+        .map_err(|_| BrokerError::Effect("owned capability cleanup unverified".into()))?
+}
+
+mod wire;

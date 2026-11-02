@@ -106,45 +106,67 @@ async fn fetched_bundle_crosses_provider_boundary_only_as_private_one_use_ticket
             self.bundle.claim(staged["handle"].as_str().unwrap())
         }
     }
-    let root = std::env::temp_dir().join(format!("pacer-host-fetch-{}", uuid::Uuid::new_v4()));
-    fs::create_dir(&root).unwrap();
-    let snapshot = ProviderSnapshot {
-        alias: "host".into(),
-        host_fingerprint: "configured".into(),
-        caller_generation: "caller".into(),
-        provider_generation: "provider".into(),
-        provider_process: 7,
-    };
-    let bundle = NativeBundle::prepare(
-        &root,
-        BundleSpec {
-            argv: vec!["ssh".into(), "fixture".into()],
-            executable: "/usr/bin/printf".into(),
-            env: HashMap::new(),
-            timeout_ms: 1000,
-            max_bytes: 32,
-        },
-    )
-    .unwrap();
-    let mut native = NativeHosts::new(
-        FetchProvider {
-            snapshot: snapshot.clone(),
-            bundle,
-        },
-        [snapshot],
-    );
-    native
-        .call(
-            "capability.hosts.open",
-            json!({"alias":"host","session":"opaque-caller-session"}),
+    for corrupt_stage in [false, true] {
+        let root = std::env::temp_dir().join(format!("pacer-host-fetch-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let snapshot = ProviderSnapshot {
+            alias: "host".into(),
+            host_fingerprint: "configured".into(),
+            caller_generation: "caller".into(),
+            provider_generation: "provider".into(),
+            provider_process: 7,
+        };
+        let bundle = NativeBundle::prepare(
+            &root,
+            BundleSpec {
+                argv: vec!["ssh".into(), "fixture".into()],
+                executable: "/usr/bin/printf".into(),
+                env: HashMap::new(),
+                timeout_ms: 1000,
+                max_bytes: 32,
+            },
         )
-        .await
         .unwrap();
-    assert_eq!(native.call("capability.hosts.fetch",json!({"session":"opaque-caller-session","script":"BUNDLE_OUT","args":["worktree","base","branch"],"timeoutMs":1000,"maxBytes":32})).await.unwrap(),json!({"ok":true}));
-    let mut ticket = native.claim_fetch().unwrap();
-    assert_eq!(ticket.read().unwrap(), b"fixture");
-    assert!(native.claim_fetch().is_err());
-    drop(ticket);
-    drop(native);
-    fs::remove_dir_all(root).unwrap();
+        let mut native = NativeHosts::new(
+            FetchProvider {
+                snapshot: snapshot.clone(),
+                bundle,
+            },
+            [snapshot],
+        );
+        native
+            .call(
+                "capability.hosts.open",
+                json!({"alias":"host","session":"opaque-caller-session"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(native.call("capability.hosts.fetch",json!({"session":"opaque-caller-session","script":"BUNDLE_OUT","args":["worktree","base","branch"],"timeoutMs":1000,"maxBytes":32})).await.unwrap(),json!({"ok":true}));
+        if corrupt_stage {
+            let stage = fs::read_dir(root.join("transfers"))
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
+            let artifact = stage.join("out.bundle");
+            fs::rename(&artifact, stage.join("original.bundle")).unwrap();
+            fs::write(&artifact, b"replacement owned by somebody else").unwrap();
+            assert!(native.revoke().await.is_err());
+            assert_eq!(
+                fs::read(&artifact).unwrap(),
+                b"replacement owned by somebody else"
+            );
+            assert!(native.claim_fetch().is_err());
+            drop(native);
+            fs::remove_dir_all(root).unwrap();
+            continue;
+        }
+        let mut ticket = native.claim_fetch().unwrap();
+        assert_eq!(ticket.read().unwrap(), b"fixture");
+        assert!(native.claim_fetch().is_err());
+        drop(ticket);
+        drop(native);
+        fs::remove_dir_all(root).unwrap();
+    }
 }

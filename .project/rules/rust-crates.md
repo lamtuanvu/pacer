@@ -57,6 +57,10 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |
 | 3 | `pacer-config` (`crates/config`) | Strategy, YAML editor, config areas (publishes config changes through `pacer-store`) | 3,000–3,800 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
+| 0 | `pacer-js-json` (`crates/js-json`) | JavaScript JSON value/string semantics shared by native state and wire boundaries | ≤ 5,000 | none |
+| 1 | `pacer-bun-glob` (`crates/bun-glob`) | Bun-compatible glob scan and scope semantics | ≤ 5,000 | none |
+| 1 | `pacer-plugin-wire` (`crates/plugin-wire`) | Bounded plugin payload staging and JavaScript JSON value semantics | ≤ 5,000 | none |
+| 3 | `pacer-plugin-runtime` (`crates/plugin-runtime`) | Shadow capability effects, pinned resources, Orca and remote attempt owners; no client operations | ≤ 5,000 target; split executor attempts from byte/process ownership before 12,000 | none |
 | 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities, archives | 3,000–4,000 | `reqwest` |
 | 5 | `pacer-engine` (`crates/engine`) | Pacing, usage broker, status | 1,500–2,000 | none |
 | 5 | `pacer-install` (`crates/install`) | Setup, onboarding, agent integrations, accounts, Orca panel installer, executor guard | 3,500–4,500 | none |

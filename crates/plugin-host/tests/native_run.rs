@@ -396,7 +396,7 @@ fn fixed_native_wrapper_matches_the_authoritative_typescript_bytes() {
     assert!(output.status.success());
     assert_eq!(
         output.stdout,
-        include_bytes!("../src/native_run/wrapper.sh")
+        include_bytes!("../../plugin-runtime/src/native_run/wrapper.sh")
     );
 }
 #[tokio::test]

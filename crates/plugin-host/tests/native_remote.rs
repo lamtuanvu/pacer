@@ -311,3 +311,60 @@ async fn pending_stop_can_be_issued_on_a_resumed_run_and_requires_matching_fresh
     );
     fs::remove_dir_all(root).unwrap();
 }
+#[tokio::test]
+async fn persisted_integer_and_float_spellings_cannot_retire_the_same_js_owner() {
+    let work = format!("/remote/.pacer-remote/worktrees/repo-12345678/{ID}-1");
+    let (root, mut remote) = fixture(vec![
+        result(0, &format!("worktree={work}\nbranch=pacer/{ID}\n"), ""),
+        json!({"pid":123}),
+        json!({"alive":false,"exit":0,"complete":true,"stdoutBase64":"","stderrBase64":""}),
+    ]);
+    let p = json!({"taskId":ID,"attempt":1.0});
+    for method in [
+        "capability.hosts.prepareOwned",
+        "capability.hosts.claimOwned",
+        "capability.hosts.startOwned",
+        "capability.hosts.pollOwned",
+    ] {
+        remote.answer(method, &p).await.unwrap();
+    }
+    let mut store = TaskStore::open(&root).unwrap();
+    let task = store.read(ID).unwrap().unwrap();
+    let intent: RemoteIntent = serde_json::from_value(task["remotePrepareIntent"].clone()).unwrap();
+    store
+        .update(ID, task["rev"].as_i64().unwrap(), 3.0, |t| {
+            for key in [
+                "remotePrepareIntent",
+                "run",
+                "startIntent",
+                "executorExitReceipt",
+            ] {
+                t[key]["attempt"] = json!(1.0);
+            }
+        })
+        .unwrap();
+    drop(remote);
+    let mut resumed = NativeRemote::issue(
+        &root,
+        ID,
+        intent,
+        Host {
+            replies: vec![
+                json!({"alive":false,"exit":0,"complete":true,"stdoutBase64":"","stderrBase64":""}),
+            ]
+            .into(),
+            calls: vec![],
+        },
+        json!({"argv":["tool"],"stdin":"private prompt"}),
+        Instant::now() + Duration::from_secs(5),
+    )
+    .unwrap();
+    assert_eq!(
+        resumed
+            .answer("capability.hosts.pollOwned", &p)
+            .await
+            .unwrap()["state"],
+        "exited"
+    );
+    fs::remove_dir_all(root).unwrap();
+}

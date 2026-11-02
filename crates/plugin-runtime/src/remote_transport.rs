@@ -1,0 +1,531 @@
+//! Concrete fixed-script owner for NativeRemote; binary artifacts never cross RPC.
+use crate::{
+    BrokerError, BundleSpec, NativeBundle, NativeGit, NativeSsh, RemoteHost, RemoteOperation,
+    native_command::denied,
+    native_git::{facts, remote_preflight, transfer_owner},
+    native_run::directory::RunDirectory,
+};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    time::Instant,
+};
+
+pub struct RemoteTransport {
+    home: PathBuf,
+    ssh: NativeSsh,
+    git: NativeGit,
+    deadline: Instant,
+    current: std::sync::Arc<dyn Fn() -> String + Send + Sync>,
+    offsets: HashMap<String, u64>,
+    tails: HashMap<String, Vec<u8>>,
+}
+impl RemoteTransport {
+    pub fn new(
+        home: &Path,
+        ssh: NativeSsh,
+        git: NativeGit,
+        deadline: Instant,
+        current: impl Fn() -> String + Send + Sync + 'static,
+    ) -> Self {
+        let current: std::sync::Arc<dyn Fn() -> String + Send + Sync> =
+            std::sync::Arc::new(current);
+        let selected = current.clone();
+        let expected = ssh.config.fingerprint.clone();
+        let git = git.with_context(std::sync::Arc::new(move || selected() == expected));
+        Self {
+            home: home.into(),
+            ssh,
+            git,
+            deadline,
+            current,
+            offsets: HashMap::new(),
+            tails: HashMap::new(),
+        }
+    }
+    fn active(&self) -> Result<(), BrokerError> {
+        self.ssh.check()?;
+        if (self.current)() != self.ssh.config.fingerprint {
+            return Err(denied());
+        }
+        if Instant::now() >= self.deadline {
+            return Err(BrokerError::Timeout);
+        }
+        Ok(())
+    }
+    async fn fixed(
+        &self,
+        name: &str,
+        args: &[String],
+        input: &[u8],
+        mutating: bool,
+        max: usize,
+    ) -> Result<Value, BrokerError> {
+        self.active()?;
+        let lease = if mutating {
+            Some(crate::WorkLease::begin(
+                &self.home,
+                &self.ssh.config.alias,
+                &format!("Remote {name} on {}", self.ssh.config.alias),
+            )?)
+        } else {
+            None
+        };
+        let nonce = lease.as_ref().map(|lease| lease.id().to_owned());
+        let mut result = self
+            .ssh
+            .run(
+                name,
+                args,
+                nonce.as_deref(),
+                input,
+                60000,
+                max,
+                self.deadline,
+            )
+            .await?;
+        self.active()?;
+        if !result["timedOut"].as_bool().unwrap_or(true)
+            && let Some(nonce) = nonce
+        {
+            let suffix = format!("\n__PACER_DONE__={nonce}\n");
+            let text = result["stdout"]
+                .as_str()
+                .ok_or_else(denied)?
+                .strip_suffix(&suffix)
+                .ok_or_else(denied)?;
+            result["stdout"] = json!(text);
+            if let Some(lease) = lease {
+                lease.finish()?;
+            }
+        }
+        Ok(result)
+    }
+    async fn checked(
+        &self,
+        name: &str,
+        args: &[String],
+        input: &[u8],
+        mutating: bool,
+        max: usize,
+    ) -> Result<String, BrokerError> {
+        let result = self.fixed(name, args, input, mutating, max).await?;
+        if result["code"].as_f64() != Some(0.0) || result["timedOut"] != false {
+            return Err(BrokerError::Effect(
+                "remote fixed operation is unverified".into(),
+            ));
+        }
+        Ok(result["stdout"].as_str().ok_or_else(denied)?.into())
+    }
+    async fn question(&self, id: &str, run: &Value) -> Result<Vec<String>, BrokerError> {
+        let work = text(run, "remoteWorktree")?;
+        let question = self
+            .checked("QUESTION", &[work.into()], &[], false, 4096)
+            .await?;
+        if !question.is_empty() {
+            if crate::js_semantics::utf16_len(&question) > 1000 {
+                return Err(denied());
+            }
+            let mut store = pacer_store::TaskStore::open(&self.home)?;
+            let current = transfer_owner(&mut store, id, run)?;
+            if let Some(prior) = current.get("question") {
+                if prior["text"] != question {
+                    return Err(denied());
+                }
+            } else {
+                store.update(
+                    id,
+                    crate::native_run::rev(&current)?,
+                    crate::native_run::now(),
+                    |t| t["question"] = json!({"text":question,"at":crate::native_run::now()}),
+                )?;
+            }
+        }
+        let mut args = vec![
+            work.into(),
+            text(run, "baseSha")?.into(),
+            text(run, "remoteBranch")?.into(),
+        ];
+        if !question.is_empty() {
+            let input = format!("blob {}\0{question}", question.len()).into_bytes();
+            use sha1::Sha1;
+            args.push(format!("{:x}", Sha1::digest(&input)));
+            args.push(format!("{:x}", Sha256::digest(&input)));
+        }
+        Ok(args)
+    }
+    async fn observe(&mut self, id: &str, run: &Value) -> Result<Value, BrokerError> {
+        let remote = text(run, "remoteDir")?.to_owned();
+        let report = self
+            .checked("REPORT", std::slice::from_ref(&remote), &[], false, 65536)
+            .await?;
+        let f = facts(&report)?;
+        let binding = RunDirectory::existing(
+            &self.home,
+            id,
+            crate::js_semantics::safe_u64(&run["attempt"]).ok_or_else(denied)?,
+        )?;
+        let admission: Value =
+            serde_json::from_slice(&binding.bytes("admission.json", 65536)?.ok_or_else(denied)?)
+                .map_err(|_| denied())?;
+        if admission["host"] != self.ssh.config.alias || admission["remoteDir"] != remote {
+            return Err(denied());
+        }
+        let mut complete = true;
+        for (stream, key) in [("stdout", "out"), ("stderr", "err")] {
+            let total = f
+                .get(key)
+                .and_then(|v| crate::js_semantics::number_text(v))
+                .and_then(|n| crate::js_semantics::safe_u64(&json!(n)))
+                .ok_or_else(denied)?;
+            let mut offset = *self.offsets.get(stream).unwrap_or(&0);
+            if total < offset {
+                return Err(denied());
+            }
+            let mut budget = 4 * 1024 * 1024;
+            while offset < total && budget > 0 {
+                let len = (total - offset).min(262144).min(budget);
+                let args = vec![
+                    remote.clone(),
+                    stream.into(),
+                    offset.to_string(),
+                    len.to_string(),
+                    "hex".into(),
+                ];
+                let encoded = self.checked("READ_FROM", &args, &[], false, 524288).await?;
+                if encoded.len() % 2 != 0 || encoded.len() as u64 > len * 2 {
+                    return Err(denied());
+                }
+                let mut bytes = Vec::new();
+                for chunk in encoded.as_bytes().as_chunks::<2>().0 {
+                    let pair = std::str::from_utf8(chunk).map_err(|_| denied())?;
+                    bytes.push(u8::from_str_radix(pair, 16).map_err(|_| denied())?);
+                }
+                if bytes.is_empty() {
+                    break;
+                }
+                offset += bytes.len() as u64;
+                budget -= bytes.len() as u64;
+                let tail = self.tails.entry(stream.into()).or_default();
+                tail.extend(bytes);
+                if tail.len() > 262144 {
+                    tail.drain(..tail.len() - 262144);
+                }
+                self.offsets.insert(stream.into(), offset);
+            }
+            complete &= offset == total;
+        }
+        let exit = f
+            .get("exit")
+            .and_then(|v| crate::js_semantics::number_text(v))
+            .and_then(|n| crate::js_semantics::safe_i64(&json!(n)));
+        let nonce = admission["lease"].as_str().ok_or_else(denied)?;
+        complete &= f.get("admission_complete").map(String::as_str) == Some(nonce);
+        if complete && exit.is_some() {
+            crate::WorkLease::complete_remote(&self.home, nonce, &self.ssh.config.alias, &remote)?;
+        }
+        Ok(
+            json!({"alive":f.get("alive").map(String::as_str)==Some("1"),"exit":exit,"complete":complete,
+            "stdoutBase64":STANDARD.encode(self.tails.get("stdout").map_or(&[][..],Vec::as_slice)),"stderrBase64":STANDARD.encode(self.tails.get("stderr").map_or(&[][..],Vec::as_slice))}),
+        )
+    }
+}
+fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str, BrokerError> {
+    v[key].as_str().ok_or_else(denied)
+}
+impl RemoteHost for RemoteTransport {
+    fn fingerprint(&self) -> String {
+        (self.current)()
+    }
+    async fn invoke(&mut self, op: RemoteOperation, p: &Value) -> Result<Value, BrokerError> {
+        self.active()?;
+        let intent = &p["intent"];
+        let run = &p["run"];
+        let id = text(p, "taskId")?;
+        if intent["hostFingerprint"] != self.ssh.config.fingerprint
+            || intent["alias"] != self.ssh.config.alias
+        {
+            return Err(denied());
+        }
+        match op {
+            RemoteOperation::Prepare
+            | RemoteOperation::PrepareBundle
+            | RemoteOperation::Recover => {
+                let repo = self.git.repo()?;
+                if repo != text(intent, "repoTop")? {
+                    return Err(denied());
+                }
+                let url = self
+                    .git
+                    .text(repo, &["remote", "get-url", "origin"], &[], self.deadline)
+                    .await?;
+                if format!("{:x}", Sha256::digest(url.as_bytes())) != text(intent, "originHash")? {
+                    return Err(denied());
+                }
+                if self
+                    .git
+                    .text(
+                        repo,
+                        &[
+                            "rev-parse",
+                            "--verify",
+                            &format!("{}^{{commit}}", text(intent, "base")?),
+                        ],
+                        &[],
+                        self.deadline,
+                    )
+                    .await?
+                    != text(intent, "baseSha")?
+                {
+                    return Err(denied());
+                }
+                let configured: Value =
+                    serde_json::from_str(&self.ssh.config.fingerprint).map_err(|_| denied())?;
+                let key = repo_key(&url).ok_or_else(denied)?;
+                if configured["ssh"] != self.ssh.config.target
+                    || configured["paused"] == true
+                    || configured["session"] == "full"
+                    || configured["repos"][&key] != intent["checkout"]
+                {
+                    return Err(denied());
+                }
+                let tag = format!(
+                    "{}-{}",
+                    key.rsplit('/').next().ok_or_else(denied)?,
+                    &format!("{:x}", sha1::Sha1::digest(key.as_bytes()))[..8]
+                );
+                if intent["tag"] != tag {
+                    return Err(denied());
+                }
+                let attempt =
+                    crate::js_semantics::safe_u64(&intent["attempt"]).ok_or_else(denied)?;
+                let args = vec![
+                    text(intent, "checkout")?.into(),
+                    text(intent, "tag")?.into(),
+                    id.into(),
+                    text(intent, "baseSha")?.into(),
+                    text(intent, "base")?.into(),
+                    attempt.to_string(),
+                ];
+                let input = if op == RemoteOperation::PrepareBundle {
+                    self.git
+                        .base_bundle(id, text(intent, "baseSha")?, self.deadline)
+                        .await?
+                } else {
+                    vec![]
+                };
+                self.fixed(
+                    if op == RemoteOperation::Recover {
+                        "PREPARE_RECOVER"
+                    } else {
+                        "PREPARE"
+                    },
+                    &args,
+                    &input,
+                    op != RemoteOperation::Recover,
+                    65536,
+                )
+                .await
+            }
+            RemoteOperation::Start => {
+                let launch = &p["launch"];
+                let argv = launch["argv"]
+                    .as_array()
+                    .filter(|a| !a.is_empty())
+                    .ok_or_else(denied)?;
+                let lease = crate::WorkLease::begin(
+                    &self.home,
+                    id,
+                    &format!("Remote session on {}", self.ssh.config.alias),
+                )?;
+                let nonce = lease.id().to_owned();
+                lease.attach_remote(
+                    text(run, "dir")?,
+                    &self.ssh.config.alias,
+                    text(run, "remoteDir")?,
+                )?;
+                let dir = RunDirectory::existing(
+                    &self.home,
+                    id,
+                    crate::js_semantics::safe_u64(&intent["attempt"]).ok_or_else(denied)?,
+                )?;
+                dir.write("admission.json",&serde_json::to_vec(&json!({"lease":nonce,"host":self.ssh.config.alias,"remoteDir":run["remoteDir"]})).map_err(|_|denied())?)?;
+                let mut args = vec![
+                    text(run, "remoteDir")?.into(),
+                    text(run, "workdir")?.into(),
+                    "pipe".into(),
+                ];
+                if let Some(env) = launch["env"].as_object() {
+                    for (k, v) in env {
+                        if !k.bytes().enumerate().all(|(i, b)| {
+                            b.is_ascii_alphabetic() || b == b'_' || (i > 0 && b.is_ascii_digit())
+                        }) || k.is_empty()
+                        {
+                            return Err(denied());
+                        }
+                        args.push(format!("{k}={}", v.as_str().ok_or_else(denied)?));
+                    }
+                }
+                args.push("PACER_ROLE=executor".into());
+                args.push(format!("PACER_TASK_ID={id}"));
+                args.push(format!("PACER_COMPLETION_NONCE={nonce}"));
+                args.push("--".into());
+                for a in argv {
+                    args.push(a.as_str().ok_or_else(denied)?.into());
+                }
+                let input = format!(
+                    "{}__PACER_STDIN__\n{}",
+                    include_str!("native_run/wrapper.sh"),
+                    launch["stdin"].as_str().unwrap_or_default()
+                );
+                let f = facts(
+                    &self
+                        .checked("START", &args, input.as_bytes(), true, 65536)
+                        .await?,
+                )?;
+                if f.contains_key("error") {
+                    return Err(denied());
+                }
+                let pid = f
+                    .get("pid")
+                    .and_then(|v| crate::js_semantics::number_text(v))
+                    .and_then(|n| crate::js_semantics::safe_u64(&json!(n)))
+                    .filter(|n| *n > 0)
+                    .ok_or_else(denied)?;
+                Ok(json!({"pid":pid}))
+            }
+            RemoteOperation::Read | RemoteOperation::Report => self.observe(id, run).await,
+            RemoteOperation::Stop => {
+                let grace = crate::js_semantics::safe_u64(&p["extra"]["graceMs"])
+                    .filter(|n| *n <= 25000)
+                    .ok_or_else(denied)?;
+                let args = vec![text(run, "remoteDir")?.into(), grace.to_string()];
+                let f = facts(&self.checked("STOP", &args, &[], true, 65536).await?)?;
+                let code = f
+                    .get("code")
+                    .and_then(|v| crate::js_semantics::number_text(v))
+                    .and_then(|n| crate::js_semantics::safe_i64(&json!(n)))
+                    .ok_or_else(denied)?;
+                let killed = match f.get("killed").map(String::as_str) {
+                    Some("0") => false,
+                    Some("1") => true,
+                    _ => return Err(denied()),
+                };
+                Ok(json!({"code":code,"killed":killed}))
+            }
+            RemoteOperation::Preflight => {
+                let args = self.question(id, run).await?;
+                let f = facts(&self.checked("PREFLIGHT", &args, &[], false, 65536).await?)?;
+                let exact = f.len() == 7
+                    && [
+                        "ancestor",
+                        "dirty",
+                        "dirty_files",
+                        "commits",
+                        "emails",
+                        "signoffs",
+                        "head",
+                    ]
+                    .iter()
+                    .all(|k| f.contains_key(*k));
+                let no_work = exact
+                    && [
+                        ("ancestor", "1"),
+                        ("dirty", "0"),
+                        ("dirty_files", ""),
+                        ("commits", "0"),
+                        ("emails", ""),
+                        ("signoffs", ""),
+                    ]
+                    .iter()
+                    .all(|(k, v)| f.get(*k).map(String::as_str) == Some(*v))
+                    && f.get("head").map(String::as_str) == Some(text(run, "baseSha")?);
+                let commits = f.get("commits").is_some_and(|v| {
+                    v.as_bytes()
+                        .first()
+                        .is_some_and(|b| (b'1'..=b'9').contains(b))
+                        && v.bytes().all(|b| b.is_ascii_digit())
+                        && crate::js_semantics::number_text(v)
+                            .and_then(|n| crate::js_semantics::safe_u64(&json!(n)))
+                            .is_some()
+                });
+                Ok(
+                    json!({"noWork":no_work,"baseSha":run["baseSha"],"committedWork":exact&&commits}),
+                )
+            }
+            RemoteOperation::Transfer => {
+                let args = self.question(id, run).await?;
+                self.git
+                    .admit_destination(&self.home, id, run, self.deadline)
+                    .await?;
+                let preflight = self.checked("PREFLIGHT", &args, &[], false, 65536).await?;
+                let (head, commits) = remote_preflight(&preflight, text(run, "baseSha")?)?;
+                let args = args[..3].to_vec();
+                let mut argv = vec!["ssh".into()];
+                argv.extend(self.ssh.argv("BUNDLE_OUT", &args, None)?);
+                let mut bundle = NativeBundle::prepare(
+                    &self.home,
+                    BundleSpec {
+                        argv: argv.clone(),
+                        executable: self.ssh.image.canonical.to_string_lossy().into_owned(),
+                        env: self.ssh.env.clone(),
+                        timeout_ms: 60000,
+                        max_bytes: 50 * 1024 * 1024,
+                    },
+                )?;
+                let result = bundle
+                    .stage(
+                        &json!({"argv":argv,"timeoutMs":60000,"maxBytes":50*1024*1024}),
+                        self.deadline,
+                    )
+                    .await?;
+                let mut ticket = bundle.claim(text(&result, "handle")?)?;
+                let verified = self
+                    .git
+                    .verify(
+                        &mut ticket,
+                        text(run, "baseSha")?,
+                        text(run, "remoteBranch")?,
+                        self.deadline,
+                    )
+                    .await?;
+                if verified.head() != head || verified.commits() != commits {
+                    return Err(denied());
+                }
+                self.question(id, run).await?;
+                self.active()?;
+                ticket.dispose()?;
+                self.git
+                    .publish(&self.home, id, run, verified, self.deadline)
+                    .await
+            }
+        }
+    }
+}
+
+fn repo_key(value: &str) -> Option<String> {
+    let scp = regex::Regex::new(r"^[^@\s/:]+@([A-Za-z0-9.-]+):([^\s]+)$").ok()?;
+    let (host, path) = if let Some(c) = scp.captures(value) {
+        (c.get(1)?.as_str().to_owned(), c.get(2)?.as_str().to_owned())
+    } else {
+        let parsed = url::Url::parse(value).ok()?;
+        if !["https", "ssh"].contains(&parsed.scheme())
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+            || parsed.password().is_some()
+        {
+            return None;
+        }
+        (
+            parsed.host_str()?.to_owned(),
+            parsed.path().strip_prefix('/')?.to_owned(),
+        )
+    };
+    let key = format!("{host}/{path}").to_lowercase();
+    let key = key.strip_suffix(".git").unwrap_or(&key);
+    let canonical = regex::Regex::new(r"^[a-z0-9][a-z0-9.-]*/[a-z0-9._-]+/[a-z0-9._-]+$").ok()?;
+    (canonical.is_match(key) && !key.ends_with(".git")).then(|| key.to_owned())
+}

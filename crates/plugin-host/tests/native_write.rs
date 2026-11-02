@@ -149,3 +149,41 @@ fn exact_utf8_limit_and_modes_precede_staging() {
     );
     assert_eq!(fs::read_dir(&f.0).unwrap().count(), 1);
 }
+#[test]
+fn identical_bytes_preserve_inode_and_mtime_while_repairing_private_mode() {
+    use std::os::unix::fs::MetadataExt;
+    let f = Fixture::new();
+    let mut native = NativeWrite::prepare(&f.0, &[f.resource("file", "file")]).unwrap();
+    native.write_bytes(&f.path("file"), b"same").unwrap();
+    let before = fs::metadata(f.path("file")).unwrap();
+    fs::set_permissions(f.path("file"), fs::Permissions::from_mode(0o644)).unwrap();
+    native.write_bytes(&f.path("file"), b"same").unwrap();
+    let after = fs::metadata(f.path("file")).unwrap();
+    assert_eq!(before.ino(), after.ino());
+    assert_eq!(before.mtime(), after.mtime());
+    assert_eq!(before.mtime_nsec(), after.mtime_nsec());
+    assert_eq!(after.permissions().mode() & 0o777, 0o600);
+}
+#[test]
+fn recursive_remove_never_follows_a_descendant_symlink() {
+    let f = Fixture::new();
+    fs::create_dir(f.path("dir")).unwrap();
+    fs::write(f.path("victim"), "outside").unwrap();
+    symlink(f.path("victim"), f.path("dir/link")).unwrap();
+    let mut native = NativeWrite::prepare(&f.0, &[f.resource("dir", "directory")]).unwrap();
+    assert!(
+        native
+            .answer(
+                "capability.fs.remove",
+                &json!({"path":f.path("dir"),"recursive":true})
+            )
+            .is_err()
+    );
+    assert_eq!(fs::read_to_string(f.path("victim")).unwrap(), "outside");
+    assert!(
+        fs::symlink_metadata(f.path("dir/link"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
