@@ -159,8 +159,17 @@ test("Layout Close reports no closable view for absent, closed or unavailable pa
 
 test("Layout Close cancels the topmost open dialog before panels or hiding", () => {
   const events: string[] = [];
-  const dialog = (name: string) => ({ dispatchEvent: (event: Event) => { events.push(`${name}:${event.type}:${event.cancelable}`); return true; } });
-  expect(closeOpenDialog({ querySelectorAll: selector => { expect(selector).toBe("dialog[open]"); return [dialog("palette"), dialog("help")]; } })).toBe(true);
+  const dialog = (name: string, tagName = "DIALOG", button = true) => ({ tagName,
+    dispatchEvent: (event: Event) => { events.push(`${name}:${event.type}:${event.cancelable}`); return true; },
+    querySelector: (selector: string) => { expect(selector).toBe('button[aria-label="Close"]'); return button ? { click: () => { events.push(`${name}:click`); } } : null; } });
+  const doc = (...open: ReturnType<typeof dialog>[]) => ({ querySelectorAll: (selector: string) => { expect(selector).toBe('dialog[open], [role="dialog"][aria-modal="true"]'); return open; } });
+  expect(closeOpenDialog(doc(dialog("palette"), dialog("help")))).toBe(true);
   expect(events).toEqual(["help:cancel:true"]);
-  expect(closeOpenDialog({ querySelectorAll: () => [] })).toBe(false);
+  events.length = 0;
+  expect(closeOpenDialog(doc(dialog("help"), dialog("dispatcher", "DIV")))).toBe(true);
+  expect(events).toEqual(["dispatcher:click"]);
+  events.length = 0;
+  expect(closeOpenDialog(doc(dialog("dispatcher", "DIV", false)))).toBe(false);
+  expect(closeOpenDialog(doc())).toBe(false);
+  expect(events).toEqual([]);
 });

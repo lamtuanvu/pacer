@@ -49,11 +49,15 @@ interface LayoutCloseState {
 interface LayoutCloseDocument {
   querySelector(selector: string): { parentElement: { querySelector(selector: string): { disabled: boolean; click(): void } | null } | null } | null;
 }
-/** An open dialog closes before any panel, through the same cancel path as Escape. The last open dialog is the topmost. */
-export function closeOpenDialog(document: { querySelectorAll(selector: string): ArrayLike<{ dispatchEvent(event: Event): boolean }> }): boolean {
-  const open = document.querySelectorAll("dialog[open]"), top = open[open.length - 1];
+/** An open dialog closes before any panel. Native dialogs take the same cancel path as Escape; ARIA modals use their own Close button. The last open dialog is the topmost. */
+interface CloseableDialog { tagName: string; dispatchEvent(event: Event): boolean; querySelector(selector: string): { click(): void } | null }
+export function closeOpenDialog(document: { querySelectorAll(selector: string): ArrayLike<CloseableDialog> }): boolean {
+  const open = document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]'), top = open[open.length - 1];
   if (!top) return false;
-  top.dispatchEvent(new Event("cancel", { cancelable: true }));
+  if (top.tagName === "DIALOG") { top.dispatchEvent(new Event("cancel", { cancelable: true })); return true; }
+  const close = top.querySelector('button[aria-label="Close"]');
+  if (!close) return false;
+  close.click();
   return true;
 }
 /** The same close cascade used by the desktop command, with a small document seam for tests. */
