@@ -8,7 +8,7 @@ use pacer_foundation::Ctx;
 use std::{
     fs,
     io::{self, Write},
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
 };
 use subtle::ConstantTimeEq;
 
@@ -36,23 +36,47 @@ pub fn safe_equal(left: &str, right: &str) -> bool {
     left.len() == right.len() && bool::from(left.as_bytes().ct_eq(right.as_bytes()))
 }
 
+/// ECMAScript String.prototype.trim whitespace (WhiteSpace and LineTerminator).
+pub fn js_trim(value: &str) -> &str {
+    value.trim_matches(|ch: char| {
+        matches!(ch,
+            '\u{0009}'..='\u{000D}' | '\u{0020}' | '\u{00A0}' | '\u{1680}' |
+            '\u{2000}'..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' |
+            '\u{205F}' | '\u{3000}' | '\u{FEFF}'
+        )
+    })
+}
+
 pub fn ensure_token(ctx: &Ctx) -> io::Result<String> {
     let path = ctx.pacer_home.join("token");
     match fs::read_to_string(&path) {
-        Ok(token) if !token.trim().is_empty() => return Ok(token.trim().to_owned()),
+        Ok(token) if !js_trim(&token).is_empty() => return Ok(js_trim(&token).to_owned()),
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    fs::create_dir_all(&ctx.pacer_home)?;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&ctx.pacer_home)?;
+    fs::set_permissions(&ctx.pacer_home, fs::Permissions::from_mode(0o700))?;
     let token = hex::encode(rand::random::<[u8; 24]>());
+    let temp = ctx.pacer_home.join(format!(
+        ".token.{}.tmp",
+        hex::encode(rand::random::<[u8; 12]>())
+    ));
     let mut file = fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .mode(0o600)
-        .open(path)?;
-    writeln!(file, "{token}")?;
+        .open(&temp)?;
+    let result = (|| {
+        writeln!(file, "{token}")?;
+        file.sync_all()?;
+        fs::rename(&temp, path)
+    })();
+    let _ = fs::remove_file(&temp);
+    result?;
     Ok(token)
 }
 
@@ -168,7 +192,7 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
     let cookie = header("cookie")
         .unwrap_or("")
         .split(';')
-        .map(str::trim)
+        .map(js_trim)
         .find_map(|part| part.strip_prefix("pacer_session="));
     if !(app || api)
         || !cookie.is_some_and(|value| {

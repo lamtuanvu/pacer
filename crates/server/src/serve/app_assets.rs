@@ -37,7 +37,12 @@ pub fn route<B>(req: &Request<B>) -> Option<Response> {
     if path == "auth" {
         return None;
     }
-    let basename = path.rsplit('/').next().unwrap_or(path);
+    // Node's extname ignores trailing separators, including on missing assets.
+    let basename = path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(path);
     let has_extension = basename.rfind('.').is_some_and(|position| position > 0);
     let file = assets()
         .iter()

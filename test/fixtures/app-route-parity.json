@@ -10,6 +10,7 @@
   { "method": "GET", "path": "/app/app.js", "asset": "app.js", "cache": "no-cache", "conditional": true },
   { "method": "GET", "path": "/app/auth", "forward": true },
   { "method": "GET", "path": "/app/missing.js", "forward": true },
+  { "method": "GET", "path": "/app/missing.js/", "forward": true },
   { "method": "POST", "path": "/app/app.js", "forward": true },
   { "method": "GET", "path": "/v3/attachments", "forward": true },
   { "method": "GET", "path": "/v3/tasks/one/session", "forward": true }

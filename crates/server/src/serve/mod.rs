@@ -7,6 +7,9 @@ pub mod discovery;
 #[path = "discovery_tests.rs"]
 mod discovery_tests;
 pub mod heartbeat;
+#[cfg(test)]
+#[path = "listener_tests.rs"]
+mod listener_tests;
 #[cfg(target_os = "macos")]
 mod native_bootstrap;
 #[cfg(target_os = "macos")]

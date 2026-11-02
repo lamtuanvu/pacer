@@ -103,6 +103,23 @@ async fn embedded_app_route_parity() {
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+#[test]
+fn embedded_assets_match_fresh_web_output() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = std::process::Command::new("bun")
+        .args(["-e", "import { buildApp } from './app/build.ts'; process.stdout.write(JSON.stringify(await buildApp()));"])
+        .current_dir(root).output().unwrap();
+    assert!(
+        output.status.success(),
+        "fresh web build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let fresh: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let embedded: Value =
+        serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/app-assets.json"))).unwrap();
+    assert_eq!(fresh, embedded, "embedded web output is stale");
+}
+
 fn fixture() -> (tempfile::TempDir, Ctx) {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::with(
@@ -283,6 +300,55 @@ fn token_reuse_and_safe_comparison() {
             & 0o777,
         0o600
     );
+}
+
+#[test]
+fn token_and_cookie_trim_match_javascript() {
+    let rows: Vec<Value> =
+        serde_json::from_str(include_str!("../../../test/fixtures/js-trim-parity.json")).unwrap();
+    for row in rows {
+        assert_eq!(
+            auth::js_trim(row["value"].as_str().unwrap()),
+            row["expected"].as_str().unwrap()
+        );
+    }
+    let (_dir, ctx) = fixture();
+    std::fs::create_dir_all(&ctx.pacer_home).unwrap();
+    std::fs::write(
+        ctx.pacer_home.join("token"),
+        "\u{FEFF}existing-token\u{2028}",
+    )
+    .unwrap();
+    assert_eq!(auth::ensure_token(&ctx).unwrap(), "existing-token");
+}
+
+#[test]
+fn token_replacement_is_atomic_and_private() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let (_dir, ctx) = fixture();
+    std::fs::create_dir_all(&ctx.pacer_home).unwrap();
+    let path = ctx.pacer_home.join("token");
+    std::fs::write(&path, "").unwrap();
+    let original_inode = std::fs::metadata(&path).unwrap().ino();
+    let token = auth::ensure_token(&ctx).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        format!("{token}\n")
+    );
+    assert_ne!(std::fs::metadata(&path).unwrap().ino(), original_inode);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(&ctx.pacer_home)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(std::fs::read_dir(&ctx.pacer_home).unwrap().count(), 1);
 }
 
 #[test]
