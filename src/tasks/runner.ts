@@ -711,6 +711,22 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const latest = readTask(ctx, id);
         if (owned && latest && TERMINAL_STATES.includes(latest.state)) return latest;
         if (owned && latest?.executorProvider === "pacer-exec-direct" &&
+          !latest.startIntent && !latest.remotePrepareIntent && !latest.baseFetchIntent &&
+          error instanceof CoreError &&
+          (error.code === "capability_denied" || error.code === "invalid_input")) {
+          const message = error.message, endedAt = Date.now() / 1000;
+          updateTask(ctx, id, current => {
+            if (current.state !== "running" || current.startIntent || current.stopPending)
+              throw new CoreError("conflict", "executor state changed before refusal settlement");
+            current.attempts.push({ executor: cfg.id, model: cfg.model ?? null, startedAt: task.attemptStartedAt!,
+              endedAt, exitCode: 1, timedOut: false, limitHit: false, log: "" });
+            delete current.runClaim; delete current.pendingAttempt;
+          });
+          releaseDispatch(ctx, id);
+          return finish(ctx, id, { status: "failed", executor: pick, model: cfg.model,
+            files: "", report: message, backend: "direct" });
+        }
+        if (owned && latest?.executorProvider === "pacer-exec-direct" &&
           (latest.run || latest.runClaim || latest.worktreeIntent || latest.baseFetchIntent ||
             latest.remotePrepareIntent || latest.startIntent)) {
           return updateTask(ctx, id, current => {
