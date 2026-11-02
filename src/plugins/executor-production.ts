@@ -1,3 +1,4 @@
+import { EXECUTOR_ARGV_BYTES } from "../exec/launch";
 import { appendFileSync, existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -107,9 +108,10 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
     current.worktreeIntent && (placement !== "new" ||
       current.worktreeIntent.providerId !== providerId ||
       current.worktreeIntent.attempt !== current.attempts.length + 1) ||
-    current.worktree && (placement !== "new" || !current.retryOf && current.attempts.length === 0) ||
-    !Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 1800)
+    current.worktree && (placement !== "new" || !current.retryOf && current.attempts.length === 0))
     throw new CoreError("capability_denied", "direct executor route is not an owned local attempt");
+  if (!Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 14400)
+    throw new CoreError("invalid_input", "direct executor timeout must be between 1 and 14400 seconds");
   const strategy = loadStrategy(ctx), execution = validateExecution(strategy.execution);
   const attempt = current.attempts.length + 1, dir = join(ctx.pacerHome, "runs", task.id, String(attempt));
   let worktreeGrant: Awaited<ReturnType<typeof issueOwnedWorktreeGrant>> | undefined;
@@ -151,10 +153,10 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   }
   const { interactive, launch } = plan;
   if (launch.argv.length < 1 || launch.argv.length > 32 ||
-    launch.argv.some(arg => !arg || Buffer.byteLength(arg, "utf8") > 4096 || arg.includes("\0")) ||
+    launch.argv.some(arg => !arg || Buffer.byteLength(arg, "utf8") > EXECUTOR_ARGV_BYTES || arg.includes("\0")) ||
     launch.stdin !== undefined && Buffer.byteLength(launch.stdin, "utf8") > 262144 ||
     plan.files.some(file => file.name === "prompt.md" && Buffer.byteLength(file.content, "utf8") > 8 * 1024 * 1024))
-    throw new CoreError("invalid_input", "executor launch exceeds the bounded plugin contract");
+    throw new CoreError("invalid_input", "executor launch exceeds the plugin limits (4096 bytes per argument, 262144 bytes stdin, 8 MiB prompt file)");
   const selected = ctx.which(launch.argv[0]!);
   if (!selected) throw new CoreError("plugin_unavailable", "executor binary is unavailable");
   const executable = realpathSync(selected), stat = statSync(executable);
@@ -276,7 +278,7 @@ export async function runOwnedDirectRemote(ctx: Ctx, cfg: ProviderCfg, task: Tas
     current.executor !== cfg.id || task.interactionMode === "conversation" || cfg.session === "interactive" ||
     host.session === "full" || validateExecution(strategy.execution).session === "pty" ||
     current.attempts.length !== task.attempts.length ||
-    !Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 1800)
+    !Number.isSafeInteger(task.timeoutS) || task.timeoutS < 1 || task.timeoutS > 14400)
     throw new CoreError("capability_denied", "direct executor route is not an owned remote pipe attempt");
   const attempt = current.attempts.length + 1;
   let resources: CallResources = { reads: [], commands: [], stores: [],

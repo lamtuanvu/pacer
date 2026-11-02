@@ -183,7 +183,9 @@ Extractors in this release:
 
 `total` is the provider's own total, or input plus output when the provider splits them. Cache reads and cache writes are stored separately and left out of `total`. Counts that are negative, fractional or above 10⁹ are rejected and the attempt is recorded as `unknown`.
 
-The numbers are stored with the attempt and indexed in the `attempt_usage` table of the task database. On start, the service fills the index for existing history from logs (gzipped archives included). The backfill only adds rows: it never edits task files, task records or logs, and running it again changes nothing.
+The numbers are stored with the attempt and indexed in the `attempt_usage` table of the task database. After its listener starts, the service fills the index for existing history from logs (gzipped archives included) in a separate maintenance process. That process also runs daily retention, and a service starts at most one maintenance process at a time. It stops with the service. Historical totals can fill in after sign-in; the backfill never edits task files, task records or logs, and running it again changes nothing.
+
+Temporary SQLite writer contention is retried up to three times after the initial backfill attempt, with asynchronous backoff. Each database operation retains its bounded SQLite busy timeout. Other errors, or exhausted retries, are reported in `pacer service logs`; maintenance is attempted again on the next daily run or service start. An error in historical maintenance does not prevent the service from accepting sign-in requests. This does not make ordinary task mutations immune to writer contention or remove the need for sufficient system resources.
 
 ### Roll-up
 

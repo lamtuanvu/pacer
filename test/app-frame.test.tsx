@@ -118,3 +118,15 @@ test("task pages own their heading and Workspace owns its panel context", () => 
     expect(withService(hash)).not.toMatch(/<h1\b/);
   }
 });
+
+
+test("folder stalls show a non-blocking notice while volume waits do not", () => {
+  const render = (kind: "folder" | "volume" | undefined) => {
+    const state = { ...ready(), snapshot: { ...snap, service: { ...snap.service!, waiting: kind ? { kind, path: "/repo/.git/HEAD", since: 1 } : undefined } } };
+    return renderToString(<TaskContext.Provider value={{ state, api }}><Layout route={at("#/")} state={state} title="Screen"><p>body</p></Layout></TaskContext.Provider>);
+  };
+  expect(render("folder")).toContain("pacer is waiting to read /repo/.git/HEAD");
+  expect(render("folder")).toContain("<p>body</p>");
+  expect(render("volume")).not.toContain("pacer is waiting to read");
+  expect(render(undefined)).not.toContain("pacer is waiting to read");
+});
