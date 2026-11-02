@@ -1027,12 +1027,24 @@ fn snapshot_parser_matches_bun_normalization() {
         .arg(
             r#"
 import {parseSnapshot} from './src/link/envelope.ts';
-process.stdout.write(JSON.stringify(JSON.parse(process.env.TEST_INPUTS).map(parseSnapshot)));
+process.stdout.write(JSON.stringify(JSON.parse(await Bun.stdin.text()).map(parseSnapshot)));
 "#,
         )
-        .env("TEST_INPUTS", inputs.to_string())
+        // Inputs exceed Linux's 128 KiB limit for one environment string; pass them on stdin.
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .current_dir(root)
-        .output()
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(inputs.to_string().as_bytes())?;
+            child.wait_with_output()
+        })
         .unwrap();
     assert!(
         result.status.success(),
