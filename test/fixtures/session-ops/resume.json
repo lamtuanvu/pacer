@@ -1,0 +1,79 @@
+{
+  "stale": {
+    "error": {
+      "code": "conflict",
+      "message": "Session is active or changed; refresh and try again"
+    }
+  },
+  "failed": {
+    "error": {
+      "code": "not_allowed",
+      "message": "Could not launch the resumed session"
+    }
+  },
+  "launches": 2,
+  "probes": [
+    [
+      "--version"
+    ],
+    [
+      "--help"
+    ],
+    [
+      "resume",
+      "--help"
+    ],
+    [
+      "--version"
+    ],
+    [
+      "--help"
+    ],
+    [
+      "resume",
+      "--help"
+    ]
+  ],
+  "afterFailure": {
+    "state": "failed",
+    "result": {
+      "status": "stopped",
+      "executor": "codex",
+      "model": null,
+      "files": "",
+      "report": "Retained output",
+      "backend": "direct"
+    },
+    "conversation": {
+      "activity": "ended",
+      "agentSessionId": "native-id",
+      "endReason": "failure"
+    }
+  },
+  "success": {
+    "task_id": "$TASK",
+    "state": "queued"
+  },
+  "queued": {
+    "state": "queued",
+    "conversation": {
+      "activity": "starting",
+      "agentSessionId": "native-id"
+    },
+    "result": null,
+    "run": null,
+    "queue": null
+  },
+  "active": {
+    "error": {
+      "code": "conflict",
+      "message": "Session is active or changed; refresh and try again"
+    }
+  },
+  "noIdentity": {
+    "error": {
+      "code": "not_allowed",
+      "message": "The agent did not report a resumable session identity"
+    }
+  }
+}

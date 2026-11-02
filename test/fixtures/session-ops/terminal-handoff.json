@@ -1,0 +1,92 @@
+{
+  "signin": {
+    "opened": false,
+    "target": "none",
+    "command": "CODEX_HOME=$HOME/.codex codex login"
+  },
+  "signinMissing": {
+    "error": {
+      "code": "invalid_input",
+      "message": "unknown account: missing"
+    }
+  },
+  "host": {
+    "opened": true,
+    "target": "terminal",
+    "command": "fixture command"
+  },
+  "unknownHost": {
+    "error": {
+      "code": "invalid_input",
+      "message": "unknown host missing"
+    }
+  },
+  "strategy": {
+    "opened": true,
+    "target": "terminal",
+    "command": "fixture command"
+  },
+  "again": {
+    "opened": true,
+    "target": "terminal",
+    "command": "fixture command"
+  },
+  "changed": {
+    "error": {
+      "code": "invalid_input",
+      "message": "strategy request ID was used with different details"
+    }
+  },
+  "unicodeLimit": {
+    "error": {
+      "code": "invalid_input",
+      "message": "brief must be at most 2000 characters"
+    }
+  },
+  "calls": [
+    {
+      "argv": [
+        "ssh",
+        "fixture-host"
+      ],
+      "title": "SSH devbox"
+    },
+    {
+      "argv": [
+        "cursor-agent",
+        "--force",
+        "--sandbox",
+        "disabled",
+        "--"
+      ],
+      "title": "pacer strategy",
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "prompt": {
+        "heading": true,
+        "base": true,
+        "approval": true
+      }
+    },
+    {
+      "argv": [
+        "cursor-agent",
+        "--force",
+        "--sandbox",
+        "disabled",
+        "--"
+      ],
+      "title": "pacer strategy",
+      "requestId": "00000000-0000-4000-8000-000000000001",
+      "prompt": {
+        "heading": true,
+        "base": true,
+        "approval": true
+      }
+    }
+  ],
+  "samePrompt": true,
+  "intentFiles": [
+    "00000000-0000-4000-8000-000000000001.json",
+    "00000000-0000-4000-8000-000000000001.md"
+  ]
+}

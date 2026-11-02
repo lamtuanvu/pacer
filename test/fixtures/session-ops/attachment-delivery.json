@@ -1,0 +1,11 @@
+{
+  "delivery": {
+    "kind": "reference",
+    "text": "Use the attached file \"later.txt\" at \"$HOME/.pacer/attachments/$DRAFT/$LATE\".",
+    "requiresUserSubmit": true
+  },
+  "claimed": [
+    "secret.txt",
+    "later.txt"
+  ]
+}

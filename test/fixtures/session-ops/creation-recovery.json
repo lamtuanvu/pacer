@@ -1,0 +1,35 @@
+{
+  "rollback": {
+    "error": {
+      "code": "not_found",
+      "message": "Attachment does not belong to this draft"
+    }
+  },
+  "taskCounts": [
+    1,
+    1
+  ],
+  "invalidBase": {
+    "error": {
+      "code": "invalid_input",
+      "message": "Choose a valid base branch"
+    }
+  },
+  "failed": {
+    "task_id": "$FAILED",
+    "state": "failed"
+  },
+  "state": "failed",
+  "conversation": {
+    "activity": "ended",
+    "endReason": "failure"
+  },
+  "result": {
+    "status": "failed",
+    "executor": "codex",
+    "model": null,
+    "files": "",
+    "report": "Error: fixture spawn failed",
+    "backend": "direct"
+  }
+}

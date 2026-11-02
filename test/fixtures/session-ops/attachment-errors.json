@@ -1,0 +1,26 @@
+{
+  "stopped": {
+    "error": {
+      "code": "conflict",
+      "message": "Session is not running"
+    }
+  },
+  "foreignDraft": {
+    "error": {
+      "code": "not_found",
+      "message": "Attachment does not belong to this draft"
+    }
+  },
+  "expired": {
+    "error": {
+      "code": "not_found",
+      "message": "Attachment draft expired or does not exist"
+    }
+  },
+  "claimMissing": {
+    "error": {
+      "code": "not_found",
+      "message": "Attachment does not belong to this draft"
+    }
+  }
+}

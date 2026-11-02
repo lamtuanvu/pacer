@@ -1,0 +1,710 @@
+{
+  "session.prepare": {
+    "description": "Interactive executor capabilities and explicit workspace choices.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "repo": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "session.create": {
+    "description": "Start an idempotent persistent conversation in an explicit workspace.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "draftId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "request": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200000
+        },
+        "repo": {
+          "type": "string",
+          "minLength": 1
+        },
+        "executor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "workspace": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "const": "new"
+                },
+                "base": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "mode",
+                "base"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "const": "current"
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "mode",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "attachments": {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        }
+      },
+      "required": [
+        "request_id",
+        "draftId",
+        "request",
+        "repo",
+        "executor",
+        "workspace",
+        "attachments"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "session.context": {
+    "description": "Private attachment draft and metadata for a conversation.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "session.end": {
+    "description": "End a conversation while retaining its workspace and output.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "session.resume": {
+    "description": "Explicitly resume the native conversation with the same agent and account.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "session.draft.create": {
+    "description": "Create a private attachment draft, expiring after 24 hours if unclaimed.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "session.attachment.prepare": {
+    "description": "Claim a later attachment and prepare explicit delivery without submitting agent input.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attachmentId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "id",
+        "attachmentId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "session.file.read": {
+    "description": "Read a bounded UTF-8 file inside one local session attempt's workspace.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "id",
+        "attempt",
+        "reference"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "task.takeover": {
+    "description": "Stop a local headless run and resume its conversation interactively.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "task.session": {
+    "description": "Session host, capabilities and available viewers.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "task.attach": {
+    "description": "Open a task viewer, or return a command when unavailable.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "app",
+            "orca",
+            "here",
+            "terminal",
+            "tmux"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "target"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "account.signin": {
+    "description": "Open the account login in an available terminal, or return its command.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "target": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "orca",
+                "terminal",
+                "tmux"
+              ]
+            },
+            "request_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "worktree": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "request_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "interactive": {
+              "type": "string",
+              "enum": [
+                "account-add",
+                "account-add-orca",
+                "init"
+              ]
+            }
+          },
+          "required": [
+            "interactive"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "strategy.build": {
+    "description": "Open a strategy planning session.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "cursor",
+            "opencode"
+          ]
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "brief": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "worktree": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "host.terminal": {
+    "description": "Open an SSH terminal for a host.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "alias"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "task.send": {
+    "description": "Deliver one message into an interactive lane's live worker, through any backend that keeps one. Does not create a new attempt. A lane waiting on its question: conflict (answer it instead). Without a live worker whose terminal reports the lane's agent: unavailable; while another client holds the 60-second driving lease: conflict unless force.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "force": {
+          "type": "boolean"
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "task.answer": {
+    "description": "Answer an executor question. A local task with a resumable session continues in that session after project policy admission; otherwise, or when policy holds it, a retry on the same executor. Conflicts unless awaiting input.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "msg.send": {
+    "description": "Send a message to another participant. A message to a settled task starts a turn that resumes its native session once project policy admits it (delegate, then route); another admitted executor replays the thread when policy excludes the prior one. A veto or no admitted executor returns delivery held with hold { reason, plugin? }, and the message stays pending.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1048576
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "message",
+            "question",
+            "answer",
+            "report",
+            "nudge",
+            "close"
+          ]
+        },
+        "reply_to": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "to",
+        "body"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "msg.inbox": {
+    "description": "Messages addressed to the caller.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "unread_only": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "msg.wait": {
+    "description": "Block until a message for the caller arrives, or a reply to reply_to, or timeout_s passes (max 3000).",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "reply_to": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "timeout_s": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3000
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "msg.log": {
+    "description": "A task's message thread.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+        },
+        "after": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "msg.read": {
+    "description": "Mark the caller's messages read.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "ids": {
+          "minItems": 1,
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 64
+          }
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "msg.confirm": {
+    "description": "Release a message that a guardrail held for human confirmation.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "msg.close": {
+    "description": "Close a task for further messages and release its worktree when it is otherwise cleanable. Records no review verdict.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "msg.policy": {
+    "description": "The effective messaging guardrail, or which rule decides a hypothetical send.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+        },
+        "check": {
+          "type": "object",
+          "properties": {
+            "from": {
+              "type": "string",
+              "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+            },
+            "to": {
+              "type": "string",
+              "pattern": "^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\\d{8}-\\d{6}-[0-9a-f]{4})$"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "message",
+                "question",
+                "answer",
+                "report",
+                "nudge",
+                "close"
+              ]
+            },
+            "grant": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "tree.status": {
+    "description": "Turn state of every node in a task's tree.",
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "pattern": "^t-\\d{8}-\\d{6}-[0-9a-f]{4}$"
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

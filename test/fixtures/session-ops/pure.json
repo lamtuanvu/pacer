@@ -1,0 +1,647 @@
+{
+  "references": [
+    {
+      "reference": "file.ts",
+      "expected": {
+        "result": {
+          "name": "file.ts"
+        }
+      }
+    },
+    {
+      "reference": "file.ts:1",
+      "expected": {
+        "result": {
+          "name": "file.ts",
+          "line": 1
+        }
+      }
+    },
+    {
+      "reference": "file.ts:0002:03",
+      "expected": {
+        "result": {
+          "name": "file.ts",
+          "line": 2,
+          "column": 3
+        }
+      }
+    },
+    {
+      "reference": "file.ts:9007199254740991",
+      "expected": {
+        "result": {
+          "name": "file.ts",
+          "line": 9007199254740991
+        }
+      }
+    },
+    {
+      "reference": "file.ts:9007199254740992",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file location"
+        }
+      }
+    },
+    {
+      "reference": "file.ts:00000000000000000000000000001",
+      "expected": {
+        "result": {
+          "name": "file.ts",
+          "line": 1
+        }
+      }
+    },
+    {
+      "reference": "file.ts:0",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file location"
+        }
+      }
+    },
+    {
+      "reference": "file.ts:1:0",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file location"
+        }
+      }
+    },
+    {
+      "reference": "file.ts:-1",
+      "expected": {
+        "result": {
+          "name": "file.ts:-1"
+        }
+      }
+    },
+    {
+      "reference": "file.ts:1.5",
+      "expected": {
+        "result": {
+          "name": "file.ts:1.5"
+        }
+      }
+    },
+    {
+      "reference": "file.ts:1:2:3",
+      "expected": {
+        "result": {
+          "name": "file.ts:1",
+          "line": 2,
+          "column": 3
+        }
+      }
+    },
+    {
+      "reference": ":1",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file location"
+        }
+      }
+    },
+    {
+      "reference": "file.ts:１",
+      "expected": {
+        "result": {
+          "name": "file.ts:１"
+        }
+      }
+    },
+    {
+      "reference": "file.ts\u0000",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file reference"
+        }
+      }
+    },
+    {
+      "reference": "file.ts\n",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file reference"
+        }
+      }
+    },
+    {
+      "reference": "file.ts",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file reference"
+        }
+      }
+    },
+    {
+      "reference": "file.ts",
+      "expected": {
+        "result": {
+          "name": "file.ts"
+        }
+      }
+    },
+    {
+      "reference": "😀.md:2:1",
+      "expected": {
+        "result": {
+          "name": "😀.md",
+          "line": 2,
+          "column": 1
+        }
+      }
+    },
+    {
+      "reference": "",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file reference"
+        }
+      }
+    },
+    {
+      "reference": "file.ts:999999999999999999999999999999999999999999999999999999999999999999999999",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file location"
+        }
+      }
+    },
+    {
+      "reference": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "Invalid file reference"
+        }
+      }
+    }
+  ],
+  "summaries": [
+    {
+      "input": {
+        "text": "  hello\nworld\t "
+      },
+      "clean": {
+        "codeUnits": [
+          32,
+          32,
+          104,
+          101,
+          108,
+          108,
+          111,
+          10,
+          119,
+          111,
+          114,
+          108,
+          100,
+          9,
+          32
+        ]
+      },
+      "read": {
+        "codeUnits": [
+          32,
+          32,
+          104,
+          101,
+          108,
+          108,
+          111,
+          10,
+          119,
+          111,
+          114,
+          108,
+          100,
+          9,
+          32
+        ]
+      },
+      "written": {
+        "result": {
+          "codeUnits": [
+            104,
+            101,
+            108,
+            108,
+            111,
+            10,
+            119,
+            111,
+            114,
+            108,
+            100
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "\u0000\b\u000b\u001b A\nB\tC\rD"
+      },
+      "clean": {
+        "codeUnits": [
+          32,
+          65,
+          10,
+          66,
+          9,
+          67,
+          68
+        ]
+      },
+      "read": {
+        "codeUnits": [
+          32,
+          65,
+          10,
+          66,
+          9,
+          67,
+          68
+        ]
+      },
+      "written": {
+        "result": {
+          "codeUnits": [
+            65,
+            10,
+            66,
+            9,
+            67,
+            68
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "﻿  hello 　"
+      },
+      "clean": {
+        "codeUnits": [
+          65279,
+          160,
+          8232,
+          104,
+          101,
+          108,
+          108,
+          111,
+          8233,
+          12288
+        ]
+      },
+      "read": {
+        "codeUnits": [
+          65279,
+          160,
+          8232,
+          104,
+          101,
+          108,
+          108,
+          111,
+          8233,
+          12288
+        ]
+      },
+      "written": {
+        "result": {
+          "codeUnits": [
+            104,
+            101,
+            108,
+            108,
+            111
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "text": ""
+      },
+      "clean": {
+        "codeUnits": []
+      },
+      "read": {
+        "codeUnits": []
+      },
+      "written": {
+        "error": {
+          "message": "report summary must contain 1–16000 characters"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "​"
+      },
+      "clean": {
+        "codeUnits": [
+          8203
+        ]
+      },
+      "read": {
+        "codeUnits": [
+          8203
+        ]
+      },
+      "written": {
+        "result": {
+          "codeUnits": [
+            8203
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "᠎"
+      },
+      "clean": {
+        "codeUnits": [
+          6158
+        ]
+      },
+      "read": {
+        "codeUnits": [
+          6158
+        ]
+      },
+      "written": {
+        "result": {
+          "codeUnits": [
+            6158
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "\u001b"
+      },
+      "clean": {
+        "codeUnits": []
+      },
+      "read": {
+        "codeUnits": []
+      },
+      "written": {
+        "error": {
+          "message": "report summary must contain 1–16000 characters"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "\t\n\r "
+      },
+      "clean": {
+        "codeUnits": [
+          9,
+          10,
+          32
+        ]
+      },
+      "read": null,
+      "written": {
+        "error": {
+          "message": "report summary must contain 1–16000 characters"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "😀",
+        "repeat": 8000
+      },
+      "clean": {
+        "units": 16000,
+        "first": "😀😀😀😀",
+        "last": "😀😀😀😀"
+      },
+      "read": {
+        "units": 16000,
+        "first": "😀😀😀😀",
+        "last": "😀😀😀😀"
+      },
+      "written": {
+        "result": {
+          "units": 16000,
+          "first": "😀😀😀😀",
+          "last": "😀😀😀😀"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "😀",
+        "repeat": 8001
+      },
+      "clean": {
+        "units": 16002,
+        "first": "😀😀😀😀",
+        "last": "😀😀😀😀"
+      },
+      "read": null,
+      "written": {
+        "error": {
+          "message": "report summary must contain 1–16000 characters"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "a",
+        "repeat": 16000
+      },
+      "clean": {
+        "units": 16000,
+        "first": "aaaaaaaa",
+        "last": "aaaaaaaa"
+      },
+      "read": {
+        "units": 16000,
+        "first": "aaaaaaaa",
+        "last": "aaaaaaaa"
+      },
+      "written": {
+        "result": {
+          "units": 16000,
+          "first": "aaaaaaaa",
+          "last": "aaaaaaaa"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "a",
+        "repeat": 16001
+      },
+      "clean": {
+        "units": 16001,
+        "first": "aaaaaaaa",
+        "last": "aaaaaaaa"
+      },
+      "read": null,
+      "written": {
+        "error": {
+          "message": "report summary must contain 1–16000 characters"
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "\u001b",
+        "repeat": 16001
+      },
+      "clean": {
+        "codeUnits": []
+      },
+      "read": null,
+      "written": {
+        "error": {
+          "message": "report summary must contain 1–16000 characters"
+        }
+      }
+    },
+    {
+      "input": {
+        "units": [
+          55296,
+          32,
+          56320
+        ]
+      },
+      "clean": {
+        "codeUnits": [
+          55296,
+          32,
+          56320
+        ]
+      },
+      "read": {
+        "codeUnits": [
+          55296,
+          32,
+          56320
+        ]
+      },
+      "written": {
+        "result": {
+          "codeUnits": [
+            55296,
+            32,
+            56320
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "units": [
+          65279,
+          55296,
+          65279
+        ]
+      },
+      "clean": {
+        "codeUnits": [
+          65279,
+          55296,
+          65279
+        ]
+      },
+      "read": {
+        "codeUnits": [
+          65279,
+          55296,
+          65279
+        ]
+      },
+      "written": {
+        "result": {
+          "codeUnits": [
+            55296
+          ]
+        }
+      }
+    },
+    {
+      "input": {
+        "text": "\u0000\t\n\r\u001f                 　﻿"
+      },
+      "clean": {
+        "codeUnits": [
+          9,
+          10,
+          160,
+          5760,
+          8192,
+          8193,
+          8194,
+          8195,
+          8196,
+          8197,
+          8198,
+          8199,
+          8200,
+          8201,
+          8202,
+          8232,
+          8233,
+          8239,
+          8287,
+          12288,
+          65279
+        ]
+      },
+      "read": {
+        "codeUnits": [
+          9,
+          10,
+          160,
+          5760,
+          8192,
+          8193,
+          8194,
+          8195,
+          8196,
+          8197,
+          8198,
+          8199,
+          8200,
+          8201,
+          8202,
+          8232,
+          8233,
+          8239,
+          8287,
+          12288,
+          65279
+        ]
+      },
+      "written": {
+        "error": {
+          "message": "report summary must contain 1–16000 characters"
+        }
+      }
+    }
+  ]
+}
