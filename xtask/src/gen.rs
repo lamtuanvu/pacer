@@ -6,6 +6,8 @@ mod policy_bounds;
 mod policy_collections;
 #[path = "gen_policy_metadata.rs"]
 mod policy_metadata;
+#[path = "gen_tuples.rs"]
+mod tuples;
 #[path = "gen_validators.rs"]
 mod validators;
 use std::{
@@ -194,6 +196,7 @@ fn generate_area(schema_path: &Path, area: &str) -> Result<String, String> {
         .get("title")
         .and_then(|v| v.as_str())
         .is_some_and(|title| title.starts_with("pacer plugin protocol "));
+    tuples::normalize(&mut value);
     let schema: schemars::schema::RootSchema =
         serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
     let mut space =

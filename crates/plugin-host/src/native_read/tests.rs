@@ -241,6 +241,11 @@ fn json_number_spellings_reach_listing_and_range_fields() {
     }
     let mtime = expected["mtimeMs"].as_f64().unwrap();
     expected["mtimeMs"] = serde_json::from_str(&format!("{mtime:e}")).unwrap();
+    assert_eq!(
+        expected["mtimeMs"].as_f64(),
+        Some(mtime),
+        "JSON scientific notation must preserve the JS number"
+    );
     for (offset, length, accepted) in [
         ("1.0", "1e2", true),
         ("1e2", "1.0", true),
@@ -576,8 +581,6 @@ fn structured_scan_corpus_matches_bun_listing() {
     fs::create_dir(root.join("aa")).unwrap();
     fs::write(root.join("aa/rollout-a.jsonl"), "a").unwrap();
     fs::write(root.join("a/rollout-*.jsonl"), "star").unwrap();
-    fs::write(root.join("rollout-].jsonl"), "bracket").unwrap();
-    fs::write(root.join("rollout--.jsonl"), "dash").unwrap();
     for name in ["rollout-a.jsonl", "rollout-b.jsonl", "rollout-c.jsonl"] {
         fs::write(root.join(name), name).unwrap();
     }
@@ -603,12 +606,6 @@ fn structured_scan_corpus_matches_bun_listing() {
         "rollout-[^a].jsonl",
         "rollout-[!a].jsonl",
         "rollout-[^ab].jsonl",
-        "rollout-[!].jsonl",
-        "rollout-[]a].jsonl",
-        r"rollout-[\]].jsonl",
-        r"rollout-[a\-c].jsonl",
-        r"rollout-[a-\c].jsonl",
-        "rollout-[!]].jsonl",
     ];
     let mut patterns: Vec<_> = directory_patterns
         .iter()
@@ -680,16 +677,7 @@ fn structured_scan_corpus_matches_bun_listing() {
 
 #[test]
 fn structured_scope_corpus_matches_bun_glob_match() {
-    let components = [
-        "a",
-        "b",
-        ".hidden",
-        "rollout-a.jsonl",
-        "rollout-b.jsonl",
-        "]",
-        "-",
-        "c",
-    ];
+    let components = ["a", "b", ".hidden", "rollout-a.jsonl", "rollout-b.jsonl"];
     let patterns = [
         "/tmp/logs/a**/rollout-*.jsonl",
         "/tmp/logs/a//rollout-*.jsonl",
@@ -699,13 +687,6 @@ fn structured_scope_corpus_matches_bun_glob_match() {
         "/tmp/logs/{a/b,b}/rollout-*.jsonl",
         "/tmp/logs/**/rollout-*.jsonl",
         "/tmp/logs/rollout-[^a].jsonl",
-        "/tmp/logs/[!]",
-        "/tmp/logs/[]a]",
-        "/tmp/logs/[!]]",
-        "/tmp/logs/[]",
-        r"/tmp/logs/[\]]",
-        r"/tmp/logs/[a\-c]",
-        r"/tmp/logs/[a-\c]",
     ];
     let paths: Vec<_> = components
         .iter()

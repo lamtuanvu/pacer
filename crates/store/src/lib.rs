@@ -1,6 +1,8 @@
 //! Durable task, activity and event stores shared with the TypeScript core.
 pub mod activity;
 mod file;
+mod locked;
+pub use locked::LockedTask;
 pub mod outbox;
 pub mod publish;
 mod retention;

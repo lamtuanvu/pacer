@@ -1,10 +1,10 @@
 use pacer_plugin_protocol::Manifest;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
 /// Read-only snapshot of the `plugins:` strategy section. TypeScript owns edits in P4a.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct PluginsConfig {
     pub policy: Policy,
@@ -13,10 +13,19 @@ pub struct PluginsConfig {
     pub config: HashMap<String, HashMap<String, Value>>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Policy {
+    #[serde(deserialize_with = "policy_mode")]
     pub mode: String,
+}
+fn policy_mode<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let mode = String::deserialize(deserializer)?;
+    if ["open", "closed"].contains(&mode.as_str()) {
+        Ok(mode)
+    } else {
+        Err(serde::de::Error::custom("invalid policy mode"))
+    }
 }
 impl Default for Policy {
     fn default() -> Self {
@@ -26,12 +35,13 @@ impl Default for Policy {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PluginGrant {
     pub version: String,
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub surfaces: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub policy: Option<bool>,
 }
 

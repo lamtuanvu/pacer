@@ -489,7 +489,8 @@ fn broker(ms: u64) -> CapabilityBroker {
             timeout_ms: 1000,
             stdin: None,
             cwd: None,
-            env: Default::default(),
+            env: None,
+            ..Default::default()
         }],
         writes: vec![crate::WriteResource {
             path: "/tmp/issued".into(),

@@ -54,7 +54,9 @@ pub enum ProcessFrame {
 }
 
 pub fn frame(value: Value) -> Result<Vec<u8>, ProcessError> {
-    let mut bytes = serde_json::to_vec(&value).map_err(|_| ProcessError::Malformed)?;
+    let mut bytes = crate::js_canonical_json(&value)
+        .map_err(|_| ProcessError::Malformed)?
+        .into_bytes();
     bytes.push(b'\n');
     if bytes.len() > MAX_LINE_BYTES {
         return Err(ProcessError::TooLarge);
@@ -88,7 +90,7 @@ pub fn parse_frame(line: &[u8]) -> Result<ProcessFrame, ProcessError> {
     }
     let id = object
         .get("id")
-        .and_then(Value::as_u64)
+        .and_then(crate::js_semantics::safe_u64)
         .ok_or(ProcessError::Malformed)?;
     if let Some(error) = object.get("error") {
         return Ok(ProcessFrame::Error {
@@ -105,31 +107,37 @@ pub fn parse_frame(line: &[u8]) -> Result<ProcessFrame, ProcessError> {
     })
 }
 
-async fn read_line_bounded(stream: &mut (impl AsyncRead + Unpin)) -> Result<Vec<u8>, ProcessError> {
-    let mut line = Vec::new();
+async fn read_line_bounded(
+    stream: &mut (impl AsyncRead + Unpin),
+    line: &mut Vec<u8>,
+    dropping: &mut bool,
+) -> Result<Vec<u8>, ProcessError> {
     let mut byte = [0];
-    let mut dropping = false;
     loop {
         match stream.read(&mut byte).await {
-            Ok(0) if line.is_empty() && !dropping => {
+            Ok(0) if line.is_empty() && !*dropping => {
                 return Err(ProcessError::Unavailable("stdout closed".into()));
             }
-            Ok(0) if dropping => return Err(ProcessError::TooLarge),
-            Ok(0) => return Ok(line),
+            Ok(0) if *dropping => {
+                *dropping = false;
+                return Err(ProcessError::TooLarge);
+            }
+            Ok(0) => return Ok(std::mem::take(line)),
             Ok(_) if byte[0] == b'\n' => {
-                if dropping {
+                if *dropping {
+                    *dropping = false;
                     return Err(ProcessError::TooLarge);
                 }
                 if line.last() == Some(&b'\r') {
                     line.pop();
                 }
-                return Ok(line);
+                return Ok(std::mem::take(line));
             }
-            Ok(_) if !dropping => {
+            Ok(_) if !*dropping => {
                 line.push(byte[0]);
                 if line.len() > MAX_LINE_BYTES {
                     line.clear();
-                    dropping = true;
+                    *dropping = true;
                 }
             }
             Ok(_) => {}
@@ -144,6 +152,8 @@ pub struct PluginProcess {
     stdin: ChildStdin,
     stdout: tokio::process::ChildStdout,
     next_id: u64,
+    partial_line: Vec<u8>,
+    dropping_line: bool,
 }
 
 impl PluginProcess {
@@ -178,6 +188,8 @@ impl PluginProcess {
             stdin,
             stdout,
             next_id: 1,
+            partial_line: Vec::new(),
+            dropping_line: false,
         })
     }
 
@@ -217,6 +229,22 @@ impl PluginProcess {
         params: Value,
         deadline: Duration,
         cancel: Option<&tokio::sync::watch::Receiver<bool>>,
+        handler: F,
+    ) -> Result<Value, ProcessError>
+    where
+        F: FnMut(String, Value, Option<Value>) -> Fut,
+        Fut: Future<Output = Result<Value, Value>>,
+    {
+        self.request_with_metadata(method, params, None, deadline, cancel, handler)
+            .await
+    }
+    pub async fn request_with_metadata<F, Fut>(
+        &mut self,
+        method: &str,
+        params: Value,
+        metadata: Option<Value>,
+        deadline: Duration,
+        cancel: Option<&tokio::sync::watch::Receiver<bool>>,
         mut handler: F,
     ) -> Result<Value, ProcessError>
     where
@@ -228,7 +256,11 @@ impl PluginProcess {
         }
         let id = self.next_id;
         self.next_id += 1;
-        let request = frame(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))?;
+        let mut envelope = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
+        if let Some(metadata) = metadata {
+            envelope["_meta"] = metadata;
+        }
+        let request = frame(envelope)?;
         let expires = Instant::now() + deadline;
         let exchange = async {
             self.stdin
@@ -236,7 +268,13 @@ impl PluginProcess {
                 .await
                 .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
             loop {
-                let line = match read_line_bounded(&mut self.stdout).await {
+                let line = match read_line_bounded(
+                    &mut self.stdout,
+                    &mut self.partial_line,
+                    &mut self.dropping_line,
+                )
+                .await
+                {
                     Ok(line) => line,
                     Err(ProcessError::TooLarge) => continue,
                     Err(error) => return Err(error),
@@ -299,6 +337,62 @@ impl PluginProcess {
         outcome
     }
 
+    /// Run one idle transport turn. The generation owner must reject effect RPCs.
+    pub async fn handle_idle_request<F, Fut>(
+        &mut self,
+        deadline: Duration,
+        mut handler: F,
+    ) -> Result<bool, ProcessError>
+    where
+        F: FnMut(String, Value, Option<Value>) -> Fut,
+        Fut: Future<Output = Result<Value, Value>>,
+    {
+        timeout(deadline, async {
+            let line = read_line_bounded(
+                &mut self.stdout,
+                &mut self.partial_line,
+                &mut self.dropping_line,
+            )
+            .await?;
+            if let ProcessFrame::Request {
+                id,
+                method,
+                params,
+                metadata,
+            } = parse_frame(&line)?
+            {
+                let reply = match handler(method, params, metadata).await {
+                    Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
+                    Err(error) => json!({"jsonrpc":"2.0","id":id,"error":error}),
+                };
+                self.stdin
+                    .write_all(&frame(reply)?)
+                    .await
+                    .map_err(|e| ProcessError::Unavailable(e.to_string()))?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        })
+        .await
+        .unwrap_or(Err(ProcessError::Timeout))
+    }
+    /// Bounded event delivery retains the caller's guard through pipe backpressure.
+    pub async fn notify_bounded(
+        &mut self,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        guard: impl Fn() -> Result<(), ProcessError>,
+    ) -> Result<(), ProcessError> {
+        guard()?;
+        let bytes = frame(json!({"jsonrpc":"2.0","method":method,"params":params}))?;
+        timeout(deadline, self.stdin.write_all(&bytes))
+            .await
+            .map_err(|_| ProcessError::Timeout)?
+            .map_err(|e| ProcessError::Unavailable(e.to_string()))?;
+        guard()
+    }
     pub async fn terminate(mut self) -> Result<(), ProcessError> {
         if self
             .child
