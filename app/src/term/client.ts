@@ -1,3 +1,4 @@
+import { platform } from "../platform";
 /** Browser-only session v1 frame client. No terminal dependency in the app bundle. */
 export interface SessionSocket {
  readyState:number; binaryType:string;
@@ -26,7 +27,7 @@ export class SessionClient {
   this.autoControlAttempted=false;
   this.update({status:this.attempt?'reconnecting':'connecting',you:false});
   let ws:SessionSocket;
-  try{ws=(this.options.socket??(url=>new WebSocket(url) as unknown as SessionSocket))(this.offset===undefined?this.options.url:`${this.options.url}${this.options.url.includes('?')?'&':'?'}from=${this.offset}`);}catch{this.retry();return;}
+  try{ws=(this.options.socket??platform.attachTerminal)(this.offset===undefined?this.options.url:`${this.options.url}${this.options.url.includes('?')?'&':'?'}from=${this.offset}`);}catch{this.retry();return;}
   this.ws=ws;ws.binaryType='arraybuffer';
   ws.onopen=()=>{if(this.ws!==ws||this.stopped)return;this.send('hello',{v:1,versions:[1,1],client:'app',label:this.options.label,cols:this.state.cols,rows:this.state.rows,...(this.offset===undefined?{}:{from:this.offset})});};
   ws.onmessage=event=>{if(this.ws!==ws||this.stopped)return;try{this.receive(event.data);}catch{this.update({status:'error',you:false,message:'Could not read the session stream.'});ws.close();}};

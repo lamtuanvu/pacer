@@ -38,7 +38,10 @@ describe("live guard (D3)", () => {
   test("fixed stdio evidence requires protocol negotiation, exact result and native trace", () => {
     const replies = [{ id: 1, result: { protocol: "3.0.0" } }, { id: 2, result: { fixture: "native-stdio", n: 1 } }, { id: 3, result: { protocol: "2.8.0" } }];
     const output = replies.map(reply => JSON.stringify(reply)).join("\n") + "\n";
-    expect(() => verifyNativeStdio(output, "native test.echo\n", 0)).not.toThrow();
+    expect(() => verifyNativeStdio(output, "native test.echo 2\n", 0)).not.toThrow();
+    expect(() => verifyNativeStdio(output, "native test.echo\n", 0)).toThrow("trace");
+    expect(() => verifyNativeStdio(output, "native test.echo 1\n", 0)).toThrow("trace");
+    expect(() => verifyNativeStdio(output, "native test.echo 2\nnative test.echo 2\n", 0)).toThrow("trace");
     expect(() => verifyNativeStdio(output, "", 0)).toThrow("trace");
     expect(() => verifyNativeStdio(output, "native test.echo\n", 1)).toThrow("exited");
     expect(() => verifyNativeStdio(output.replace("3.0.0", "2.8.0"), "native test.echo\n", 0)).toThrow("protocol 3");

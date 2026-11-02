@@ -10,12 +10,37 @@ const run = (mode = "same", extra = {}) => parity({ fixture, reference: command,
 test("two sessions compare results and persisted state on disposable copies", async () => { await run(); });
 test("result mismatch is detected", async () => { await expect(run("result")).rejects.toThrow("response mismatch"); });
 test("persisted state mismatch is detected", async () => { await expect(run("state")).rejects.toThrow("filesystem mismatch"); });
+test.each(["state-mode", "state-extra", "state-link"])("full persisted tree detects %s mismatch", async mode => {
+  await expect(run(mode)).rejects.toThrow("filesystem mismatch");
+});
 test("candidate Bun install cache does not count as persisted state", async () => { await run("bun-cache"); });
 test("candidate state beside Bun install cache still counts", async () => { await expect(run("bun-install-state")).rejects.toThrow("filesystem mismatch"); });
 test("malformed RPC is rejected", async () => { await expect(run("malformed")).rejects.toThrow("malformed"); });
 test("mismatched response IDs are rejected", async () => { await expect(run("id")).rejects.toThrow("id"); });
 test("silent peer times out", async () => { await expect(run("timeout", { timeoutMs: 200 })).rejects.toThrow("timed out"); });
 test("native requirements fail without independent native execution evidence", async () => { await expect(run("same", { native: ["write"] })).rejects.toThrow("native execution evidence unavailable"); });
+test("native requirements must name an operation that was exercised", async () => {
+  await expect(run("same", { native: ["never.called"] })).rejects.toThrow("native requirement never.called has no operation step");
+});
+test("zero native markers for a required request cannot certify parity", async () => {
+  await expect(run("native-no-marker", { native: ["write"] })).rejects.toThrow("native execution evidence unavailable for write request 2");
+});
+test("one native marker cannot cover two correlated calls", async () => {
+  await expect(run("native-once", { native: ["write"], steps: [
+    { op: "write", params: { value: "kept" } }, { op: "write", params: { value: "kept" } },
+  ] })).rejects.toThrow("native execution evidence unavailable");
+});
+test("duplicate native markers for one request cannot certify parity", async () => {
+  await expect(run("native-duplicate", { native: ["write"] })).rejects.toThrow("native execution evidence unavailable");
+});
+test("native marker for an unknown request id cannot certify parity", async () => {
+  await expect(run("native-unknown-id", { native: ["write"] })).rejects.toThrow("native execution evidence unavailable");
+});
+test("front-loaded native markers cannot cover a later call", async () => {
+  await expect(run("native-frontloaded", { native: ["write"], steps: [
+    { op: "write", params: { value: "kept" } }, { op: "write", params: { value: "kept" } },
+  ] })).rejects.toThrow("native execution evidence unavailable");
+});
 test("business timestamps and IDs are compared exactly by default", async () => { await expect(run("timestamp")).rejects.toThrow("response mismatch"); });
 test("real TypeScript stdio reference smoke", async () => {
   const cli = realpathSync(join(import.meta.dir, "../src/cli.ts"));
@@ -93,22 +118,34 @@ test("CLI readiness preload rejects substituted executable arguments", async () 
     startup: { readyLine: "pacer-parity-ready", timeoutMs: 1000 } })).rejects.toThrow("requires the actual CLI entry and api --stdio argv");
 });
 
-test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("feature-gated echo runs natively with strict evidence", async () => {
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("feature-gated echo runs natively with strict evidence", async () => {
   await parity({ fixture, reference: [process.execPath, join(import.meta.dir, "fixtures/parity-native-peer.ts")],
-    candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"],
+    candidate: [process.env.PACER_TEST_NATIVE_FRONT_DOOR!, "api", "--stdio"],
     referenceEnv: { PACER_TEST_HELLO: JSON.stringify(helloBody()) }, candidateEnv: { PACER_DEBUG_NATIVE: "1", PACER_CORE_ARGV: coreArgv }, native: ["test.echo"],
     steps: [{ op: "test.echo", params: { ok: true }, expect: "ok" }] });
 });
-test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("echo mismatch is a parity failure", async () => {
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("echo mismatch is a parity failure", async () => {
   await expect(parity({ fixture, reference: [process.execPath, join(import.meta.dir, "fixtures/parity-native-peer.ts")],
-    candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"],
+    candidate: [process.env.PACER_TEST_NATIVE_FRONT_DOOR!, "api", "--stdio"],
     referenceEnv: { PACER_TEST_HELLO: JSON.stringify(helloBody()) }, candidateEnv: { PACER_DEBUG_NATIVE: "1", PACER_CORE_ARGV: coreArgv, PACER_TEST_ECHO_BREAK: "1" }, native: ["test.echo"],
     steps: [{ op: "test.echo", params: { ok: true } }] })).rejects.toThrow("response mismatch");
 });
-
-test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("real forwarded operation cannot satisfy native requirement", async () => {
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("every repeated echo call needs native execution evidence", async () => {
+  await parity({ fixture, reference: [process.execPath, join(import.meta.dir, "fixtures/parity-native-peer.ts")],
+    candidate: [process.env.PACER_TEST_NATIVE_FRONT_DOOR!, "api", "--stdio"],
+    referenceEnv: { PACER_TEST_HELLO: JSON.stringify(helloBody()) }, candidateEnv: { PACER_DEBUG_NATIVE: "1", PACER_CORE_ARGV: coreArgv }, native: ["test.echo"],
+    steps: [{ op: "test.echo", params: { n: 1 }, expect: "ok" }, { op: "test.echo", params: { n: 2 }, expect: "ok" }] });
+});
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("forced-forward echo cannot satisfy a native requirement", async () => {
   await expect(parity({ fixture, reference: [process.execPath, join(import.meta.dir, "../src/cli.ts"), "api", "--stdio"],
-    candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"],
+    candidate: [process.env.PACER_TEST_NATIVE_FRONT_DOOR!, "api", "--stdio"],
+    candidateEnv: { PACER_DEBUG_NATIVE: "1", PACER_CORE_ARGV: coreArgv, PACER_FORWARD_OPS: "test.echo" }, native: ["test.echo"],
+    steps: [{ op: "test.echo", params: { ok: true }, expect: "error" }] })).rejects.toThrow("native execution evidence unavailable");
+});
+
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("real forwarded operation cannot satisfy native requirement", async () => {
+  await expect(parity({ fixture, reference: [process.execPath, join(import.meta.dir, "../src/cli.ts"), "api", "--stdio"],
+    candidate: [process.env.PACER_TEST_NATIVE_FRONT_DOOR!, "api", "--stdio"],
     candidateEnv: { PACER_CORE_ARGV: coreArgv, PACER_DEBUG_NATIVE: "1" },
     native: ["version.get"], steps: [{ op: "version.get", expect: "ok" }] })).rejects.toThrow("native execution evidence unavailable");
 });

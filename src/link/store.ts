@@ -2,9 +2,11 @@ import { compareVersions, currentVersion, isVersion } from "../update/version";
 import { parseOrcaOutput } from "../exec/orca/client";
 import { sanitizedOrcaEnv } from "../exec/attestation-env";
 import { isObj } from "../util";
+import { sliceText } from "../util";
 import { serviceInstalled } from "../service";
-import { appendFileSync, readdirSync, existsSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { chmodSync, closeSync, fchmodSync, openSync, readdirSync, existsSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
 import { type ConsoleData, type OutboxEvent, LIMITS, type LinkSnapshot, emptySnapshot, parseOutboxEvent, parseSnapshot } from "./envelope";
@@ -128,12 +130,28 @@ export function consoleVersionCurrent(c: ConsoleData): boolean {
 }
 export function currentSnapshot(ctx:Ctx,alive?:(pid:number)=>boolean):LinkSnapshot {
   const consoles=readConsoles(ctx,alive).filter(consoleVersionCurrent);
-  return {...readLatest(ctx),serviceInstalled:serviceInstalled(ctx),consoles,console:consoles[0] ?? (() => { const c = readConsole(ctx,alive); return c && consoleVersionCurrent(c) ? c : null; })(),strategies:listStrategies(ctx)};
+  return {...readLatest(ctx),serviceInstalled:serviceInstalled(ctx),consoles,console:consoles[0] ?? (() => { const c = readConsole(ctx,alive); return c && consoleVersionCurrent(c) ? c : null; })(),strategies:listStrategies(ctx).map(strategy => ({...strategy, description:sliceText(strategy.description,1000)}))};
 }
-export function appendOutbox(ctx:Ctx,entries:OutboxEntry[]):void {
-  if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true}); const p=outboxPath(ctx); appendFileSync(p,entries.map(e=>`${JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}})}\n`).join(""));
-  if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) { const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP); writeFileSync(`${p}.tmp`,`${lines.join("\n")}\n`); renameSync(`${p}.tmp`,p); }
+export function appendOutbox(ctx:Ctx,entries:OutboxEntry[], rotate = true, notify = true):void {
+  if(!entries.length)return; mkdirSync(linkDir(ctx),{recursive:true,mode:0o700}); chmodSync(linkDir(ctx),0o700); const p=outboxPath(ctx);
+  const fd=openSync(p,"a",0o600);
+  try { fchmodSync(fd,0o600); writeFileSync(fd,entries.map(e=>`${JSON.stringify({...e,envelope:{type:e.envelope.type,data:e.envelope.data}})}\n`).join("")); }
+  finally { closeSync(fd); }
+  if (rotate) rotateOutbox(ctx);
+  if (notify) notifyOutbox(ctx);
+}
+export function notifyOutbox(ctx:Ctx):void {
   for (const listener of outboxListeners.get(ctx.pacerHome) ?? []) listener();
+}
+/** Rotate only after a publisher has committed latest.json, keeping an interrupted append replayable. */
+export function rotateOutbox(ctx:Ctx):void {
+  const p=outboxPath(ctx);
+  if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) {
+    const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP), tmp=`${p}.${process.pid}.${randomUUID()}.tmp`;
+    const rotation=openSync(tmp,"wx",0o600);
+    try { writeFileSync(rotation,`${lines.join("\n")}\n`); closeSync(rotation); renameSync(tmp,p); }
+    catch(error) { try { closeSync(rotation); } catch { /* already closed */ } unlinkSync(tmp); throw error; }
+  }
 }
 export function readOutboxSince(ctx:Ctx,seq:number):OutboxEntry[] {
   const p=outboxPath(ctx); if(!existsSync(p))return []; const out:OutboxEntry[]=[];

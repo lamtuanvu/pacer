@@ -64,6 +64,8 @@ jobs:
           toolchain: 1.99.0
       - name: Build the Rust fixture plugin
         run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
+      - name: Build the SQLite cross-runtime proof
+        run: cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof
       - name: Test Rust plugin SDK harness feature
         run: cargo test -p pacer-plugin --features testing --locked
       - name: Install Linux test cross-build prerequisites
@@ -78,7 +80,9 @@ jobs:
         run: |
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
-      - run: bun run test
+      - env:
+          PACER_SQLITE_PROOF_BIN: ${{ github.workspace }}/target/debug/pacer-sqlite-proof
+        run: bun run test
 
   build:
     needs: verify
@@ -128,12 +132,16 @@ jobs:
         run: bun scripts/release/build.ts --targets "$TARGETS"
       - name: Build the Rust fixture plugin for the M1 gate
         run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
+      - name: Build the SQLite cross-runtime proof for the M1 gate
+        run: cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof
       # The frozen playwright-core dependency pins the matching Chromium revision.
       - name: Install locked Chromium for the M1 gate
         run: |
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Full M1 gate against built host release artifacts
+        env:
+          PACER_SQLITE_PROOF_BIN: ${{ github.workspace }}/target/debug/pacer-sqlite-proof
         run: |
           set -euo pipefail
           bun run gate:m1 --release-dir "dist/release/$VERSION" 2>&1 | tee "$RUNNER_TEMP/pacer-m1-gate.log"
