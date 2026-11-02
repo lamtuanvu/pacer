@@ -201,6 +201,41 @@ test("MCP delegate accepts trimmed short titles and rejects oversized titles",as
  await client.close();
 });
 
+test("MCP delegate title storage uses UTF-16 length while its Zod schema uses code points", async () => {
+  const { ctx, call, client } = await connect();
+  try {
+    const accepted = await call("delegate", { goal: "g", repo: ctx.home, title: "😀".repeat(30) });
+    expect(accepted.isError).toBeFalsy();
+    expect(accepted.structuredContent.title).toBe("😀".repeat(30));
+    const rejected = await call("delegate", { goal: "g", repo: ctx.home, title: "😀".repeat(31) });
+    expect(rejected.isError).toBe(true);
+    expect(rejected.content[0].text).not.toContain("Input validation error");
+  } finally { await client.close(); }
+});
+
+test("MCP delegate enforces downstream UTF-16 limits and stores trimmed titles", async () => {
+  const { ctx, call, client } = await connect();
+  try {
+    for (const [field, limit] of [["request_id", 128], ["worktree_reason", 200]] as const) {
+      const accepted = "😀".repeat(limit / 2);
+      const ok = await call("delegate", { goal: `boundary ${field}`, repo: ctx.home, [field]: accepted });
+      expect(ok.isError).toBeFalsy();
+      const stored = readTask(ctx, ok.structuredContent.task_id)!;
+      expect(field === "request_id" ? stored.requestId : stored.placement?.reason).toBe(accepted);
+      const bad = await call("delegate", { goal: `over ${field}`, repo: ctx.home, [field]: accepted + "😀" });
+      expect(bad.isError).toBe(true);
+      expect(bad.content[0].text).toContain(field === "request_id" ? "request_id must be 1–128 characters" : "worktree_reason must be a string of at most 200 characters");
+    }
+    const whitespace = ["\uFEFF", "\u2028", "\u2029", "\u00A0", "\u1680", ...Array.from({ length: 11 }, (_, i) => String.fromCodePoint(0x2000 + i)), "\u202F", "\u205F", "\u3000"];
+    for (const space of whitespace) {
+      const result = await call("delegate", { goal: "trim title", repo: ctx.home, title: `${space}Title${space}` });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent.title).toBe("Title");
+      expect(readTask(ctx, result.structuredContent.task_id)?.title).toBe("Title");
+    }
+  } finally { await client.close(); }
+});
+
 test("human handoff records a request without a verdict", async () => {
   const {ctx,call,client}=await connect();
   const d=await call("delegate",{goal:"Check permissions",repo:tmpDir(),executor:"codex"});
