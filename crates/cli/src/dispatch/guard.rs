@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::{json, value::RawValue};
 use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::time::Duration;
@@ -24,10 +24,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 0;
     }
     let stdin = read_hook_stdin();
-    let is_bash = parse_js_json(&stdin)
-        .ok()
-        .and_then(|raw| raw.get("tool_name")?.as_str().map(str::to_owned))
-        .is_some_and(|name| name == "Bash");
+    let is_bash = parse_js_json(&stdin).ok().is_some_and(|raw| raw.is_bash);
     if is_bash {
         if planner == "cursor" {
             println!("{{\"permission\":\"allow\"}}");
@@ -59,7 +56,12 @@ pub(super) fn run(args: &[String]) -> i32 {
 // JSON.parse accepts lone UTF-16 surrogates, while serde_json requires Unicode
 // scalar values. The guard only observes ASCII property names and "Bash", so
 // replacing surrogate escapes preserves every value relevant to its decision.
-fn parse_js_json(input: &str) -> Result<Value, serde_json::Error> {
+struct ParsedJson {
+    is_bash: bool,
+    is_null: bool,
+}
+
+fn parse_js_json(input: &str) -> Result<ParsedJson, serde_json::Error> {
     let bytes = input.as_bytes();
     let mut normalized = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -89,7 +91,21 @@ fn parse_js_json(input: &str) -> Result<Value, serde_json::Error> {
         normalized.push(byte);
         index += 1;
     }
-    serde_json::from_slice(&normalized)
+    let raw: Box<RawValue> = serde_json::from_slice(&normalized)?;
+    let value = raw.get();
+    let is_bash = if value.starts_with('{') {
+        let fields: std::collections::HashMap<String, Box<RawValue>> = serde_json::from_str(value)?;
+        fields
+            .get("tool_name")
+            .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+            .is_some_and(|v| v == "Bash")
+    } else {
+        false
+    };
+    Ok(ParsedJson {
+        is_bash,
+        is_null: value == "null",
+    })
 }
 
 fn read_hook_stdin() -> String {
@@ -152,27 +168,81 @@ fn report_denial(env: &std::collections::HashMap<String, String>, planner: &str)
     if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
         return false;
     }
-    let config = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_millis(1500)))
-        .max_redirects(0)
-        .proxy(None)
-        .build();
-    let agent = ureq::Agent::new_with_config(config);
-    agent
-        .post(format!(
-            "http://127.0.0.1:{port}/v3/ops/dispatch.enforcement.denied"
-        ))
-        .header("authorization", format!("Bearer {token}"))
-        .header("content-type", "application/json")
-        .send(json!({"agent":planner}).to_string())
-        .is_ok_and(|mut response| {
-            response.status().is_success()
-                && response
-                    .body_mut()
-                    .read_to_string()
-                    .ok()
-                    .is_some_and(|body| parse_js_json(&body).is_ok_and(|value| !value.is_null()))
-        })
+    let Ok(mut url) = url::Url::parse(&format!(
+        "http://127.0.0.1:{port}/v3/ops/dispatch.enforcement.denied"
+    )) else {
+        return false;
+    };
+    let deadline = std::time::Instant::now() + Duration::from_millis(1500);
+    let mut post = true;
+    let mut authorized = true;
+    for redirects in 0..=20 {
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            return false;
+        };
+        let config = ureq::Agent::config_builder()
+            .timeout_global(Some(remaining))
+            .max_redirects(0)
+            .http_status_as_error(false)
+            .proxy(None)
+            .build();
+        let agent = ureq::Agent::new_with_config(config);
+        let result = if post {
+            let mut request = agent
+                .post(url.as_str())
+                .header("content-type", "application/json");
+            if authorized {
+                request = request.header("authorization", format!("Bearer {token}"));
+            }
+            request.send(json!({"agent":planner}).to_string())
+        } else {
+            let mut request = agent.get(url.as_str());
+            if authorized {
+                request = request.header("authorization", format!("Bearer {token}"));
+            }
+            request.call()
+        };
+        let Ok(mut response) = result else {
+            return false;
+        };
+        let status = response.status().as_u16();
+        if matches!(status, 301 | 302 | 303 | 307 | 308) {
+            let Some(location) = response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+            else {
+                return false;
+            };
+            if redirects == 20 {
+                return false;
+            }
+            let Ok(next) = url.join(location) else {
+                return false;
+            };
+            if !matches!(next.scheme(), "http" | "https")
+                || !next.username().is_empty()
+                || next.password().is_some()
+            {
+                return false;
+            }
+            if url.origin() != next.origin() {
+                authorized = false;
+            }
+            if matches!(status, 301..=303) {
+                post = false;
+            }
+            url = next;
+            continue;
+        }
+        return response.status().is_success()
+            && response
+                .body_mut()
+                .read_to_string()
+                .ok()
+                .is_some_and(|body| parse_js_json(&body).is_ok_and(|value| !value.is_null));
+    }
+    false
 }
 
 #[cfg(test)]
