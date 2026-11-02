@@ -1112,6 +1112,518 @@
         }
       },
       {
+        "name": "task_status",
+        "args": {
+          "task_id": "task-fixture"
+        },
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"task_id\": \"task-fixture\",\n \"title\": \"golden task\",\n \"goal\": \"golden task\",\n \"state\": \"running\",\n \"kind\": \"feature\",\n \"requested_executor\": null,\n \"placement\": null,\n \"queue\": null,\n \"attempts\": [],\n \"result\": null,\n \"review\": null,\n \"resolved\": null\n}"
+            }
+          ],
+          "structuredContent": {
+            "task_id": "task-fixture",
+            "title": "golden task",
+            "goal": "golden task",
+            "state": "running",
+            "kind": "feature",
+            "requested_executor": null,
+            "placement": null,
+            "queue": null,
+            "attempts": [],
+            "result": null,
+            "review": null,
+            "resolved": null
+          }
+        }
+      },
+      {
+        "name": "budget_status",
+        "args": {},
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"policy\": {\n  \"mode\": \"open\",\n  \"plugins\": 0\n },\n \"paused\": null,\n \"modeHold\": null,\n \"generatedAt\": 0,\n \"strategy\": \"default\",\n \"planner\": \"claude-code\",\n \"mode\": \"normal\",\n \"disabled\": false,\n \"calendarPace\": true,\n \"accounts\": [\n  {\n   \"name\": \"claude-code\",\n   \"kind\": \"claude\",\n   \"verdict\": \"UNKNOWN\",\n   \"eligibility\": {\n    \"state\": \"uncertain\",\n    \"reasons\": [\n     {\n      \"code\": \"availability_unknown\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"budget_missing\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"unknown\",\n    \"budget\": \"unknown\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"evidence\": {\n    \"facts\": {\n     \"availability\": [],\n     \"budget\": [],\n     \"spending\": []\n    },\n    \"conflicts\": []\n   },\n   \"usedPct\": null,\n   \"pacePct\": null,\n   \"resetsAt\": null,\n   \"window\": null,\n   \"stale\": false,\n   \"runners\": [\n    \"claude-code\"\n   ],\n   \"source\": null,\n   \"capturedAt\": 0,\n   \"spendUsd\": null\n  },\n  {\n   \"name\": \"codex\",\n   \"kind\": \"codex\",\n   \"verdict\": \"OK\",\n   \"eligibility\": {\n    \"state\": \"eligible\",\n    \"reasons\": [],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"evidence\": {\n    \"facts\": {\n     \"availability\": [\n      {\n       \"id\": \"9c018661284bd1de1bebfeb2\",\n       \"scope\": {\n        \"account\": \"codex\",\n        \"identity\": \"00c9d9b0978fd9f06e1d7ee5d7f6f2ddb872ca106a6915010c9da8f98fed8b69\"\n       },\n       \"source\": \"configuration\",\n       \"observedAt\": 0,\n       \"validUntil\": null,\n       \"reason\": \"measurement_contract\",\n       \"value\": \"ready\"\n      }\n     ],\n     \"budget\": [],\n     \"spending\": []\n    },\n    \"conflicts\": []\n   },\n   \"usedPct\": null,\n   \"pacePct\": null,\n   \"resetsAt\": null,\n   \"window\": null,\n   \"stale\": false,\n   \"runners\": [\n    \"codex\"\n   ],\n   \"source\": \"reactive\",\n   \"capturedAt\": 0,\n   \"spendUsd\": null\n  },\n  {\n   \"name\": \"cursor\",\n   \"kind\": \"cursor\",\n   \"verdict\": \"OK\",\n   \"eligibility\": {\n    \"state\": \"eligible\",\n    \"reasons\": [],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"evidence\": {\n    \"facts\": {\n     \"availability\": [\n      {\n       \"id\": \"9336440a49386940a6dcdac8\",\n       \"scope\": {\n        \"account\": \"cursor\",\n        \"identity\": \"cdda68ab527bec93ef75d2e8bf97e19658fe387813a0185800ce918c5afa5251\"\n       },\n       \"source\": \"configuration\",\n       \"observedAt\": 0,\n       \"validUntil\": null,\n       \"reason\": \"measurement_contract\",\n       \"value\": \"ready\"\n      }\n     ],\n     \"budget\": [],\n     \"spending\": []\n    },\n    \"conflicts\": []\n   },\n   \"usedPct\": null,\n   \"pacePct\": null,\n   \"resetsAt\": null,\n   \"window\": null,\n   \"stale\": false,\n   \"runners\": [\n    \"cursor\"\n   ],\n   \"source\": \"reactive\",\n   \"capturedAt\": 0,\n   \"spendUsd\": null\n  }\n ],\n \"providers\": [\n  {\n   \"id\": \"claude-code\",\n   \"account\": \"claude-code\",\n   \"usage\": \"quota\",\n   \"windows\": [],\n   \"binding\": null,\n   \"verdict\": \"UNKNOWN\",\n   \"installed\": true,\n   \"stale\": false,\n   \"error\": \"no Claude rate-limit data yet (the Claude Code status line writes it)\",\n   \"evidenceScope\": {\n    \"account\": \"claude-code\",\n    \"identity\": \"c34adf013bbdf5da436184548713017046fa1cca0b91a50dab28c73d291b1b8f\"\n   },\n   \"evidenceRevision\": 0,\n   \"eligibility\": {\n    \"state\": \"uncertain\",\n    \"reasons\": [\n     {\n      \"code\": \"availability_unknown\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"budget_missing\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"unknown\",\n    \"budget\": \"unknown\",\n    \"spendingRisk\": \"unknown\"\n   }\n  },\n  {\n   \"id\": \"codex\",\n   \"account\": \"codex\",\n   \"usage\": \"reactive\",\n   \"windows\": [],\n   \"binding\": null,\n   \"verdict\": \"OK\",\n   \"signedOutReason\": \"signed out — run codex login\",\n   \"installed\": true,\n   \"stale\": false,\n   \"evidenceScope\": {\n    \"account\": \"codex\",\n    \"identity\": \"00c9d9b0978fd9f06e1d7ee5d7f6f2ddb872ca106a6915010c9da8f98fed8b69\"\n   },\n   \"evidenceRevision\": 1,\n   \"eligibility\": {\n    \"state\": \"ineligible\",\n    \"reasons\": [\n     {\n      \"code\": \"signed_out\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   }\n  },\n  {\n   \"id\": \"cursor\",\n   \"account\": \"cursor\",\n   \"usage\": \"reactive\",\n   \"windows\": [],\n   \"binding\": null,\n   \"verdict\": \"OK\",\n   \"signedOutReason\": \"signed out — run cursor-agent login\",\n   \"installed\": true,\n   \"stale\": false,\n   \"evidenceScope\": {\n    \"account\": \"cursor\",\n    \"identity\": \"cdda68ab527bec93ef75d2e8bf97e19658fe387813a0185800ce918c5afa5251\"\n   },\n   \"evidenceRevision\": 1,\n   \"eligibility\": {\n    \"state\": \"ineligible\",\n    \"reasons\": [\n     {\n      \"code\": \"signed_out\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   }\n  }\n ],\n \"executors\": {\n  \"ranked\": [],\n  \"excluded\": [\n   {\n    \"id\": \"claude-code\",\n    \"account\": \"claude-code\",\n    \"reason\": \"planner\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"availability_unknown\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"budget_missing\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"planner\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"unknown\",\n     \"budget\": \"unknown\",\n     \"spendingRisk\": \"unknown\"\n    }\n   },\n   {\n    \"id\": \"codex\",\n    \"account\": \"codex\",\n    \"reason\": \"signed out — run codex login\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"signed_out\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"unavailable\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    }\n   },\n   {\n    \"id\": \"cursor\",\n    \"account\": \"cursor\",\n    \"reason\": \"signed out — run cursor-agent login\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"signed_out\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"unavailable\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    }\n   }\n  ],\n  \"uncertain\": []\n }\n}"
+            }
+          ],
+          "structuredContent": {
+            "policy": {
+              "mode": "open",
+              "plugins": 0
+            },
+            "paused": null,
+            "modeHold": null,
+            "generatedAt": 0,
+            "strategy": "default",
+            "planner": "claude-code",
+            "mode": "normal",
+            "disabled": false,
+            "calendarPace": true,
+            "accounts": [
+              {
+                "name": "claude-code",
+                "kind": "claude",
+                "verdict": "UNKNOWN",
+                "eligibility": {
+                  "state": "uncertain",
+                  "reasons": [
+                    {
+                      "code": "availability_unknown",
+                      "evidenceIds": []
+                    },
+                    {
+                      "code": "budget_missing",
+                      "evidenceIds": []
+                    }
+                  ],
+                  "evaluatedAt": 0,
+                  "validUntil": null,
+                  "evidenceAgeS": null,
+                  "availability": "unknown",
+                  "budget": "unknown",
+                  "spendingRisk": "unknown"
+                },
+                "evidence": {
+                  "facts": {
+                    "availability": [],
+                    "budget": [],
+                    "spending": []
+                  },
+                  "conflicts": []
+                },
+                "usedPct": null,
+                "pacePct": null,
+                "resetsAt": null,
+                "window": null,
+                "stale": false,
+                "runners": [
+                  "claude-code"
+                ],
+                "source": null,
+                "capturedAt": 0,
+                "spendUsd": null
+              },
+              {
+                "name": "codex",
+                "kind": "codex",
+                "verdict": "OK",
+                "eligibility": {
+                  "state": "eligible",
+                  "reasons": [],
+                  "evaluatedAt": 0,
+                  "validUntil": null,
+                  "evidenceAgeS": null,
+                  "availability": "ready",
+                  "budget": "not_required",
+                  "spendingRisk": "unknown"
+                },
+                "evidence": {
+                  "facts": {
+                    "availability": [
+                      {
+                        "id": "9c018661284bd1de1bebfeb2",
+                        "scope": {
+                          "account": "codex",
+                          "identity": "00c9d9b0978fd9f06e1d7ee5d7f6f2ddb872ca106a6915010c9da8f98fed8b69"
+                        },
+                        "source": "configuration",
+                        "observedAt": 0,
+                        "validUntil": null,
+                        "reason": "measurement_contract",
+                        "value": "ready"
+                      }
+                    ],
+                    "budget": [],
+                    "spending": []
+                  },
+                  "conflicts": []
+                },
+                "usedPct": null,
+                "pacePct": null,
+                "resetsAt": null,
+                "window": null,
+                "stale": false,
+                "runners": [
+                  "codex"
+                ],
+                "source": "reactive",
+                "capturedAt": 0,
+                "spendUsd": null
+              },
+              {
+                "name": "cursor",
+                "kind": "cursor",
+                "verdict": "OK",
+                "eligibility": {
+                  "state": "eligible",
+                  "reasons": [],
+                  "evaluatedAt": 0,
+                  "validUntil": null,
+                  "evidenceAgeS": null,
+                  "availability": "ready",
+                  "budget": "not_required",
+                  "spendingRisk": "unknown"
+                },
+                "evidence": {
+                  "facts": {
+                    "availability": [
+                      {
+                        "id": "9336440a49386940a6dcdac8",
+                        "scope": {
+                          "account": "cursor",
+                          "identity": "cdda68ab527bec93ef75d2e8bf97e19658fe387813a0185800ce918c5afa5251"
+                        },
+                        "source": "configuration",
+                        "observedAt": 0,
+                        "validUntil": null,
+                        "reason": "measurement_contract",
+                        "value": "ready"
+                      }
+                    ],
+                    "budget": [],
+                    "spending": []
+                  },
+                  "conflicts": []
+                },
+                "usedPct": null,
+                "pacePct": null,
+                "resetsAt": null,
+                "window": null,
+                "stale": false,
+                "runners": [
+                  "cursor"
+                ],
+                "source": "reactive",
+                "capturedAt": 0,
+                "spendUsd": null
+              }
+            ],
+            "providers": [
+              {
+                "id": "claude-code",
+                "account": "claude-code",
+                "usage": "quota",
+                "windows": [],
+                "binding": null,
+                "verdict": "UNKNOWN",
+                "installed": true,
+                "stale": false,
+                "error": "no Claude rate-limit data yet (the Claude Code status line writes it)",
+                "evidenceScope": {
+                  "account": "claude-code",
+                  "identity": "c34adf013bbdf5da436184548713017046fa1cca0b91a50dab28c73d291b1b8f"
+                },
+                "evidenceRevision": 0,
+                "eligibility": {
+                  "state": "uncertain",
+                  "reasons": [
+                    {
+                      "code": "availability_unknown",
+                      "evidenceIds": []
+                    },
+                    {
+                      "code": "budget_missing",
+                      "evidenceIds": []
+                    }
+                  ],
+                  "evaluatedAt": 0,
+                  "validUntil": null,
+                  "evidenceAgeS": null,
+                  "availability": "unknown",
+                  "budget": "unknown",
+                  "spendingRisk": "unknown"
+                }
+              },
+              {
+                "id": "codex",
+                "account": "codex",
+                "usage": "reactive",
+                "windows": [],
+                "binding": null,
+                "verdict": "OK",
+                "signedOutReason": "signed out — run codex login",
+                "installed": true,
+                "stale": false,
+                "evidenceScope": {
+                  "account": "codex",
+                  "identity": "00c9d9b0978fd9f06e1d7ee5d7f6f2ddb872ca106a6915010c9da8f98fed8b69"
+                },
+                "evidenceRevision": 1,
+                "eligibility": {
+                  "state": "ineligible",
+                  "reasons": [
+                    {
+                      "code": "signed_out",
+                      "evidenceIds": []
+                    }
+                  ],
+                  "evaluatedAt": 0,
+                  "validUntil": null,
+                  "evidenceAgeS": null,
+                  "availability": "ready",
+                  "budget": "not_required",
+                  "spendingRisk": "unknown"
+                }
+              },
+              {
+                "id": "cursor",
+                "account": "cursor",
+                "usage": "reactive",
+                "windows": [],
+                "binding": null,
+                "verdict": "OK",
+                "signedOutReason": "signed out — run cursor-agent login",
+                "installed": true,
+                "stale": false,
+                "evidenceScope": {
+                  "account": "cursor",
+                  "identity": "cdda68ab527bec93ef75d2e8bf97e19658fe387813a0185800ce918c5afa5251"
+                },
+                "evidenceRevision": 1,
+                "eligibility": {
+                  "state": "ineligible",
+                  "reasons": [
+                    {
+                      "code": "signed_out",
+                      "evidenceIds": []
+                    }
+                  ],
+                  "evaluatedAt": 0,
+                  "validUntil": null,
+                  "evidenceAgeS": null,
+                  "availability": "ready",
+                  "budget": "not_required",
+                  "spendingRisk": "unknown"
+                }
+              }
+            ],
+            "executors": {
+              "ranked": [],
+              "excluded": [
+                {
+                  "id": "claude-code",
+                  "account": "claude-code",
+                  "reason": "planner",
+                  "eligibility": {
+                    "state": "ineligible",
+                    "reasons": [
+                      {
+                        "code": "availability_unknown",
+                        "evidenceIds": []
+                      },
+                      {
+                        "code": "budget_missing",
+                        "evidenceIds": []
+                      },
+                      {
+                        "code": "planner",
+                        "evidenceIds": []
+                      }
+                    ],
+                    "evaluatedAt": 0,
+                    "validUntil": null,
+                    "evidenceAgeS": null,
+                    "availability": "unknown",
+                    "budget": "unknown",
+                    "spendingRisk": "unknown"
+                  }
+                },
+                {
+                  "id": "codex",
+                  "account": "codex",
+                  "reason": "signed out — run codex login",
+                  "eligibility": {
+                    "state": "ineligible",
+                    "reasons": [
+                      {
+                        "code": "signed_out",
+                        "evidenceIds": []
+                      },
+                      {
+                        "code": "unavailable",
+                        "evidenceIds": []
+                      }
+                    ],
+                    "evaluatedAt": 0,
+                    "validUntil": null,
+                    "evidenceAgeS": null,
+                    "availability": "ready",
+                    "budget": "not_required",
+                    "spendingRisk": "unknown"
+                  }
+                },
+                {
+                  "id": "cursor",
+                  "account": "cursor",
+                  "reason": "signed out — run cursor-agent login",
+                  "eligibility": {
+                    "state": "ineligible",
+                    "reasons": [
+                      {
+                        "code": "signed_out",
+                        "evidenceIds": []
+                      },
+                      {
+                        "code": "unavailable",
+                        "evidenceIds": []
+                      }
+                    ],
+                    "evaluatedAt": 0,
+                    "validUntil": null,
+                    "evidenceAgeS": null,
+                    "availability": "ready",
+                    "budget": "not_required",
+                    "spendingRisk": "unknown"
+                  }
+                }
+              ],
+              "uncertain": []
+            }
+          }
+        }
+      },
+      {
+        "name": "route",
+        "args": {},
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"kind\": null,\n \"ranked\": [],\n \"uncertain\": [],\n \"excluded\": [\n  {\n   \"id\": \"claude-code\",\n   \"account\": \"claude-code\",\n   \"reason\": \"planner\",\n   \"eligibility\": {\n    \"state\": \"ineligible\",\n    \"reasons\": [\n     {\n      \"code\": \"availability_unknown\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"budget_missing\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"planner\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"unknown\",\n    \"budget\": \"unknown\",\n    \"spendingRisk\": \"unknown\"\n   }\n  },\n  {\n   \"id\": \"codex\",\n   \"account\": \"codex\",\n   \"reason\": \"signed out — run codex login\",\n   \"eligibility\": {\n    \"state\": \"ineligible\",\n    \"reasons\": [\n     {\n      \"code\": \"signed_out\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"unavailable\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   }\n  },\n  {\n   \"id\": \"cursor\",\n   \"account\": \"cursor\",\n   \"reason\": \"signed out — run cursor-agent login\",\n   \"eligibility\": {\n    \"state\": \"ineligible\",\n    \"reasons\": [\n     {\n      \"code\": \"signed_out\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"unavailable\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   }\n  }\n ]\n}"
+            }
+          ],
+          "structuredContent": {
+            "kind": null,
+            "ranked": [],
+            "uncertain": [],
+            "excluded": [
+              {
+                "id": "claude-code",
+                "account": "claude-code",
+                "reason": "planner",
+                "eligibility": {
+                  "state": "ineligible",
+                  "reasons": [
+                    {
+                      "code": "availability_unknown",
+                      "evidenceIds": []
+                    },
+                    {
+                      "code": "budget_missing",
+                      "evidenceIds": []
+                    },
+                    {
+                      "code": "planner",
+                      "evidenceIds": []
+                    }
+                  ],
+                  "evaluatedAt": 0,
+                  "validUntil": null,
+                  "evidenceAgeS": null,
+                  "availability": "unknown",
+                  "budget": "unknown",
+                  "spendingRisk": "unknown"
+                }
+              },
+              {
+                "id": "codex",
+                "account": "codex",
+                "reason": "signed out — run codex login",
+                "eligibility": {
+                  "state": "ineligible",
+                  "reasons": [
+                    {
+                      "code": "signed_out",
+                      "evidenceIds": []
+                    },
+                    {
+                      "code": "unavailable",
+                      "evidenceIds": []
+                    }
+                  ],
+                  "evaluatedAt": 0,
+                  "validUntil": null,
+                  "evidenceAgeS": null,
+                  "availability": "ready",
+                  "budget": "not_required",
+                  "spendingRisk": "unknown"
+                }
+              },
+              {
+                "id": "cursor",
+                "account": "cursor",
+                "reason": "signed out — run cursor-agent login",
+                "eligibility": {
+                  "state": "ineligible",
+                  "reasons": [
+                    {
+                      "code": "signed_out",
+                      "evidenceIds": []
+                    },
+                    {
+                      "code": "unavailable",
+                      "evidenceIds": []
+                    }
+                  ],
+                  "evaluatedAt": 0,
+                  "validUntil": null,
+                  "evidenceAgeS": null,
+                  "availability": "ready",
+                  "budget": "not_required",
+                  "spendingRisk": "unknown"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "msg_inbox",
+        "args": {},
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"participant\": \"external:claude-code\",\n \"messages\": []\n}"
+            }
+          ],
+          "structuredContent": {
+            "participant": "external:claude-code",
+            "messages": []
+          }
+        }
+      },
+      {
+        "name": "strategy_list",
+        "args": {},
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"strategies\": [\n  {\n   \"name\": \"default\",\n   \"active\": true,\n   \"summary\": \"Codex first, Claude keeps 15%\",\n   \"description\": \"\"\n  }\n ]\n}"
+            }
+          ],
+          "structuredContent": {
+            "strategies": [
+              {
+                "name": "default",
+                "active": true,
+                "summary": "Codex first, Claude keeps 15%",
+                "description": ""
+              }
+            ]
+          }
+        }
+      },
+      {
         "name": "delegate",
         "args": {
           "goal": "g",
@@ -1178,6 +1690,1643 @@
               "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid string: must match pattern /^[a-z0-9][a-z0-9-]{0,39}$/ at name"
             }
           ]
+        }
+      }
+    ],
+    "validation": [
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": 1.5,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": 121,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected number to be <=120 at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "msg_wait",
+        "field": "timeout_s",
+        "input": "1e0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": false,
+          "message": "{\n \"participant\": \"external:claude-code\",\n \"messages\": [],\n \"timedOut\": true\n}",
+          "structuredContent": {
+            "participant": "external:claude-code",
+            "messages": [],
+            "timedOut": true
+          }
+        }
+      },
+      {
+        "name": "msg_wait",
+        "field": "timeout_s",
+        "input": 3001,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool msg_wait: Too big: expected number to be <=3000 at timeout_s"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": 1.5,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected int, received number at timeout_s"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": 0,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too small: expected number to be >=1 at timeout_s"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": 3001,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too big: expected number to be <=3000 at timeout_s"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": 0,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": 9007199254740992,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Unknown managed work"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": 9007199254740992,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Unknown managed work"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": 9007199254740992,
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "input": {
+          "codePoints": 2000,
+          "utf16Units": 4000
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Answer must contain 1–2000 characters"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "input": {
+          "codePoints": 2001,
+          "utf16Units": 4002
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too big: expected string to have <=2000 characters at text"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "input": {
+          "codePoints": 0,
+          "utf16Units": 0,
+          "hex": []
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too small: expected string to have >=1 characters at text"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "feedback",
+        "input": {
+          "codePoints": 2000,
+          "utf16Units": 4000
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Feedback must contain at most 2000 characters"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "feedback",
+        "input": {
+          "codePoints": 2001,
+          "utf16Units": 4002
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Too big: expected string to have <=2000 characters at feedback"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "text",
+        "input": {
+          "codePoints": 4000,
+          "utf16Units": 8000
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "text",
+        "input": {
+          "codePoints": 4001,
+          "utf16Units": 8002
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Too big: expected string to have <=4000 characters at text"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "text",
+        "input": {
+          "codePoints": 2000,
+          "utf16Units": 4000
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "answer must contain 1–2000 characters"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "text",
+        "input": {
+          "codePoints": 2001,
+          "utf16Units": 4002
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Too big: expected string to have <=2000 characters at text"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 4,
+          "utf16Units": 4,
+          "hex": [
+            "feff",
+            "6f",
+            "6b",
+            "feff"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "feff"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 2000,
+          "utf16Units": 4000
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "review request needs a note of 1–2000 characters"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 2001,
+          "utf16Units": 4002
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too big: expected string to have <=2000 characters at note"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "feff"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 0,
+          "utf16Units": 0,
+          "hex": []
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Too small: expected string to have >=1 characters at body"
+        }
+      },
+      {
+        "name": "msg_read",
+        "field": "ids",
+        "input": {
+          "length": 1
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": false,
+          "message": "{\n \"read\": 0\n}",
+          "structuredContent": {
+            "read": 0
+          }
+        }
+      },
+      {
+        "name": "msg_read",
+        "field": "ids",
+        "input": {
+          "length": 0
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool msg_read: Too small: expected array to have >=1 items at ids"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 60,
+          "utf16Units": 120
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 61,
+          "utf16Units": 122
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected string to have <=60 characters at title"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "request_id",
+        "input": {
+          "codePoints": 128,
+          "utf16Units": 256
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "request_id",
+        "input": {
+          "codePoints": 129,
+          "utf16Units": 258
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected string to have <=128 characters at request_id"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "feff"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected string to have >=1 characters at title"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "worktree_reason",
+        "input": {
+          "codePoints": 200,
+          "utf16Units": 400
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "worktree_reason",
+        "input": {
+          "codePoints": 201,
+          "utf16Units": 402
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected string to have <=200 characters at worktree_reason"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "timeout_min",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "timeout_min",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected number, received Infinity at timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected number, received Infinity at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "until",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown provider \"missing\""
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "until",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool report_limit: Invalid input: expected number, received Infinity at until"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "feff"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "feff",
+            "61",
+            "feff"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "feff"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2028"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2028",
+            "61",
+            "2028"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2028"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2029"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2029",
+            "61",
+            "2029"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2029"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "a0"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "a0",
+            "61",
+            "a0"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "a0"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "1680"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "1680",
+            "61",
+            "1680"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "1680"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2000"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2000",
+            "61",
+            "2000"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2000"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2001"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2001",
+            "61",
+            "2001"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2001"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2002"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2002",
+            "61",
+            "2002"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2002"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2003"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2003",
+            "61",
+            "2003"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2003"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2004"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2004",
+            "61",
+            "2004"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2004"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2005"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2005",
+            "61",
+            "2005"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2005"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2006"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2006",
+            "61",
+            "2006"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2006"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2007"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2007",
+            "61",
+            "2007"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2007"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2008"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2008",
+            "61",
+            "2008"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2008"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2009"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "2009",
+            "61",
+            "2009"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2009"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "200a"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "200a",
+            "61",
+            "200a"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "200a"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "202f"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "202f",
+            "61",
+            "202f"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "202f"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "205f"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "205f",
+            "61",
+            "205f"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "205f"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "note",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "3000"
+          ]
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected string to have >=1 characters at note"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 3,
+          "utf16Units": 3,
+          "hex": [
+            "3000",
+            "61",
+            "3000"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "3000"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Message body is empty"
         }
       }
     ]
@@ -1551,6 +3700,290 @@
     ],
     "results": [
       {
+        "name": "task_status",
+        "args": {
+          "task_id": "task-fixture"
+        },
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"work\": {\n  \"rootId\": \"task-fixture\",\n  \"parentId\": null,\n  \"depth\": 0,\n  \"allowDelegation\": true\n },\n \"id\": \"task-fixture\",\n \"title\": \"golden task\",\n \"state\": \"running\",\n \"goal\": \"golden task\",\n \"executor\": null,\n \"backend\": null,\n \"worktree\": null,\n \"updatedAt\": 1900000000,\n \"acceptanceState\": \"none\",\n \"runnerAlive\": false,\n \"fullTitle\": \"golden task\",\n \"rev\": 2,\n \"queue\": null,\n \"repo\": {\n  \"key\": \"local:fixture\",\n  \"label\": \"t-fixture-home\",\n  \"path\": \"$HOME\",\n  \"identityUnverified\": true\n },\n \"kind\": \"feature\",\n \"host\": null,\n \"brief\": {\n  \"goal\": \"golden task\",\n  \"repo\": \"$HOME\"\n },\n \"attempts\": [],\n \"tokens\": {\n  \"total\": 0,\n  \"input\": 0,\n  \"cacheRead\": 0,\n  \"cacheWrite\": 0,\n  \"output\": 0,\n  \"reported\": {\n   \"input\": false,\n   \"output\": false,\n   \"cacheRead\": false,\n   \"cacheWrite\": false\n  },\n  \"complete\": {\n   \"input\": false,\n   \"output\": false,\n   \"cacheRead\": false,\n   \"cacheWrite\": false\n  },\n  \"measuredAttempts\": 0,\n  \"partialAttempts\": 0,\n  \"unknownAttempts\": 0,\n  \"lowerBound\": false,\n  \"byExecutor\": [],\n  \"planner\": {\n   \"coverage\": \"unknown\"\n  },\n  \"decision\": {\n   \"coverage\": \"unknown\"\n  }\n },\n \"routing\": null,\n \"cost\": {\n  \"executor\": null,\n  \"planner\": null\n },\n \"acceptance\": {\n  \"cmd\": null,\n  \"state\": \"none\",\n  \"tail\": \"\",\n  \"machine\": null\n },\n \"summary\": null,\n \"branch\": null,\n \"base\": null,\n \"machine\": null,\n \"startedAt\": null,\n \"endedAt\": null,\n \"files\": [],\n \"retryOptions\": [\n  {\n   \"id\": \"claude-code\",\n   \"state\": \"ready\",\n   \"reason\": \"planner\"\n  },\n  {\n   \"id\": \"codex\",\n   \"state\": \"down\",\n   \"reason\": \"signed out — run codex login\"\n  },\n  {\n   \"id\": \"cursor\",\n   \"state\": \"down\",\n   \"reason\": \"signed out — run cursor-agent login\"\n  }\n ],\n \"timeline\": [],\n \"derived\": {\n  \"files\": \"unavailable\",\n  \"branch\": \"unavailable\",\n  \"retryOptions\": \"cached\",\n  \"timeline\": \"partial\"\n }\n}"
+            }
+          ],
+          "structuredContent": {
+            "work": {
+              "rootId": "task-fixture",
+              "parentId": null,
+              "depth": 0,
+              "allowDelegation": true
+            },
+            "id": "task-fixture",
+            "title": "golden task",
+            "state": "running",
+            "goal": "golden task",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "updatedAt": 1900000000,
+            "acceptanceState": "none",
+            "runnerAlive": false,
+            "fullTitle": "golden task",
+            "rev": 2,
+            "queue": null,
+            "repo": {
+              "key": "local:fixture",
+              "label": "t-fixture-home",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": "feature",
+            "host": null,
+            "brief": {
+              "goal": "golden task",
+              "repo": "$HOME"
+            },
+            "attempts": [],
+            "tokens": {
+              "total": 0,
+              "input": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "output": 0,
+              "reported": {
+                "input": false,
+                "output": false,
+                "cacheRead": false,
+                "cacheWrite": false
+              },
+              "complete": {
+                "input": false,
+                "output": false,
+                "cacheRead": false,
+                "cacheWrite": false
+              },
+              "measuredAttempts": 0,
+              "partialAttempts": 0,
+              "unknownAttempts": 0,
+              "lowerBound": false,
+              "byExecutor": [],
+              "planner": {
+                "coverage": "unknown"
+              },
+              "decision": {
+                "coverage": "unknown"
+              }
+            },
+            "routing": null,
+            "cost": {
+              "executor": null,
+              "planner": null
+            },
+            "acceptance": {
+              "cmd": null,
+              "state": "none",
+              "tail": "",
+              "machine": null
+            },
+            "summary": null,
+            "branch": null,
+            "base": null,
+            "machine": null,
+            "startedAt": null,
+            "endedAt": null,
+            "files": [],
+            "retryOptions": [
+              {
+                "id": "claude-code",
+                "state": "ready",
+                "reason": "planner"
+              },
+              {
+                "id": "codex",
+                "state": "down",
+                "reason": "signed out — run codex login"
+              },
+              {
+                "id": "cursor",
+                "state": "down",
+                "reason": "signed out — run cursor-agent login"
+              }
+            ],
+            "timeline": [],
+            "derived": {
+              "files": "unavailable",
+              "branch": "unavailable",
+              "retryOptions": "cached",
+              "timeline": "partial"
+            }
+          }
+        }
+      },
+      {
+        "name": "work_tree",
+        "args": {
+          "task_id": "task-fixture"
+        },
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"rootId\": \"task-fixture\",\n \"nodes\": [\n  {\n   \"taskId\": \"task-fixture\",\n   \"parentId\": null,\n   \"rootId\": \"task-fixture\",\n   \"depth\": 0,\n   \"options\": {\n    \"requirements\": {},\n    \"preferences\": {\n     \"models\": [],\n     \"strengths\": []\n    },\n    \"difficulty\": \"standard\",\n    \"delegationEnforcement\": \"strict\",\n    \"allowDelegation\": true,\n    \"maxDepth\": 3,\n    \"maxDescendants\": 20,\n    \"maxConcurrent\": 4,\n    \"maxAttempts\": 3,\n    \"priority\": 0,\n    \"estimatePct\": 0\n   },\n   \"dependencies\": [],\n   \"waivedChildren\": [],\n   \"title\": \"golden task\",\n   \"state\": \"running\",\n   \"rev\": 2,\n   \"review\": null,\n   \"question\": null,\n   \"retryEligibility\": {\n    \"allowed\": false,\n    \"reason\": \"Work is not eligible for another attempt\"\n   },\n   \"executor\": null,\n   \"model\": null,\n   \"actualModel\": null,\n   \"decisions\": [],\n   \"attempts\": [],\n   \"createdAt\": 1900000000,\n   \"settledAt\": null\n  }\n ],\n \"totals\": {\n  \"tasks\": 1,\n  \"running\": 1,\n  \"queued\": 0,\n  \"executionSeconds\": 0,\n  \"queueWaitSeconds\": 0,\n  \"dependencyWaitSeconds\": 0,\n  \"childWaitSeconds\": 0,\n  \"capacityWaitSeconds\": null,\n  \"provisionalWaits\": 0,\n  \"waitAsOf\": 1900000000,\n  \"tokens\": {\n   \"total\": 0,\n   \"input\": 0,\n   \"cacheRead\": 0,\n   \"cacheWrite\": 0,\n   \"output\": 0,\n   \"reported\": {\n    \"input\": false,\n    \"output\": false,\n    \"cacheRead\": false,\n    \"cacheWrite\": false\n   },\n   \"complete\": {\n    \"input\": false,\n    \"output\": false,\n    \"cacheRead\": false,\n    \"cacheWrite\": false\n   },\n   \"measuredAttempts\": 0,\n   \"partialAttempts\": 0,\n   \"unknownAttempts\": 0,\n   \"lowerBound\": false,\n   \"byExecutor\": [],\n   \"planner\": {\n    \"coverage\": \"unknown\"\n   },\n   \"decision\": {\n    \"coverage\": \"unknown\"\n   }\n  },\n  \"usagePools\": [],\n  \"usageMeasuredAttempts\": 0,\n  \"usageUnknownAttempts\": 0\n }\n}"
+            }
+          ],
+          "structuredContent": {
+            "rootId": "task-fixture",
+            "nodes": [
+              {
+                "taskId": "task-fixture",
+                "parentId": null,
+                "rootId": "task-fixture",
+                "depth": 0,
+                "options": {
+                  "requirements": {},
+                  "preferences": {
+                    "models": [],
+                    "strengths": []
+                  },
+                  "difficulty": "standard",
+                  "delegationEnforcement": "strict",
+                  "allowDelegation": true,
+                  "maxDepth": 3,
+                  "maxDescendants": 20,
+                  "maxConcurrent": 4,
+                  "maxAttempts": 3,
+                  "priority": 0,
+                  "estimatePct": 0
+                },
+                "dependencies": [],
+                "waivedChildren": [],
+                "title": "golden task",
+                "state": "running",
+                "rev": 2,
+                "review": null,
+                "question": null,
+                "retryEligibility": {
+                  "allowed": false,
+                  "reason": "Work is not eligible for another attempt"
+                },
+                "executor": null,
+                "model": null,
+                "actualModel": null,
+                "decisions": [],
+                "attempts": [],
+                "createdAt": 1900000000,
+                "settledAt": null
+              }
+            ],
+            "totals": {
+              "tasks": 1,
+              "running": 1,
+              "queued": 0,
+              "executionSeconds": 0,
+              "queueWaitSeconds": 0,
+              "dependencyWaitSeconds": 0,
+              "childWaitSeconds": 0,
+              "capacityWaitSeconds": null,
+              "provisionalWaits": 0,
+              "waitAsOf": 1900000000,
+              "tokens": {
+                "total": 0,
+                "input": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "output": 0,
+                "reported": {
+                  "input": false,
+                  "output": false,
+                  "cacheRead": false,
+                  "cacheWrite": false
+                },
+                "complete": {
+                  "input": false,
+                  "output": false,
+                  "cacheRead": false,
+                  "cacheWrite": false
+                },
+                "measuredAttempts": 0,
+                "partialAttempts": 0,
+                "unknownAttempts": 0,
+                "lowerBound": false,
+                "byExecutor": [],
+                "planner": {
+                  "coverage": "unknown"
+                },
+                "decision": {
+                  "coverage": "unknown"
+                }
+              },
+              "usagePools": [],
+              "usageMeasuredAttempts": 0,
+              "usageUnknownAttempts": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "work_events",
+        "args": {
+          "task_id": "task-fixture"
+        },
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"events\": [\n  {\n   \"seq\": 1,\n   \"task_id\": \"task-fixture\",\n   \"at\": 1900000000,\n   \"kind\": \"work.created\",\n   \"data\": {\n    \"parentId\": null,\n    \"depth\": 0\n   }\n  },\n  {\n   \"seq\": 2,\n   \"task_id\": \"task-fixture\",\n   \"at\": 1900000000,\n   \"kind\": \"task.changed\",\n   \"data\": {\n    \"state\": \"running\",\n    \"rev\": 2\n   }\n  }\n ],\n \"next\": 2,\n \"hasMore\": false\n}"
+            }
+          ],
+          "structuredContent": {
+            "events": [
+              {
+                "seq": 1,
+                "task_id": "task-fixture",
+                "at": 1900000000,
+                "kind": "work.created",
+                "data": {
+                  "parentId": null,
+                  "depth": 0
+                }
+              },
+              {
+                "seq": 2,
+                "task_id": "task-fixture",
+                "at": 1900000000,
+                "kind": "task.changed",
+                "data": {
+                  "state": "running",
+                  "rev": 2
+                }
+              }
+            ],
+            "next": 2,
+            "hasMore": false
+          }
+        }
+      },
+      {
+        "name": "msg_inbox",
+        "args": {},
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"participant\": \"task:task-fixture\",\n \"messages\": []\n}"
+            }
+          ],
+          "structuredContent": {
+            "participant": "task:task-fixture",
+            "messages": []
+          }
+        }
+      },
+      {
         "name": "delegate",
         "args": {
           "goal": "",
@@ -1620,140 +4053,264 @@
       {
         "name": "delegate",
         "field": "acceptance_timeout_min",
-        "input": 1,
-        "acceptedBySchema": true
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Cannot resolve the parent worktree commit for isolated child work\"\n}",
+          "structuredContent": {
+            "error": "Cannot resolve the parent worktree commit for isolated child work"
+          }
+        }
       },
       {
         "name": "delegate",
         "field": "acceptance_timeout_min",
-        "input": 100,
-        "acceptedBySchema": true
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Cannot resolve the parent worktree commit for isolated child work\"\n}",
+          "structuredContent": {
+            "error": "Cannot resolve the parent worktree commit for isolated child work"
+          }
+        }
       },
       {
         "name": "delegate",
         "field": "acceptance_timeout_min",
         "input": 1.5,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at acceptance_timeout_min"
+        }
       },
       {
         "name": "delegate",
         "field": "acceptance_timeout_min",
         "input": 121,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected number to be <=120 at acceptance_timeout_min"
+        }
       },
       {
         "name": "msg_wait",
         "field": "timeout_s",
-        "input": 100,
-        "acceptedBySchema": true
+        "input": "1e0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": false,
+          "message": "{\n \"participant\": \"task:task-fixture\",\n \"messages\": [],\n \"timedOut\": true\n}",
+          "structuredContent": {
+            "participant": "task:task-fixture",
+            "messages": [],
+            "timedOut": true
+          }
+        }
       },
       {
         "name": "msg_wait",
         "field": "timeout_s",
         "input": 3001,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool msg_wait: Too big: expected number to be <=3000 at timeout_s"
+        }
       },
       {
         "name": "task_wait",
         "field": "timeout_s",
-        "input": 1,
-        "acceptedBySchema": true
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
       },
       {
         "name": "task_wait",
         "field": "timeout_s",
-        "input": 100,
-        "acceptedBySchema": true
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
       },
       {
         "name": "task_wait",
         "field": "timeout_s",
         "input": 1.5,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected int, received number at timeout_s"
+        }
       },
       {
         "name": "task_wait",
         "field": "timeout_s",
         "input": 0,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too small: expected number to be >=1 at timeout_s"
+        }
       },
       {
         "name": "task_wait",
         "field": "timeout_s",
         "input": 3001,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too big: expected number to be <=3000 at timeout_s"
+        }
       },
       {
         "name": "task_review",
         "field": "expect_rev",
-        "input": 1,
-        "acceptedBySchema": true
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
       },
       {
         "name": "task_review",
         "field": "expect_rev",
         "input": 0,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too small: expected number to be >0 at expect_rev"
+        }
       },
       {
         "name": "task_review",
         "field": "expect_rev",
         "input": 9007199254740992,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
       },
       {
         "name": "task_stop",
         "field": "expect_rev",
-        "input": 100,
-        "acceptedBySchema": true
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
       },
       {
         "name": "task_stop",
         "field": "expect_rev",
         "input": 9007199254740992,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
       },
       {
         "name": "work_answer",
         "field": "expect_rev",
-        "input": 1,
-        "acceptedBySchema": true
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
       },
       {
         "name": "work_answer",
         "field": "expect_rev",
         "input": 9007199254740992,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
       },
       {
         "name": "work_retry",
         "field": "expect_rev",
-        "input": 100,
-        "acceptedBySchema": true
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
       },
       {
         "name": "work_retry",
         "field": "expect_rev",
         "input": 9007199254740992,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
       },
       {
         "name": "work_events",
         "field": "after",
-        "input": 100,
-        "acceptedBySchema": true
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
       },
       {
         "name": "work_events",
         "field": "after",
         "input": -1,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Too small: expected number to be >=0 at after"
+        }
       },
       {
         "name": "work_events",
         "field": "after",
         "input": 9007199254740992,
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Too big: expected int to be <=9007199254740991 at after"
+        }
       },
       {
         "name": "work_answer",
@@ -1762,7 +4319,14 @@
           "codePoints": 2000,
           "utf16Units": 4000
         },
-        "acceptedBySchema": true
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
       },
       {
         "name": "work_answer",
@@ -1771,16 +4335,25 @@
           "codePoints": 2001,
           "utf16Units": 4002
         },
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too big: expected string to have <=2000 characters at text"
+        }
       },
       {
         "name": "work_answer",
         "field": "text",
         "input": {
           "codePoints": 0,
-          "utf16Units": 0
+          "utf16Units": 0,
+          "hex": []
         },
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too small: expected string to have >=1 characters at text"
+        }
       },
       {
         "name": "work_retry",
@@ -1789,7 +4362,14 @@
           "codePoints": 2000,
           "utf16Units": 4000
         },
-        "acceptedBySchema": true
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
       },
       {
         "name": "work_retry",
@@ -1798,7 +4378,507 @@
           "codePoints": 2001,
           "utf16Units": 4002
         },
-        "acceptedBySchema": false
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Too big: expected string to have <=2000 characters at feedback"
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "feff"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 0,
+          "utf16Units": 0,
+          "hex": []
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Too small: expected string to have >=1 characters at body"
+        }
+      },
+      {
+        "name": "msg_read",
+        "field": "ids",
+        "input": {
+          "length": 1
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": false,
+          "message": "{\n \"read\": 0\n}",
+          "structuredContent": {
+            "read": 0
+          }
+        }
+      },
+      {
+        "name": "msg_read",
+        "field": "ids",
+        "input": {
+          "length": 0
+        },
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool msg_read: Too small: expected array to have >=1 items at ids"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected number, received Infinity at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "requestId",
+        "input": {
+          "codePoints": 129,
+          "utf16Units": 258
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"requestId: Too big: expected string to have <=128 characters\"\n}",
+          "structuredContent": {
+            "error": "requestId: Too big: expected string to have <=128 characters"
+          }
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "title",
+        "input": {
+          "codePoints": 61,
+          "utf16Units": 122
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Cannot resolve the parent worktree commit for isolated child work\"\n}",
+          "structuredContent": {
+            "error": "Cannot resolve the parent worktree commit for isolated child work"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "feff"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2028"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2029"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "a0"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "1680"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2000"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2001"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2002"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2003"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2004"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2005"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2006"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2007"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2008"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "2009"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "200a"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "202f"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "205f"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
+      },
+      {
+        "name": "msg_send",
+        "field": "body",
+        "input": {
+          "codePoints": 1,
+          "utf16Units": 1,
+          "hex": [
+            "3000"
+          ]
+        },
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Message body is empty\"\n}",
+          "structuredContent": {
+            "error": "Message body is empty"
+          }
+        }
       }
     ]
   }
