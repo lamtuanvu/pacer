@@ -1203,50 +1203,112 @@ async fn file_transfer_numeric_effects_match_typescript() {
     );
     let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
     let mut actual = Vec::new();
-    for literal in ["3.0", "3e0", "1.5", "9007199254740992"] {
-        let mut b = broker(10000);
-        let mut e = Echo { calls: 0 };
-        let bytes: Value = serde_json::from_str(literal).unwrap();
-        let begin = b
+    for field in ["bytes", "offset", "mode"] {
+        for literal in [
+            "0.0",
+            "0e0",
+            "3.0",
+            "3e0",
+            "384.0",
+            "3.84e2",
+            "1.5",
+            "9007199254740992",
+        ] {
+            let mut b = broker(10000);
+            let mut e = Echo { calls: 0 };
+            let bytes: Value = serde_json::from_str(literal).unwrap();
+            let begin = b
             .handle(
                 "capability.fs.beginWrite",
-                json!({"path":"/tmp/issued","bytes":bytes,"mode":384}),
+                json!({"path":"/tmp/issued","bytes":if field == "bytes" { bytes.clone() } else { json!(3) },"mode":if field == "mode" { bytes.clone() } else { json!(384) }}),
                 &mut e,
             )
             .await;
-        let mut effects = Vec::new();
-        let accepted = if let Ok(value) = begin {
-            let handle = value["handle"].as_str().unwrap();
-            let offset: Value = serde_json::from_str("0e0").unwrap();
-            if b.handle(
-                "capability.fs.writeChunk",
-                json!({"handle":handle,"offset":offset,"base64":"YWJj"}),
-                &mut e,
-            )
-            .await
-            .is_ok()
-            {
-                if let Ok(value) = b
-                    .handle(
-                        "capability.fs.commitWrite",
-                        json!({"handle":handle}),
-                        &mut e,
-                    )
-                    .await
+            let mut effects = Vec::new();
+            let accepted = if let Ok(value) = begin {
+                let handle = value["handle"].as_str().unwrap();
+                let offset: Value = if field == "offset" { bytes } else { json!(0) };
+                if b.handle(
+                    "capability.fs.writeChunk",
+                    json!({"handle":handle,"offset":offset,"base64":"YWJj"}),
+                    &mut e,
+                )
+                .await
+                .is_ok()
                 {
-                    effects.push(value);
-                    true
+                    if let Ok(value) = b
+                        .handle(
+                            "capability.fs.commitWrite",
+                            json!({"handle":handle}),
+                            &mut e,
+                        )
+                        .await
+                    {
+                        effects.push(value);
+                        true
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
             } else {
                 false
-            }
-        } else {
-            false
-        };
-        assert_eq!(e.calls, effects.len());
-        actual.push(json!({"accepted":accepted,"effects":effects}));
+            };
+            assert_eq!(e.calls, effects.len());
+            actual.push(json!({"accepted":accepted,"effects":effects}));
+        }
+    }
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn http_transfer_numeric_effects_match_typescript() {
+    use std::process::Command;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("bun")
+        .current_dir(root)
+        .args(["run", "test/fixtures/plugin-http-transfer-effects.ts"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    struct HttpEffect {
+        bodies: Vec<Value>,
+    }
+    impl CapabilityEffect for HttpEffect {
+        async fn call(&mut self, _method: &str, params: Value) -> Result<Value, BrokerError> {
+            self.bodies.push(params["body"].clone());
+            Ok(json!({"status":200,"headers":{},"body":"\0".repeat(300_000)}))
+        }
+    }
+    let mut actual = Vec::new();
+    for field in ["bytes", "stageOffset", "readOffset", "length"] {
+        for literal in ["0.0", "0e0", "3.0", "3e0", "1.5", "9007199254740992"] {
+            let mut b = http_broker(&["example.test"], &["example.test"], &[]);
+            b.features.push("httpBodyChunks".into());
+            let mut e = HttpEffect { bodies: Vec::new() };
+            let value: Value = serde_json::from_str(literal).unwrap();
+            let mut effects = Vec::new();
+            let result: Result<(), BrokerError> = async {
+                let begin = b.handle("capability.net.http.body.begin", json!({"bytes": if field == "bytes" { value.clone() } else { json!(3) }}), &mut e).await?;
+                let handle = begin["handle"].as_str().unwrap();
+                b.handle("capability.net.http.body.stageChunk", json!({"handle":handle,"offset":if field == "stageOffset" { value.clone() } else { json!(0) },"base64":"YWJj"}), &mut e).await?;
+                let response = b.handle("capability.net.http", json!({"url":"https://example.test/","method":"POST","timeoutMs":1000,"body":{"handle":handle}}), &mut e).await?;
+                let response_handle = response["body"]["handle"].as_str().unwrap();
+                let chunk = b.handle("capability.net.http.body.readChunk", json!({"handle":response_handle,"offset":if field == "readOffset" { value.clone() } else { json!(0) },"length":if field == "length" { value.clone() } else { json!(3) }}), &mut e).await?;
+                effects.push(chunk);
+                b.handle("capability.net.http.body.release", json!({"handle":response_handle}), &mut e).await?;
+                Ok(())
+            }.await;
+            let mut all_effects = e.bodies;
+            all_effects.extend(effects);
+            actual.push(json!({"accepted":result.is_ok(),"effects":all_effects}));
+        }
     }
     assert_eq!(actual, expected);
 }
