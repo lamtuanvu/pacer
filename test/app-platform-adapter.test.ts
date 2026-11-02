@@ -4,19 +4,18 @@ import { createBrowserPlatform } from '../app/src/platform/browser';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-test('browser and desktop retain the same service transport and connection subscription', async () => {
+test('browser retains same-origin service transport and connection subscription', async () => {
   const calls: unknown[] = [];
   const fetcher = spyOn(globalThis, 'fetch').mockImplementation((async (url, init) => { calls.push([url, init]); return Response.json({ result: 7 }); }) as typeof fetch);
   try {
-    for (const adapter of [createPlatform({}), createPlatform({ __TAURI__: { core: { invoke: async () => { throw Error('transport must not invoke'); } } } })]) {
+    for (const adapter of [createPlatform({})]) {
       expect(await (await adapter.request('/v3/ops/task.get', { method: 'POST', credentials: 'same-origin', body: '{}' })).json()).toEqual({ result: 7 });
       const states: string[] = [];
       const stop = adapter.subscribeConnection(status => states.push(status));
       adapter.setConnectionStatus('connected'); stop(); adapter.setConnectionStatus('reconnecting');
       expect(states).toEqual(['connecting', 'connected']);
     }
-    expect(calls).toHaveLength(2);
-    expect(calls[0]).toEqual(calls[1]);
+    expect(calls).toHaveLength(1);
   } finally { fetcher.mockRestore(); }
 });
 
@@ -52,7 +51,7 @@ test('Tauri detection is confined to the platform boundary', () => {
   expect(offenders).toEqual([]);
 });
 
-test('both adapters construct event and terminal transports without changing paths or frames', () => {
+test('browser constructs event and terminal transports without changing paths or frames', () => {
   const events: string[] = [], sockets: string[] = [], frames: unknown[] = [];
   class Events { constructor(path: string) { events.push(path); } close() {} }
   class Socket { constructor(url: string) { sockets.push(url); } send(frame: unknown) { frames.push(frame); } close() {} }
@@ -61,14 +60,14 @@ test('both adapters construct event and terminal transports without changing pat
   Object.defineProperty(globalThis, 'EventSource', { configurable: true, value: Events });
   Object.defineProperty(globalThis, 'WebSocket', { configurable: true, value: Socket });
   try {
-    for (const adapter of [createPlatform({}), createPlatform({__TAURI__:{core:{invoke:async()=>true}}})]) {
+    for (const adapter of [createPlatform({})]) {
       adapter.subscribeEvents('/v3/events?since=8').close();
       const socket = adapter.attachTerminal('ws://localhost/v3/tasks/t1/session');
       socket.send('hello'); socket.close();
     }
-    expect(events).toEqual(['/v3/events?since=8','/v3/events?since=8']);
-    expect(sockets).toEqual(['ws://localhost/v3/tasks/t1/session','ws://localhost/v3/tasks/t1/session']);
-    expect(frames).toEqual(['hello','hello']);
+    expect(events).toEqual(['/v3/events?since=8']);
+    expect(sockets).toEqual(['ws://localhost/v3/tasks/t1/session']);
+    expect(frames).toEqual(['hello']);
   } finally {
     if (originalEvents) Object.defineProperty(globalThis,'EventSource',originalEvents); else Reflect.deleteProperty(globalThis,'EventSource');
     if (originalSocket) Object.defineProperty(globalThis,'WebSocket',originalSocket); else Reflect.deleteProperty(globalThis,'WebSocket');

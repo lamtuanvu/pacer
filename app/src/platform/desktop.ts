@@ -1,3 +1,4 @@
+import { createIpcTransport } from './ipc';
 import { createBrowserPlatform } from './browser';
 import * as native from './native';
 import { createTrayIpc, type TrayHost } from './tray';
@@ -11,7 +12,9 @@ export function createDesktopPlatform(host: PlatformHost): Platform {
   const captured = { __TAURI__: { core: invoke ? { invoke } : undefined } };
   return {
     ...createBrowserPlatform(),
+    ...createIpcTransport(host.__TAURI__?.core),
     desktop: true,
+    openExternal: url => { (host.location ?? globalThis.location)?.assign(url); },
     windowControls: native.windowControls(captured),
     readRoundedWindowSupport: () => native.readRoundedWindowSupport(captured),
     readNativeTitlebarSupport: () => native.readNativeTitlebarSupport(captured),

@@ -2,6 +2,7 @@
 // ?state=foreign&path=~/.pacer&port=5000&appPort=4317.
 const query = new URLSearchParams(location.search);
 const pages = {
+  sessionExpired: ['Sign in to pacer', 'Your app session ended. Reconnecting to the local service…'],
   welcome: ['Your planner plans. Your other agents do the work.', ''],
   consent: ["Here's what pacer will change", ''],
   existing: ['You already have pacer', ''],
@@ -16,8 +17,8 @@ const pages = {
   foreign: ['Another pacer is running', 'The background service belongs to the pacer folder {path}, and this app uses a different one.'],
   foreignPort: ['Another pacer is running', 'The background service for the pacer folder {path} runs on port {port}, and this app uses port {appPort}.'],
   oldService: ['Update pacer', 'This service uses an older protocol. Install a newer version of pacer.'],
-  outdatedService: ['Your service needs an update', "The running service supplies this app's screens. Until it is updated, new Dispatcher controls are unavailable."],
-  unverifiedService: ['Check the service version', "The desktop could not verify the running service's release. Its screens may differ from this app's version."],
+  outdatedService: ['Your service needs an update', "The running service is older than this app. Update it for the current controls."],
+  unverifiedService: ['Check the service version', "The desktop could not verify the running service's release. Its protocol may differ from this app's version."],
   oldApp: ['Update the pacer app', 'This service uses a newer protocol. Install a newer desktop app.'],
   protocol: ['Unable to connect', 'The local service returned an incompatible response. Install a compatible version of pacer.'],
   takeover: ["Use the app's service", ''],

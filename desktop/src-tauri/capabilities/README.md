@@ -1,77 +1,32 @@
-There are no static capabilities. After CLI discovery and protocol validation,
-Rust adds runtime capabilities for the exact `http://127.0.0.1:<port>` origin,
-with local pages excluded:
+The main and tray windows load only the bundled app origin. `main.json` and
+`tray.json` are static local capabilities; no service origin receives IPC access.
+Every command also checks the calling window label and bundled origin.
 
-- `service-<port>`, main window only: `allow-setLaunchAtLogin`, `allow-setTheme`,
-  `allow-notifyRoute`, `allow-session-expired`, `allow-session-ready`,
-  `allow-menu-set-enabled`, `core:event:allow-listen`, `core:event:allow-unlisten`,
-  `allow-desktop-update-connection` (read-only native OTA connection state and public failure reason),
-  `allow-desktop-version` (read-only native app version), `allow-native-validation-setup`,
-  `allow-rounded-window-supported` (read-only transparent-window capability),
-  `allow-native-titlebar-supported` (read-only macOS title-bar overlay capability),
-  `allow-takeover-open` (asks the desktop to show its bundled service replacement
-  page; it returns nothing, and only works while a takeover was detected),
-  `allow-windowMinimize`, `allow-windowToggleMaximize`, `allow-windowClose`,
-  `core:window:allow-start-dragging` and `core:window:allow-internal-toggle-maximize`.
-  Window commands are restricted to the main window on the active service origin.
-- `tray-service-<port>`, tray window only: `allow-tray-resize`, `allow-tray-open`,
-  `allow-tray-hide`, `allow-app-quit`, `allow-session-expired`.
+The main window receives the fixed v3 operation/read/event commands, typed
+assistant/log/attachment commands, terminal commands and its existing native
+controls. `terminal_ack` bounds outstanding terminal frames to 1 MiB; exceeding
+that budget drops the attachment with a resync so the page requests a snapshot.
+`stream_ack` applies the same 1 MiB acknowledged budget to assistant/log Channels;
+overflow sends resync and closes the stream. `stream_cancel` cancels only streams
+owned by the main window. The tray receives
+only the shared service reads/operations/events and its existing tray controls.
+Neither window has generic HTTP, file, shell or URL forwarding commands.
 
-Each command also verifies its caller's label and current origin against the
-active service. The tray is created hidden after the main webview finishes
-signing in, sharing the default webview cookie store. Its navigation is restricted
-to `/app/tray.html` on that origin. Recovery destroys it before signing in again.
-The main page listens for `pacer://command` (`{ id: string }`, restricted to the
-menu command allowlist) and `pacer://route` (`{ hash: string }`, a validated app
-route including its query). It reports command availability with
-`menu_set_enabled`; the first report after listeners attach also marks the page
-ready and returns any pending route. Main-window page loads clear availability
-and readiness. Neither page can emit events; the tray has no listen permission.
-Native menus are installed on the main window only, on macOS. Linux retains its
-page keyboard handling and has no native app menu.
+The operation forwarder checks the latest hello's exact operation list, excludes
+`ui.open`, validates operation names and caps JSON params at 256 KiB. Page-forwarded requests
+use Rust's exchanged app cookie, matching loopback Origin, app client header and
+the page's instance identity. Native lifecycle reads retain the desktop version
+label and no page instance; native cookie writes retain the required app CSRF
+header but carry no driving-lease instance. Only the session exchange uses the owner bearer.
 
-No plugin commands are exposed to either page. The dialog plugin is called only
-from Rust; no capability may grant `dialog:*` or `fs:*`. Registering the dialog
-plugin nevertheless injects its initialization script into every webview: it
-replaces `window.alert` and `window.confirm` with plugin invocations (confirm
-returns a Promise). Those page invocations have no permission and reject. App
-and bundled shell code must never call browser dialog globals, including bare
-`confirm`, `alert` or `prompt`; a source guard enforces this to prevent truthy
-Promise confirmations from failing open. Injected in-page dialog callbacks remain
-supported. Recovery actions use intercepted
-navigation from the bundled recovery page, not an extra IPC command.
+Recovery controls remain bundled shell states in the same document. Their
+intercepted `tauri://localhost/action/...` sentinels preserve the existing
+single-use, candidate-bound takeover tokens. Leaving a takeover state revokes
+its token. These sentinels never navigate the document. Non-token actions require the
+matching recovery overlay state. Navigation allows only fragment changes in the
+bundled document (main bundle or tray.html); only non-loopback HTTPS links open
+externally. Other schemes and documents are blocked. Service reconnects keep the
+event cursor in Rust memory; a changed service identity or rewound snapshot
+resets it and broadcasts one resync.
 
-First-run actions use `tauri://localhost/action/<name>` sentinels: `begin`,
-`consent?path=0|1`, `use-app`, `keep-mine`, `relink`, and `download`. Rust cancels
-these navigations and accepts actions only from the bundled `tauri://localhost/`
-or `/index.html` shell page. Other hosts, schemes, queries, and fragments are
-rejected. The local `tauri://localhost/index.html?state=welcome` back link is
-also intercepted, only from the bundled shell page, to return to Welcome.
-The lifecycle loop serializes setup actions with service recovery;
-no service installation runs while the bundled first-run consent gate is open.
-An already healthy service can be attached without changing its installation.
-These links add no IPC commands, static capabilities, or remote-origin grants.
-
-Both service-origin page capabilities also allow `client_control`: a typed allowlist
-for main-window visibility/geometry, tray visibility, launch at login and quit.
-It validates the caller label and active origin; it cannot execute scripts or
-arbitrary Tauri commands. Requests target a connected page and report completion
-only after applying an action; process exit may leave the outcome unacknowledged.
-
-The service replacement page (`tauri://localhost/index.html?state=takeover`) is
-bundled, because the service's web app is served by the unverified build. It has
-no capability and calls no IPC command: Rust injects its inspection data, progress
-and a single-use action token with `window.eval`, as it does for recovery pages,
-and only while its cached page is that bundled page. Its actions are sentinels:
-`takeover-confirm?relink=0|1&token=<token>` and `takeover-dismiss?token=<token>`.
-The restored page (`?state=takeoverRestored`) gets a token for `takeover-dismiss`
-only. Rust accepts a sentinel only when its token equals the one issued to the
-current bundled page and the shell still holds the service candidate the token
-was issued for. A token is 32 random bytes in hex. It is consumed by any
-well-formed attempt, kept across re-renders while the inspected candidate
-(registration hash, process identity and program identity) is unchanged,
-replaced when the candidate changes, and void as soon as any main-window
-navigation or page load starts, so a service page loading after the bundled page
-can never use it. The page marks **Use the app's service** `aria-disabled` and
-ignores it for one second after a new token arrives or the window regains focus. A service page can only ask for the bundled page through `takeover_open`;
-there is no service-page sentinel for it.
+The main window also holds `allow-menu-set-enabled` with `core:event:allow-listen` and `core:event:allow-unlisten`, so the page can report command availability to the native macOS menu and receive its command and route events (step 7, #590). The tray window does not.

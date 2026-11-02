@@ -1,0 +1,20 @@
+{
+  "identifier": "tray",
+  "local": true,
+  "windows": [
+    "tray"
+  ],
+  "permissions": [
+    "allow-service-call",
+    "allow-service-hello",
+    "allow-service-snapshot",
+    "allow-service-events",
+    "allow-client-control",
+    "allow-tray-resize",
+    "allow-tray-open",
+    "allow-tray-hide",
+    "allow-tray-login-item",
+    "allow-app-quit",
+    "allow-session-expired"
+  ]
+}
