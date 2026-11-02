@@ -143,37 +143,37 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
       <section className="pc-setup-panel" ref={panel} tabIndex={-1} aria-label={headings[step]}>
         <div><p className="pc-setup-eyebrow">Step {step + 1} of 5{current === 'first' ? ' · optional' : ''}</p><h1>{headings[step]}</h1><p className="pc-setup-explanation">{explanations[step]}</p></div>
         {current === 'planner' && <>
-          {options.length > 0 ? <><PlannerChoices options={options} selected={chosen} select={select} signedIn={signedIn} /><Button variant="primary" disabled={busy} onClick={() => void choosePlanner(chosen)}>Continue with {setupAgentName(chosen)}</Button><p className="muted">Nothing in {setupAgentName(chosen)} changes until step 3.</p></>
+          {options.length > 0 ? <><PlannerChoices options={options} selected={chosen} select={select} signedIn={signedIn} /><Button variant="primary" disabled={!state.connected || busy} onClick={() => void choosePlanner(chosen)}>Continue with {setupAgentName(chosen)}</Button><p className="muted">Nothing in {setupAgentName(chosen)} changes until step 3.</p></>
             : item?.command && item.action !== 'setup.init' ? <Command command={item.command} /> : <p>Install Claude Code, Codex, Cursor or OpenCode to plan your work.</p>}
           {item?.status !== 'done' && item?.command && item.action !== 'setup.init' && options.length > 0 && <Command command={item.command} />}
         </>}
-        {current === 'service' && <Button variant="primary" disabled={busy} onClick={() => void run(() => api.call('service.install', { consent: true }), true)}>Install service</Button>}
+        {current === 'service' && <Button variant="primary" disabled={!state.connected || busy} onClick={() => void run(() => api.call('service.install', { consent: true }), true)}>Install service</Button>}
         {current === 'connect' && <>
           {preview ? <ConnectChanges planner={planner} preview={preview} /> : <p role="status">{previewError ? 'Could not load the changes.' : 'Checking what will change…'}</p>}
-          <div className="pc-setup-actions"><Button variant="primary" disabled={busy || !preview} onClick={() => void run(() => api.call('agent.connect', { agent: runnerAgent(planner), consent: true }), true)}>Connect {plannerName}</Button><Button variant="ghost" disabled={busy} onClick={() => void run(async () => {}, true, true)}>Skip for now</Button></div>
+          <div className="pc-setup-actions"><Button variant="primary" disabled={!state.connected || busy || !preview} onClick={() => void run(() => api.call('agent.connect', { agent: runnerAgent(planner), consent: true }), true)}>Connect {plannerName}</Button><Button variant="ghost" disabled={!state.connected || busy} onClick={() => void run(async () => {}, true, true)}>Skip for now</Button></div>
           <SetupError error={previewError} />{previewError && <Button onClick={() => reload(v => v + 1)}>Retry preview</Button>}
           <p className="muted">After you connect, this window stays open and moves to the next step. Restart any open {plannerName} sessions to pick up the change.</p>
         </>}
         {current === 'executor' && <>
-          <ExecutorList runners={visibleRunners} providers={routing.data?.providers ?? []} busy={busy} change={(id, enabled) => run(() => changeExecutor(api, id, enabled))} reorder={ids => run(() => api.call('runner.reorder', { ids: completeRunnerOrder(configuredRunners, ids) }))} />
+          <ExecutorList runners={visibleRunners} providers={routing.data?.providers ?? []} busy={busy||!state.connected} change={(id, enabled) => run(() => changeExecutor(api, id, enabled))} reorder={ids => run(() => api.call('runner.reorder', { ids: completeRunnerOrder(configuredRunners, ids) }))} />
           {excluded.map(p => {
             const account = accounts.data?.find(a => a.name === p.account);
-            return <p key={p.id} className="muted">Not listed: {setupAgentName(p.id)} is installed but signed out.{account?.signin_command && <Button variant="ghost" disabled={busy} onClick={() => void run(() => api.call('account.signin', { name: account.name }))}>Sign in to {setupAgentName(p.id)}</Button>}</p>;
+            return <p key={p.id} className="muted">Not listed: {setupAgentName(p.id)} is installed but signed out.{account?.signin_command && <Button variant="ghost" disabled={!state.connected || busy} onClick={() => void run(() => api.call('account.signin', { name: account.name }))}>Sign in to {setupAgentName(p.id)}</Button>}</p>;
           })}
           <SetupError error={runners.error ?? routing.error ?? config.error} />
-          {runners.loading && !runners.data ? <p role="status">Finding your executors…</p> : visibleRunners.length ? <Button variant="primary" disabled={busy} onClick={() => void run(async () => {}, true)}>Looks right</Button>
-            : <><p>Add an executor to carry out your tasks. The setup window stays open while you add one in a terminal.</p><Button variant="primary" disabled={busy} onClick={() => void run(async () => { await api.call('runner.add', { interactive: 'runner-add' }); setNotice('Finish adding the executor in the terminal, then check again here.'); })}>Add executor</Button><Button onClick={() => void run(async () => {})}>Check again</Button></>}
+          {runners.loading && !runners.data ? <p role="status">Finding your executors…</p> : visibleRunners.length ? <Button variant="primary" disabled={!state.connected || busy} onClick={() => void run(async () => {}, true)}>Looks right</Button>
+            : <><p>Add an executor to carry out your tasks. The setup window stays open while you add one in a terminal.</p><Button variant="primary" disabled={!state.connected || busy} onClick={() => void run(async () => { await api.call('runner.add', { interactive: 'runner-add' }); setNotice('Finish adding the executor in the terminal, then check again here.'); })}>Add executor</Button><Button onClick={() => void run(async () => {})}>Check again</Button></>}
         </>}
         {current === 'first' && (running ? <FirstRun id={running.id} run={run} /> : item?.status === 'done' ? <p role="status">Setup is finished. Give your planner a goal when you are ready.</p> : <>
-          <div className="pc-setup-actions"><Button variant="primary" disabled={busy || !checklist.complete || !visibleRunners.some(r => r.state === 'ok')} onClick={() => void run(async () => {
+          <div className="pc-setup-actions"><Button variant="primary" disabled={!state.connected || busy || !checklist.complete || !visibleRunners.some(r => r.state === 'ok')} onClick={() => void run(async () => {
             const result = await api.call<{ task_id: string; executor: string }>('onboarding.try', {});
             const value = { id: result.task_id, executor: result.executor };
             setRunning(value); setup.setRunning(value.id, value.executor);
-          })}>Try a first task</Button><Button variant="ghost" disabled={busy} onClick={() => void run(() => api.call('onboarding.skip', {}), true)}>Skip for now</Button></div>
+          })}>Try a first task</Button><Button variant="ghost" disabled={!state.connected || busy} onClick={() => void run(() => api.call('onboarding.skip', {}), true)}>Skip for now</Button></div>
           {!checklist.complete && <p className="muted">Finish the required steps first.</p>}
           {checklist.complete && !visibleRunners.some(r => r.state === 'ok') && <p className="muted">An available executor is needed to try a task.</p>}
         </>)}
-        {busy && <p role="status">Working…</p>}{notice && <p role="status">{notice}</p>}<SetupError error={error} />
+        {busy && <p role="status">Working…</p>}{notice && <p role="status">{notice}</p>}{!state.connected&&<p className="muted">Reconnecting… Setup changes are paused.</p>}<SetupError error={error} />
       </section>
     </div>
   </Page>;

@@ -53,6 +53,8 @@ function LayoutToggle({ icon, label, keys, toggle }: { icon: "topbar-left" | "to
 export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = false, title, planner, mode, connected, lastUpdate, now: fixedNow, onDelegate, showActions = true, delegate = true, pageTitle = true, plannerFigure = true, heading, context, actions }: TopBarProps) {
   const [tick, setTick] = useState(() => Date.now() / 1000);
   useEffect(() => { if (fixedNow !== undefined) return; const t = setInterval(() => setTick(Date.now() / 1000), 1000); return () => clearInterval(t); }, [fixedNow]);
+  const [showOffline,setShowOffline]=useState(false);
+  useEffect(()=>{setShowOffline(false); if(connected)return; const timer=setTimeout(()=>setShowOffline(true),2000);return()=>clearTimeout(timer);},[connected]);
   const now = fixedNow ?? tick;
   const narrowMeter = narrow && plannerFigure && planner && planner.verdict !== "unknown" && planner.usedPct !== null;
   return <header className="pc-topbar" aria-label={showActions ? heading?.title ?? title : undefined} data-tauri-drag-region>
@@ -60,13 +62,13 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
     {!narrow && brand && <span className="pc-topbar__brand">{brand}</span>}
     {narrow && showActions && heading?.agent && <AgentMark agent={heading.agent} size={18} />}
     {showActions && pageTitle && !heading && <h1 data-tauri-drag-region title={title}>{title}</h1>}
-    {showActions && context && <fieldset ref={context} className="pc-topbar__context" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
+    {showActions && context && <div ref={context} className="pc-topbar__context" />}
     <span className="grow" data-tauri-drag-region />
     {!narrow && showActions && <div className="pc-topbar__search">{search}</div>}
     {!narrow && showActions && <span className="grow" data-tauri-drag-region />}
     {narrow && showActions && narrowSearch}
     {showActions && <>
-    {actions && <fieldset ref={actions} className="pc-frame-actions" disabled={!connected} title={!connected ? "pacer is offline" : undefined} />}
+    {actions && <div ref={actions} className="pc-frame-actions" />}
     {planner && !(narrow && title === "Dispatch") && <a href="#/settings/planner" className="pc-planner pc-inline-link">
       <AgentMark agent={planner.agent} size={18} labelled={false} />
       <span className="pc-planner__name">{agentInfo(planner.agent).name}</span>
@@ -78,7 +80,7 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
       {!narrow && <LayoutToggle icon="topbar-bottom" label="Toggle terminal panel (Ctrl+`)" keys="Control+`" toggle={panels.dock} />}
       {!narrow && <LayoutToggle icon="topbar-right" label="Toggle right panel" keys={panels.right?.keys ?? "Alt+Meta+B"} toggle={panels.right} />}
     </div>}
-    {!connected && <span className="pc-live" role="status"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}
+    {!connected && showOffline && <span className="pc-live" aria-live="off"><span className="pc-live-dot pc-live-dot--off" aria-hidden="true" />Reconnecting…</span>}
     {narrow && title === "Dispatch" ? <IconButton icon="plus" aria-label="New task" onClick={onDelegate} /> : (!narrow || delegate) && <DensityContext.Provider value="compact"><ButtonLink href="#/tasks/new" className="pc-topbar__new" variant="secondary" size="sm" onClick={event => { event.preventDefault(); onDelegate(); }}>New task</ButtonLink></DensityContext.Provider>}
     </>}
   </header>;

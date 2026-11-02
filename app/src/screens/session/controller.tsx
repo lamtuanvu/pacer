@@ -1,3 +1,4 @@
+import { useWorkspaceKey, useWorkspaceState } from '../../workspace/state';
 import { Button } from "../../ds/Button";
 import type { ApiTask } from "../../../../src/api/read-model/types";
 import { sessionTime, timelineCopy } from "../../../../src/view-model/copy";
@@ -9,7 +10,6 @@ import { clock } from "../../../../src/view-model/time";
 import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../../src/view-model/task-tree";
 import { withQuery, type RouteQuery } from "../../router";
 import { useQuery, useTaskContext } from "../task-shared";
-import { onPageScroll, pageScrollY, scrollPageTo } from "../../shell/page-scroll";
 import { TasksPage } from "./TasksPage";
 import { Cluster } from "../../ds/Page";
 import type { TaskDiff } from "./SessionPanel";
@@ -23,8 +23,6 @@ export function sessionRow(task:ClientTask):SessionData {
  phase:task.progress?.phase,elapsed:sessionTime(task,Date.now()/1000),
  changesSummary:task.progress?`${task.progress.files} files · ${task.progress.commits} commits`:undefined};
 }
-interface TaskListPosition { scroll: number; cursor?: string; history: ApiTask[] }
-const taskListPositions = new Map<string, TaskListPosition>();
 export function sessionChangeText(diff:TaskDiff):string {
  return `${diff.patch}${diff.untracked.length?'\nUntracked files:\n'+diff.untracked.join('\n'):''}${diff.truncated?'\nDiff truncated.':''}`;
 }
@@ -34,28 +32,10 @@ export function conversationChanges(diff:TaskDiff):{diff:string;untracked:string
 
 export function Sessions({query}:{query:RouteQuery}) {
  const {state}=useTaskContext(),snapshot=state.snapshot;
- const scrollKey = JSON.stringify(query);
- const savedPosition = useRef(taskListPositions.get(scrollKey));
- const savedScroll = useRef(savedPosition.current?.scroll ?? 0);
- const scrollRestored = useRef(false);
- // Match the listener lifetime to the mounted list, before navigation can clamp
- // the document height and dispatch a scroll event for the replacement screen.
- useLayoutEffect(() => {
-  const remember = () => {
-   const listRoute = ["#/tasks", "#/sessions"].includes(location.hash.split("?")[0]!);
-   if (scrollRestored.current && listRoute) {
-    const position = taskListPositions.get(scrollKey);
-    if (position) position.scroll = pageScrollY();
-   }
-  };
-  return onPageScroll(remember);
- }, [scrollKey]);
+ const key=useWorkspaceKey();
  const [repoScope, setRepoScope] = useState(query.repo);
- const [cursor,setCursor]=useState<string | undefined>(savedPosition.current?.cursor);
- const [history,setHistory]=useState<ApiTask[]>(savedPosition.current?.history ?? []);
- useEffect(() => {
-  taskListPositions.set(scrollKey, {scroll: taskListPositions.get(scrollKey)?.scroll ?? savedScroll.current, cursor, history});
- }, [scrollKey, cursor, history]);
+ const [cursor,setCursor]=useWorkspaceState<string | undefined>(key,'cursor',undefined);
+ const [history,setHistory]=useWorkspaceState<ApiTask[]>(key,'history',[]);
  const historySource = useRef<unknown>();
  const workSource = useRef<unknown>();
  const page=useQuery<{tasks:ApiTask[];next:string|null}>("task.list",{all:true,limit:20,...(repoScope === query.repo && cursor?{before:cursor}:{}),...(query.repo?{repo:query.repo}:{})}, "", true);
@@ -63,31 +43,8 @@ export function Sessions({query}:{query:RouteQuery}) {
   const rows=cursor?[...previous,...page.data!.tasks]:page.data!.tasks;
   return [...new Map(rows.map(t=>[t.id,t])).values()];
  });}},[page.data,page.loading,page.error,cursor]);
- useEffect(() => {
-  if (!snapshot || page.loading || scrollRestored.current) return;
-  // History and the selected-task panel can change the list's height after this
-  // effect. Do not remember a clamped position while layout is still catching up.
-  const deadline = performance.now() + 1000;
-  let frame: number;
-  // The person scrolling wins: any wheel, touch or key input ends the restore.
-  const yieldToUser = () => { scrollRestored.current = true; cancelAnimationFrame(frame); stop(); };
-  const inputs = ["wheel", "touchstart", "keydown"] as const;
-  const stop = () => inputs.forEach(type => removeEventListener(type, yieldToUser, true));
-  inputs.forEach(type => addEventListener(type, yieldToUser, { capture: true, passive: true }));
-  const restore = () => {
-   scrollPageTo(savedScroll.current);
-   if (Math.abs(pageScrollY() - savedScroll.current) <= 1 || performance.now() >= deadline) {
-    scrollRestored.current = true;
-    stop();
-   } else {
-    frame = requestAnimationFrame(restore);
-   }
-  };
-  frame = requestAnimationFrame(restore);
-  return () => { cancelAnimationFrame(frame); stop(); };
- }, [snapshot, page.loading, history]);
- const [workBefore,setWorkBefore]=useState<string|undefined>();
- const [workRows,setWorkRows]=useState<WorkRow[]>([]);
+ const [workBefore,setWorkBefore]=useWorkspaceState<string|undefined>(key,'workBefore',undefined);
+ const [workRows,setWorkRows]=useWorkspaceState<WorkRow[]>(key,'workRows',[]);
  const work=useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(repoScope === query.repo && workBefore?{before:workBefore}:{}),...(query.repo?{repo:query.repo}:{})}, "", true);
  useEffect(()=>{if(work.data && !work.loading && !work.error){workSource.current=work.data;setWorkRows(previous=>[...new Map([...(workBefore?previous:[]),...work.data!.tasks].map(row=>[row.id,row])).values()]);}},[work.data,work.loading,work.error,workBefore]);
  if (repoScope !== query.repo) {

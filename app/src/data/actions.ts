@@ -9,6 +9,7 @@ export type ActionState =
   | { status: "job"; jobId: string };
 export interface ActionDeps {
   call: BrowserApi["call"];
+  connected?: () => boolean;
   /** Resolves true once match holds for the store, false after timeoutMs. */
   waitFor: (match: (s: StoreState) => boolean, timeoutMs: number) => Promise<boolean>;
   refetch: () => Promise<void> | void;
@@ -33,24 +34,37 @@ export function uiHref(params: Record<string, unknown>): string {
 
 /** Runs the service's actions. Success is shown only when the resulting event arrives, never optimistically. */
 export function createActionRunner(deps: ActionDeps) {
+  const errors = new Map<string, unknown>();
+  let sequence = 0;
   const results = new Map<string, unknown>();
   const states = new Map<string, ActionState>();
   const listeners = new Set<() => void>();
   const set = (key: string, state: ActionState) => { states.set(key, state); for (const l of listeners) l(); return state; };
   return {
+    async call<T>(op: string, params: unknown = {}): Promise<T> {
+      const key = `service:${++sequence}`;
+      const outcome = await this.run(key, { label: op, op, params: params as Record<string, unknown> });
+      const result = results.get(key), error = errors.get(key);
+      results.delete(key); errors.delete(key); states.delete(key);
+      if (outcome.status === 'error' || outcome.status === 'handled') throw error ?? new Error(outcome.message);
+      return result as T;
+    },
     result: (key: string): unknown => results.get(key),
     state: (key: string): ActionState => states.get(key) ?? { status: "idle" },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    unavailable: (action?: Action) => action?.op !== "ui.open" && deps.connected && !deps.connected() ? "Reconnecting… Service actions are available when pacer reconnects." : undefined,
     needsConfirm: (action: Action): string | null => action.confirm ?? null,
     /** Fetches the snapshot again, for a screen that changed state outside run(). */
     refetch: () => deps.refetch(),
     async run(key: string, action: Action, confirmDone?: (s: StoreState) => boolean): Promise<ActionState> {
       if (action.op === "ui.open") { deps.navigate(uiHref(action.params)); return set(key, { status: "done" }); }
+      if (deps.connected && !deps.connected()) return set(key, { status: "error", message: "Reconnecting… Service actions are available when pacer reconnects." });
       set(key, { status: "pending" });
       results.delete(key);
       let result: unknown;
       try { result = await deps.call(action.op, action.params); }
       catch (error) {
+        if (key.startsWith('service:')) errors.set(key, error);
         // The service's conflict says the state moved on (another client acted first); it names no client.
         if (error instanceof ApiError && error.code === "conflict" && action.op !== "mode.hold" && action.op !== "mode.release" && action.op !== "task.takeover" && action.op !== "agent.connect" && action.op !== "runner.settings.save" && !action.op.startsWith("desktop.update.") && !action.op.startsWith("project.strategy.")) return set(key, { status: "handled", message: "Already handled elsewhere" });
         const e = error instanceof ApiError ? error : null;
@@ -58,7 +72,7 @@ export function createActionRunner(deps: ActionDeps) {
       }
       results.set(key, result);
       if ((action.op === "task.review" || action.op === "dispatch.review") && (action.params.verdict === "accept" || action.params.accepted === true) && typeof action.params.id === "string") deps.reviewAccepted?.(action.params.id);
-      if (action.op === "task.takeover") {
+      if (action.op === "task.takeover" && !key.startsWith("service:")) {
         const state = (result as {state?: string})?.state;
         deps.navigate(`${uiHref({view:"session",id:action.params.id})}${state === "starting" || state === "driving" ? `&panel=session&takeover=${state}` : ""}`);
       }

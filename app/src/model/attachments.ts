@@ -1,3 +1,4 @@
+import { platform } from "../platform";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AttachmentItem } from "../ds/AttachmentTray";
 import type { BrowserApi } from "../data/api";
@@ -44,7 +45,7 @@ export function useAttachments(
   useEffect(() => {
     if (!draftId) return;
     let active = true;
-    void fetch(`/v3/attachments?draft=${encodeURIComponent(draftId)}`, {
+    void platform.request(`/v3/attachments?draft=${encodeURIComponent(draftId)}`, {
       credentials: "same-origin",
     })
       .then((r) =>
@@ -108,7 +109,7 @@ export function useAttachments(
         size: number;
         mime: string;
       }>(
-        await fetch(
+        await platform.request(
           `/v3/attachments?draft=${encodeURIComponent(draft)}&batch=${encodeURIComponent(batch)}`,
           {
             method: "POST",
@@ -163,7 +164,7 @@ export function useAttachments(
       try {
         const item = items.find((item) => item.id === id);
         if (item?.status === "ready") {
-          const result = await fetch(
+          const result = await platform.request(
             `/v3/attachments/${encodeURIComponent(id)}?draft=${encodeURIComponent(draftId)}`,
             {
               method: "DELETE",

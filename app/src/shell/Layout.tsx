@@ -24,6 +24,8 @@ import { useNavigation } from "../navigation";
 import { OfflineNotice } from "./OfflineNotice";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
+import { isDesktop, windowControls } from "../data/desktop";
+import { registerViewClose } from "./shell-commands";
 import { commands, keys } from "../keys/instance";
 import { SidePanel } from "../ds/SidePanel";
 import { AppFrame } from "./AppFrame";
@@ -40,11 +42,47 @@ function AssistantLoader(props: { route: Route; narrow: boolean; repo: string | 
   return View ? <View {...props} /> : null;
 }
 
+interface LayoutCloseState {
+  dockAvailable: boolean; dockOpen: boolean; workPanels: boolean; newTaskPanels: boolean; inspectorOpen: boolean; taskPanels: boolean; detailsOpen: boolean; scopeOpen: boolean; tasksOpen: boolean; hasLeft: boolean; leftOpen: boolean;
+  setDockOpen: (open: boolean) => void; setInspectorOpen: (open: boolean) => void; setDetailsOpen: (open: boolean) => void; setScopeOpen: (open: boolean) => void; setTasksOpen: (open: boolean) => void; setLeftOpen: (open: boolean) => void;
+}
+interface LayoutCloseDocument {
+  querySelector(selector: string): { parentElement: { querySelector(selector: string): { disabled: boolean; click(): void } | null } | null } | null;
+}
+/** An open dialog closes before any panel. Native dialogs take the same cancel path as Escape; ARIA modals use their own Close button. The last open dialog is the topmost. */
+interface CloseableDialog { tagName: string; dispatchEvent(event: Event): boolean; querySelector(selector: string): { click(): void } | null }
+export function closeOpenDialog(document: { querySelectorAll(selector: string): ArrayLike<CloseableDialog> }): boolean {
+  const open = document.querySelectorAll('dialog[open], [role="dialog"][aria-modal="true"]'), top = open[open.length - 1];
+  if (!top) return false;
+  if (top.tagName === "DIALOG") { top.dispatchEvent(new Event("cancel", { cancelable: true })); return true; }
+  const close = top.querySelector('button[aria-label="Close"]');
+  if (!close) return false;
+  close.click();
+  return true;
+}
+/** The same close cascade used by the desktop command, with a small document seam for tests. */
+export function closeLayoutView(state: LayoutCloseState, document: LayoutCloseDocument): boolean {
+  const { dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen } = state;
+  // Reuse the selected workspace tab's existing close action, including its state cleanup.
+  const tab = document.querySelector('[id^="workspace-panels-"][role="tab"][aria-selected="true"]');
+  const close = tab?.parentElement?.querySelector('button[aria-label^="Close "]');
+  if (close && !close.disabled) { close.click(); return true; }
+  if (dockAvailable && dockOpen) { setDockOpen(false); return true; }
+  if ((workPanels || newTaskPanels) && inspectorOpen) { setInspectorOpen(false); return true; }
+  if (taskPanels && detailsOpen) { setDetailsOpen(false); return true; }
+  if (workPanels && scopeOpen) { setScopeOpen(false); return true; }
+  if (taskPanels && tasksOpen) { setTasksOpen(false); return true; }
+  if (hasLeft && leftOpen) { setLeftOpen(false); return true; }
+  return false;
+}
+
 const SETTINGS = new Set(["settings", "hosts", "add-executor"]);
 const NEEDS_READ_MODEL = new Set(["dispatch", "review"]);
 /** Compact desktop header and rail; narrow screens keep touch navigation. AppFrame owns the regions. */
 export function Layout({ route, loadingRoute = route, state, title, onDelegate = () => {}, children }: { route: Route; loadingRoute?: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   const narrow = useNarrow(route.query);
+  const [offlineBanner, setOfflineBanner] = useState(false);
+  useEffect(() => { setOfflineBanner(false); if (state.connected) return; const timer = setTimeout(() => setOfflineBanner(true), 2000); return () => clearTimeout(timer); }, [state.connected]);
   useAgentDeepLink(route);
   const [density, setDensity] = useState(savedDensity);
   useEffect(() => {
@@ -118,6 +156,12 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
       dockAvailable ? toggleDock : undefined, workPanels || newTaskPanels ? () => setInspectorOpen(!inspectorOpen) : taskPanels ? () => setDetailsOpen(!detailsOpen) : undefined).map(command => commands.register(command));
     return () => offs.forEach(off => off());
   }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen, workPanels, scopeOpen, inspectorOpen, newTaskPanels, route.name]);
+  useLayoutEffect(() => {
+    if (!isDesktop()) return;
+    return registerViewClose(commands, { apple: isMacPlatform(), hide: () => { void windowControls().close(); }, close: () => {
+      return closeOpenDialog(document) || closeLayoutView({ dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen }, document);
+    } });
+  }, [dockAvailable, dockOpen, workPanels, newTaskPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, route.name]);
   // Dispatcher commands exist only where the service offers the operation (UI-13).
   const paused = !!state.snapshot?.pause, ops = state.features.ops, api = context?.api;
   // The UI has its own API client, separate from the store's snapshot transport.
@@ -174,7 +218,7 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
     activity={<Rail terminal={dockAvailable ? {open:dockOpen,toggle:toggleDock} : undefined} route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
     left={settings || tasks || (workPanels && scopeOpen && <aside className="pc-side-panel pc-side-panel--left pc-scope-panel" style={{ flexBasis: "calc(var(--size-240) + var(--space-2))", width: "calc(var(--size-240) + var(--space-2))" }} aria-label="Scope"><div id="pc-side-panel-left" ref={setLeftSlot} className="pc-frame-slot" /></aside>)}
     right={details || (workPanels && inspectorOpen && <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector"><div id="pc-side-panel-right" ref={setRightSlot} className="pc-frame-slot" /></aside>)}
-    live={!state.connected && state.snapshot && <OfflineNotice lastUpdate={state.snapshot.at} />}
+    live={offlineBanner && !state.connected && state.snapshot && <OfflineNotice lastUpdate={state.snapshot.at} />}
     mainClass={`pc-main${taskPanels?" pc-main--workbench":""}${loading || !outdated && ["task-failure","task-review","new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton layout={SETTINGS.has(loadingRoute.name) ? "settings" : ["task-review", "task-failure"].includes(loadingRoute.name) ? "task" : loadingRoute.name === "sessions" ? (loadingRoute.id ? "task" : "list") : loadingRoute.name === "review" ? "list" : "dashboard"} label={loadingRoute.name === "sessions" && loadingRoute.id ? "Loading the task" : `Loading ${loadingRoute.name === "sessions" ? "tasks" : loadingRoute.name === "review" ? "Needs you" : SETTINGS.has(loadingRoute.name) ? "settings" : "Dispatch"}`} /> : route.name === "loading" ? <p role="status">Checking setup…</p> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}
     overlay={assistantAvailable && <AssistantLoader route={route} narrow={narrow} repo={repo} repoLabel={repoLabel} onNewTask={onDelegate} />}

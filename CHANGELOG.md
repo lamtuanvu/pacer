@@ -6,16 +6,20 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Rust library effects for named strategy saves, routing and runner edits, and notification settings. The TypeScript runtime is unchanged.
+
+
 - Rust strategy activation and removal library effects, with atomic activation and restrictive 0700 home and 0600 active-file modes. The TypeScript runtime is unchanged.
 
 ### Fixed
+
+- Keep task-history backfills and retention off the service request thread, retry temporary backfill writer contention, and avoid unnecessary SQLite writer locks when opening or scanning existing task stores. Desktop sign-in no longer waits for historical maintenance.
 
 - Preserve shared legacy task imports, older SQLite migrations, malformed run errors and UTF-8 decoding in native task-log follow streams through the TypeScript compatibility fallback.
 - Reset native task-log stderr offsets when a running task loses its run record, so output from a restored run is delivered from the start.
 - Parse decimal and exponent task-import numbers with correctly rounded doubles, preserving TypeScript safe-integer boundary behavior.
 
 - Recover Codex eligibility through fresh quota polling without dispatching a task: ignore nonpositive window durations, read secondary-only limits, and safely retire historical `0h` artifacts while preserving real quota constraints and manual limits.
-
 - Reject invalid publication snapshot sequences consistently in TypeScript and Rust, and keep activity rotation working when a stale temporary file exists.
 
 - Secure publication directories and files to 0700 and 0600, including existing permissive state on the next write.
