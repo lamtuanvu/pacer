@@ -400,9 +400,12 @@ impl RemoteHost for RemoteTransport {
             RemoteOperation::Read | RemoteOperation::Report => self.observe(id, run).await,
             RemoteOperation::Stop => {
                 let grace = crate::js_semantics::safe_u64(&p["extra"]["graceMs"])
-                    .filter(|n| *n <= 25000)
+                    .filter(|n| *n > 0 && *n <= 25000)
                     .ok_or_else(denied)?;
-                let args = vec![text(run, "remoteDir")?.into(), grace.to_string()];
+                let args = vec![
+                    text(run, "remoteDir")?.into(),
+                    grace.div_ceil(1000).to_string(),
+                ];
                 let f = facts(&self.checked("STOP", &args, &[], true, 65536).await?)?;
                 let code = f
                     .get("code")

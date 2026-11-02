@@ -150,9 +150,24 @@ fn long_radix_facts_match_bun_intermediate_rounding() {
             cases.push(format!("0x1{}{}", "a7".repeat(digits), suffix));
         }
     }
-    let out=Command::new("bun").args(["-e","const c=JSON.parse(Bun.argv.at(-1));console.log(JSON.stringify(c.map(s=>Number.isFinite(Number(s))?Number(s):null)));",&json!(cases).to_string()]).output().unwrap();
+    let mut child = Command::new("bun")
+        .args(["-e", "const c=JSON.parse(await Bun.stdin.text());console.log(JSON.stringify(c.map(s=>Number.isFinite(Number(s))?Number(s):null)));"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(json!(cases).to_string().as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
     assert!(out.status.success());
     let expected: Vec<Option<f64>> = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(expected.len(), cases.len());
     for (s, want) in cases.iter().zip(expected) {
         assert_eq!(number_text(s), want, "{s}");
     }
