@@ -46,6 +46,7 @@ async function compare(op: string, params: unknown, setup?: (home: string) => vo
     }).filter(event => event.type !== "entity" || event.data.kind !== "plugin");
   };
   expect(normalize(events(rs),rs)).toEqual(normalize(events(ts),ts));
+  return expected;
 }
 const named = (path: string) => {
   mkdirSync(join(path,"strategies"),{mode:0o700});
@@ -228,3 +229,79 @@ test("duplicate YAML key diagnostics match reference context, properties and UTF
     await compare("routing.set", {rules:[{executors:["codex"]}]}, setup);
   }
 }, 120_000);
+
+// The editor uses yaml's scalar-node === check, independently of Bun's loader.
+test("editor keys accept NaN, signed radix, collection and alias pairs like yaml", async () => {
+  const maps = [
+    "  .nan: first\n  .nan: second\n",
+    "  -0x10: first\n  -16: second\n",
+    "  +0o10: first\n  8: second\n",
+    "  ? {a: 1}\n  : first\n  ? {a: 1}\n  : second\n",
+    "  a: &x 1\n  *x : second\n  1: third\n",
+    "  !!str 1: first\n  1: second\n",
+    '  !!int "1": first\n  "1": second\n',
+    "  !!int -0x10: first\n  -16: second\n",
+    "  !!float 1: first\n  1: second\n",
+    "  !!int 1.0: first\n  1.0: second\n",
+    "  !custom 1: first\n  1: second\n",
+  ];
+  const operations = [
+    ["runner.set", {id:"codex",enabled:false}],
+    ["runner.reorder", {ids:["cursor","codex"]}],
+    ["routing.set", {rules:[{kinds:["docs"],executors:["cursor","codex"]},{executors:["codex","cursor"]}]}],
+  ] as const;
+  for (const map of maps) for (const [op,params] of operations) {
+    const initial=golden.initial+"\nmisc:\n"+map;
+    expect(await compare(op,params,path=>writeFileSync(join(path,"strategy.yaml"),initial))).toHaveProperty("result");
+  }
+},120_000);
+
+test("nested YAML sequences preserve Bun save bytes including empty collections", async () => {
+  const cases = [
+    "misc: {c: [[]], e: [[1, 2], [.inf]]}\n",
+    "misc: [[[]], [[1, 2], [.inf, -.inf, .nan]], [[], {}, [true, null]]]\n",
+  ];
+  for (const fixture of cases) expect(await compare("strategy.save",{name:"review",draft:{from:"default"},reason:"nested YAML parity"},
+    path=>writeFileSync(join(path,"strategy.yaml"),golden.initial+"\n"+fixture))).toHaveProperty("result");
+},120_000);
+
+test("radix prefixes reject internal signs in YAML values and keys", async () => {
+  for (const literal of ["0x+5","0o+5","+0x+5","-0x+5","0x-5","0o-5"]) {
+    await compare("runner.set",{id:"codex",enabled:false},path=>writeFileSync(join(path,"strategy.yaml"),
+      golden.initial.replace("  codex: {} # keep runner",`  codex: {max_tasks: ${literal}} # keep runner`)));
+    expect(await compare("strategy.save",{name:"review",draft:{from:"default"},reason:"radix parity"},path=>writeFileSync(join(path,"strategy.yaml"),
+      golden.initial+`\nmisc: {value: ${literal}, ${literal}: kept}\n`))).toHaveProperty("result");
+  }
+},120_000);
+
+test("editor keys resolve explicit tags and large radix integers before duplicate checks", async () => {
+  for(const map of [
+    '  !!int "1": first\n  1: second\n',
+    '  !!bool "true": first\n  true: second\n',
+    '  !!str 1: first\n  "1": second\n',
+    "  0x10000000000000000: first\n  18446744073709551616: second\n",
+    "  0o2000000000000000000000: first\n  18446744073709551616: second\n",
+  ]) expect(await compare("runner.set",{id:"codex",enabled:false},path=>writeFileSync(join(path,"strategy.yaml"),golden.initial+"\nmisc:\n"+map))).toHaveProperty("error");
+  const radixKeys = ["0x20000000000001", "0x10000000000000801", "0xffffffffffffffffffffffff", "0o7777777777777777777777", "0x"+"f".repeat(256)];
+  for(const key of radixKeys) {
+    const n=parseInt(key.slice(2),key.startsWith("0x")?16:8), decimal=Number.isFinite(n)?String(n):".inf";
+    const initial=golden.initial+`\nmisc:\n  ${key}: first\n  ${decimal}: second\n`;
+    expect(await compare("runner.set",{id:"codex",enabled:false},path=>writeFileSync(join(path,"strategy.yaml"),initial))).toHaveProperty("error");
+  }
+},120_000);
+
+test("verbatim core tags retain yaml editor duplicate detection", async () => {
+  for (const [tag,key] of [["int","1"],["bool","true"],["float","1.0"],["null","null"]]) {
+    const initial=golden.initial+`\nmisc:\n  !<tag:yaml.org,2002:${tag}> ${key}: first\n  ${key}: second\n`;
+    for (const [op,params] of [
+      ["runner.set",{id:"codex",enabled:false}],
+      ["runner.reorder",{ids:["cursor","codex"]}],
+      ["routing.set",{rules:[{executors:["cursor","codex"]}]}],
+    ] as const) expect(await compare(op,params,path=>writeFileSync(join(path,"strategy.yaml"),initial))).toHaveProperty("error");
+  }
+},120_000);
+
+test("signed radix strings stay strings through strategy save", async () => {
+  for (const literal of ["+0x5","+0o5"]) expect(await compare("strategy.save",{name:"review",draft:{from:"default"},reason:"string radix parity"},
+    path=>writeFileSync(join(path,"strategy.yaml"),golden.initial+`\nmisc: {value: "${literal}", "${literal}": kept}\n`))).toHaveProperty("result");
+},120_000);

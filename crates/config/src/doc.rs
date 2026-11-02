@@ -1,5 +1,5 @@
 use pacer_foundation::js_semantics::JsTrim;
-use saphyr_parser::{Event, Parser, ScalarStyle};
+use saphyr_parser::{Event, Parser, ScalarStyle, Tag};
 use serde_json::{Map, Value};
 use std::ops::Range;
 
@@ -14,6 +14,8 @@ struct Node {
     span: Range<usize>,
     core_end: usize,
     kind: Kind,
+    // yaml checks only direct scalar keys, not resolved aliases or collections.
+    scalar_key: Option<crate::yaml_value::Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -88,7 +90,19 @@ fn yaml_scalar(content: &str) -> crate::yaml_value::Value {
             let unsigned = content.strip_prefix(['+', '-']).unwrap_or(content);
             if unsigned.starts_with("0x") || unsigned.starts_with("0o") {
                 let radix = if unsigned.starts_with("0x") { 16 } else { 8 };
-                return u64::from_str_radix(&unsigned[2..], radix)
+                let digits = &unsigned[2..];
+                if digits.is_empty()
+                    || !digits.bytes().all(|byte| {
+                        if radix == 16 {
+                            byte.is_ascii_hexdigit()
+                        } else {
+                            matches!(byte, b'0'..=b'7')
+                        }
+                    })
+                {
+                    return Y::String(content.into());
+                }
+                return u64::from_str_radix(digits, radix)
                     .map(|v| Y::Number(v as f64 * if content.starts_with('-') { -1. } else { 1. }))
                     .unwrap_or_else(|_| Y::String(content.into()));
             }
@@ -107,7 +121,105 @@ fn yaml_scalar(content: &str) -> crate::yaml_value::Value {
     }
 }
 
-fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> Node {
+// yaml's core int keys use JavaScript parseInt without Bun's u64 limit.
+// Preserve its nearest-even rounding using the first 53 significant bits.
+fn core_radix_number(digits: &str, radix: u32) -> Option<f64> {
+    let width = if radix == 16 { 4 } else { 3 };
+    let mut mantissa = 0_u64;
+    let mut bits = 0_usize;
+    let mut round = false;
+    let mut sticky = false;
+    if digits.is_empty() {
+        return None;
+    }
+    for byte in digits.bytes() {
+        let digit = char::from(byte).to_digit(radix)?;
+        for shift in (0..width).rev() {
+            let bit = (digit >> shift) & 1;
+            if bits == 0 && bit == 0 {
+                continue;
+            }
+            bits += 1;
+            if bits <= 53 {
+                mantissa = mantissa * 2 + u64::from(bit);
+            } else if bits == 54 {
+                round = bit != 0;
+            } else {
+                sticky |= bit != 0;
+            }
+        }
+    }
+    if bits > 1024 {
+        return Some(f64::INFINITY);
+    }
+    if round && (sticky || mantissa & 1 != 0) {
+        mantissa += 1;
+    }
+    Some(mantissa as f64 * 2_f64.powi(bits.saturating_sub(53) as i32))
+}
+
+fn core_plain_scalar(content: &str) -> crate::yaml_value::Value {
+    use crate::yaml_value::Value as Y;
+    for (prefix, radix) in [("0x", 16), ("0o", 8)] {
+        if let Some(digits) = content.strip_prefix(prefix) {
+            return core_radix_number(digits, radix)
+                .map_or_else(|| Y::String(content.into()), Y::Number);
+        }
+    }
+    if content
+        .strip_prefix(['+', '-'])
+        .is_some_and(|text| text.starts_with("0x") || text.starts_with("0o"))
+    {
+        return Y::String(content.into());
+    }
+    yaml_scalar(content)
+}
+
+fn editor_scalar_key(
+    content: &str,
+    style: ScalarStyle,
+    tag: Option<&Tag>,
+) -> crate::yaml_value::Value {
+    use crate::yaml_value::Value as Y;
+    if let Some(tag) = tag {
+        let value = core_plain_scalar(content);
+        let unsigned = content.strip_prefix(['+', '-']).unwrap_or(content);
+        let integer = !unsigned.is_empty() && unsigned.bytes().all(|byte| byte.is_ascii_digit())
+            || content.starts_with("0x")
+            || content.starts_with("0o");
+        let suffix = if tag.is_yaml_core_schema() {
+            Some(tag.suffix.as_str())
+        } else if tag.handle.is_empty() {
+            tag.suffix.strip_prefix("tag:yaml.org,2002:")
+        } else {
+            None
+        };
+        let valid = match suffix {
+            Some("int") => value.is_number() && integer,
+            Some("float") => value.is_number() && !integer,
+            Some("bool") => value.is_boolean(),
+            Some("null") => value.is_null(),
+            _ => false,
+        };
+        if valid {
+            value
+        } else {
+            Y::String(content.into())
+        }
+    } else if style == ScalarStyle::Plain {
+        core_plain_scalar(content)
+    } else {
+        Y::String(content.into())
+    }
+}
+
+fn scalar(
+    text: &str,
+    span: Range<usize>,
+    content: &str,
+    style: ScalarStyle,
+    tag: Option<&Tag>,
+) -> Node {
     let span = if matches!(style, ScalarStyle::Literal | ScalarStyle::Folded) {
         let indicator_end = text[..span.start].rfind('\n').unwrap_or(span.start);
         let line_start = text[..indicator_end].rfind('\n').map_or(0, |p| p + 1);
@@ -124,7 +236,23 @@ fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> 
         span
     };
     let value = if style == ScalarStyle::Plain {
-        yaml_scalar(content)
+        let value = yaml_scalar(content);
+        if let Some(tag) = tag {
+            let valid = tag.is_yaml_core_schema()
+                && match tag.suffix.as_str() {
+                    "int" | "float" => value.is_number(),
+                    "bool" => value.is_boolean(),
+                    "null" => value.is_null(),
+                    _ => false,
+                };
+            if valid {
+                value
+            } else {
+                crate::yaml_value::Value::String(content.into())
+            }
+        } else {
+            value
+        }
     } else {
         crate::yaml_value::Value::String(content.into())
     };
@@ -165,18 +293,23 @@ fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> 
         let stop = line.find(" #").unwrap_or(line.len());
         span.start + line[..stop].trim_end_matches([' ', '\r']).len()
     };
+    // Editor keys resolve using yaml's core schema, including explicit tags;
+    // the strategy loader above deliberately follows Bun's distinct behavior.
+    let scalar_key = editor_scalar_key(content, style, tag);
     Node {
         span,
         core_end,
         kind: Kind::Scalar(value),
+        scalar_key: Some(scalar_key),
     }
 }
 
 fn same_key(left: &Node, right: &Node) -> bool {
-    let left = left.semantic_value();
-    let right = right.semantic_value();
-    left == right
-        || matches!((left.as_f64(),right.as_f64()), (Some(a),Some(b)) if a.is_nan() && b.is_nan())
+    match (&left.scalar_key, &right.scalar_key) {
+        // f64 equality matches JS === here: NaN is never equal to itself.
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
 }
 
 /// Match yaml's prettifyError: columns and truncation count UTF-16 code units.
@@ -263,8 +396,8 @@ fn parse(text: &str, unique_keys: bool) -> Result<Node> {
         let start = byte_index(text, span.start.index());
         let end = byte_index(text, span.end.index());
         let node = match event {
-            Event::Scalar(content, style, anchor, _) => {
-                let node = scalar(text, start..end, &content, style);
+            Event::Scalar(content, style, anchor, tag) => {
+                let node = scalar(text, start..end, &content, style, tag.as_deref());
                 if anchor != 0 {
                     anchors.insert(anchor, node.clone());
                 }
@@ -273,6 +406,7 @@ fn parse(text: &str, unique_keys: bool) -> Result<Node> {
             Event::Alias(anchor) => anchors.get(&anchor).cloned().map(|mut node| {
                 node.span = start..end;
                 node.core_end = end;
+                node.scalar_key = None;
                 node
             }),
             Event::MappingStart(anchor, _) | Event::SequenceStart(anchor, _) => {
@@ -327,6 +461,7 @@ fn parse(text: &str, unique_keys: bool) -> Result<Node> {
                     span: frame.start..end,
                     core_end,
                     kind,
+                    scalar_key: None,
                 };
                 if frame.anchor != 0 {
                     anchors.insert(frame.anchor, node.clone());
@@ -944,6 +1079,7 @@ impl StrategyDoc {
             kind: Kind::Map(providers, outer_flow),
             span: outer_span,
             core_end: outer_end,
+            ..
         }) = doc.at(&[Value::String("providers".into())])
         else {
             return Err(EditError("providers must be a mapping".into()));
@@ -1110,6 +1246,7 @@ fn emit_bun_scalar(value: &Value) -> String {
         let canonical_case = s.as_str() == lower
             || s.as_str() == s.to_ascii_uppercase()
             || s.as_str() == capitalize_ascii(&lower);
+        let unsigned = s.strip_prefix('+').unwrap_or(s);
         let reserved = (canonical_case
             && matches!(
                 lower.as_str(),
@@ -1117,12 +1254,18 @@ fn emit_bun_scalar(value: &Value) -> String {
             ))
             || s.parse::<f64>().is_ok_and(f64::is_finite)
             || numeric_prefix_ambiguous(s)
-            || (s.get(2..).is_some_and(|digits| {
-                !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_hexdigit())
-            }) && (s.starts_with("0x") || s.starts_with("0X")))
-            || (s.get(2..).is_some_and(|digits| {
-                !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
-            }) && (s.starts_with("0o") || s.starts_with("0O")))
+            || (unsigned.get(2..).is_some_and(|digits| {
+                !digits.is_empty()
+                    && digits.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+                    && digits.bytes().filter(|b| *b == b'-').count() <= 1
+            }) && (unsigned.starts_with("0x") || unsigned.starts_with("0X")))
+            || (unsigned.get(2..).is_some_and(|digits| {
+                !digits.is_empty()
+                    && digits
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || matches!(b, b'+' | b'-'))
+                    && digits.bytes().filter(|b| *b == b'-').count() <= 1
+            }) && (unsigned.starts_with("0o") || unsigned.starts_with("0O")))
             || matches!(lower.as_str(), ".inf" | ".nan")
             || matches!(s.as_str(), "." | "...");
         let syntax = s.is_empty()
@@ -1271,7 +1414,7 @@ fn emit_style(value: &Value, flow: bool, indent: usize, bun: bool) -> String {
                 let child = emit_style(v, false, indent + 2, bun);
                 if v.is_object() {
                     format!("- {}", child)
-                } else if v.is_array() {
+                } else if v.is_array() && !bun {
                     format!("-\n{}{}", " ".repeat(indent + 2), child)
                 } else {
                     format!("- {child}")
@@ -1443,11 +1586,7 @@ pub(crate) fn stringify_yaml_bun(value: &crate::yaml_value::Value) -> String {
                 .iter()
                 .map(|v| {
                     let child = emit(v, indent + 2);
-                    if v.is_array() {
-                        format!("-\n{}{child}", " ".repeat(indent + 2))
-                    } else {
-                        format!("- {child}")
-                    }
+                    format!("- {child}")
                 })
                 .collect::<Vec<_>>()
                 .join(&format!("\n{}", " ".repeat(indent))),

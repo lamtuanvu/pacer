@@ -557,3 +557,19 @@ test("numeric draft fields preserve saved YAML bytes across runtimes", () => {
     } catch (error) { throw new Error(`${label}=${literal}: ${error}`); }
   }
 }, 60_000);
+
+test("nested YAML sequences stringify with Bun collection layout", () => {
+  const binary=configBinary();
+  for(const value of [{c:[[]],e:[[1,2],[3]]},[[[]],[[1,2],[3]],[[],{},[true,null]]]]) {
+    const expected=Bun.YAML.stringify(value,null,2).replace(/\n?$/, "\n");
+    expect(rust(binary,{op:"yaml.stringify",value}).value).toBe(expected);
+  }
+});
+
+test("signed radix string quoting matches Bun", () => {
+  const binary=configBinary();
+  for(const literal of ["+0x5","+0o5","+0x55","+0o77","+0X5","+0O5","+0xg","+0x+5","+0x-5","+0x5-","+0x","+0o8","+0o+5","+0o-5","+0o5-","+0o","+0x-","+0o+"]) {
+    const value={value:literal,[literal]:"kept"};
+    expect(rust(binary,{op:"yaml.stringify",value}).value).toBe(Bun.YAML.stringify(value,null,2).replace(/\n?$/, "\n"));
+  }
+});
