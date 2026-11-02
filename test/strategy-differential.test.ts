@@ -205,7 +205,7 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
   const runner = fieldCase(bases[3]!, ["runners", "codex@box", "models"], [{ id: "fast" }]);
   const dispatch = fieldCase(base, ["dispatch", "steps"], [{ id: "step" }]);
   const messaging = fieldCase(base, ["messaging"], {});
-  const numberFields: { label: string; base: Json; path: (string | number)[]; validZero?: boolean; safe?: boolean }[] = [
+  const numberFields: { label: string; base: Json; path: (string | number)[]; validZero?: boolean; safe?: boolean; validInteger?: number }[] = [
     { label: "endpoint context", base: endpoint, path: ["accounts", "edge", "connection", "models", 0, "context"], safe: true },
     { label: "endpoint output", base: endpoint, path: ["accounts", "edge", "connection", "models", 0, "output"], safe: true },
     { label: "runner max_tasks", base: endpoint, path: ["runners", "edge", "max_tasks"] },
@@ -218,16 +218,16 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     { label: "session retention", base, path: ["execution", "session_retention_days"] },
     { label: "task retention", base, path: ["task_retention_days"], safe: true, validZero: true },
     { label: "dispatch timeout", base: dispatch, path: ["dispatch", "timeoutMs"], safe: true },
-    { label: "dispatch learning samples", base: dispatch, path: ["dispatch", "learning", "minSamples"], safe: true },
+    { label: "dispatch learning samples", base: dispatch, path: ["dispatch", "learning", "minSamples"], safe: true, validInteger: 20 },
     { label: "dispatch learning age", base: dispatch, path: ["dispatch", "learning", "maxAgeDays"], safe: true },
     { label: "dispatch required context", base: dispatch, path: ["dispatch", "steps", 0, "require", "context"], safe: true },
     { label: "messaging keep days", base: messaging, path: ["messaging", "keep_worktree_days"], safe: true, validZero: true },
     { label: "messaging max bytes", base: messaging, path: ["messaging", "message", "max_bytes"], safe: true },
     { label: "messaging max turns", base: messaging, path: ["messaging", "tree", "max_turns"], safe: true },
-    { label: "messaging interval", base: messaging, path: ["messaging", "liveness", "interval_s"], safe: true },
-    { label: "messaging backoff", base: messaging, path: ["messaging", "liveness", "backoff_max_s"], safe: true },
+    { label: "messaging interval", base: messaging, path: ["messaging", "liveness", "interval_s"], safe: true, validInteger: 10 },
+    { label: "messaging backoff", base: messaging, path: ["messaging", "liveness", "backoff_max_s"], safe: true, validInteger: 10 },
     { label: "messaging nudges", base: messaging, path: ["messaging", "liveness", "max_nudges"], safe: true, validZero: true },
-    { label: "messaging escalation", base: messaging, path: ["messaging", "liveness", "escalate_after_s"], safe: true },
+    { label: "messaging escalation", base: messaging, path: ["messaging", "liveness", "escalate_after_s"], safe: true, validInteger: 10 },
     { label: "messaging stop release", base: messaging, path: ["messaging", "hooks", "stop_release_after"], safe: true },
     { label: "messaging rule per minute", base: fieldCase(messaging, ["messaging", "rules"], [{ effect: "allow", limits: {} }]), path: ["messaging", "rules", 0, "limits", "per_minute"], safe: true },
     { label: "messaging rule max bytes", base: fieldCase(messaging, ["messaging", "rules"], [{ effect: "allow", limits: {} }]), path: ["messaging", "rules", 0, "limits", "max_bytes"], safe: true },
@@ -237,6 +237,11 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
   // separately from the supported endpoint model output numeric field above.
   inputs.push({label: "runner model unknown output key", raw: JSON.stringify(fieldCase(runner, ["runners", "codex@box", "models", 0, "output"], 1)), accepted: false});
   for (const field of numberFields) {
+    const valid = field.validInteger ?? 1;
+    for (const [literal, accepted] of [[`${valid}.0`, true], [`${valid}e0`, true]] as const) {
+      const raw = JSON.stringify(fieldCase(field.base, field.path, "__RAW_NUMBER__")).replace('"__RAW_NUMBER__"', literal);
+      inputs.push({ label: `${field.label}=${literal} (expected ${accepted})`, raw, accepted });
+    }
     const literals = ["1", "1.0", "1e0", "1e2", "-0", "-1", "0.5", "9007199254740991", "9007199254740992", "1e21", '"1"', "null"];
     for (const literal of literals) {
       const raw = JSON.stringify(fieldCase(field.base, field.path, "__RAW_NUMBER__")).replace('"__RAW_NUMBER__"', literal);
