@@ -1,11 +1,21 @@
-# pacer-lifecycle (P6e pure decisions)
+# pacer-lifecycle
 
-Layer 6, with no runtime callers or native operation registrations. No runner,
-supervisor, transport, plugin implementation, filesystem, process, clock or timer
-code is imported. No state is written, so SEC-7 persistence remains the future
-owner's responsibility (atomic exclusive temporary files, 0600/0700 modes).
+Layer 6, with no runtime callers or native operation registrations. The crate
+contains task admission (brief validation, capacity, lineage, strategy, prepared
+admission, queue drain and revision-checked mutation) alongside P6e attention,
+client, job, host, notification and runner-check decisions.
 
-The modules reproduce the current TypeScript source:
+Admission uses `pacer-store` and `pacer-foundation` for transactional task state,
+publication and mutation locks. Its disposable `task_admission_probe` binary
+exercises the shared Bun/Rust admission boundaries in tests.
+
+The P6e modules import no runner, supervisor, transport, plugin implementation,
+filesystem, process, clock or timer code. They write no state, so their SEC-7
+persistence remains the future owner's responsibility (atomic exclusive temporary
+files, 0600/0700 modes). They retain separate JS text helpers because admission
+also parses arbitrary JSON containing unpaired UTF-16 units.
+
+The P6e modules reproduce the current TypeScript source:
 
 | Module | Reference | Decisions |
 | --- | --- | --- |
@@ -32,7 +42,8 @@ text. JS number rendering uses ryu-js and JSON parsing enables round-trip floats
 Whitespace uses the ECMAScript set (BOM included, NEL excluded). Attention ordering
 uses ICU root collation, matching the reference runtime's default English
 collation in the goldens; a future locale-configurable service must supply its
-collation contract before activating the port.
+collation contract before activating the port. ICU is pinned to the same 2.4
+release as `pacer-server`; the P6e goldens validate that collation contract.
 
 `examples/decisions.rs` and its helper are test adapters only. They simulate effect
 results and never register operations. Runtime ownership, disk/lock protocols,
@@ -45,7 +56,9 @@ Validation:
   current TS source with in-memory effect boundaries; it imports no runner,
   supervisor or plugin implementation.
 - `cargo test -p pacer-lifecycle --locked` runs the same goldens without Bun and
-  exercises boundary/race transitions. The comparator preserves lone surrogates.
+  exercises P6e boundary/race transitions and admission regressions. The P6e
+  comparator preserves lone surrogates; the admission cross-runtime suite also
+  invokes Bun to check revisions, descendant budgets and slot contention.
 - `bun run test test/p6e-parity.test.ts` checks Rust output against the goldens and
   verifies their freshness against current TS source and fixture inputs.
 

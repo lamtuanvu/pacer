@@ -1,0 +1,1578 @@
+[
+  {
+    "id": "acceptance_timeout_min-low",
+    "raw": {
+      "goal": "work",
+      "acceptance_timeout_min": 1
+    },
+    "accept": true
+  },
+  {
+    "id": "acceptance_timeout_min-high",
+    "raw": {
+      "goal": "work",
+      "acceptance_timeout_min": 120
+    },
+    "accept": true
+  },
+  {
+    "id": "acceptance_timeout_min-fraction",
+    "raw": {
+      "goal": "work",
+      "acceptance_timeout_min": 1.5
+    },
+    "accept": false
+  },
+  {
+    "id": "acceptance_timeout_min-below",
+    "raw": {
+      "goal": "work",
+      "acceptance_timeout_min": -1
+    },
+    "accept": false
+  },
+  {
+    "id": "acceptance_timeout_min-above",
+    "raw": {
+      "goal": "work",
+      "acceptance_timeout_min": 121
+    },
+    "accept": false
+  },
+  {
+    "id": "timeout_min-low",
+    "raw": {
+      "goal": "work",
+      "timeout_min": 1
+    },
+    "accept": true
+  },
+  {
+    "id": "timeout_min-high",
+    "raw": {
+      "goal": "work",
+      "timeout_min": 240
+    },
+    "accept": true
+  },
+  {
+    "id": "timeout_min-fraction",
+    "raw": {
+      "goal": "work",
+      "timeout_min": 1.5
+    },
+    "accept": true
+  },
+  {
+    "id": "timeout_min-below",
+    "raw": {
+      "goal": "work",
+      "timeout_min": -1
+    },
+    "accept": false
+  },
+  {
+    "id": "timeout_min-above",
+    "raw": {
+      "goal": "work",
+      "timeout_min": 241
+    },
+    "accept": false
+  },
+  {
+    "id": "context-low",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": 1
+        }
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "context-high",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": 9007199254740991
+        }
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "context-fraction",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": 1.5
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "context-below",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": -1
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "context-above",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": 9007199254740992
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "context-unsafe",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": 9007199254740992
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxDepth-low",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDepth": 1
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "maxDepth-high",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDepth": 10
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "maxDepth-fraction",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDepth": 1.5
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxDepth-below",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDepth": -1
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxDepth-above",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDepth": 11
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxDescendants-low",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDescendants": 1
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "maxDescendants-high",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDescendants": 1000
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "maxDescendants-fraction",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDescendants": 1.5
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxDescendants-below",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDescendants": -1
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxDescendants-above",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDescendants": 1001
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxConcurrent-low",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxConcurrent": 1
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "maxConcurrent-high",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxConcurrent": 64
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "maxConcurrent-fraction",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxConcurrent": 1.5
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxConcurrent-below",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxConcurrent": -1
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxConcurrent-above",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxConcurrent": 65
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxAttempts-low",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxAttempts": 1
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "maxAttempts-high",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxAttempts": 20
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "maxAttempts-fraction",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxAttempts": 1.5
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxAttempts-below",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxAttempts": -1
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "maxAttempts-above",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxAttempts": 21
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "priority-low",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "priority": -100
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "priority-high",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "priority": 100
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "priority-fraction",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "priority": -99.5
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "priority-below",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "priority": -101
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "priority-above",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "priority": 101
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "expiresAt-low",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": 0.1
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "expiresAt-high",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": 1e+300
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "expiresAt-fraction",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": 0.6
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "expiresAt-below",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": -1
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "estimatePct-low",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "estimatePct": 0
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "estimatePct-high",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "estimatePct": 100
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "estimatePct-fraction",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "estimatePct": 0.5
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "estimatePct-below",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "estimatePct": -1
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "estimatePct-above",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "estimatePct": 101
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "per_minute-low",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": 1
+            }
+          }
+        ]
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "per_minute-high",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": 9007199254740991
+            }
+          }
+        ]
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "per_minute-fraction",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": 1.5
+            }
+          }
+        ]
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "per_minute-below",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": -1
+            }
+          }
+        ]
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "per_minute-above",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": 9007199254740992
+            }
+          }
+        ]
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "per_minute-unsafe",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": 9007199254740992
+            }
+          }
+        ]
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_bytes-low",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "max_bytes": 1
+            }
+          }
+        ]
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "max_bytes-high",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "max_bytes": 1048576
+            }
+          }
+        ]
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "max_bytes-fraction",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "max_bytes": 1.5
+            }
+          }
+        ]
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_bytes-below",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "max_bytes": -1
+            }
+          }
+        ]
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_bytes-above",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "max_bytes": 1048577
+            }
+          }
+        ]
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_turns-low",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "max_turns": 1
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "max_turns-high",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "max_turns": 10000
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "max_turns-fraction",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "max_turns": 1.5
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_turns-below",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "max_turns": -1
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_turns-above",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "max_turns": 10001
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "interval_s-low",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": 10
+        }
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "interval_s-high",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": 9007199254740991
+        }
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "interval_s-fraction",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": 10.5
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "interval_s-below",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": -1
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "interval_s-above",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": 9007199254740992
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "interval_s-unsafe",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": 9007199254740992
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_nudges-low",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": 0
+        }
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "max_nudges-high",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": 9007199254740991
+        }
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "max_nudges-fraction",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": 0.5
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_nudges-below",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": -1
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_nudges-above",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": 9007199254740992
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "max_nudges-unsafe",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": 9007199254740992
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "escalate_after_s-low",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": 10
+        }
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "escalate_after_s-high",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": 9007199254740991
+        }
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "escalate_after_s-fraction",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": 10.5
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "escalate_after_s-below",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": -1
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "escalate_after_s-above",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": 9007199254740992
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "escalate_after_s-unsafe",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": 9007199254740992
+        }
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "acceptance-direct-float",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp",
+        "acceptanceTimeoutMin": 1.0
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "acceptance-direct-fraction",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp",
+        "acceptanceTimeoutMin": 1.5
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "acceptance_timeout_min-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "acceptance_timeout_min": 1.0
+    },
+    "accept": true,
+    "outputPath": [
+      "brief",
+      "acceptanceTimeoutMin"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "acceptance_timeout_min-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "acceptance_timeout_min": 1e2
+    },
+    "accept": true,
+    "outputPath": [
+      "brief",
+      "acceptanceTimeoutMin"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "timeout_min-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "timeout_min": 1.0
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "timeoutMin"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "timeout_min-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "timeout_min": 1e2
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "timeoutMin"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "context-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": 1.0
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "requirements",
+      "context"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "context-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "requirements": {
+          "context": 1e2
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "requirements",
+      "context"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "maxDepth-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDepth": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxDepth"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "maxDepth-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDepth": 1e1
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxDepth"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "maxDescendants-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDescendants": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxDescendants"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "maxDescendants-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxDescendants": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxDescendants"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "maxConcurrent-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxConcurrent": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxConcurrent"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "maxConcurrent-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxConcurrent": 1e1
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxConcurrent"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "maxAttempts-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxAttempts": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxAttempts"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "maxAttempts-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "maxAttempts": 1e1
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "maxAttempts"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "priority-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "priority": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "priority"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "priority-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "priority": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "priority"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "expiresAt-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "expiresAt"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "expiresAt-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "expiresAt"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "estimatePct-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "estimatePct": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "estimatePct"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "estimatePct-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "estimatePct": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "estimatePct"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "per_minute-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": 1.0
+            }
+          }
+        ]
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "rules",
+      0,
+      "limits",
+      "per_minute"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "per_minute-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "per_minute": 1e2
+            }
+          }
+        ]
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "rules",
+      0,
+      "limits",
+      "per_minute"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "max_bytes-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "max_bytes": 1.0
+            }
+          }
+        ]
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "rules",
+      0,
+      "limits",
+      "max_bytes"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "max_bytes-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "rules": [
+          {
+            "effect": "allow",
+            "limits": {
+              "max_bytes": 1e2
+            }
+          }
+        ]
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "rules",
+      0,
+      "limits",
+      "max_bytes"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "max_turns-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "max_turns": 1.0
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "max_turns"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "max_turns-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "max_turns": 1e2
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "max_turns"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "interval_s-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": 10.0
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "interval_s"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "interval_s-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "interval_s": 1e2
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "interval_s"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "max_nudges-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": 1.0
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "max_nudges"
+    ],
+    "expectedValue": 1
+  },
+  {
+    "id": "max_nudges-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "max_nudges": 1e2
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "max_nudges"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "escalate_after_s-decimal-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": 10.0
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "escalate_after_s"
+    ],
+    "expectedValue": 10
+  },
+  {
+    "id": "escalate_after_s-exponent-integer-lexeme",
+    "raw": {
+      "goal": "work",
+      "messaging": {
+        "liveness": {
+          "escalate_after_s": 1e2
+        }
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "messaging",
+      "liveness",
+      "escalate_after_s"
+    ],
+    "expectedValue": 100
+  },
+  {
+    "id": "expiresAt-binary64-rounding",
+    "raw": {
+      "goal": "work",
+      "dispatch": {
+        "expiresAt": 9007199254740993
+      }
+    },
+    "accept": true,
+    "outputPath": [
+      "input",
+      "dispatch",
+      "expiresAt"
+    ],
+    "expectedValue": 9007199254740992
+  },
+  {
+    "id": "priority-negative-zero",
+    "raw": {"goal": "work", "dispatch": {"priority": -0.0}},
+    "accept": true,
+    "outputPath": ["input", "dispatch", "priority"],
+    "expectedValue": -0.0
+  },
+  {"id":"project-rev-decimal","project":{"version":1,"projects":{"local:abcdef123456":{"rev":1.0,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-decimal","mutation":{"expect_rev":1.0},"accept":true},
+  {"id":"project-rev-exponent","project":{"version":1,"projects":{"local:abcdef123456":{"rev":1e2,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-exponent","mutation":{"expect_rev":1e2},"accept":true},
+  {"id":"project-rev-fraction","project":{"version":1,"projects":{"local:abcdef123456":{"rev":1.5,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-fraction","mutation":{"expect_rev":1.5},"accept":false},
+  {"id":"project-rev-rounded-integer","project":{"version":1,"projects":{"local:abcdef123456":{"rev":1.00000000000000001,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-rounded-integer","mutation":{"expect_rev":1.00000000000000001},"accept":true},
+  {"id":"project-rev-safe-max","project":{"version":1,"projects":{"local:abcdef123456":{"rev":9007199254740991,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-safe-max","mutation":{"expect_rev":9007199254740991},"accept":true},
+  {"id":"project-rev-safe-max-exponent","project":{"version":1,"projects":{"local:abcdef123456":{"rev":9.007199254740991e15,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-safe-max-exponent","mutation":{"expect_rev":9.007199254740991e15},"accept":true},
+  {"id":"project-rev-unsafe","project":{"version":1,"projects":{"local:abcdef123456":{"rev":9007199254740992,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-unsafe","mutation":{"expect_rev":9007199254740992},"accept":false},
+  {"id":"project-rev-unsafe-rounded","project":{"version":1,"projects":{"local:abcdef123456":{"rev":9007199254740993,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-unsafe-rounded","mutation":{"expect_rev":9007199254740993},"accept":false},
+  {"id":"project-rev-zero","project":{"version":1,"projects":{"local:abcdef123456":{"rev":0,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-zero","mutation":{"expect_rev":0},"accept":false},
+  {"id":"project-rev-negative-zero","project":{"version":1,"projects":{"local:abcdef123456":{"rev":-0.0,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-negative-zero","mutation":{"expect_rev":-0.0},"accept":false},
+  {"id":"project-rev-negative","project":{"version":1,"projects":{"local:abcdef123456":{"rev":-1,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-negative","mutation":{"expect_rev":-1},"accept":false}
+]
