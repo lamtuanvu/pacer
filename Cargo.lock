@@ -1002,7 +1002,6 @@ dependencies = [
 name = "pacer-config"
 version = "0.0.0"
 dependencies = [
- "pacer-foundation",
  "ryu-js",
  "saphyr-parser",
  "serde",

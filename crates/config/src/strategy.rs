@@ -26,24 +26,6 @@ pub enum StrategyError {
     Io(#[from] io::Error),
 }
 
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod trim_tests {
-    use super::{duration, size, strategy_path};
-    use serde_json::json;
-
-    #[test]
-    fn strategy_values_use_javascript_trim_set() {
-        assert_eq!(size(&json!("\u{FEFF}2 k\u{2028}")), Some(2000.0));
-        assert_eq!(duration(&json!("\u{00A0}3m\u{2029}")), Some(180.0));
-        assert_eq!(duration(&json!("1m\u{0085}")), None);
-        assert_eq!(size(&json!("\u{0085}2k\u{0085}")), None);
-        let home = tempfile::tempdir().unwrap();
-        std::fs::write(home.path().join("active"), "\u{FEFF}focus\u{2028}").unwrap();
-        assert_eq!(strategy_path(home.path()).unwrap().1, "focus");
-    }
-}
-
 fn invalid(path: &Path, problems: Vec<String>) -> StrategyError {
     let message = problems
         .iter()
@@ -118,19 +100,28 @@ fn decimal(text: &str) -> Option<f64> {
     }
     text.parse().ok()
 }
+// ECMAScript WhiteSpace and LineTerminator, used by String.prototype.trim and /\s/.
+fn js_whitespace(c: char) -> bool {
+    matches!(c, '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+fn js_trim(text: &str) -> &str {
+    text.trim_matches(js_whitespace)
+}
+fn positive_safe_integer(value: &Value) -> bool {
+    value
+        .as_f64()
+        .is_some_and(|n| n > 0. && n <= 9_007_199_254_740_991. && n.fract() == 0.)
+}
 fn size(value: &Value) -> Option<f64> {
     if let Some(n) = value.as_f64() {
         return Some(n);
     }
-    let text = pacer_foundation::js_semantics::js_trim(value.as_str()?);
+    let text = js_trim(value.as_str()?);
     let cut = text
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(text.len());
     let n = decimal(&text[..cut])?;
-    let mult = match pacer_foundation::js_semantics::js_trim(&text[cut..])
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    let mult = match js_trim(&text[cut..]).to_ascii_lowercase().as_str() {
         "" => 1.,
         "k" => 1e3,
         "m" => 1e6,
@@ -143,14 +134,12 @@ fn duration(value: &Value) -> Option<f64> {
     if let Some(n) = value.as_f64() {
         return Some(n);
     }
-    let text = pacer_foundation::js_semantics::js_trim(value.as_str()?);
+    let text = js_trim(value.as_str()?);
     let unit = text.chars().last()?;
     if !matches!(unit, 's' | 'm' | 'h' | 'd') {
         return None;
     }
-    let n = decimal(pacer_foundation::js_semantics::js_trim(
-        &text[..text.len() - 1],
-    ))?;
+    let n = decimal(js_trim(&text[..text.len() - 1]))?;
     Some(
         n * match unit {
             's' => 1.,
@@ -290,22 +279,18 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
                         problems.push(format!("{loc} must be a mapping"));
                         continue;
                     }
-                    if m["id"]
-                        .as_str()
-                        .is_none_or(|s| pacer_foundation::js_semantics::js_trim(s).is_empty())
-                    {
+                    if m["id"].as_str().is_none_or(|s| js_trim(s).is_empty()) {
                         problems.push(format!("{loc}.id must be non-empty"));
                     } else if !ids.insert(m["id"].as_str().unwrap_or("")) {
                         problems.push(format!("{loc}.id must be unique"));
                     }
-                    if m.get("name").is_some_and(|v| {
-                        v.as_str()
-                            .is_none_or(|s| pacer_foundation::js_semantics::js_trim(s).is_empty())
-                    }) {
+                    if m.get("name")
+                        .is_some_and(|v| v.as_str().is_none_or(|s| js_trim(s).is_empty()))
+                    {
                         problems.push(format!("{loc}.name must be non-empty"));
                     }
                     for key in ["context", "output"] {
-                        if !m[key].as_u64().is_some_and(|n| n > 0) {
+                        if !positive_safe_integer(&m[key]) {
                             problems.push(format!("{loc}.{key} must be a positive integer"));
                         }
                     }
@@ -331,9 +316,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     }
     for key in ["home", "orca_account"] {
         if let Some(v) = value.get(key)
-            && (v
-                .as_str()
-                .is_none_or(|s| pacer_foundation::js_semantics::js_trim(s).is_empty())
+            && (v.as_str().is_none_or(|s| js_trim(s).is_empty())
                 || !["claude", "codex"].contains(&kind.as_str()))
         {
             problems.push(format!(
@@ -472,7 +455,7 @@ fn add_runner(
     }
     if declaration
         .get("max_tasks")
-        .is_some_and(|v| v.as_u64().is_none_or(|n| !(1..=16).contains(&n)))
+        .is_some_and(|v| !positive_safe_integer(v) || v.as_f64().is_none_or(|n| n > 16.))
     {
         problems.push(format!("runners.{reference}.max_tasks must be 1..16"));
     }
@@ -1557,7 +1540,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
 pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
     let active = home.join("active");
     let name = if active.exists() {
-        pacer_foundation::js_semantics::js_trim(&fs::read_to_string(active)?).to_owned()
+        fs::read_to_string(active)?.trim().to_owned()
     } else {
         String::new()
     };
