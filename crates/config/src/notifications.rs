@@ -20,24 +20,79 @@ fn valid(level: &str) -> bool {
     matches!(level, "off" | "important" | "all")
 }
 
-fn read_object(path: &Path) -> (Map<String, Value>, Option<Vec<u16>>) {
-    fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .map(|value| match value {
-            Value::Object(object) => (object, None),
-            Value::Array(array) => (
-                array
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, value)| (i.to_string(), value))
-                    .collect(),
-                None,
-            ),
-            Value::String(string) => (Map::new(), Some(string.encode_utf16().collect())),
-            _ => (Map::new(), None),
-        })
-        .unwrap_or_default()
+type SettingsObject = (Map<String, Value>, Option<Vec<u16>>);
+
+fn read_object(path: &Path) -> io::Result<SettingsObject> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(_) => return Ok(Default::default()),
+    };
+    let value = match serde_json::from_slice::<Value>(&bytes) {
+        Ok(value) => value,
+        Err(_) => {
+            // JSON.parse accepts lone UTF-16 surrogates, which serde_json cannot
+            // represent. Detect otherwise valid JSON and refuse to overwrite it.
+            let mut sanitized = bytes.clone();
+            let mut i = 0;
+            while i + 5 < sanitized.len() {
+                if sanitized[i] == b'\\' {
+                    if sanitized[i + 1] == b'u'
+                        && let Ok(hex) = std::str::from_utf8(&sanitized[i + 2..i + 6])
+                        && let Ok(unit) = u16::from_str_radix(hex, 16)
+                        && (0xd800..=0xdfff).contains(&unit)
+                    {
+                        sanitized[i + 2..i + 6].copy_from_slice(b"0000");
+                    }
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            if sanitized != bytes && serde_json::from_slice::<Value>(&sanitized).is_ok() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "settings contain unsupported UTF-16 surrogates",
+                ));
+            }
+            return Ok(Default::default());
+        }
+    };
+    Ok(match value {
+        Value::Object(object) => (object, None),
+        Value::Array(array) => (
+            array
+                .into_iter()
+                .enumerate()
+                .map(|(i, value)| (i.to_string(), value))
+                .collect(),
+            None,
+        ),
+        Value::String(string) => (Map::new(), Some(string.encode_utf16().collect())),
+        _ => (Map::new(), None),
+    })
+}
+
+// ECMAScript enumerates array-index keys first, then other keys in insertion order.
+fn js_order(value: &mut Value) {
+    match value {
+        Value::Array(values) => values.iter_mut().for_each(js_order),
+        Value::Object(object) => {
+            let mut entries: Vec<_> = std::mem::take(object).into_iter().collect();
+            for (_, value) in &mut entries {
+                js_order(value);
+            }
+            entries.sort_by_key(|(key, _)| {
+                {
+                    key.parse::<u32>()
+                        .ok()
+                        .filter(|index| *index != u32::MAX && index.to_string() == *key)
+                }
+                .map_or((1, 0), |index| (0, index))
+            });
+            object.extend(entries);
+        }
+        _ => {}
+    }
 }
 
 fn write_settings(
@@ -83,7 +138,9 @@ fn write_settings(
             serde_json::to_writer(&mut file, &settings["notifications"])?;
             write!(file, "}}")?;
         } else {
-            serde_json::to_writer(&mut file, settings)?;
+            let mut ordered = Value::Object(settings.clone());
+            js_order(&mut ordered);
+            serde_json::to_writer(&mut file, &ordered)?;
         }
         file.flush()?;
         fs::rename(&temp, path)
@@ -96,14 +153,14 @@ fn write_settings(
 /// the legacy plugin setting, or initialized to `important`, as in TypeScript.
 pub fn get_level(home: &Path, legacy_plugin_data: &Path) -> Result<Value, NotificationError> {
     let path = home.join("settings.json");
-    let (mut settings, units) = read_object(&path);
+    let (mut settings, units) = read_object(&path)?;
     if let Some(level) = settings.get("notifications").and_then(Value::as_str)
         && valid(level)
     {
         return Ok(json!({"level":level}));
     }
     let legacy = legacy_plugin_data.join("settings.json");
-    let level = read_object(&legacy)
+    let level = read_object(&legacy)?
         .0
         .get("notifications")
         .and_then(Value::as_str)
@@ -120,7 +177,7 @@ pub fn set_level(home: &Path, level: &str) -> Result<Value, NotificationError> {
         return Err(NotificationError::InvalidLevel);
     }
     let path = home.join("settings.json");
-    let (mut settings, units) = read_object(&path);
+    let (mut settings, units) = read_object(&path)?;
     settings.insert("notifications".into(), json!(level));
     write_settings(&path, &settings, units.as_deref())?;
     Ok(json!({"level":level}))

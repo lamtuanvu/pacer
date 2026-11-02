@@ -73,7 +73,7 @@ test("seeded routing, runner order and notification writes match TS bytes and re
 
 test("notification settings preserve enumerable JSON properties", () => {
   const binary = configBinary();
-  for (const input of ['{"other":42}', '["alpha","beta"]', '"a😀b"', '42', 'null', '{broken']) {
+  for (const input of ['{"other":42}', '["alpha","beta"]', '"a😀b"', '{"literal":"\\\\ud800","pair":"\\ud83d\\ude00"}', '42', 'null', '{broken', '{"2":"b","1":"a","x":{"10":10,"2":2,"01":1,"4294967295":3,"0":0},"01":4,"4294967294":5,"4294967295":6}']) {
     for (const op of ["get", "set"] as const) {
       const tsHome = home(), rsHome = home();
       writeFileSync(join(tsHome, "settings.json"), input);
@@ -85,6 +85,25 @@ test("notification settings preserve enumerable JSON properties", () => {
         : { op: "notifications.set", home: rsHome, level: "all" });
       expect(actual).toEqual({ ok: true, value: expected });
       expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(readFileSync(join(tsHome, "settings.json"), "utf8"));
+    }
+  }
+}, 30_000);
+
+test("notification writes refuse unsupported surrogate JSON without losing data", () => {
+  const binary = configBinary();
+  for (const input of ['{"other":42,"nested":{"bad":"\\ud800"}}', '{"array":["\\udfff"]}', '"\\ud800"', '"\\udfff"']) {
+    for (const op of ["get", "set"] as const) {
+      const tsHome = home(), rsHome = home();
+      writeFileSync(join(tsHome, "settings.json"), input);
+      writeFileSync(join(rsHome, "settings.json"), input);
+      const ctx = fakeCtx({ pacerHome: tsHome });
+      if (op === "get") notify.getLevel(ctx); else notify.setLevel(ctx, "all");
+      expect(JSON.parse(readFileSync(join(tsHome, "settings.json"), "utf8"))).toHaveProperty("notifications");
+      const actual = rust(binary, op === "get"
+        ? { op: "notifications.get", home: rsHome, legacyPluginData: join(rsHome, "missing") }
+        : { op: "notifications.set", home: rsHome, level: "all" });
+      expect(actual.ok).toBe(false);
+      expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(input);
     }
   }
 }, 30_000);
