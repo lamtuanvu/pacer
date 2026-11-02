@@ -249,18 +249,31 @@ async function capture(mode: "planner" | "grant") {
   const home = tmpDir();
   const pacerHome = join(home, ".pacer");
   mkdirSync(pacerHome, { recursive: true });
+  // These wire fixtures describe installed but signed-out executors. Never
+  // discover or invoke the developer's agents through the ambient PATH.
+  const bin = join(home, "bin");
+  mkdirSync(bin);
+  for (const name of ["claude", "codex", "cursor-agent"]) {
+    writeFileSync(join(bin, name), "#!/bin/sh\nexit 127\n", { mode: 0o755 });
+  }
   const ctx = fakeCtx({ home, pacerHome, now: 1_900_000_000 });
   writeFileSync(join(pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: { usage: reactive }\n  cursor: {}\n");
   const task = createTask(ctx, { brief: { goal: "golden task", repo: home }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   registerWork(ctx, task.id, { allowDelegation: true });
   updateTask(ctx, task.id, t => { t.state = "running"; });
   const server = mode === "grant" ? startServer(() => ctx, { port: 0, listener: false, pumpMs: 0 }) : null;
-  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
-  env.HOME = home;
-  env.PACER_HOME = pacerHome;
-  delete env.PACER_ROLE;
-  delete env.PACER_TASK_ID;
-  delete env.PACER_WORK_GRANT;
+  // Allow-list the child environment so account overrides, login-shell PATHs,
+  // service selectors and executor/grant identity cannot leak into the capture.
+  // Bun and bundled plugins are launched with the absolute process.execPath.
+  const env: Record<string, string> = {
+    HOME: home,
+    PACER_HOME: pacerHome,
+    PATH: bin,
+    PACER_LOGIN_ENV: "off",
+    // The captured planner's messaging identity is external:claude-code.
+    CLAUDECODE: "1",
+    TZ: "Asia/Ho_Chi_Minh",
+  };
   if (server) {
     env.PACER_WORK_GRANT = issueWorkGrant(ctx, task.id, 1);
     env.PACER_PORT = String(server.port);
