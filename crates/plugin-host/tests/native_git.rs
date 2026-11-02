@@ -602,3 +602,96 @@ sys.stdout.write('__PACER_BEGIN__\ncode=137\nkilled=0\n\n__PACER_DONE__='+nonce[
     }
     assert_eq!(fs::read_to_string(captured).unwrap().lines().count(), 5);
 }
+
+#[tokio::test]
+async fn concrete_remote_stop_uses_the_actual_typescript_issuer_timeout_budget() {
+    use pacer_plugin_host::{
+        BrokerError, NativeSsh, RemoteHost, RemoteOperation, RemoteTransport, SshConfig,
+    };
+    use serde_json::{Value, json};
+
+    let f = Fixture::new();
+    let reference = Command::new("bun")
+        .args([
+            "test/fixtures/remote-stop-budget-oracle.ts",
+            "[0,1,999,1000,1001,25000]",
+        ])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .env("HOME", &f.root)
+        .env("PACER_HOME", &f.root)
+        .output()
+        .unwrap();
+    assert!(
+        reference.status.success(),
+        "{}",
+        String::from_utf8_lossy(&reference.stderr)
+    );
+    let budgets: Value = serde_json::from_slice(&reference.stdout).unwrap();
+    assert_eq!(
+        budgets,
+        json!([
+            {"error":"capability_denied"},
+            {"seconds":1,"timeoutMs":11000},
+            {"seconds":1,"timeoutMs":11000},
+            {"seconds":1,"timeoutMs":11000},
+            {"seconds":2,"timeoutMs":12000},
+            {"seconds":25,"timeoutMs":35000},
+        ])
+    );
+    let executable = f.root.join("fixture-stop-timeout-ssh");
+    let completed = f.root.join("stop-completed");
+    fs::write(
+        &executable,
+        r##"#!/usr/bin/env python3
+import os,re,shlex,sys,time
+words=shlex.split(sys.argv[-1]);program=words[2];args=words[4:]
+assert sys.argv[-2]=='fixture-host'
+assert 'D="$1"; grace="$2"' in program
+assert args[1]=='1'
+nonce=re.findall(r'__PACER_DONE__=([a-f0-9-]{36})',program)
+assert len(nonce)==1
+# After the issuer's 11-second budget, but before the old fixed 60-second budget.
+time.sleep(15)
+with open(os.environ['FIXTURE_COMPLETED'],'w') as output: output.write('completed')
+sys.stdout.write('__PACER_BEGIN__\ncode=137\nkilled=0\n\n__PACER_DONE__='+nonce[0]+'\n')
+"##,
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let ssh = NativeSsh::prepare(
+        &f.root,
+        SshConfig {
+            alias: "box".into(),
+            target: "fixture-host".into(),
+            fingerprint: "configured".into(),
+        },
+        executable.to_str().unwrap(),
+        HashMap::from([
+            ("PATH".into(), std::env::var("PATH").unwrap()),
+            ("HOME".into(), f.root.to_str().unwrap().into()),
+            (
+                "FIXTURE_COMPLETED".into(),
+                completed.to_str().unwrap().into(),
+            ),
+        ]),
+    )
+    .unwrap();
+    let mut transport =
+        RemoteTransport::new(&f.root, ssh, f.native(), deadline(), || "configured".into());
+    let result = transport
+        .invoke(
+            RemoteOperation::Stop,
+            &json!({"taskId":ID,
+        "intent":{"hostFingerprint":"configured","alias":"box"},
+        "run":{"remoteDir":format!("/remote/.pacer-remote/runs/{ID}/1")},"extra":{"graceMs":1}}),
+        )
+        .await;
+    assert!(
+        matches!(result,Err(BrokerError::Effect(ref text)) if text=="remote fixed operation is unverified"),
+        "{result:?}"
+    );
+    assert!(
+        !completed.exists(),
+        "timed-out SSH must not complete or emit a successful receipt"
+    );
+}

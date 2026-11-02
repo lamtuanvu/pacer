@@ -309,7 +309,9 @@ bun run live report --id my-change
 bun run live down --id my-change --keep
 ```
 
-`down` stops the sandbox proxy, inner service and tmux session, and in a `--real-keychain` sandbox deletes the sandbox's machine identity Keychain items. `--keep` preserves the sandbox and evidence for review; without it, the entire sandbox is removed. A retained sandbox can be removed later with `down` without `--keep`. The service PID is checked against inner `/health` and the proxy PID against public `/__live/health` before signaling each; a live but unverified PID causes teardown to refuse rather than kill an unrelated process. If startup fails, inspect the retained logs and process state before deleting its directory.
+`down` stops the sandbox proxy and inner service's dedicated process groups, waits for descendants in those same groups to stop, then closes the tmux session and deletes sandbox machine identity Keychain items when `--real-keychain` was used. Before signaling a group, it verifies the stored leader's birth/boot identity and that its process-group ID equals its PID. A changed identity, a missing leader with live descendants, an unavailable process observation or a group that does not stop within three seconds preserves the sandbox for inspection. Children that detach into another process group, including detached activity or plugin effects, are outside this group ledger. Independently running executors must be stopped separately.
+
+`--keep` preserves the stopped sandbox and evidence; a later `down` without `--keep` removes it without signaling stopped groups again. Sessions created before process-group ownership was recorded cannot be torn down automatically: missing ownership metadata causes a refusal, not an inferred group kill. Inspect their process state and retained logs before arranging explicit cleanup. If startup fails, inspect the retained logs and process state before deleting its directory.
 
 ## Disposable desktop OTA fixtures
 
@@ -541,6 +543,40 @@ used. Stale temp files are planted before a 1002-event publication to force
 outbox rotation and verify that both stale files survive. The fixture accepts
 no values, paths or command overrides and leaves
 ordinary D8 refusals in place. Run `live report`, then `live down --keep`.
+
+## Fixed native config-write fixture
+
+Start `bun run live up --id config-writes --seed ui --front-door rust --native-test-ops`,
+then run `bun run live native-config --id config-writes`. The fixed fixture exercises
+`strategy.use/save/remove`, `routing.set`, `runner.set/reorder/remove`, and
+`notifications.get/set` over protocol-3 stdio and authenticated public HTTP on
+fresh, owned fixture services. It seeds malformed UTF-8 in an unrelated notification
+setting and a legacy off preference to verify environment-dependent migration and
+replacement decoding during writes. The service receives `PACER_AGENT=alice`; saved
+headers must retain that author. Block-routing cases exercise CRLF preservation,
+trailing mapping-key spaces, middle-rule deletion errors and CRLF error excerpts.
+It also saves a
+`0.000001` planner reserve to check YAML number bytes. It compares each result and
+persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
+delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private
+route refusal and public SSE replay of configuration and strategy-switch events.
+It then exercises every native operation with the ordinary guarded CLI through
+the sandbox's public proxy, recording results and persisted strategy state in
+`native-config-fixture/cli-results.json`.
+
+Only fixed synthetic strategy/account declarations are used. Fixture homes and
+agent configuration locations are private and disposable; no agent runs, native
+credentials, installed service or service-manager action is involved. The command
+accepts only a sandbox ID and refuses existing fixture roots, unseeded sessions,
+real Keychain mode and non-Rust/non-test builds. Ordinary D3/D8 guards remain in
+force. Files and logs remain under `native-config-fixture/` for inspection. Run
+`live report`, then `live down --keep`. The fixture records each desktop operation
+as UNVERIFIED under the scoped desktop exception in `.project/decisions.md`.
+Separately exercise web and browser tray controls, and TUI
+settings actions. For operations without a direct UI control (for example TUI
+strategy save/remove), verify the resulting list or detail after a guarded CLI
+write and state that distinction in the evidence. API fixture success alone does
+not verify client rendering.
 
 ## Fixed settings save fixture
 

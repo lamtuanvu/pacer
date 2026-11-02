@@ -65,6 +65,22 @@ impl RemoteTransport {
         max: usize,
     ) -> Result<Value, BrokerError> {
         self.active()?;
+        let timeout_ms = if name == "STOP" {
+            let [_, seconds] = args else {
+                return Err(denied());
+            };
+            let grace = seconds
+                .parse::<u64>()
+                .ok()
+                .filter(|n| (1..=25).contains(n) && seconds == &n.to_string())
+                .ok_or_else(denied)?;
+            grace
+                .checked_add(10)
+                .and_then(|n| n.checked_mul(1000))
+                .ok_or_else(denied)?
+        } else {
+            60000
+        };
         let lease = if mutating {
             Some(crate::WorkLease::begin(
                 &self.home,
@@ -82,7 +98,7 @@ impl RemoteTransport {
                 args,
                 nonce.as_deref(),
                 input,
-                60000,
+                timeout_ms,
                 max,
                 self.deadline,
             )

@@ -16,7 +16,7 @@ pub fn parse_pacing_order(value: &str) -> Option<Vec<String>> {
 
 use crate::{
     doc::{StrategyDoc, parse_value},
-    strategy::{StrategyError, validate_strategy},
+    strategy::StrategyError,
     write::atomic_strategy_write,
 };
 use serde_json::{Map, Value, json};
@@ -355,8 +355,12 @@ pub fn get_settings(
         }
     })?;
     let raw = parse_value(&before)?;
-    let strategy = validate_strategy(&raw, path, name)?;
-    crate::settings_execution::validate(&strategy["execution"])?;
+    let strategy = crate::strategy::validate_yaml_strategy(
+        &crate::doc::parse_yaml_value(&before)?,
+        path,
+        name,
+    )?;
+    crate::settings_execution::validate(&crate::doc::parse_yaml_value(&before)?["execution"])?;
     let values = effective(&strategy, &raw);
     let mut keys = Map::new();
     for key in CONFIG_KEYS {
@@ -442,8 +446,12 @@ pub fn set_setting(
         }
     })?;
     let raw = parse_value(&before)?;
-    let strategy = validate_strategy(&raw, path, name)?;
-    crate::settings_execution::validate(&strategy["execution"])?;
+    let strategy = crate::strategy::validate_yaml_strategy(
+        &crate::doc::parse_yaml_value(&before)?,
+        path,
+        name,
+    )?;
+    crate::settings_execution::validate(&crate::doc::parse_yaml_value(&before)?["execution"])?;
     let previous = effective(&strategy, &raw)
         .get(key)
         .cloned()
@@ -479,7 +487,11 @@ pub fn set_setting(
         )));
     }
     let next_raw = parse_value(doc.as_str())?;
-    let next = validate_strategy(&next_raw, path, name)?;
+    let next = crate::strategy::validate_yaml_strategy(
+        &crate::doc::parse_yaml_value(doc.as_str())?,
+        path,
+        name,
+    )?;
     let after = doc.as_str();
     if fs::read_to_string(path)? != before {
         return Err(SettingsError {

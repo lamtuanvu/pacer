@@ -1,3 +1,4 @@
+import {exerciseNativeConfig} from "../scripts/live/native-config";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -29,6 +30,11 @@ function fixture(): Session {
 }
 
 describe("live guard (D3)", () => {
+  test("fixed native config fixture rejects unsafe sessions and caller-selected inputs", async () => {
+    await expect(exerciseNativeConfig(fixture())).rejects.toThrow("healthy UI-seeded Rust test-ops sandbox");
+    await expect(main(["native-config", "--id", "missing", "--", "runner.remove"])).rejects.toThrow("usage: live native-config");
+  });
+
   test("generic stdio remains refused while the fixed harness mode rejects unsafe sessions", async () => {
     expect(refusal(["api", "--stdio"])).toContain("D3");
     await expect(exerciseNativeStdio(fixture())).rejects.toThrow("requires an active sandbox Rust test-ops build");
@@ -173,7 +179,7 @@ test("session ids cannot escape the live root; metadata must match", () => {
   expect(sessions(base)).toEqual([session]);
   atomicWrite(join(session.root, "session.json"), JSON.stringify({ ...session, port: 4317 }));
   expect(() => loadSession(session.id, base)).toThrow("Invalid");
-  for (const extra of [{ innerPort: 4317 }, { innerPort: session.port }, { innerPort: 70000 }, { proxyPid: 0 }]) {
+  for (const extra of [{ innerPort: 4317 }, { innerPort: session.port }, { innerPort: 70000 }, { proxyPid: 0 }, { serviceGroup: { leader: { pid: session.pid, bootId: "boot" } } }, { serviceGroup: { leader: { pid: session.pid + 1, bootId: "boot", birth: "1" } } }]) {
     atomicWrite(join(session.root, "session.json"), JSON.stringify({ ...session, ...extra }));
     expect(() => loadSession(session.id, base)).toThrow("Invalid");
   }
