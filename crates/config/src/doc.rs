@@ -821,6 +821,7 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
             }
             if s.is_empty()
                 || matches!(s.as_str(), "true" | "false" | "null" | "~")
+                || s.parse::<f64>().is_ok()
                 || s.contains(": ")
                 || s.contains(" #")
                 || s.starts_with([
@@ -831,12 +832,24 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
             }
             s.to_owned()
         }
+        Value::Number(n) => ryu_js::Buffer::new()
+            .format(n.as_f64().unwrap_or(f64::NAN))
+            .to_owned(),
         _ => value.to_string(),
     }
 }
 
 fn emit(value: &Value, flow: bool, indent: usize) -> String {
     match value {
+        Value::String(s)
+            if flow && (s.contains(['{', '}', '[', ']', ',', '\n', '\r']) || s.trim() != s) =>
+        {
+            if s.contains('"') && !s.contains('\'') && !s.chars().any(char::is_control) {
+                format!("'{s}'")
+            } else {
+                serde_json::to_string(s).unwrap_or_default()
+            }
+        }
         Value::Array(items) if items.is_empty() => "[]".into(),
         Value::Object(items) if items.is_empty() => "{}".into(),
         Value::Array(items) if flow => {

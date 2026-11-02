@@ -102,6 +102,27 @@ test("queue capacity goldens preserve executor-slot isolation", () => {
   }
 });
 
+const surrogateGoldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/surrogate-goldens.json", import.meta.url), "utf8")) as Array<{
+  id: string; rawJson?: string; inputJson?: string; accept: boolean; expectedJson?: string; problemsJson?: string;
+}>;
+for (const row of surrogateGoldens) test(`surrogate golden: ${row.id}`, () => {
+  if (row.rawJson !== undefined) {
+    const raw = JSON.parse(row.rawJson);
+    if (!row.accept) expect(() => parseDelegateBrief(raw, "/tmp")).toThrow();
+    else {
+      const { brief, ...input } = parseDelegateBrief(raw, "/tmp");
+      if (row.expectedJson !== undefined) {
+        expect(JSON.parse(JSON.stringify({ brief, input }))).toEqual(JSON.parse(row.expectedJson));
+      }
+    }
+  }
+  if (row.inputJson !== undefined) {
+    const problems = validateInput(strategy, JSON.parse(row.inputJson));
+    expect(problems.length === 0).toBe(row.accept);
+    if (row.problemsJson !== undefined) expect(problems).toEqual(JSON.parse(row.problemsJson));
+  }
+});
+
 test("pending dependency goldens match work admission", async () => {
   const { createTask, updateTask } = await import("../src/tasks/store");
   const { registerWork, pendingDependencies } = await import("../src/dispatch/work");
@@ -128,4 +149,37 @@ test("pending dependency goldens match work admission", async () => {
 const strategyGoldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/strategy-goldens.json", import.meta.url), "utf8")) as Array<{id:string;strategy:unknown;input:unknown;problems:string[]}>;
 for (const row of strategyGoldens) test(`strategy validation golden: ${row.id}`, () => {
   expect(validateInput(validateStrategy(row.strategy, "test"), row.input as Parameters<typeof validateInput>[1])).toEqual(row.problems);
+});
+
+const numericAdmission = JSON.parse(readFileSync(new URL("./fixtures/task-admission/numeric-goldens.json", import.meta.url), "utf8")) as Array<{
+  id: string; project?: unknown; mutation?: {expect_rev: number}; accept: boolean;
+}>;
+for (const row of numericAdmission.filter(row => row.project || row.mutation)) test(`numeric admission: ${row.id}`, async () => {
+  const ctx = fakeCtx();
+  if (row.project) {
+    const {mkdirSync, writeFileSync} = await import("node:fs");
+    const {join} = await import("node:path");
+    const {readProjectStrategies} = await import("../src/config/project-strategies");
+    mkdirSync(ctx.pacerHome, {recursive: true, mode: 0o700});
+    writeFileSync(join(ctx.pacerHome, "project-strategies.json"), JSON.stringify(row.project), {mode: 0o600});
+    if (row.accept) expect(readProjectStrategies(ctx)).toEqual(row.project as ReturnType<typeof readProjectStrategies>);
+    else expect(() => readProjectStrategies(ctx)).toThrow("Invalid project strategies");
+  }
+  if (row.mutation) {
+    const {callOp} = await import("../src/api/ops");
+    const {createTask, updateTask} = await import("../src/tasks/store");
+    const task = createTask(ctx, {brief: {goal: "review", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 60});
+    updateTask(ctx, task.id, t => { t.state = "done"; }); // rev 2; valid fixture values conflict.
+    try {
+      await callOp(ctx, "task.review", {id: task.id, verdict: "accept", ...row.mutation});
+      throw new Error("expected revision refusal");
+    } catch (error) {
+      expect((error as {code?: string}).code).toBe(row.accept ? "conflict" : "invalid_input");
+    }
+  }
+});
+
+const contextGoldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/context-goldens.json", import.meta.url), "utf8")) as Array<{id: string; aJson: string; bJson: string; same: boolean}>;
+for (const row of contextGoldens) test(`context stringify: ${row.id}`, () => {
+  expect(JSON.stringify(JSON.parse(row.aJson)) === JSON.stringify(JSON.parse(row.bJson))).toBe(row.same);
 });

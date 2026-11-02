@@ -11,9 +11,10 @@ pub fn work_node(
     ancestors: &[(Value, Value, usize)],
     root_descendants: usize,
 ) -> Result<Value, AdmissionError> {
-    let normalized = crate::brief::js_numbers(requested);
+    let normalized = crate::semantics::js_numbers(requested);
     let requested = &normalized;
-    let mut options = schema::dispatch(requested)?;
+    let mut options: Value =
+        serde_json::from_str(&schema::dispatch(&requested.clone().into())?.to_json())?;
     if ancestors.is_empty() {
         if options["delegationEnforcement"] != "strict" {
             return Err(AdmissionError(

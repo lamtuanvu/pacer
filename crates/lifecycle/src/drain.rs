@@ -168,7 +168,7 @@ impl AdmissionState {
                     .as_f64()
                     .is_some_and(|at| at <= now)
             }) {
-                self.tasks.update(id,rev,now,|t|{t["state"]=json!("failed");remove(t,"queue");t["result"]=json!({"status":"failed","executor":null,"model":null,"files":"","report":"Work dispatch deadline expired","backend":"direct"});})?;
+                expire_task(&mut self.tasks, id, now)?;
                 continue;
             }
             if task["queue"]["nextAt"].as_f64().is_some_and(|at| at > now)
@@ -192,7 +192,7 @@ impl AdmissionState {
                 }
                 continue;
             }
-            if options.paused {
+            if options.paused || read_pause(ctx) {
                 continue;
             }
             let started = std::time::Instant::now();
@@ -223,7 +223,15 @@ impl AdmissionState {
                 || -> Result<bool, AdmissionError> {
                     let reservation =
                         with_lock(ctx, "project-strategies", LockOptions::default(), || {
-                            reserve(&mut self.tasks, id, rev, now, &mut admission)
+                            reserve(
+                                &mut self.tasks,
+                                ctx,
+                                id,
+                                rev,
+                                now,
+                                options.paused,
+                                &mut admission,
+                            )
                         })?;
                     let selected = match reservation {
                         Ok(t) => t,
@@ -278,17 +286,54 @@ impl AdmissionState {
                 .total_cmp(&b["createdAt"].as_f64().unwrap_or(0.0))
                 .then_with(|| a["id"].as_str().cmp(&b["id"].as_str()))
         });
-        for (index, t) in remaining.iter().enumerate() {
-            self.tasks.update(
-                t["id"].as_str().unwrap_or(""),
-                t["rev"].as_i64().unwrap_or(1),
-                now,
-                |t| t["queue"]["position"] = json!(index + 1),
-            )?;
-        }
+        update_positions(&mut self.tasks, &remaining, now)?;
         Ok(spawned)
     }
 }
+
+fn expire_task(
+    store: &mut pacer_store::TaskStore,
+    id: &str,
+    now: f64,
+) -> Result<(), AdmissionError> {
+    match store.update_current(id, now, |current| {
+        if current["state"] != "queued" || current.get("queue").is_none() {
+            return Err(StoreError::Unchanged);
+        }
+        current["state"] = json!("failed");
+        remove(current, "queue");
+        current["result"] = failed_result(None, "Work dispatch deadline expired".into());
+        Ok(())
+    }) {
+        Ok(_) | Err(StoreError::Conflict | StoreError::Unchanged | StoreError::UnknownTask(_)) => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+fn update_positions(
+    store: &mut pacer_store::TaskStore,
+    remaining: &[Value],
+    now: f64,
+) -> Result<(), AdmissionError> {
+    for (index, t) in remaining.iter().enumerate() {
+        match store.update_current(t["id"].as_str().unwrap_or(""), now, |current| {
+            if current.get("queue").is_none() {
+                return Err(StoreError::Unchanged);
+            }
+            current["queue"]["position"] = json!(index + 1);
+            Ok(())
+        }) {
+            Ok(_)
+            | Err(StoreError::Conflict | StoreError::Unchanged | StoreError::UnknownTask(_)) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;
 
 /// A completed route policy receipt. The host guard rechecks policy registration,
 /// strategy/project revisions, repo identity, exclusions and operation lifetime
@@ -314,9 +359,11 @@ impl RouteAdmission<'_> {
 
 fn reserve(
     store: &mut pacer_store::TaskStore,
+    ctx: &Ctx,
     id: &str,
     rev: i64,
     now: f64,
+    paused: bool,
     admission: &mut RouteAdmission<'_>,
 ) -> Result<Value, StoreError> {
     store.update_admitted(id, rev, now, |db, current| {
@@ -327,6 +374,7 @@ fn reserve(
                 w["options"]["expiresAt"].as_f64().is_some_and(|at| at <= now)
             }) { return Err(StoreError::Conflict); }
         (admission.revalidate)(db, current).map_err(fail)?;
+        if paused || read_pause(ctx) { return Err(StoreError::Unchanged); }
         if admission.project_limited && admission.routes.is_empty()
             && current["interactionMode"] != "conversation" {
             current["state"] = json!("limit");
@@ -365,6 +413,26 @@ fn reserve(
         if *current == before { return Err(StoreError::Unchanged); }
         Ok(())
     })
+}
+
+/// Same validation as core/pause.ts. Missing or malformed state is unpaused.
+fn read_pause(ctx: &Ctx) -> bool {
+    use crate::json::Value as PauseValue;
+    let Ok(text) = std::fs::read_to_string(ctx.pacer_home.join("state/pause.json")) else {
+        return false;
+    };
+    let Ok(state) = PauseValue::parse(&text) else {
+        return false;
+    };
+    let valid_text = |key| {
+        state
+            .get(key)
+            .is_some_and(|v| matches!(v, PauseValue::Null | PauseValue::String(_)))
+    };
+    state.get("until").is_some_and(|v| {
+        matches!(v, PauseValue::Null) || v.as_f64().is_some_and(|n| n.is_finite() && n > ctx.now)
+    }) && valid_text("reason")
+        && valid_text("by")
 }
 
 #[derive(Clone, Copy, Default)]

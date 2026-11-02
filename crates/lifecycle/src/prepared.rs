@@ -101,7 +101,7 @@ impl PreparedAdmission {
                 directories.push((path.clone(), identity(path)?));
             }
         }
-        let snapshot = crate::brief::js_numbers(&context()?);
+        let snapshot = crate::semantics::js_numbers(&context()?);
         let authorized = policy(&input)?;
         let receipt = Self {
             input: authorized,
@@ -123,7 +123,7 @@ impl PreparedAdmission {
         mut snapshot: impl FnMut() -> Result<Value, AdmissionError>,
         policy: impl FnOnce(&Value) -> Result<Value, AdmissionError>,
     ) -> Result<Self, AdmissionError> {
-        let initial = crate::brief::js_numbers(&snapshot()?);
+        let initial = crate::semantics::js_numbers(&snapshot()?);
         validate_delegate(&initial, &input)?;
         if let Some(runner) = input["executor"]
             .as_str()
@@ -144,7 +144,7 @@ impl PreparedAdmission {
             &all_paths,
             lifetime,
             || {
-                let current = crate::brief::js_numbers(&snapshot()?);
+                let current = crate::semantics::js_numbers(&snapshot()?);
                 if !same_context(&current, &initial)? {
                     return Err(AdmissionError::conflict("Admission context changed"));
                 }
@@ -191,7 +191,7 @@ impl PreparedAdmission {
                 ));
             }
         }
-        let current = crate::brief::js_numbers(&context()?);
+        let current = crate::semantics::js_numbers(&context()?);
         if !same_context(&current, &self.context)? {
             return Err(AdmissionError::conflict("Admission context changed"));
         }
@@ -266,6 +266,11 @@ fn validate_amendment(
             "Policy cannot amend immutable delegation fields".into(),
         ));
     }
+    if authorized["executor"] != original["executor"] {
+        return Err(AdmissionError(
+            "Executor amendments are refused: the host chooses the executor".into(),
+        ));
+    }
     if let Some(id) = authorized["executor"].as_str()
         && !snapshot["strategy"]["runners"]
             .as_object()
@@ -276,9 +281,11 @@ fn validate_amendment(
         ));
     }
     let placement = authorized["worktree"].as_str().unwrap_or("auto");
+    let original_placement = original["worktree"].as_str().unwrap_or("auto");
     if !["auto", "current", "new"].contains(&placement)
+        || (placement != original_placement && placement != "new")
         || ((original.get("workParent").is_some() || original.get("reuseWorktree").is_some())
-            && placement != original["worktree"].as_str().unwrap_or("auto"))
+            && placement != original_placement)
     {
         return Err(AdmissionError(
             "Policy selected an invalid placement".into(),
@@ -290,5 +297,5 @@ fn validate_amendment(
 // TS receipts compare JSON.stringify snapshots: object insertion order matters
 // (runner/project order affects routing), while all numbers are binary64.
 fn same_context(a: &Value, b: &Value) -> Result<bool, AdmissionError> {
-    Ok(serde_json::to_string(a)? == serde_json::to_string(b)?)
+    Ok(crate::semantics::stringify(a)? == crate::semantics::stringify(b)?)
 }

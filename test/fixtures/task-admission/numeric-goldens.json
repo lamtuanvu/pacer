@@ -1552,5 +1552,27 @@
     "accept": true,
     "outputPath": ["input", "dispatch", "priority"],
     "expectedValue": -0.0
-  }
+  },
+  {"id":"project-rev-decimal","project":{"version":1,"projects":{"local:abcdef123456":{"rev":1.0,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-decimal","mutation":{"expect_rev":1.0},"accept":true},
+  {"id":"project-rev-exponent","project":{"version":1,"projects":{"local:abcdef123456":{"rev":1e2,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-exponent","mutation":{"expect_rev":1e2},"accept":true},
+  {"id":"project-rev-fraction","project":{"version":1,"projects":{"local:abcdef123456":{"rev":1.5,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-fraction","mutation":{"expect_rev":1.5},"accept":false},
+  {"id":"project-rev-rounded-integer","project":{"version":1,"projects":{"local:abcdef123456":{"rev":1.00000000000000001,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-rounded-integer","mutation":{"expect_rev":1.00000000000000001},"accept":true},
+  {"id":"project-rev-safe-max","project":{"version":1,"projects":{"local:abcdef123456":{"rev":9007199254740991,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-safe-max","mutation":{"expect_rev":9007199254740991},"accept":true},
+  {"id":"project-rev-safe-max-exponent","project":{"version":1,"projects":{"local:abcdef123456":{"rev":9.007199254740991e15,"executors":null}}},"accept":true},
+  {"id":"mutation-expect-rev-safe-max-exponent","mutation":{"expect_rev":9.007199254740991e15},"accept":true},
+  {"id":"project-rev-unsafe","project":{"version":1,"projects":{"local:abcdef123456":{"rev":9007199254740992,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-unsafe","mutation":{"expect_rev":9007199254740992},"accept":false},
+  {"id":"project-rev-unsafe-rounded","project":{"version":1,"projects":{"local:abcdef123456":{"rev":9007199254740993,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-unsafe-rounded","mutation":{"expect_rev":9007199254740993},"accept":false},
+  {"id":"project-rev-zero","project":{"version":1,"projects":{"local:abcdef123456":{"rev":0,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-zero","mutation":{"expect_rev":0},"accept":false},
+  {"id":"project-rev-negative-zero","project":{"version":1,"projects":{"local:abcdef123456":{"rev":-0.0,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-negative-zero","mutation":{"expect_rev":-0.0},"accept":false},
+  {"id":"project-rev-negative","project":{"version":1,"projects":{"local:abcdef123456":{"rev":-1,"executors":null}}},"accept":false},
+  {"id":"mutation-expect-rev-negative","mutation":{"expect_rev":-1},"accept":false}
 ]

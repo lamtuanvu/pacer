@@ -532,6 +532,28 @@ impl TaskStore {
             self.update_locked(id, expected_rev, now, mutate)
         })?
     }
+    /// Update current state under the shared task lock, without a caller CAS.
+    /// Lifecycle metadata maintenance must not use revisions from a prior list.
+    pub fn update_current(
+        &mut self,
+        id: &str,
+        now: f64,
+        mutate: impl FnOnce(&mut Value) -> Result<()>,
+    ) -> Result<Value> {
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            let current = self
+                .read(id)?
+                .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
+            let rev = revision(&current).ok_or(StoreError::InvalidRecord)?;
+            self.update_admitted_locked(id, rev, now, |_, task| mutate(task))
+        })?
+    }
     pub(crate) fn update_locked(
         &mut self,
         id: &str,
