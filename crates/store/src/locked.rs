@@ -33,14 +33,6 @@ impl LockedTask<'_> {
             .read(self.id)?
             .ok_or_else(|| StoreError::UnknownTask(self.id.into()))
     }
-    pub fn update(
-        &mut self,
-        expected_rev: i64,
-        now: f64,
-        mutate: impl FnOnce(&mut Value),
-    ) -> Result<Value, StoreError> {
-        self.store.update_locked(self.id, expected_rev, now, mutate)
-    }
 }
 impl TaskStore {
     /// Keep ownership checks, durable intent publication and a synchronous effect

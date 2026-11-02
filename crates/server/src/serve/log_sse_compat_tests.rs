@@ -1,5 +1,6 @@
 //! Cross-runtime cases use the real TS store and HTTP handler, never a model of it.
 use super::*;
+use pacer_store::WireReply;
 
 async fn body(port: u16, id: &str, major: u8) -> (StatusCode, String) {
     let response = client()
@@ -72,9 +73,12 @@ async fn connected_stream_resets_stderr_when_run_disappears_and_returns() {
         std::fs::write(&fallback, "between").unwrap();
         let mut store = pacer_store::TaskStore::open(home.path()).unwrap();
         store
-            .update(ID, 1, 1001.0, |task| {
-                task.as_object_mut().unwrap().remove("run");
-                task["attempts"] = json!([{"startedAt":1,"endedAt":2,"log":fallback}]);
+            .edit(ID, 1, 1001.0, |task| {
+                task.remove("/run")?;
+                task.put(
+                    "/attempts",
+                    WireReply::new(json!([{"startedAt":1,"endedAt":2,"log":fallback}])),
+                )
             })
             .unwrap();
         // This marker proves a poll observed the record without a run.
@@ -87,8 +91,8 @@ async fn connected_stream_resets_stderr_when_run_disappears_and_returns() {
         std::fs::create_dir(&replacement).unwrap();
         std::fs::write(replacement.join("stderr"), "xyz").unwrap();
         store
-            .update(ID, 2, 1002.0, |task| {
-                task["run"] = json!({"dir":replacement})
+            .edit(ID, 2, 1002.0, |task| {
+                task.put("/run", WireReply::new(json!({"dir":replacement})))
             })
             .unwrap();
         let restored = until(&mut body, "\"stderr\":\"xyz\"").await;

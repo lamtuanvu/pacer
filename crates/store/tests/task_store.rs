@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used)]
+use pacer_js_json::WireReply;
 use pacer_store::{StoreError, TaskFilter, TaskStore, is_task_id, retention_eligible};
 use serde_json::{Value, json};
 use std::{fs, time::Duration};
@@ -105,22 +106,22 @@ fn schema_write_read_filters_and_cas() {
     );
     let version = store.version().unwrap();
     let changed = store
-        .update(ID, 1, 2000.0, |v| {
-            v["state"] = json!("done");
-            v["review"] = json!({"at":2001.0});
-            v["live"] = json!({"pid":42});
+        .edit(ID, 1, 2000.0, |v| {
+            v.put("/state", WireReply::new(json!("done")))?;
+            v.put("/review", WireReply::new(json!({"at":2001.0})))?;
+            v.put("/live", WireReply::new(json!({"pid":42})))
         })
         .unwrap();
     assert_eq!(store.list_live().unwrap().len(), 1);
-    assert_eq!(changed["rev"], 2);
-    assert_eq!(changed["settledAt"], 2000.0);
+    assert_eq!(changed.preview()["rev"], 2);
+    assert_eq!(changed.preview()["settledAt"], 2000.0);
     assert_eq!(
         store.read(ID).unwrap().unwrap()["futureField"],
         task()["futureField"]
     );
     assert_ne!(store.version().unwrap(), version);
     assert!(matches!(
-        store.update(ID, 1, 2002.0, |_| {}),
+        store.edit(ID, 1, 2002.0, |_| Ok(())),
         Err(StoreError::Conflict)
     ));
     let first: f64 = store
@@ -134,13 +135,17 @@ fn schema_write_read_filters_and_cas() {
         .unwrap();
     assert_eq!(first, 2000.0);
     let reopened = store
-        .update(ID, 2, 2003.0, |v| v["state"] = json!("running"))
+        .edit(ID, 2, 2003.0, |v| {
+            v.put("/state", WireReply::new(json!("running")))
+        })
         .unwrap();
-    assert!(reopened.get("settledAt").is_none());
+    assert!(reopened.preview().get("settledAt").is_none());
     let resettled = store
-        .update(ID, 3, 2004.0, |v| v["state"] = json!("failed"))
+        .edit(ID, 3, 2004.0, |v| {
+            v.put("/state", WireReply::new(json!("failed")))
+        })
         .unwrap();
-    assert_eq!(resettled["settledAt"], 2004.0);
+    assert_eq!(resettled.preview()["settledAt"], 2004.0);
     let first: f64 = store
         .connection()
         .unwrap()
@@ -166,7 +171,7 @@ fn schema_write_read_filters_and_cas() {
     let json: Value =
         serde_json::from_slice(&fs::read(dir.path().join(format!("tasks/{ID}.json"))).unwrap())
             .unwrap();
-    assert_eq!(json, resettled);
+    assert_eq!(&json, resettled.preview());
 }
 
 #[test]
@@ -177,7 +182,9 @@ fn json_import_revision_and_external_invalidation() {
     let version = first.version().unwrap();
     let mut second = TaskStore::open(dir.path()).unwrap();
     second
-        .update(ID, 1, 1010.0, |v| v["unknown"] = json!("kept"))
+        .edit(ID, 1, 1010.0, |v| {
+            v.put("/unknown", WireReply::new(json!("kept")))
+        })
         .unwrap();
     assert_ne!(first.version().unwrap(), version);
     assert_eq!(first.read(ID).unwrap().unwrap()["unknown"], "kept");
@@ -420,9 +427,7 @@ fn retention_keeps_live_worktree_and_rejects_archive_collision() {
     store.insert(&settled, 1100.0).unwrap();
     assert!(store.prune(1, false, 100_000.0).unwrap().tasks.is_empty());
     store
-        .update(ID, 1, 2000.0, |v| {
-            v.as_object_mut().unwrap().remove("worktree");
-        })
+        .edit(ID, 1, 2000.0, |v| v.remove("/worktree"))
         .unwrap();
     let archive = dir.path().join(format!("archive/1970-01/{ID}"));
     fs::create_dir_all(&archive).unwrap();

@@ -229,16 +229,16 @@ fn accepted_non_scalar_repo_survives_an_unrelated_exact_edit() {
 }
 
 #[test]
-fn legacy_string_adapter_keeps_placeholder_restrictions_and_array_refusal() {
+fn exact_string_adapter_keeps_placeholder_restrictions_and_array_identity() {
     let (home, mut store) = imported(r#""title":"\ud800","count":1"#, r#""/fixture""#);
     for path in ["/missing", "/count", "/id", "/state", "/rev", "/brief/repo"] {
         let before = durable(home.path());
         assert!(matches!(
-            store.update_with_strings(
+            store.edit_with_strings(
                 ID,
                 1,
                 2.0,
-                |_| {},
+                |_| Ok(()),
                 &[(path.into(), Utf16String::slice("x", 0, 1))]
             ),
             Err(StoreError::InvalidRecord)
@@ -246,11 +246,11 @@ fn legacy_string_adapter_keeps_placeholder_restrictions_and_array_refusal() {
         assert_eq!(durable(home.path()), before);
     }
     store
-        .update_with_strings(
+        .edit_with_strings(
             ID,
             1,
             2.0,
-            |task| task["question"] = json!({"text":""}),
+            |task| task.put("/question", WireReply::new(json!({"text":""}))),
             &[("/question/text".into(), Utf16String::slice("😀", 0, 1))],
         )
         .unwrap();
@@ -260,12 +260,26 @@ fn legacy_string_adapter_keeps_placeholder_restrictions_and_array_refusal() {
     store
         .edit(ID, 2, 3.0, |edit| edit.put("/items", wire(r#"["\ud801"]"#)))
         .unwrap();
-    let before = durable(home.path());
-    assert!(matches!(
-        store.update_with_strings(ID, 3, 4.0, |_| {}, &[]),
-        Err(StoreError::CompatibilityRequired)
-    ));
-    assert_eq!(durable(home.path()), before);
+    let reply = store
+        .edit_with_strings(
+            ID,
+            3,
+            4.0,
+            |_| Ok(()),
+            &[("/question/text".into(), Utf16String::slice("�", 0, 1))],
+        )
+        .unwrap();
+    assert_eq!(reply.preview()["rev"], 4);
+    exact(&reply, "/question/text", r#""�""#);
+    exact(&reply, "/title", r#""\ud800""#);
+    exact(&reply, "/items", r#"["\ud801"]"#);
+    published(home.path(), &reply);
+    drop(store);
+    let mut reopened = TaskStore::open(home.path()).unwrap();
+    assert_eq!(
+        reopened.read_wire(ID).unwrap().unwrap().to_json().unwrap(),
+        reply.to_json().unwrap()
+    );
 }
 
 #[test]

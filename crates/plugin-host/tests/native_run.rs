@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 #[path = "support/exact_task.rs"]
 mod exact_task;
-use pacer_plugin_host::{NativeRun, RunLaunch};
+use pacer_plugin_host::{NativeRun, RunLaunch, WireReply};
 use pacer_store::TaskStore;
 use serde_json::{Value, json};
 use std::{
@@ -153,8 +153,8 @@ async fn changed_owner_and_nonempty_crash_claim_never_authorize_launch() {
     let task = f.task();
     TaskStore::open(&f.home)
         .unwrap()
-        .update(ID, task["rev"].as_i64().unwrap(), 2.0, |t| {
-            t["stopPending"] = json!({"attempt":1})
+        .edit(ID, task["rev"].as_i64().unwrap(), 2.0, |t| {
+            t.put("/stopPending", WireReply::new(json!({"attempt":1})))
         })
         .unwrap();
     assert!(
