@@ -101,3 +101,52 @@ test("version comparison retains JavaScript number rounding", async () => {
   expect(compareVersions("1.0.0-9007199254740992", "1.0.0-9007199254740993")).toBe(0);
   expect(Number.isNaN(compareVersions(`${"9".repeat(400)}.0.0`, `${"8".repeat(400)}.0.0`))).toBe(true);
 });
+
+// Raw JSON spellings and UTF-16 lengths are shared with a future Rust port.
+import boundaries from "./fixtures/service-update-boundaries.json";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { health, parsePlistDictionary } from "../src/service";
+import { waitForService } from "../src/service/upgrade";
+import { readUpdateCheck } from "../src/update/check";
+
+test("health pid and update cache preserve JSON number semantics", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pacer-parity-"));
+  try {
+    writeFileSync(join(root, "token"), "fixture-token");
+    const ctx = fakeCtx({ pacerHome: root });
+    for (const entry of boundaries.numbers) {
+      const value = JSON.parse(entry.json);
+      const response = () => new Response(`{"ok":true,"pid":${entry.json}}`, { headers: { "X-Pacer": "1" } });
+      expect(await health(ctx, { fetch: async () => response() })).toBe(entry.health);
+      let versionCalls = 0;
+      const version = await waitForService(ctx, {
+        expectedPid: value, healthTimeoutMs: 0, sleep: async () => {},
+        fetch: async url => {
+          if (url.endsWith("/health")) return response();
+          versionCalls++;
+          return Response.json({ result: { pacer: "1.0.0" } });
+        },
+      });
+      expect(version).toBe(entry.health ? "1.0.0" : null);
+      expect(versionCalls).toBe(entry.health ? 1 : 0);
+      writeFileSync(join(root, "update-check.json"), `{"checkedAt":${entry.json},"latest":null}`);
+      const check = readUpdateCheck(ctx, "1.0.0");
+      if (entry.cache) expect(check?.checkedAt).toBe(value);
+      else expect(check).toBeNull();
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("plist inspection limit counts UTF-16 code units", () => {
+  const prefix = "<plist><dict><key>value</key><string>", suffix = "</string></dict></plist>";
+  for (const entry of boundaries.plist) {
+    const remaining = entry.units - prefix.length - suffix.length;
+    const value = entry.character.repeat(Math.floor(remaining / entry.character.length)) + "a".repeat(remaining % entry.character.length);
+    const text = prefix + value + suffix;
+    expect(text.length).toBe(entry.units);
+    if (entry.accepted) expect(parsePlistDictionary(text).value).toBe(value);
+    else expect(() => parsePlistDictionary(text)).toThrow("plist exceeds inspection limit");
+  }
+});
