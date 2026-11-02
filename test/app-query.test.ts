@@ -95,7 +95,9 @@ test('task query revisions ignore unrelated snapshot, configuration and activity
       activity: [{ id: 'a-1', taskId: 'another-task' }] as typeof state.activity };
     expect(queryRevision(unrelated, op, { id: task.id })).toBe(revision);
     expect(queryRevision({ ...state, snapshot: { ...state.snapshot, tasks: state.snapshot.tasks.map(t => t.id === task.id ? { ...t, updatedAt: t.updatedAt + 1 } : t) } }, op, { id: task.id })).not.toBe(revision);
-    expect(queryRevision({ ...unrelated, activity: [{ id: 'a-2', taskId: task.id }] as typeof state.activity }, op, { id: task.id })).not.toBe(revision);
+    const activityRevision = queryRevision({ ...unrelated, activity: [{ id: 'a-2', taskId: task.id }] as typeof state.activity }, op, { id: task.id });
+    if (op === 'task.get') expect(activityRevision).toBe(revision);
+    else expect(activityRevision).not.toBe(revision);
   }
 });
 

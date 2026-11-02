@@ -43,11 +43,11 @@ test("success waits for the resulting event", async () => {
   expect(runner.state("k")).toEqual({ status: "done" });
 });
 
-test("no event within the timeout refetches the snapshot", async () => {
+test("no event within the timeout leaves confirmation pending without a global refetch", async () => {
   const { d, refetches } = deps({ waitFor: async () => false });
   const runner = createActionRunner(d);
   expect(await runner.run("k", retry, () => false)).toEqual({ status: "idle" });
-  expect(refetches()).toBe(1);
+  expect(refetches()).toBe(0);
 });
 
 test("a conflict means another client acted first and is not a failure", async () => {
@@ -116,12 +116,12 @@ test('integration conflicts preserve the reason and instruction to review a fres
  expect(await createActionRunner(d).run('repair',{label:'Repair',op:'agent.connect',params:{agent:'codex',consent:true,preview_revision:'old'}})).toEqual({status:'error',message:'Integration target changed',hint:'Review a fresh preview'});
 });
 
-test('review verdicts refresh shared attention counts before completing', async () => {
+test('review verdicts use entity events without a global refetch', async () => {
   for (const op of ['task.review', 'dispatch.review']) {
     const {d, refetches} = deps();
     const runner = createActionRunner(d);
     expect(await runner.run(op, {label:'Accept result',op,params:{id:'task',accepted:true}})).toEqual({status:'done'});
-    expect(refetches()).toBe(1);
+    expect(refetches()).toBe(0);
   }
 });
 
