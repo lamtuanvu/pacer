@@ -13,6 +13,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Preserve unrelated notification settings containing malformed UTF-8 in native reads and writes, and match TypeScript number formatting in saved strategy YAML.
 - Keep task-history backfills and retention off the service request thread, retry temporary backfill writer contention, and avoid unnecessary SQLite writer locks when opening or scanning existing task stores. Desktop sign-in no longer waits for historical maintenance.
 
 - Preserve shared legacy task imports, older SQLite migrations, malformed run errors and UTF-8 decoding in native task-log follow streams through the TypeScript compatibility fallback.
