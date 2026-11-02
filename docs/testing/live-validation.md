@@ -528,6 +528,32 @@ report `not_delivered` only before a platform mutation is attempted; later error
 report `unknown` and must not be retried implicitly. This classification does not
 prove that the intended effect completed.
 
+## Fixed bundle framing fixture
+
+Start a UI-seeded sandbox and run `bun run live bundle-frame --id <seeded-id>`.
+The command accepts only the sandbox ID. After checking the canonical private
+sandbox directories and healthy service/proxy, it creates a fresh
+`home/bundle-frame-fixture/` and starts a fixed fixture process with that isolated
+HOME and PACER_HOME.
+
+The fixture invokes the actual bundle resource issuer, authority preparation,
+stream staging, ownership transfer, one-use read, disposal and revocation code.
+Only its child-process transport is simulated: deterministic byte events cover
+all internal begin-marker split points, bytewise and empty chunks, banners and
+midline decoys, binary payload, missing frames and payload overflow. The simulated
+child has no PID and cannot cause a process signal. No SSH command, remote host,
+executor, real account or arbitrary program is used. Temporary short control
+directories are removed only when their retained identity still matches and they
+are empty.
+
+`stdout.json`, `result.json` and `sources.json` retain chunk lengths/hashes,
+exact payload hashes, rejection/cleanup results and source fingerprints. The live
+report labels passing cases **guarded TS bundle-stage fixture**. Public remote
+CLI/API transfer over real SSH and TUI/web/tray/desktop presentation remain
+**UNVERIFIED**; this fixture does not certify those surfaces or grant a CT-11
+exception. Finish with `bun run live report --id <seeded-id>` and
+`bun run live down --id <seeded-id> --keep` to retain evidence.
+
 ## Fixed TypeScript publication fixture
 
 For the three TypeScript publication boundaries, start a UI-seeded sandbox and run
