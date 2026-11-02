@@ -142,7 +142,7 @@ fn parse_task(data: &Value) -> Option<Value> {
     }
     let mut row = json!({"id":id,"state":state,"updatedAt":data["updatedAt"]});
     if let Some(title) = optional_string(data, "title", 60)
-        .map(|s| s.trim().to_owned())
+        .map(|s| pacer_foundation::js_semantics::js_trim(&s).to_owned())
         .filter(|s| !s.is_empty())
     {
         row["title"] = json!(title);

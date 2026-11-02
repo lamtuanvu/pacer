@@ -1,0 +1,93 @@
+{
+  "first": {
+    "task_id": "$TASK",
+    "state": "queued"
+  },
+  "again": {
+    "task_id": "$TASK",
+    "state": "queued"
+  },
+  "spawns": 1,
+  "task": {
+    "state": "queued",
+    "rev": 1,
+    "goal": "  Explain 😀  ",
+    "interactionMode": "conversation",
+    "conversation": {
+      "activity": "starting"
+    },
+    "placement": {
+      "requested": "current"
+    },
+    "executor": "codex"
+  },
+  "context": {
+    "draftId": "$DRAFT",
+    "attachments": [
+      {
+        "id": "$FILE",
+        "name": "secret.txt",
+        "mime": "text/plain",
+        "size": 5
+      }
+    ],
+    "rev": 1
+  },
+  "claimed": [
+    {
+      "id": "$FILE",
+      "name": "secret.txt",
+      "mime": "text/plain",
+      "size": 5,
+      "path": "$HOME/.pacer/attachments/$DRAFT/$FILE"
+    }
+  ],
+  "failures": {
+    "changed": {
+      "error": {
+        "code": "conflict",
+        "message": "This request ID was already used with different session details"
+      }
+    },
+    "duplicateAttachment": {
+      "error": {
+        "code": "invalid_input",
+        "message": "Choose at most 20 distinct attachments"
+      }
+    },
+    "deleteClaimed": {
+      "error": {
+        "code": "conflict",
+        "message": "This attachment is in use"
+      }
+    },
+    "foreignOwner": {
+      "error": {
+        "code": "conflict",
+        "message": "Draft already belongs to another session"
+      }
+    },
+    "blank": {
+      "error": {
+        "code": "invalid_input",
+        "message": "A request is required"
+      }
+    },
+    "executor": {
+      "error": {
+        "code": "not_allowed",
+        "message": "An executor session cannot start another session"
+      }
+    },
+    "checkout": {
+      "error": {
+        "code": "conflict",
+        "message": "Conversation checkout changed during admission"
+      }
+    }
+  },
+  "mode": {
+    "file": 384,
+    "directory": 448
+  }
+}

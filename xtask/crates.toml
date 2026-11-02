@@ -100,3 +100,7 @@ heavy = ["typify", "syn"]
 layer = 5
 [crates.pacer-lifecycle]
 layer = 6
+
+[crates.pacer-tui]
+layer = 8
+heavy = ["ratatui"]

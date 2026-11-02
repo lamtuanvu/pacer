@@ -1,0 +1,8 @@
+[
+ {"id":"planner-alias","strategy":{"planner":"claude-code","providers":{"claude-code":{},"codex":{}}},"input":{"brief":{"goal":"work","repo":"/repo"},"repoValidated":true,"executor":"claude-code"},"problems":["\"claude-code\" is the planner; pick an executor"]},
+ {"id":"explicit-default-account","strategy":{"planner":"claude-code","providers":{"claude-code":{},"codex":{}}},"input":{"brief":{"goal":"work","repo":"/repo"},"repoValidated":true,"executor":"codex#codex@local"},"problems":[]},
+ {"id":"unknown","strategy":{"planner":"claude-code","providers":{"claude-code":{},"codex":{}}},"input":{"brief":{"goal":"work","repo":"/repo"},"repoValidated":true,"executor":"missing"},"problems":["unknown executor \"missing\" (configured: claude-code, codex)"]},
+ {"id":"timeout-relational-string","strategy":{"planner":"claude-code","providers":{"claude-code":{},"codex":{}}},"input":{"brief":{"goal":"work","repo":"/repo"},"repoValidated":true,"timeoutMin":" 0x20 "},"problems":[]},
+ {"id":"timeout-relational-array","strategy":{"planner":"claude-code","providers":{"claude-code":{},"codex":{}}},"input":{"brief":{"goal":"work","repo":"/repo"},"repoValidated":true,"timeoutMin":[30]},"problems":[]},
+ {"id":"timeout-relational-boolean","strategy":{"planner":"claude-code","providers":{"claude-code":{},"codex":{}}},"input":{"brief":{"goal":"work","repo":"/repo"},"repoValidated":true,"timeoutMin":true},"problems":[]}
+]

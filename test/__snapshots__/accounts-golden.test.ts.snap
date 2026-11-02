@@ -1,0 +1,487 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`account and endpoint operation results 1`] = `
+{
+  "calls": [
+    {
+      "authorization": "Bearer <fake-key>",
+      "url": "https://endpoint.invalid/v1/models",
+    },
+  ],
+  "results": {
+    "add": {
+      "account": {
+        "allowPaid": false,
+        "connection": {
+          "api": "openai-compatible",
+          "base_url_host": "endpoint.invalid",
+          "key": "present",
+          "models": [
+            {
+              "context": 128000,
+              "id": "model-a",
+              "output": 16000,
+              "tools": true,
+            },
+          ],
+        },
+        "cooldownS": 21600,
+        "home": null,
+        "kind": "endpoint",
+        "model": null,
+        "name": "work",
+        "orcaAccount": null,
+        "provider": null,
+        "quotaSource": null,
+        "source": "endpoint",
+        "state": "not_tested",
+        "usage": "unmetered",
+        "usageSource": "unmetered",
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+      },
+      "runner": {
+        "account": "work",
+        "agent": "opencode",
+        "host": null,
+        "id": "opencode#work",
+        "model": "pacer-work/model-a",
+        "name": "opencode#work",
+      },
+      "state": "not_tested",
+    },
+    "addNative": {
+      "account": {
+        "allowPaid": false,
+        "cooldownS": 21600,
+        "executors": [],
+        "folder": "$HOME/.codex-spare",
+        "home": "$HOME/.codex-spare",
+        "kind": "codex",
+        "label": "spare",
+        "model": null,
+        "name": "spare",
+        "orcaAccount": null,
+        "provider": null,
+        "quotaSource": null,
+        "runnable": true,
+        "runners": [],
+        "signedIn": false,
+        "signin_command": "CODEX_HOME=$HOME/.codex-spare codex login",
+        "source": "pacer",
+        "usage": "quota",
+        "usageCheck": {
+          "action": "refresh",
+          "consentRequired": false,
+          "description": "Reads the provider’s available usage source. Old observations remain historical.",
+        },
+        "usageReading": {
+          "capturedAt": null,
+          "error": "no Codex session logs",
+          "stale": false,
+          "windows": [],
+        },
+        "usageSource": "native",
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+      },
+    },
+    "adopt": {
+      "account": {
+        "allowPaid": false,
+        "connection": {
+          "api": "openai-compatible",
+          "base_url_host": "endpoint.invalid",
+          "key": "present",
+          "models": [
+            {
+              "context": 128000,
+              "id": "old",
+              "output": 16000,
+              "tools": true,
+            },
+          ],
+        },
+        "cooldownS": 21600,
+        "home": null,
+        "kind": "endpoint",
+        "model": null,
+        "name": "external",
+        "orcaAccount": null,
+        "provider": null,
+        "quotaSource": null,
+        "source": "endpoint",
+        "state": "not_tested",
+        "usage": "unmetered",
+        "usageSource": "unmetered",
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+      },
+      "runner": {
+        "account": "external",
+        "agent": "opencode",
+        "host": null,
+        "id": "opencode#external",
+        "model": "pacer-external/old",
+        "name": "opencode#external",
+      },
+      "state": "not_tested",
+    },
+    "edit": {
+      "account": {
+        "allowPaid": false,
+        "connection": {
+          "api": "openai-compatible",
+          "base_url_host": "endpoint.invalid",
+          "key": "present",
+          "models": [
+            {
+              "context": 100,
+              "id": "model-b",
+              "output": 10,
+              "tools": false,
+            },
+          ],
+        },
+        "cooldownS": 21600,
+        "home": null,
+        "kind": "endpoint",
+        "model": null,
+        "name": "work",
+        "orcaAccount": null,
+        "provider": null,
+        "quotaSource": null,
+        "source": "endpoint",
+        "state": "not_tested",
+        "usage": "unmetered",
+        "usageSource": "unmetered",
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+      },
+      "runner": {
+        "account": "work",
+        "agent": "opencode",
+        "host": null,
+        "id": "opencode#work",
+        "model": "pacer-work/model-b",
+        "name": "opencode#work",
+      },
+      "state": "not_tested",
+    },
+    "list": [
+      {
+        "allowPaid": false,
+        "cooldownS": 21600,
+        "executors": [
+          "claude-code",
+        ],
+        "folder": null,
+        "home": null,
+        "kind": "claude",
+        "label": "personal",
+        "locked": "Planner — can't remove",
+        "model": null,
+        "name": "personal",
+        "orcaAccount": null,
+        "provider": null,
+        "quotaSource": null,
+        "runnable": true,
+        "runners": [
+          "claude-code",
+        ],
+        "signedIn": false,
+        "signin_command": "CLAUDE_CONFIG_DIR=$HOME/.claude claude\\n# Then run /login to sign in.",
+        "source": "default",
+        "usage": "quota",
+        "usageCheck": {
+          "action": "probe",
+          "consentRequired": true,
+          "description": "Runs a small Claude Code task using this account’s quota to collect new usage telemetry.",
+        },
+        "usageReading": {
+          "capturedAt": null,
+          "error": "no Claude rate-limit data yet (the Claude Code status line writes it)",
+          "stale": false,
+          "windows": [],
+        },
+        "usageSource": "native",
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+      },
+      {
+        "allowPaid": false,
+        "connection": {
+          "api": "openai-compatible",
+          "base_url_host": "endpoint.invalid",
+          "key": "present",
+          "models": [
+            {
+              "context": 128000,
+              "id": "old",
+              "output": 16000,
+              "tools": true,
+            },
+          ],
+        },
+        "cooldownS": 21600,
+        "executors": [
+          "opencode#external",
+        ],
+        "folder": null,
+        "home": null,
+        "kind": "endpoint",
+        "label": "external",
+        "locked": "In use by 1 executor(s)",
+        "model": null,
+        "name": "external",
+        "orcaAccount": null,
+        "provider": null,
+        "quotaSource": null,
+        "runnable": true,
+        "runners": [
+          "opencode#external",
+        ],
+        "signedIn": null,
+        "source": "endpoint",
+        "state": "not_tested",
+        "usage": "unmetered",
+        "usageCheck": {
+          "action": "unmetered",
+          "consentRequired": false,
+          "description": "Unmetered. This account has no quota to check.",
+        },
+        "usageReading": {
+          "capturedAt": 1791633600,
+          "source": "unmetered",
+          "stale": false,
+          "windows": [],
+        },
+        "usageSource": "unmetered",
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+      },
+      {
+        "allowPaid": false,
+        "connection": {
+          "api": "openai-compatible",
+          "base_url_host": "endpoint.invalid",
+          "key": "present",
+          "models": [
+            {
+              "context": 100,
+              "id": "model-b",
+              "output": 10,
+              "tools": false,
+            },
+          ],
+        },
+        "cooldownS": 21600,
+        "executors": [
+          "opencode#work",
+        ],
+        "folder": null,
+        "home": null,
+        "kind": "endpoint",
+        "label": "work",
+        "locked": "In use by 1 executor(s)",
+        "model": null,
+        "name": "work",
+        "orcaAccount": null,
+        "provider": null,
+        "quotaSource": null,
+        "runnable": true,
+        "runners": [
+          "opencode#work",
+        ],
+        "signedIn": null,
+        "source": "endpoint",
+        "state": "not_tested",
+        "usage": "unmetered",
+        "usageCheck": {
+          "action": "unmetered",
+          "consentRequired": false,
+          "description": "Unmetered. This account has no quota to check.",
+        },
+        "usageReading": {
+          "capturedAt": 1791633600,
+          "source": "unmetered",
+          "stale": false,
+          "windows": [],
+        },
+        "usageSource": "unmetered",
+        "weeklyTokens": null,
+        "weeklyUsd": null,
+      },
+    ],
+    "models": {
+      "listed": true,
+      "models": [
+        {
+          "context": 128000,
+          "id": "model-a",
+          "output": 16000,
+        },
+      ],
+    },
+    "remove": {
+      "removed": true,
+    },
+    "removeInUse": {
+      "code": "conflict",
+      "hint": "Remove its runners and change the planner first.",
+      "message": "account work is in use",
+    },
+    "test": {
+      "checked_at": "2026-10-10T12:00:00.000Z",
+      "state": "ready",
+    },
+  },
+}
+`;
+
+exports[`OpenCode provider setup and endpoint broker requests 1`] = `
+{
+  "add": {
+    "account": {
+      "allowPaid": false,
+      "cooldownS": 21600,
+      "home": null,
+      "kind": "endpoint",
+      "model": null,
+      "name": "openrouter",
+      "orcaAccount": null,
+      "provider": "openrouter",
+      "quotaSource": null,
+      "source": "opencode",
+      "usage": "metered",
+      "usageSource": "metered",
+      "weeklyTokens": null,
+      "weeklyUsd": 5,
+    },
+    "runner": {
+      "account": "openrouter",
+      "agent": "opencode",
+      "host": null,
+      "id": "opencode#openrouter",
+      "model": "openrouter/qwen/qwen3-coder",
+      "name": "opencode#openrouter",
+    },
+    "state": "not_tested",
+  },
+  "broker": {
+    "credentialRefs": [
+      "endpoint:pending",
+    ],
+    "deadlineMs": 3000,
+    "id": "endpoint-plugin",
+    "method": "endpoint.models",
+    "params": {
+      "baseUrl": "https://endpoint.invalid/v1",
+      "keyRef": "endpoint:pending",
+      "timeoutMs": 1000,
+    },
+    "resources": {
+      "commands": [],
+      "http": {
+        "hosts": [
+          "endpoint.invalid",
+        ],
+        "origins": [
+          "https://endpoint.invalid",
+        ],
+      },
+      "reads": [],
+      "stores": [],
+    },
+  },
+  "candidates": {
+    "candidates": [
+      {
+        "added": null,
+        "group": "signed_in",
+        "name": "OpenRouter",
+        "provider": "openrouter",
+        "usage": {
+          "known": true,
+          "usage": "metered",
+        },
+      },
+      {
+        "added": null,
+        "group": "catalog",
+        "name": "Volcengine Coding Plan",
+        "provider": "volcengine-coding-plan",
+        "usage": {
+          "known": true,
+          "quota_source": "arkcli",
+          "usage": "quota",
+        },
+      },
+    ],
+    "catalog": "fresh",
+    "notes": [],
+    "opencode": true,
+  },
+  "connect": {
+    "command": "opencode auth login deepseek",
+    "connected": false,
+  },
+  "discovered": {
+    "listed": true,
+    "models": [],
+  },
+  "models": {
+    "filtered": "catalog",
+    "pick": {
+      "context": 262144,
+      "costIn": 0.22,
+      "costOut": 0.95,
+      "id": "qwen/qwen3-coder",
+      "name": "Qwen3 Coder",
+      "output": 65536,
+      "tools": true,
+    },
+    "rest": [
+      {
+        "context": 200000,
+        "costIn": 0.6,
+        "costOut": 2.2,
+        "id": "z-ai/glm-5.3",
+        "name": "GLM 5.3",
+        "output": 131072,
+        "tools": true,
+      },
+    ],
+    "usage": {
+      "known": true,
+      "usage": "metered",
+    },
+  },
+}
+`;
+
+exports[`usage consent refusal and consented probe results 1`] = `
+{
+  "job": {
+    "cancellable": false,
+    "endedAt": "<ended-at>",
+    "id": "<job-id>",
+    "kind": "account.usage.check",
+    "pid": "<pid>",
+    "startedAt": 1800000000,
+    "state": "passed",
+    "steps": [
+      {
+        "detail": "New usage observation received.",
+        "name": "Check usage",
+        "state": "passed",
+      },
+    ],
+    "target": "work",
+  },
+  "refused": {
+    "code": "not_allowed",
+    "message": "This usage check consumes account quota. Confirm Run usage check to continue.",
+  },
+}
+`;
