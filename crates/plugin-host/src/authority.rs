@@ -328,13 +328,15 @@ impl CallAuthority {
 
 pub fn valid_path(path: &str) -> Result<(), AuthorityError> {
     if path.is_empty()
-        || path.len() > 4096
+        || crate::js_semantics::utf16_len(path) > 4096
         || path.contains('\0')
         || !Path::new(path).is_absolute()
         || Path::new(path)
             .components()
             .any(|c| matches!(c, Component::ParentDir | Component::CurDir))
-        || path.split('/').any(|part| part == "." || part == "..")
+        || path
+            .split(['/', '\\'])
+            .any(|part| part == "." || part == "..")
     {
         return Err(AuthorityError::Denied("invalid absolute path".into()));
     }
@@ -406,15 +408,9 @@ impl ScopeRoots {
             let Some(value) = self.expand(scope)? else {
                 continue;
             };
-            let pattern = glob::Pattern::new(&value)
-                .map_err(|_| AuthorityError::Denied("invalid declared scope".into()))?;
-            if pattern.matches_with(
-                path,
-                glob::MatchOptions {
-                    require_literal_separator: true,
-                    ..Default::default()
-                },
-            ) {
+            if crate::native_read::matches_bun_scope(&value, path)
+                .map_err(|_| AuthorityError::Denied("invalid declared scope".into()))?
+            {
                 return Ok(true);
             }
         }
@@ -459,6 +455,17 @@ mod tests {
                 .declares_path(&["/fixture/home/../else".into()], "/fixture/else")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn absolute_paths_reject_dot_segments_separated_by_backslash() {
+        for path in [
+            "/logs/../secret",
+            "/logs\\..\\secret",
+            "/logs\\.\\rollout-a.jsonl",
+        ] {
+            assert!(valid_path(path).is_err(), "{path}");
+        }
     }
     #[test]
     fn single_star_does_not_admit_nested_path() {
