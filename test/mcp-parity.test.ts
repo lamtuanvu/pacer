@@ -260,6 +260,15 @@ async function capture(mode: "planner" | "grant", native = false) {
   env.PACER_HOME = pacerHome;
   delete env.PACER_TEST_RUST_MCP;
   if (native) env.PACER_TEST_RUST_MCP = rustBinary;
+  // The golden captures installed executors with no availability evidence.
+  // Give both stdio processes the same isolated executable inventory on every host.
+  const bin = join(home, "bin");
+  mkdirSync(bin);
+  for (const name of ["claude", "codex", "cursor-agent", "opencode"]) {
+    writeFileSync(join(bin, name), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  }
+  env.PATH = bin;
+  env.PACER_PLANNER_SESSION = "claude-code";
   delete env.PACER_ROLE;
   delete env.PACER_TASK_ID;
   delete env.PACER_WORK_GRANT;
@@ -430,7 +439,6 @@ test("TypeScript planner and grant MCP stdio tool contracts and results match ca
   }
   expect(observed).toEqual(JSON.parse(readFileSync(goldenPath, "utf8")));
 }, 90_000);
-
 
 // A separate target avoids sharing Cargo artifacts with other pacer executors.
 const rustBinary = join(import.meta.dir, "..", "target", "mcp-slice", "debug", "examples", "mcp_stdio");
