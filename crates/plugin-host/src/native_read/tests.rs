@@ -179,6 +179,90 @@ fn listing_enforces_issued_root_scope_regular_files_and_limit() {
 }
 
 #[test]
+fn json_number_spellings_reach_listing_and_range_fields() {
+    let root = std::env::temp_dir().join(format!("pacer-numbers-{}", uuid::Uuid::new_v4()));
+    fs::create_dir(&root).unwrap();
+    let path = root.join("rollout-a.jsonl");
+    fs::write(&path, vec![b'a'; 100]).unwrap();
+    let resources = [
+        ReadResource {
+            path: root.to_str().unwrap().into(),
+            kind: "codex-logs".into(),
+        },
+        ReadResource {
+            path: path.to_str().unwrap().into(),
+            kind: "file".into(),
+        },
+    ];
+    let mut reader = NativeRead::prepare(&resources).unwrap();
+    let authority = CallAuthority::new(
+        crate::CallResources {
+            reads: resources.to_vec(),
+            ..Default::default()
+        },
+        ["fs.read".into()],
+        Instant::now() + std::time::Duration::from_secs(5),
+    );
+    let scope = [format!("{}/rollout-*.jsonl", root.display())];
+    for (number, accepted) in [
+        ("1.0", true),
+        ("1e2", true),
+        ("1.5", false),
+        ("9007199254740992", false),
+    ] {
+        let value: Value = serde_json::from_str(number).unwrap();
+        let listed = reader.list(
+            &json!({"dir":root,"glob":"rollout-*.jsonl","limit":value}),
+            &scope,
+            &ScopeRoots::default(),
+            &authority,
+            Instant::now() + std::time::Duration::from_secs(5),
+        );
+        assert_eq!(listed.is_ok(), accepted, "list.limit={number}");
+    }
+    let info = reader
+        .answer("capability.fs.stat", &json!({"path":path}))
+        .unwrap()["info"]
+        .clone();
+    let mut expected = json!({"size":info["size"],"mtimeMs":info["mtimeMs"],
+        "inode":info["inode"],"device":info["device"],"mode":info["mode"]});
+    for key in ["size", "inode", "device", "mode"] {
+        let actual = expected[key].as_u64().unwrap();
+        expected[key] = serde_json::from_str(&format!("{actual}.0")).unwrap();
+        assert!(
+            reader
+                .answer(
+                    "capability.fs.readRange",
+                    &json!({"path":path,"offset":0,"length":1,"expected":expected})
+                )
+                .is_ok(),
+            "expected.{key}"
+        );
+    }
+    let mtime = expected["mtimeMs"].as_f64().unwrap();
+    expected["mtimeMs"] = serde_json::from_str(&format!("{mtime:e}")).unwrap();
+    for (offset, length, accepted) in [
+        ("1.0", "1e2", true),
+        ("1e2", "1.0", true),
+        ("1.5", "1", false),
+        ("1", "262145", false),
+    ] {
+        let offset: Value = serde_json::from_str(offset).unwrap();
+        let length: Value = serde_json::from_str(length).unwrap();
+        assert_eq!(
+            reader
+                .answer(
+                    "capability.fs.readRange",
+                    &json!({"path":path,"offset":offset,"length":length,"expected":expected})
+                )
+                .is_ok(),
+            accepted
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn listing_keeps_newest_after_more_than_one_thousand_matches() {
     let root = std::env::temp_dir().join(format!("pacer-list-many-{}", uuid::Uuid::new_v4()));
     fs::create_dir(&root).unwrap();
@@ -377,6 +461,7 @@ fn listing_brace_expansion_does_not_reveal_hidden_directory() {
 fn structured_glob_corpus_matches_bun() {
     let directory_patterns = [
         "a",
+        "a**",
         "{a,b}",
         "{a,{b,c}}",
         "[ab]",
@@ -388,6 +473,7 @@ fn structured_glob_corpus_matches_bun() {
     ];
     let file_patterns = [
         "rollout-*.jsonl",
+        "rollout-\\*.jsonl",
         "rollout-?.jsonl",
         "rollout-[ab].jsonl",
         "rollout-[^a].jsonl",
@@ -448,12 +534,17 @@ fn structured_scan_corpus_matches_bun_listing() {
             fs::write(root.join(dir).join(name), name).unwrap();
         }
     }
+    fs::create_dir(root.join("aa")).unwrap();
+    fs::write(root.join("aa/rollout-a.jsonl"), "a").unwrap();
+    fs::write(root.join("a/rollout-*.jsonl"), "star").unwrap();
     for name in ["rollout-a.jsonl", "rollout-b.jsonl", "rollout-c.jsonl"] {
         fs::write(root.join(name), name).unwrap();
     }
     let directory_patterns = [
         "",
         "a/",
+        "a//",
+        "a**/",
         "{a,b}/",
         "**/",
         ".hidden/",
@@ -466,6 +557,7 @@ fn structured_scan_corpus_matches_bun_listing() {
     ];
     let file_patterns = [
         "rollout-*.jsonl",
+        "rollout-\\*.jsonl",
         "rollout-[ab].jsonl",
         "rollout-[^a].jsonl",
         "rollout-[!a].jsonl",
@@ -543,6 +635,9 @@ fn structured_scan_corpus_matches_bun_listing() {
 fn structured_scope_corpus_matches_bun_glob_match() {
     let components = ["a", "b", ".hidden", "rollout-a.jsonl", "rollout-b.jsonl"];
     let patterns = [
+        "/tmp/logs/a**/rollout-*.jsonl",
+        "/tmp/logs/a//rollout-*.jsonl",
+        "/tmp/logs/a/rollout-\\*.jsonl",
         "/tmp/logs/{a,b}/rollout-*.jsonl",
         "/tmp/logs/{a,{b,.hidden}}/rollout-[^a].jsonl",
         "/tmp/logs/{a/b,b}/rollout-*.jsonl",

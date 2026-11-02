@@ -1002,6 +1002,7 @@ dependencies = [
 name = "pacer-config"
 version = "0.0.0"
 dependencies = [
+ "pacer-foundation",
  "saphyr-parser",
  "serde",
  "serde_json",
@@ -1140,7 +1141,6 @@ name = "pacer-plugin-host"
 version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
- "glob",
  "libc",
  "nix",
  "pacer-plugin-protocol",

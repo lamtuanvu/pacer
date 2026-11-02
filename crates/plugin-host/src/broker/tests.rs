@@ -218,6 +218,22 @@ async fn list_requires_issued_directory_and_rejects_adversarial_globs() {
             .is_ok()
     );
     assert_eq!(effect.calls, 1);
+    for (spelling, accepted) in [
+        ("1.0", true),
+        ("1e2", true),
+        ("1.5", false),
+        ("9007199254740992", false),
+    ] {
+        let limit: Value = serde_json::from_str(spelling).unwrap();
+        let result = broker
+            .handle(
+                "capability.fs.list",
+                json!({"dir":"/tmp/logs","glob":"rollout-*.jsonl","limit":limit}),
+                &mut effect,
+            )
+            .await;
+        assert_eq!(result.is_ok(), accepted, "list.limit={spelling}");
+    }
 }
 
 #[tokio::test]
@@ -267,15 +283,32 @@ async fn native_listing_normalizes_issued_root_and_matches_bun_scopes() {
     let root = std::env::temp_dir().join(format!("pacer-broker-scope-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(root.join("a")).unwrap();
     std::fs::create_dir_all(root.join("b")).unwrap();
-    for path in ["a/rollout-a.jsonl", "b/rollout-b.jsonl", "rollout-b.jsonl"] {
+    std::fs::create_dir_all(root.join("aa")).unwrap();
+    for path in [
+        "a/rollout-a.jsonl",
+        "aa/rollout-a.jsonl",
+        "a/rollout-*.jsonl",
+        "b/rollout-b.jsonl",
+        "rollout-b.jsonl",
+    ] {
         std::fs::write(root.join(path), "{}").unwrap();
     }
     let issued = format!("{}//", root.display());
     for (scope, glob, expected) in [
         (
+            format!("{}/a**/rollout-*.jsonl", root.display()),
+            "a**/rollout-a.jsonl",
+            2,
+        ),
+        (
+            format!("{}/a/rollout-\\*.jsonl", root.display()),
+            "a/rollout-\\*.jsonl",
+            1,
+        ),
+        (
             format!("{}/{{a,b}}/rollout-*.jsonl", root.display()),
             "**/rollout-*.jsonl",
-            2,
+            3,
         ),
         (
             format!("{}/rollout-[^a].jsonl", root.display()),
@@ -476,6 +509,76 @@ fn broker(ms: u64) -> CapabilityBroker {
         Instant::now() + Duration::from_millis(ms),
     );
     CapabilityBroker::new(manifest, authority, vec!["fileWriteChunks".into()])
+}
+
+#[tokio::test]
+async fn numeric_broker_fields_match_typescript_request_schemas() {
+    use std::process::Command;
+    let cases = [
+        (
+            "capability.process.spawn",
+            "timeoutMs",
+            ["1000.0", "1e3", "1.5", "9007199254740992"],
+        ),
+        (
+            "capability.net.http",
+            "timeoutMs",
+            ["1.0", "1e2", "1.5", "9007199254740992"],
+        ),
+        (
+            "capability.fs.write",
+            "mode",
+            ["384.0", "3.84e2", "1.5", "9007199254740992"],
+        ),
+        (
+            "capability.fs.beginWrite",
+            "bytes",
+            ["1.0", "1e2", "1.5", "9007199254740992"],
+        ),
+    ];
+    let mut requests = Vec::new();
+    for (method, field, values) in cases {
+        for spelling in values {
+            let mut params = match method {
+                "capability.process.spawn" => json!({"argv":["echo","ok"],"timeoutMs":1000}),
+                "capability.net.http" => {
+                    json!({"url":"https://example.test/","method":"GET","timeoutMs":100})
+                }
+                "capability.fs.write" => json!({"path":"/tmp/issued","text":"ok"}),
+                _ => json!({"path":"/tmp/issued","bytes":1}),
+            };
+            params[field] = serde_json::from_str(spelling).unwrap();
+            requests.push((method, field, spelling, params));
+        }
+    }
+    let wire: Vec<_> = requests
+        .iter()
+        .map(|(method, _, _, params)| json!({"method":method,"params":params}))
+        .collect();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("bun").current_dir(root)
+        .args(["-e", "import {SCOPED_CAPABILITY_METHODS} from './src/plugins/capability-protocol.ts'; import {FS_WRITE_METHODS} from './src/plugins/write-protocol.ts'; import {HTTP_CAPABILITY_METHODS} from './src/plugins/http-protocol.ts'; const M={...SCOPED_CAPABILITY_METHODS,...FS_WRITE_METHODS,...HTTP_CAPABILITY_METHODS}; const v=JSON.parse(Bun.argv.at(-1)); console.log(JSON.stringify(v.map(c=>M[c.method].params.safeParse(c.params).success)));", &json!(wire).to_string()])
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+    for ((method, field, spelling, params), bun) in requests.into_iter().zip(expected) {
+        let mut broker = if method == "capability.net.http" {
+            http_broker(
+                &["example.test"],
+                &["example.test"],
+                &["https://example.test"],
+            )
+        } else {
+            broker(2000)
+        };
+        let mut effect = Echo { calls: 0 };
+        let rust = broker.handle(method, params, &mut effect).await.is_ok();
+        assert_eq!(rust, bun, "{method}.{field}={spelling}");
+    }
 }
 #[tokio::test]
 async fn denies_adversarial_paths_and_commands_before_effect() {

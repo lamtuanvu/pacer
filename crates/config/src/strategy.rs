@@ -26,6 +26,23 @@ pub enum StrategyError {
     Io(#[from] io::Error),
 }
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod trim_tests {
+    use super::{duration, size, strategy_path};
+    use serde_json::json;
+
+    #[test]
+    fn strategy_values_use_javascript_trim_set() {
+        assert_eq!(size(&json!("\u{FEFF}2 k\u{2028}")), Some(2000.0));
+        assert_eq!(duration(&json!("\u{00A0}3m\u{2029}")), Some(180.0));
+        assert_eq!(size(&json!("\u{0085}2k\u{0085}")), None);
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join("active"), "\u{FEFF}focus\u{2028}").unwrap();
+        assert_eq!(strategy_path(home.path()).unwrap().1, "focus");
+    }
+}
+
 fn invalid(path: &Path, problems: Vec<String>) -> StrategyError {
     let message = problems
         .iter()
@@ -104,12 +121,15 @@ fn size(value: &Value) -> Option<f64> {
     if let Some(n) = value.as_f64() {
         return Some(n);
     }
-    let text = value.as_str()?.trim();
+    let text = pacer_foundation::js_semantics::js_trim(value.as_str()?);
     let cut = text
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(text.len());
     let n = decimal(&text[..cut])?;
-    let mult = match text[cut..].trim().to_ascii_lowercase().as_str() {
+    let mult = match pacer_foundation::js_semantics::js_trim(&text[cut..])
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "" => 1.,
         "k" => 1e3,
         "m" => 1e6,
@@ -122,9 +142,11 @@ fn duration(value: &Value) -> Option<f64> {
     if let Some(n) = value.as_f64() {
         return Some(n);
     }
-    let text = value.as_str()?.trim();
+    let text = pacer_foundation::js_semantics::js_trim(value.as_str()?);
     let unit = text.chars().last()?;
-    let n = decimal(text[..text.len() - 1].trim())?;
+    let n = decimal(pacer_foundation::js_semantics::js_trim(
+        &text[..text.len() - 1],
+    ))?;
     Some(
         n * match unit {
             's' => 1.,
@@ -264,14 +286,18 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
                         problems.push(format!("{loc} must be a mapping"));
                         continue;
                     }
-                    if m["id"].as_str().is_none_or(|s| s.trim().is_empty()) {
+                    if m["id"]
+                        .as_str()
+                        .is_none_or(|s| pacer_foundation::js_semantics::js_trim(s).is_empty())
+                    {
                         problems.push(format!("{loc}.id must be non-empty"));
                     } else if !ids.insert(m["id"].as_str().unwrap_or("")) {
                         problems.push(format!("{loc}.id must be unique"));
                     }
-                    if m.get("name")
-                        .is_some_and(|v| v.as_str().is_none_or(|s| s.trim().is_empty()))
-                    {
+                    if m.get("name").is_some_and(|v| {
+                        v.as_str()
+                            .is_none_or(|s| pacer_foundation::js_semantics::js_trim(s).is_empty())
+                    }) {
                         problems.push(format!("{loc}.name must be non-empty"));
                     }
                     for key in ["context", "output"] {
@@ -301,7 +327,9 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     }
     for key in ["home", "orca_account"] {
         if let Some(v) = value.get(key)
-            && (v.as_str().is_none_or(|s| s.trim().is_empty())
+            && (v
+                .as_str()
+                .is_none_or(|s| pacer_foundation::js_semantics::js_trim(s).is_empty())
                 || !["claude", "codex"].contains(&kind.as_str()))
         {
             problems.push(format!(
@@ -1499,7 +1527,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
 pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
     let active = home.join("active");
     let name = if active.exists() {
-        fs::read_to_string(active)?.trim().to_owned()
+        pacer_foundation::js_semantics::js_trim(&fs::read_to_string(active)?).to_owned()
     } else {
         String::new()
     };

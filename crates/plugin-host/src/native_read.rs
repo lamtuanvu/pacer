@@ -136,9 +136,6 @@ impl NativeRead {
         };
         check_root(image)?;
         let patterns = expand_braces(glob, deadline)?;
-        for pattern in &patterns {
-            glob::Pattern::new(&pattern.glob).map_err(|_| BrokerError::Invalid("read glob"))?;
-        }
         let root_dir = open_directory(root)?;
         if !image.parent_identity.as_ref().is_some_and(|old| {
             fstat(&root_dir)
@@ -452,7 +449,7 @@ fn check_listed_entry(root: &Dir, relative: &Path, item: &Value) -> Result<(), B
         || crate::js_semantics::safe_u64(&item["device"]) != Some(stat.st_dev as u64)
         || crate::js_semantics::safe_u64(&item["size"]) != Some(stat.st_size as u64)
         || crate::js_semantics::safe_u64(&item["mode"]) != Some(stat.st_mode as u64)
-        || item["mtimeMs"].as_f64()
+        || crate::js_semantics::finite_f64(&item["mtimeMs"])
             != Some(stat.st_mtime as f64 * 1000.0 + stat.st_mtime_nsec as f64 / 1e6)
     {
         return Err(BrokerError::Invalid("read entry changed"));
@@ -475,17 +472,9 @@ pub(crate) fn matches_bun_scope(pattern: &str, path: &str) -> Result<bool, Broke
         Instant::now() + std::time::Duration::from_secs(5),
         false,
     )?;
-    Ok(alternatives.iter().any(|alternative| {
-        glob::Pattern::new(&alternative.glob).is_ok_and(|pattern| {
-            pattern.matches_with(
-                path,
-                glob::MatchOptions {
-                    require_literal_separator: true,
-                    ..Default::default()
-                },
-            )
-        })
-    }))
+    Ok(alternatives
+        .iter()
+        .any(|alternative| pattern_reaches(alternative, Path::new(path), true, false)))
 }
 
 fn expand_braces_mode(
@@ -566,7 +555,7 @@ fn expand_braces_mode(
                 }
             }
             expanded.push(ScanPattern {
-                glob: normalize_classes(&pattern),
+                glob: pattern,
                 explicit_dot,
             });
             continue;
@@ -626,24 +615,91 @@ fn expand_braces_mode(
     Ok(expanded)
 }
 
-fn normalize_classes(input: &str) -> String {
-    let mut normalized = input.as_bytes().to_vec();
-    let mut escaped = false;
-    for index in 0..normalized.len() {
-        if escaped {
-            escaped = false;
-        } else if normalized[index] == b'\\' {
-            escaped = true;
-        } else if normalized[index] == b'[' && normalized.get(index + 1) == Some(&b'^') {
-            normalized[index + 1] = b'!';
+// Match one Bun glob component. Adjacent stars are ordinary wildcards and a
+// backslash escapes the following character, including a literal star.
+fn component_matches(pattern: &str, value: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let value: Vec<char> = value.chars().collect();
+    let mut memo = vec![vec![None; value.len() + 1]; pattern.len() + 1];
+    fn matches(
+        p: &[char],
+        v: &[char],
+        pi: usize,
+        vi: usize,
+        memo: &mut [Vec<Option<bool>>],
+    ) -> bool {
+        if let Some(result) = memo[pi][vi] {
+            return result;
         }
+        let result = if pi == p.len() {
+            vi == v.len()
+        } else {
+            match p[pi] {
+                '*' => {
+                    matches(p, v, pi + 1, vi, memo)
+                        || (vi < v.len() && matches(p, v, pi, vi + 1, memo))
+                }
+                '?' => vi < v.len() && matches(p, v, pi + 1, vi + 1, memo),
+                '\\' => {
+                    pi + 1 < p.len()
+                        && vi < v.len()
+                        && p[pi + 1] == v[vi]
+                        && matches(p, v, pi + 2, vi + 1, memo)
+                }
+                '[' => {
+                    let end = p[pi + 1..]
+                        .iter()
+                        .position(|c| *c == ']')
+                        .map(|i| pi + 1 + i);
+                    if let Some(end) = end {
+                        let start = pi + 1;
+                        let negated = matches!(p.get(start), Some('!' | '^'));
+                        let mut i = start + usize::from(negated);
+                        let mut found = false;
+                        while i < end {
+                            if i + 2 < end && p[i + 1] == '-' {
+                                found |= vi < v.len() && p[i] <= v[vi] && v[vi] <= p[i + 2];
+                                i += 3;
+                            } else {
+                                found |= vi < v.len() && p[i] == v[vi];
+                                i += 1;
+                            }
+                        }
+                        vi < v.len() && (found != negated) && matches(p, v, end + 1, vi + 1, memo)
+                    } else {
+                        vi < v.len() && v[vi] == '[' && matches(p, v, pi + 1, vi + 1, memo)
+                    }
+                }
+                literal => vi < v.len() && literal == v[vi] && matches(p, v, pi + 1, vi + 1, memo),
+            }
+        };
+        memo[pi][vi] = Some(result);
+        result
     }
-    String::from_utf8(normalized).unwrap_or_else(|_| input.to_owned())
+    matches(&pattern, &value, 0, 0, &mut memo)
 }
 
-fn pattern_reaches(pattern: &ScanPattern, path: &Path, complete: bool) -> bool {
-    let patterns: Vec<_> = pattern.glob.split('/').collect();
-    let parts: Vec<_> = path.iter().filter_map(|part| part.to_str()).collect();
+fn pattern_reaches(pattern: &ScanPattern, path: &Path, complete: bool, scan: bool) -> bool {
+    let patterns: Vec<_> = if scan {
+        pattern
+            .glob
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .collect()
+    } else {
+        pattern
+            .glob
+            .split('/')
+            .skip(usize::from(pattern.glob.starts_with('/')))
+            .collect()
+    };
+    let parts: Vec<_> = path
+        .components()
+        .filter_map(|part| match part {
+            std::path::Component::Normal(value) => value.to_str(),
+            _ => None,
+        })
+        .collect();
     fn reachable(
         patterns: &[&str],
         explicit_dot: &[bool],
@@ -651,6 +707,7 @@ fn pattern_reaches(pattern: &ScanPattern, path: &Path, complete: bool) -> bool {
         pi: usize,
         di: usize,
         complete: bool,
+        scan: bool,
     ) -> bool {
         if di == parts.len() {
             return if complete {
@@ -663,23 +720,39 @@ fn pattern_reaches(pattern: &ScanPattern, path: &Path, complete: bool) -> bool {
             return false;
         }
         if patterns[pi] == "**" {
-            return reachable(patterns, explicit_dot, parts, pi + 1, di, complete)
-                || (!parts[di].starts_with('.')
-                    && reachable(patterns, explicit_dot, parts, pi, di + 1, complete));
+            return reachable(patterns, explicit_dot, parts, pi + 1, di, complete, scan)
+                || ((!scan || !parts[di].starts_with('.'))
+                    && reachable(patterns, explicit_dot, parts, pi, di + 1, complete, scan));
         }
-        (!parts[di].starts_with('.') || explicit_dot.get(pi) == Some(&true))
-            && glob::Pattern::new(patterns[pi]).is_ok_and(|p| p.matches(parts[di]))
-            && reachable(patterns, explicit_dot, parts, pi + 1, di + 1, complete)
+        (!scan || !parts[di].starts_with('.') || explicit_dot.get(pi) == Some(&true))
+            && component_matches(patterns[pi], parts[di])
+            && reachable(
+                patterns,
+                explicit_dot,
+                parts,
+                pi + 1,
+                di + 1,
+                complete,
+                scan,
+            )
     }
-    reachable(&patterns, &pattern.explicit_dot, &parts, 0, 0, complete)
+    reachable(
+        &patterns,
+        &pattern.explicit_dot,
+        &parts,
+        0,
+        0,
+        complete,
+        scan,
+    )
 }
 
 fn may_descend(pattern: &ScanPattern, directory: &Path) -> bool {
-    pattern_reaches(pattern, directory, false)
+    pattern_reaches(pattern, directory, false, true)
 }
 
 fn matches_visible(pattern: &ScanPattern, file: &Path) -> bool {
-    pattern_reaches(pattern, file, true)
+    pattern_reaches(pattern, file, true, true)
 }
 
 fn check_root(image: &Image) -> Result<(), BrokerError> {
@@ -714,7 +787,9 @@ fn expected_identity(value: &Value, meta: &Metadata) -> bool {
     value.get("size").and_then(crate::js_semantics::safe_u64) == Some(meta.len())
         && value.get("inode").and_then(crate::js_semantics::safe_u64) == Some(meta.ino())
         && value.get("device").and_then(crate::js_semantics::safe_u64) == Some(meta.dev())
-        && value.get("mtimeMs").and_then(Value::as_f64)
+        && value
+            .get("mtimeMs")
+            .and_then(crate::js_semantics::finite_f64)
             == Some(meta.mtime() as f64 * 1000.0 + meta.mtime_nsec() as f64 / 1e6)
         && value
             .get("mode")

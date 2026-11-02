@@ -9,6 +9,16 @@ pub(crate) fn safe_u64(value: &Value) -> Option<u64> {
         .then_some(number as u64)
 }
 
+pub(crate) fn safe_i64(value: &Value) -> Option<i64> {
+    let number = value.as_f64()?;
+    (number.is_finite() && number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER)
+        .then_some(number as i64)
+}
+
+pub(crate) fn finite_f64(value: &Value) -> Option<f64> {
+    value.as_f64().filter(|number| number.is_finite())
+}
+
 pub(crate) fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
 }
