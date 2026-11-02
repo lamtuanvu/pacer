@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { Document, isMap, isScalar, isSeq, parseDocument, stringify, type Node } from "yaml";
@@ -129,7 +128,11 @@ export class StrategyDoc {
 
 /** Same-directory rename prevents readers observing a partial strategy. */
 export function atomicStrategyWrite(path: string, text: string): void {
-  privateWrite(path, text);
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, text, { flag: "wx", mode: statSync(path).mode & 0o777 });
+    renameSync(temp, path);
+  } finally { rmSync(temp, { force: true }); }
 }
 
 export function editStrategy(path: string, change: (doc: StrategyDoc) => void): { ok: true; diff: string } | { ok: false; error: string } {

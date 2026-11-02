@@ -2,6 +2,7 @@
 
 use crate::{
     doc::{StrategyDoc, parse_value},
+    js_semantics::{codepoint_len, integer, js_trim, safe_integer, utf16_len},
     write::atomic_strategy_write,
 };
 use serde_json::{Map, Value, json};
@@ -104,12 +105,12 @@ fn size(value: &Value) -> Option<f64> {
     if let Some(n) = value.as_f64() {
         return Some(n);
     }
-    let text = value.as_str()?.trim();
+    let text = js_trim(value.as_str()?);
     let cut = text
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(text.len());
     let n = decimal(&text[..cut])?;
-    let mult = match text[cut..].trim().to_ascii_lowercase().as_str() {
+    let mult = match js_trim(&text[cut..]).to_ascii_lowercase().as_str() {
         "" => 1.,
         "k" => 1e3,
         "m" => 1e6,
@@ -122,9 +123,9 @@ fn duration(value: &Value) -> Option<f64> {
     if let Some(n) = value.as_f64() {
         return Some(n);
     }
-    let text = value.as_str()?.trim();
+    let text = js_trim(value.as_str()?);
     let unit = text.chars().last()?;
-    let n = decimal(text[..text.len() - 1].trim())?;
+    let n = decimal(js_trim(&text[..text.len() - 1]))?;
     Some(
         n * match unit {
             's' => 1.,
@@ -264,18 +265,18 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
                         problems.push(format!("{loc} must be a mapping"));
                         continue;
                     }
-                    if m["id"].as_str().is_none_or(|s| s.trim().is_empty()) {
+                    if m["id"].as_str().is_none_or(|s| js_trim(s).is_empty()) {
                         problems.push(format!("{loc}.id must be non-empty"));
                     } else if !ids.insert(m["id"].as_str().unwrap_or("")) {
                         problems.push(format!("{loc}.id must be unique"));
                     }
                     if m.get("name")
-                        .is_some_and(|v| v.as_str().is_none_or(|s| s.trim().is_empty()))
+                        .is_some_and(|v| v.as_str().is_none_or(|s| js_trim(s).is_empty()))
                     {
                         problems.push(format!("{loc}.name must be non-empty"));
                     }
                     for key in ["context", "output"] {
-                        if !m[key].as_u64().is_some_and(|n| n > 0) {
+                        if !safe_integer(&m[key]).is_some_and(|n| n > 0.0) {
                             problems.push(format!("{loc}.{key} must be a positive integer"));
                         }
                     }
@@ -301,7 +302,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     }
     for key in ["home", "orca_account"] {
         if let Some(v) = value.get(key)
-            && (v.as_str().is_none_or(|s| s.trim().is_empty())
+            && (v.as_str().is_none_or(|s| js_trim(s).is_empty())
                 || !["claude", "codex"].contains(&kind.as_str()))
         {
             problems.push(format!(
@@ -440,7 +441,7 @@ fn add_runner(
     }
     if declaration
         .get("max_tasks")
-        .is_some_and(|v| v.as_u64().is_none_or(|n| !(1..=16).contains(&n)))
+        .is_some_and(|v| integer(v).is_none_or(|n| !(1.0..=16.0).contains(&n)))
     {
         problems.push(format!("runners.{reference}.max_tasks must be 1..16"));
     }
@@ -717,7 +718,10 @@ fn add_runner(
                     valid = false;
                     break;
                 }
-                let Some(mid) = m["id"].as_str().filter(|s| !s.is_empty() && s.len() <= 256) else {
+                let Some(mid) = m["id"]
+                    .as_str()
+                    .filter(|s| !s.is_empty() && codepoint_len(s) <= 256)
+                else {
                     valid = false;
                     break;
                 };
@@ -732,15 +736,17 @@ fn add_runner(
                 let strengths = m.get("strengths").cloned().unwrap_or(json!([]));
                 if strengths.as_array().is_none_or(|a| {
                     a.len() > 64
-                        || a.iter()
-                            .any(|v| v.as_str().is_none_or(|s| s.is_empty() || s.len() > 256))
+                        || a.iter().any(|v| {
+                            v.as_str()
+                                .is_none_or(|s| s.is_empty() || codepoint_len(s) > 256)
+                        })
                 }) {
                     valid = false;
                     break;
                 }
                 if m.get("tools").is_some_and(|v| !v.is_boolean())
                     || m.get("context")
-                        .is_some_and(|v| v.as_u64().is_none_or(|n| n < 1))
+                        .is_some_and(|v| safe_integer(v).is_none_or(|n| n < 1.0))
                 {
                     valid = false;
                     break;
@@ -1414,7 +1420,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     if let Some(v) = execution.get("local_max_tasks")
         && !v.is_null()
         && v != "unlimited"
-        && v.as_u64().is_none_or(|n| n < 1)
+        && safe_integer(v).is_none_or(|n| n < 1.0)
     {
         p.push(
             "execution.local_max_tasks must be a whole number of at least 1, or \"unlimited\""
@@ -1444,7 +1450,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
         p.push("execution.launch_mode must be interactive or headless".into());
     }
     let retention = raw.get("task_retention_days").cloned().unwrap_or(json!(14));
-    if retention.as_i64().is_none_or(|n| n < 0) {
+    if safe_integer(&retention).is_none_or(|n| n < 0.0) {
         p.push("task_retention_days must be a non-negative integer".into());
     }
     let plug = plugins(raw.get("plugins"), &mut p);
@@ -1469,7 +1475,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     }
     if let Some(open) = raw.get("terminal").and_then(|t| t.get("open")) {
         let value = string(open);
-        if value.len() > 2000 || value.bytes().any(|b| b < 32 || b == 127) {
+        if utf16_len(&value) > 2000 || value.bytes().any(|b| b < 32 || b == 127) {
             return Err(StrategyError::Other("invalid terminal.open".into()));
         }
         if !value.is_empty()
@@ -1499,7 +1505,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
 pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
     let active = home.join("active");
     let name = if active.exists() {
-        fs::read_to_string(active)?.trim().to_owned()
+        js_trim(&fs::read_to_string(active)?).to_owned()
     } else {
         String::new()
     };

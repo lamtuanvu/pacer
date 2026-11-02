@@ -4,10 +4,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
-### Security
-
-- Harden TypeScript strategy and project policy state, activity logs, and private integration writes with 0600 files and 0700 directories; use atomic replacement for rewritten state and validated O_APPEND for logs.
-
 ### Added
 
 - Rust strategy activation and removal library effects, with atomic activation and restrictive 0700 home and 0600 active-file modes. The TypeScript runtime is unchanged.

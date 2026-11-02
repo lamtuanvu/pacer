@@ -1,4 +1,3 @@
-import { privateDir, privateWrite } from "../private-file";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -57,14 +56,18 @@ export async function projectMessagingWrite(ctx: Ctx, repo: string, expectRev: n
     throw new CoreError("invalid_input", "Invalid project messaging revision or repository");
   if (value && !entrySchema.omit({ rev: true }).safeParse(value).success)
     throw new CoreError("invalid_input", "Invalid project messaging policy");
-  privateDir(ctx.pacerHome);
+  mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
   return withLock(ctx, "project-messaging", async () => {
     const { data, error } = readProjectMessaging(ctx);
     if (error) throw new CoreError("invalid_input", error, "Repair project-messaging.json before changing it.");
     const actual = Object.hasOwn(data.projects, repo) ? data.projects[repo]!.rev : 0;
     if (actual !== expectRev) throw new CoreError("conflict", "Project messaging changed in another client", "Reload the policy and review your changes.", { expected: expectRev, actual });
     data.projects[repo] = { rev: actual + 1, ...(value ?? { rules: [] }) };
-    privateWrite(path(ctx), JSON.stringify(data, null, 2) + "\n");
+    const target = path(ctx), temp = `${target}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(temp, JSON.stringify(data, null, 2) + "\n", { flag: "wx", mode: 0o600 });
+      renameSync(temp, target);
+    } finally { rmSync(temp, { force: true }); }
     return projectMessagingGet(ctx, repo);
   });
 }
