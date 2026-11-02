@@ -81,6 +81,25 @@ const validationCases = [
   { name: "report_limit", field: "until", raw: "1e2", accepted: true },
   { name: "report_limit", field: "until", raw: "1e400", accepted: false },
   { name: "delegate", field: "requestId", value: "😀".repeat(129), accepted: true },
+  ...([
+    ["requirements.context", 1, 9007199254740991],
+    ["messaging.max_turns", 1, 10000],
+    ["messaging.liveness.interval_s", 10, 9007199254740991],
+    ["messaging.liveness.max_nudges", 0, 9007199254740991],
+    ["messaging.liveness.escalate_after_s", 10, 9007199254740991],
+    ["messaging.rules[].limits.per_minute", 1, 9007199254740991],
+    ["messaging.rules[].limits.max_bytes", 1, 1048576],
+  ] as const).flatMap(([path, min, max]) => {
+    const wrap = (number: string) => {
+      const leaf = path.split(".").at(-1)!;
+      if (path.startsWith("requirements")) return `{"context":${number}}`;
+      if (path.includes("rules[]")) return `{"rules":[{"effect":"allow","limits":{"${leaf}":${number}}}]}`;
+      if (path.includes("liveness")) return `{"liveness":{"${leaf}":${number}}}`;
+      return `{"max_turns":${number}}`;
+    };
+    return [[`${min}.0`, true], ["1e2", true], ["10.5", false], [String(min - 1), false], [String(max), true], [String(max + 1), false]]
+      .map(([value, accepted]) => ({ name: path.startsWith("requirements") ? "dispatch_preview" : "delegate", field: path.startsWith("requirements") ? "requirements" : "messaging", raw: wrap(String(value)), accepted: Boolean(accepted), numericPath: path }));
+  }),
   { name: "delegate", field: "title", value: "😀".repeat(61), accepted: true, grantOnly: true },
   ...["\uFEFF", "\u2028", "\u2029", "\u00A0", "\u1680", ...Array.from({length:11}, (_, i) => String.fromCodePoint(0x2000 + i)), "\u202F", "\u205F", "\u3000"].flatMap(space => [
     { name: "task_request_review", field: "note", value: space, accepted: false },
@@ -92,6 +111,7 @@ const validationCases = [
 function validationArgs(name: string): Record<string, unknown> {
   switch (name) {
     case "delegate": return { goal: "g", requestId: "r", repo: "relative" };
+    case "dispatch_preview": return { goal: "g", repo: "relative" };
     case "msg_wait": return {};
     case "task_wait": return { task_id: "missing" };
     case "task_review": return { task_id: "missing", accepted: true, expect_rev: 1 };
@@ -146,6 +166,7 @@ async function rawValidation(env: Record<string, string>, cases: readonly (typeo
       const result = reply.result as ToolResult | undefined;
       const message = (result?.content as Array<{type:string;text?:string}> | undefined)?.find(part => part.type === "text")?.text ?? "";
       const validationError = reply.error?.code === -32602 || message.includes("Input validation error");
+      if (validationError === row.accepted) throw new Error(`Unexpected validation for ${row.name}.${row.field}: ${raw}; ${message}`);
       if (row.accepted) {
         expect(validationError).toBe(false);
         if (result?.isError) expect(message).toMatch(/unknown task|Unknown managed work|Scoped request failed|forbidden|repo must|not available|not found|Message body is empty|Invalid participant|cannot|[Aa]nswer must contain|Feedback must contain|review request needs|Invalid task|not_allowed|Unknown task|Invalid message|no strategy found|unknown provider|unknown kind|Cannot resolve the parent worktree commit|outside the delegated subtree|requestId: Too big/);
@@ -238,12 +259,20 @@ async function capture(mode: "planner" | "grant") {
       } });
     }
     const validation = await rawValidation(env, validationCases.filter(row =>
-      mode === "planner" ? !("grantOnly" in row) && ["task_send", "task_answer", "task_request_review", "task_review", "task_wait", "work_answer", "work_retry", "msg_wait", "report_limit", "msg_send", "msg_read", "delegate"].includes(row.name) && row.field !== "requestId"
-        : !["task_send", "task_answer", "task_request_review", "report_limit"].includes(row.name) && !(row.name === "delegate" && !["acceptance_timeout_min", "requestId"].includes(row.field) && !(row.field === "title" && "grantOnly" in row))));
-    const numericFields = tools.flatMap(tool => Object.entries(tool.inputSchema.properties ?? {})
-      .filter(([, schema]) => schema && typeof schema === "object" && "type" in schema && ["number", "integer"].includes(String(schema.type)))
-      .map(([field]) => `${tool.name}.${field}`)).sort();
-    expect([...new Set(validation.map(row => `${row.name}.${row.field}`))].filter(key => numericFields.includes(key)).sort()).toEqual(numericFields);
+      mode === "planner" ? !("grantOnly" in row) && ["task_send", "task_answer", "task_request_review", "task_review", "task_wait", "work_answer", "work_retry", "msg_wait", "report_limit", "msg_send", "msg_read", "delegate", "dispatch_preview"].includes(row.name) && row.field !== "requestId"
+        : !["task_send", "task_answer", "task_request_review", "report_limit", "dispatch_preview"].includes(row.name) && !(row.name === "delegate" && !["acceptance_timeout_min", "requestId"].includes(row.field) && !(row.field === "title" && "grantOnly" in row))));
+    function numericPaths(schema: any, path = ""): string[] {
+      if (!schema || typeof schema !== "object") return [];
+      if (["number", "integer"].includes(schema.type)) return [path];
+      return [
+        ...Object.entries(schema.properties ?? {}).flatMap(([key, child]) => numericPaths(child, path ? `${path}.${key}` : key)),
+        ...numericPaths(schema.items, `${path}[]`),
+        ...(schema.anyOf ?? []).flatMap((child: unknown) => numericPaths(child, path)),
+      ];
+    }
+    const numericFields = tools.flatMap(tool => numericPaths(tool.inputSchema).map(path => `${tool.name}.${path}`)).sort();
+    const covered = validationCases.map(row => `${row.name}.${"numericPath" in row ? row.numericPath : row.field}`);
+    expect([...new Set(covered)].filter(key => numericFields.includes(key)).sort()).toEqual(numericFields);
     const homePattern = new RegExp(`t-[A-Za-z0-9]{6}`, "g");
     const normalize = (value: unknown): any => {
       if (typeof value === "string") return value.replaceAll(realpathSync(home), "$HOME").replaceAll(home, "$HOME")

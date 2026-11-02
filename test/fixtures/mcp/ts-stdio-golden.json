@@ -2380,6 +2380,435 @@
         }
       },
       {
+        "name": "dispatch_preview",
+        "field": "requirements",
+        "input": "{\"context\":1.0}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"repo must be an absolute path or a registered repo key\"\n}",
+          "structuredContent": {
+            "error": "repo must be an absolute path or a registered repo key"
+          }
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "requirements",
+        "input": "{\"context\":1e2}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"repo must be an absolute path or a registered repo key\"\n}",
+          "structuredContent": {
+            "error": "repo must be an absolute path or a registered repo key"
+          }
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "requirements",
+        "input": "{\"context\":10.5}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Invalid input: expected int, received number at requirements.context"
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "requirements",
+        "input": "{\"context\":0}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Too small: expected number to be >0 at requirements.context"
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "requirements",
+        "input": "{\"context\":9007199254740991}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"repo must be an absolute path or a registered repo key\"\n}",
+          "structuredContent": {
+            "error": "repo must be an absolute path or a registered repo key"
+          }
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "field": "requirements",
+        "input": "{\"context\":9007199254740992}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool dispatch_preview: Too big: expected int to be <=9007199254740991 at requirements.context"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"max_turns\":1.0}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"max_turns\":1e2}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"max_turns\":10.5}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at messaging.max_turns"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"max_turns\":0}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected number to be >0 at messaging.max_turns"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"max_turns\":10000}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"max_turns\":10001}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected number to be <=10000 at messaging.max_turns"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"interval_s\":10.0}}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"interval_s\":1e2}}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"interval_s\":10.5}}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at messaging.liveness.interval_s"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"interval_s\":9}}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected number to be >=10 at messaging.liveness.interval_s"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"interval_s\":9007199254740991}}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"interval_s\":9007199254740992}}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected int to be <=9007199254740991 at messaging.liveness.interval_s"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"max_nudges\":0.0}}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"max_nudges\":1e2}}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"max_nudges\":10.5}}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at messaging.liveness.max_nudges"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"max_nudges\":-1}}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected number to be >=0 at messaging.liveness.max_nudges"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"max_nudges\":9007199254740991}}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"max_nudges\":9007199254740992}}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected int to be <=9007199254740991 at messaging.liveness.max_nudges"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"escalate_after_s\":10.0}}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"escalate_after_s\":1e2}}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"escalate_after_s\":10.5}}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at messaging.liveness.escalate_after"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"escalate_after_s\":9}}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected number to be >=10 at messaging.liveness.escalate_after_s"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"escalate_after_s\":9007199254740991}}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"liveness\":{\"escalate_after_s\":9007199254740992}}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected int to be <=9007199254740991 at messaging.liveness.escalate_aft"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"per_minute\":1.0}}]}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"per_minute\":1e2}}]}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"per_minute\":10.5}}]}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at messaging.rules[0].limits.per_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"per_minute\":0}}]}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected number to be >0 at messaging.rules[0].limits.per_minute"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"per_minute\":9007199254740991}}]}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"per_minute\":9007199254740992}}]}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected int to be <=9007199254740991 at messaging.rules[0].limits.per_m"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"max_bytes\":1.0}}]}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"max_bytes\":1e2}}]}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"max_bytes\":10.5}}]}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at messaging.rules[0].limits.max_byt"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"max_bytes\":0}}]}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected number to be >0 at messaging.rules[0].limits.max_bytes"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"max_bytes\":1048576}}]}",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "messaging",
+        "input": "{\"rules\":[{\"effect\":\"allow\",\"limits\":{\"max_bytes\":1048577}}]}",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected number to be <=1048576 at messaging.rules[0].limits.max_bytes"
+        }
+      },
+      {
         "name": "task_request_review",
         "field": "note",
         "input": {
