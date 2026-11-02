@@ -13,8 +13,9 @@ test-ops = ["pacer-server/test-ops"]
 serde_json = { workspace = true, features = ["arbitrary_precision", "raw_value"] }
 thiserror.workspace = true
 pacer-foundation = { path = "../foundation" }
-ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
+ureq = { version = "3.4.2", default-features = false, features = ["rustls", "gzip", "brotli"] }
 sha2 = "0.10"
+flate2 = "1"
 url = "2"
 tokio.workspace = true
 jiff = "0.2.38"

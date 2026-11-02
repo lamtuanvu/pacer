@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:f
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync, brotliCompressSync, deflateSync } from "node:zlib";
 
 const front = process.env.PACER_TEST_FRONT_DOOR;
 const cli = join(import.meta.dir, "../src/cli.ts");
@@ -26,6 +27,7 @@ test.skipIf(!front)("strict executor guard has byte-exact TS frames and exit cod
       { planner: "codex", stdin: '{"tool_name":"bash"}', expected: denial("codex") },
       { planner: "codex", stdin: "{}", expected: denial("codex"), emptyMarkers: true },
       { planner: "claude-code", stdin: '{"tool_name":"Bash"}', expected: "" },
+      { planner: "codex", stdin: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('{"tool_name":"Bash"}')]), expected: "" },
       ...['"\\ud800"', '1e400', '-1e400', '{"nested":["\\udfff",1e400]}', '{"$serde_json::private::Number":0}'].map(value =>
         ({ planner: "claude-code", stdin: `{"tool_name":"Bash","other":${value}}`, expected: "" })),
       { planner: "claude-code", stdin: Buffer.concat([Buffer.from('{"tool_name":"Bash","other":"'), Buffer.from([0xff]), Buffer.from('"}')]), expected: "" },
@@ -330,3 +332,42 @@ test.skipIf(!front)("seeded redirect limits and cross-origin authorization match
     }
   } finally {await new Promise<void>(resolve=>server.close(()=>resolve()));await new Promise<void>(resolve=>destination.close(()=>resolve()));rmSync(root,{recursive:true,force:true});}
 }, 30000);
+
+
+test.skipIf(!front)("fetch response byte decoding matches the native guard", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pacer-guard-decoding-"));
+  const cases = [
+    { name: "BOM", body: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("{}")]) },
+    { name: "invalid UTF-8", body: Buffer.concat([Buffer.from('{"x":"'), Buffer.from([255]), Buffer.from('"}')]) },
+    { name: "gzip", body: gzipSync("{}"), encoding: "gzip" },
+    { name: "brotli", body: brotliCompressSync("{}"), encoding: "br" },
+    { name: "deflate", body: deflateSync("{}"), encoding: "deflate" },
+    { name: "large", body: Buffer.from('"' + "a".repeat(11 * 1024 * 1024) + '"') },
+    { name: "ignored charset", body: Buffer.from('{"x":"é"}') },
+  ];
+  let current = cases[0]!;
+  const server = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json; charset=iso-8859-1");
+    if (current.encoding) res.setHeader("content-encoding", current.encoding);
+    res.end(current.body);
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw Error("no test port");
+    for (const [index, item] of cases.entries()) {
+      current = item;
+      for (const [runtime, argv] of [["ts", [process.execPath, cli]], ["rust", [front!]]] as const) {
+        const home = join(root, `${index}-${runtime}`); mkdirSync(home);
+        const env = { ...process.env, HOME: home, PACER_HOME: join(home, ".pacer"), PACER_ROLE: "executor",
+          PACER_ENFORCEMENT_MODE: "strict", PACER_ENFORCEMENT_TOKEN: `pet_${"0".repeat(64)}`,
+          PACER_PORT: String(address.port), PACER_GUARD_FAILURE_MARKER: join(home, "failed"),
+          PACER_CORE_ARGV: JSON.stringify([process.execPath, cli]), PACER_NO_SELF_REPAIR: "1" };
+        const child = Bun.spawn([...argv, "guard", "--planner", "codex"], { env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+        await child.stdin.write('{}'); await child.stdin.end();
+        const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+        expect([code, stdout, stderr, existsSync(env.PACER_GUARD_FAILURE_MARKER)], `${item.name} ${runtime}`).toEqual([0, denial("codex"), "", false]);
+      }
+    }
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); rmSync(root, { recursive: true, force: true }); }
+}, 120000);

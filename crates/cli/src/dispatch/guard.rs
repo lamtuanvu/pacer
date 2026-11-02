@@ -116,7 +116,7 @@ fn read_hook_stdin() -> String {
         let mut input = Vec::new();
         let result = std::io::stdin()
             .read_to_end(&mut input)
-            .map(|_| String::from_utf8_lossy(&input).into_owned());
+            .map(|_| decode_utf8(&input));
         let _ = send.send(result);
     });
     receive
@@ -124,6 +124,12 @@ fn read_hook_stdin() -> String {
         .ok()
         .and_then(Result::ok)
         .unwrap_or_default()
+}
+
+// Fetch and Bun stdin.text decode as UTF-8 with replacement and discard one BOM.
+fn decode_utf8(bytes: &[u8]) -> String {
+    let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 fn write_marker(path: &str, contents: &str) {
@@ -236,12 +242,23 @@ fn report_denial(env: &std::collections::HashMap<String, String>, planner: &str)
             url = next;
             continue;
         }
-        return response.status().is_success()
-            && response
-                .body_mut()
-                .read_to_string()
-                .ok()
-                .is_some_and(|body| parse_js_json(&body).is_ok_and(|value| !value.is_null));
+        if !response.status().is_success() {
+            return false;
+        }
+        let deflate = response
+            .headers()
+            .get("content-encoding")
+            .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"deflate"));
+        let mut bytes = Vec::new();
+        let body = response.body_mut().with_config();
+        let mut reader = body.reader();
+        let read = if deflate {
+            flate2::read::ZlibDecoder::new(reader).read_to_end(&mut bytes)
+        } else {
+            reader.read_to_end(&mut bytes)
+        };
+        return read.is_ok()
+            && parse_js_json(&decode_utf8(&bytes)).is_ok_and(|value| !value.is_null);
     }
     false
 }
