@@ -11,13 +11,14 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError},
 };
-use pacer_store::TaskStore;
+use pacer_store::TaskLogReader;
 use serde_json::Value;
 use std::{
     collections::VecDeque,
     fs::File,
     io::{self, Read, Seek, SeekFrom},
     path::Path,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -82,9 +83,7 @@ fn read_file(path: Option<&Path>, offset: &mut u64) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes[..len]).into_owned())
 }
 
-fn read_chunk(ctx: &Ctx, id: &str, offsets: &mut Offsets) -> Result<Chunk, CoreError> {
-    let mut store = TaskStore::open(&ctx.pacer_home)
-        .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+fn read_chunk(store: &TaskLogReader, id: &str, offsets: &mut Offsets) -> Result<Chunk, CoreError> {
     let task = store
         .read(id)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?
@@ -125,23 +124,23 @@ fn read_chunk(ctx: &Ctx, id: &str, offsets: &mut Offsets) -> Result<Chunk, CoreE
 }
 
 fn poll(
-    ctx: &Ctx,
+    store: &TaskLogReader,
     id: &str,
     offsets: &mut Offsets,
     frames: &mut VecDeque<String>,
 ) -> Result<bool, CoreError> {
-    poll_limit(ctx, id, offsets, frames, 4)
+    poll_limit(store, id, offsets, frames, 4)
 }
 
 fn poll_limit(
-    ctx: &Ctx,
+    store: &TaskLogReader,
     id: &str,
     offsets: &mut Offsets,
     frames: &mut VecDeque<String>,
     limit: usize,
 ) -> Result<bool, CoreError> {
     for _ in 0..limit {
-        let chunk = read_chunk(ctx, id, offsets)?;
+        let chunk = read_chunk(store, id, offsets)?;
         let empty = chunk.stdout.is_empty() && chunk.stderr.is_empty();
         if !empty {
             frames.push_back(log_frame(&chunk.stdout, &chunk.stderr));
@@ -163,7 +162,12 @@ pub async fn follow(ctx: Ctx, id: String) -> Response {
     let initial = match tokio::task::spawn_blocking({
         let ctx = ctx.clone();
         let id = id.clone();
-        move || read_chunk(&ctx, &id, &mut offsets).map(|chunk| (chunk, offsets))
+        move || {
+            let store = TaskLogReader::open(&ctx.pacer_home)
+                .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+            let chunk = read_chunk(&store, &id, &mut offsets)?;
+            Ok::<_, CoreError>((chunk, offsets, Arc::new(Mutex::new(store))))
+        }
     })
     .await
     {
@@ -171,7 +175,7 @@ pub async fn follow(ctx: Ctx, id: String) -> Response {
         Ok(Err(error)) => return native_error(error),
         Err(error) => return native_error(CoreError::new(Code::Internal, error.to_string())),
     };
-    let (first, mut offsets) = initial;
+    let (first, mut offsets, store) = initial;
     let mut frames = VecDeque::from([": connected\n\n".to_owned()]);
     if !first.stdout.is_empty() || !first.stderr.is_empty() {
         frames.push_back(log_frame(&first.stdout, &first.stderr));
@@ -181,12 +185,15 @@ pub async fn follow(ctx: Ctx, id: String) -> Response {
         frames.push_back("event: done\ndata: {}\n\n".to_owned());
     } else if first.done {
         done = match tokio::task::spawn_blocking({
-            let ctx = ctx.clone();
+            let store = Arc::clone(&store);
             let id = id.clone();
             move || {
+                let store = store
+                    .lock()
+                    .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
                 let mut next_offsets = offsets;
                 let mut next_frames = VecDeque::new();
-                poll_limit(&ctx, &id, &mut next_offsets, &mut next_frames, 3)
+                poll_limit(&store, &id, &mut next_offsets, &mut next_frames, 3)
                     .map(|ended| (next_offsets, next_frames, ended))
             }
         })
@@ -202,13 +209,20 @@ pub async fn follow(ctx: Ctx, id: String) -> Response {
         };
     }
     let source = stream::unfold(
-        (ctx, id, offsets, frames, done, tokio::time::Instant::now()),
-        |(ctx, id, mut offsets, mut frames, mut done, mut keepalive)| async move {
+        (
+            store,
+            id,
+            offsets,
+            frames,
+            done,
+            tokio::time::Instant::now(),
+        ),
+        |(store, id, mut offsets, mut frames, mut done, mut keepalive)| async move {
             loop {
                 if let Some(frame) = frames.pop_front() {
                     return Some((
                         Ok::<Bytes, io::Error>(Bytes::from(frame)),
-                        (ctx, id, offsets, frames, done, keepalive),
+                        (store, id, offsets, frames, done, keepalive),
                     ));
                 }
                 if done {
@@ -216,11 +230,14 @@ pub async fn follow(ctx: Ctx, id: String) -> Response {
                 }
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 let result = tokio::task::spawn_blocking({
-                    let ctx = ctx.clone();
+                    let reader = Arc::clone(&store);
                     let id = id.clone();
                     move || {
                         let mut output = VecDeque::new();
-                        let ended = poll(&ctx, &id, &mut offsets, &mut output);
+                        let ended = reader
+                            .lock()
+                            .map_err(|error| CoreError::new(Code::Internal, error.to_string()))
+                            .and_then(|reader| poll(&reader, &id, &mut offsets, &mut output));
                         (offsets, output, ended)
                     }
                 })
@@ -234,13 +251,13 @@ pub async fn follow(ctx: Ctx, id: String) -> Response {
                     Ok((_, _, Err(error))) => {
                         return Some((
                             Err(io::Error::other(error)),
-                            (ctx, id, offsets, frames, true, keepalive),
+                            (store, id, offsets, frames, true, keepalive),
                         ));
                     }
                     Err(error) => {
                         return Some((
                             Err(io::Error::other(error)),
-                            (ctx, id, offsets, frames, true, keepalive),
+                            (store, id, offsets, frames, true, keepalive),
                         ));
                     }
                 }
@@ -267,6 +284,7 @@ pub async fn follow(ctx: Ctx, id: String) -> Response {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    use pacer_store::TaskStore;
     use serde_json::json;
     const ID: &str = "t-20261101-184223-ea3b";
 
@@ -352,7 +370,13 @@ mod tests {
         for (value, expected) in VALUES.iter().zip(expected) {
             std::fs::write(run.join("exit"), value).unwrap();
             assert_eq!(
-                read_chunk(&ctx, ID, &mut Offsets::default()).unwrap().done,
+                read_chunk(
+                    &TaskLogReader::open(&ctx.pacer_home).unwrap(),
+                    ID,
+                    &mut Offsets::default()
+                )
+                .unwrap()
+                .done,
                 expected,
                 "{value:?}"
             );
@@ -375,14 +399,30 @@ mod tests {
         );
         let mut offsets = Offsets::default();
         let mut frames = VecDeque::new();
-        assert!(!poll(&ctx, ID, &mut offsets, &mut frames).unwrap());
+        assert!(
+            !poll(
+                &TaskLogReader::open(&ctx.pacer_home).unwrap(),
+                ID,
+                &mut offsets,
+                &mut frames
+            )
+            .unwrap()
+        );
         assert_eq!(
             frames.pop_front().unwrap(),
             "event: log\ndata: {\"stdout\":\"first\\n\",\"stderr\":\"\"}\n\n"
         );
         std::fs::write(run.join("stdout"), "first\nsecond\n").unwrap();
         std::fs::write(run.join("exit"), "0").unwrap();
-        assert!(poll(&ctx, ID, &mut offsets, &mut frames).unwrap());
+        assert!(
+            poll(
+                &TaskLogReader::open(&ctx.pacer_home).unwrap(),
+                ID,
+                &mut offsets,
+                &mut frames
+            )
+            .unwrap()
+        );
         assert!(frames.pop_front().unwrap().contains("second\\n"));
         assert_eq!(frames.pop_front().unwrap(), "event: done\ndata: {}\n\n");
     }

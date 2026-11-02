@@ -12,4 +12,6 @@ pub use activity::{
 pub use outbox::{append_outbox, read_latest, read_outbox_since, reduce};
 pub use publish::{PublishReport, publish, publish_config_change};
 pub use retention::{PruneResult, PrunedTask};
-pub use task::{StoreError, TaskFilter, TaskStore, is_task_id, retention_eligible, settled_at};
+pub use task::{
+    StoreError, TaskFilter, TaskLogReader, TaskStore, is_task_id, retention_eligible, settled_at,
+};

@@ -3,7 +3,7 @@ use pacer_foundation::{
     lock::{LockError, LockOptions, with_lock},
 };
 use rusqlite::{
-    Connection, OptionalExtension, TransactionBehavior, params, params_from_iter,
+    Connection, OpenFlags, OptionalExtension, TransactionBehavior, params, params_from_iter,
     types::Value as SqlValue,
 };
 use serde_json::{Value, json};
@@ -263,6 +263,43 @@ pub(crate) fn archive_month(seconds: f64) -> Result<String> {
         return Err(StoreError::InvalidRecord);
     }
     Ok(format!("{year:04}-{m:02}"))
+}
+
+/// Read task records without initializing or modifying the task store.
+pub struct TaskLogReader {
+    db: Connection,
+}
+
+impl TaskLogReader {
+    pub fn open(home: impl AsRef<Path>) -> Result<Self> {
+        use std::os::unix::fs::MetadataExt;
+        let path = home.as_ref().join("state/tasks.db");
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.file_type().is_file()
+            || metadata.nlink() != 1
+            || metadata.uid() != rustix::process::geteuid().as_raw()
+        {
+            return Err(
+                io::Error::new(io::ErrorKind::PermissionDenied, "unsafe task database").into(),
+            );
+        }
+        let db = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        db.busy_timeout(Duration::from_millis(5000))?;
+        Ok(Self { db })
+    }
+
+    pub fn read(&self, id: &str) -> Result<Option<Value>> {
+        if !is_task_id(id) {
+            return Ok(None);
+        }
+        self.db
+            .query_row("SELECT record FROM tasks WHERE id=?", [id], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()?
+            .map(|s| parse_record(&s))
+            .transpose()
+    }
 }
 
 pub struct TaskStore {

@@ -1266,6 +1266,7 @@ dependencies = [
  "rand",
  "regex",
  "rusqlite",
+ "rustix",
  "serde_json",
  "tempfile",
  "thiserror",
