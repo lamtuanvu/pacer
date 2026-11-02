@@ -1,3 +1,4 @@
+import { privateAppend, privateDir, privateWrite } from "../private-file";
 import { publish } from "../link/publish";
 import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, closeSync, fchmodSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -31,8 +32,7 @@ const RETENTION_S = 30 * 86400;
 // The public append API is synchronous. Serialize its single write with rotation
 // across CLI/service processes so replacing the log cannot discard an append.
 function withLogLock<T>(ctx: Ctx, action: () => T): T {
-  mkdirSync(stateDir(ctx), { recursive: true, mode: 0o700 });
-  chmodSync(stateDir(ctx), 0o700);
+  privateDir(stateDir(ctx));
   const lock = join(stateDir(ctx), "activity.lock"), deadline = Date.now() + 10_000;
   const sleep = new Int32Array(new SharedArrayBuffer(4));
   for (;;) {
@@ -81,11 +81,7 @@ function entries(ctx: Ctx, maxBytes?: number): ActivityEntry[] {
 export function appendActivity(ctx: Ctx, e: Omit<ActivityEntry, "id" | "at">, onAppend: (entry: ActivityEntry) => void = () => {}): ActivityEntry {
   const machineId = cachedMachineId(ctx);
   const entry: ActivityEntry = { ...e, text: safeText(e.text), id: `${ctx.now}-${randomBytes(2).toString("hex")}`, at: ctx.now, ...(machineId ? { machineId } : {}) };
-  withLogLock(ctx, () => {
-    const fd = openSync(logPath(ctx), "a", 0o600);
-    try { fchmodSync(fd, 0o600); writeFileSync(fd, JSON.stringify(entry) + "\n"); }
-    finally { closeSync(fd); }
-  });
+  withLogLock(ctx, () => privateAppend(logPath(ctx), JSON.stringify(entry) + "\n"));
   void publish(ctx, [{ type: "entity", data: { kind: "activity", id: entry.id, value: entry } }]);
   onAppend(entry);
   return entry;
@@ -109,10 +105,8 @@ export function rotateActivity(ctx: Ctx): void {
     const marker = join(stateDir(ctx), "activity-rotation.json"), last = readJson<number>(marker);
     if (typeof last === "number" && ctx.now - last < 86400) return;
     const kept = entries(ctx).filter(e => e.at >= ctx.now - RETENTION_S).slice(-20_000);
-    const tmp = `${logPath(ctx)}.${process.pid}.${randomUUID()}.tmp`;
-    const fd = openSync(tmp, "wx", 0o600);
-    try { writeFileSync(fd, kept.map(e => JSON.stringify(e) + "\n").join("")); closeSync(fd); renameSync(tmp, logPath(ctx)); }
-    catch(error) { try { closeSync(fd); } catch { /* already closed */ } unlinkSync(tmp); throw error; }
+    privateDir(stateDir(ctx));
+    privateWrite(logPath(ctx), kept.map(e => JSON.stringify(e) + "\n").join(""));
     writeJsonAtomic(marker, ctx.now);
   });
 }

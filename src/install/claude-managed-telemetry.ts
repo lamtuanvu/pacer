@@ -1,3 +1,4 @@
+import { privateWrite } from "../private-file";
 import { existsSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join, resolve } from "node:path";
@@ -24,12 +25,6 @@ export function ensureManagedClaudeStatusLine(ctx: Ctx, account: AccountCfg): bo
   }
   if (!isObj(settings) || settings.statusLine !== undefined) return false;
   const next = {...settings, statusLine: {type: "command", command: `${shellCommand([binary])} statusline`}};
-  const temp = `${path}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, {flag: "wx", mode: 0o600});
-    renameSync(temp, path);
-  } finally {
-    try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  }
+  privateWrite(path, `${JSON.stringify(next, null, 2)}\n`);
   return true;
 }
