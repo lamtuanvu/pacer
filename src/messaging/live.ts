@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
@@ -81,8 +80,11 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
   try {
     let body = renderTurnPrompt(ctx, t, messages, { live: true });
     if (Buffer.byteLength(body) > INLINE_BYTES) {
+      mkdirSync(run.dir, { recursive: true, mode: 0o700 });
       const path = join(run.dir, `messages-${turnId.replace(/[^A-Za-z0-9.-]/g, "_")}.md`);
-      privateWrite(path, body);
+      const temporary = `${path}.${randomUUID()}.tmp`;
+      try { writeFileSync(temporary, body, { flag: "wx", mode: 0o600 }); renameSync(temporary, path); }
+      catch (e) { rmSync(temporary, { force: true }); throw e; }
       body = `Read the new messages in ${JSON.stringify(path)} and respond to them.`;
     }
     const typed = await typeIntoSession(sessionSocket(run.dir), body, deps, () => stillBetweenTurns(ctx, t.id, run, deps));

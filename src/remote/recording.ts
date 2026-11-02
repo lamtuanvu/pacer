@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Recording } from "../session/recording";
@@ -103,7 +102,7 @@ export class RemoteRecording {
     let saved: MirrorState | undefined;
     try { saved = JSON.parse(readFileSync(join(dir,"session.remote.json"),"utf8")); } catch { /* first observation */ }
     this.mask = new ResumableMasker(sessionSecrets(ctx.env, ctx.pacerHome));
-    if (!saved) privateWrite(join(dir,"stdout"), "");
+    if (!saved) writeFileSync(join(dir,"stdout"),"",{mode:0o600});
     const recording = this.recording = new Recording(dir, {capBytes});
     this.ready = (async()=>{
       if (!saved) return;
@@ -121,7 +120,7 @@ export class RemoteRecording {
       await Screen.prototype.output.call(recording,Buffer.from(saved.snapshot.scrollbackAnsi+saved.snapshot.screenAnsi));
       recording.generation=saved.snapshot.generation;
       recording.outputOffset=saved.snapshot.outputOffset;
-      privateWrite(join(dir,"session.log"), encodeHeader({cols:saved.snapshot.cols,rows:saved.snapshot.rows,startedAt:Date.now()/1000,generation:saved.snapshot.generation,outputOffset:saved.snapshot.outputOffset}));
+      writeFileSync(join(dir,"session.log"),encodeHeader({cols:saved.snapshot.cols,rows:saved.snapshot.rows,startedAt:Date.now()/1000,generation:saved.snapshot.generation,outputOffset:saved.snapshot.outputOffset}),{mode:0o600});
       recording.checkpoint();
       if (saved.closed) await recording.close();
     })();
@@ -163,7 +162,7 @@ export class RemoteRecording {
       header:this.raw.header, snapshot:this.recording.snapshot(),line:this.line.toString("base64"),closed:this.closed,terminal:this.terminal.toString("base64"),
     };
     const path=join(this.dir,"session.remote.json");
-    privateWrite(path, JSON.stringify(state));
+    writeFileSync(`${path}.tmp`,JSON.stringify(state),{mode:0o600});renameSync(`${path}.tmp`,path);
   }
   async output(bytes: Uint8Array): Promise<Buffer> {
     await this.ready;

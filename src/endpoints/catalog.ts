@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -46,7 +45,10 @@ export function readCachedCatalog(ctx: Ctx): Catalog | null {
   } catch { return null; }
 }
 function writeCache(ctx: Ctx, providers: Record<string, CatalogProvider>) {
-  privateWrite(cachePath(ctx), JSON.stringify({ fetchedAt: ctx.now, providers }));
+  const path = cachePath(ctx), temp = `${path}.${randomUUID()}.tmp`;
+  mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true, mode: 0o700 });
+  try { writeFileSync(temp, JSON.stringify({ fetchedAt: ctx.now, providers }), { flag: "wx", mode: 0o600 }); renameSync(temp, path); }
+  finally { rmSync(temp, { force: true }); }
 }
 export async function loadCatalog(ctx: Ctx, deps: { fetch?: typeof fetch } = {}): Promise<Catalog | null> {
   const cached = readCachedCatalog(ctx);

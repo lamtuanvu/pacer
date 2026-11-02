@@ -1,4 +1,3 @@
-import { privateAppend, privateWrite } from "../private-file";
 import { materializeAgentReporting } from "../session/agent-reporting";
 import { ensureProviderIntegration } from "../core/integrations";
 import { advertiseHandover, commitHandoverIfRequested, withAttemptWork, withdrawHandover } from "../tasks/handover";
@@ -249,10 +248,16 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
       const raw = readOutput(run.dir).stdout;
       // The stream is about to be replaced by its result text; keep its numeric usage for token accounting.
       const usage = reduceClaudeStream(raw);
-      if (usage) privateWrite(join(run.dir, USAGE_FILE), usage);
+      if (usage) { const file = join(run.dir, USAGE_FILE); rmSync(file, {force: true}); writeFileSync(file, usage, {flag: "wx", mode: 0o600}); }
       const result = claudeResultFromStream(raw);
       if (result !== null) {
-        privateWrite(path, `${result}\n`);
+        const temp = `${path}.${randomUUID()}.tmp`;
+        try {
+          writeFileSync(temp, `${result}\n`, {flag: "wx", mode: 0o600});
+          renameSync(temp, path);
+        } finally {
+          try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        }
       }
     } catch { /* Keep the original output and task outcome when telemetry is unavailable. */ }
   }
@@ -265,11 +270,11 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
     try {
       const grant = issueConfiguredHostReadFrom(ctx, host.alias, run.remoteDir!, run.dir, "last.md", 0, 262_144);
       const last = await pluginRegistry(ctx).readFromConfiguredHost(ctx, grant);
-      if (last.code === 0 && !last.timedOut) privateWrite(run.lastMessageFile, Buffer.from(last.stdout, "hex"));
+      if (last.code === 0 && !last.timedOut) writeFileSync(run.lastMessageFile, Buffer.from(last.stdout, "hex"));
     } catch { /* mirrored output remains available */ }
   }
   try {
-    (run.takeover ? privateAppend : privateWrite)(run.logFile, `$ ${launchArgv(run)}\n--- stdout\n${exec.stdout}\n--- stderr\n${exec.stderr}\n--- exit ${exec.code}${exec.timedOut ? " (timed out)" : ""}\n`);
+    (run.takeover ? appendFileSync : writeFileSync)(run.logFile, `$ ${launchArgv(run)}\n--- stdout\n${exec.stdout}\n--- stderr\n${exec.stderr}\n--- exit ${exec.code}${exec.timedOut ? " (timed out)" : ""}\n`);
   } catch { /* the run directory keeps the full record */ }
   if (!run.takeover && !run.host && existsSync(join(run.dir, "takeover.json")) && readTask(ctx, task.id)?.state !== "stopped") {
     return startTakeoverRun(ctx, cfg, task, run, note);
@@ -326,7 +331,7 @@ const executorBase = (ctx: Ctx, workdir: string): Promise<TerminalEnv> => ctx.en
 
 /** Where the executor's base environment came from; names the shell or the reason only, never a value. */
 function recordEnvironment(dir: string, base: TerminalEnv): void {
-  try { privateWrite(join(dir, "environment.json"), JSON.stringify(terminalEnvRecord(base))); }
+  try { writeFileSync(join(dir, "environment.json"), JSON.stringify(terminalEnvRecord(base)), {mode: 0o600}); }
   catch { /* diagnostics only */ }
 }
 
@@ -380,7 +385,7 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     const launch = prepareInteractive(agent,dir,resumeLaunchFor(cfg,request.sessionId,run.workdir,dir,trustRoot),{attended:true});
     env.PACER_HOME = ctx.pacerHome; env.PACER_RUN_DIR = dir; env.PACER_TRANSCRIPT_REPORT = join(dir,"transcript-report.md");
     mkdirSync(dir,{recursive:true,mode:0o700});
-    privateWrite(join(dir,"argv"), launch.argv.join(" "));
+    writeFileSync(join(dir,"argv"),launch.argv.join(" "),{mode:0o600});
     recordEnvironment(dir, base);
     recordRunFolder(dir, ctx, agent, env);
     run.startedAt = Date.now()/1000;
@@ -392,7 +397,7 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
   } catch (e) {
     const message = (e as Error).message;
     updateTask(ctx,task.id,t=>{if(t.takeover)t.takeover.state="ended";});
-    try {privateAppend(previous.logFile, `\n--- takeover launch error\n${message}\n`);}catch{/* full run retained */}
+    try {appendFileSync(previous.logFile, `\n--- takeover launch error\n${message}\n`);}catch{/* full run retained */}
     const result = outcome(cfg,task.attemptStartedAt ?? previous.startedAt,{code:127,stdout:"",stderr:message,timedOut:false},previous.logFile,note+message,true);
     result.attempt.limitHit=false;
     return {...result,takeover:true,...(previous.mode==="new"?{worktree:previous.workdir}:{})};
@@ -416,7 +421,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   const alias = parseRunnerId(cfg.id)?.host;
   if (alias) {
     const out = await runRemoteAttempt(ctx, cfg, task, loadStrategy(ctx).hosts[alias], onSpawn);
-    if (choice.fallback) try { privateAppend(out.attempt.log, `launch mode: headless (${choice.fallback})\n`); } catch { /* the attempt result stands */ }
+    if (choice.fallback) try { appendFileSync(out.attempt.log, `launch mode: headless (${choice.fallback})\n`); } catch { /* the attempt result stands */ }
     return out;
   }
   const dir = tasksDir(ctx);
@@ -552,7 +557,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
       if (Buffer.byteLength(request) > 32 * 1024) {
         mkdirSync(rdir, {recursive: true, mode: 0o700});
         const path = join(rdir, "prompt.md");
-        privateWrite(path, request);
+        writeFileSync(path, request, {mode: 0o600});
         request = `Read the request in ${JSON.stringify(path)} and continue this conversation.`;
       }
       launch = await prepareAgentSession(ctx, {...probe, request,
@@ -588,11 +593,11 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     }
   } catch (e) {
     const exec = { code: 127, stdout: "", stderr: (e as Error).message, timedOut: false };
-    privateWrite(log, `--- launch error\n${exec.stderr}\n`);
+    await Bun.write(log, `--- launch error\n${exec.stderr}\n`);
     return outcome(cfg, startedAt, exec, log, note + exec.stderr);
   }
   mkdirSync(rdir, { recursive: true });
-  privateWrite(join(rdir, "argv"), launch.argv.join(" "));
+  writeFileSync(join(rdir, "argv"), launch.argv.join(" "));
   if (base) recordEnvironment(rdir, base);
   if (cfg.via !== "opencode") recordRunFolder(rdir, ctx, parseRunnerId(cfg.id)?.agent ?? cfg.id, env);
   const run: RunRef = { interactionMode: task.interactionMode, ...(agentSession ? {agentSession} : {}), dir: rdir, attempt, executor: cfg.id, startedAt, mode, workdir, logFile: log, ...(launch.lastMessageFile ? { lastMessageFile: launch.lastMessageFile } : {}), ...(turn && !resumeSession ? {turnResume: "replayed" as const} : {}) };

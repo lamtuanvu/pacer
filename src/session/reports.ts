@@ -1,4 +1,3 @@
-import { privateAppend, privateCreate, privateWrite } from "../private-file";
 import { timingSafeEqual } from "node:crypto";
 import { appendFileSync, openSync, closeSync, readSync, statSync, readFileSync, writeFileSync, renameSync, mkdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -42,10 +41,11 @@ function storeReport(dir: string, status: ReportStatus, summary: string, source?
   const value = JSON.stringify({status, summary: cleanSummary(summary).trim(), at: Date.now() / 1000, ...(source ? {source} : {})});
   // Completion has its own file so a concurrent late hook cannot overwrite it.
   if (!conversation && terminal(status)) {
-    try { privateCreate(join(dir, "report.json"), value); }
+    try { writeFileSync(join(dir, "report.json"), value, {mode: 0o600, flag: "wx"}); }
     catch (e) { if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e; }
   } else {
-    privateWrite(join(dir, "session-status.json"), value);
+    const tmp = join(dir, `report.${process.pid}.${crypto.randomUUID()}.tmp`);
+    writeFileSync(tmp, value, {mode: 0o600}); renameSync(tmp, join(dir, "session-status.json"));
   }
 }
 function tailFile(path: string): string {
@@ -87,11 +87,13 @@ export function agentHook(dir: string, input: unknown): void {
   if (!input || typeof input !== "object") return;
   const h = input as Record<string, unknown>;
   if (typeof h.session_id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(h.session_id)) {
-    privateWrite(join(dir, "agent-session-id"), h.session_id);
+    const temp = join(dir, `agent-session-id.${crypto.randomUUID()}.tmp`);
+    writeFileSync(temp, h.session_id, {mode: 0o600, flag: "wx"});
+    renameSync(temp, join(dir, "agent-session-id"));
   }
   let text = typeof h.last_assistant_message === "string" ? h.last_assistant_message : "";
   if (!text && typeof h.transcript_path === "string") text = lastAssistantText(h.transcript_path);
-  if (text) privateWrite(join(dir, "transcript-report.md"), text.slice(-16000));
+  if (text) writeFileSync(join(dir, "transcript-report.md"), text.slice(-16000), {mode: 0o600});
   const event = h.hook_event_name;
   if (event === "PermissionRequest" || event === "Elicitation" || (event === "PreToolUse" && ["AskUserQuestion", "request_user_input"].includes(String(h.tool_name))) || (event === "Notification" && ["permission_prompt", "idle_prompt", "elicitation_dialog"].includes(String(h.notification_type)))) {
     writeReport(dir, "needs-input", typeof h.message === "string" && h.message.trim() ? h.message.slice(0, 16000) : "Agent is waiting for input");
@@ -100,7 +102,7 @@ export function agentHook(dir: string, input: unknown): void {
   } else if (["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "ElicitationResult"].includes(String(event))) {
     writeReport(dir, "running", "Agent is working");
   }
-  if (typeof event === "string") privateAppend(join(dir, "events.jsonl"), JSON.stringify({event, status: readReport(dir)?.status, at: Date.now() / 1000}) + "\n");
+  if (typeof event === "string") appendFileSync(join(dir, "events.jsonl"), JSON.stringify({event, status: readReport(dir)?.status, at: Date.now() / 1000}) + "\n", {mode: 0o600});
 }
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 /** Launch settings stay local to the run and preserve attended MCP choices. */
@@ -134,7 +136,7 @@ export function planInteractive(agent: string, dir: string, launch: Launch, opti
 export function prepareInteractive(agent: string, dir: string, launch: Launch, options: InteractiveOptions = {}): Launch {
   const planned = planInteractive(agent, dir, launch, options);
   if (planned.files.length) mkdirSync(dir, {recursive: true, mode: 0o700});
-  for (const file of planned.files) privateWrite(join(dir, file.name), file.content, file.mode === 0o700 ? 0o700 : 0o600);
+  for (const file of planned.files) writeFileSync(join(dir, file.name), file.content, {mode: file.mode});
   return planned.launch;
 }
 /** Resolve a canonical runs/<task-id>/<positive attempt> without escaped layout components. */

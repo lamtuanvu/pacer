@@ -1,4 +1,3 @@
-import { privateCreate } from "../private-file";
 import { withWork } from "../update/desktop/admission";
 import { repoFs, withTimeout } from "../core/path-probe";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -79,7 +78,7 @@ async function takeoverTaskAdmitted(ctx: Ctx, id: string, by?: string) {
   if (task.run?.dir !== run.dir || !takeoverAvailability(task).available) throw new CoreError("conflict", "The task's active run changed; try again.");
   updateTask(ctx, id, t => {
     if (t.run?.dir !== run.dir || !takeoverAvailability(t).available) throw new CoreError("conflict", "The task's active run changed; try again.");
-    privateCreate(join(run.dir, "takeover.json"), JSON.stringify(request));
+    writeFileSync(join(run.dir, "takeover.json"), JSON.stringify(request), {mode:0o600, flag:"wx"});
     t.run.agentSession = session;
     t.takeover = {state:"starting", ...request};
   });

@@ -6,13 +6,21 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Security
 
-- Write TypeScript state and secret files through exclusive, uniquely named temporary files with 0600 permissions, tighten their directories to 0700, and keep log appends on O_APPEND.
+- Harden TypeScript strategy/config, project policy, setup/install, service log, and activity state writes with private 0600 files and 0700 directories; use atomic replacement for rewritten state and validated O_APPEND for logs.
 
 ### Added
 
 - Rust strategy activation and removal library effects, with atomic activation and restrictive 0700 home and 0600 active-file modes. The TypeScript runtime is unchanged.
 
 ### Fixed
+
+- Reject invalid publication snapshot sequences consistently in TypeScript and Rust, and keep activity rotation working when a stale temporary file exists.
+
+- Secure publication directories and files to 0700 and 0600, including existing permissive state on the next write.
+
+- Truncate published task, alert, strategy and activity text at Unicode character boundaries so stored JSON never contains a lone surrogate.
+
+- Have the Rust strategy writer replace existing state atomically with restrictive file and directory permissions.
 
 - Write Rust JSON state atomically with private files (0600) and directories (0700), including when replacing permissive state.
 

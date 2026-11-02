@@ -1,7 +1,7 @@
 import { privateAppend, privateDir, privateWrite } from "../private-file";
 import { publish } from "../link/publish";
-import { randomBytes } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomBytes, randomUUID } from "node:crypto";
+import { chmodSync, closeSync, fchmodSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { redactEndpointError } from "../endpoints/state";

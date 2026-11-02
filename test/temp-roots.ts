@@ -1,9 +1,9 @@
-import { constants, closeSync, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { constants, closeSync, fstatSync, lstatSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Capture before setup gives subprocesses a private TMPDIR.
-const parent = realpathSync(tmpdir());
+const parent = tmpdir();
 export const OWNER_MARKER = ".pacer-test-owner.json";
 const ownRoots = new Set<string>();
 

@@ -1,4 +1,3 @@
-import { privateAppend } from "../private-file";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -37,14 +36,14 @@ const SETUP_BUDGET_MS = 30 * 60 * 1000;
 async function fallback(deps: OrcaRouteDeps, ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn: ((pid: number) => void) | undefined,
   reason: string, lines: string[] = []): Promise<AttemptOutcome> {
   const out = await deps.direct(ctx, cfg, task, onSpawn);
-  if (out.attempt.log) privateAppend(out.attempt.log, [...lines, `direct backend: Orca fallback (${reason.replace(/\s+/g, " ").trim()})`].join("\n") + "\n");
+  if (out.attempt.log) appendFileSync(out.attempt.log, [...lines, `direct backend: Orca fallback (${reason.replace(/\s+/g, " ").trim()})`].join("\n") + "\n");
   try {
     await withLock(ctx, "fallback", async () => {
       const dir = join(ctx.pacerHome, "orca"), path = join(dir, "fallback.json");
       const prior = readJson<{ at: number }>(path);
       if (prior && ctx.now - prior.at < 3600) return;
       mkdirSync(dir, { recursive: true });
-      privateAppend(join(dir, "fallback.log"), `${new Date(ctx.now * 1000).toISOString()} orca backend not used: ${reason.replace(/\s+/g, " ").trim()}\n`);
+      appendFileSync(join(dir, "fallback.log"), `${new Date(ctx.now * 1000).toISOString()} orca backend not used: ${reason.replace(/\s+/g, " ").trim()}\n`);
       writeJsonAtomic(path, { at: ctx.now, reason });
     });
   } catch { /* Diagnostics must not prevent direct execution. */ }

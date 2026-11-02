@@ -1,4 +1,3 @@
-import { privateAppend, privateWrite } from "../private-file";
 import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -461,7 +460,7 @@ export class OrcaAttemptSession {
 
   private async unstartedOutcome(report: string): Promise<AttemptOutcome> {
     const logFile = this.logFile();
-    privateWrite(logFile, [...this.lines, "--- summary", report].join("\n") + "\n");
+    await Bun.write(logFile, [...this.lines, "--- summary", report].join("\n") + "\n");
     this.phase = "done";
     this.outcome = {
       exec: { code: 1, stdout: report, stderr: "", timedOut: false }, report, backend: "orca",
@@ -660,7 +659,7 @@ export class OrcaAttemptSession {
     const transient = this.mode === "fresh" && summary.includes("transient provider busy after three retries") ? "transient provider busy after three retries" : null;
     const reason = transient ?? m.launchBroken ?? brokenReason(exec, endedAt - this.startedAt, durable);
     const logFile = this.logFile();
-    privateWrite(logFile, `${this.lines.join("\n")}\n--- summary\n${summary}\n--- worker output (tail)\n${tailText}\n`);
+    await Bun.write(logFile, `${this.lines.join("\n")}\n--- summary\n${summary}\n--- worker output (tail)\n${tailText}\n`);
     this.phase = "done";
     const report = this.mode === "fresh" ? tail([...this.p!.notes, summary].join("\n\n"), REPORT_CHARS) : tail(summary, REPORT_CHARS);
     this.outcome = {
@@ -724,6 +723,6 @@ export class OrcaAttemptSession {
   }
 
   appendFallback(log: string | undefined, reason: string): void {
-    if (log) privateAppend(log, [...this.lines, `direct backend: Orca fallback (${reason.replace(/\s+/g, " ").trim()})`].join("\n") + "\n");
+    if (log) appendFileSync(log, [...this.lines, `direct backend: Orca fallback (${reason.replace(/\s+/g, " ").trim()})`].join("\n") + "\n");
   }
 }

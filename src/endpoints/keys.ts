@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -30,8 +29,13 @@ export async function writeKey(ctx: Ctx, name: string, source: KeySource, key: s
     check(await security(ctx, ["find-generic-password", "-s", "pacer", "-a", `endpoint/${name}`]));
     return;
   }
-  try { privateWrite(join(ctx.pacerHome, "secrets", `${name}.key`), key); }
-  catch { throw Error("endpoint key file write failed"); }
+  const dir = join(ctx.pacerHome, "secrets"), path = join(dir, `${name}.key`), temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    mkdirSync(dir, {recursive: true, mode: 0o700}); chmodSync(dir, 0o700);
+    writeFileSync(temp, key, {flag: "wx", mode: 0o600});
+    renameSync(temp, path);
+  } catch { throw Error("endpoint key file write failed"); }
+  finally { rmSync(temp, {force: true}); }
 }
 export async function readKey(ctx: Ctx, name: string, source: KeySource): Promise<string | null> {
   validate(name, source);

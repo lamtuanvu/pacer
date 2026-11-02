@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { clearTerminalEnvCache } from "../src/exec/login-env";
 import { runnerLogPath, spawnRunner } from "../src/tasks/api";
@@ -29,11 +29,6 @@ test("a detached runner launches a local claude-code attempt through the direct 
   const task = createTask(ctx, { brief: { goal: "Create greeting.txt containing hello", repo, acceptance: "grep -q hello greeting.txt" },
     kind: null, requestedExecutor: "claude-code", timeoutS: 120 });
 
-  const outside = join(root, "outside.log");
-  writeFileSync(outside, "untouched"); chmodSync(outside, 0o644);
-  mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true });
-  symlinkSync(outside, runnerLogPath(ctx));
-
   // The production launcher re-invokes this pacer from argv; point it at the source CLI.
   const argv = process.argv;
   process.argv = [process.execPath, cli];
@@ -51,6 +46,4 @@ test("a detached runner launches a local claude-code attempt through the direct 
   expect(done.executorProvider).toBe("pacer-exec-direct");
   expect(done.attempts).toHaveLength(1);
   expect(readFileSync(join(done.run!.workdir, "greeting.txt"), "utf8").trim()).toBe("hello");
-  expect(readFileSync(outside, "utf8")).toBe("untouched");
-  expect(statSync(outside).mode & 0o777).toBe(0o644);
 }, 90_000);

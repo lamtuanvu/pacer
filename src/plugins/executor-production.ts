@@ -1,4 +1,3 @@
-import { privateAppend } from "../private-file";
 import { appendFileSync, existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -352,7 +351,7 @@ export async function runOwnedDirectRemote(ctx: Ctx, cfg: ProviderCfg, task: Tas
       throw new CoreError("conflict", "remote transfer outcome lacks a host-verified disposition");
   }
   const choice = launchModeFor(cfg, validateExecution(strategy.execution));
-  if (choice.fallback) try { privateAppend(out.attempt.log, `launch mode: headless (${choice.fallback})\n`); }
+  if (choice.fallback) try { appendFileSync(out.attempt.log, `launch mode: headless (${choice.fallback})\n`); }
   catch { /* the attempt result stands */ }
   return out as AttemptOutcome;
 }

@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,7 +36,11 @@ function readStore(ctx: Pick<Ctx, "pacerHome">): Store {
 
 /** Write a temp file beside the store and rename it over, so a crash never leaves a half-written store. */
 function writeStore(ctx: Pick<Ctx, "pacerHome">, store: Store): void {
-  privateWrite(file(ctx), JSON.stringify(store));
+  mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
+  const tmp = `${file(ctx)}.${randomBytes(6).toString("hex")}.tmp`;
+  writeFileSync(tmp, JSON.stringify(store), { mode: 0o600, flag: "wx" });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, file(ctx));
 }
 
 export function readPluginSettings(ctx: Pick<Ctx, "pacerHome">, id: string): PluginSettingsRecord {

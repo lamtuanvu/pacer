@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -76,7 +75,12 @@ export function readScheduleState(ctx: Ctx): ScheduleState {
  *  parse failure reads as "no consent and no probe recorded" and spends quota again. */
 export function writeScheduleState(ctx: Ctx, state: ScheduleState): void {
   const path = file(ctx);
-  privateWrite(path, JSON.stringify(state));
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify(state), { mode: 0o600, flag: "wx" });
+    renameSync(temporary, path);
+  } finally { rmSync(temporary, { force: true }); }
 }
 
 /**

@@ -1,4 +1,3 @@
-import { privateDir, privateWrite } from "../private-file";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync, rmSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -10,7 +9,13 @@ import { show } from "./service";
 import type { Ctx } from "../types";
 import { withWork } from "../update/desktop/admission";
 import { withLock } from "../core/lock";
-const writeAtomic = privateWrite;
+function writeAtomic(path:string,contents:string) {
+  const temporary=`${path}.${randomBytes(4).toString("hex")}.tmp`;
+  try {
+    writeFileSync(temporary,contents,{mode:0o600,flag:"wx"});
+    renameSync(temporary,path);
+  } finally { rmSync(temporary,{force:true}); }
+}
 export async function build(ctx:Ctx,opts:{agent?:string;from?:string;brief?:string;worktree?:string;request_id?:string}={}, deps:{open?:typeof openInTerminal}={}) {
   if(opts.request_id&&!/^[A-Za-z0-9_-]{1,128}$/.test(opts.request_id)) throw new Error("invalid strategy request ID");
   return withWork(ctx, {kind:"operation", id:"strategy-build", label:"Opening strategy planning session"}, () => opts.request_id
@@ -24,7 +29,7 @@ async function buildAdmitted(ctx:Ctx,opts:{agent?:string;from?:string;brief?:str
   const base=show(ctx,opts.from??strategy.name), id=opts.request_id??`${Math.floor(ctx.now*1000)}-${randomBytes(2).toString("hex")}`, path=join(ctx.pacerHome,"link","sessions",`${id}.md`);
   const intentPath=join(ctx.pacerHome,"link","sessions",`${id}.json`);
   const request=JSON.stringify({agent,from:opts.from??strategy.name,brief:opts.brief??"",worktree:opts.worktree??""});
-  privateDir(join(ctx.pacerHome,"link","sessions"));
+  mkdirSync(join(ctx.pacerHome,"link","sessions"),{recursive:true});
   for(const file of readdirSync(join(ctx.pacerHome,"link","sessions"),{withFileTypes:true})) {
     const old=join(ctx.pacerHome,"link","sessions",file.name);
     if(file.isFile() && file.name.endsWith(".md") && statSync(old).mtimeMs < (ctx.now-7*86400)*1000){rmSync(old);rmSync(old.slice(0,-3)+".json",{force:true});}

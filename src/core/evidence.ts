@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -48,7 +47,11 @@ export async function mergeEvidence(ctx: Ctx, scope: EvidenceScope, incoming: Ac
     if (!ctx.readOnly) {
       const dir = join(ctx.pacerHome, "state/evidence");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
-      privateWrite(evidencePath(ctx, scope), JSON.stringify(next));
+      const path = evidencePath(ctx, scope), temp = `${path}.${randomUUID()}.tmp`;
+      try {
+        writeFileSync(temp, JSON.stringify(next), { flag: "wx", mode: 0o600 });
+        renameSync(temp, path);
+      } finally { try { unlinkSync(temp); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } }
     }
     return next;
   };
@@ -77,9 +80,10 @@ export async function recordExecutionEvidence(ctx: Ctx, scope: EvidenceScope, re
 export function retireEvidence(ctx: Ctx, scope: EvidenceScope): void {
  if (ctx.readOnly) return;
  withLockSync(ctx, `evidence-${scope.identity}`, () => {
-  const previous=readEvidence(ctx,scope),path=evidencePath(ctx,scope);
+  const previous=readEvidence(ctx,scope),path=evidencePath(ctx,scope),temp=`${path}.${randomUUID()}.tmp`;
   mkdirSync(join(ctx.pacerHome,"state/evidence"),{recursive:true,mode:0o700});
   const next:EvidenceSnapshot={version:1,identity:scope.identity,revision:previous.revision+1,retiredAt:Math.max(ctx.now,previous.retiredAt??0),evidence:{facts:emptyEvidence(),conflicts:[]}};
-  privateWrite(path, JSON.stringify(next));
+  try {writeFileSync(temp,JSON.stringify(next),{flag:"wx",mode:0o600});renameSync(temp,path);}
+  finally {try {unlinkSync(temp);}catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;}}
  });
 }

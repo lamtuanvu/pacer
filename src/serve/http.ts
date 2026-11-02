@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { autoCleanSweep } from "../core/tasks";
 import { backfillFirstSettled } from "../insights/summary";
 import { refreshConnectedIntegrations } from "../core/integrations";
@@ -56,7 +55,7 @@ export function ensureToken(ctx: Ctx): string {
   }
   mkdirSync(ctx.pacerHome, { recursive: true });
   const t = randomBytes(24).toString("hex");
-  privateWrite(p, `${t}\n`);
+  writeFileSync(p, `${t}\n`, { mode: 0o600 });
   return t;
 }
 

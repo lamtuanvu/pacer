@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { beginWorkSync, attachRunEvidenceSync, finishWorkSync } from "../update/desktop/admission";
 import { randomBytes, createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -40,19 +39,19 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     // A reused directory must not hand a stale exit or output to the new run.
     for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.version", "session.json", "session.activity", "session.input", "session.ended", "session.state", "session.state.tmp", "interactive.json", "report.json", "completion.json", "session-status.json", "events.jsonl", "transcript-report.md"]) rmSync(join(spec.dir, f), { force: true });
     const script = join(spec.dir, "run.sh");
-    privateWrite(script, WRAPPER_SH, 0o700);
-    if (spec.stdin !== undefined) privateWrite(join(spec.dir, "stdin"), spec.stdin);
+    writeFileSync(script, WRAPPER_SH, { mode: 0o700 });
+    if (spec.stdin !== undefined) writeFileSync(join(spec.dir, "stdin"), spec.stdin, { mode: 0o600 });
     let execution;
     try { execution=validateExecution(loadStrategy(ctx).execution); } catch { /* absent strategy keeps pipe default */ }
     const interactive = spec.session === "interactive";
     const reportToken = interactive ? randomBytes(32).toString("hex") : undefined;
-    if (interactive) privateWrite(join(spec.dir, "interactive.json"), JSON.stringify({reportToken, interactionMode: spec.interactionMode}));
+    if (interactive) writeFileSync(join(spec.dir, "interactive.json"), JSON.stringify({reportToken, interactionMode: spec.interactionMode}), {mode: 0o600});
     const pty=interactive || (spec.session ?? execution?.session)==="pty";
     const argv=withUmask(spec.argv, spec.umask);
     let command=["/bin/sh", script, spec.dir, ...argv];
     if(pty) {
       chmodSync(spec.dir,0o700); if(taskRun) chmodSync(dirname(spec.dir),0o700);
-      privateWrite(join(spec.dir,"session.json"), JSON.stringify({interactive,interactionMode:spec.interactionMode,takeover:spec.takeover,argv,cwd:spec.cwd,...(spec.keepColor?.length?{keepColor:spec.keepColor}:{}),pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}));
+      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,interactionMode:spec.interactionMode,takeover:spec.takeover,argv,cwd:spec.cwd,...(spec.keepColor?.length?{keepColor:spec.keepColor}:{}),pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
       // Bun source runs and compiled binaries both re-enter through the CLI.
       command=/(^|\/)bun(?:\.exe)?$/.test(process.execPath)
         ? [process.execPath,fileURLToPath(new URL("../cli.ts",import.meta.url)),"_session",spec.dir]
@@ -60,7 +59,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
       pruneSessions(ctx,execution?.sessionRetentionDays ?? 14);
     }
     attachRunEvidenceSync(ctx, lease, spec.dir);
-    privateWrite(join(spec.dir, "admission.json"), JSON.stringify({ lease }));
+    writeFileSync(join(spec.dir, "admission.json"), JSON.stringify({ lease }), { mode: 0o600 });
     const launchEnv = { ...spec.env, PACER_HOME: ctx.pacerHome, PACER_ADMISSION_SESSION: lease, PACER_ADMISSION_DIR: spec.dir };
     // Once spawn is attempted, a thrown error does not certify no child exists.
     attempted = true;
@@ -68,7 +67,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
       detached: true, cwd: spec.cwd, env: {...launchEnv, HOME: ctx.home, PACER_HOME: ctx.pacerHome, ...(interactive ? { PACER_REPORT_TOKEN: reportToken } : {})}, stdin: "ignore", stdout: "ignore", stderr: "ignore",
     });
     proc.unref();
-    privateWrite(join(spec.dir, "pid"), String(proc.pid));
+    writeFileSync(join(spec.dir, "pid"), String(proc.pid), { mode: 0o600 });
     return { pid: proc.pid };
   } catch (e) {
     if (lease && !attempted) finishWorkSync(ctx, lease);
@@ -190,7 +189,7 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
   if (after.exit !== null) return { code: after.exit, killed: false };
   if (o.requireRecordedExit) throw new Error("detached run stop has no recorded exit");
   o.guard?.("write");
-  privateWrite(join(dir, "exit"), "137");
+  writeFileSync(join(dir, "exit"), "137");
   return { code: 137, killed: true };
 }
 

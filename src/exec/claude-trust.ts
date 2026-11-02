@@ -118,7 +118,7 @@ async function update(file: string, trustKeys: string[], includeKeys: string[]):
     const next = merge(current.config, trustKeys, includeKeys);
     if (next.kind === "refuse") return {status: "skipped", reason: "the Claude config has a malformed projects entry"};
     if (next.kind === "unchanged") return {status: "unchanged"};
-    writeTemporary(temporary, 0o600, `${JSON.stringify(next.config, null, 2)}\n`);
+    writeTemporary(temporary, statSync(current.path).mode & 0o777, `${JSON.stringify(next.config, null, 2)}\n`);
     renameSync(temporary, current.path);
     return {status: "granted"};
   } catch {

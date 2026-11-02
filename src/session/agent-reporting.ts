@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -17,6 +16,9 @@ export function materializeAgentReporting(dir: string, launch: AgentSessionLaunc
   const plugins = object[configKey] ?? [];
   if (!Array.isArray(plugins)) throw Error(`Invalid ${configEnv}.${configKey}: expected an array`);
   const folder = join(dir, "report-plugin");
-  privateWrite(join(folder, "index.ts"), reporting.source);
+  mkdirSync(folder, {recursive: true, mode: 0o700});
+  const temp = join(folder, `index.${randomUUID()}.tmp`);
+  writeFileSync(temp, reporting.source, {flag: "wx", mode: 0o600});
+  renameSync(temp, join(folder, "index.ts"));
   env[configEnv] = JSON.stringify({...object, [configKey]: [...new Set([...plugins, folder])]});
 }

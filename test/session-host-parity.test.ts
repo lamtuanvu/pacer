@@ -24,12 +24,12 @@ test("TS recording keeps the append writer until its dedicated SEC-7 change", as
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
-test("TS version writer tightens the existing directory mode", () => {
+test("TS version writer leaves the existing directory mode for the dedicated SEC-7 change", () => {
   const dir=mkdtempSync(join(tmpdir(),"pacer-session-version-"));
   try {
     chmodSync(dir,0o755);
     writeSessionVersion(dir,null);
-    expect(statSync(dir).mode&0o777).toBe(0o700);
+    expect(statSync(dir).mode&0o777).toBe(0o755);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 

@@ -1,5 +1,4 @@
-import { privateOpen, privateWrite } from "../private-file";
-import { closeSync, readFileSync, renameSync, existsSync, writeSync } from "node:fs";
+import { appendFileSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { decodeLog, encodeHeader, encodeRecord, type Frame } from "./framing";
 import { PlainText } from "./plain";
@@ -10,39 +9,24 @@ export class Recording extends Screen {
   private enabled = true;
   private startedAt = Date.now()/1000;
   private cap: number;
-  private logFd: number | undefined;
-  private stdoutFd: number | undefined;
   constructor(readonly dir:string, options: {capBytes?:number} = {}) {
     super(); this.cap=options.capBytes ?? 8*1024*1024; this.newLog(); this.checkpoint();
   }
-  disable() { this.enabled=false; this.closeFiles(); }
-  private closeFiles() {
-    if (this.logFd !== undefined) { closeSync(this.logFd); this.logFd=undefined; }
-    if (this.stdoutFd !== undefined) { closeSync(this.stdoutFd); this.stdoutFd=undefined; }
-  }
-  private append(name: "session.log" | "stdout", value: Uint8Array | string) {
-    const key = name === "session.log" ? "logFd" : "stdoutFd";
-    const fd = this[key] ?? privateOpen(join(this.dir,name));
-    this[key] = fd;
-    const bytes = typeof value === "string" ? Buffer.from(value) : value;
-    for (let at=0; at<bytes.length;) at += writeSync(fd,bytes,at,bytes.length-at);
-  }
+  disable() { this.enabled=false; }
   /** A full disk must disable recording, never terminate the agent. */
-  private disk(fn:()=>void) { if (this.enabled) try { fn(); } catch { this.disable(); } }
+  private disk(fn:()=>void) { if (this.enabled) try { fn(); } catch { this.enabled=false; } }
   private newLog() {
-    if (this.logFd !== undefined) { closeSync(this.logFd); this.logFd=undefined; }
     const h=encodeHeader({cols:this.term.cols,rows:this.term.rows,startedAt:this.startedAt,generation:this.generation,outputOffset:this.outputOffset});
-    this.disk(()=>privateWrite(join(this.dir,"session.log"),h)); this.size=h.length;
+    this.disk(()=>writeFileSync(join(this.dir,"session.log"),h,{mode:0o600})); this.size=h.length;
   }
   checkpoint() {
-    this.disk(()=>privateWrite(join(this.dir,"session.ckpt"),JSON.stringify(this.snapshot())));
+    this.disk(()=> { const p=join(this.dir,"session.ckpt"); writeFileSync(`${p}.tmp`,JSON.stringify(this.snapshot()),{mode:0o600}); renameSync(`${p}.tmp`,p); });
   }
   private record(type:number,data:Uint8Array) {
     const frame=encodeRecord(type,(Date.now()/1000-this.startedAt)*1000,data);
-    this.disk(()=>this.append("session.log",frame)); this.size+=frame.length;
+    this.disk(()=>appendFileSync(join(this.dir,"session.log"),frame)); this.size+=frame.length;
     if(this.size >= this.cap && this.transcript.atBoundary) {
       this.checkpoint();
-      if (this.logFd !== undefined) { closeSync(this.logFd); this.logFd=undefined; }
       this.disk(()=>renameSync(join(this.dir,"session.log"),join(this.dir,"session.log.1")));
       this.generation++; this.newLog();
     }
@@ -52,7 +36,7 @@ export class Recording extends Screen {
     await super.output(data);
     const plain=this.transcript.push(data);
     this.record(1,data);
-    if(plain) this.disk(()=>this.append("stdout",plain));
+    if(plain) this.disk(()=>appendFileSync(join(this.dir,"stdout"),plain,{mode:0o600}));
   }
   /** Resume only when the complete requested suffix still exists in retained generations. */
   since(from:number): Buffer[] | null {
@@ -65,7 +49,7 @@ export class Recording extends Screen {
     this.record(2,bytes);
   }
   marker(event:string,label:string) { this.record(3,Buffer.from(JSON.stringify({event,label}))); }
-  async close() { const tail=this.transcript.flush(); if(tail) this.disk(()=>this.append("stdout",tail)); this.closeFiles(); this.dispose(); }
+  async close() { const tail=this.transcript.flush(); if(tail) this.disk(()=>appendFileSync(join(this.dir,"stdout"),tail,{mode:0o600})); this.dispose(); }
 }
 /** Read a gap-free suffix shared by live resume and offline replay. */
 function recordingSince(dir:string,from:number,outputOffset:number):Buffer[]|null {

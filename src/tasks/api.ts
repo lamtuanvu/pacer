@@ -1,4 +1,3 @@
-import { privateOpen } from "../private-file";
 import { prepareCreationAdmission } from "./creation-admission";
 import { createHash } from "node:crypto";
 import { withLock } from "../core/lock";
@@ -30,7 +29,7 @@ import { appendLabel } from "./labels";
 import { executorExclusion } from "../executors/availability";
 import { spawnSync } from "node:child_process";
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { KINDS, type Strategy, loadStrategy } from "../config/strategy";
 import { validateExecution } from "../config/execution";
@@ -119,7 +118,8 @@ export const runnerLogPath = (ctx: Pick<Ctx, "pacerHome">) => join(ctx.pacerHome
 
 function openRunnerLog(ctx: Ctx): number | "ignore" {
   try {
-    return privateOpen(runnerLogPath(ctx));
+    mkdirSync(join(ctx.pacerHome, "logs"), { recursive: true, mode: 0o700 });
+    return openSync(runnerLogPath(ctx), "a", 0o600);
   } catch { return "ignore"; } // A missing log never blocks a launch.
 }
 

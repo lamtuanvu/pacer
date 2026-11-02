@@ -1,5 +1,4 @@
-import { privateOpen, privateWrite } from "../private-file";
-import { closeSync, writeSync } from "node:fs";
+import { closeSync, openSync, writeSync } from "node:fs";
 /**
  * The planner session's own variables. An executor or a turn runner that inherits them is treated as part of the
  * planner's session (Claude Code then neither persists nor resumes the executor's own conversation).
@@ -111,9 +110,7 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
   let proc: ReturnType<typeof spawn>;
   let stdoutFd: number | undefined;
   try {
-    if (spec.stdoutFile) {
-      stdoutFd = privateOpen(spec.stdoutFile, true);
-    }
+    if (spec.stdoutFile) stdoutFd = openSync(spec.stdoutFile, "w", 0o600);
     proc = spawn(spec);
     if (spec.stdinUntilResponseId !== undefined && spec.stdin !== undefined && typeof proc.stdin === "object") {
       proc.stdin.write(spec.stdin);
@@ -124,7 +121,7 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
     const r = { code: 127, stdout: "", stderr: String(e), timedOut: false };
     if (spec.logFile) {
       try {
-        privateWrite(spec.logFile, `$ ${spec.argv.join(" ")}\n--- spawn error\n${r.stderr}\n`);
+        await Bun.write(spec.logFile, `$ ${spec.argv.join(" ")}\n--- spawn error\n${r.stderr}\n`);
       } catch {
         // ignore write errors
       }
@@ -224,7 +221,7 @@ export async function execProcess(spec: ExecSpec): Promise<ExecResult> {
 
   if (spec.logFile) {
     try {
-      privateWrite(
+      await Bun.write(
         spec.logFile,
         `$ ${spec.argv.join(" ")}\n--- stdout\n${stdout}\n--- stderr\n${stderr}\n--- exit ${code}${timedOut ? " (timed out)" : ""}\n`,
       );

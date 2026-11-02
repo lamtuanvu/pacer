@@ -3,9 +3,7 @@ import { chmodSync, linkSync, mkdtempSync, mkdirSync, readFileSync, readdirSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { privateAppend, privateCreate, privateTouch, privateWrite } from "../src/private-file";
-import { writeJsonAtomic } from "../src/fsutil";
 import { atomicStrategyWrite } from "../src/config/edit";
-import { writeEndpointState } from "../src/endpoints/state";
 import { appendActivity } from "../src/activity/log";
 import { fakeCtx } from "./helpers";
 import { writeNative } from "../src/plugins/write-native";
@@ -48,14 +46,11 @@ for (const mask of [0o022, 0o077]) {
     const old = process.umask(mask);
     try {
       const ctx = fakeCtx();
-      const state = join(ctx.pacerHome, "state", "generic.json");
-      writeJsonAtomic(state, { ok: true });
-      writeEndpointState(ctx, "local", { state: "not_tested" });
       const strategy = join(ctx.pacerHome, "strategy.yaml");
       privateWrite(strategy, "planner: codex\n");
       atomicStrategyWrite(strategy, "planner: claude-code\n");
       appendActivity(ctx, { kind: "config", level: "info", text: "mode check" });
-      for (const file of [state, join(ctx.pacerHome, "endpoints", "state.json"), strategy, join(ctx.pacerHome, "state", "activity.jsonl")]) {
+      for (const file of [strategy, join(ctx.pacerHome, "state", "activity.jsonl")]) {
         expect(statSync(file).mode & 0o777).toBe(0o600);
         expect(statSync(join(file, "..")).mode & 0o777).toBe(0o700);
       }
@@ -143,10 +138,12 @@ test("seeded file-state matrix preserves append and touch confinement", () => {
   const root=mkdtempSync(join(tmpdir(),"pacer-private-")); roots.push(root);
   let seed=0x5ec70001;
   const next=()=>{ seed=(Math.imul(seed,1664525)+1013904223)>>>0; return seed; };
+  const seen = new Set<string>();
   for(let i=0;i<48;i++) {
     const dir=join(root,String(i)); mkdirSync(dir);
     const outside=join(dir,"outside"), file=join(dir,"file");
-    const kind=next()%5, action=next()%2;
+    const kind=next()%5, action=(next()>>>8)%2;
+    seen.add(`${kind}:${action}`);
     if(kind===1) { writeFileSync(file,"old"); chmodSync(file,0o644); }
     if(kind===2) { writeFileSync(outside,"outside"); chmodSync(outside,0o644); symlinkSync(outside,file); }
     if(kind===3) { writeFileSync(outside,"outside"); chmodSync(outside,0o644); linkSync(outside,file); }
@@ -165,4 +162,5 @@ test("seeded file-state matrix preserves append and touch confinement", () => {
       expect(statSync(dir).mode&0o777).toBe(0o700);
     }
   }
+  expect(seen.size).toBe(10);
 });

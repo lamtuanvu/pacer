@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { randomBytes } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from "node:fs";
 import { join } from "node:path";
@@ -27,7 +26,12 @@ function read(path: string): Partial<Record<DefaultKind, string>> {
 
 /** SEC-7: a random temp name opened exclusively with mode 0600, then renamed; the temp never outlives the call. */
 function writeAtomic(path: string, data: unknown): void {
-  privateWrite(path, JSON.stringify(data));
+  const tmp = `${path}.${randomBytes(8).toString("hex")}.tmp`;
+  try {
+    const fd = openSync(tmp, "wx", 0o600);
+    try { writeSync(fd, JSON.stringify(data)); } finally { closeSync(fd); }
+    renameSync(tmp, path);
+  } finally { rmSync(tmp, {force: true}); }
 }
 
 /** The default account's folder for `kind`: the one the login profile set, else the home default. */

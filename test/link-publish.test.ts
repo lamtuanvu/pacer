@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, chmodSync, linkSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { publish } from "../src/link/publish";
@@ -13,24 +13,49 @@ test("publish sequences outbox and persists current snapshot", async () => {
   expect(readFileSync(outboxPath(c), "utf8").trim().split("\n").map(x => JSON.parse(x).seq)).toEqual([1, 2]);
   expect(JSON.parse(readFileSync(latestPath(c), "utf8")).tasks).toHaveLength(1); const second = await publish(c, [t]); expect(second.seq).toBe(3); expect(readOutboxSince(c, 1).map(x => x.seq)).toEqual([2, 3]);
 });
+test("publication files and existing link state are private", async () => {
+  const c = fakeCtx();
+  const dir = join(c.pacerHome, "link");
+  mkdirSync(dir, { recursive: true, mode: 0o777 });
+  chmodSync(dir, 0o777);
+  writeFileSync(outboxPath(c), "", { mode: 0o666 });
+  chmodSync(outboxPath(c), 0o666);
+  writeFileSync(latestPath(c), "{}", { mode: 0o666 });
+  chmodSync(latestPath(c), 0o666);
+  expect((await publish(c, [b])).errors).toEqual([]);
+  for (const [path, mode] of [[dir, 0o700], [outboxPath(c), 0o600], [latestPath(c), 0o600]] as const)
+    expect(statSync(path).mode & 0o777).toBe(mode);
+});
 test("outbox rotation keeps the last 1000 records", async () => {
   const c = fakeCtx(); const entries = Array.from({ length: 1010 }, (_, i) => ({ seq: i + 1, envelope: { type: "alert" as const, data: { key: `k${i}`, level: "info" as const, title: "x".repeat(2000), body: "", at: i } } }));
   const { appendOutbox } = await import("../src/link/store"); appendOutbox(c, entries); expect(readFileSync(outboxPath(c), "utf8").trim().split("\n")).toHaveLength(1000);
-});
-test("outbox append and rotation keep private modes and refuse hard-linked leaves", async () => {
-  const c = fakeCtx();
-  const { appendOutbox } = await import("../src/link/store");
-  const entries = Array.from({ length: 1001 }, (_, i) => ({ seq: i + 1, envelope: { type: "alert" as const, data: { key: `k${i}`, level: "info" as const, title: "x", body: "", at: i } } }));
-  appendOutbox(c, entries);
   expect(statSync(outboxPath(c)).mode & 0o777).toBe(0o600);
-  expect(statSync(join(outboxPath(c), "..")).mode & 0o777).toBe(0o700);
-  const outside = join(c.pacerHome, "outside");
-  writeFileSync(outside, "original"); chmodSync(outside, 0o644);
-  const file = outboxPath(c);
-  const { unlinkSync } = await import("node:fs"); unlinkSync(file); linkSync(outside, file);
-  expect(() => appendOutbox(c, entries.slice(0, 1))).toThrow();
-  expect(readFileSync(outside, "utf8")).toBe("original");
-  expect(statSync(outside).mode & 0o777).toBe(0o644);
+});
+test("stale rotation temp does not block publication or change the stale file", async () => {
+  const c = fakeCtx();
+  mkdirSync(join(c.pacerHome, "link"), { recursive: true });
+  const stale = `${outboxPath(c)}.tmp`;
+  writeFileSync(stale, "stale", { mode: 0o600 });
+  const events = Array.from({ length: 1001 }, (_, i) => ({ type: "config" as const, data: { area: `a${i}`, at: c.now } }));
+  const first = await publish(c, events);
+  expect(first.errors).toEqual([]);
+  expect(first.seq).toBe(1001);
+  expect(JSON.parse(readFileSync(latestPath(c), "utf8")).seq).toBe(1001);
+  expect(readFileSync(stale, "utf8")).toBe("stale");
+  const second = await publish(c, [b]);
+  expect(second.errors).toEqual([]);
+  expect(second.seq).toBe(1002);
+  expect(readOutboxSince(c, 1001).map(e => e.seq)).toEqual([1002]);
+});
+test("publication replays an outbox tail when latest is behind", async () => {
+  const c = fakeCtx();
+  expect((await publish(c, [t])).seq).toBe(1);
+  writeFileSync(latestPath(c), JSON.stringify({ v: 1, seq: 0, at: 0 }));
+  const retry = await publish(c, [b]);
+  expect(retry.errors).toEqual([]);
+  expect(retry.seq).toBe(2);
+  expect(readOutboxSince(c, 0).map(e => e.seq)).toEqual([1, 2]);
+  expect(JSON.parse(readFileSync(latestPath(c), "utf8")).tasks).toHaveLength(1);
 });
 test("entity envelopes stay in the outbox even when the channel is available", async () => {
   const calls: string[][] = [];

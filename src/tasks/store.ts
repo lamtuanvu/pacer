@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { CoreError } from "../core/errors";
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { withLock, withLockSync } from "../core/lock";
@@ -97,7 +96,13 @@ function importJson(ctx: Ctx, entry: Connection): void {
 
 function writeCompatibilityJson(ctx: Ctx, task: TaskRecord): number {
   const file = join(task.archived ? taskArchiveDir(ctx, task) : tasksDir(ctx), `${task.id}.json`);
-  privateWrite(file, JSON.stringify(task));
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(task), { flag: "wx", mode: 0o600 });
+    renameSync(tmp, file);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
   return statSync(file).mtimeMs;
 }
 

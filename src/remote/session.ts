@@ -1,4 +1,3 @@
-import { privateWrite } from "../private-file";
 import { createServer, type Server, type Socket } from "node:net";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -47,8 +46,8 @@ export class RemoteSession {
     this.path = path;
     chmodSync(path, 0o600);
     if (path !== join(this.localDir, "session.sock"))
-      privateWrite(join(this.localDir, "session.sock.path"), path);
-    privateWrite(join(this.localDir, "session.bridge.pid"), String(process.pid));
+      writeFileSync(join(this.localDir, "session.sock.path"), path, { mode: 0o600 });
+    writeFileSync(join(this.localDir, "session.bridge.pid"), String(process.pid), { mode: 0o600 });
     process.on("exit", this.onExit);
     server.unref();
   }
