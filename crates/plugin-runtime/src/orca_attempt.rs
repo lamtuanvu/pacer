@@ -10,10 +10,10 @@ pub use runner::OrcaStrategySource;
 pub mod launch;
 mod supervision;
 mod wire;
-use crate::{BrokerError, native_command::denied};
+use crate::{BrokerError, WireReply, native_command::denied};
 use client::OrcaClient;
 use journal::Journal;
-use pacer_store::TaskStore;
+use pacer_store::{TaskEdit, TaskStore};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -21,6 +21,19 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
+// Match TaskStore::read's legacy revision default without rebuilding its text.
+fn task_snapshot(
+    store: &mut TaskStore,
+    id: &str,
+) -> Result<Option<WireReply>, pacer_store::StoreError> {
+    let Some(mut wire) = store.read_wire(id)? else {
+        return Ok(None);
+    };
+    if wire.preview().get("rev").is_none_or(Value::is_null) {
+        wire.put("/rev", WireReply::new(json!(1)))?;
+    }
+    Ok(Some(wire))
+}
 #[derive(Clone)]
 pub enum OrcaPlacement {
     Existing {
@@ -253,26 +266,36 @@ impl OrcaAttempt {
         Ok(())
     }
     pub(crate) fn task(&mut self) -> Result<Value, BrokerError> {
-        let t = self.store.read(&self.task_id)?.ok_or_else(denied)?;
+        Ok(self.task_wire()?.preview().clone())
+    }
+    pub(crate) fn task_wire(&mut self) -> Result<WireReply, BrokerError> {
+        let wire = task_snapshot(&mut self.store, &self.task_id)?.ok_or_else(denied)?;
+        let t = wire.preview();
         if t["attempts"]
             .as_array()
             .is_none_or(|a| a.len() as u64 + 1 != self.attempt)
         {
             return Err(denied());
         }
-        Ok(t)
+        Ok(wire)
     }
-    pub(crate) fn update(&mut self, f: impl FnOnce(&mut Value)) -> Result<(), BrokerError> {
+    pub(crate) fn edit(
+        &mut self,
+        f: impl FnOnce(&mut TaskEdit) -> Result<(), pacer_store::StoreError>,
+    ) -> Result<(), BrokerError> {
         let t = self.task()?;
         self.store
-            .update(&self.task_id, crate::native_run::rev(&t)?, now(), f)?;
+            .edit(&self.task_id, crate::native_run::rev(&t)?, now(), f)?;
         Ok(())
     }
     async fn live_answer(&mut self) -> Result<Value, BrokerError> {
         self.expect(&[Phase::New])?;
-        let task = self.task()?;
+        let task_wire = self.task_wire()?;
+        let task = task_wire.preview();
         let asked_id = task["retryOf"].as_str().unwrap_or(&self.task_id).to_owned();
-        let asked = self.store.read(&asked_id)?.unwrap_or(task.clone());
+        let asked_wire =
+            task_snapshot(&mut self.store, &asked_id)?.unwrap_or_else(|| task_wire.clone());
+        let asked = asked_wire.preview();
         let live = &asked["live"];
         if live["backend"] != "orca" {
             self.phase = Phase::Checked;
@@ -329,15 +352,17 @@ impl OrcaAttempt {
         self.worktree = asked["worktree"].as_str().map(str::to_owned);
         if asked_id != self.task_id {
             self.store
-                .update(&asked_id, crate::native_run::rev(&asked)?, now(), |t| {
-                    t.as_object_mut().map(|o| o.remove("live"));
-                    t["state"] = json!("partial");
-                    t["dismissed"] = json!(true);
-                    t["settledAt"] = json!(now());
+                .edit(&asked_id, crate::native_run::rev(asked)?, now(), |t| {
+                    if t.preview().get("live").is_some() {
+                        t.remove("/live")?;
+                    }
+                    t.put("/state", WireReply::new(json!("partial")))?;
+                    t.put("/dismissed", WireReply::new(json!(true)))?;
+                    t.put("/settledAt", WireReply::new(json!(now())))
                 })?;
         }
-        self.update(|t| {
-            t["live"] = live.clone();
+        self.edit(|t| {
+            t.put("/live", asked_wire.subtree("/live")?)?;
             for k in [
                 "group",
                 "baseBranch",
@@ -346,10 +371,12 @@ impl OrcaAttempt {
                 "placement",
                 "worktree",
             ] {
-                if let Some(v) = asked.get(k) {
-                    t[k] = v.clone();
+                if asked.get(k).is_some() {
+                    let path = format!("/{k}");
+                    t.put(&path, asked_wire.subtree(&path)?)?;
                 }
             }
+            Ok(())
         })?;
         let dispatch = self.dispatch.clone().ok_or_else(denied)?;
         let id = self.task_id.clone();
@@ -437,10 +464,11 @@ impl OrcaAttempt {
             .await?;
         let task = self.store.read(id)?.ok_or_else(denied)?;
         self.store
-            .update(id, crate::native_run::rev(&task)?, now(), |t| {
-                if t["live"]["worker"] == worker {
-                    t.as_object_mut().map(|o| o.remove("live"));
+            .edit(id, crate::native_run::rev(&task)?, now(), |t| {
+                if t.preview()["live"]["worker"] == worker {
+                    t.remove("/live")?;
                 }
+                Ok(())
             })?;
         Ok(())
     }
@@ -479,7 +507,7 @@ impl OrcaAttempt {
             }
         }
         let base = self.spec.base.clone();
-        self.update(|t| t["baseBranch"] = json!(base))?;
+        self.edit(|t| t.put("/baseBranch", WireReply::new(json!(base))))?;
         self.lease = Some(crate::WorkLease::begin(
             &self.home,
             &self.task_id,
@@ -645,10 +673,11 @@ impl OrcaAttempt {
             {
                 return Err(denied());
             }
-            self.update(|t| {
-                if t.get("startSha").is_none() {
-                    t["startSha"] = json!(sha);
+            self.edit(|t| {
+                if t.preview().get("startSha").is_none() {
+                    t.put("/startSha", WireReply::new(json!(sha)))?;
                 }
+                Ok(())
             })?;
         }
         Ok(json!({"ok":true,"worktreeId":id,"workdir":self.worktree}))
@@ -860,8 +889,22 @@ impl OrcaAttempt {
         self.journal.mutate(|s|{s["workers"][&dispatch]=json!({"dispatchId":dispatch,"taskId":id,"attempt":attempt,"executor":executor,"worktree":work,"terminal":terminal,"startedAt":started});Ok(())}).await?;
         let agent = self.spec.agent.clone();
         let inc = self.incarnation.clone();
-        self.update(|t|{if let Some(w)=work{t["worktree"]=json!(w);}
-if t["interactionMode"]=="conversation"{let mut live=json!({"backend":"orca","worker":dispatch,"terminal":terminal,"executor":executor,"agent":agent,"since":started});if let Some(inc)=inc{live["incarnation"]=json!(inc);}t["live"]=live;}})?;
+        self.edit(|t| {
+            if let Some(w) = work {
+                t.put("/worktree", WireReply::new(json!(w)))?;
+            }
+            if t.preview()["interactionMode"] == "conversation" {
+                let mut live = json!({
+                    "backend": "orca", "worker": dispatch, "terminal": terminal,
+                    "executor": executor, "agent": agent, "since": started
+                });
+                if let Some(inc) = inc {
+                    live["incarnation"] = json!(inc);
+                }
+                t.put("/live", WireReply::new(live))?;
+            }
+            Ok(())
+        })?;
         self.forget_intent().await
     }
     async fn record_unclosed(&mut self, terminal: &str) -> Result<(), BrokerError> {
@@ -1242,10 +1285,11 @@ impl crate::OrcaLiveControl for OrcaLiveOwner {
             .await?;
         let mut store = TaskStore::open(&self.home)?;
         let task = store.read(id)?.ok_or_else(denied)?;
-        store.update(id, crate::native_run::rev(&task)?, now(), |t| {
-            if t["live"]["worker"] == worker {
-                t.as_object_mut().map(|o| o.remove("live"));
+        store.edit(id, crate::native_run::rev(&task)?, now(), |t| {
+            if t.preview()["live"]["worker"] == worker {
+                t.remove("/live")?;
             }
+            Ok(())
         })?;
         let _ = lane::release_lane(
             &self.home,

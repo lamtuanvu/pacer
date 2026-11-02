@@ -222,14 +222,17 @@ pub(super) async fn release_lane(
         p.as_str()
             .is_some_and(|p| p == path || p.starts_with(&format!("{path}/")))
     };
-    store.update(id, crate::native_run::rev(&current)?, now(), |t| {
-        if gone(&t["worktree"]) {
-            t.as_object_mut().map(|o| o.remove("worktree"));
+    store.edit(id, crate::native_run::rev(&current)?, now(), |t| {
+        if gone(&t.preview()["worktree"]) {
+            t.remove("/worktree")?;
         }
-        if gone(&t["result"]["worktree"]) {
-            t["result"].as_object_mut().map(|o| o.remove("worktree"));
+        if gone(&t.preview()["result"]["worktree"]) {
+            t.remove("/result/worktree")?;
         }
-        t["worktreeReleased"] = json!({"at":now(),"path":path});
+        t.put(
+            "/worktreeReleased",
+            crate::WireReply::new(json!({"at":now(),"path":path})),
+        )
     })?;
     Ok(true)
 }

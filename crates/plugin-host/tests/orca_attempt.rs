@@ -74,6 +74,7 @@ elif args[:2]==['orchestration','worker-list']:
   print(json.dumps({'ok':False,'error':json.load(open(home+'/lookup-error.json'))}));sys.exit(0)
  result={'workers':[{'dispatchId':'dispatch-owned','agentTerminalHandle':'agent-terminal','workerState':'ready'}] if scenario=='lost-found' else [],'scope':{'run':'run'}}
  if scenario!='lost-incomplete': result['page']={'hasMore':False}
+elif args[:2]==['orchestration','worker-show'] and scenario=='reattach-exact': result={'worker':{'state':'ready'}}
 elif args[:2]==['orchestration','worker-show'] and os.path.exists(home+'/wait-case.json'): result={'worker':{'state':'failed','lastError':'fixture stopped'}}
 elif args[:2]==['orchestration','worker-read'] and os.path.exists(home+'/wait-case.json'): result={'terminal':{'tail':json.load(open(home+'/wait-case.json'))['lines']}}
 elif args[:2]==['orchestration','worker-read']: result={'terminal':{'tail':['usage limit']}}
@@ -922,3 +923,6 @@ async fn repo_registration_stays_disabled_for_opt_out_and_linked_worktree() {
         fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[path = "orca_attempt/exact_task_text.rs"]
+mod exact_task_text;

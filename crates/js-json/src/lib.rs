@@ -12,6 +12,10 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug)]
 pub struct Utf16String(Vec<u16>);
 impl Utf16String {
+    /// Keep JavaScript code units, including isolated surrogates, unchanged.
+    pub fn from_units(units: Vec<u16>) -> Self {
+        Self(units)
+    }
     pub fn slice(text: &str, start: usize, end: usize) -> Self {
         Self(
             text.encode_utf16()

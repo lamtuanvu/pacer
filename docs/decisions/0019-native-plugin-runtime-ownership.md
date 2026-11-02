@@ -45,14 +45,16 @@ before/after dev timing runs, including lifecycle leaf rebuilds, accompany the
 split; compiler incremental caching is disabled equally and timings imply no
 unsupported performance claim. The libraries remain unserved until cutover.
 
-The subsequent Orca text-parity changes measure runtime at **8,043 LOC**
-(capabilities 4,218; host 4,970). The 7,781-line figure above remains the historical
-split measurement. The additional domain-local resolver and exact folder-record
+The subsequent Orca text-parity checkpoint measured runtime at **8,043 LOC**
+(capabilities 4,218; host 4,970). Integrating direct-task exact edits and lease
+validation measured runtime at 8,136 LOC (capabilities 4,237; host 4,970).
+The Orca task-write migration on that base measures runtime at **8,231 LOC**
+(capabilities 4,237; host 4,970; JavaScript JSON carrier 598). The 7,781-line
+figure above remains the historical split measurement. The additional domain-local resolver and exact folder-record
 reader stay with the cohesive private Orca owner while parity is corrected.
 Under CRATE-1, the current M2 follow-up is now scheduled: **split Orca
 attempt/session ownership from direct/remote run and transfer ownership** before
-M2 closes. Parallel direct-task edits forecast 8,136 combined runtime lines; that
-is a planning estimate until the integration is measured. This records the
+M2 closes. These measurements record the
 warning and the next split, not an exception to the unchanged 12,000-line ceiling.
 No crate, dependency edge, heavy dependency or workspace profile changes here;
 the historical CRATE-9 timings are not relabeled for this source revision.
