@@ -166,3 +166,36 @@ fn direct_validation_number_and_utf16_goldens() {
 fn empty_default_repository_is_rejected() {
     assert!(parse_delegate_brief(&json!({"goal":"work"}), "").is_err());
 }
+
+#[test]
+fn trim_and_numeric_goldens() {
+    for file in [
+        include_str!("../../../test/fixtures/task-admission/trim-goldens.json"),
+        include_str!("../../../test/fixtures/task-admission/numeric-goldens.json"),
+        include_str!("../../../test/fixtures/task-admission/string-length-goldens.json"),
+    ] {
+        let rows: Vec<Value> = serde_json::from_str(file).unwrap();
+        for row in rows {
+            let id = row["id"].as_str().unwrap();
+            if let Some(raw) = row.get("raw") {
+                let actual = parse_delegate_brief(raw, "/tmp");
+                if row["accept"] == false {
+                    assert!(actual.is_err(), "{id}");
+                } else {
+                    let parsed = actual.unwrap();
+                    if let Some(title) = row.get("title") {
+                        assert_eq!(&parsed["input"]["title"], title, "{id}");
+                    }
+                }
+            }
+            if let Some(input) = row.get("input") {
+                let problems = validate_input(input, true);
+                assert_eq!(
+                    problems.is_empty(),
+                    row["accept"] == true,
+                    "{id}: {problems:?}"
+                );
+            }
+        }
+    }
+}

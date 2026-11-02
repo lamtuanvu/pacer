@@ -8,6 +8,26 @@ fn codepoint_len(s: &str) -> usize {
     s.chars().count()
 }
 
+/// ECMAScript WhiteSpace and LineTerminator, used by String.prototype.trim.
+fn js_trim(s: &str) -> &str {
+    s.trim_matches(|c| {
+        matches!(
+            c,
+            '\u{0009}'..='\u{000D}'
+                | '\u{0020}'
+                | '\u{00A0}'
+                | '\u{1680}'
+                | '\u{2000}'..='\u{200A}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202F}'
+                | '\u{205F}'
+                | '\u{3000}'
+                | '\u{FEFF}'
+        )
+    })
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("{0}")]
 pub struct AdmissionError(pub String);
@@ -113,7 +133,7 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
         string_field(raw, name, min, Some(max))?;
     }
     if let Some(title) = string_field(raw, "title", 0, None)?
-        && (title.trim().is_empty() || codepoint_len(title.trim()) > 60)
+        && (js_trim(title).is_empty() || codepoint_len(js_trim(title)) > 60)
     {
         return Err(AdmissionError("title: invalid length".into()));
     }
@@ -221,7 +241,7 @@ pub fn parse_delegate_brief(raw: &Value, default_repo: &str) -> Result<Value, Ad
         copy_if_present(raw, &mut input, source, target);
     }
     if let Some(title) = raw.get("title").and_then(Value::as_str) {
-        input.insert("title".into(), Value::String(title.trim().into()));
+        input.insert("title".into(), Value::String(js_trim(title).into()));
     }
     Ok(serde_json::json!({"brief":brief,"input":input}))
 }
@@ -232,11 +252,14 @@ pub fn validate_input(input: &Value, repo_validated: bool) -> Vec<String> {
     let brief = &input["brief"];
     if input.get("title").is_some_and(|v| {
         !v.as_str()
-            .is_some_and(|s| (1..=60).contains(&utf16_len(s.trim())))
+            .is_some_and(|s| (1..=60).contains(&utf16_len(js_trim(s))))
     }) {
         problems.push("title must be 1–60 characters after trimming".into());
     }
-    if !brief["goal"].as_str().is_some_and(|s| !s.trim().is_empty()) {
+    if !brief["goal"]
+        .as_str()
+        .is_some_and(|s| !js_trim(s).is_empty())
+    {
         problems.push("goal is required".into());
     }
     match brief["repo"].as_str() {

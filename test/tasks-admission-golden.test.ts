@@ -70,6 +70,21 @@ test("brief parser rejects an empty default repository", () => {
   expect(() => parseDelegateBrief({goal: "work"}, "")).toThrow("repo");
 });
 
+for (const file of ["trim-goldens.json", "numeric-goldens.json", "string-length-goldens.json"]) {
+  const rows = JSON.parse(readFileSync(new URL(`./fixtures/task-admission/${file}`, import.meta.url), "utf8")) as Array<{id:string;raw?:Record<string,unknown>;input?:unknown;accept:boolean;title?:string}>;
+  for (const row of rows) test(`${file}: ${row.id}`, () => {
+    const ctx = fakeCtx();
+    if (row.raw) {
+      if (!row.accept) expect(() => parseDelegateBrief(row.raw, ctx.home)).toThrow();
+      else {
+        const parsed = parseDelegateBrief(row.raw, ctx.home);
+        if (row.title !== undefined) expect(parsed.title).toBe(row.title);
+      }
+    }
+    if (row.input) expect(validateInput(strategy, row.input as Parameters<typeof validateInput>[1]).length === 0).toBe(row.accept);
+  });
+}
+
 test("queue capacity goldens preserve executor-slot isolation", () => {
   const cases = JSON.parse(readFileSync(new URL("./fixtures/task-admission/capacity-goldens.json", import.meta.url), "utf8")) as Array<{
     id: string;
