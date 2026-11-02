@@ -241,6 +241,11 @@ fn json_number_spellings_reach_listing_and_range_fields() {
     }
     let mtime = expected["mtimeMs"].as_f64().unwrap();
     expected["mtimeMs"] = serde_json::from_str(&format!("{mtime:e}")).unwrap();
+    assert_eq!(
+        expected["mtimeMs"].as_f64(),
+        Some(mtime),
+        "JSON scientific notation must preserve the JS number"
+    );
     for (offset, length, accepted) in [
         ("1.0", "1e2", true),
         ("1e2", "1.0", true),

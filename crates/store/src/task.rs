@@ -266,7 +266,7 @@ pub(crate) fn archive_month(seconds: f64) -> Result<String> {
 }
 
 pub struct TaskStore {
-    home: PathBuf,
+    pub(crate) home: PathBuf,
     db: Connection,
     generation: u64,
     inode: u64,
