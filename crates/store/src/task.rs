@@ -26,10 +26,14 @@ pub enum StoreError {
     Lock(#[from] LockError),
     #[error("task read requires the TypeScript compatibility path")]
     CompatibilityRequired,
+    #[error("{0}")]
+    Admission(String),
     #[error("invalid task record")]
     InvalidRecord,
     #[error("unknown task {0}")]
     UnknownTask(String),
+    #[error("task was unchanged")]
+    Unchanged,
     #[error("task revision conflict")]
     Conflict,
     #[error("task id collision")]
@@ -508,6 +512,16 @@ impl TaskStore {
         records.into_iter().map(|s| parse_record(&s)).collect()
     }
     pub fn insert(&mut self, task: &Value, now: f64) -> Result<()> {
+        self.insert_with(task, now, |_| Ok(()))
+    }
+    /// Admit related domain rows under the task insert's IMMEDIATE transaction.
+    /// Validation runs before JSON write-through, so rejection leaves no orphan.
+    pub fn insert_with(
+        &mut self,
+        task: &Value,
+        now: f64,
+        admit: impl FnOnce(&Connection) -> Result<()>,
+    ) -> Result<()> {
         let id = field(task, "id").ok_or(StoreError::InvalidRecord)?;
         if !valid(task, id) {
             return Err(StoreError::InvalidRecord);
@@ -518,6 +532,7 @@ impl TaskStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let values = row_values(task, now)?;
         if tx.execute("INSERT OR IGNORE INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived) VALUES(?,?,?,?,?,?,?,?,?)", params_from_iter(values))? == 0 { return Err(StoreError::Collision); }
+        admit(&tx)?;
         let mtime = write_json(&self.home, task)?;
         tx.execute(
             "UPDATE tasks SET json_mtime=? WHERE id=?",
@@ -546,6 +561,28 @@ impl TaskStore {
             self.update_locked(id, expected_rev, now, mutate)
         })?
     }
+    /// Update current state under the shared task lock, without a caller CAS.
+    /// Lifecycle metadata maintenance must not use revisions from a prior list.
+    pub fn update_current(
+        &mut self,
+        id: &str,
+        now: f64,
+        mutate: impl FnOnce(&mut Value) -> Result<()>,
+    ) -> Result<Value> {
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            let current = self
+                .read(id)?
+                .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
+            let rev = revision(&current).ok_or(StoreError::InvalidRecord)?;
+            self.update_admitted_locked(id, rev, now, |_, task| mutate(task))
+        })?
+    }
     pub(crate) fn update_locked(
         &mut self,
         id: &str,
@@ -553,6 +590,40 @@ impl TaskStore {
         now: f64,
         mutate: impl FnOnce(&mut Value),
     ) -> Result<Value> {
+        self.update_admitted_locked(id, expected_rev, now, |_, task| {
+            mutate(task);
+            Ok(())
+        })
+    }
+    /// Recheck domain admission and mutate while holding the same SQLite writer
+    /// reservation. The caller holds any required cross-runtime operation lock.
+    pub fn update_admitted(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
+    ) -> Result<Value> {
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            self.update_admitted_locked(id, expected_rev, now, mutate)
+        })?
+    }
+    fn update_admitted_locked(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
+    ) -> Result<Value> {
+        if !is_task_id(id) {
+            return Err(StoreError::InvalidRecord);
+        }
         let home = self.home.clone();
         self.refresh()?;
         let tx = self
@@ -568,7 +639,7 @@ impl TaskStore {
             return Err(StoreError::Conflict);
         }
         let prior = field(&task, "state").unwrap_or("").to_owned();
-        mutate(&mut task);
+        mutate(&tx, &mut task)?;
         let terminal = TERMINAL.contains(&field(&task, "state").ok_or(StoreError::InvalidRecord)?);
         if terminal && !TERMINAL.contains(&prior.as_str()) {
             task["settledAt"] = json!(now);
@@ -605,6 +676,9 @@ impl TaskStore {
         }
         tx.commit()?;
         Ok(task)
+    }
+    pub fn home_path(&self) -> &Path {
+        &self.home
     }
     pub(crate) fn home(&self) -> &Path {
         &self.home
