@@ -1695,6 +1695,17 @@ export class PluginRegistry {
   /** The plugin's current state with no refresh, no start and no event; null when the registry has not loaded it. */
   peek(id: string): PluginState | null { return this.entries.get(id)?.state ?? null; }
 
+  /** Private Core bridge for native reads; this registry remains the process owner. */
+  nativeSnapshot(ctx: Ctx) {
+    this.refresh(ctx);
+    const cfg = pluginsConfig(ctx);
+    return [...this.entries.values()].map(e => ({
+      id: e.id, manifest: e.manifest, bundled: e.bundled, state: e.state, grant: cfg.installed[e.id] ?? null,
+      error: e.error, pid: e.process?.pid ?? null, served: e.served,
+      protocol: e.pluginProtocol, restarts: e.crashes.length,
+    }));
+  }
+
   list(ctx: Ctx): PluginInfo[] {
     this.refresh(ctx);
     const cfg = pluginsConfig(ctx);
