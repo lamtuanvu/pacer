@@ -1,5 +1,4 @@
 //! The non-internal startServer.fetch authentication checks, in wire order.
-use super::js_trim::js_trim;
 use axum::{
     body::Body,
     http::{HeaderValue, Request, StatusCode},
@@ -9,7 +8,7 @@ use pacer_foundation::Ctx;
 use std::{
     fs,
     io::{self, Write},
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
 };
 use subtle::ConstantTimeEq;
 
@@ -37,7 +36,26 @@ pub fn safe_equal(left: &str, right: &str) -> bool {
     left.len() == right.len() && bool::from(left.as_bytes().ct_eq(right.as_bytes()))
 }
 
+/// ECMAScript String.prototype.trim whitespace (WhiteSpace and LineTerminator).
+pub fn js_trim(value: &str) -> &str {
+    super::js_trim::js_trim(value)
+}
+
 pub fn ensure_token(ctx: &Ctx) -> io::Result<String> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&ctx.pacer_home)?;
+    fs::set_permissions(&ctx.pacer_home, fs::Permissions::from_mode(0o700))?;
+    // Keep the lock file stable: unlinking it would allow concurrent locks on
+    // different inodes. The OS releases the lock if the process exits.
+    let lock = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(ctx.pacer_home.join(".token.lock"))?;
+    lock.lock()?;
     let path = ctx.pacer_home.join("token");
     match fs::read_to_string(&path) {
         Ok(token) if !js_trim(&token).is_empty() => return Ok(js_trim(&token).to_owned()),
@@ -45,15 +63,23 @@ pub fn ensure_token(ctx: &Ctx) -> io::Result<String> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    fs::create_dir_all(&ctx.pacer_home)?;
     let token = hex::encode(rand::random::<[u8; 24]>());
+    let temp = ctx.pacer_home.join(format!(
+        ".token.{}.tmp",
+        hex::encode(rand::random::<[u8; 12]>())
+    ));
     let mut file = fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
         .mode(0o600)
-        .open(path)?;
-    writeln!(file, "{token}")?;
+        .open(&temp)?;
+    let result = (|| {
+        writeln!(file, "{token}")?;
+        file.sync_all()?;
+        fs::rename(&temp, path)
+    })();
+    let _ = fs::remove_file(&temp);
+    result?;
     Ok(token)
 }
 
@@ -97,15 +123,11 @@ fn normalized(path: &str) -> bool {
 }
 
 pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decision {
-    let header = |name: &str| {
-        req.headers()
-            .get(name)
-            .and_then(|value| value.to_str().ok())
-    };
+    let header = |name: &str| super::header_value(req.headers(), name);
     let hosts = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
     if !hosts
         .iter()
-        .any(|host| Some(host.as_str()) == header("host"))
+        .any(|host| Some(host.as_str()) == header("host").as_deref())
     {
         return reject(
             StatusCode::MISDIRECTED_REQUEST,
@@ -136,7 +158,7 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         return Decision::AppAuth;
     }
     if safe_equal(
-        header("authorization").unwrap_or(""),
+        header("authorization").as_deref().unwrap_or(""),
         &format!("Bearer {token}"),
     ) {
         return Decision::Forward {
@@ -145,7 +167,9 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
     }
     // Only the core can validate a task grant. The front door limits its transport
     // before forwarding it with the internal generation credential.
-    let bearer = header("authorization")
+    let authorization = header("authorization");
+    let bearer = authorization
+        .as_deref()
         .unwrap_or("")
         .strip_prefix("Bearer ")
         .unwrap_or("");
@@ -166,7 +190,9 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         return reject(StatusCode::FORBIDDEN, "forbidden\n", None);
     }
     let api = path.starts_with("/v2/") || path.starts_with("/v3/");
-    let cookie = header("cookie")
+    let cookie_header = header("cookie");
+    let cookie = cookie_header
+        .as_deref()
         .unwrap_or("")
         .split(';')
         .map(js_trim)
@@ -198,12 +224,12 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
             });
     let local_origin = hosts
         .iter()
-        .any(|host| header("origin") == Some(format!("http://{host}").as_str()));
+        .any(|host| header("origin").as_deref() == Some(format!("http://{host}").as_str()));
     if (session_route && !local_origin)
         || header("sec-fetch-site").is_some_and(|site| site != "same-origin" && site != "none")
         || (req.method() != "GET"
             && req.method() != "HEAD"
-            && (!local_origin || header("x-pacer-client") != Some("app")))
+            && (!local_origin || header("x-pacer-client").as_deref() != Some("app")))
     {
         return reject(
             StatusCode::FORBIDDEN,
