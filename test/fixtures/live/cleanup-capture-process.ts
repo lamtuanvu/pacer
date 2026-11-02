@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { writeJsonAtomic } from "../../../src/fsutil";
 import { ownProcessIdentity } from "../../../src/update/desktop/process-identity";
 
 const [mode, childRoot, childRole] = process.argv.slice(2);
@@ -10,9 +11,9 @@ const role =
 const identity = ownProcessIdentity();
 if (!identity) throw Error("Cannot prove controlled fixture process identity");
 if (mode === "fixture-child") {
-  writeFileSync(
+  writeJsonAtomic(
     join(root, `${role}-descendant.json`),
-    JSON.stringify(identity),
+    identity,
   );
   setInterval(() => {}, 1000);
 } else {
@@ -34,9 +35,9 @@ if (mode === "fixture-child") {
   );
   if (descendant.pid !== child.pid)
     throw Error("Controlled descendant identity changed");
-  writeFileSync(
+  writeJsonAtomic(
     join(root, `${role}-ready.json`),
-    JSON.stringify({ leader: identity, descendant }),
+    { leader: identity, descendant },
   );
   setInterval(() => {}, 1000);
 }
