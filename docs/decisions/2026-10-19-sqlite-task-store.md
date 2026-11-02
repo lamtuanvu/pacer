@@ -147,3 +147,34 @@ reopening. Never remove a live WAL file.
   are not one transaction; an interruption can leave duplicate originals or an
   orphan archive directory, but original contents remain recoverable. Inspect those
   copies before retrying; never delete a conflicting copy blindly.
+
+
+## Amendment — shorter import locks and isolated maintenance (2026-11-02)
+
+Regression fixtures reproduced three contention paths: a fresh reader of an
+already migrated store acquired an unnecessary schema writer lock; compatibility
+import held the writer while reading JSON files; and historical first-settle
+backfill delayed service listener creation by the SQLite busy timeout.
+
+Existing schemas are now inspected without starting an immediate transaction.
+A transaction is still required when a migration is actually needed. Changed
+compatibility files are scanned and parsed before acquiring the writer; imports
+commit in batches of at most 64 records. SQL rechecks revision and mtime guards
+inside each batch, preserving concurrent updates and non-destructive rollback
+copies. No changes to the SQLite schema or JSON compatibility window are made.
+
+First-settle history is likewise read/extracted outside writer transactions and
+inserted in batches of at most 64, with idempotent recovery after interruption.
+
+The service runs historical index backfill and daily retention in a separate,
+service-owned maintenance process after listener creation. It starts at most
+one such process per service incarnation, terminates it at shutdown and uses an
+ownership pipe to bound its lifetime if the service exits unexpectedly. Backfill
+retries only SQLite busy errors with bounded asynchronous backoff; other errors
+remain visible. This does not serialize all task writers through the service or
+promise that task mutations cannot encounter contention. Offline CLI access and
+independent runner writes retain their existing contract.
+
+Increasing the startup timeout alone would retain the lock and request-thread
+coupling. Making the service the sole writer would break independent runners
+and offline compatibility, so it remains a separate future migration.
