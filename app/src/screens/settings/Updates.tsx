@@ -160,9 +160,9 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
           if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {
             void action.run('update.apply', {});
           }
-        }}>Install {query.data.latest}</Button>}
+        }} disabled={!!action.unavailable}>Install {query.data.latest}</Button>}
         <TextAction size="caption" href={`https://github.com/lamtuanvu/pacer/releases/${query.data.latest && /^\d+\.\d+\.\d+$/.test(query.data.latest) ? `tag/v${query.data.latest}` : "latest"}`}>Release notes</TextAction>
-        <Button size="sm" busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
+        <Button size="sm" busy={action.busy} onClick={() => void action.run('update.check', {force:true})} disabled={!!action.unavailable}>Check now</Button>
       </div>
     </SettingRow>}</ResourceState>
     <RunningWork/>

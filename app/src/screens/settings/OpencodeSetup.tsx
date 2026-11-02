@@ -339,7 +339,7 @@ function ModelStep({
         {error &&
           !error.startsWith("Enter a positive") &&
           !error.startsWith("Use lowercase") && <p role="alert">{error}</p>}
-        <Button type="submit" variant="primary" disabled={action.busy}>
+        <Button type="submit" variant="primary" disabled={!!action.unavailable || (action.busy)}>
           Add executor
         </Button>
         <p className="u3-muted">

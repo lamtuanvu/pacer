@@ -1,3 +1,6 @@
+import { useUniqueId as useId } from '../ds/useUniqueId';
+
+import { useWorkspaceKey, useWorkspaceState, useViewActive } from '../workspace/state';
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { answerSteps, sendBackSteps, userStartedRoot, withManagedFallback } from "../../../src/view-model/managed-root";
@@ -86,12 +89,13 @@ export function ResultChanges({patch,untracked,truncated,note}:{patch:string;unt
 
 /** Answers a question the task sent the human with msg.send, then marks it read once the answer reaches the task. */
 export function MessageAnswer({ task, question, focus = false, onSent }: { task: TaskDetail; question: { id: string; text: string }; focus?: boolean; onSent: (message: string) => void }) {
-  const { api } = useTaskContext(), runner = useActions();
-  const [answer,setAnswer] = useState(""), [pending,setPending] = useState(false), [refused,setRefused] = useState("");
+  const { api, state } = useTaskContext(), runner = useActions();
+  const answerId=useId();
+  const [answer,setAnswer] = useWorkspaceState(useWorkspaceKey(task.id), "draft:answer", ""), [pending,setPending] = useState(false), [refused,setRefused] = useState("");
   const inFlight = useRef(false), input = useRef<HTMLTextAreaElement>(null), requestId = useRef("");
   useEffect(() => { if (focus) input.current?.focus(); }, [focus]);
   async function send() {
-    if (inFlight.current || !answer.trim()) return;
+    if (!state.connected || inFlight.current || !answer.trim()) return;
     inFlight.current = true;setPending(true);setRefused("");
     requestId.current ||= crypto.randomUUID();
     try {
@@ -108,8 +112,8 @@ export function MessageAnswer({ task, question, focus = false, onSent }: { task:
   }
   return <>
     <p>{question.text}</p>
-    <Field label="Your answer" error={refused || undefined}><TextArea ref={input} value={answer} rows={4} onInput={e => setAnswer(e.currentTarget.value)} /></Field>
-    <Button variant="primary" busy={pending} disabled={!answer.trim()} onClick={() => void send()}>Send answer</Button>
+    {!state.connected&&<p id={`${answerId}-reason`} className="muted">Reconnecting… Send when pacer reconnects.</p>}<Field label="Your answer" error={refused || undefined}><TextArea id={answerId} data-focus-id={`message-answer:${task.id}`} ref={input} value={answer} rows={4} onInput={e => setAnswer(e.currentTarget.value)} /></Field>
+    <Button variant="primary" busy={pending} disabled={!state.connected || !answer.trim()} aria-describedby={!state.connected ? `${answerId}-reason` : undefined} title={!state.connected ? "Reconnecting… Send when pacer reconnects." : undefined} onClick={() => void send()}>Send answer</Button>
   </>;
 }
 
@@ -135,7 +139,8 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
   const [changes,setChanges] = useState<{patch:string;untracked:string[];truncated:boolean;note?:string}>();
   const [changesError,setChangesError] = useState(""), [loadingChanges,setLoadingChanges] = useState(false);
   const inFlight = useRef(false), noteRef = useRef<HTMLTextAreaElement>(null);
-  const [answer,setAnswer] = useState("");
+  const answerId=useId();
+  const [answer,setAnswer] = useWorkspaceState(useWorkspaceKey(task.id), "draft:answer", "");
   async function loadChanges() {
     if (changes || loadingChanges) return;
     setLoadingChanges(true);setChangesError("");
@@ -169,7 +174,7 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
   const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state)} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
     onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /> : undefined;
   const isQuestion = legacyQuestionPending(task), asked = messageQuestion(task);
-  const question = isQuestion ? <><p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!answer.trim()} onClick={async()=>{
+  const question = isQuestion ? <>{!state.connected&&<p id={`${answerId}-reason`} className="muted">Reconnecting… Send when pacer reconnects.</p>}<p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!state.connected || !answer.trim()} aria-describedby={!state.connected ? `${answerId}-reason` : undefined} title={!state.connected ? "Reconnecting… Send when pacer reconnects." : undefined} onClick={async()=>{
     if(inFlight.current)return;inFlight.current=true;setPending(true);
     try {
       if (userStartedRoot(task)) {
@@ -177,9 +182,10 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
         setMessage("Answer sent.");
       } else {
         const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});
-        setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");
+        if(result.status==="error"||result.status==="handled"){setMessage(result.message);return;}
+        setMessage("Answer sent.");
       }
-      reload();
+      setAnswer(""); reload();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not send the answer."); }
     finally {inFlight.current=false;setPending(false);}
   }}>Send answer</Button></> : asked ? <MessageAnswer task={task} question={asked} focus={focusAnswer} onSent={onAnswered}/> : undefined;
@@ -196,7 +202,8 @@ export function TaskHeading({ task }: { task: TaskDetail }) {
 
 /** A task's screen: the Tasks list on the left, the session in the centre and its details in the right panel. */
 export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
-  const { state } = useTaskContext(), frame = useFrame();
+  const { state } = useTaskContext(), frame = useFrame(), visible=useViewActive();
+  const routeHash=useRef(visible?location.hash:''); if(visible)routeHash.current=location.hash;
   const task = useQuery<TaskDetail>("task.get", {id});
   const history = useQuery<{tasks:ApiTask[]}>("task.list",{all:true,limit:20,...(query.repo?{repo:query.repo}:{})});
   const work = useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(query.repo?{repo:query.repo}:{})});
@@ -211,10 +218,10 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const now=Date.now()/1000;
   const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra,pinned:id}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
   // A deep link (`?tab=changes`) opens the details panel on that tab.
-  const requested = new URLSearchParams(location.hash.split("?")[1]).get("tab") ?? (location.hash.split("?")[0]?.endsWith("/review") ? task.data.work ? "work" : "brief" : null);
+  const requested = new URLSearchParams(routeHash.current.split("?")[1]).get("tab") ?? (routeHash.current.split("?")[0]?.endsWith("/review") ? task.data.work ? "work" : "brief" : null);
   const panelTab = ({ changes: "changes", brief: "details", messages: "messages", work: "work", answer: "details" } as const)[requested as "changes"];
   // "Answer" in Needs you lands on the composer for the task's question.
-  const focusAnswer = requested === "answer";
+  const focusAnswer = visible && requested === "answer";
   const active = ["queued", "running"].includes(task.data.state);
   return <FrameContext.Provider value={slots}><div className="pc-task-workspace">
     <FrameSlot name="left"><TaskNavigator selectedId={id} nodes={nodes} query={withQuery('',query)}/></FrameSlot>

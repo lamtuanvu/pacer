@@ -45,6 +45,8 @@ const NEEDS_READ_MODEL = new Set(["dispatch", "review"]);
 /** Compact desktop header and rail; narrow screens keep touch navigation. AppFrame owns the regions. */
 export function Layout({ route, loadingRoute = route, state, title, onDelegate = () => {}, children }: { route: Route; loadingRoute?: Route; state: StoreState; title: string; onDelegate?: () => void; children: ComponentChildren }) {
   const narrow = useNarrow(route.query);
+  const [offlineBanner, setOfflineBanner] = useState(false);
+  useEffect(() => { setOfflineBanner(false); if (state.connected) return; const timer = setTimeout(() => setOfflineBanner(true), 2000); return () => clearTimeout(timer); }, [state.connected]);
   useAgentDeepLink(route);
   const [density, setDensity] = useState(savedDensity);
   useEffect(() => {
@@ -174,7 +176,7 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
     activity={<Rail terminal={dockAvailable ? {open:dockOpen,toggle:toggleDock} : undefined} route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
     left={settings || tasks || (workPanels && scopeOpen && <aside className="pc-side-panel pc-side-panel--left pc-scope-panel" style={{ flexBasis: "calc(var(--size-240) + var(--space-2))", width: "calc(var(--size-240) + var(--space-2))" }} aria-label="Scope"><div id="pc-side-panel-left" ref={setLeftSlot} className="pc-frame-slot" /></aside>)}
     right={details || (workPanels && inspectorOpen && <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector"><div id="pc-side-panel-right" ref={setRightSlot} className="pc-frame-slot" /></aside>)}
-    live={!state.connected && state.snapshot && <OfflineNotice lastUpdate={state.snapshot.at} />}
+    live={offlineBanner && !state.connected && state.snapshot && <OfflineNotice lastUpdate={state.snapshot.at} />}
     mainClass={`pc-main${taskPanels?" pc-main--workbench":""}${loading || !outdated && ["task-failure","task-review","new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton layout={SETTINGS.has(loadingRoute.name) ? "settings" : ["task-review", "task-failure"].includes(loadingRoute.name) ? "task" : loadingRoute.name === "sessions" ? (loadingRoute.id ? "task" : "list") : loadingRoute.name === "review" ? "list" : "dashboard"} label={loadingRoute.name === "sessions" && loadingRoute.id ? "Loading the task" : `Loading ${loadingRoute.name === "sessions" ? "tasks" : loadingRoute.name === "review" ? "Needs you" : SETTINGS.has(loadingRoute.name) ? "settings" : "Dispatch"}`} /> : route.name === "loading" ? <p role="status">Checking setup…</p> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}
     overlay={assistantAvailable && <AssistantLoader route={route} narrow={narrow} repo={repo} repoLabel={repoLabel} onNewTask={onDelegate} />}

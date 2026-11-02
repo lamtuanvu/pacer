@@ -295,13 +295,13 @@ export function SavedSetups({onActivated,initialData}:{onActivated?:()=>void;ini
     <ResourceState resource={query} empty="No saved setups yet.">
       <div className="pc-saved-setups">{query.data?.map(strategy=><div key={strategy.name} className={`pc-saved-setups__row${strategy.active?" pc-saved-setups__row--active":""}`}>
         <span className="pc-setup-icon"><Identicon seed={strategy.name}/></span><strong>{strategy.name}</strong><span>{strategy.summary}</span>
-        <div>{strategy.active?<Pill tone="good">Active</Pill>:<Button size="sm" aria-label={`Activate ${strategy.name}`} disabled={action.busy} onClick={()=>void action.run("strategy.use",{name:strategy.name},onActivated)}>Activate</Button>}</div>
+        <div>{strategy.active?<Pill tone="good">Active</Pill>:<Button size="sm" aria-label={`Activate ${strategy.name}`} disabled={!!action.unavailable || (action.busy)} onClick={()=>void action.run("strategy.use",{name:strategy.name},onActivated)}>Activate</Button>}</div>
       </div>)}</div>
     </ResourceState>
     <p className="u3-muted">Create setup from a brief opens a planning session that drafts a setup from your description. Nothing is activated until you review it here.</p>
     {building&&<form className="pc-card" onSubmit={event=>{event.preventDefault();void action.run("strategy.build",{brief});}}>
       <Field label="What should this setup do?"><TextArea value={brief} maxLength={2000} required onInput={event=>setBrief(event.currentTarget.value)}/></Field>
-      <div><Button type="submit" disabled={action.busy}>Build setup</Button></div><p className="u3-muted">Opens a planning session or returns a command to run.</p>
+      <div><Button type="submit" disabled={!!action.unavailable || (action.busy)}>Build setup</Button></div><p className="u3-muted">Opens a planning session or returns a command to run.</p>
     </form>}
     <Feedback action={action}/>
   </Section>;

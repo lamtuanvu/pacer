@@ -1,3 +1,4 @@
+import { workspaceKey, workspaceManager } from '../app/src/workspace/manager';
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { Delegate, DelegateRoutingPreview, handleDelegateKey } from "../app/src/screens/Delegate";
@@ -77,6 +78,8 @@ test("Cmd+Enter and Ctrl+Enter request form submission once; typing, composition
 });
 
 test("dialog renders stored defaults, optional kind and submission shortcut", () => {
+  const scope = workspaceKey("pending", undefined, "pacer.delegate.v2");
+  workspaceManager.set(scope, "draft:pacer.delegate.v2", { ...blankDelegate, goal: "Fix routing", kind: "tests" });
   const oldSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
   const oldLocal = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   const storage = (value: unknown) => ({ getItem: () => JSON.stringify(value), setItem() {}, removeItem() {} });
@@ -96,6 +99,7 @@ test("dialog renders stored defaults, optional kind and submission shortcut", ()
     expect(html).toContain('aria-keyshortcuts="Meta+Enter Control+Enter"');
     expect(html).toContain("Checking routing…");
   } finally {
+    workspaceManager.clearIdentity("pending");
     if (oldSession) Object.defineProperty(globalThis, "sessionStorage", oldSession); else Reflect.deleteProperty(globalThis, "sessionStorage");
     if (oldLocal) Object.defineProperty(globalThis, "localStorage", oldLocal); else Reflect.deleteProperty(globalThis, "localStorage");
   }
