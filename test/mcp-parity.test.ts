@@ -258,6 +258,15 @@ async function capture(mode: "planner" | "grant") {
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   env.HOME = home;
   env.PACER_HOME = pacerHome;
+  // The golden captures installed executors with no availability evidence.
+  // Give both stdio processes the same isolated executable inventory on every host.
+  const bin = join(home, "bin");
+  mkdirSync(bin);
+  for (const name of ["claude", "codex", "cursor-agent", "opencode"]) {
+    writeFileSync(join(bin, name), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  }
+  env.PATH = bin;
+  env.PACER_PLANNER_SESSION = "claude-code";
   delete env.PACER_ROLE;
   delete env.PACER_TASK_ID;
   delete env.PACER_WORK_GRANT;
