@@ -1,3 +1,5 @@
+import { useDialogs } from "../ds/useDialogs";
+import { browserSessionIdentity, sessionRuntimes } from "../term/runtime";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ago, clock } from "../../../src/view-model/time";
 import { agentInfo, markAgent } from "../../../src/view-model/agents";
@@ -27,6 +29,11 @@ export function dismissUsageOnEscape(event: Pick<KeyboardEvent, "key" | "prevent
 
 /** `terminal` adds the dock toggle; it is omitted wherever the dock cannot open. */
 export function StatusBar({ route, snapshot, registry, terminal }: { route?: Route; snapshot: ClientSnapshot | null; registry: KeyRegistry; terminal?: { open: boolean; toggle: () => void } }) {
+  const [, runtimeChanged] = useState(0);
+  useEffect(() => sessionRuntimes.subscribe(() => runtimeChanged(n => n + 1)), []);
+  useEffect(() => sessionRuntimes.updateTasks(browserSessionIdentity(), snapshot?.tasks ?? []), [snapshot?.tasks]);
+  const hiddenControl = sessionRuntimes.hiddenDriving();
+  const dialogs = useDialogs();
   const [help, setHelp] = useState(() => registry.list().find(shortcut => shortcut.keys === "?"));
   useEffect(() => { const update = () => setHelp(registry.list().find(shortcut => shortcut.keys === "?")); update(); return registry.subscribe(update); }, [registry]);
   const [usageOpen, setUsageOpen] = useState(false);
@@ -66,6 +73,8 @@ export function StatusBar({ route, snapshot, registry, terminal }: { route?: Rou
       {!usageNames.length && <span>Usage</span>}
     </Button>
     <span className="grow" />
+    {dialogs.dialog}
+    <span role="status" aria-live="polite">{hiddenControl.length > 0 && <Button size="sm" variant="quiet" onClick={() => { void handBackHidden(hiddenControl, message => dialogs.confirm(message, 'Hand back control', 'Hand back')); }}><Icon name="status-terminal" />{hiddenControlLabel(hiddenControl.length)}</Button>}</span>
     {counts && <a href="#/tasks" className="pc-statusbar__work pc-inline-link"><span className="pc-statusbar__dot" aria-hidden="true" />{counts.running} running · {counts.queued} queued</a>}
     {terminal && <Button size="sm" variant="quiet" className="pc-statusbar__terminal" aria-label="Terminal" aria-keyshortcuts="Control+`" aria-expanded={terminal.open} aria-controls={terminal.open ? "pc-terminal-dock" : undefined} onClick={terminal.toggle}><Icon name="status-terminal" />Terminal <span className="pc-statusbar__keys">Ctrl+`</span></Button>}
     <div className="pc-statusbar__hints">{hints.length ? hints.map(hint => <span className="pc-statusbar__hint" key={`${hint.keys}:${hint.label}`}><Kbd>{hint.keys === "Escape" ? "Esc" : hint.keys}</Kbd> {hint.label}</span>) : help && <Button size="sm" variant="quiet" className="pc-statusbar__help" onClick={help.run}>? shortcuts</Button>}</div>
@@ -124,4 +133,14 @@ export function UsageDetails({ accounts, now }: { accounts: Account[]; now: numb
       {(reading?.source || reading?.stale || reading?.error) && <p className="pc-usage-account__meta muted">{[reading.source ? usageSources[reading.source] ?? "Source unknown" : null, reading.capturedAt != null && reading.stale ? `read ${ago(reading.capturedAt, now)}` : null, reading.error ? "Reading failed" : null].filter(Boolean).join(" · ")}</p>}
     </section>;
   })}</div>;
+}
+
+export function hiddenControlLabel(count: number) {
+  return `In control of ${count} hidden ${count === 1 ? 'session' : 'sessions'} · Hand back`;
+}
+
+export async function handBackHidden(runtimes: readonly { release(): unknown }[], confirm: (message: string) => Promise<boolean>) {
+  if (await confirm(`Hand back control of ${runtimes.length} hidden ${runtimes.length === 1 ? 'session' : 'sessions'}? This includes any hidden terminal shells.`)) {
+    runtimes.forEach(runtime => runtime.release());
+  }
 }
