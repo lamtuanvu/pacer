@@ -1,0 +1,35 @@
+{
+  "params": [
+    {"name":"task.delegate","input":{"title":"x","dispatch":{"model":"m"}},"output":{"title":"x"}},
+    {"name":"client.register","input":{"kind":"desktop","capture":true},"output":{"kind":"desktop"}},
+    {"name":"task.review","input":{"accepted":true,"id":"t"},"output":{"id":"t","verdict":"accept"}},
+    {"name":"task.review","input":{"accepted":false},"output":{"verdict":"reject"}},
+    {"name":"task.review","input":{"accepted":true,"verdict":"reject"},"output":{"verdict":"reject"}},
+    {"name":"task.review","input":[true],"output":[true]},
+    {"name":"other","input":null,"output":null}
+  ],
+  "results": [
+    {"name":"client.register","input":{"id":"c","capture_worker":true},"output":{"id":"c"}},
+    {"name":"version.get","input":{"protocol":"3.0.0","pacer":"x"},"output":{"protocol":"2.8.0","pacer":"x"}},
+    {"name":"task.diff","input":{"patch":"diff","other":1},"output":{"patch":"diff","other":1,"diff":"diff"}},
+    {"name":"task.list","input":[{"id":"t","fullTitle":"title","derived":true}],"output":[{"id":"t","derived":true}]},
+    {"name":"task.list","input":{"tasks":[{"id":"t","fullTitle":"title"}],"next":"n"},"output":{"tasks":[{"id":"t"}],"next":"n"}},
+    {"name":"task.get","input":{"id":"t","fullTitle":"title","derived":{},"work":{}},"output":{"id":"t"}},
+    {"name":"task.review","input":{"task":{"id":"t","fullTitle":"title"},"ok":true},"output":{"task":{"id":"t"},"ok":true}},
+    {"name":"task.review","input":{"id":"t","fullTitle":"title"},"output":{"id":"t"}},
+    {"name":"other","input":{"fullTitle":"title"},"output":{"fullTitle":"title"}}
+  ],
+  "events": [
+    {"input":{"type":"task","seq":3000000000001,"data":{"id":"t"}},"output":{"type":"task","seq":1,"data":{"id":"t"}}},
+    {"input":{"type":"task","seq":2,"data":null},"output":{"type":"task","seq":2,"data":null}},
+    {"input":{"type":"desktop.update","seq":1,"data":null},"output":null},
+    {"input":{"type":"planner","seq":1,"data":null},"output":null},
+    {"input":{"type":"assistant","seq":1,"data":null},"output":null},
+    {"input":{"type":"machine","seq":1,"data":null},"output":null},
+    {"input":{"type":"message","seq":1,"data":null},"output":null},
+    {"input":{"type":"discovery.found","seq":1,"data":null},"output":null},
+    {"input":{"type":"config","seq":1,"data":{"area":"machine"}},"output":null},
+    {"input":{"type":"config","seq":1,"data":{"area":"discovery"}},"output":null},
+    {"input":{"type":"config","seq":1,"data":{"area":"other"}},"output":{"type":"config","seq":1,"data":{"area":"other"}}}
+  ]
+}
