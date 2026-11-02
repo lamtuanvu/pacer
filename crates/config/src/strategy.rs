@@ -1499,6 +1499,24 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
                 "terminal.open requires a preset or a template with {cmd}".into(),
             ));
         }
+        let mut quote = None;
+        let mut chars = value.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' && quote != Some('\'') {
+                if chars.next().is_none() {
+                    return Err(StrategyError::Other("unfinished terminal escape".into()));
+                }
+            } else if let Some(q) = quote {
+                if c == q {
+                    quote = None;
+                }
+            } else if c == '\"' || c == '\'' {
+                quote = Some(c);
+            }
+        }
+        if quote.is_some() {
+            return Err(StrategyError::Other("unfinished terminal quote".into()));
+        }
         result["terminal"] = json!({"open":value});
     }
     Ok(result)

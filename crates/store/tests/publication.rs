@@ -38,6 +38,32 @@ fn bun(home: &Path, code: &str) {
 }
 
 #[test]
+fn task_title_uses_ecmascript_trim_set() {
+    let cases: Vec<Value> = ["\u{FEFF}Title\u{2028}", "\u{00A0}Title\u{3000}", "\u{0085}Title\u{0085}", "\u{FEFF}\u{2029}"]
+        .iter()
+        .map(|title| json!({"type":"task","data":{"id":"t-example","state":"done","updatedAt":1,"title":title}}))
+        .collect();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("bun").current_dir(root)
+        .args(["-e", "import {parseOutboxEvent} from './src/link/envelope.ts'; const cases=JSON.parse(Bun.argv.at(-1)); console.log(JSON.stringify(cases.map(parseOutboxEvent)));", &json!(cases).to_string()])
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let bun: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    for (case, expected) in cases.iter().zip(bun) {
+        assert_eq!(
+            parse_outbox_event(case),
+            Some(expected),
+            "{}",
+            case["data"]["title"]
+        );
+    }
+}
+
+#[test]
 fn config_publication_matches_bun_bytes_and_sequence() {
     let rust = tempfile::tempdir().unwrap();
     let ts = tempfile::tempdir().unwrap();
@@ -1038,6 +1064,8 @@ fn activity_rotation_keeps_recent_twenty_thousand() {
 
 #[test]
 fn snapshot_parser_matches_bun_normalization() {
+    use std::process::Stdio;
+
     let mut inputs = json!([
         {"v":1,"seq":2,"at":100,"serviceInstalled":true,"tasks":[{"id":"t","state":"running","updatedAt":1,"goal":"g","executor":"codex","backend":null,"worktree":null}],"alerts":[{"title":"hello","error":"bad"}],"console":{"pid":12,"startedAt":90,"heartbeatAt":99,"handle":"h","paneKey":null},"strategies":["default",{"name":"alt","active":true,"summary":"s","description":"d"}],"unknown":"discard"},
         {"v":1,"seq":5,"at":10,"budget":{"generatedAt":1,"strategy":"s","planner":"p","mode":"normal"},"mode":{"mode":"normal","strategy":"s","at":1}},
@@ -1142,18 +1170,27 @@ fn snapshot_parser_matches_bun_normalization() {
         .parent()
         .and_then(Path::parent)
         .unwrap();
-    let result = Command::new("bun")
+    let mut result = Command::new("bun")
         .arg("-e")
         .arg(
             r#"
 import {parseSnapshot} from './src/link/envelope.ts';
-process.stdout.write(JSON.stringify(JSON.parse(process.env.TEST_INPUTS).map(parseSnapshot)));
+process.stdout.write(JSON.stringify(JSON.parse(await Bun.stdin.text()).map(parseSnapshot)));
 "#,
         )
-        .env("TEST_INPUTS", inputs.to_string())
         .current_dir(root)
-        .output()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap();
+    result
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(inputs.to_string().as_bytes())
+        .unwrap();
+    let result = result.wait_with_output().unwrap();
     assert!(
         result.status.success(),
         "{}",

@@ -942,6 +942,7 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
             if s.is_empty()
                 || s.parse::<f64>().is_ok()
                 || matches!(s.as_str(), "true" | "false" | "null" | "~")
+                || s.parse::<f64>().is_ok()
                 || s.contains(": ")
                 || s.contains(" #")
                 || s.starts_with([
@@ -1091,6 +1092,15 @@ fn emit_style(value: &Value, flow: bool, indent: usize, bun: bool) -> String {
         }
     };
     match value {
+        Value::String(s)
+            if flow && (s.contains(['{', '}', '[', ']', ',', '\n', '\r']) || s.trim() != s) =>
+        {
+            if s.contains('"') && !s.contains('\'') && !s.chars().any(char::is_control) {
+                format!("'{s}'")
+            } else {
+                serde_json::to_string(s).unwrap_or_default()
+            }
+        }
         Value::Array(items) if items.is_empty() => "[]".into(),
         Value::Object(items) if items.is_empty() => "{}".into(),
         Value::Array(items) if flow => {

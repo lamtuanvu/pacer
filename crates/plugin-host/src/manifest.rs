@@ -333,8 +333,8 @@ fn valid_settings(schema: Option<&Value>) -> bool {
         if kind == "integer"
             && field
                 .get("minimum")
-                .and_then(Value::as_i64)
-                .zip(field.get("maximum").and_then(Value::as_i64))
+                .and_then(crate::js_semantics::safe_i64)
+                .zip(field.get("maximum").and_then(crate::js_semantics::safe_i64))
                 .is_none_or(|(min, max)| min > max)
         {
             return false;
@@ -342,7 +342,7 @@ fn valid_settings(schema: Option<&Value>) -> bool {
         if kind == "integer"
             && field
                 .get("default")
-                .is_some_and(|value| value.as_i64().is_none())
+                .is_some_and(|value| crate::js_semantics::safe_i64(value).is_none())
         {
             return false;
         }
@@ -362,8 +362,7 @@ fn valid_settings(schema: Option<&Value>) -> bool {
                 return false;
             }
             if field.get("maxLength").is_some_and(|value| {
-                value
-                    .as_u64()
+                crate::js_semantics::safe_u64(value)
                     .is_none_or(|length| !(1..=2000).contains(&length))
             }) {
                 return false;
@@ -386,9 +385,7 @@ fn valid_settings(schema: Option<&Value>) -> bool {
         }
         if (kind == "array" || kind == "repos")
             && field.get("maxItems").is_some_and(|value| {
-                value
-                    .as_u64()
-                    .is_none_or(|count| !(1..=100).contains(&count))
+                crate::js_semantics::safe_u64(value).is_none_or(|count| !(1..=100).contains(&count))
             })
         {
             return false;
@@ -657,6 +654,77 @@ mod tests {
                     assert!(wire.get(key).is_none(), "{}", case["name"]);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn settings_numeric_and_string_fields_match_typescript_parser() {
+        use std::process::Command;
+        let base = serde_json::json!({"id":"fx-test","version":"1.0.0","publisher":"fixture",
+            "host":">=1.6.0","capabilities":[{"name":"config.get"}],
+            "contributes":{"ui":{"settings":[{"id":"settings","title":"Settings",
+                "schema":{"fields":{"Budget":{"type":"integer","title":"Budget","minimum":0,"maximum":100}}}}]}}});
+        let mut cases = Vec::new();
+        for (field, spellings) in [
+            ("minimum", ["1.0", "1e2", "1.5", "9007199254740992"]),
+            ("maximum", ["1.0", "1e2", "1.5", "9007199254740992"]),
+            ("default", ["1.0", "1e2", "1.5", "9007199254740992"]),
+        ] {
+            for spelling in spellings {
+                let mut manifest = base.clone();
+                manifest["contributes"]["ui"]["settings"][0]["schema"]["fields"]["Budget"][field] =
+                    serde_json::from_str(spelling).unwrap();
+                cases.push((format!("{field}={spelling}"), manifest));
+            }
+        }
+        for (kind, field, spellings) in [
+            (
+                "string",
+                "maxLength",
+                ["1.0", "1e2", "1.5", "9007199254740992"],
+            ),
+            (
+                "repos",
+                "maxItems",
+                ["1.0", "1e2", "1.5", "9007199254740992"],
+            ),
+        ] {
+            for spelling in spellings {
+                let mut manifest = base.clone();
+                manifest["contributes"]["ui"]["settings"][0]["schema"]["fields"]["Budget"] =
+                    serde_json::json!({"type":kind,"title":"Budget"});
+                manifest["contributes"]["ui"]["settings"][0]["schema"]["fields"]["Budget"][field] =
+                    serde_json::from_str(spelling).unwrap();
+                cases.push((format!("{field}={spelling}"), manifest));
+            }
+        }
+        for (field, value) in [
+            ("title", "😀".repeat(80)),
+            ("default", "😀".repeat(2000)),
+            ("default", "😀".repeat(2001)),
+        ] {
+            let mut manifest = base.clone();
+            manifest["contributes"]["ui"]["settings"][0]["schema"]["fields"]["Budget"] =
+                serde_json::json!({"type":"string","title":"Budget"});
+            manifest["contributes"]["ui"]["settings"][0]["schema"]["fields"]["Budget"][field] =
+                serde_json::json!(value);
+            cases.push((format!("{field}={}", value.chars().count()), manifest));
+        }
+        let input: Vec<_> = cases.iter().map(|(_, manifest)| manifest).collect();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let output = Command::new("bun").current_dir(root)
+            .args(["-e", "import {parseManifest} from './src/plugins/manifest.ts'; const cases=JSON.parse(Bun.argv.at(-1)); console.log(JSON.stringify(cases.map(c=>parseManifest(c).ok)));", &serde_json::to_string(&input).unwrap()])
+            .output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(expected.iter().any(|accepted| *accepted));
+        assert!(expected.iter().any(|accepted| !*accepted));
+        for ((name, manifest), accepted) in cases.iter().zip(expected) {
+            assert_eq!(parse_manifest(manifest.clone()).is_ok(), accepted, "{name}");
         }
     }
 }

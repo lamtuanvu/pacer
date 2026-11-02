@@ -1,0 +1,1206 @@
+[
+  {
+    "steps": [
+      [
+        "join",
+        "a"
+      ],
+      [
+        "join",
+        "b"
+      ],
+      [
+        "take",
+        "a",
+        {}
+      ],
+      [
+        "take",
+        "a",
+        {}
+      ],
+      [
+        "take",
+        "b",
+        {}
+      ],
+      [
+        "input",
+        "b",
+        "ignored"
+      ],
+      [
+        "size",
+        "b",
+        {
+          "cols": 80,
+          "rows": 24
+        }
+      ],
+      [
+        "take",
+        "b",
+        {
+          "force": "true"
+        }
+      ],
+      [
+        "take",
+        "b",
+        {
+          "force": true
+        }
+      ],
+      [
+        "input",
+        "a",
+        "ignored"
+      ],
+      [
+        "input",
+        "b",
+        "ok"
+      ],
+      [
+        "input",
+        "b",
+        ""
+      ],
+      [
+        "size",
+        "b",
+        {
+          "cols": 1000,
+          "rows": 500
+        }
+      ],
+      [
+        "size",
+        "b",
+        {
+          "cols": 1001,
+          "rows": 500
+        }
+      ],
+      [
+        "size",
+        "b",
+        {
+          "cols": 1,
+          "rows": 100
+        }
+      ],
+      [
+        "size",
+        "b",
+        {
+          "cols": "1",
+          "rows": 1
+        }
+      ],
+      [
+        "release",
+        "a"
+      ],
+      [
+        "release",
+        "b"
+      ],
+      [
+        "disconnect",
+        "b"
+      ],
+      [
+        "disconnect",
+        "a"
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:a"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:b"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:a",
+        "size": 2,
+        "events": [
+          [
+            "control-taken",
+            "cli:a"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": "cli:a",
+              "you": true,
+              "reason": "taken"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": "cli:a",
+              "you": false,
+              "reason": "taken"
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:a",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": "cli:a",
+              "you": true
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:a",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "b",
+            "body": {
+              "controller": "cli:a",
+              "you": false,
+              "reason": "refused"
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:a",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": "cli:a",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": "cli:a",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "b",
+            "body": {
+              "controller": "cli:a",
+              "you": false,
+              "reason": "refused"
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:b",
+        "size": 2,
+        "events": [
+          [
+            "control-released",
+            "cli:a"
+          ],
+          [
+            "control-taken",
+            "cli:b"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": "cli:b",
+              "you": false,
+              "reason": "taken"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": "cli:b",
+              "you": true,
+              "reason": "taken"
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:b",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": "cli:b",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "ok"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": "cli:b",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": "cli:b",
+        "size": 2,
+        "events": [
+          [
+            "resize",
+            1000,
+            500
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": "cli:b",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": "cli:b",
+        "size": 2,
+        "events": [
+          [
+            "resize",
+            1,
+            100
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": "cli:b",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": "cli:b",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "size": 2,
+        "events": [
+          [
+            "control-released",
+            "cli:b"
+          ],
+          [
+            "release",
+            "cli:b"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": false,
+              "reason": "released"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": false,
+              "reason": "released"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 1,
+        "events": [
+          [
+            "detach",
+            "cli:b"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "size": 0,
+        "events": [
+          [
+            "detach",
+            "cli:a"
+          ]
+        ],
+        "messages": []
+      }
+    ]
+  },
+  {
+    "steps": [
+      [
+        "join",
+        "a"
+      ],
+      [
+        "take",
+        "a",
+        {}
+      ],
+      [
+        "disconnect",
+        "a"
+      ],
+      [
+        "join",
+        "b"
+      ],
+      [
+        "take",
+        "b",
+        {}
+      ],
+      [
+        "release",
+        "b"
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:a"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:a",
+        "size": 1,
+        "events": [
+          [
+            "control-taken",
+            "cli:a"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": "cli:a",
+              "you": true,
+              "reason": "taken"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 0,
+        "events": [
+          [
+            "control-released",
+            "cli:a"
+          ],
+          [
+            "detach",
+            "cli:a"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:b"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:b",
+        "size": 1,
+        "events": [
+          [
+            "control-taken",
+            "cli:b"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "b",
+            "body": {
+              "controller": "cli:b",
+              "you": true,
+              "reason": "taken"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 1,
+        "events": [
+          [
+            "control-released",
+            "cli:b"
+          ],
+          [
+            "release",
+            "cli:b"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": false,
+              "reason": "released"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "steps": [
+      [
+        "join",
+        "a",
+        "cli:same"
+      ],
+      [
+        "join",
+        "b",
+        "cli:same"
+      ],
+      [
+        "join",
+        "c",
+        "app:same"
+      ],
+      [
+        "take",
+        "a",
+        {}
+      ],
+      [
+        "take",
+        "b",
+        {}
+      ],
+      [
+        "take",
+        "b",
+        {
+          "force": true
+        }
+      ],
+      [
+        "take",
+        "c",
+        {
+          "force": true
+        }
+      ],
+      [
+        "disconnect",
+        "c"
+      ],
+      [
+        "release",
+        "b"
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:same"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:same"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 3,
+        "events": [
+          [
+            "attach",
+            "app:same"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "c",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:same",
+        "size": 3,
+        "events": [
+          [
+            "control-taken",
+            "cli:same"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": "cli:same",
+              "you": true,
+              "reason": "taken"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": "cli:same",
+              "you": false,
+              "reason": "taken"
+            }
+          },
+          {
+            "id": "c",
+            "body": {
+              "controller": "cli:same",
+              "you": false,
+              "reason": "taken"
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:same",
+        "size": 3,
+        "events": [],
+        "messages": [
+          {
+            "id": "b",
+            "body": {
+              "controller": "cli:same",
+              "you": false,
+              "reason": "refused"
+            }
+          }
+        ]
+      },
+      {
+        "controller": "cli:same",
+        "size": 3,
+        "events": [
+          [
+            "control-released",
+            "cli:same"
+          ],
+          [
+            "control-taken",
+            "cli:same"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": "cli:same",
+              "you": false,
+              "reason": "taken"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": "cli:same",
+              "you": true,
+              "reason": "taken"
+            }
+          },
+          {
+            "id": "c",
+            "body": {
+              "controller": "cli:same",
+              "you": false,
+              "reason": "taken"
+            }
+          }
+        ]
+      },
+      {
+        "controller": "app:same",
+        "size": 3,
+        "events": [
+          [
+            "control-released",
+            "cli:same"
+          ],
+          [
+            "control-taken",
+            "app:same"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": "app:same",
+              "you": false,
+              "reason": "taken"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": "app:same",
+              "you": false,
+              "reason": "taken"
+            }
+          },
+          {
+            "id": "c",
+            "body": {
+              "controller": "app:same",
+              "you": true,
+              "reason": "taken"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 2,
+        "events": [
+          [
+            "control-released",
+            "app:same"
+          ],
+          [
+            "detach",
+            "app:same"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": false,
+              "reason": "disconnected"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": false,
+              "reason": "disconnected"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 2,
+        "events": [],
+        "messages": []
+      }
+    ]
+  },
+  {
+    "steps": [
+      [
+        "join",
+        "0"
+      ],
+      [
+        "join",
+        "1"
+      ],
+      [
+        "join",
+        "2"
+      ],
+      [
+        "join",
+        "3"
+      ],
+      [
+        "join",
+        "4"
+      ],
+      [
+        "join",
+        "5"
+      ],
+      [
+        "join",
+        "6"
+      ],
+      [
+        "join",
+        "7"
+      ],
+      [
+        "join",
+        "8"
+      ],
+      [
+        "join",
+        "9"
+      ],
+      [
+        "join",
+        "10"
+      ],
+      [
+        "join",
+        "11"
+      ],
+      [
+        "join",
+        "12"
+      ],
+      [
+        "join",
+        "13"
+      ],
+      [
+        "join",
+        "14"
+      ],
+      [
+        "join",
+        "15"
+      ],
+      [
+        "join",
+        "16"
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:0"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "0",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:1"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "1",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 3,
+        "events": [
+          [
+            "attach",
+            "cli:2"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "2",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 4,
+        "events": [
+          [
+            "attach",
+            "cli:3"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "3",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 5,
+        "events": [
+          [
+            "attach",
+            "cli:4"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "4",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 6,
+        "events": [
+          [
+            "attach",
+            "cli:5"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "5",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 7,
+        "events": [
+          [
+            "attach",
+            "cli:6"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "6",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 8,
+        "events": [
+          [
+            "attach",
+            "cli:7"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "7",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 9,
+        "events": [
+          [
+            "attach",
+            "cli:8"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "8",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 10,
+        "events": [
+          [
+            "attach",
+            "cli:9"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "9",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 11,
+        "events": [
+          [
+            "attach",
+            "cli:10"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "10",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 12,
+        "events": [
+          [
+            "attach",
+            "cli:11"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "11",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 13,
+        "events": [
+          [
+            "attach",
+            "cli:12"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "12",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 14,
+        "events": [
+          [
+            "attach",
+            "cli:13"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "13",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 15,
+        "events": [
+          [
+            "attach",
+            "cli:14"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "14",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 16,
+        "events": [
+          [
+            "attach",
+            "cli:15"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "15",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "size": 16,
+        "events": [],
+        "messages": []
+      }
+    ]
+  }
+]
