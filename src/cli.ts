@@ -590,7 +590,11 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         remainder += decoder.end();
         if (remainder) yield remainder;
       }
-      await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: cliDeps });
+      // Only Root's private post-edit hook holds this key; descendants must not inherit it.
+      const nativeConfigKey = ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+      delete ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+      delete process.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+      await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: cliDeps, nativeConfigKey });
       await shutdownPlugins(ctx);
       return { code: 0, out: "", err: "", keepAlive: true };
     }

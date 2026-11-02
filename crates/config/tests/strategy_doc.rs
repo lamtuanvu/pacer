@@ -80,3 +80,66 @@ fn committed_strategy_doc_corpus() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn loader_keeps_last_duplicate_value_while_the_editor_refuses_duplicate_keys() {
+    let text = "key: first\nkey: last\n";
+    assert_eq!(
+        pacer_config::doc::parse_value(text).unwrap(),
+        json!({"key":"last"})
+    );
+    let error = StrategyDoc::new(text).get_in(&[json!("key")]).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Map keys must be unique at line 2, column 1:\n\nkey: first\nkey: last\n^\n"
+    );
+}
+
+#[test]
+fn yaml_numeric_keys_use_javascript_number_spelling() {
+    let value = pacer_config::doc::parse_value("1.0: a\n").unwrap();
+    assert_eq!(value["1"], "a");
+}
+
+#[test]
+fn duplicate_key_diagnostic_on_first_line_matches_yaml_editor() {
+    let error = StrategyDoc::new("root: {a: 1, a: 2}\n")
+        .get_in(&[json!("root")])
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Map keys must be unique at line 1, column 14:\n\nroot: {a: 1, a: 2}\n             ^\n"
+    );
+}
+
+#[test]
+fn radix_prefixes_require_digits_before_the_loader_resolves_a_number() {
+    for text in ["0x+5", "0o+5", "+0x+5", "-0x+5", "0x-5", "0o-5"] {
+        let value =
+            pacer_config::doc::parse_value(&format!("value: {text}\n{text}: kept\n")).unwrap();
+        assert_eq!(value["value"], text);
+        assert_eq!(value[text], "kept");
+    }
+}
+
+#[test]
+fn loader_scalar_tags_match_bun_without_changing_editor_resolution() {
+    let value = pacer_config::doc::parse_value(
+        "a: !!str 1\nb: !!int 1.5\nc: !!int \"1\"\nd: !custom true\ne: !<tag:yaml.org,2002:int> 7\nf: !<tag:yaml.org,2002:bool> true\n",
+    )
+    .unwrap();
+    assert_eq!(
+        value,
+        json!({"a":"1","b":1.5,"c":"1","d":"true","e":"7","f":"true"})
+    );
+}
+
+#[test]
+fn signed_radix_strings_preserve_their_type_after_bun_stringify() {
+    for text in ["+0x5", "+0o5"] {
+        let value = json!({"value":text});
+        let yaml = pacer_config::doc::stringify_bun(&value);
+        assert_eq!(yaml, format!("value: \"{text}\"\n"));
+        assert_eq!(pacer_config::doc::parse_value(&yaml).unwrap(), value);
+    }
+}

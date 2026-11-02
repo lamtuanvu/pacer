@@ -7,11 +7,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+indexmap = "2"
 ryu-js = "1"
 saphyr-parser = "0.3"
 pacer-foundation = { path = "../foundation" }
-serde = { workspace = true }
-serde_json = { workspace = true, features = ["float_roundtrip", "unbounded_depth"] }
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 url = "2"
 

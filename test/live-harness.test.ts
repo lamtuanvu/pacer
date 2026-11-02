@@ -1,3 +1,4 @@
+import {exerciseNativeConfig} from "../scripts/live/native-config";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -29,6 +30,11 @@ function fixture(): Session {
 }
 
 describe("live guard (D3)", () => {
+  test("fixed native config fixture rejects unsafe sessions and caller-selected inputs", async () => {
+    await expect(exerciseNativeConfig(fixture())).rejects.toThrow("healthy UI-seeded Rust test-ops sandbox");
+    await expect(main(["native-config", "--id", "missing", "--", "runner.remove"])).rejects.toThrow("usage: live native-config");
+  });
+
   test("generic stdio remains refused while the fixed harness mode rejects unsafe sessions", async () => {
     expect(refusal(["api", "--stdio"])).toContain("D3");
     await expect(exerciseNativeStdio(fixture())).rejects.toThrow("requires an active sandbox Rust test-ops build");

@@ -66,6 +66,16 @@ export async function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy
     if (result.error.includes("changed during edit")) throw settingsConflict();
     throw new CoreError("invalid_input", result.error, "Check the strategy values and retry.");
   }
+  await syncEndpointConfig(ctx);
+  return result.diff;
+}
+/** Private post-edit hook for the four registered native document operations. */
+export async function finishNativeConfigEdit(ctx: Ctx, op: unknown): Promise<void> {
+  if (!["runner.set", "runner.reorder", "runner.remove", "routing.set"].includes(op as string))
+    throw new CoreError("unknown_op", "unknown operation");
+  await syncEndpointConfig(ctx);
+}
+async function syncEndpointConfig(ctx: Ctx): Promise<void> {
   const accounts = loadStrategy(ctx).accounts;
   try { await writeEndpointConfig(ctx, accounts); }
   catch (error) {
@@ -74,7 +84,6 @@ export async function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy
     if (Object.values(accounts).some(account => account.connection))
       appendActivity(ctx, {kind: "config", level: "warn", text: `Settings saved, but the OpenCode endpoint configuration was not updated: ${error.message}`});
   }
-  return result.diff;
 }
 /** A delete-home operation must never remove a shared, default, or symlinked folder. */
 export function deletionHome(ctx: Ctx, s: Strategy, name: string): string {

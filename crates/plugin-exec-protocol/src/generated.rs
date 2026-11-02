@@ -10487,7 +10487,7 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///            },
 ///            "timeoutMs": {
 ///              "type": "integer",
-///              "maximum": 1800000.0,
+///              "maximum": 14400000.0,
 ///              "exclusiveMinimum": 0.0
 ///            }
 ///          },
@@ -10577,7 +10577,7 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
 ///            },
 ///            "timeoutMs": {
 ///              "type": "integer",
-///              "maximum": 1800000.0,
+///              "maximum": 14400000.0,
 ///              "exclusiveMinimum": 0.0
 ///            }
 ///          },
@@ -11239,7 +11239,7 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsVariant0TaskId {
 ///    },
 ///    "timeoutMs": {
 ///      "type": "integer",
-///      "maximum": 1800000.0,
+///      "maximum": 14400000.0,
 ///      "exclusiveMinimum": 0.0
 ///    }
 ///  },
@@ -11670,7 +11670,7 @@ impl<'de> ::serde::Deserialize<'de> for ExecutorRunParamsVariant1TaskId {
 ///    },
 ///    "timeoutMs": {
 ///      "type": "integer",
-///      "maximum": 1800000.0,
+///      "maximum": 14400000.0,
 ///      "exclusiveMinimum": 0.0
 ///    }
 ///  },

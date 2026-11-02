@@ -44,3 +44,36 @@ fn resolves_every_runner_reference_form() {
         assert!(resolve(&strategy, reference).is_none(), "{reference}");
     }
 }
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn selected_strategy_switch_during_edit_is_a_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../test/fixtures/config-writes-goldens.json"
+    ))
+    .unwrap();
+    let yaml = fixture["initial"].as_str().unwrap();
+    std::fs::write(dir.path().join("strategy.yaml"), yaml).unwrap();
+    std::fs::create_dir(dir.path().join("strategies")).unwrap();
+    std::fs::write(dir.path().join("strategies/other.yaml"), yaml).unwrap();
+    let error = super::edit(dir.path(), |doc, _| {
+        doc.set_in(&[json!("pacing"), json!("policy")], &json!("even"))
+            .unwrap();
+        std::fs::write(dir.path().join("active"), "other\n").unwrap();
+        Ok(())
+    })
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Your settings changed while they were being updated. Try again."
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("strategy.yaml")).unwrap(),
+        yaml
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("strategies/other.yaml")).unwrap(),
+        yaml
+    );
+}

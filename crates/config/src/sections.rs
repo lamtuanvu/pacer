@@ -1,6 +1,6 @@
-use crate::js_semantics;
+use crate::strategy_validation::js_semantics;
+use crate::yaml_value::{Map, Value, value as json};
 use pacer_foundation::js_semantics::JsTrim;
-use serde_json::{Map, Value, json};
 
 fn object(value: &Value) -> Option<&Map<String, Value>> {
     value.as_object()

@@ -1,11 +1,6 @@
 //! Named strategy activation and removal. Publication belongs to the caller.
 
-use crate::{
-    doc::{parse_value, stringify_bun},
-    strategy::{
-        StrategyError, list_strategies, load_strategy, show_strategy, summary, validate_strategy,
-    },
-};
+use crate::strategy::{StrategyError, list_strategies, load_strategy, show_strategy, summary_yaml};
 use pacer_foundation::js_semantics::JsTrim;
 use serde_json::{Value, json};
 #[cfg(unix)]
@@ -126,9 +121,9 @@ pub fn remove_strategy(home: &Path, name: &str) -> Result<Value, StrategyError> 
 }
 
 fn change_path(
-    node: &mut Value,
+    node: &mut crate::yaml_value::Value,
     keys: &[&str],
-    value: Option<Value>,
+    value: Option<crate::yaml_value::Value>,
     path: &str,
 ) -> Result<(), StrategyError> {
     let map = node.as_object_mut().ok_or_else(|| {
@@ -140,7 +135,7 @@ fn change_path(
         if let Some(value) = value {
             map.insert(keys[0].into(), value);
         } else {
-            map.remove(keys[0]);
+            map.shift_remove(keys[0]);
         }
         return Ok(());
     }
@@ -148,7 +143,10 @@ fn change_path(
         if value.is_none() {
             return Ok(());
         }
-        map.insert(keys[0].into(), json!({}));
+        map.insert(
+            keys[0].into(),
+            crate::yaml_value::Value::Object(Default::default()),
+        );
     }
     let child = map
         .get_mut(keys[0])
@@ -221,10 +219,11 @@ fn schema_keys(prefix: &[&str]) -> Option<&'static [&'static str]> {
 }
 
 fn distance(a: &str, b: &str) -> usize {
+    let b: Vec<u16> = b.encode_utf16().collect();
     let mut row = (0..=b.len()).collect::<Vec<_>>();
-    for (i, a) in a.bytes().enumerate() {
+    for (i, a) in a.encode_utf16().enumerate() {
         let mut next = vec![i + 1];
-        for (j, b) in b.bytes().enumerate() {
+        for (j, &b) in b.iter().enumerate() {
             next.push(
                 (next[j] + 1)
                     .min(row[j + 1] + 1)
@@ -262,7 +261,12 @@ fn check_draft_path(keys: &[&str], path: &str) -> Result<(), StrategyError> {
     Ok(())
 }
 
-fn apply_draft(mut raw: Value, draft: &Value) -> Result<Value, StrategyError> {
+fn apply_draft(
+    mut raw: crate::yaml_value::Value,
+    draft: &Value,
+) -> Result<crate::yaml_value::Value, StrategyError> {
+    let mut draft = draft.clone();
+    crate::normalize_json(&mut draft);
     if !raw.is_object() {
         return Err(StrategyError::Other(
             "base strategy must be a mapping".into(),
@@ -294,7 +298,12 @@ fn apply_draft(mut raw: Value, draft: &Value) -> Result<Value, StrategyError> {
             )));
         }
         check_draft_path(&keys, &path)?;
-        change_path(&mut raw, &keys, value, &path)?;
+        change_path(
+            &mut raw,
+            &keys,
+            value.as_ref().map(crate::yaml_value::Value::from),
+            &path,
+        )?;
     }
     Ok(raw)
 }
@@ -328,9 +337,10 @@ pub fn save_strategy(
     let source = draft["from"].as_str().unwrap_or("default");
     let source_path = path_for(home, source)?;
     let before = fs::read_to_string(source_path)?;
-    let raw = parse_value(&before).map_err(|e| StrategyError::Other(e.to_string()))?;
+    let raw =
+        crate::doc::parse_yaml_value(&before).map_err(|e| StrategyError::Other(e.to_string()))?;
     let raw = apply_draft(raw, draft)?;
-    let strategy = validate_strategy(&raw, Path::new("draft"), source)?;
+    let strategy = crate::strategy_validation::validate_strategy(&raw, Path::new("draft"), source)?;
     let path = home.join("strategies").join(format!("{name}.yaml"));
     if path.exists() && !options.overwrite {
         return Err(StrategyError::Other(format!(
@@ -348,14 +358,14 @@ pub fn save_strategy(
     let description = draft["description"]
         .as_str()
         .map(str::to_owned)
-        .unwrap_or_else(|| summary(&strategy));
+        .unwrap_or_else(|| summary_yaml(&strategy));
     let content = format!(
         "# {}\n# created by {} on {}: {}\n{}",
         one_line(&description),
         one_line(options.who),
         options.now_iso,
         one_line(reason),
-        stringify_bun(&raw)
+        crate::doc::stringify_yaml_bun(&raw)
     );
     let (temp, mut file) = crate::temp_file::create(&path)?;
     let write = (|| -> io::Result<()> {
@@ -377,6 +387,6 @@ pub fn save_strategy(
     let _ = fs::remove_file(temp);
     write?;
     Ok(
-        json!({"name":name,"path":path,"summary":summary(&strategy),"active":load_strategy(home)?["name"] == name}),
+        json!({"name":name,"path":path,"summary":summary_yaml(&strategy),"active":load_strategy(home)?["name"] == name}),
     )
 }

@@ -27,6 +27,18 @@ test("internal mode trusts only the internal token and keeps the bearer/cookie d
     const health = await fetch(url("/health"), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } });
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({ ok: true, pid: process.pid });
+    const privateHeaders = { ...host, authorization: `Bearer ${"i".repeat(64)}`, "content-type": "application/json" };
+    for (const op of [undefined, "notifications.set", "strategy.use", "plugin.doctor"]) {
+      const reply = await fetch(url("/_internal/native-config-finish"), {method: "POST", headers: privateHeaders, body: JSON.stringify({op})});
+      expect(reply.status).toBe(404);
+      expect(await reply.json()).toMatchObject({error: {code: "unknown_op"}});
+    }
+    for (const auth of ["cookie", "task"]) {
+      const reply = await fetch(url("/_internal/native-config-finish"), {method: "POST", headers: {...privateHeaders, "x-pacer-auth": auth}, body: JSON.stringify({op: "runner.set"})});
+      expect(reply.status).toBe(403);
+    }
+    // An unknown private POST follows the reference server's method refusal.
+    expect((await fetch(url("/_internal/config-sync"), {method: "POST", headers: privateHeaders})).status).toBe(405);
     const page = await fetch(url("/_internal/app-page?status=401&message=Session%20ended."), { headers: { ...host, authorization: `Bearer ${"i".repeat(64)}` } });
     expect(page.status).toBe(401);
     expect(await page.text()).toContain("Session ended.");

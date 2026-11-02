@@ -1,8 +1,10 @@
 import { request as httpRequest } from "node:http";
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+import golden from "./fixtures/config-writes-goldens.json";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const productionFront = process.env.PACER_TEST_FRONT_DOOR;
@@ -40,7 +42,7 @@ test.skipIf(!front)("test binary exposes only its feature-gated native operation
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(exit, stderr).toBe(0);
     const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
-    expect(replies[1].result).toEqual(["_debug.native", "activity.list", "task.log", "test.echo"]);
+    expect(replies[1].result).toEqual(["_debug.native", "activity.list", "notifications.get", "notifications.set", "routing.set", "runner.remove", "runner.reorder", "runner.set", "strategy.remove", "strategy.save", "strategy.use", "task.log", "test.echo"]);
     expect(stderr).toContain("native _debug.native");
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);
@@ -179,3 +181,54 @@ test.skipIf(!front)("PACER_FORWARD_OPS forces HTTP echo back to TypeScript", asy
     fixture.cleanup();
   }
 }, 30000);
+
+
+test.skipIf(!productionFront)("HTTP config environment matches the forwarded core for legacy settings and save author", async () => {
+  for (const override of ["override", "", undefined]) {
+    const outputs = [];
+    for (const forwarded of [false, true]) {
+      const fixture = setup();
+      const xdg = join(fixture.home, "xdg");
+      const legacy = override ? join(fixture.home, override) : process.platform === "darwin"
+        ? join(fixture.home, "Library/Application Support/orca") : join(xdg, "orca");
+      mkdirSync(join(legacy, "plugins-data/lamtuanvu.pacer"), {recursive:true, mode:0o700});
+      writeFileSync(join(legacy, "plugins-data/lamtuanvu.pacer/settings.json"), '{"notifications":"off"}', {mode:0o600});
+      writeFileSync(join(fixture.env.PACER_HOME, "strategy.yaml"), golden.initial, {mode:0o600});
+      const reservation = Bun.serve({hostname:"127.0.0.1", port:0, fetch:() => new Response()});
+      const port = reservation.port!; reservation.stop(true);
+      const env = {...fixture.env, XDG_CONFIG_HOME:xdg, PACER_AGENT:"alice", PACER_FORWARD_OPS:forwarded ? "*" : "",
+        ...(override === undefined ? {} : {PACER_ORCA_USER_DATA:override ? legacy : ""})};
+      const child = Bun.spawn([productionFront!, "serve", "--port", String(port)], {env, stdin:"ignore", stdout:"ignore", stderr:"pipe"});
+      const errors = new Response(child.stderr).text();
+      const base = `http://127.0.0.1:${port}`;
+      try {
+        let token = "", ready = false;
+        for (let attempt=0; attempt<500; attempt++) {
+          try {
+            token = readFileSync(join(fixture.env.PACER_HOME, "token"), "utf8").trim();
+            if ((await fetch(base+"/v3/hello", {headers:{Authorization:`Bearer ${token}`}, signal:AbortSignal.timeout(500)})).ok) {ready=true; break;}
+          } catch {}
+          await Bun.sleep(20);
+        }
+        expect(ready).toBe(true);
+        const call = async (op: string, params: unknown) => {
+          const response = await fetch(base+`/v3/ops/${op}`, {method:"POST", headers:{Authorization:`Bearer ${token}`, "Content-Type":"application/json"}, body:JSON.stringify(params), signal:AbortSignal.timeout(10000)});
+          const body = await response.json(); expect(response.status, JSON.stringify(body)).toBe(200); return body;
+        };
+        expect(await call("notifications.get", {})).toEqual({result:{level:"off"}});
+        const settings = readFileSync(join(fixture.env.PACER_HOME, "settings.json"), "utf8");
+        const saved = await call("strategy.save", {name:"review", draft:{from:"default"}, reason:"environment parity"});
+        const yaml = readFileSync(join(fixture.env.PACER_HOME, "strategies/review.yaml"), "utf8");
+        expect(yaml).toContain("# created by alice on ");
+        outputs.push({settings, saved:JSON.stringify(saved).replaceAll(fixture.env.PACER_HOME,"$HOME"), yaml:yaml.replace(/on [^ ]+: environment parity/, "on $DATE: environment parity")});
+      } finally {
+        if (child.exitCode === null) {child.kill("SIGTERM"); await child.exited;}
+        const stderr = await errors;
+        expect(stderr.includes("native notifications.get")).toBe(!forwarded);
+        expect(stderr.includes("native strategy.save")).toBe(!forwarded);
+        fixture.cleanup();
+      }
+    }
+    expect(outputs[0]).toEqual(outputs[1]);
+  }
+}, 120_000);

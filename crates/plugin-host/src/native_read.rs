@@ -139,7 +139,7 @@ impl NativeRead {
         let root_dir = open_directory(root)?;
         if !image.parent_identity.as_ref().is_some_and(|old| {
             fstat(&root_dir)
-                .is_ok_and(|now| now.st_dev as u64 == old.dev() && now.st_ino == old.ino())
+                .is_ok_and(|now| device_id(now.st_dev) == old.dev() && now.st_ino == old.ino())
         }) {
             return Err(BrokerError::Invalid("read root changed"));
         }
@@ -294,7 +294,7 @@ impl NativeRead {
         let root_dir = open_directory(parent)?;
         if !image.parent_identity.as_ref().is_some_and(|old| {
             fstat(&root_dir)
-                .is_ok_and(|now| now.st_dev as u64 == old.dev() && now.st_ino == old.ino())
+                .is_ok_and(|now| device_id(now.st_dev) == old.dev() && now.st_ino == old.ino())
         }) {
             return Err(BrokerError::Invalid("read root changed"));
         }
@@ -391,13 +391,24 @@ fn same(a: &Metadata, b: &Metadata) -> bool {
         && a.mode() == b.mode()
 }
 
+// libc uses different underlying types for these fields on macOS and Linux.
+#[allow(clippy::unnecessary_cast)]
+fn device_id(device: libc::dev_t) -> u64 {
+    device as u64
+}
+
+#[allow(clippy::unnecessary_cast)]
+fn file_mode(mode: libc::mode_t) -> u32 {
+    mode as u32
+}
+
 fn same_stat_meta(stat: &FileStat, meta: &Metadata) -> bool {
-    stat.st_dev as u64 == meta.dev()
+    device_id(stat.st_dev) == meta.dev()
         && stat.st_ino == meta.ino()
         && stat.st_size as u64 == meta.len()
         && stat.st_mtime == meta.mtime()
         && stat.st_mtime_nsec == meta.mtime_nsec()
-        && stat.st_mode as u32 == meta.mode()
+        && file_mode(stat.st_mode) == meta.mode()
 }
 
 fn same_root(a: &Metadata, b: &Metadata) -> bool {
@@ -449,7 +460,7 @@ fn check_listed_entry(root: &Dir, relative: &Path, item: &Value) -> Result<(), B
         .map_err(|_| BrokerError::Invalid("read entry changed"))?;
     if SFlag::from_bits_truncate(stat.st_mode & libc::S_IFMT) != SFlag::S_IFREG
         || crate::js_semantics::safe_u64(&item["inode"]) != Some(stat.st_ino)
-        || crate::js_semantics::safe_u64(&item["device"]) != Some(stat.st_dev as u64)
+        || crate::js_semantics::safe_u64(&item["device"]) != Some(device_id(stat.st_dev))
         || crate::js_semantics::safe_u64(&item["size"]) != Some(stat.st_size as u64)
         || crate::js_semantics::safe_u64(&item["mode"]) != Some(stat.st_mode as u64)
         || crate::js_semantics::finite_f64(&item["mtimeMs"])

@@ -542,6 +542,40 @@ outbox rotation and verify that both stale files survive. The fixture accepts
 no values, paths or command overrides and leaves
 ordinary D8 refusals in place. Run `live report`, then `live down --keep`.
 
+## Fixed native config-write fixture
+
+Start `bun run live up --id config-writes --seed ui --front-door rust --native-test-ops`,
+then run `bun run live native-config --id config-writes`. The fixed fixture exercises
+`strategy.use/save/remove`, `routing.set`, `runner.set/reorder/remove`, and
+`notifications.get/set` over protocol-3 stdio and authenticated public HTTP on
+fresh, owned fixture services. It seeds malformed UTF-8 in an unrelated notification
+setting and a legacy off preference to verify environment-dependent migration and
+replacement decoding during writes. The service receives `PACER_AGENT=alice`; saved
+headers must retain that author. Block-routing cases exercise CRLF preservation,
+trailing mapping-key spaces, middle-rule deletion errors and CRLF error excerpts.
+It also saves a
+`0.000001` planner reserve to check YAML number bytes. It compares each result and
+persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
+delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private
+route refusal and public SSE replay of configuration and strategy-switch events.
+It then exercises every native operation with the ordinary guarded CLI through
+the sandbox's public proxy, recording results and persisted strategy state in
+`native-config-fixture/cli-results.json`.
+
+Only fixed synthetic strategy/account declarations are used. Fixture homes and
+agent configuration locations are private and disposable; no agent runs, native
+credentials, installed service or service-manager action is involved. The command
+accepts only a sandbox ID and refuses existing fixture roots, unseeded sessions,
+real Keychain mode and non-Rust/non-test builds. Ordinary D3/D8 guards remain in
+force. Files and logs remain under `native-config-fixture/` for inspection. Run
+`live report`, then `live down --keep`. The fixture records each desktop operation
+as UNVERIFIED under the scoped desktop exception in `.project/decisions.md`.
+Separately exercise web and browser tray controls, and TUI
+settings actions. For operations without a direct UI control (for example TUI
+strategy save/remove), verify the resulting list or detail after a guarded CLI
+write and state that distinction in the evidence. API fixture success alone does
+not verify client rendering.
+
 ## Fixed settings save fixture
 
 `bun run live settings --id <seeded-id>` exercises the real `config.set` handler

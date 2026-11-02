@@ -127,7 +127,11 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Ok(params) => params,
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
-        return match call_native(&ctx, op, params, None).await {
+        let endpoint_sync = state.core.target().await.map(|target| {
+            Box::pin(crate::native::config_sync::http(Some(target), op.name))
+                as pacer_foundation::api::OpFuture<'_>
+        });
+        return match call_native(&ctx, op, params, None, endpoint_sync).await {
             Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
             Err(error) => native_error(error),
         };
@@ -224,13 +228,13 @@ pub async fn run_serve(
         js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.task_log_follow"
     });
     let token = auth::ensure_token(&ctx)?;
-    // Requests clone the context; the listener needs only the pacer home.
-    ctx.env.clear();
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
     // The internal HTTP listener binds independently. Its desktop integration
     // still needs the actual public port, including explicit/ephemeral binds.
     env.insert("PACER_PORT".into(), port.to_string());
+    // Native operations and the core must observe the same configuration environment.
+    ctx.env = env.clone();
     // Runtime environment cannot turn a generic front door into a native owner.
     env.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
     #[cfg(target_os = "macos")]
