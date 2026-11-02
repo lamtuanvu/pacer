@@ -38,7 +38,7 @@ test("messages carry plain labels, chips only for non-plain kinds, a polite live
   expect(html).toContain("New message from Task: Fix login");
   expect(html).toContain(">New<");
   expect(html).toMatch(/<time datetime="2026-10-29T09:59:00\.000Z"[^>]*>09:59<\/time>/);
-  expect(html).toContain('<label for="thread-t-20261029-090000-aaaa-body">Message</label>');
+  expect(html).toMatch(/<label for="[^"]+-body">Message<\/label>/);
   expect(html).toContain("<textarea");
   expect(html).not.toContain("msg_");
   expect(html).not.toContain("task:t-");
@@ -51,7 +51,7 @@ test("an open question to the human makes Answer the one primary action", () => 
   const view = threadView([msg({ id: "q", from: `task:${task}`, to: "human", kind: "question", body: "Which DB?" })], { now });
   const html = render({ view });
   expect(html).toContain(">Answer<");
-  expect(html).toContain('<label for="thread-t-20261029-090000-aaaa-body">Your answer</label>');
+  expect(html).toMatch(/<label for="[^"]+-body">Your answer<\/label>/);
   expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(1);
   expect(html).toMatch(/pc-btn--primary[^>]*>Answer</);
 });
@@ -60,8 +60,8 @@ test("a closed or refused composer is disabled with a visible reason", () => {
   const view = threadView([msg({})], { now });
   const html = render({ view, composer: composer({ value: "Hello", disabledReason: "This task is closed for messages." }) });
   expect(html).toContain("This task is closed for messages.");
-  expect(html).toMatch(/<button[^>]*disabled[^>]*aria-describedby="thread-t-20261029-090000-aaaa-reason"|<button[^>]*aria-describedby="thread-t-20261029-090000-aaaa-reason"[^>]*disabled/);
-  expect(html).toContain('id="thread-t-20261029-090000-aaaa-reason"');
+  expect(html).toMatch(/<button[^>]*disabled[^>]*aria-describedby="[^"]+-reason"|<button[^>]*aria-describedby="[^"]+-reason"[^>]*disabled/);
+  expect(html).toMatch(/id="[^"]+-reason"/);
   // An empty body is explained on send rather than shown as an unexplained disabled button (UI-13).
   expect(render({ view })).not.toMatch(/<button[^>]*disabled[^>]*>Send</);
   const sent = render({ view, composer: composer({ value: "Hi", status: "Sent. The task is picking it up.", error: "This message is too long to send." }) });

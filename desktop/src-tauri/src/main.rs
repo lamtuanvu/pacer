@@ -1596,8 +1596,6 @@ mod manifest_tests {
     }
     #[test]
     fn no_static_or_runtime_capability_grants_dialog_or_filesystem_access() {
-        use tauri::ipc::RuntimeCapability;
-        use tauri::utils::acl::capability::CapabilityFile;
         // Tauri's build output includes every capability file, including TOML and nested files.
         let static_capabilities: serde_json::Value =
             serde_json::from_str(include_str!("../gen/schemas/capabilities.json")).unwrap();
@@ -1605,17 +1603,9 @@ mod manifest_tests {
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_no_dialog_or_fs(&config["app"]["security"]["capabilities"]);
-        for port in [43123, 54321] {
-            let origin = format!("http://127.0.0.1:{port}");
-            let auth = url::Url::parse(&format!("{origin}/app/")).unwrap();
-            let capabilities = super::service_capabilities(&origin, &auth);
-            for capability in capabilities {
-                let CapabilityFile::Capability(capability) = capability.build() else {
-                    panic!("Expected a single runtime capability");
-                };
-                assert_no_dialog_or_fs(&serde_json::to_value(capability).unwrap());
-            }
-        }
+        // The bundled UI has only static capabilities; no runtime grant can add dialog or fs.
+        let main_source = include_str!("main.rs");
+        assert!(!main_source.contains(concat!("add_", "capability(")));
     }
     #[test]
     fn forbidden_permission_assertion_catches_strings_and_scoped_entries() {

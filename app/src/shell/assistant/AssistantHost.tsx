@@ -1,4 +1,5 @@
 import { platform } from "../../platform";
+import { useWorkspaceKey, useWorkspaceState, useViewActive } from '../../workspace/state';
 import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { AssistantScope, TurnView } from "../../../../src/assistant/types";
@@ -11,7 +12,7 @@ import { ChoicePicker } from "../../ds/ChoicePicker";
 import { TextInput } from "../../ds/Controls";
 import { Prose } from "../../ds/Prose";
 import { DensityContext } from "../../ds/Density";
-import { TaskContext } from "../../screens/task-shared";
+import { useTaskContext, TaskContext } from "../../screens/task-shared";
 import { AgentMark } from "../../ds/AgentMark";
 import { assistantPreferences, watchAssistantPreferences, assistantEntry } from "../assistant-entry";
 import { ComposerMenu } from "./ComposerMenu";
@@ -43,7 +44,7 @@ async function follow(turnId: string, onFrame: (frame: ReturnType<typeof parseFr
 export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTask }: {
   route: { name: string; id?: string }; narrow: boolean; repo: string | null; repoLabel: string | null; onNewTask: () => void;
 }) {
-  const context = useContext(TaskContext);
+  const context = useTaskContext();
   const api = context?.api;
   const layer = useRef<HTMLDivElement>(null);
   const [preferences, setPreferences] = useState(assistantPreferences);
@@ -53,7 +54,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
   const [turns, setTurns] = useState<TurnView[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [pending, setPending] = useState<Pending | null>(null);
-  const [text, setText] = useState("");
+  const [text, setText] = useWorkspaceState(useWorkspaceKey(undefined, "assistant"), "draft:assistant", "");
   const [notice, setNotice] = useState<string | null>(null);
   const [scopeValue, setScopeValue] = useState("dispatch");
   const scopeButton = useRef<HTMLButtonElement>(null), turnRef = useRef<string | null>(null), abort = useRef<AbortController | null>(null), loaded = useRef(false);
@@ -86,13 +87,13 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
 
   const send = useCallback(async (question: string, o: { newConversation?: boolean } = {}) => {
     const asked = question.trim();
-    if (!asked || pending || !api || !status?.available) return;
-    setNotice(null); setText("");
+    if (!asked || pending || !api || !context?.state.connected || !status?.available) return;
+    setNotice(null);
     if (o.newConversation) { setTurns([]); setConversationId(undefined); }
     setPending({ question: asked, status: "Thinking…", partial: "" });
     try {
       const started = await api.call<{ conversationId: string; turnId: string }>("assistant.ask", { ...(o.newConversation ? {} : { conversationId }), text: asked, scope, requestId: requestId() });
-      setConversationId(started.conversationId); turnRef.current = started.turnId;
+      setText(""); setConversationId(started.conversationId); turnRef.current = started.turnId;
       abort.current = new AbortController();
       await follow(started.turnId, frame => {
         if ("status" in frame) setPending(p => p && { ...p, status: frame.status });
@@ -106,7 +107,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
     } catch (error) {
       setNotice(error instanceof ApiError ? (error.hint ? `${error.message} ${error.hint}` : error.message) : "The assistant could not be reached. Try again.");
     } finally { setPending(null); turnRef.current = null; abort.current = null; void refresh(); }
-  }, [api, conversationId, pending, scope, refresh, status?.available]);
+  }, [api, conversationId, pending, scope, refresh, status?.available, context?.state.connected]);
 
   const stop = () => { if (turnRef.current) void api?.call("assistant.cancel", { turnId: turnRef.current }).catch(() => undefined); };
   const sendRef = useRef(send); sendRef.current = send;
@@ -154,16 +155,16 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
           <div className="pc-aurora-reply" aria-hidden="true"><AuroraAvatar /><div className="pc-aurora-reply__body">{pending.partial ? <Prose text={pending.partial} /> : <Thinking label={pending.status} />}</div></div>
         </>}
         {notice && <Alert tone="error" title="The assistant could not answer">{notice}</Alert>}
-        {!available && <div data-assistant-refusal tabIndex={-1}><Alert tone="warning" title={status ? "The assistant is unavailable" : "Connecting to the assistant"}>{status ? `${status.reason ?? "The assistant could not be reached."}${status.hint ? ` ${status.hint}` : ""}` : "Waiting for the service. Try reopening the sheet if this continues."}</Alert></div>}
+        {!available && <div id="assistant-unavailable-reason" data-assistant-refusal tabIndex={-1}><Alert tone="warning" title={status ? "The assistant is unavailable" : "Connecting to the assistant"}>{status ? `${status.reason ?? "The assistant could not be reached."}${status.hint ? ` ${status.hint}` : ""}` : "Waiting for the service. Try reopening the sheet if this continues."}</Alert></div>}
       </>}
       suggestions={!pending && available ? SUGGESTIONS.map(s => <Button key={s} size="sm" className="pc-aurora-chip" onClick={() => void send(s)}>{s}</Button>) : undefined}
       composer={!setup && <form className="pc-aurora-composer" onSubmit={event => { event.preventDefault(); void send(text); }}>
         <ComposerMenu sheetOpen={open} canStartNew={turns.length > 0 || !!conversationId} busy={!!pending} onNew={() => { setTurns([]); setConversationId(undefined); setNotice(null); }} onContext={() => scopeButton.current?.click()} />
-        <TextInput data-autofocus value={text} aria-label="Ask pacer" placeholder="Ask about your tasks, dispatch or budget" disabled={!available} onInput={event => setText(event.currentTarget.value)} />
+        {!context?.state.connected&&<span id="assistant-offline-reason" className="muted">Reconnecting… Send when pacer reconnects.</span>}<TextInput id="assistant-draft" disabled={!available} aria-describedby={!available?"assistant-unavailable-reason":undefined} data-autofocus value={text} aria-label="Ask pacer" placeholder="Ask about your tasks, dispatch or budget" onInput={event => setText(event.currentTarget.value)} />
         <ChoicePicker ref={scopeButton} className="pc-aurora-scope" aria-label="Change context" value={choices.some(c => c.value === scopeValue) ? scopeValue : "dispatch"} options={pickerOptions} onValueChange={setScopeValue} />
         {pending
           ? <IconButton icon="end-session" size="sm" className="pc-aurora-send" variant="secondary" aria-label="Stop answer" onClick={stop} />
-          : <IconButton type="submit" icon="send" size="sm" className="pc-aurora-send" variant={hasCard ? "secondary" : "primary"} aria-label="Send" disabled={!available || !text.trim()} />}
+          : <IconButton type="submit" icon="send" size="sm" className="pc-aurora-send" variant={hasCard ? "secondary" : "primary"} aria-label="Send" aria-describedby={!available?"assistant-unavailable-reason":!context?.state.connected?"assistant-offline-reason":undefined} disabled={!context?.state.connected || !available || !text.trim()} title={!context?.state.connected ? "Reconnecting… Send when pacer reconnects." : undefined} />}
       </form>} />
     {preferences.showButton && !(narrow && open) && <AuroraLauncher open={open} onClick={() => toggle()} className={open ? "pc-aurora-launcher--open" : undefined} shortcut={!narrow ? isMac() ? "⌘J" : "Ctrl J" : undefined} />}
   </div></div></DensityContext.Provider>;

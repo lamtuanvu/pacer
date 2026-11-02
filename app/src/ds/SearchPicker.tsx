@@ -1,4 +1,5 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useUniqueId as useId } from './useUniqueId';
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Button } from "./Button";
 import { TextInput } from "./Controls";
 import { CountBadge } from "./CountBadge";

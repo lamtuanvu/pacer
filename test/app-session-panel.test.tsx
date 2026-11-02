@@ -35,9 +35,10 @@ test("no_actions_on_ended_session (markup)", () => {
 
 test("session panel tabs point at their tabpanel and Work appears only when provided", () => {
   const html = renderToString(<SessionPanel id="t-1" tab="changes" onTab={noop} changes={<p>c</p>} details={<p>d</p>} />);
-  expect(html).toContain('id="session-t-1-panel-changes-tab"');
-  expect(html).toContain('aria-controls="session-t-1-panel-changes-panel"');
-  expect(html).toContain('role="tabpanel" id="session-t-1-panel-changes-panel" aria-labelledby="session-t-1-panel-changes-tab"');
+  const base=/id="([^"]+)-changes-tab"/.exec(html)![1];
+  expect(base).toBeTruthy();
+  expect(html).toContain(`aria-controls="${base}-changes-panel"`);
+  expect(html).toContain(`role="tabpanel" id="${base}-changes-panel" aria-labelledby="${base}-changes-tab"`);
   expect(html).not.toContain(">Work<");
   expect(renderToString(<SessionPanel id="t-1" tab="work" onTab={noop} changes={<p>c</p>} details={<p>d</p>} work={<p>w</p>} />)).toContain("<p>w</p>");
   expect(renderToString(<SessionPanel id="t-1" tab="work" onTab={noop} changes={<p>c</p>} details={<p>d</p>} />)).toContain("<p>d</p>");

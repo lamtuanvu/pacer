@@ -1029,6 +1029,9 @@ mod tests {
             "allow-windowClose",
             "core:window:allow-start-dragging",
             "core:window:allow-internal-toggle-maximize",
+            "allow-menu-set-enabled",
+            "core:event:allow-listen",
+            "core:event:allow-unlisten",
         ];
         let expected_tray = [
             "allow-service-call",

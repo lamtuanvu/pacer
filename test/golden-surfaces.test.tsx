@@ -57,8 +57,32 @@ const line120 = renderLine(snapshot, { width: 120, color: false });
 const line20 = renderLine(snapshot, { width: 20, color: false });
 const surfaces = { app, tray, tui };
 
+// useUniqueId's suffix spans portal roots and earlier tests in this process.
+// Keep distinct IDs and their references, but snapshot deterministic names.
+function stableAppIds(html: string): string {
+  const ids = new Map<string, string>();
+  return html.replace(/ (id|for|aria-controls|aria-labelledby|aria-describedby)="([^"]*)"/g, (_attribute, name: string, value: string) => {
+    const stable = value.replace(/\bP\d+-\d+-\d+\b/g, id => {
+      if (!ids.has(id)) ids.set(id, `golden-id-${ids.size + 1}`);
+      return ids.get(id)!;
+    });
+    return ` ${name}="${stable}"`;
+  });
+}
+
+test("golden app IDs preserve distinct controls and their references across render order", () => {
+  const first = '<label for="P0-0-1">First</label><input id="P0-0-1"/><button aria-controls="P0-0-2" aria-labelledby="P0-0-1 P0-0-2"/><div id="P0-0-2" aria-describedby="P0-0-1"/>';
+  const later = first.replace(/P0-0-1\b/g, "P0-0-798").replace(/P0-0-2\b/g, "P0-0-799");
+  expect(stableAppIds(first)).toBe(stableAppIds(later));
+  expect(stableAppIds(first)).toBe('<label for="golden-id-1">First</label><input id="golden-id-1"/><button aria-controls="golden-id-2" aria-labelledby="golden-id-1 golden-id-2"/><div id="golden-id-2" aria-describedby="golden-id-1"/>');
+  expect(stableAppIds('<div id="needs-you" aria-labelledby="needs-you">P0-0-798</div>')).toBe('<div id="needs-you" aria-labelledby="needs-you">P0-0-798</div>');
+  expect(stableAppIds('<div data-id="P0-0-798" title="P0-0-798"/>')).toBe('<div data-id="P0-0-798" title="P0-0-798"/>');
+  expect(stableAppIds(first.replace('id="P0-0-2"', 'id="P0-0-1"'))).not.toBe(stableAppIds(first));
+  expect(stableAppIds(first.replace('aria-controls="P0-0-2"', 'aria-controls="P0-0-1"'))).not.toBe(stableAppIds(first));
+});
+
 for (const [name, output] of Object.entries({ app, tray, tui, line120, line20 })) {
-  test(`golden ${name}`, () => expect(name === "tui" ? output.split("\n").map(line => line.trimEnd()).join("\n") : output).toMatchSnapshot());
+  test(`golden ${name}`, () => expect(name === "app" ? stableAppIds(output) : name === "tui" ? output.split("\n").map(line => line.trimEnd()).join("\n") : output).toMatchSnapshot());
 }
 
 test("golden --line --json fields use the fixture through the local link", async () => {

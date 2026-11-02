@@ -1,6 +1,7 @@
+import { useUniqueId as useId } from './useUniqueId';
 import { taskHeading } from "../../../src/view-model/titles";
 import type { ComponentChildren } from "preact";
-import { useId } from "preact/hooks";
+
 import type { TaskNodeView } from "../../../src/view-model/task-tree";
 import { AgentStack } from "./AgentStack";
 import { classNames } from "./classNames";

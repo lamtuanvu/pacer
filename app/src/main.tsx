@@ -24,11 +24,13 @@ import { createActionRunner, storeWaiter } from "./data/actions";
 import { useNarrow } from "./shell/narrow";
 import { Layout } from "./shell/Layout";
 import { CommandHelp } from "./shell/CommandHelp";
-import { Screen } from "./screens/Screen";
+import { Screen, routeWorkspaceKey } from "./screens/Screen";
 import { followSavedTheme } from "./theme";
 import { NavigationProvider } from "./navigation";
 import { isDesktop, readNativeTitlebarSupport, readRoundedWindowSupport } from "./data/desktop";
-import { resetDesktopPageScroll } from "./shell/page-scroll";
+import { WorkspaceIdentity, WorkspaceScope } from "./workspace/state";
+import { resolveWorkspaceIdentity } from "./workspace/identity";
+import { reconcileIdentity, workspaceManager } from "./workspace/manager";
 import { NoticeStack } from "./ds/NoticeCard";
 void readRoundedWindowSupport().then(supported => {
   if (supported) document.documentElement.dataset.pacerDesktop = "";
@@ -44,9 +46,21 @@ function App() {
   const store = useMemo(() => createStore(api), [api]);
   const [state, setState] = useState(store.getState);
   const plugins = usePluginCatalog(api, state.connected, (state.invalidations.plugin ?? 0) + (state.invalidations.plugins ?? 0));
-  const actions = useMemo(() => createActionRunner({ call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), reviewAccepted: id => store.acceptReview(id), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
+  const actions = useMemo(() => createActionRunner({ connected: () => store.getState().connected && !store.getState().sessionEnded, call: api.call, waitFor: storeWaiter(store), refetch: () => store.refresh(), reviewAccepted: id => store.acceptReview(id), navigate: hash => { location.hash = inheritQuery(hash, location.hash); } }), [api]);
   const [hash, setHash] = useState(location.hash);
-  useLayoutEffect(() => { resetDesktopPageScroll(); }, [hash]);
+  const [serviceIdentity, setServiceIdentity] = useState<{identity: string; resolved: boolean}>({identity: location.origin, resolved: false});
+  const identity = serviceIdentity.identity;
+  useEffect(() => {
+    if (!state.connected || state.sessionEnded || sessionEnded) return;
+    let current = true;
+    void resolveWorkspaceIdentity(location.origin, state.features.ops, api.call).then(identity => { if (current) setServiceIdentity({identity, resolved: true}); });
+    return () => { current = false; };
+  }, [api, state.connected, state.connectionRevision, state.features.ops, state.sessionEnded, sessionEnded]);
+  const previousIdentity = useRef(identity);
+  useLayoutEffect(() => { if (serviceIdentity.resolved) workspaceManager.selectIdentity(location.origin, identity); reconcileIdentity(workspaceManager, previousIdentity.current, identity, state.sessionEnded || sessionEnded); previousIdentity.current = identity; }, [identity, serviceIdentity.resolved, state.sessionEnded, sessionEnded]);
+  useEffect(() => { const timer = setInterval(() => { const snapshot=store.getState().snapshot; if(snapshot)workspaceManager.prune(identity,new Set(snapshot.tasks.map(task=>task.id))); },3600000); return()=>clearInterval(timer); }, [store,identity]);
+  useEffect(() => { if (state.snapshot) workspaceManager.prune(identity, new Set(state.snapshot.tasks.map(task => task.id))); }, [identity, state.snapshot]);
+  useEffect(() => { const flush = () => workspaceManager.flush(); window.addEventListener("pagehide", flush); return () => window.removeEventListener("pagehide", flush); }, []);
   const [help, setHelp] = useState(false);
   const [UpdateNotice, setUpdateNotice] = useState<typeof import("./shell/UpdateNotice").UpdateNotice>();
   const [DiscoveryNotice, setDiscoveryNotice] = useState<typeof import("./shell/DiscoveryNotice").DiscoveryNotice>();
@@ -117,13 +131,13 @@ function App() {
     document.addEventListener("click", follow, true);
     return () => document.removeEventListener("click", follow, true);
   }, []);
-  return <TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}>
+  return <WorkspaceIdentity.Provider value={identity}><TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}>
     <SetupContext.Provider value={{
       checklist: checklist === "error" ? undefined : checklist,
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
     }}>
-      <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><Layout route={route} loadingRoute={pendingRoute} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></NavigationProvider></PluginContext.Provider>
+      <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><WorkspaceScope.Provider value={routeWorkspaceKey(identity, route)}><Layout route={route} loadingRoute={pendingRoute} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></WorkspaceScope.Provider></NavigationProvider></PluginContext.Provider>
     </SetupContext.Provider>
     {/* One shared bottom-right stack. Discovery prompts come and go and change height as they cycle, so they sit on top;
         the update notice stays in the corner and its Restart and Later never move. */}
@@ -132,6 +146,6 @@ function App() {
       {UpdateNotice && <UpdateNotice hidden={help || sessionEnded || updateNoticeHiddenOn(route)} />}
     </NoticeStack>
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
-  </ActionContext.Provider></TaskContext.Provider>;
+  </ActionContext.Provider></TaskContext.Provider></WorkspaceIdentity.Provider>;
 }
 render(<DesktopConnectionShell><NotificationProvider><App /></NotificationProvider></DesktopConnectionShell>, document.getElementById("app")!);

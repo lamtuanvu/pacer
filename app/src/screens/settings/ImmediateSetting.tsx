@@ -7,6 +7,6 @@ export function ImmediateSetting<T>({ value, operation, onSaved, children }: {
   value: T; operation: (value: T) => { op: string; params: unknown }; onSaved?: () => void;
   children: (value: T, change: (value: T) => void, busy: boolean) => ComponentChildren;
 }) {
-  const { api } = useTaskContext();
-  return <ImmediateSave value={value} save={async next => { const request = operation(next); await api.call(request.op, request.params); onSaved?.(); }}>{children}</ImmediateSave>;
+  const { api, state } = useTaskContext();
+  return <ImmediateSave value={value} save={async next => { const request = operation(next); await api.call(request.op, request.params); onSaved?.(); }}>{(value,change,busy)=><>{children(value,change,busy||!state.connected)}{!state.connected&&<p className="muted">Reconnecting… Changes are paused.</p>}</>}</ImmediateSave>;
 }

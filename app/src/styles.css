@@ -729,9 +729,8 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 }
 
 .pc-app--narrow .pc-topbar h1{font-size:var(--type-number-lg-size);line-height:var(--type-display-size)}
-.pc-app--narrow .pc-main:has(>.pc-offline-controls>.pc-dispatch){padding:0}
+.pc-app--narrow .pc-main:has(.pc-dispatch){padding:0}
 .pc-bottom-bar .pc-rail__badge--count{top:var(--space-1);left:calc(50% + var(--size-6));right:auto;background:var(--bad-fill);color:var(--ink-on-fill)}
-.pc-app--offline .pc-topbar>.pc-live{display:none}
 
 /* The flex work area already excludes the top, connection and status bars. */
 .pc-app:not(.pc-app--narrow)>.pc-live-region{flex:none}
@@ -751,3 +750,6 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-bottom-bar{box-sizing:border-box;min-height:var(--frame-nav);padding-bottom:max(var(--space-5),env(safe-area-inset-bottom))}
 
 .pc-bottom-bar .pc-rail__item.on{background:transparent}
+
+.pc-view:not([hidden]),.pc-view-content,.pc-view-slot:not([hidden]){display:contents}
+.pc-view[hidden],.pc-view-slot[hidden]{display:none}

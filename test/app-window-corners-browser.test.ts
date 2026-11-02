@@ -55,13 +55,13 @@ browserTest("web and desktop route reset and Tasks scroll positions use the clip
     await page.addStyleTag({ content: (await Promise.all(["app/src/ds/tokens.css", "app/src/styles.css"].map(path => Bun.file(path).text()))).join("\n") });
     await page.addScriptTag({ content: await built.outputs[0]!.text() });
     await page.evaluate(() => {
-      const fixture = (window as typeof window & { pageScrollFixture: typeof import("../app/src/shell/page-scroll") }).pageScrollFixture;
+      const fixture = (window as typeof window & { pageScrollFixture: typeof import("./fixtures/ui/page-scroll") }).pageScrollFixture;
       (window as typeof window & { lateScrollEvents?: number }).lateScrollEvents = 0;
       fixture.onPageScroll(() => (window as typeof window & { lateScrollEvents: number }).lateScrollEvents++);
       document.documentElement.dataset.pacerDesktop = "";
     });
     const desktop = await page.evaluate(() => {
-      const fixture = (window as typeof window & { pageScrollFixture: typeof import("../app/src/shell/page-scroll") }).pageScrollFixture;
+      const fixture = (window as typeof window & { pageScrollFixture: typeof import("./fixtures/ui/page-scroll") }).pageScrollFixture;
       let events = 0;
       const stop = fixture.onPageScroll(() => events++);
       fixture.scrollPageTo(400);
@@ -78,7 +78,7 @@ browserTest("web and desktop route reset and Tasks scroll positions use the clip
     await page.waitForFunction(() => (window as typeof window & { lateScrollEvents: number }).lateScrollEvents > 0);
     await page.evaluate(() => document.documentElement.removeAttribute("data-pacer-desktop"));
     const web = await page.evaluate(() => {
-      const fixture = (window as typeof window & { pageScrollFixture: typeof import("../app/src/shell/page-scroll") }).pageScrollFixture;
+      const fixture = (window as typeof window & { pageScrollFixture: typeof import("./fixtures/ui/page-scroll") }).pageScrollFixture;
       fixture.scrollPageTo(300);
       const position = fixture.pageScrollY();
       const workScroll = document.querySelector(".pc-work")!.scrollTop;
