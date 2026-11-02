@@ -12,7 +12,7 @@ pub fn clean_text(s: &str) -> String {
     s.nfc().filter(|c| !matches!(*c as u32, 0..=8 | 11..=12 | 14..=31 | 127..=159 | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x2064 | 0x2066..=0x2069 | 0xfeff)).collect()
 }
 pub fn js_length(s: &str) -> usize {
-    s.encode_utf16().count()
+    crate::json::utf16(s).len()
 }
 pub fn js_trim(s: &str) -> &str {
     s.trim_matches(|c: char| matches!(c as u32, 9..=13 | 0x20 | 0xa0 | 0x1680 | 0x2000..=0x200a | 0x2028..=0x2029 | 0x202f | 0x205f | 0x3000 | 0xfeff))
@@ -27,7 +27,7 @@ fn store(ctx: &Ctx) -> Result<Value, CoreError> {
     }
     let raw = fs::read(&path)
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+        .and_then(|bytes| crate::json::parse(&bytes).ok());
     let Some(Value::Object(raw)) = raw else {
         let _ = fs::rename(
             &path,
@@ -51,7 +51,7 @@ pub fn read(ctx: &Ctx, id: &str) -> Result<Value, CoreError> {
 }
 pub fn validate(schema: &Value, values: &Value) -> Vec<Value> {
     let mut errors = vec![];
-    let ordered = serde_json::from_str::<Value>(&js_json(values)).unwrap_or(Value::Null);
+    let ordered = crate::json::parse(js_json(values).as_bytes()).unwrap_or(Value::Null);
     let Some(values) = ordered.as_object() else {
         return errors;
     };
@@ -201,7 +201,10 @@ pub fn visibility(
 pub fn forget(ctx: &Ctx, id: &str) -> Result<(), CoreError> {
     crate::private::locked(ctx, "plugin-settings", |ctx| {
         let mut all = store(ctx)?;
-        if all.as_object_mut().is_some_and(|o| o.remove(id).is_some()) {
+        if all
+            .as_object_mut()
+            .is_some_and(|o| o.shift_remove(id).is_some())
+        {
             crate::private::write_shared(
                 &ctx.pacer_home.join("plugin-settings.json"),
                 js_json(&all).as_bytes(),
@@ -232,6 +235,7 @@ fn js_value(n: f64) -> Value {
 /// JSON.stringify's number rendering and integer-index key enumeration.
 pub fn js_json(value: &Value) -> String {
     match value {
+        Value::String(s) => crate::json::string(s),
         Value::Number(n) => js_number(n.as_f64().unwrap_or(0.0)),
         Value::Array(a) => format!("[{}]", a.iter().map(js_json).collect::<Vec<_>>().join(",")),
         Value::Object(o) => {
@@ -250,11 +254,7 @@ pub fn js_json(value: &Value) -> String {
             format!(
                 "{{{}}}",
                 keys.into_iter()
-                    .map(|k| format!(
-                        "{}:{}",
-                        serde_json::to_string(k).unwrap_or_default(),
-                        js_json(&o[k])
-                    ))
+                    .map(|k| format!("{}:{}", crate::json::string(k), js_json(&o[k])))
                     .collect::<Vec<_>>()
                     .join(",")
             )

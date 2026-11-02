@@ -15,8 +15,31 @@ pub const ROUTES: &[&str] = &[
 fn fail(path: &str, message: &str) -> String {
     format!(
         "{}: {message}",
-        if path.is_empty() { "document" } else { path }
+        if path.trim_end_matches('.').is_empty() {
+            "document"
+        } else {
+            path.trim_end_matches('.')
+        }
     )
+}
+fn invalid(v: Option<&Value>, expected: &str) -> String {
+    let received = match v {
+        None => "undefined",
+        Some(Value::Null) => "null",
+        Some(Value::Bool(_)) => "boolean",
+        Some(Value::Number(_)) => "number",
+        Some(Value::String(_)) => "string",
+        Some(Value::Array(_)) => "array",
+        Some(Value::Object(_)) => "object",
+    };
+    format!("Invalid input: expected {expected}, received {received}")
+}
+fn object(v: Option<&Value>, path: &str) -> Result<(), String> {
+    if v.is_some_and(Value::is_object) {
+        Ok(())
+    } else {
+        Err(fail(path, &invalid(v, "object")))
+    }
 }
 fn text(
     v: &mut Value,
@@ -26,6 +49,7 @@ fn text(
     required: bool,
     path: &str,
 ) -> Result<(), String> {
+    object(Some(v), path)?;
     let Some(value) = v.get_mut(key) else {
         return if required {
             Err(fail(
@@ -39,11 +63,11 @@ fn text(
     let Some(s) = value.as_str() else {
         return Err(fail(
             &format!("{path}{key}"),
-            "Invalid input: expected string",
+            &invalid(Some(value), "string"),
         ));
     };
     let s = clean_text(s);
-    let n = s.chars().count();
+    let n = crate::js_semantics::codepoint_len(&s);
     if n < min {
         return Err(fail(
             &format!("{path}{key}"),
@@ -66,15 +90,34 @@ fn enumeration(
     required: bool,
     path: &str,
 ) -> Result<(), String> {
+    object(Some(v), path)?;
     if !required && v.get(key).is_none() {
         return Ok(());
     }
     if !v[key].as_str().is_some_and(|s| items.contains(&s)) {
-        return Err(fail(&format!("{path}{key}"), "Invalid option"));
+        let message = if items.len() == 1 {
+            format!("Invalid input: expected \"{}\"", items[0])
+        } else {
+            format!(
+                "Invalid option: expected one of {}",
+                items
+                    .iter()
+                    .map(|s| format!("\"{s}\""))
+                    .collect::<Vec<_>>()
+                    .join("|")
+            )
+        };
+        return Err(fail(&format!("{path}{key}"), &message));
     }
     Ok(())
 }
 fn action(v: &Value, key: &str, path: &str) -> Result<(), String> {
+    if !v[key].is_string() {
+        return Err(fail(
+            &format!("{path}{key}"),
+            &invalid(v.get(key), "string"),
+        ));
+    }
     if !v[key].as_str().is_some_and(|s| {
         !s.is_empty()
             && s.len() <= 64
@@ -90,7 +133,7 @@ fn action(v: &Value, key: &str, path: &str) -> Result<(), String> {
 }
 fn closed(v: &Value, allowed: &[&str], path: &str) -> Result<(), String> {
     let Some(o) = v.as_object() else {
-        return Err(fail(path, "Invalid input: expected object"));
+        return Err(fail(path, &invalid(Some(v), "object")));
     };
     let keys: Vec<_> = o
         .keys()
@@ -118,6 +161,7 @@ fn node(
     nodes: &mut usize,
     deepest: &mut usize,
 ) -> Result<(), String> {
+    object(Some(v), path)?;
     *nodes += 1;
     *deepest = (*deepest).max(depth);
     // Bound recursive validation itself, before walking untrusted children.
@@ -139,7 +183,12 @@ fn node(
         "button" => &["type", "label", "action", "variant", "confirm"],
         "checkbox" => &["type", "label", "name", "checked", "action"],
         "empty" => &["type", "title", "body"],
-        _ => return Err(fail(&format!("{path}type"), "Invalid input")),
+        _ => {
+            return Err(fail(
+                &format!("{path}type"),
+                "Invalid discriminator value. Expected 'section' | 'stack' | 'heading' | 'text' | 'keyValue' | 'list' | 'status' | 'meter' | 'code' | 'link' | 'button' | 'checkbox' | 'empty'",
+            ));
+        }
     };
     // Zod validates declared properties before reporting unknown keys.
     match kind.as_str() {
@@ -148,6 +197,12 @@ fn node(
                 text(v, "title", 80, 1, false, path)?;
             } else {
                 enumeration(v, "gap", &["related", "content"], true, path)?;
+            }
+            if !v["children"].is_array() {
+                return Err(fail(
+                    &format!("{path}children"),
+                    &invalid(v.get("children"), "array"),
+                ));
             }
             let children = v["children"]
                 .as_array_mut()
@@ -181,16 +236,16 @@ fn node(
             if kind == "list" {
                 text(v, "empty", 80, 0, true, path)?;
             }
+            if !v["items"].is_array() {
+                return Err(fail(
+                    &format!("{path}items"),
+                    &invalid(v.get("items"), "array"),
+                ));
+            }
             let items = v["items"]
                 .as_array_mut()
                 .ok_or_else(|| fail(&format!("{path}items"), "Invalid input: expected array"))?;
             let max = if kind == "list" { 200 } else { 50 };
-            if items.len() > max {
-                return Err(fail(
-                    &format!("{path}items"),
-                    &format!("Too big: expected array to have <={max} items"),
-                ));
-            }
             for (i, item) in items.iter_mut().enumerate() {
                 let p = format!("{path}items.{i}.");
                 if kind == "keyValue" {
@@ -217,6 +272,12 @@ fn node(
                     closed(item, &["title", "subtitle", "status", "action"], &p)?;
                 }
             }
+            if items.len() > max {
+                return Err(fail(
+                    &format!("{path}items"),
+                    &format!("Too big: expected array to have <={max} items"),
+                ));
+            }
         }
         _ => {
             text(v, "label", 80, 1, true, path)?;
@@ -233,12 +294,26 @@ fn node(
                         if key == "pacePct" && v.get(key).is_none() {
                             continue;
                         }
-                        if !v[key].as_f64().is_some_and(|n| (0.0..=100.0).contains(&n)) {
-                            return Err(fail(&format!("{path}{key}"), "Invalid number"));
+                        let Some(n) = v[key].as_f64() else {
+                            return Err(fail(
+                                &format!("{path}{key}"),
+                                &invalid(v.get(key), "number"),
+                            ));
+                        };
+                        if !(0.0..=100.0).contains(&n) {
+                            return Err(fail(
+                                &format!("{path}{key}"),
+                                if n < 0.0 {
+                                    "Too small: expected number to be >=0"
+                                } else {
+                                    "Too big: expected number to be <=100"
+                                },
+                            ));
                         }
                     }
                 }
                 "link" => {
+                    object(v.get("to"), &format!("{path}to."))?;
                     let to = &v["to"];
                     enumeration(to, "route", ROUTES, true, &format!("{path}to."))?;
                     if let Some(id) = to.get("taskId")
@@ -249,13 +324,20 @@ fn node(
                                     .all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
                         })
                     {
-                        return Err(fail(&format!("{path}to.taskId"), "Invalid string"));
+                        return Err(fail(
+                            &format!("{path}to.taskId"),
+                            &if id.is_string() {
+                                "taskId uses letters, digits and . _ : -".into()
+                            } else {
+                                invalid(Some(id), "string")
+                            },
+                        ));
                     }
                     closed(to, &["route", "taskId"], &format!("{path}to."))?;
                 }
                 "button" | "checkbox" => {
-                    action(v, "action", path)?;
                     if kind == "button" {
+                        action(v, "action", path)?;
                         enumeration(v, "variant", &["secondary", "quiet", "danger"], true, path)?;
                         if let Some(confirm) = v.get_mut("confirm") {
                             text(confirm, "title", 80, 1, true, &format!("{path}confirm."))?;
@@ -267,9 +349,10 @@ fn node(
                         if !v["checked"].is_boolean() {
                             return Err(fail(
                                 &format!("{path}checked"),
-                                "Invalid input: expected boolean",
+                                &invalid(v.get("checked"), "boolean"),
                             ));
                         }
+                        action(v, "action", path)?;
                     }
                 }
                 _ => (),
@@ -326,7 +409,9 @@ pub fn validate_result(raw: Value) -> Result<Vec<Value>, String> {
                 .ok_or("invalid validation message")?;
             let path = clean_text(path);
             let message = clean_text(message);
-            if path.chars().count() > 200 || message.chars().count() > 200 {
+            if crate::js_semantics::codepoint_len(&path) > 200
+                || crate::js_semantics::codepoint_len(&message) > 200
+            {
                 return Err("invalid validation result".into());
             }
             Ok(serde_json::json!({"path":path,"message":message}))

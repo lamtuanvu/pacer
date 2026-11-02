@@ -10,6 +10,28 @@ use std::{
 pub(crate) fn error(e: impl std::fmt::Display) -> CoreError {
     CoreError::new(Code::PluginRefused, e.to_string())
 }
+pub(crate) fn internal(e: impl std::fmt::Display) -> CoreError {
+    CoreError::new(Code::Internal, e.to_string())
+}
+pub(crate) fn io_error(e: std::io::Error, syscall: &str, path: &Path) -> CoreError {
+    let (code, message) = match e.raw_os_error() {
+        Some(libc::ENOENT) => ("ENOENT", "no such file or directory"),
+        Some(libc::EEXIST) => ("EEXIST", "file already exists"),
+        Some(libc::ENOTDIR) => ("ENOTDIR", "not a directory"),
+        Some(libc::EACCES) => ("EACCES", "permission denied"),
+        Some(libc::EPERM) => ("EPERM", "operation not permitted"),
+        Some(libc::EROFS) => ("EROFS", "read-only file system"),
+        Some(libc::ENOSPC) => ("ENOSPC", "no space left on device"),
+        Some(libc::ELOOP) => ("ELOOP", "too many symbolic links encountered"),
+        Some(libc::EISDIR) => return internal("EISDIR: illegal operation on a directory, read"),
+        _ => return internal(e),
+    };
+    internal(format!("{code}: {message}, {syscall} '{}'", path.display()))
+}
+fn shared_error(mut e: CoreError) -> CoreError {
+    e.code = Code::Internal;
+    e
+}
 pub(crate) fn parents(path: &Path) -> Result<(), CoreError> {
     if !path.is_absolute() {
         return Err(error("redirected publisher parent path"));
@@ -124,7 +146,7 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
     write_inner(path, bytes, true)
 }
 pub(crate) fn write_shared(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
-    write_inner(path, bytes, false)
+    write_inner(path, bytes, false).map_err(shared_error)
 }
 fn write_inner(path: &Path, bytes: &[u8], private: bool) -> Result<(), CoreError> {
     let parent = path.parent().ok_or_else(|| error("missing store parent"))?;
@@ -178,8 +200,8 @@ fn resolved_root(path: &Path) -> Result<std::path::PathBuf, CoreError> {
         .recursive(true)
         .mode(0o700)
         .create(path)
-        .map_err(error)?;
-    let resolved = fs::canonicalize(path).map_err(error)?;
+        .map_err(|e| io_error(e, "mkdir", path))?;
+    let resolved = fs::canonicalize(path).map_err(internal)?;
     Ok(resolved)
 }
 
@@ -192,6 +214,7 @@ pub(crate) fn locked<T>(
     // PACER_HOME is a configured directory, not an untrusted state-file leaf.
     // Like TS mkdir/join, accept relative paths and symlinked ancestors. Retain
     // the resolved owned root for the entire transaction, including its reads.
+    let display_path = ctx.pacer_home.join("orca").join(format!("{name}.lock"));
     let mut ctx = ctx.clone();
     ctx.pacer_home = resolved_root(&ctx.pacer_home)?;
     let dir = resolved_root(&ctx.pacer_home.join("orca"))?;
@@ -218,29 +241,36 @@ pub(crate) fn locked<T>(
                     // The previous holder may release between create_new and
                     // inspection. Retry acquisition, as the TS lock does.
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                    Err(e) => return Err(error(e)),
+                    Err(e) => return Err(internal(e)),
                 };
                 if !m.is_file()
                     || m.file_type().is_symlink()
                     || m.nlink() != 1
                     || m.uid() != nix::unistd::geteuid().as_raw()
                 {
-                    return Err(error("unsafe plugin lock"));
+                    return Err(internal("unsafe plugin lock"));
                 }
                 if m.modified()
-                    .map_err(error)?
+                    .map_err(internal)?
                     .elapsed()
                     .is_ok_and(|age| age > std::time::Duration::from_secs(120))
                 {
-                    fs::remove_file(&path).map_err(error)?;
+                    match fs::remove_file(&path) {
+                        Ok(()) => (),
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                        Err(e) => return Err(internal(e)),
+                    }
                     continue;
                 }
                 if std::time::Instant::now() > deadline {
-                    return Err(error(format!("timed out waiting for {}", path.display())));
+                    return Err(internal(format!(
+                        "timed out waiting for {}",
+                        display_path.display()
+                    )));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
-            Err(e) => return Err(error(e)),
+            Err(e) => return Err(io_error(e, "open", &path)),
         }
     }
     let _guard = Guard(path);

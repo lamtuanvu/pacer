@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { installFixture } from "../conformance/install";
 import { tmpDir } from "./helpers";
@@ -114,6 +114,7 @@ test.skipIf(!front)("the whole public plugin operation set matches forced TypeSc
 
 test.skipIf(!front)("native settings CAS, ready-plugin veto and private modes", async () => {
   const s = await service();
+  const lockMode = existsSync(join(s.state, "orca")) ? statSync(join(s.state, "orca")).mode & 0o777 : 0o700;
   try {
     writeFileSync(join(s.plugin, "fixture.json"), JSON.stringify({ validateErrors: [{ path: "items", message: "too vague" }] }));
     const enabled = await s.post("plugin.enable", { id: "fx-ui", grant: true });
@@ -127,7 +128,7 @@ test.skipIf(!front)("native settings CAS, ready-plugin veto and private modes", 
     expect((await s.post("plugin.settings.get", { plugin: "fx-ui" })).result.rev).toBe(1);
     const { statSync } = await import("node:fs");
     for (const file of ["strategy.yaml", "plugin-settings.json"]) expect(statSync(join(s.state, file)).mode & 0o777).toBe(0o600);
-    expect(statSync(join(s.state, "orca")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(s.state, "orca")).mode & 0o777).toBe(lockMode);
   } finally { await s.stop(); }
 }, 45000);
 
@@ -234,5 +235,147 @@ test.skipIf(!front)("configured symlinked and relative homes match TypeScript se
       } finally { await s.stop(); }
     }
     expect(results[0], kind).toEqual(results[1]);
+  }
+}, 60000);
+
+test.skipIf(!front)("lone UTF-16 units survive request, IPC, settings store and render", async () => {
+  const results: unknown[][] = [];
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    try {
+      const manifest = JSON.parse(readFileSync(join(s.plugin, "pacer-plugin.json"), "utf8"));
+      manifest.contributes.ui.settings[0].schema.fields.text = { type: "string", title: "Text" };
+      writeFileSync(join(s.plugin, "pacer-plugin.json"), JSON.stringify(manifest));
+      writeFileSync(join(s.plugin, "fixture.json"), JSON.stringify({ uiDocument: { type: "text", text: "a\ud800b﷐" } }));
+      await s.post("plugin.enable", { id: "fx-ui", grant: true });
+      const values = { text: "a\ud800b﷐", items: ["\udfff", "𐏿"] };
+      const saved = await s.post("plugin.settings.set", { plugin: "fx-ui", values, expect_rev: 0 });
+      expect(saved.result?.values).toEqual(values);
+      const bytes = readFileSync(join(s.state, "plugin-settings.json"), "utf8");
+      expect(JSON.parse(bytes)["fx-ui"].values).toEqual(values);
+      const rendered = await s.post("plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context });
+      expect(rendered.result?.document).toEqual({ type: "text", text: "a\ud800b﷐" });
+      await Bun.sleep(1100);
+      const response = await fetch(`${s.base}/v3/ops/plugin.ui.render`, { method: "POST", headers: { Authorization: `Bearer ${s.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ plugin: "fx-ui", surface: "activity", id: "checklist", context }) });
+      const wire = await response.text();
+      expect(wire).toBe(JSON.stringify(JSON.parse(wire)));
+      expect(wire).toMatch(/"renderedAt":\d+,"ttlS":0/);
+      results.push([saved, await s.post("plugin.settings.get", { plugin: "fx-ui" }), rendered.result?.document, bytes]);
+    } finally { await s.stop(); }
+  }
+  expect(results[0]).toEqual(results[1]);
+}, 60000);
+
+test.skipIf(!front)("deep render returns the document error and cannot serve stale cache", async () => {
+  const outcomes: unknown[] = [];
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    try {
+      // Return a cacheable valid response, then a deep document on a different
+      // context (same surface) after the TTL. The file is read per request.
+      writeFileSync(join(s.plugin, "main.ts"), `#!/usr/bin/env bun
+import {serve,stdinLines} from '@pacer/plugin';
+import {readFileSync} from 'node:fs';
+const manifest=JSON.parse(readFileSync('pacer-plugin.json','utf8'));
+let n=0;await serve({manifest,input:stdinLines(),handlers:{'ui.render':async()=>{let document={type:'text',text:'valid'};if(++n>1)for(let i=0;i<70;i++)document={type:'stack',gap:'related',children:[document]};return {document,ttlS:-0}}}});`);
+      await s.post("plugin.enable", { id: "fx-ui", grant: true });
+      const params = { plugin: "fx-ui", surface: "activity", id: "checklist", context };
+      const response = await fetch(`${s.base}/v3/ops/plugin.ui.render`, { method: "POST", headers: { Authorization: `Bearer ${s.token}`, "Content-Type": "application/json" }, body: JSON.stringify(params) });
+      const bytes = await response.text();
+      expect(bytes).toBe(JSON.stringify(JSON.parse(bytes)));
+      expect(bytes).toMatch(/"renderedAt":\d+,"ttlS":0/);
+      expect(JSON.parse(bytes).result?.document.text).toBe("valid");
+      await Bun.sleep(30);
+      const result = await s.post("plugin.ui.render", params);
+      expect(result).toEqual({ error: { code: "invalid_input", message: "This plugin's view couldn't be shown" } });
+      outcomes.push(result);
+    } finally { await s.stop(); }
+  }
+  expect(outcomes[0]).toEqual(outcomes[1]);
+}, 60000);
+
+test.skipIf(!front)("disconnect during disable still completes refresh and config publication", async () => {
+  const { createConnection } = await import("node:net");
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    try {
+      writeFileSync(join(s.plugin, "main.ts"), `#!/usr/bin/env bun
+import {serve,stdinLines} from '@pacer/plugin';import {readFileSync,writeFileSync} from 'node:fs';
+const manifest=JSON.parse(readFileSync('pacer-plugin.json','utf8'));
+process.on('SIGTERM',()=>{writeFileSync('stopping','yes');setTimeout(()=>process.exit(0),1200)});
+await serve({manifest,input:stdinLines(),handlers:{'ui.render':async()=>({document:{type:'text',text:'ready'},ttlS:0})}});`);
+      await s.post("plugin.enable", { id: "fx-ui", grant: true });
+      await s.post("plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context });
+      const snapshot = await (await fetch(`${s.base}/v3/snapshot`, { headers: { Authorization: `Bearer ${s.token}` } })).json() as any;
+      const eventsAbort = new AbortController();
+      const events = await fetch(`${s.base}/v3/events?since=${snapshot.seq}` , { headers: { Authorization: `Bearer ${s.token}` }, signal: eventsAbort.signal });
+      expect(events.ok).toBe(true);
+      let published = false;
+      const reading = (async () => { const reader = events.body!.getReader(); let text = ""; try { for (;;) { const part = await reader.read(); if (part.done) break; text += new TextDecoder().decode(part.value); if (/event: config/.test(text)) { published = true; break; } } } catch {} finally { await reader.cancel().catch(() => {}); } })();
+      const url = new URL(s.base), body = JSON.stringify({ id: "fx-ui" });
+      const socket = createConnection(Number(url.port), "127.0.0.1");
+      await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
+      socket.write(`POST /v3/ops/plugin.disable HTTP/1.1\r\nHost: ${url.host}\r\nAuthorization: Bearer ${s.token}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+      try {
+        for (let i = 0; i < 300 && !existsSync(join(s.plugin, "stopping")); i++) await Bun.sleep(10);
+        expect(existsSync(join(s.plugin, "stopping"))).toBe(true);
+      } finally { socket.destroy(); }
+      try {
+        for (let i = 0; i < 400 && !published; i++) await Bun.sleep(10);
+        expect(published).toBe(true);
+        const entry = (await s.post("plugin.list", {})).result.plugins.find((p: any) => p.id === "fx-ui");
+        expect(entry.state).toBe("disabled"); expect(entry.pid).toBeNull();
+        expect(readFileSync(join(s.state, "strategy.yaml"), "utf8")).toContain("fx-ui");
+      } finally { eventsAbort.abort(); await reading; }
+    } finally { await s.stop(); }
+  }
+}, 60000);
+
+test.skipIf(!front)("filesystem and strategy edit errors retain TypeScript codes and messages", async () => {
+  const { renameSync, unlinkSync } = await import("node:fs");
+  const results: unknown[][] = [];
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    try {
+      await s.post("plugin.enable", { id: "fx-ui", grant: true });
+      const dir = join(s.state, "orca"); renameSync(dir, `${dir}-original`); writeFileSync(dir, "not a directory");
+      const lock = await s.post("plugin.settings.set", { plugin: "fx-ui", values: {}, expect_rev: 0 });
+      expect(lock.error).toEqual({ code: "internal", message: `EEXIST: file already exists, mkdir '${dir}'` });
+      unlinkSync(dir); renameSync(`${dir}-original`, dir);
+      // Snapshot still discovers the plugin, but editStrategy cannot read its
+      // now-missing strategy. This is invalid_input, not plugin_refused.
+      unlinkSync(join(s.state, "strategy.yaml"));
+      const edit = await s.post("plugin.disable", { id: "fx-ui" });
+      expect(edit.error).toEqual({ code: "invalid_input", message: `ENOENT: no such file or directory, open '${join(s.state, "strategy.yaml")}'` });
+      results.push([lock.error.code, edit.error.code]);
+    } finally { await s.stop(); }
+  }
+  expect(results[0]).toEqual(results[1]);
+}, 60000);
+
+test.skipIf(!front)("lock timeout names configured home rather than its canonical target", async () => {
+  for (const forward of ["", "*"]) {
+    const s = await service(forward, "symlink");
+    try {
+      await s.post("plugin.enable", { id: "fx-ui", grant: true });
+      writeFileSync(join(s.state, "orca/plugin-settings.lock"), "", { mode: 0o600 });
+      const response = await fetch(`${s.base}/v3/ops/plugin.settings.set`, { method: "POST", headers: { Authorization: `Bearer ${s.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ plugin: "fx-ui", values: {}, expect_rev: 0 }), signal: AbortSignal.timeout(25000) });
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: { code: "internal", message: `timed out waiting for ${join(s.home, "linked/orca/plugin-settings.lock")}` } });
+    } finally { await s.stop(); }
+  }
+}, 60000);
+
+test.skipIf(!front)("lone-surrogate action lengths use Zod code-point limits", async () => {
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    try {
+      writeFileSync(join(s.plugin, "fixture.json"), JSON.stringify({ actionMessage: "\ud800".repeat(200) }));
+      await s.post("plugin.enable", { id: "fx-ui", grant: true });
+      const action = { plugin: "fx-ui", surface: "activity", id: "checklist", context, action: "run", requestId: "\ud800".repeat(128), values: { ["\udfff".repeat(64)]: "\ud800".repeat(2000) } };
+      const response = await s.post("plugin.ui.action", action);
+      expect(response).toEqual({ result: { result: "refresh", message: "\ud800".repeat(200) } });
+      expect((await s.post("plugin.ui.action", { ...action, requestId: action.requestId + "x" })).error?.code).toBe("invalid_input");
+    } finally { await s.stop(); }
   }
 }, 60000);

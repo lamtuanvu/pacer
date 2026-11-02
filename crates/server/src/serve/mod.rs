@@ -97,7 +97,13 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Ok(bytes) if bytes.len() <= max => bytes,
             _ => return native_error(CoreError::new(Code::TooLarge, "body exceeds 256 KiB")),
         };
-        let params: Value = match serde_json::from_slice(&bytes) {
+        let plugin = op.name.starts_with("plugin.");
+        let decoded = if plugin {
+            pacer_plugin_host::json::parse(&bytes)
+        } else {
+            serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+        };
+        let params: Value = match decoded {
             Ok(params) => params,
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
@@ -105,11 +111,30 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                 eprintln!("native {}", op.name);
             }
-            state.plugins.call(&ctx, &state.core, op.name, params).await
+            // A disconnected HTTP waiter must not cancel an admitted mutation:
+            // disk writes, owner refresh and publication form one operation.
+            let state = Arc::clone(&state);
+            let name = op.name;
+            match tokio::spawn(
+                async move { state.plugins.call(&ctx, &state.core, name, params).await },
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(e) => Err(CoreError::new(Code::Internal, e.to_string())),
+            }
         } else {
             call_native(&ctx, op, params, None).await
         };
         return match result {
+            Ok(result) if plugin => {
+                plugin_json(StatusCode::OK, serde_json::json!({"result":result}))
+            }
+            Err(error) if plugin => plugin_json(
+                StatusCode::from_u16(error.http_status())
+                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                error.body(),
+            ),
             Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
             Err(error) => native_error(error),
         };
@@ -134,8 +159,13 @@ fn native_error(error: CoreError) -> Response {
         StatusCode::from_u16(error.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     native_json(status, error.body())
 }
+fn plugin_json(status: StatusCode, body: Value) -> Response {
+    json_headers((status, pacer_plugin_host::settings::js_json(&body)).into_response())
+}
 fn native_json(status: StatusCode, body: Value) -> Response {
-    let mut response = (status, axum::Json(body)).into_response();
+    json_headers((status, axum::Json(body)).into_response())
+}
+fn json_headers(mut response: Response) -> Response {
     response.headers_mut().insert(
         "content-type",
         axum::http::HeaderValue::from_static("application/json;charset=utf-8"),

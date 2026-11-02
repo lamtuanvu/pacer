@@ -53,9 +53,15 @@ impl InspectedArchive {
                 .as_str()
                 .ok_or_else(|| error("invalid publisher key"))?,
         )?;
-        let sig = STANDARD
-            .decode(signature)
-            .map_err(|_| error("invalid signature or key encoding"))?;
+        let sig = STANDARD.decode(signature).map_err(|e| {
+            error(
+                if matches!(e, base64::DecodeError::InvalidLastSymbol(_, _)) {
+                    "invalid signature or key length"
+                } else {
+                    "invalid signature or key encoding"
+                },
+            )
+        })?;
         if sig.len() != 64 || STANDARD.encode(&sig) != signature {
             return Err(error("invalid signature or key length"));
         }
@@ -280,7 +286,7 @@ pub fn inspect(input: &[u8]) -> Result<InspectedArchive, CoreError> {
         return Err(error("missing manifest or oversized manifest"));
     }
     let text = std::str::from_utf8(&manifest.bytes).map_err(|_| error("invalid manifest JSON"))?;
-    let raw = serde_json::from_str(text.strip_prefix('\u{feff}').unwrap_or(text))
+    let raw = crate::json::parse(text.strip_prefix('\u{feff}').unwrap_or(text).as_bytes())
         .map_err(|_| error("invalid manifest JSON"))?;
     let manifest = parse_manifest(raw).map_err(|_| error("manifest identity invalid"))?;
     if manifest.id.as_str() != root {

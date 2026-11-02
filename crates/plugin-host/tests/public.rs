@@ -305,13 +305,23 @@ fn typescript_parity_matrix() {
             c["values"]
         );
     }
+    let mut mismatches = vec![];
     for c in cases["documents"].as_array().unwrap() {
         let result = pacer_plugin_host::ui::parse(c["raw"].clone(), c["status"] == true);
         assert_eq!(result.is_ok(), c["result"]["ok"] == true, "{c}");
-        if let Ok(doc) = result {
-            assert_eq!(doc, c["result"]["document"]);
+        match result {
+            Ok(doc) => assert_eq!(doc, c["result"]["document"]),
+            Err(error) => {
+                if error != c["result"]["error"] {
+                    mismatches.push(format!(
+                        "{} => {error} != {}",
+                        c["raw"], c["result"]["error"]
+                    ));
+                }
+            }
         }
     }
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
 #[test]
 fn javascript_trim_and_utf16() {
@@ -437,7 +447,31 @@ async fn shared_operation_number_matrix() {
             serde_json::from_str(row["wire"].as_str().unwrap()).unwrap_or(Value::Null);
         let accepted = row["accepted"].as_bool().unwrap();
         let field = row["field"].as_str().unwrap();
-        if field == "settingsInteger" {
+        if field == "storedRev" {
+            let (_dir, ctx, _, _) = fixture();
+            fs::write(
+                ctx.pacer_home.join("plugin-settings.json"),
+                format!(
+                    r#"{{"fx-ui":{{"rev":{},"values":{{"required":true}},"hidden":[]}}}}"#,
+                    row["wire"].as_str().unwrap()
+                ),
+            )
+            .unwrap();
+            let record = settings::read(&ctx, "fx-ui").unwrap();
+            assert_eq!(
+                settings::js_json(&record["rev"]),
+                row["normalized"].as_str().unwrap(),
+                "{row}"
+            );
+            assert_eq!(
+                record["values"],
+                if accepted {
+                    json!({"required":true})
+                } else {
+                    json!({})
+                }
+            );
+        } else if field == "settingsInteger" {
             let schema = json!({"fields":{"Budget":{"type":"integer","title":"Budget","minimum":row["minimum"],"maximum":row["maximum"]}}});
             let errors = settings::validate(&schema, &json!({"Budget":value}));
             assert_eq!(

@@ -194,7 +194,7 @@ fn valid_ui(ui: &Value) -> bool {
             let Some(title) = item.get("title").and_then(Value::as_str) else {
                 return false;
             };
-            if title.is_empty() || title.chars().count() > 40 {
+            if title.is_empty() || crate::js_semantics::codepoint_len(title) > 40 {
                 return false;
             }
             if kind == "settings" {
@@ -205,7 +205,7 @@ fn valid_ui(ui: &Value) -> bool {
                 let Some(view) = item.get("view").and_then(Value::as_str) else {
                     return false;
                 };
-                if view.is_empty() || view.chars().count() > 64 {
+                if view.is_empty() || crate::js_semantics::codepoint_len(view) > 64 {
                     return false;
                 }
             }
@@ -308,13 +308,14 @@ fn valid_settings(schema: Option<&Value>) -> bool {
         let Some(title) = field.get("title").and_then(Value::as_str) else {
             return false;
         };
-        if title.is_empty() || title.chars().count() > 80 {
+        if title.is_empty() || crate::js_semantics::codepoint_len(title) > 80 {
             return false;
         }
-        if field
-            .get("description")
-            .is_some_and(|value| value.as_str().is_none_or(|text| text.chars().count() > 200))
-        {
+        if field.get("description").is_some_and(|value| {
+            value
+                .as_str()
+                .is_none_or(|text| crate::js_semantics::codepoint_len(text) > 200)
+        }) {
             return false;
         }
         if !["boolean", "integer", "secretRef"].contains(&kind)
@@ -357,7 +358,7 @@ fn valid_settings(schema: Option<&Value>) -> bool {
             if field.get("default").is_some_and(|value| {
                 value
                     .as_str()
-                    .is_none_or(|text| text.chars().count() > 2000)
+                    .is_none_or(|text| crate::js_semantics::codepoint_len(text) > 2000)
             }) {
                 return false;
             }
@@ -372,8 +373,9 @@ fn valid_settings(schema: Option<&Value>) -> bool {
                     items.is_empty()
                         || items.len() > 20
                         || items.iter().any(|item| {
-                            item.as_str()
-                                .is_none_or(|text| text.is_empty() || text.chars().count() > 80)
+                            item.as_str().is_none_or(|text| {
+                                text.is_empty() || crate::js_semantics::codepoint_len(text) > 80
+                            })
                         })
                 })
             }) {

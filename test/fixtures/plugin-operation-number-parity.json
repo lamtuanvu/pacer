@@ -634,5 +634,47 @@
     "field": "actionScalar",
     "wire": "{}",
     "accepted": false
+  },
+  {
+    "field": "storedRev",
+    "wire": "1.5",
+    "accepted": true,
+    "normalized": "1.5"
+  },
+  {
+    "field": "storedRev",
+    "wire": "1e21",
+    "accepted": true,
+    "normalized": "1e+21"
+  },
+  {
+    "field": "storedRev",
+    "wire": "1.0",
+    "accepted": true,
+    "normalized": "1"
+  },
+  {
+    "field": "storedRev",
+    "wire": "-0.0",
+    "accepted": true,
+    "normalized": "0"
+  },
+  {
+    "field": "storedRev",
+    "wire": "\"2\"",
+    "accepted": false,
+    "normalized": "0"
+  },
+  {
+    "field": "storedRev",
+    "wire": "null",
+    "accepted": false,
+    "normalized": "0"
+  },
+  {
+    "field": "storedRev",
+    "wire": "-2",
+    "accepted": true,
+    "normalized": "-2"
   }
 ]

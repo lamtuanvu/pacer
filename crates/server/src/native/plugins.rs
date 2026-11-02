@@ -222,7 +222,13 @@ impl Owner {
             let bytes = axum::body::to_bytes(Body::new(response.into_body()), 8 * 1024 * 1024)
                 .await
                 .map_err(internal)?;
-            let value: Value = serde_json::from_slice(&bytes).map_err(internal)?;
+            let value: Value = pacer_plugin_host::json::parse(&bytes).map_err(|e| {
+                if e == "JSON nesting exceeds 512 levels" {
+                    CoreError::new(Code::InvalidInput, "This plugin's view couldn't be shown")
+                } else {
+                    internal(e)
+                }
+            })?;
             self.entries = value["entries"]
                 .as_array()
                 .cloned()

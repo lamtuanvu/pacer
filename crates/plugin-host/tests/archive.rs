@@ -154,3 +154,30 @@ fn publisher_cas_collision_modes_and_redirects() {
     assert!(shipped.set(&ctx, "Fixture", Some(key), None).is_err());
     assert!(shipped.set(&ctx, "fixture", Some(key), None).is_err());
 }
+
+#[test]
+fn signature_encoding_matrix() {
+    let m = matrix();
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(&dir);
+    let trust = PublisherTrust::new(std::collections::BTreeMap::from([(
+        "Fixture".into(),
+        m["publicKey"].as_str().unwrap().into(),
+    )]))
+    .unwrap();
+    let bytes = STANDARD
+        .decode(m["entries"][0]["base64"].as_str().unwrap())
+        .unwrap();
+    for row in m["signatures"].as_array().unwrap() {
+        let result = archive::inspect(&bytes).unwrap().verify(
+            &ctx,
+            row["signature"].as_str().unwrap(),
+            &trust,
+        );
+        assert_eq!(
+            result.err().map(|e| e.message),
+            row["error"].as_str().map(str::to_owned),
+            "{row}"
+        );
+    }
+}

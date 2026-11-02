@@ -1,3 +1,7 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { readPluginSettings } from "../src/plugins/settings";
+import { tmpDir } from "./helpers";
 import { expect, test } from "bun:test";
 import cases from "./fixtures/plugin-operation-number-parity.json";
 import { validateSettings } from "../src/plugins/settings";
@@ -6,7 +10,13 @@ import { uiRenderResult, viewNodeSchema } from "../src/plugins/ui-schema";
 
 for (const row of cases) test(`plugin number parity: ${row.field}=${row.wire}`, () => {
   const value = JSON.parse(row.wire);
-  if (row.field === "settingsInteger") {
+  if (row.field === "storedRev") {
+    const pacerHome = tmpDir();
+    writeFileSync(join(pacerHome, "plugin-settings.json"), `{"fx-ui":{"rev":${row.wire},"values":{"required":true},"hidden":[]}}`);
+    const record = readPluginSettings({ pacerHome }, "fx-ui");
+    expect(JSON.stringify(record.rev)).toBe(row.normalized!);
+    expect(record.values).toEqual(row.accepted ? { required: true } : {});
+  } else if (row.field === "settingsInteger") {
     const schema = { fields: { Budget: { type: "integer" as const, title: "Budget", minimum: row.minimum!, maximum: row.maximum! } } };
     expect(validateSettings(schema, { Budget: value })).toEqual(row.accepted ? [] : [{ path: "Budget", message: row.error! }]);
   } else if (row.field === "actionScalar") {

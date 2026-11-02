@@ -293,18 +293,19 @@ fn params(op: &str, p: &Value) -> Result<(), CoreError> {
             return Err(bad("action: Invalid string"));
         }
         let r = string(p, "requestId")?;
-        if r.is_empty() || r.chars().count() > 128 {
+        if r.is_empty() || crate::js_semantics::codepoint_len(r) > 128 {
             return Err(bad("requestId: Invalid string"));
         }
         if let Some(v) = p.get("values")
             && !v.as_object().is_some_and(|v| {
                 v.len() <= 20
                     && v.iter().all(|(k, v)| {
-                        k.chars().count() <= 64
+                        crate::js_semantics::codepoint_len(k) <= 64
                             && (v.is_null()
                                 || v.is_number()
                                 || v.is_boolean()
-                                || v.as_str().is_some_and(|s| s.chars().count() <= 2000))
+                                || v.as_str()
+                                    .is_some_and(|s| crate::js_semantics::codepoint_len(s) <= 2000))
                     })
             })
         {
@@ -802,8 +803,9 @@ impl PublicOperations {
             .as_str()
             .is_some_and(|s| ["done", "refresh"].contains(&s))
             || out.get("message").is_some_and(|s| {
-                !s.as_str()
-                    .is_some_and(|s| settings::clean_text(s).chars().count() <= 200)
+                !s.as_str().is_some_and(|s| {
+                    crate::js_semantics::codepoint_len(&settings::clean_text(s)) <= 200
+                })
             })
         {
             return Err(CoreError::new(
