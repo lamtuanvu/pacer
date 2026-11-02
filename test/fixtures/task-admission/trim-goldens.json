@@ -1,0 +1,799 @@
+[
+  {
+    "id": "js-ws-title-00",
+    "raw": {
+      "goal": "work",
+      "title": "\tT\t"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-00",
+    "raw": {
+      "goal": "work",
+      "title": "\t"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-00",
+    "input": {
+      "brief": {
+        "goal": "\t",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-01",
+    "raw": {
+      "goal": "work",
+      "title": "\nT\n"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-01",
+    "raw": {
+      "goal": "work",
+      "title": "\n"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-01",
+    "input": {
+      "brief": {
+        "goal": "\n",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-02",
+    "raw": {
+      "goal": "work",
+      "title": "\u000bT\u000b"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-02",
+    "raw": {
+      "goal": "work",
+      "title": "\u000b"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-02",
+    "input": {
+      "brief": {
+        "goal": "\u000b",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-03",
+    "raw": {
+      "goal": "work",
+      "title": "\fT\f"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-03",
+    "raw": {
+      "goal": "work",
+      "title": "\f"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-03",
+    "input": {
+      "brief": {
+        "goal": "\f",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-04",
+    "raw": {
+      "goal": "work",
+      "title": "\rT\r"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-04",
+    "raw": {
+      "goal": "work",
+      "title": "\r"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-04",
+    "input": {
+      "brief": {
+        "goal": "\r",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-05",
+    "raw": {
+      "goal": "work",
+      "title": " T "
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-05",
+    "raw": {
+      "goal": "work",
+      "title": " "
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-05",
+    "input": {
+      "brief": {
+        "goal": " ",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-06",
+    "raw": {
+      "goal": "work",
+      "title": "\u00a0T\u00a0"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-06",
+    "raw": {
+      "goal": "work",
+      "title": "\u00a0"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-06",
+    "input": {
+      "brief": {
+        "goal": "\u00a0",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-07",
+    "raw": {
+      "goal": "work",
+      "title": "\u1680T\u1680"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-07",
+    "raw": {
+      "goal": "work",
+      "title": "\u1680"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-07",
+    "input": {
+      "brief": {
+        "goal": "\u1680",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-08",
+    "raw": {
+      "goal": "work",
+      "title": "\u2000T\u2000"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-08",
+    "raw": {
+      "goal": "work",
+      "title": "\u2000"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-08",
+    "input": {
+      "brief": {
+        "goal": "\u2000",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-09",
+    "raw": {
+      "goal": "work",
+      "title": "\u2001T\u2001"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-09",
+    "raw": {
+      "goal": "work",
+      "title": "\u2001"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-09",
+    "input": {
+      "brief": {
+        "goal": "\u2001",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-10",
+    "raw": {
+      "goal": "work",
+      "title": "\u2002T\u2002"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-10",
+    "raw": {
+      "goal": "work",
+      "title": "\u2002"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-10",
+    "input": {
+      "brief": {
+        "goal": "\u2002",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-11",
+    "raw": {
+      "goal": "work",
+      "title": "\u2003T\u2003"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-11",
+    "raw": {
+      "goal": "work",
+      "title": "\u2003"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-11",
+    "input": {
+      "brief": {
+        "goal": "\u2003",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-12",
+    "raw": {
+      "goal": "work",
+      "title": "\u2004T\u2004"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-12",
+    "raw": {
+      "goal": "work",
+      "title": "\u2004"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-12",
+    "input": {
+      "brief": {
+        "goal": "\u2004",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-13",
+    "raw": {
+      "goal": "work",
+      "title": "\u2005T\u2005"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-13",
+    "raw": {
+      "goal": "work",
+      "title": "\u2005"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-13",
+    "input": {
+      "brief": {
+        "goal": "\u2005",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-14",
+    "raw": {
+      "goal": "work",
+      "title": "\u2006T\u2006"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-14",
+    "raw": {
+      "goal": "work",
+      "title": "\u2006"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-14",
+    "input": {
+      "brief": {
+        "goal": "\u2006",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-15",
+    "raw": {
+      "goal": "work",
+      "title": "\u2007T\u2007"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-15",
+    "raw": {
+      "goal": "work",
+      "title": "\u2007"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-15",
+    "input": {
+      "brief": {
+        "goal": "\u2007",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-16",
+    "raw": {
+      "goal": "work",
+      "title": "\u2008T\u2008"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-16",
+    "raw": {
+      "goal": "work",
+      "title": "\u2008"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-16",
+    "input": {
+      "brief": {
+        "goal": "\u2008",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-17",
+    "raw": {
+      "goal": "work",
+      "title": "\u2009T\u2009"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-17",
+    "raw": {
+      "goal": "work",
+      "title": "\u2009"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-17",
+    "input": {
+      "brief": {
+        "goal": "\u2009",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-18",
+    "raw": {
+      "goal": "work",
+      "title": "\u200aT\u200a"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-18",
+    "raw": {
+      "goal": "work",
+      "title": "\u200a"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-18",
+    "input": {
+      "brief": {
+        "goal": "\u200a",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-19",
+    "raw": {
+      "goal": "work",
+      "title": "\u2028T\u2028"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-19",
+    "raw": {
+      "goal": "work",
+      "title": "\u2028"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-19",
+    "input": {
+      "brief": {
+        "goal": "\u2028",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-20",
+    "raw": {
+      "goal": "work",
+      "title": "\u2029T\u2029"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-20",
+    "raw": {
+      "goal": "work",
+      "title": "\u2029"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-20",
+    "input": {
+      "brief": {
+        "goal": "\u2029",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-21",
+    "raw": {
+      "goal": "work",
+      "title": "\u202fT\u202f"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-21",
+    "raw": {
+      "goal": "work",
+      "title": "\u202f"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-21",
+    "input": {
+      "brief": {
+        "goal": "\u202f",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-22",
+    "raw": {
+      "goal": "work",
+      "title": "\u205fT\u205f"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-22",
+    "raw": {
+      "goal": "work",
+      "title": "\u205f"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-22",
+    "input": {
+      "brief": {
+        "goal": "\u205f",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-23",
+    "raw": {
+      "goal": "work",
+      "title": "\u3000T\u3000"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-23",
+    "raw": {
+      "goal": "work",
+      "title": "\u3000"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-23",
+    "input": {
+      "brief": {
+        "goal": "\u3000",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-title-24",
+    "raw": {
+      "goal": "work",
+      "title": "\ufeffT\ufeff"
+    },
+    "accept": true,
+    "title": "T"
+  },
+  {
+    "id": "js-ws-empty-title-24",
+    "raw": {
+      "goal": "work",
+      "title": "\ufeff"
+    },
+    "accept": false
+  },
+  {
+    "id": "js-ws-empty-goal-24",
+    "input": {
+      "brief": {
+        "goal": "\ufeff",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "nel-title",
+    "raw": {
+      "goal": "work",
+      "title": "\u0085"
+    },
+    "accept": true,
+    "title": "\u0085"
+  },
+  {
+    "id": "nel-goal",
+    "input": {
+      "brief": {
+        "goal": "\u0085",
+        "repo": "/tmp"
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "zero-width-title",
+    "raw": {
+      "goal": "work",
+      "title": "\u200b"
+    },
+    "accept": true,
+    "title": "\u200b"
+  },
+  {
+    "id": "zero-width-goal",
+    "input": {
+      "brief": {
+        "goal": "\u200b",
+        "repo": "/tmp"
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "bom-direct-title",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "title": "\ufeff"
+    },
+    "accept": false
+  },
+  {
+    "id": "bom-direct-goal",
+    "input": {
+      "brief": {
+        "goal": "\ufeff",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "nel-direct-title",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "title": "\u0085"
+    },
+    "accept": true
+  },
+  {
+    "id": "nel-direct-goal",
+    "input": {
+      "brief": {
+        "goal": "\u0085",
+        "repo": "/tmp"
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "line-separator-direct-title",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "title": "\u2028"
+    },
+    "accept": false
+  },
+  {
+    "id": "line-separator-direct-goal",
+    "input": {
+      "brief": {
+        "goal": "\u2028",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  },
+  {
+    "id": "paragraph-separator-direct-title",
+    "input": {
+      "brief": {
+        "goal": "work",
+        "repo": "/tmp"
+      },
+      "title": "\u2029"
+    },
+    "accept": false
+  },
+  {
+    "id": "paragraph-separator-direct-goal",
+    "input": {
+      "brief": {
+        "goal": "\u2029",
+        "repo": "/tmp"
+      }
+    },
+    "accept": false
+  }
+]

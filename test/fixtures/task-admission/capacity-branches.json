@@ -1,0 +1,131 @@
+[
+  {
+    "id": "local-cap",
+    "executor": "codex",
+    "limits": {
+      "executor": 2,
+      "host": null,
+      "local": 1
+    },
+    "use": {
+      "byExecutor": {
+        "codex": 0
+      },
+      "byHost": {},
+      "local": 1
+    },
+    "expected": {
+      "reason": "no_slot",
+      "limit": "machine",
+      "capacity": {
+        "used": 1,
+        "max": 1
+      }
+    }
+  },
+  {
+    "id": "host-cap",
+    "executor": "codex@devbox",
+    "host": "devbox",
+    "limits": {
+      "executor": 4,
+      "host": 3,
+      "local": null
+    },
+    "use": {
+      "byExecutor": {
+        "codex@devbox": 2
+      },
+      "byHost": {
+        "devbox": 3
+      },
+      "local": 0
+    },
+    "expected": {
+      "reason": "no_slot",
+      "limit": "host",
+      "capacity": {
+        "used": 3,
+        "max": 3
+      }
+    }
+  },
+  {
+    "id": "remote-no-local-cap",
+    "executor": "codex@devbox",
+    "host": "devbox",
+    "limits": {
+      "executor": 4,
+      "host": 3,
+      "local": null
+    },
+    "use": {
+      "byExecutor": {
+        "codex@devbox": 0
+      },
+      "byHost": {
+        "devbox": 0
+      },
+      "local": 1
+    },
+    "expected": null
+  },
+  {
+    "id": "executor-before-host",
+    "executor": "codex@devbox",
+    "host": "devbox",
+    "limits": {
+      "executor": 2,
+      "host": 3,
+      "local": null
+    },
+    "use": {
+      "byExecutor": {
+        "codex@devbox": 2
+      },
+      "byHost": {
+        "devbox": 3
+      },
+      "local": 0
+    },
+    "expected": {
+      "reason": "no_slot",
+      "limit": "executor",
+      "capacity": {
+        "used": 2,
+        "max": 2
+      }
+    }
+  },
+  {
+    "id": "memory-guard",
+    "executor": "codex",
+    "limits": {
+      "executor": 2,
+      "host": null,
+      "local": null
+    },
+    "use": {
+      "byExecutor": {},
+      "byHost": {},
+      "local": 0
+    },
+    "guard": {
+      "reason": "machine_memory_pressure",
+      "detail": "memory pressure warning",
+      "machine": {
+        "memoryPressure": "warning",
+        "memoryPressureLimit": "warning"
+      }
+    },
+    "expected": {
+      "reason": "machine_memory_pressure",
+      "limit": "machine",
+      "detail": "memory pressure warning",
+      "machine": {
+        "memoryPressure": "warning",
+        "memoryPressureLimit": "warning"
+      }
+    }
+  }
+]
