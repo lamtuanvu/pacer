@@ -21,10 +21,15 @@ test.skipIf(!front)("strict executor guard has byte-exact TS frames and exit cod
       { planner: "codex", stdin: '{"tool_name":"spawn_agent"}', expected: denial("codex") },
       { planner: "cursor", stdin: '{"subagent_type":"Explore"}', expected: denial("cursor") },
       { planner: "claude-code", stdin: "bad json", expected: denial("claude-code") },
+      { planner: "claude-code", stdin: "null", expected: denial("claude-code") },
+      { planner: "codex", stdin: '{"tool_name":42}', expected: denial("codex") },
+      { planner: "codex", stdin: '{"tool_name":"bash"}', expected: denial("codex") },
       { planner: "codex", stdin: "{}", expected: denial("codex"), emptyMarkers: true },
       { planner: "claude-code", stdin: '{"tool_name":"Bash"}', expected: "" },
+      { planner: "claude-code", stdin: Buffer.concat([Buffer.from('{"tool_name":"Bash","other":"'), Buffer.from([0xff]), Buffer.from('"}')]), expected: "" },
       { planner: "cursor", stdin: '{"tool_name":"Bash"}', expected: '{"permission":"allow"}\n' },
       { planner: "unknown", stdin: "bad json", expected: "" },
+      { planner: "", stdin: '{"tool_name":"Agent"}', expected: "" },
     ];
     for (const [index, item] of cases.entries()) {
       const args = ["guard", "--planner", item.planner];
@@ -98,6 +103,66 @@ test.skipIf(!front)("strict guard reports the same authenticated denial request"
     rmSync(root, {recursive:true, force:true});
   }
 }, 15000);
+
+test.skipIf(!front)("strict guard closes an open, silent stdin after the hook deadline", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pacer-cli-guard-open-"));
+  try {
+    for (const [runtime, argv] of [["ts", [process.execPath, cli]], ["rust", [front!]]] as const) {
+      const home = join(root, runtime); mkdirSync(home);
+      const env = { ...process.env, HOME:home, PACER_HOME:join(home,".pacer"), PACER_ROLE:"executor",
+        PACER_ENFORCEMENT_MODE:"strict", PACER_ENFORCEMENT_TOKEN:"invalid",
+        PACER_CANARY_MARKER:join(home,"canary"), PACER_GUARD_FAILURE_MARKER:join(home,"failed") };
+      const child = Bun.spawn([...argv, "guard", "--planner", "codex"], {env, stdin:"pipe", stdout:"pipe", stderr:"pipe"});
+      try {
+        const completed = await Promise.race([child.exited.then(code => ({code})),
+          Bun.sleep(2500).then(() => ({code:-1}))]);
+        expect(completed.code, runtime).toBe(0);
+        expect(await new Response(child.stdout).text()).toBe(denial("codex"));
+        expect(readFileSync(env.PACER_GUARD_FAILURE_MARKER,"utf8")).toBe("guard-report-failed");
+      } finally { child.kill(); await child.exited; }
+    }
+  } finally { rmSync(root,{recursive:true,force:true}); }
+}, 10000);
+
+test.skipIf(!front)("strict guard flags malformed and stalled successful denial responses", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pacer-cli-guard-body-"));
+  let body = "not-json";
+  const sockets = new Set<import("node:net").Socket>();
+  const server = createServer((_request, response) => {
+    response.writeHead(200, {"content-type":"application/json"});
+    if (body === "stall") response.flushHeaders();
+    else response.end(body);
+  });
+  server.on("connection", socket => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
+  await new Promise<void>(resolve => server.listen(0,"127.0.0.1",resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw Error("no test port");
+    for (const scenario of ["malformed", "stalled"] as const) {
+      body = scenario === "stalled" ? "stall" : "not-json";
+      for (const [runtime, argv] of [["ts", [process.execPath, cli]], ["rust", [front!]]] as const) {
+        const home = join(root, `${scenario}-${runtime}`); mkdirSync(home);
+        const env = { ...process.env, HOME:home, PACER_HOME:join(home,".pacer"), PACER_ROLE:"executor",
+          PACER_ENFORCEMENT_MODE:"strict", PACER_ENFORCEMENT_TOKEN:`pet_${"0".repeat(64)}`,
+          PACER_PORT:String(address.port), PACER_CANARY_MARKER:join(home,"canary"),
+          PACER_GUARD_FAILURE_MARKER:join(home,"failed") };
+        const child = Bun.spawn([...argv,"guard","--planner","codex"], {env, stdin:"pipe", stdout:"pipe", stderr:"pipe"});
+        try {
+          await child.stdin.write('{"tool_name":"spawn_agent"}'); await child.stdin.end();
+          const completed = await Promise.race([child.exited.then(code => ({code})),
+            Bun.sleep(3500).then(() => ({code:-1}))]);
+          expect(completed.code, `${scenario}/${runtime}`).toBe(0);
+          expect(await new Response(child.stdout).text()).toBe(denial("codex"));
+          expect(readFileSync(env.PACER_GUARD_FAILURE_MARKER,"utf8")).toBe("guard-report-failed");
+        } finally { child.kill(); await child.exited; }
+      }
+    }
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(root,{recursive:true,force:true});
+  }
+}, 20000);
 
 test.skipIf(!front)("other CLI commands and ordinary guards stay forwarded", () => {
   const root = mkdtempSync(join(tmpdir(), "pacer-cli-routing-"));

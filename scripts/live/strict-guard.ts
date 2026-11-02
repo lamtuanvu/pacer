@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import { pacerArgv, record, sandboxEnv, type Session } from "./core";
 import { executorRefusal, refusal } from "./guard";
 
@@ -46,4 +47,37 @@ export async function exerciseStrictGuard(session: Session, outer: NodeJS.Proces
     }
     console.log(`${item.planner}: ${item.deny ? "deny" : "allow"}, exit ${code}`);
   }
+  const args = ["guard", "--planner", "codex"];
+  const denied = refusal(args) ?? executorRefusal(args, outer);
+  if (denied) throw Error(`Live validation guard refused: ${denied}`);
+  const base = { ...sandboxEnv(session), PACER_ROLE: "executor", PACER_ENFORCEMENT_MODE: "strict" };
+  const check = async (label: string, env: NodeJS.ProcessEnv, closeInput: boolean) => {
+    const argv = [...pacerArgv(session), ...args];
+    const child = Bun.spawn(argv, { cwd: join(session.root, "repo"), env,
+      stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    try {
+      if (closeInput) { await child.stdin.write('{"tool_name":"spawn_agent"}'); await child.stdin.end(); }
+      const code = await Promise.race([child.exited, Bun.sleep(3000).then(() => -1)]);
+      if (code !== 0) throw Error(`${label} timed out or exited ${code}`);
+      const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      record(session, { kind: "command", argv, code, stdout, stderr });
+      if (stdout !== expected("codex", true) || stderr || readFileSync(env.PACER_GUARD_FAILURE_MARKER!, "utf8") !== "guard-report-failed")
+        throw Error(`${label} produced the wrong denial or failure marker`);
+      console.log(`${label}: deny, exit ${code}, failure marker present`);
+    } finally { child.kill(); await child.exited; }
+  };
+  await check("open stdin", { ...base, PACER_ENFORCEMENT_TOKEN: "invalid",
+    PACER_GUARD_FAILURE_MARKER: join(session.root, "evidence", "strict-guard-open-report-failed") }, false);
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end("not-json");
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw Error("strict guard fixture has no loopback port");
+    await check("malformed denial response", { ...base, PACER_ENFORCEMENT_TOKEN: `pet_${"0".repeat(64)}`,
+      PACER_PORT: String(address.port),
+      PACER_GUARD_FAILURE_MARKER: join(session.root, "evidence", "strict-guard-malformed-report-failed") }, true);
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
 }

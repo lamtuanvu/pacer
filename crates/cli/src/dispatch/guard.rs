@@ -23,8 +23,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     if !matches!(planner, "claude-code" | "codex" | "cursor") {
         return 0;
     }
-    let mut stdin = String::new();
-    let _ = std::io::stdin().read_to_string(&mut stdin);
+    let stdin = read_hook_stdin();
     let is_bash = serde_json::from_str::<Value>(&stdin)
         .ok()
         .and_then(|raw| raw.get("tool_name")?.as_str().map(str::to_owned))
@@ -55,6 +54,24 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     println!("{output}");
     0
+}
+
+fn read_hook_stdin() -> String {
+    // Hook input may be an open pipe. Match src/install/stdin.ts's one-second
+    // deadline without keeping the CLI alive for the producer to close it.
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let mut input = Vec::new();
+        let result = std::io::stdin()
+            .read_to_end(&mut input)
+            .map(|_| String::from_utf8_lossy(&input).into_owned());
+        let _ = send.send(result);
+    });
+    receive
+        .recv_timeout(Duration::from_millis(1000))
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default()
 }
 
 fn write_marker(path: &str, contents: &str) {
@@ -112,5 +129,15 @@ fn report_denial(env: &std::collections::HashMap<String, String>, planner: &str)
         .header("authorization", format!("Bearer {token}"))
         .header("content-type", "application/json")
         .send(json!({"agent":planner}).to_string())
-        .is_ok_and(|response| response.status().is_success())
+        .is_ok_and(|mut response| {
+            response.status().is_success()
+                && response
+                    .body_mut()
+                    .read_to_string()
+                    .ok()
+                    .is_some_and(|body| serde_json::from_str::<Value>(&body).is_ok())
+        })
 }
+
+#[cfg(test)]
+mod tests;
