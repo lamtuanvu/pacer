@@ -24,7 +24,7 @@ pub mod proxy;
 pub mod sessions;
 pub mod ws;
 
-use crate::native::{call_native, registry};
+use crate::native::{call_native, service_registry};
 use axum::{
     Router,
     body::Body,
@@ -47,6 +47,7 @@ struct Listener {
     token: String,
     registry: Registry<'static>,
     scoped_work: bool,
+    plugins: crate::native::plugins::Service,
 }
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
@@ -100,7 +101,15 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Ok(params) => params,
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
-        return match call_native(&ctx, op, params, None).await {
+        let result = if op.name.starts_with("plugin.") && op.name != "plugin.install" {
+            if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+                eprintln!("native {}", op.name);
+            }
+            state.plugins.call(&ctx, &state.core, op.name, params).await
+        } else {
+            call_native(&ctx, op, params, None).await
+        };
+        return match result {
             Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
             Err(error) => native_error(error),
         };
@@ -160,7 +169,7 @@ pub async fn run_serve(
     if !forward.is_empty() {
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
-    let registry = registry(if scoped_work { "*" } else { forward });
+    let registry = service_registry(if scoped_work { "*" } else { forward });
     let token = auth::ensure_token(&ctx)?;
     // Requests clone the context; the listener needs only the pacer home.
     ctx.env.clear();
@@ -201,6 +210,7 @@ pub async fn run_serve(
         token,
         registry,
         scoped_work,
+        plugins: crate::native::plugins::Service::default(),
     });
     let app = Router::new()
         .fallback(any(handle))

@@ -1,0 +1,146 @@
+{
+  "entries": [
+    {
+      "name": "valid",
+      "base64": "H4sIAAAAAAAAE+2TTU7DMBBGveYU8LFDaTJJaSL5AFwCsXCCSwYFJ/JPVFT17igVUgVFsCnpon6bsSxLI8+bb71ZKNu0POpM/BdERBXRvtJx/elcVWUlVmIGgvPKCiJxmawP/gfVaLsYuvDCJn11vTlVj0lq+Yv/vFp+858vi9VSzOLkwv1vwc+QOKwBEozaOu4NJPKUUkKCIdQdu1ZbSDzwxgc7vWt75yFxhwTaePsOiTe13x0kaHrjLdfBawe53SVo1KBq7tjzdPP4tDv31yNf8//p7vRj+Sv/VBzlPy/uy5j/Gbi9yYKzWc0m02a8roO5mqNtJBKJRMR5+QAyANAzAA4AAA==",
+      "error": null
+    },
+    {
+      "name": "duplicate",
+      "base64": "H4sIAAAAAAAAE+2Vz0rEMBCHc/YpdLxJtp22bgN5AF9CPCQ1a0dqWvKnrCz77tJFWHRFL2sVmu8yIQSG5Jsf2WxXyjUtjSZnvwUiokA8VDytX62FqAVbsxmIPijHENky2Rz9D6oxbjV08Yls9ux7e64ek9T6G/+FqD75L6pyXbFZnCzc/w7oESQcxwA4jMZ56i1IKDLMEDgMUXfkW+NAwh1tQ3TTubb3ASTcAAdjg3sFCS/qMDvAoeltcKRjMB7kbs+hUYPS1FGgaef+Yf/XV098zP+7u/M/y0/5x/Ik/0V5W6f8z8D1VR69yzXZ3NjxUkd7MUfbxD8h5X/Z/3/KfyKRSLBF8gaxt4mCABIAAA==",
+      "error": "duplicate archive path"
+    },
+    {
+      "name": "case-colliding",
+      "base64": "H4sIAAAAAAAAE+2Tz0rDQBCH9+xT6HiTNJmkbQJ78yJ40BcQD5u4NSNxE/ZPiJS+u6QIRSN6abeF7neZZVkYdn7zrYaZ0FVNvUzYoUBELBC3Faf1t3NR5AVbMg84Y4VmiOw8We3y70Ql9axr3Cup+M20al89xlDzP/JPi/mP/NN5tpwzL5mcef5roBfgsFsDiKCX2lCrgEMaY4wQQefKhkwtNXC4o8E6Pb6rW2OBww1EIJXVH8DhXWx3ByKoWmU1lc5KA3y9iaASnSipIUvjzdPz5thfD3z3/yu7/Y/lP/8xm/ifZos8+O+B66vEGZ2UpBKp+svSqQsfbQOn5//D7f3jcfzHdOI/LrLgvwcGH00CgUAgwE6NT81gTlcAEgAA",
+      "error": "case-colliding archive path"
+    },
+    {
+      "name": "traversal",
+      "base64": "H4sIAAAAAAAAE+2TTWrDMBBGte4p2umuOPbYrm3QAXqJ0IXsKvUEVzb6MQ4hdy8OhdC6tJtUDURvM0IIBs03bzOthG5aGmXC/gpExArxWHFZvztXVVmxgnnAGSs0Q2TXyeaU/yAaqVdD515JxVvTq3P1mEMtf8g/rfIv+ad5VuTMSyZXnv8e6AU4nNYAIhilNtQr4JDGGCNEMLi6I9NKDRyeaLJOz+/a3ljg8AARSGX1Dji8iePuQARNr6ym2llpgO8PETRiEDV1ZGm+WT8f/vvrgc/+f2R3/rH85j9mC//T7LEM/nvg/i5xRic1qUSq8bZ26sZH28Dl+R/HiTSNGKR3/zFd+J8XwX8fTF66BAKBQIBdGO9e0vGIABIAAA==",
+      "error": "traversal or ambiguous archive path"
+    },
+    {
+      "name": "absolute",
+      "base64": "H4sIAAAAAAAAE+2WTWrDMBBGte4p2umuOPbYTmzQAXqJ0oXsKPUEVzb6MS4hdy8OhdC6NJtEDURvM0IIBunNB9qMC6HrhgaZsEuBiFgiHirO62/rsixKtmIecMYKzRDZbbI5+u9FLfWib90bqXhrOnWuHpPU4g//aZn/8J/m2SpnXpzcuP8d0Bo4HMcAIhikNtQp4JDGGCNE0LuqJdNIDRyeabROT+eazljg8AQRSGX1B3B4F4fZgQjqTllNlbPSAN/tI6hFLypqydK08/K6/++rB77n/8vd+Z/lVP4xm+U/zZZFyL8HHh8SZ3RSkUqkGu4rp+58tA1cCUnnrKG1vGSPk/nHdPb/W2IW8u+B0UeTQCAQCLBr4xOs0zV8ABIAAA==",
+      "error": "absolute or invalid archive path"
+    },
+    {
+      "name": "second root",
+      "base64": "H4sIAAAAAAAAE+2W30rDMBSHc+1T6PFOuva0dQ3kAXwJ8aKtqT2jpiV/SmXs3aVDGFpxN1scLN/NCSFwSL7zgzTTqtR1S6NM2LlAROSI+4rL+tua84KzNfOAM7bUDJFdJ83B/1DWUq+Gzr2RijemV6fqMUst/vCf8vyH/zTP1jnz4uTK/W+BXkHAYQwgglFqQ70CAWmMMUIEg6s6Mq3UIOCJJuv0fK7tjQUBDxCBVFZ/gID3cj87EEHdK6upclYaENtdBHU5lBV1ZGneeX7Z/ffVA9/z/+Xu9M9yLP+YLfKfZo9FyL8H7u8SZ3RSkUqkGm8rp258tA1cCL1tpU4a6uT5ehzNP6bL/x/ykH8PTD6aBAKBQIBdGp9wWTvXABIAAA==",
+      "error": "second root or root shadowing refused"
+    },
+    {
+      "name": "absolute",
+      "base64": "H4sIAAAAAAAAE+2VTWrDMBCFte4p2umuOPbYTmzQAXqJ0oXsKvUEVzb6MS4hdy8OhdC4NJtEDUTfZoQQPKQ3b7QeF0LXDQ0yYZcCEbFE3Fec19/WZVmUbMU84IwVmiGy22R98L8XtdSLvnXvpOKN6dS5NCZTiz/8T8v8yP80z1Y58+LJjfu/BXoDDoc2gAgGqQ11CjikMcYIEfSuask0UgOHZxqt09O5pjMWODxBBFJZ/QkcPsS+dyCCulNWU+WsNMC3uwhq0YuKWrI07by87v776oGf+f/27vzPcir/mM3yn2bLIuTfA48PiTM6qUglUg33lVN3PmQDV0JyNACyC0yAk/nHdJb/JYb/3wejF5VAIBAIsCvjCwYqY5sAEgAA",
+      "error": "absolute or invalid archive path"
+    },
+    {
+      "name": "traversal",
+      "base64": "H4sIAAAAAAAAE+2U32qDMBSHc72n2M7uhtUTbRXyAH2JsYvo0pniouSPWErffSiDsjnWG5cVmu/mhBA4JL/zZTesuK5q2YuE/BWIiAXiVHFef1oXRV6QDfGAM5Zrgkhuk905/45XQq+6xr1JFe9Nq5bqMYaa/5I/LbJv+dMs3WTESyY3nv8R5CswOI8BRNALbWSrgAGNMUaIoHNlI00tNDDYysE6PZ6rW2OBwRNEIJTVB2DwzqfZgQiqVlktS2eFAXY8RVDxjpeykVaOO88vp/++euCr/5/ZLf8sl/zHdOY/Tdd58N8Djw+JMzoppUqE6u9Lp+58tA1cn//x9AOky38BF/1HOvN/ndPgvwcGH00CgUAgQK6ND7yt2u8AEgAA",
+      "error": "traversal or ambiguous archive path"
+    },
+    {
+      "name": "link",
+      "base64": "H4sIAAAAAAAAE+2V30rDMBSHc+1TuOOddO1Ju7WQB9hLiBdpzezRmpb8KZOxd5cOYWjF3WxVaL6bE0LgkHznR7a7pTRVTb1K2LVARCwQjxXH9ad1UeQFW7MJ8NZJwxDZPNme/HeyUmbZNf6ZdPxiW32pHoPU/Bf/vMi++edZus7YJE5m7n8P9AQCTmMAEfTKWGo1COAxxggRdL5syNbKgIAN7Zw3w7m6tQ4E3EMESjvzDgLe5HF2IIKq1c5Q6Z2yIPaHCCrZyZIacjTsPDwe/vrqga/5/3R3+Wc5l39MR/nn6SoP+Z+Au0XirUlK0onS/W3p9c0UbQP/L/8N6der9Dib/9GaY77iLGUTMPP/PxAIsNnyAYP5+n4AEAAA",
+      "error": "unsupported link archive entry"
+    },
+    {
+      "name": "hardlink",
+      "base64": "H4sIAAAAAAAAE+2VTWrDMBBGte4p2umuOPbIbmzQAXqJ0IXsKPUEVzb6MQkhdy8OhdC6NJvELVhvM0IIBunNhza7hTRVTb1K2K1ARCwQTxXH9ad1UeQFW7IJ8NZJwxDZPNmc/XeyUmbRNf6NdLy1rb5Wj0Fq/ot/XmTf/PMsXWZsEicz938AWoOA8xhABL0ylloNAniMMUIEnS8bsrUyIOCFds6b4VzdWgcCniACpZ3Zg4B3eZodiKBqtTNUeqcsiMMxgkp2sqSGHA07q9fjX1898DX/n+6u/yyX8o/pKP88fc5D/ifg8SHx1iQl6UTp/r70+m6KtoH/l/9amvVNelzM/2jNMU8542wCZv7/BwIBNls+AMLSRGIAEAAA",
+      "error": "unsupported hardlink archive entry"
+    },
+    {
+      "name": "device",
+      "base64": "H4sIAAAAAAAAE+2V30rDMBSHc+1T6PFOuvak7VrIA/gS4kXaZfaMmpb8KZOxd5cOYWhFb2YnNN/NCSFwSL7zI9v9Spq6oUEl7K9ARCwRTxWn9bt1WRYlW7MZ8NZJwxDZMtme/feyVmbVt/6FdLyznb5Uj1Fq8YN/XmZf/PMsXWdsFicL938A2oCA8xhABIMyljoNAniMMUIEva9aso0yIOCR9s6b8VzTWQcCHiACpZ15AwGv8jQ7EEHdaWeo8k5ZEIdjBLXsZUUtORp3np6P17564HP+P9xd/ll+yz+mk/zzNC9C/mfg/i7x1iQV6UTp4bby+maOtoH/l/+NGqhW7Ar5n6w553nOMjYDC///A4EAWyzvhLiYPgAQAAA=",
+      "error": "unsupported device archive entry"
+    },
+    {
+      "name": "pax",
+      "base64": "H4sIAAAAAAAAE+2Vz2qDQBDG99ynaKe3YnTURmEfoC8Reljtpk6wq+wfMYS8ezEUQmppLtEW3N9lhmVhdvabj9n2K6HLijoZsalARMwRTxHH8ac8z7OcrdkMOGOFZohsmWzP+reilHrV1u6dVLgzjbpVjUHU7Bf94zz9pn+cJuuUzaLJwvU/AL0Bh/MYQACd1IYaBRziEEOEAFpX1GQqqYHDC/XW6eFe1RgLHJ4gAKms3gOHD3GaHQigbJTVVDgrDfDDMYBStKKgmiwNJ5vX41+37rn0/5d2t/+Wa/7HZOT/OHnOvP9n4PEhckZHBalIqu6+cOpujrKe/7j/+2lqXPX/KI8xw4RN9JxLFr7/PR4PWyyf/RE/+QAQAAA=",
+      "error": "unsupported pax archive entry"
+    },
+    {
+      "name": "gnu long name",
+      "base64": "H4sIAAAAAAAAE+2Vz0rEMBCHc/YpdLxJt522toE8gCffQDykNbsdqWnJn7Ky7LtLF2HRinvZrULzXSaEwJB88yPr7UqauqFBJexSICJyxEPFaf1pzXnJWcFmwFsnDUNky2R99N/LWplV3/oN6fjVdvpcPUap5S/+U55/85/mWZGzWZws3P8O6AUEHMcAIhiUsdRpEJDGGCNE0PuqJdsoAwIeaOu8Gc81nXUg4A4iUNqZdxDwJg+zAxHUnXaGKu+UBbHbR1DLXlbUkqNx5+l5/9dXD3zN/6e78z/LqfxjNsl/mt2XIf8zcHuTeGuSinSi9HBdeX01R9vA/8t/2+nNRXqczP9knWLJC/bIZmDh/38gEGCL5QPp9OU+ABAAAA==",
+      "error": "unsupported gnu long name archive entry"
+    },
+    {
+      "name": "sparse",
+      "base64": "H4sIAAAAAAAAE+2Vz0rEMBCHc/YpdLxJt522bgt5AF/Ao3hIa9aO1DTkT1lZ9t2li7BoRS9rVmi+y4QQGJJvfmSzXQnTdjTKjP0ViIg14qHivH63ruuqZmsWAG+dMAyRLZPN0b8WrTQr3ftnUumLHdSpekxSqx/853X5xX9eFuuSBXGycP87oCfgcBwDSGCUxtKggEOeYoqQgPZNT7aTBjjc0dZ5M53rBuuAww0kIJUzb8DhVRxmBxJoB+UMNd5JC3y3T6AVWjTUk6Np5+Fxf+6rRz7n/8Pd6Z/lt/xjMct/XtxWMf8BuL7KvDVZQyqTarxsvLoI0Tby//JvtTBWsjPkf7ae8l+wexaAhf//kUiELZZ3Ig64fgAQAAA=",
+      "error": "unsupported sparse archive entry"
+    },
+    {
+      "name": "oversized file",
+      "base64": "H4sIAAAAAAAAE+2WS2rDMBCGte4p2umuOPb4ERt0gF6idCG5SjzFlY0eJiXk7sUhEJr0sYndQvRtRgjBIP3zgVabhTB1Q4NK2FQgIlaI+4rn9at1VZUVW7IZ8NYJwxDZdbI65t+LWplF3/o16fjVdvpSPcZQyx/yT6v8JP80z5Y5myWTK89/C/QCHI5jABEMyljqNHBIY4wRIui9bMk2ygCHR9o4b8ZzTWcdcHiACJR25h04vIn97EAEdaedIemdssC3uwhq0QtJLTkad56ed3999cBn/w/ZXf5ZfvMfszP/06wog/8zcH+XeGsSSTpReriVXt/M0Tbw//xv/FpN0uNb/9OiOPwATv3HsiiC/4FAIMCm4wPZ57KUABAAAA==",
+      "error": "oversized file or expanded bytes exceed 200 MB"
+    },
+    {
+      "name": "missing manifest",
+      "base64": "H4sIAAAAAAAAE0ur0E0sSs7ILEvVZ6AVMDAwMDA3MADTBpg0Nra5uZk5gykDHUBpcUliEYOBAcPIBGmI+M9NzMzTyyqmvh2gSDXDF/9Gxmjxb2hoZGLGQJc4GeHxr6yoX1pcpJ+UmaefmlemkFSaxzXQThoFo2AUjIJRwEB7AABZgCTwAAoAAA==",
+      "error": "missing manifest or oversized manifest"
+    },
+    {
+      "name": "duplicate manifest",
+      "base64": "H4sIAAAAAAAAE+2Vz0rEMBCHc/YpdLxJtp22bgN5AF9CPCQ1a0dqWvKnrCz77tJFWHRFL2sVmu8yIQRC8s2P2WxXyjUtjSZnvwUiokA8VDytX62FqAVbsxmIPijHENky2Rz9D6oxbjV08Yls9ux7e647Jqn1N/4LUX3yX1TlumKzOFm4/x3QI0g4tgFwGI3z1FuQUGSYIXAYou7It8aBhDvahuimc23vA0i4AQ7GBvcKEl7UoXeAQ9Pb4EjHYDzI3Z5DowalqaNA0879w/6vn574mP93d+f/lp/yj+VJ/ovytk75n4Hrqzx6l2uyubHjpY72Yo5rE/+ENP/T/E/zP5FIJNjieAPJhTKkABIAAA==",
+      "error": "duplicate manifest"
+    },
+    {
+      "name": "gzip zero suffix",
+      "base64": "H4sIAAAAAAAAE+2TTU7DMBBGveYU8LFDaTJJaSL5AFwCsXCCSwYFJ/JPVFT17igVUgVFsCnpon6bsSxLI8+bb71ZKNu0POpM/BdERBXRvtJx/elcVWUlVmIGgvPKCiJxmawP/gfVaLsYuvDCJn11vTlVj0lq+Yv/vFp+858vi9VSzOLkwv1vwc+QOKwBEozaOu4NJPKUUkKCIdQdu1ZbSDzwxgc7vWt75yFxhwTaePsOiTe13x0kaHrjLdfBawe53SVo1KBq7tjzdPP4tDv31yNf8//p7vRj+Sv/VBzlPy/uy5j/Gbi9yYKzWc0m02a8roO5mqNtJBKJRMR5+QAyANAzAA4AAAAAAAA=",
+      "error": null
+    },
+    {
+      "name": "gzip empty member",
+      "base64": "H4sIAAAAAAAAE+2TTU7DMBBGveYU8LFDaTJJaSL5AFwCsXCCSwYFJ/JPVFT17igVUgVFsCnpon6bsSxLI8+bb71ZKNu0POpM/BdERBXRvtJx/elcVWUlVmIGgvPKCiJxmawP/gfVaLsYuvDCJn11vTlVj0lq+Yv/vFp+858vi9VSzOLkwv1vwc+QOKwBEozaOu4NJPKUUkKCIdQdu1ZbSDzwxgc7vWt75yFxhwTaePsOiTe13x0kaHrjLdfBawe53SVo1KBq7tjzdPP4tDv31yNf8//p7vRj+Sv/VBzlPy/uy5j/Gbi9yYKzWc0m02a8roO5mqNtJBKJRMR5+QAyANAzAA4AAB+LCAAAAAAAABMDAAAAAAAAAAAA",
+      "error": null
+    },
+    {
+      "name": "gzip junk suffix",
+      "base64": "H4sIAAAAAAAAE+2TTU7DMBBGveYU8LFDaTJJaSL5AFwCsXCCSwYFJ/JPVFT17igVUgVFsCnpon6bsSxLI8+bb71ZKNu0POpM/BdERBXRvtJx/elcVWUlVmIGgvPKCiJxmawP/gfVaLsYuvDCJn11vTlVj0lq+Yv/vFp+858vi9VSzOLkwv1vwc+QOKwBEozaOu4NJPKUUkKCIdQdu1ZbSDzwxgc7vWt75yFxhwTaePsOiTe13x0kaHrjLdfBawe53SVo1KBq7tjzdPP4tDv31yNf8//p7vRj+Sv/VBzlPy/uy5j/Gbi9yYKzWc0m02a8roO5mqNtJBKJRMR5+QAyANAzAA4AAGp1bms=",
+      "error": "invalid or oversized gzip archive"
+    },
+    {
+      "name": "header UTF8 BOM",
+      "base64": "H4sIAAAAAAAAE+2TS07DMBCGveYUMOyQm4yTPiQfgEtULOxgyKDgRH5EraqejAVH4gooFRKPIti06aL+NmNZlkaeb/63l9eH1US5qqbe5OwoICIuEHcV9+svZyHEFNmMjUD0QTmGyM6TL/I7VRk36Zr4SDZ78q09VI9B6vwP/2JR/vRfFrOSjeLkzP1vgO5BwucaAIfeOE+tBQkiwwyBQxd1Q742DiTc0ipEN7yrWx9Awg1wMDa4NUh4VrvdAQ5Va4MjHYPxIDdbDpXqlKaGAg03y7vtqb+e+J7/D3eHH8t/+cdiL/+imM5T/kfg+iqP3uWabG5sf6mjvRijbSKRSCTYaXkHEXSPiAAOAAA=",
+      "error": null
+    },
+    {
+      "name": "tar invalid UTF8",
+      "base64": "H4sIAAAAAAAAE+2TTU7DMBBGveYU8LFDaTJJaCv5AL0EYuEEQwYFJ/JP1Krq2UGpkCoogk1JF/XbjGVZGnnefO/rmbJ1w4POxH9BRLQk2lc6rj+ccyoKEnMxAcF5ZQWRuEyeD/57VWs769vwwiZ9dZ05VY9R6uIX//my/O6/LOalmMTJhfvfgp8gcVgDJBi0ddwZSOQppYQEfahado22kFjx2gc7vms65yFxhwTaeLuBxJva7w4S1J3xlqvgtYPc7hLUqlcVt+x5vHl43J3765Gv+f90d/qx/JV/Ko7ynxf3i5j/Cbi9yYKzWcUm02a4roK5mqJtJBKJRMR5+QBPiBnFAA4AAA==",
+      "error": "The encoded data was not valid for encoding utf-8"
+    },
+    {
+      "name": "tar nonzero padding",
+      "base64": "H4sIAAAAAAAAE+2TTU7DMBBGzZZTwLBDbjJJaCz5AFwCsbCDS6YKTuSfqKjq3VEqpAqKYFPSRf02Y1mWRp4332qzUK5paTQ5+y8QEQXivuJx/eksRC3Yks1A9EE5hsguk9XB/6Aa4xZDF1/JZmvf21P1mKTWv/gvRPXNf1GVy4rN4uTC/W+BXkDCYQ2Aw2icp96ChCLDDIHDEHVHvjUOJDzSJkQ3vWt7H0DCPXAwNrh3kPCm9rsDHJreBkc6BuNBbnccGjUoTR0Fmm6enndX5/574kv+P92dfip/5R/Lo/wX5UOd8j8Dd7d59C7XZHNjxxsd7fUcbROJRCLBzssHuB9Q3wAOAAA=",
+      "error": "nonzero tar padding"
+    },
+    {
+      "name": "tar invalid checksum",
+      "base64": "H4sIAAAAAAAAE+2Tz0rEMBCHc/YpdLxJtp22bgN5AF9CPCQ1a0dqWvKnVJZ9d+miiK7oZe0eNt9lQggMmW9+m4kr17Q0mpz9F4iIAnFf8bD+dBaiFmzNFiD6oBxDZOfJZlp9+B9UY9xq6OIT2ezZ9/ZYPWap9S/+C1F9819U5bpiizg5c/9boEeQ8LkGwGE0zlNvQUKRYYbAYYi6I98aBxLuaArRze/a3geQcAMcjA3uFSS8qP3uAIemt8GRjsF4kNsdh0YNSlNHgeab+4fdqb+e+Jr/d3fHH8tf+cfyIP9FeVun/C/A9VUevcs12dzY8VJHe7FE20QikUiw0/IGr4NdkQAOAAA=",
+      "error": "tar checksum mismatch"
+    },
+    {
+      "name": "tar unsafe mode",
+      "base64": "H4sIAAAAAAAAE+2TTWrDMBBGte4p2q+7othju45BB+glSheyq9QKrmz0Y1JC7l4cSkOTQjeps4jeZoQQDJo332qzkLZp9ahS9l8QEVVVta9EdFx/OWdEVLKSzUBwXlpGxK6T1cH/IBtlF0MX3rRJ1q435+oxSV2eev92nlXFsf8iLws2i5Mr97+FfoXAYQ3AMSrrdG8gkCWUEDiGUHfatcpC4ElvfLDTu7Z3HgIP4FDG2w8IvMv97oCj6Y23ug5eOYjtjqORg6x1p72ebp5fdpf+euRn/r/cnX8sf+Wf8pP8Z/njMuZ/Bu7v0uBsWmuTKjPe1sHczNE2EolEIuyyfAKC3LoNAA4AAA==",
+      "error": "unsafe tar mode"
+    },
+    {
+      "name": "tar owner",
+      "base64": "H4sIAAAAAAAAE+2TTU7DMBBGveYUMOyQm4wTWks+AJdALJzgkqmCE/knKqp6d5SqKIIisSnpon6bsS1LI/vNt94utKsbGkzO/gtERIl4qIjiWL/2v66llMiWbAaiD9oxRHadrCf/va6NW/RtfCObbXxnz9VjlLqaHJ/4F7L84V+UxbJkszi5cv87oFdQMI0BcBiM89RZUCAyzBA49LFqyTfGgYIn2oboxntN5wMoeAAOxgb3AQre9WF2gEPd2eCoisF4ULs9h1r3uqKWAo0nzy/7Sz898T3/R3fn/5a/8o/FSf5F8bhK+Z+B+7s8epdXZHNjh9sq2ps52iYSiUSCXZZPXFSOAAAOAAA=",
+      "error": "tar owner or timestamp unsupported"
+    },
+    {
+      "name": "tar link target",
+      "base64": "H4sIAAAAAAAAE+2Ty07DMBBFveYr4LJDaTJJaCt5x4afQCyc4JJBwYn8iIqq/jtKhVRBEWzadFGfzViWrZF95q7WM2XrhgediVNBRLQk2lU6rL+s8/GCmD+I0xOcV1YQictktfffq1rbWd+GVzbpm+vMsXqMUhd/+M+X5U//ZTEvxSROLtz/BvwCif0YIMGgrePOQCJPKSUk6EPVsmu0hcQjr32w47mmcx4Sd0igjbcfkHhXu9lBgroz3nIVvHaQm22CWvWq4pY9jztPz9tzPz3yPf9f7o7/Lf/ln4qD/OfF/SLmfwJub7LgbFaxybQZrqtgrqZoG4lEIhFxXj4BdpgzcgAOAAA=",
+      "error": "tar prefix, link target or extension unsupported"
+    },
+    {
+      "name": "tar invalid trailer",
+      "base64": "H4sIAAAAAAAAE+2TTU7DMBBGzZZTwLBDbjJJaCz5AFwCsbCDS6YKTuSfqKjq3VEqpAqKYFPSRf02Y1mWRp4332qzUK5paTQ5+y8QEQXivuJx/eksRC3Yks1A9EE5hsguk9XB/6Aa4xZDF1/JZmvf21P1mKTWv/gvRPXNf1GVy4rN4uTC/W+BXkDCYQ2Aw2icp96ChCLDDIHDEHVHvjUOJDzSJkQ3vWt7H0DCPXAwNrh3kPCm9rsDHJreBkc6BuNBbnccGjUoTR0Fmm6ennfn/nria/4/3Z1+LH/lH8uj/BflQ53yPwN3t3n0Ltdkc2PHGx3t9RxtE4lEIsHOytUHpDDXRAAOAAA=",
+      "error": "trailing or truncated tar data"
+    }
+  ],
+  "publicKey": "YM4wTzMeoMvpDAXBP6GM07upH/J4065Bv25mJs39Emk=",
+  "signature": "W1BdgLEzMYfqe0hl5RNI5Nroq+cAhCxq2wNFAngckAzTlJLucxiKSOG5yBo9My9ANObFiBw0WXYGXUXnPP4IAw=="
+}

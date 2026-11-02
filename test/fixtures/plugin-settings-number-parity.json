@@ -1,0 +1,442 @@
+[
+  {
+    "name": "minimum-decimal",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 1.0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "maximum-decimal",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 1.0
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "default-decimal",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 1.0
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "minimum-exponent",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 1e2,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "maximum-exponent",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 1e2
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "default-exponent",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 1e2
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "minimum-fraction",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 1.5,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "maximum-fraction",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 1.5
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "default-fraction",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 1.5
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "minimum-safe",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 9007199254740991,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "maximum-safe",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "default-safe",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 9007199254740991
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "minimum-unsafe",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 9007199254740992,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "maximum-unsafe",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 9007199254740992
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "default-unsafe",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "integer",
+          "title": "X",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 9007199254740992
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "string-decimal",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "string",
+          "title": "X",
+          "maxLength": 1.0
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "string-exponent",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "string",
+          "title": "X",
+          "maxLength": 1e2
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "string-fraction",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "string",
+          "title": "X",
+          "maxLength": 1.5
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "string-zero",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "string",
+          "title": "X",
+          "maxLength": 0
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "string-unsafe",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "string",
+          "title": "X",
+          "maxLength": 9007199254740992
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "array-decimal",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "array",
+          "title": "X",
+          "maxItems": 1.0,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "array-exponent",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "array",
+          "title": "X",
+          "maxItems": 1e2,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "array-fraction",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "array",
+          "title": "X",
+          "maxItems": 1.5,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "array-zero",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "array",
+          "title": "X",
+          "maxItems": 0,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "array-unsafe",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "array",
+          "title": "X",
+          "maxItems": 9007199254740992,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "repos-decimal",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "repos",
+          "title": "X",
+          "maxItems": 1.0
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "repos-exponent",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "repos",
+          "title": "X",
+          "maxItems": 1e2
+        }
+      }
+    },
+    "accepted": true
+  },
+  {
+    "name": "repos-fraction",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "repos",
+          "title": "X",
+          "maxItems": 1.5
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "repos-zero",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "repos",
+          "title": "X",
+          "maxItems": 0
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "repos-unsafe",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "repos",
+          "title": "X",
+          "maxItems": 9007199254740992
+        }
+      }
+    },
+    "accepted": false
+  },
+  {
+    "name": "array-missing-maxItems",
+    "schema": {
+      "fields": {
+        "x": {
+          "type": "array",
+          "title": "X",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "accepted": false
+  }
+]

@@ -13,6 +13,7 @@ test-ops = []
 tokio.workspace = true
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
+pacer-plugin-host = { path = "../plugin-host" }
 pacer-store = { path = "../store" }
 pacer-mdns = { path = "../mdns" }
 

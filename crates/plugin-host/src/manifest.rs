@@ -252,6 +252,13 @@ fn valid_ui(ui: &Value) -> bool {
     true
 }
 
+// Zod 4's integer validator accepts integral JSON numbers only within JS's safe range.
+fn js_safe_integer(value: &Value) -> Option<f64> {
+    let number = value.as_f64()?;
+    (number.is_finite() && number.fract() == 0.0 && number.abs() <= 9_007_199_254_740_991.0)
+        .then_some(number)
+}
+
 fn valid_settings(schema: Option<&Value>) -> bool {
     let Some(schema) = schema.and_then(Value::as_object) else {
         return false;
@@ -333,8 +340,8 @@ fn valid_settings(schema: Option<&Value>) -> bool {
         if kind == "integer"
             && field
                 .get("minimum")
-                .and_then(Value::as_i64)
-                .zip(field.get("maximum").and_then(Value::as_i64))
+                .and_then(js_safe_integer)
+                .zip(field.get("maximum").and_then(js_safe_integer))
                 .is_none_or(|(min, max)| min > max)
         {
             return false;
@@ -342,7 +349,7 @@ fn valid_settings(schema: Option<&Value>) -> bool {
         if kind == "integer"
             && field
                 .get("default")
-                .is_some_and(|value| value.as_i64().is_none())
+                .is_some_and(|value| js_safe_integer(value).is_none())
         {
             return false;
         }
@@ -362,9 +369,7 @@ fn valid_settings(schema: Option<&Value>) -> bool {
                 return false;
             }
             if field.get("maxLength").is_some_and(|value| {
-                value
-                    .as_u64()
-                    .is_none_or(|length| !(1..=2000).contains(&length))
+                js_safe_integer(value).is_none_or(|length| !(1.0..=2000.0).contains(&length))
             }) {
                 return false;
             }
@@ -384,12 +389,11 @@ fn valid_settings(schema: Option<&Value>) -> bool {
         if kind == "array" && field.get("items") != Some(&serde_json::json!({"type":"string"})) {
             return false;
         }
-        if (kind == "array" || kind == "repos")
-            && field.get("maxItems").is_some_and(|value| {
-                value
-                    .as_u64()
-                    .is_none_or(|count| !(1..=100).contains(&count))
-            })
+        if (kind == "array" && !field.contains_key("maxItems"))
+            || ((kind == "array" || kind == "repos")
+                && field.get("maxItems").is_some_and(|value| {
+                    js_safe_integer(value).is_none_or(|count| !(1.0..=100.0).contains(&count))
+                }))
         {
             return false;
         }
@@ -586,10 +590,34 @@ pub fn parse_manifest(raw: Value) -> Result<ParsedManifest, ManifestError> {
     })
 }
 
+pub(crate) fn valid_plugin_id(s: &str) -> bool {
+    s.len() >= 2
+        && s.len() <= 64
+        && s.as_bytes()[0].is_ascii_alphanumeric()
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+
+    #[test]
+    fn settings_number_parity_matrix() {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../../test/fixtures/plugin-settings-number-parity.json"
+        ))
+        .unwrap();
+        for case in cases.as_array().unwrap() {
+            assert_eq!(
+                valid_settings(Some(&case["schema"])),
+                case["accepted"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+    }
 
     #[test]
     fn ranges_match_ts_boundary_cases() {

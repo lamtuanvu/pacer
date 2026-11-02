@@ -26,3 +26,11 @@ pub use process::{
 };
 pub use registry::{HostMode, PluginState, Registry, RegistryError};
 pub use transfers::{TransferError, TransferKind, Transfers};
+
+pub mod archive;
+mod private;
+pub mod public;
+pub mod publishers;
+pub mod settings;
+pub mod ui;
+pub use config::read_config as public_config;
