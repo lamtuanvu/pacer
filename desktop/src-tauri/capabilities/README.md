@@ -4,6 +4,7 @@ with local pages excluded:
 
 - `service-<port>`, main window only: `allow-setLaunchAtLogin`, `allow-setTheme`,
   `allow-notifyRoute`, `allow-session-expired`, `allow-session-ready`,
+  `allow-menu-set-enabled`, `core:event:allow-listen`, `core:event:allow-unlisten`,
   `allow-desktop-update-connection` (read-only native OTA connection state and public failure reason),
   `allow-desktop-version` (read-only native app version), `allow-native-validation-setup`,
   `allow-rounded-window-supported` (read-only transparent-window capability),
@@ -20,7 +21,24 @@ Each command also verifies its caller's label and current origin against the
 active service. The tray is created hidden after the main webview finishes
 signing in, sharing the default webview cookie store. Its navigation is restricted
 to `/app/tray.html` on that origin. Recovery destroys it before signing in again.
-No plugin commands are exposed to either page. Recovery actions use intercepted
+The main page listens for `pacer://command` (`{ id: string }`, restricted to the
+menu command allowlist) and `pacer://route` (`{ hash: string }`, a validated app
+route including its query). It reports command availability with
+`menu_set_enabled`; the first report after listeners attach also marks the page
+ready and returns any pending route. Main-window page loads clear availability
+and readiness. Neither page can emit events; the tray has no listen permission.
+Native menus are installed on the main window only, on macOS. Linux retains its
+page keyboard handling and has no native app menu.
+
+No plugin commands are exposed to either page. The dialog plugin is called only
+from Rust; no capability may grant `dialog:*` or `fs:*`. Registering the dialog
+plugin nevertheless injects its initialization script into every webview: it
+replaces `window.alert` and `window.confirm` with plugin invocations (confirm
+returns a Promise). Those page invocations have no permission and reject. App
+and bundled shell code must never call browser dialog globals, including bare
+`confirm`, `alert` or `prompt`; a source guard enforces this to prevent truthy
+Promise confirmations from failing open. Injected in-page dialog callbacks remain
+supported. Recovery actions use intercepted
 navigation from the bundled recovery page, not an extra IPC command.
 
 First-run actions use `tauri://localhost/action/<name>` sentinels: `begin`,

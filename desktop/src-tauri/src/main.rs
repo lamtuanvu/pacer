@@ -3,6 +3,7 @@ macro_rules! desktop_log {
     ($($arg:tt)*) => { crate::logging::write(format_args!($($arg)*)) };
 }
 mod actions;
+mod app_menu;
 mod approvals;
 mod capture;
 mod client;
@@ -605,13 +606,8 @@ fn navigate(app: &AppHandle, raw: &str) {
     if let Some(route) = logic::route(raw) {
         let state = app.state::<Shell>();
         *state.route.lock().unwrap() = logic::remembered_route(&route);
-        let origin = state.origin.lock().unwrap().clone();
-        if let Some(origin) = origin {
-            if let Some(w) = app.get_webview_window("main") {
-                if let Ok(url) = Url::parse(&format!("{origin}/app/{route}")) {
-                    let _ = w.navigate(url);
-                }
-            }
+        if let Some(payload) = app_menu::route_payload(&route) {
+            app_menu::send_route(app, payload);
         }
         show(app);
     }
@@ -952,51 +948,55 @@ fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
     });
     Ok(())
 }
+fn service_capabilities(origin: &str, auth: &Url) -> [CapabilityBuilder; 2] {
+    [
+        CapabilityBuilder::new(format!("service-{}", auth.port_or_known_default().unwrap()))
+            .local(false)
+            .window("main")
+            .remote(format!("{origin}/*"))
+            .permission("allow-setLaunchAtLogin")
+            .permission("allow-setTheme")
+            .permission("allow-client-control")
+            .permission("allow-notifyRoute")
+            .permission("allow-menu-set-enabled")
+            .permission("core:event:allow-listen")
+            .permission("core:event:allow-unlisten")
+            .permission("allow-session-expired")
+            .permission("allow-session-ready")
+            .permission("allow-desktop-version")
+            .permission("allow-rounded-window-supported")
+            .permission("allow-native-titlebar-supported")
+            .permission("allow-desktop-update-connection")
+            .permission("allow-takeover-open")
+            .permission("allow-native-validation-setup")
+            .permission("allow-windowMinimize")
+            .permission("allow-windowToggleMaximize")
+            .permission("allow-windowClose")
+            .permission("core:window:allow-start-dragging")
+            .permission("core:window:allow-internal-toggle-maximize"),
+        CapabilityBuilder::new(format!(
+            "tray-service-{}",
+            auth.port_or_known_default().unwrap()
+        ))
+        .local(false)
+        .window("tray")
+        .remote(format!("{origin}/*"))
+        .permission("allow-tray-resize")
+        .permission("allow-client-control")
+        .permission("allow-tray-open")
+        .permission("allow-tray-hide")
+        .permission("allow-tray-login-item")
+        .permission("allow-app-quit")
+        .permission("allow-session-expired"),
+    ]
+}
 fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> {
     let shell = app.state::<Shell>();
     let mut granted = shell.granted.lock().unwrap();
     if !granted.iter().any(|g| g == origin) {
-        app.add_capability(
-            CapabilityBuilder::new(format!("service-{}", auth.port_or_known_default().unwrap()))
-                .local(false)
-                .window("main")
-                .remote(format!("{origin}/*"))
-                .permission("allow-setLaunchAtLogin")
-                .permission("allow-setTheme")
-                .permission("allow-client-control")
-                .permission("allow-notifyRoute")
-                .permission("allow-session-expired")
-                .permission("allow-session-ready")
-                .permission("allow-desktop-version")
-                .permission("allow-rounded-window-supported")
-                .permission("allow-native-titlebar-supported")
-                .permission("allow-desktop-update-connection")
-                .permission("allow-takeover-open")
-                .permission("allow-native-validation-setup")
-                .permission("allow-windowMinimize")
-                .permission("allow-windowToggleMaximize")
-                .permission("allow-windowClose")
-                .permission("core:window:allow-start-dragging")
-                .permission("core:window:allow-internal-toggle-maximize"),
-        )
-        .map_err(|e| e.to_string())?;
-        app.add_capability(
-            CapabilityBuilder::new(format!(
-                "tray-service-{}",
-                auth.port_or_known_default().unwrap()
-            ))
-            .local(false)
-            .window("tray")
-            .remote(format!("{origin}/*"))
-            .permission("allow-tray-resize")
-            .permission("allow-client-control")
-            .permission("allow-tray-open")
-            .permission("allow-tray-hide")
-            .permission("allow-tray-login-item")
-            .permission("allow-app-quit")
-            .permission("allow-session-expired"),
-        )
-        .map_err(|e| e.to_string())?;
+        for capability in service_capabilities(origin, &auth) {
+            app.add_capability(capability).map_err(|e| e.to_string())?;
+        }
         granted.push(origin.into());
     }
     if let Some(window) = app.get_webview_window("tray") {
@@ -1056,7 +1056,9 @@ fn set_error_dot(app: &AppHandle, error: bool) {
 }
 fn update_tray(app: &AppHandle, model: TrayModel) {
     if let Some(transaction) = model.transaction {
-        app.state::<Shell>().update_transaction.store(transaction, Ordering::SeqCst);
+        app.state::<Shell>()
+            .update_transaction
+            .store(transaction, Ordering::SeqCst);
     }
     if let Err(e) = render_tray(app, model) {
         desktop_log!("Unable to update pacer tray: {e}");
@@ -1146,7 +1148,7 @@ fn dispatch_action(app: &AppHandle, action: Value) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Some(confirmation) = action["confirm"].as_str() {
-            if native_dialog(confirmation, false).await.is_none() {
+            if !native_dialog(&app, confirmation).await {
                 return;
             }
         }
@@ -1157,21 +1159,20 @@ fn dispatch_action(app: &AppHandle, action: Value) {
         let Some(session) = session else {
             return;
         };
-        if let actions::Dispatch::Op { op, mut params } = dispatch {
+        if let actions::Dispatch::Op { op, params } = dispatch {
             if op == "task.answer" && params.get("text").is_none() {
-                let Some(answer) = native_dialog("Answer the executor's question", true).await
-                else {
-                    return;
-                };
-                if answer.trim().is_empty() {
-                    return;
+                // The dialog plugin has no text input. Use the task's existing answer composer.
+                if let Some(id) = params["id"].as_str().or_else(|| params["taskId"].as_str()) {
+                    navigate(&app, &format!("#/needs-you?answer={id}"));
+                } else {
+                    navigate(&app, "#/needs-you");
                 }
-                params["text"] = Value::String(answer);
+                return;
             }
             if session.op(&op, &params).await.is_err() {
                 let _ = native_dialog(
+                    &app,
                     "The action could not be completed. Check pacer and try again.",
-                    false,
                 )
                 .await;
             }
@@ -1181,33 +1182,20 @@ fn dispatch_action(app: &AppHandle, action: Value) {
         }
     });
 }
-// Dialog strings are argv, never interpolated into AppleScript or a shell.
-#[cfg(target_os = "macos")]
-async fn native_dialog(message: &str, answer: bool) -> Option<String> {
-    let script = if answer {
-        "on run argv\nset r to display dialog (item 1 of argv) default answer \"\" with title \"pacer\" buttons {\"Cancel\", \"Answer\"} default button \"Answer\"\nreturn text returned of r\nend run"
-    } else {
-        "on run argv\ndisplay dialog (item 1 of argv) with title \"pacer\" buttons {\"Cancel\", \"Continue\"} default button \"Continue\"\nreturn \"ok\"\nend run"
-    };
-    let output = tokio::process::Command::new("/usr/bin/osascript")
-        .args(["-e", script, message])
-        .output()
-        .await
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    Some(
-        String::from_utf8(output.stdout)
-            .ok()?
-            .trim_end_matches('\n')
-            .into(),
-    )
-}
-// No native dialog dependency on Linux. Actions needing input remain in the web UI.
-#[cfg(not(target_os = "macos"))]
-async fn native_dialog(_message: &str, _answer: bool) -> Option<String> {
-    None
+async fn native_dialog(app: &AppHandle, message: &str) -> bool {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .message(message)
+        .title("pacer")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Continue".into(),
+            "Cancel".into(),
+        ))
+        .show(move |accepted| {
+            let _ = send.send(accepted);
+        });
+    receive.await.unwrap_or(false)
 }
 #[cfg(feature = "ota-fixture")]
 fn notify(_app: &AppHandle, _notification: notifications::Notification) {}
@@ -1404,7 +1392,9 @@ fn main() {
         desktop_log!("Native maintenance launch trust is unavailable");
         std::process::exit(2);
     }
-    let app = tauri::Builder::default();
+    let app = tauri::Builder::default()
+        .enable_macos_default_menu(false)
+        .plugin(tauri_plugin_dialog::init());
     #[cfg(not(feature = "ota-fixture"))]
     let app = app.plugin(tauri_plugin_single_instance::init(|app, args, _| {
         for arg in args {
@@ -1440,6 +1430,7 @@ fn main() {
     let app = app
         .manage(shell)
         .invoke_handler(tauri::generate_handler![
+            app_menu::menu_set_enabled,
             client_control::client_control,
             setLaunchAtLogin,
             setTheme,
@@ -1484,6 +1475,7 @@ fn main() {
                     .transparent(true)
                     .on_page_load(move |window, payload| {
                         if payload.event() != tauri::webview::PageLoadEvent::Finished {
+                            app_menu::page_started(window.app_handle());
                             window
                                 .app_handle()
                                 .state::<Shell>()
@@ -1574,6 +1566,7 @@ fn main() {
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .hidden_title(true);
             let window = builder.build()?;
+            app_menu::install(&handle)?;
             if let Ok(path) = app.path().app_config_dir() {
                 if let Ok(bytes) = std::fs::read(path.join("theme.json")) {
                     if let Ok(theme) = serde_json::from_slice::<String>(&bytes) {
@@ -1618,6 +1611,9 @@ fn main() {
                 })
                 .on_menu_event(|app, event| {
                     let id = event.id.as_ref();
+                    if app_menu::is_app_menu_id(id) {
+                        return;
+                    }
                     match id {
                         "quit" => app.exit(0),
                         "open" => show(app),
@@ -1714,6 +1710,68 @@ fn main() {
 
 #[cfg(test)]
 mod manifest_tests {
+    fn assert_no_dialog_or_fs(value: &serde_json::Value) {
+        match value {
+            serde_json::Value::Object(fields) => {
+                if let Some(permissions) = fields.get("permissions") {
+                    for permission in permissions.as_array().expect("permission array") {
+                        let id = permission
+                            .as_str()
+                            .or_else(|| permission.get("identifier").and_then(|id| id.as_str()))
+                            .expect("permission identifier");
+                        assert!(
+                            !id.starts_with("dialog:") && !id.starts_with("fs:"),
+                            "Forbidden capability permission: {id}"
+                        );
+                    }
+                }
+                for child in fields.values() {
+                    assert_no_dialog_or_fs(child);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for child in items {
+                    assert_no_dialog_or_fs(child);
+                }
+            }
+            _ => {}
+        }
+    }
+    #[test]
+    fn no_static_or_runtime_capability_grants_dialog_or_filesystem_access() {
+        use tauri::ipc::RuntimeCapability;
+        use tauri::utils::acl::capability::CapabilityFile;
+        // Tauri's build output includes every capability file, including TOML and nested files.
+        let static_capabilities: serde_json::Value =
+            serde_json::from_str(include_str!("../gen/schemas/capabilities.json")).unwrap();
+        assert_no_dialog_or_fs(&static_capabilities);
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_no_dialog_or_fs(&config["app"]["security"]["capabilities"]);
+        for port in [43123, 54321] {
+            let origin = format!("http://127.0.0.1:{port}");
+            let auth = url::Url::parse(&format!("{origin}/app/")).unwrap();
+            let capabilities = super::service_capabilities(&origin, &auth);
+            for capability in capabilities {
+                let CapabilityFile::Capability(capability) = capability.build() else {
+                    panic!("Expected a single runtime capability");
+                };
+                assert_no_dialog_or_fs(&serde_json::to_value(capability).unwrap());
+            }
+        }
+    }
+    #[test]
+    fn forbidden_permission_assertion_catches_strings_and_scoped_entries() {
+        for permission in [
+            serde_json::json!("dialog:default"),
+            serde_json::json!("fs:allow-read-file"),
+            serde_json::json!({"identifier": "dialog:allow-open", "allow": []}),
+            serde_json::json!({"identifier": "fs:default"}),
+        ] {
+            let capability = serde_json::json!({"nested": [{"permissions": [permission]}]});
+            assert!(std::panic::catch_unwind(|| assert_no_dialog_or_fs(&capability)).is_err());
+        }
+    }
     #[test]
     fn every_local_command_permission_has_a_manifest_command() {
         let main_source = include_str!("main.rs");

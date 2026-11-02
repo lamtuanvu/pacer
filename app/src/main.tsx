@@ -15,6 +15,7 @@ import { inheritQuery, resolveRouteBeforeRender, setupCompleteFrom, titleFor } f
 import { attachKeyRegistry, isApplePlatform } from "./keys/registry";
 import { openNewTask } from "./screens/new-task/entry";
 import { commands, keys } from "./keys/instance";
+import { attachDesktopMenuBridge } from "./shell/desktop-menu-bridge";
 import { registerShellCommands } from "./shell/shell-commands";
 import { attachContextMenuPolicy } from "./shell/context-menu";
 import { ActionContext } from "./data/action-context";
@@ -96,6 +97,7 @@ function App() {
     const go = (to: string) => { location.hash = inheritQuery(to, location.hash); };
     const offs = [
       registerShellCommands(commands, keys, { go, back: () => history.back(), forward: () => history.forward(), openNewTask, showHelp: () => setHelp(true), apple: isApplePlatform(), desktop: isDesktop() }),
+      attachDesktopMenuBridge(commands, hash => { location.hash = hash; }),
       // Screens with a "New task" button ask the shell to open the New task composer.
       (() => { const open = () => openNewTask(); window.addEventListener("pacer:delegate", open); return () => window.removeEventListener("pacer:delegate", open); })(),
       // Escape closes the settings panel only on settings screens; elsewhere it stays with the page.
