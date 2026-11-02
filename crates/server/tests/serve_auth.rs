@@ -30,6 +30,11 @@ async fn embedded_app_route_parity() {
         if row["conditional"] == true {
             builder = builder.header("if-none-match", tag.as_ref().unwrap());
         }
+        if row["repeatedConditional"] == true {
+            builder = builder
+                .header("if-none-match", tag.as_ref().unwrap())
+                .header("if-none-match", "\"other\"");
+        }
         let req = builder.body(()).unwrap();
         let response = app_assets::route(&req);
         if row["forward"] == true {
@@ -558,6 +563,49 @@ fn status_of(decision: Decision) -> u16 {
         Decision::Reject(response) => response.status().as_u16(),
         Decision::Forward { .. } => 200,
         Decision::Health | Decision::AppAuth => 0,
+    }
+}
+
+#[test]
+fn repeated_auth_headers_use_fetch_combination() {
+    let (_dir, ctx) = fixture();
+    let token = auth::ensure_token(&ctx).unwrap();
+    let cookie = format!("pacer_session={}", sessions::create(&ctx).unwrap());
+    for (name, first, second, expected) in [
+        ("authorization", format!("Bearer {token}"), "other", 401),
+        ("cookie", cookie.clone(), "other=1", 401),
+        (
+            "origin",
+            "http://localhost:4317".into(),
+            "http://localhost:4317",
+            403,
+        ),
+        ("sec-fetch-site", "same-origin".into(), "none", 403),
+        ("x-pacer-client", "app".into(), "app", 403),
+    ] {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/v3/ops/example")
+            .header("host", "localhost:4317");
+        if name != "authorization" && name != "cookie" {
+            builder = builder.header("cookie", &cookie);
+        }
+        if name != "origin" {
+            builder = builder.header("origin", "http://localhost:4317");
+        }
+        if name != "x-pacer-client" {
+            builder = builder.header("x-pacer-client", "app");
+        }
+        let request = builder
+            .header(name, first)
+            .header(name, second)
+            .body(())
+            .unwrap();
+        assert_eq!(
+            status_of(auth::classify(&request, 4317, &token, &ctx)),
+            expected,
+            "{name}"
+        );
     }
 }
 

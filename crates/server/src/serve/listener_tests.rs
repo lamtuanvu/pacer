@@ -76,6 +76,14 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
             );
         }
     }
+    let first = request(port, "GET", "/app/app.js", bearer).await;
+    let etag = first
+        .lines()
+        .find_map(|line| line.strip_prefix("etag: "))
+        .unwrap();
+    let repeated = format!("{bearer}If-None-Match: {etag}\r\nIf-None-Match: \"other\"\r\n");
+    let response = request(port, "GET", "/app/app.js", &repeated).await;
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     core.shutdown().await;
     server.abort();
 }

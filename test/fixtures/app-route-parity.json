@@ -8,6 +8,7 @@
   { "method": "GET", "path": "/app/tray.js", "asset": "tray.js", "cache": "no-cache" },
   { "method": "GET", "path": "/app/tray.css", "asset": "tray.css", "cache": "no-cache" },
   { "method": "GET", "path": "/app/app.js", "asset": "app.js", "cache": "no-cache", "conditional": true },
+  { "method": "GET", "path": "/app/app.js", "asset": "app.js", "cache": "no-cache", "repeatedConditional": true },
   { "method": "GET", "path": "/app/auth", "forward": true },
   { "method": "GET", "path": "/app/missing.js", "forward": true },
   { "method": "GET", "path": "/app/missing.js/", "forward": true },

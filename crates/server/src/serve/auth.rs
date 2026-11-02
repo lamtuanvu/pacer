@@ -129,15 +129,11 @@ fn normalized(path: &str) -> bool {
 }
 
 pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decision {
-    let header = |name: &str| {
-        req.headers()
-            .get(name)
-            .and_then(|value| value.to_str().ok())
-    };
+    let header = |name: &str| super::header_value(req.headers(), name);
     let hosts = [format!("127.0.0.1:{port}"), format!("localhost:{port}")];
     if !hosts
         .iter()
-        .any(|host| Some(host.as_str()) == header("host"))
+        .any(|host| Some(host.as_str()) == header("host").as_deref())
     {
         return reject(
             StatusCode::MISDIRECTED_REQUEST,
@@ -168,7 +164,7 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         return Decision::AppAuth;
     }
     if safe_equal(
-        header("authorization").unwrap_or(""),
+        header("authorization").as_deref().unwrap_or(""),
         &format!("Bearer {token}"),
     ) {
         return Decision::Forward {
@@ -177,7 +173,9 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
     }
     // Only the core can validate a task grant. The front door limits its transport
     // before forwarding it with the internal generation credential.
-    let bearer = header("authorization")
+    let authorization = header("authorization");
+    let bearer = authorization
+        .as_deref()
         .unwrap_or("")
         .strip_prefix("Bearer ")
         .unwrap_or("");
@@ -198,7 +196,9 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         return reject(StatusCode::FORBIDDEN, "forbidden\n", None);
     }
     let api = path.starts_with("/v2/") || path.starts_with("/v3/");
-    let cookie = header("cookie")
+    let cookie_header = header("cookie");
+    let cookie = cookie_header
+        .as_deref()
         .unwrap_or("")
         .split(';')
         .map(js_trim)
@@ -230,12 +230,12 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
             });
     let local_origin = hosts
         .iter()
-        .any(|host| header("origin") == Some(format!("http://{host}").as_str()));
+        .any(|host| header("origin").as_deref() == Some(format!("http://{host}").as_str()));
     if (session_route && !local_origin)
         || header("sec-fetch-site").is_some_and(|site| site != "same-origin" && site != "none")
         || (req.method() != "GET"
             && req.method() != "HEAD"
-            && (!local_origin || header("x-pacer-client") != Some("app")))
+            && (!local_origin || header("x-pacer-client").as_deref() != Some("app")))
     {
         return reject(
             StatusCode::FORBIDDEN,

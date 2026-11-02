@@ -84,11 +84,7 @@ pub fn route<B>(req: &Request<B>) -> Option<Response> {
             &hex::encode(Sha256::digest(file.text.as_bytes()))[..32]
         );
         headers.insert("etag", HeaderValue::from_str(&tag).ok()?);
-        if req
-            .headers()
-            .get("if-none-match")
-            .is_some_and(|value| value.as_bytes() == tag.as_bytes())
-        {
+        if super::header_value(req.headers(), "if-none-match").as_deref() == Some(tag.as_str()) {
             *response.status_mut() = StatusCode::NOT_MODIFIED;
             return Some(response);
         }
