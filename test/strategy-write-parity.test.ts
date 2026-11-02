@@ -10,6 +10,12 @@ import fixture from "./fixtures/strategy-read/named.json";
 
 const root = join(import.meta.dir, "..");
 
+function strategyBinary(): string {
+  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_write_diff", "--locked"], { cwd: root });
+  const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--locked", "--format-version", "1"], { cwd: root }).toString());
+  return join(metadata.target_directory, "debug/examples/strategy_write_diff");
+}
+
 function seededHome(): string {
   const home = mkdtempSync(join(tmpdir(), "pacer-strategy-write-"));
   for (const [name, contents] of Object.entries(fixture.files)) {
@@ -27,8 +33,7 @@ function state(home: string) {
 }
 
 test("strategy activation and removal match TS results, errors, and bytes on isolated homes", () => {
-  execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_write_diff", "--locked"], { cwd: root });
-  const binary = join(root, "target/debug/examples/strategy_write_diff");
+  const binary = strategyBinary();
   const cases: { op: "use" | "remove"; name: string; active?: string | null; yaml?: string; errorKind?: "syntax" | "validation"; staleTemp?: boolean }[] = [
     { op: "use", name: "work" }, { op: "use", name: "work", staleTemp: true }, { op: "use", name: "default" },
     { op: "use", name: "missing" }, { op: "use", name: "broken", errorKind: "syntax" },

@@ -108,25 +108,36 @@ fn replace(text: String, pattern: &str, replacement: &str) -> String {
 fn safe_text(text: &str) -> String {
     let mut value = replace(
         text.to_owned(),
-        r"(?i)authorization\s*[:=]\s*[^\r\n]*",
+        r"(?i-u:authorization)[\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]*[:=][\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]*[^\r\n]*",
         "Authorization: [redacted]",
     );
-    value = replace(value, r"(?i)\bBearer\s+\S+", "Bearer [redacted]");
     value = replace(
         value,
-        r"(?i)\b(?:sk|pk|api[_-]?key|token)[_-][A-Za-z0-9_-]+",
+        r"(?-u:\b)(?i-u:Bearer)[\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]+[^\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]+",
+        "Bearer [redacted]",
+    );
+    value = replace(
+        value,
+        r"(?-u:\b)(?i-u:(?:sk|pk|api[_-]?key|token)[_-][A-Za-z0-9_-]+)",
         "[redacted]",
     );
     value = replace(
         value,
-        r"(?i)((?:api[_-]?key|access[_-]?token|password)\s*[=:]\s*)[^\s,;]+",
+        r"((?i-u:api[_-]?key|access[_-]?token|password)[\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]*[=:][\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]*)[^\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff},;]+",
         "${1}[redacted]",
     );
-    value = slice_utf16(value.lines().next().unwrap_or(""), 500);
-    value = replace(value, r"(?i)(\btoken\s*[=:]\s*)[^\s,;]+", "${1}[redacted]");
+    let first = value.split_once('\n').map_or(value.as_str(), |(line, _)| {
+        line.strip_suffix('\r').unwrap_or(line)
+    });
+    value = slice_utf16(first, 500);
+    value = replace(
+        value,
+        r"((?-u:\b)(?i-u:token)[\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]*[=:][\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]*)[^\x09-\x0d\x20\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff},;]+",
+        "${1}[redacted]",
+    );
     replace(
         value,
-        r"(?i)[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}",
+        r"(?i-u:[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,})",
         "[redacted]",
     )
 }

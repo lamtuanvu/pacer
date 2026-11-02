@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use pacer_config::strategy_write::{remove_strategy, use_strategy};
+use pacer_config::strategy_write::{SaveOptions, remove_strategy, save_strategy, use_strategy};
+use pacer_config::{notifications, write};
 use serde_json::Value;
 use std::fs;
 #[cfg(unix)]
@@ -138,4 +139,75 @@ fn activation_modes_under_umask_child() {
         fs::metadata(active).unwrap().permissions().mode() & 0o777,
         0o600
     );
+    let settings = dir.path().join("settings.json");
+    fs::write(&settings, "{}").unwrap();
+    fs::set_permissions(&settings, fs::Permissions::from_mode(0o644)).unwrap();
+    notifications::set_level(dir.path(), "all").unwrap();
+    assert_eq!(
+        fs::metadata(&settings).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    let strategies = dir.path().join("strategies");
+    fs::set_permissions(&strategies, fs::Permissions::from_mode(0o755)).unwrap();
+    save_strategy(
+        dir.path(),
+        "review",
+        &serde_json::json!({"from":"default","description":""}),
+        "approved",
+        SaveOptions {
+            who: "agent",
+            now_iso: "2026-11-01T00:00:00.000Z",
+            overwrite: false,
+            active_ok: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fs::metadata(&strategies).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    let review = strategies.join("review.yaml");
+    assert_eq!(
+        fs::metadata(review).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    let default = dir.path().join("strategy.yaml");
+    fs::set_permissions(&default, fs::Permissions::from_mode(0o644)).unwrap();
+    write::atomic_strategy_write(&default, "private\n").unwrap();
+    assert_eq!(
+        fs::metadata(default).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[test]
+fn deeply_nested_notifications_preserve_existing_data_and_refuse_surrogates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let nested = format!("{}1e400{}", "[".repeat(140), "]".repeat(140));
+    let original = format!("{{\"other\":42,\"nested\":{nested}}}");
+    std::fs::write(&path, original).unwrap();
+    notifications::set_level(dir.path(), "all").unwrap();
+    let result = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        result,
+        format!(
+            "{{\"other\":42,\"nested\":{}null{},\"notifications\":\"all\"}}",
+            "[".repeat(140),
+            "]".repeat(140)
+        )
+    );
+    let unsupported = format!("{{\"nested\":{nested},\"surrogate\":\"\\uD800\"}}");
+    std::fs::write(&path, &unsupported).unwrap();
+    assert!(notifications::set_level(dir.path(), "all").is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), unsupported);
+    let near_limit = format!("{{\"nested\":{}0{}}}", "[".repeat(500), "]".repeat(500));
+    std::fs::write(&path, &near_limit).unwrap();
+    notifications::set_level(dir.path(), "all").unwrap();
+    let too_deep = format!("{{\"nested\":{}0{}}}", "[".repeat(513), "]".repeat(513));
+    std::fs::write(&path, &too_deep).unwrap();
+    assert!(notifications::set_level(dir.path(), "all").is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), too_deep);
 }
