@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.19.0 (desktop UI delivery) proposed; amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.19.0 | Updated: 2026-11-01
+Status: Amendment 0.20.0 (focused CI) proposed; amendment 0.19.0 (desktop UI delivery) proposed; amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.20.0 | Updated: 2026-11-01
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -142,6 +142,17 @@ UI/release evidence gates remain; failures in change detection fail those gates.
 Full-history secret scanning and complete release validation remain unchanged.
 Scheduled/manual CodeQL remains full; Rust build timings move to affected main
 pushes. No branch protection setting or local CT-11 completion rule is relaxed.
+
+## Amendment 0.20.0 — focused CI validation
+
+Proposed; adopted only by the maintainer merging this amendment. Explicitly mapped
+CI and workflow-only changes and explicitly mapped source modifications on PRs
+run focused tests, typechecks and host artifact smoke checks, while scheduled and
+manual CI run full validation. Source mappings retain their affected integration jobs. Unknown
+or unresolvable changes select full validation. The Test check names, security
+scans, readiness gates, release validation and local CT-11 requirements remain.
+See [CI selection](../docs/testing/ci-selection.md) for the current conservative
+mapping and coverage tradeoffs.
 
 ## Amendment 0.13.0 — UI readiness procedure and preflight
 
