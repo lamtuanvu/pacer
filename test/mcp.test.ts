@@ -201,6 +201,18 @@ test("MCP delegate accepts trimmed short titles and rejects oversized titles",as
  await client.close();
 });
 
+test("MCP delegate title storage uses UTF-16 length while its Zod schema uses code points", async () => {
+  const { ctx, call, client } = await connect();
+  try {
+    const accepted = await call("delegate", { goal: "g", repo: ctx.home, title: "😀".repeat(30) });
+    expect(accepted.isError).toBeFalsy();
+    expect(accepted.structuredContent.title).toBe("😀".repeat(30));
+    const rejected = await call("delegate", { goal: "g", repo: ctx.home, title: "😀".repeat(31) });
+    expect(rejected.isError).toBe(true);
+    expect(rejected.content[0].text).not.toContain("Input validation error");
+  } finally { await client.close(); }
+});
+
 test("human handoff records a request without a verdict", async () => {
   const {ctx,call,client}=await connect();
   const d=await call("delegate",{goal:"Check permissions",repo:tmpDir(),executor:"codex"});

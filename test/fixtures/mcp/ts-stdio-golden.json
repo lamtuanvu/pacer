@@ -1,0 +1,1805 @@
+{
+  "planner": {
+    "tools": [
+      {
+        "name": "budget_status",
+        "description": "Budget status for every subscription: usage vs pace, verdicts, the planner's mode and the ranked executors. Call at session start and before large delegation decisions.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "delegate",
+        "description": "Hand an execution task to an executor (chosen by budget and priority unless `executor` is given). Returns a task_id immediately; poll with task_status or block with task_wait. Review the diff yourself before reporting done, then call task_review.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "dispatch": {},
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60,
+              "description": "Short task title (trimmed, 1–60 characters), stored separately from the full goal. Omitted titles are derived from the first goal clause with paths, URLs and backticked code removed and word-boundary truncation with an ellipsis. Snapshot tasks, task events, task.get, task.list, attention titles and activity text expose this title; older tasks derive it on read."
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "base": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "planner",
+                "ui",
+                "cli"
+              ]
+            },
+            "goal": {
+              "type": "string",
+              "minLength": 1
+            },
+            "repo": {
+              "type": "string",
+              "minLength": 1
+            },
+            "scope": {
+              "type": "string"
+            },
+            "acceptance": {
+              "type": "string"
+            },
+            "acceptance_pipefail": {
+              "type": "boolean"
+            },
+            "acceptance_timeout_min": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120
+            },
+            "constraints": {
+              "type": "string"
+            },
+            "context": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "boilerplate",
+                "tests",
+                "docs",
+                "rename",
+                "migration",
+                "feature",
+                "debug",
+                "refactor",
+                "performance",
+                "unfamiliar-code",
+                "research"
+              ]
+            },
+            "executor": {
+              "type": "string"
+            },
+            "worktree_base": {
+              "type": "string",
+              "enum": [
+                "default",
+                "head"
+              ]
+            },
+            "worktree": {
+              "type": "string",
+              "enum": [
+                "current",
+                "new",
+                "auto"
+              ]
+            },
+            "worktree_reason": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "timeout_min": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 240
+            },
+            "interactive": {
+              "type": "boolean"
+            },
+            "group": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$"
+            },
+            "messaging": {
+              "type": "object",
+              "properties": {
+                "rules": {
+                  "maxItems": 50,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "effect": {
+                        "type": "string",
+                        "enum": [
+                          "allow",
+                          "deny"
+                        ]
+                      },
+                      "from_kind": {
+                        "type": "string",
+                        "enum": [
+                          "human",
+                          "external",
+                          "launched",
+                          "broker",
+                          "any"
+                        ]
+                      },
+                      "to_kind": {
+                        "type": "string",
+                        "enum": [
+                          "human",
+                          "external",
+                          "launched",
+                          "broker",
+                          "any"
+                        ]
+                      },
+                      "from_position": {
+                        "type": "string",
+                        "enum": [
+                          "top",
+                          "child",
+                          "any"
+                        ]
+                      },
+                      "relation": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "any"
+                          },
+                          {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "self",
+                                "parent",
+                                "child",
+                                "sibling",
+                                "descendant",
+                                "ancestor",
+                                "top_peer",
+                                "same_tree",
+                                "none"
+                              ]
+                            }
+                          }
+                        ]
+                      },
+                      "kinds": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "message",
+                            "question",
+                            "answer",
+                            "report",
+                            "nudge",
+                            "close"
+                          ]
+                        }
+                      },
+                      "repo": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "executor": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "grant": {
+                        "type": "string",
+                        "enum": [
+                          "required",
+                          "not_required"
+                        ]
+                      },
+                      "limits": {
+                        "type": "object",
+                        "properties": {
+                          "per_minute": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "max_bytes": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 1048576
+                          },
+                          "confirm": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "effect"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "max_turns": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                },
+                "liveness": {
+                  "type": "object",
+                  "properties": {
+                    "interval_s": {
+                      "type": "integer",
+                      "minimum": 10,
+                      "maximum": 9007199254740991
+                    },
+                    "max_nudges": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "escalate_after_s": {
+                      "type": "integer",
+                      "minimum": 10,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "grant": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "goal",
+            "repo"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "dispatch_preview",
+        "description": "Preview model/account selection with reasons and uncertainty. Uses cached observations; launches nothing and changes no strategy.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "goal": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8000
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "requirements": {
+              "default": {},
+              "type": "object",
+              "properties": {
+                "minTier": {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier"
+                  ]
+                },
+                "tools": {
+                  "type": "boolean"
+                },
+                "context": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "preferences": {
+              "default": {
+                "models": [],
+                "strengths": []
+              },
+              "type": "object",
+              "properties": {
+                "models": {
+                  "default": [],
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "strengths": {
+                  "default": [],
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "delegationEnforcement": {
+              "type": "string",
+              "enum": [
+                "strict",
+                "cooperative"
+              ]
+            }
+          },
+          "required": [
+            "repo",
+            "goal"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "guard_feedback",
+        "description": "Report that pacer's subagent guard decided wrongly (or rightly) for a given event.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "event_id": {
+              "type": "string"
+            },
+            "correct": {
+              "type": "boolean"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event_id",
+            "correct"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_close",
+        "description": "Close a task you started for further messages. Records no review verdict.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_inbox",
+        "description": "Unread messages addressed to you.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_log",
+        "description": "A task's message thread.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_policy",
+        "description": "The effective messaging guardrail, or which rule decides a hypothetical send (check).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            },
+            "check": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "message",
+                    "question",
+                    "answer",
+                    "report",
+                    "nudge",
+                    "close"
+                  ]
+                },
+                "grant": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "from",
+                "to",
+                "kind"
+              ]
+            }
+          },
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_read",
+        "description": "Mark your messages read so msg_wait blocks until new ones arrive.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "ids": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "ids"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_send",
+        "description": "Send a message to an agent. A message to a finished delegated task continues its native session in the same worktree; its reply arrives as a report in your inbox.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "to": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "message",
+                "question",
+                "answer"
+              ]
+            },
+            "reply_to": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "to",
+            "body"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_wait",
+        "description": "Block until a message or a reply arrives (timeout_s default 600, max 3000).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "reply_to": {
+              "type": "string"
+            },
+            "timeout_s": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3000
+            }
+          },
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "report_limit",
+        "description": "Tell pacer an executor hit its plan limit (seen outside pacer). It is skipped until `until` (unix seconds) or its cooldown.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "until": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "provider"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "route",
+        "description": "Which executors pacer would use for a task kind, in order, with reasons and exclusions. Runs nothing.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "boilerplate",
+                "tests",
+                "docs",
+                "rename",
+                "migration",
+                "feature",
+                "debug",
+                "refactor",
+                "performance",
+                "unfamiliar-code",
+                "research"
+              ]
+            }
+          },
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "strategy_list",
+        "description": "List strategies and their summaries. Always preview first and show the user the ranking change. Save only after the user agrees, with a reason. Never switch unless asked.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "strategy_preview",
+        "description": "Validate a draft without writing; compare ranking and routing against current usage. Always preview first and show the user the ranking change. Save only after the user agrees, with a reason. Never switch unless asked.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "draft": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "set": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/definitions/__schema0"
+                  }
+                },
+                "unset": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from"
+              ]
+            }
+          },
+          "required": [
+            "draft"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "definitions": {
+            "__schema0": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/__schema0"
+                  }
+                },
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/definitions/__schema0"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "strategy_save",
+        "description": "Save a validated draft. Replacing the active strategy changes live routing and requires overwrite:true and activeOk:true. Always preview first and show the user the ranking change. Save only after the user agrees, with a reason. Never switch unless asked.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+            },
+            "draft": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "set": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/definitions/__schema0"
+                  }
+                },
+                "unset": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "from"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            },
+            "overwrite": {
+              "type": "boolean"
+            },
+            "activeOk": {
+              "type": "boolean"
+            },
+            "who": {
+              "description": "Agent identity for the creation header",
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "name",
+            "draft",
+            "reason"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "definitions": {
+            "__schema0": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/__schema0"
+                  }
+                },
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/definitions/__schema0"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "strategy_show",
+        "description": "Show a strategy YAML and summary. Always preview first and show the user the ranking change. Save only after the user agrees, with a reason. Never switch unless asked.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "strategy_use",
+        "description": "Switch the active strategy only when explicitly asked. Always preview first and show the user the ranking change. Save only after the user agrees, with a reason. Never switch unless asked.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_answer",
+        "description": "Answer an executor question. A local task with a resumable session continues in that session once project policy admits it; otherwise the task is retried on the same executor. Only needs_input tasks can be answered.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "task_id",
+            "text"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "description": "Ask a human to decide about a completed result. Give the specific concern; this does not accept the work.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "task_id",
+            "note"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_review",
+        "description": "Record your verdict on a delegated task's result after reviewing it (ground truth for pacer's routing benchmark).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "accept",
+                "reject",
+                "send_back",
+                "retry"
+              ]
+            },
+            "executor": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "boilerplate",
+                "tests",
+                "docs",
+                "rename",
+                "migration",
+                "feature",
+                "debug",
+                "refactor",
+                "performance",
+                "unfamiliar-code",
+                "research"
+              ]
+            },
+            "note": {
+              "type": "string"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "task_id",
+            "verdict"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_send",
+        "description": "Send one message into a running interactive lane's live agent (delegate --interactive); a lane waiting on its question is answered with task_answer instead. Refused when the agent is not in its terminal's foreground, or while another client drove the lane in the last 60 seconds unless force.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            },
+            "force": {
+              "type": "boolean"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "task_id",
+            "text"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_status",
+        "description": "Current state and result of a delegated task.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_stop",
+        "description": "Stop a delegated task and kill its executor.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_wait",
+        "description": "Block until a delegated task finishes or timeout_s passes (default 600, max 3000), then return its state.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "timeout_s": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3000
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "tree_status",
+        "description": "Turn state of every node in a task tree.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "work_answer",
+        "description": "Answer a managed work question and resume the same task.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "task_id",
+            "expect_rev",
+            "requestId",
+            "text"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "work_retry",
+        "description": "Retry settled managed work in the same task and worktree with revision protection.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "feedback": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "task_id",
+            "expect_rev",
+            "requestId"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      }
+    ],
+    "results": [
+      {
+        "name": "guard_feedback",
+        "args": {
+          "event_id": "event-1",
+          "correct": true
+        },
+        "result": {
+          "isError": false,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\n \"recorded\": true\n}"
+            }
+          ],
+          "structuredContent": {
+            "recorded": true
+          }
+        }
+      },
+      {
+        "name": "delegate",
+        "args": {
+          "goal": "g",
+          "repo": "relative"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "repo must be an absolute path or a registered repo key"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_wait",
+        "args": {
+          "task_id": "task-1",
+          "timeout_s": 0
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too small: expected number to be >=1 at timeout_s"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "args": {
+          "task_id": "task-1",
+          "expect_rev": 1,
+          "requestId": "r",
+          "text": ""
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too small: expected string to have >=1 characters at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "strategy_save",
+        "args": {
+          "name": "bad/name",
+          "draft": {
+            "from": "default"
+          },
+          "reason": "r"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool strategy_save: Invalid string: must match pattern /^[a-z0-9][a-z0-9-]{0,39}$/ at name"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "grant": {
+    "tools": [
+      {
+        "name": "delegate",
+        "description": "Delegate a scoped child. requestId makes retries safe.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "goal": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "title": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "acceptance": {
+              "type": "string"
+            },
+            "acceptance_timeout_min": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120
+            },
+            "context": {
+              "type": "string"
+            },
+            "constraints": {
+              "type": "string"
+            },
+            "executor": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "goal",
+            "requestId"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_close",
+        "description": "Close a task in your subtree for further messages. Records no review verdict.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_inbox",
+        "description": "Unread messages for you.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_log",
+        "description": "A task's message thread.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_read",
+        "description": "Mark your messages read so msg_wait blocks for new ones.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "ids": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "ids"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_send",
+        "description": "Send a message to your parent, a sibling or your child task. A finished task resumes with it.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "to": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "message",
+                "question",
+                "answer",
+                "report"
+              ]
+            },
+            "reply_to": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "to",
+            "body"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "msg_wait",
+        "description": "Wait for a message or a reply.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "reply_to": {
+              "type": "string"
+            },
+            "timeout_s": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3000
+            }
+          },
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_review",
+        "description": "Review a child task at the revision shown by work_tree; you cannot review yourself.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "accepted": {
+              "type": "boolean"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id",
+            "accepted",
+            "expect_rev"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_status",
+        "description": "Read a task in your own work subtree.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_stop",
+        "description": "Stop a task in your own work subtree.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "task_wait",
+        "description": "Wait for a task in your own work subtree.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "timeout_s": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3000
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "tree_status",
+        "description": "Turn state of a task tree.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "work_answer",
+        "description": "Answer a question from a child in the same work item. Use a stable requestId.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "task_id",
+            "expect_rev",
+            "requestId",
+            "text"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "work_events",
+        "description": "Read your own work events after a cursor.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "after": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "work_retry",
+        "description": "Retry a settled child in the same work item. Use a stable requestId; you cannot retry yourself.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "feedback": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "task_id",
+            "expect_rev",
+            "requestId"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
+        "name": "work_tree",
+        "description": "Read your own work subtree and decisions.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "task_id"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      }
+    ],
+    "results": [
+      {
+        "name": "delegate",
+        "args": {
+          "goal": "",
+          "requestId": "r"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected string to have >=1 characters at goal"
+            }
+          ]
+        }
+      },
+      {
+        "name": "task_wait",
+        "args": {
+          "task_id": "task-1",
+          "timeout_s": 3001
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too big: expected number to be <=3000 at timeout_s"
+            }
+          ]
+        }
+      },
+      {
+        "name": "work_answer",
+        "args": {
+          "task_id": "task-1",
+          "expect_rev": 1,
+          "requestId": "r",
+          "text": ""
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too small: expected string to have >=1 characters at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "msg_read",
+        "args": {
+          "ids": []
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_read: Too small: expected array to have >=1 items at ids"
+            }
+          ]
+        }
+      }
+    ],
+    "validation": [
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": 1,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": 100,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": 1.5,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": 121,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "msg_wait",
+        "field": "timeout_s",
+        "input": 100,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "msg_wait",
+        "field": "timeout_s",
+        "input": 3001,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": 1,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": 100,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": 1.5,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": 0,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": 3001,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": 1,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": 0,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": 9007199254740992,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "input": 100,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "input": 9007199254740992,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": 1,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": 9007199254740992,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": 100,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": 9007199254740992,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": 100,
+        "acceptedBySchema": true
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": -1,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": 9007199254740992,
+        "acceptedBySchema": false
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "input": {
+          "codePoints": 2000,
+          "utf16Units": 4000
+        },
+        "acceptedBySchema": true
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "input": {
+          "codePoints": 2001,
+          "utf16Units": 4002
+        },
+        "acceptedBySchema": false
+      },
+      {
+        "name": "work_answer",
+        "field": "text",
+        "input": {
+          "codePoints": 0,
+          "utf16Units": 0
+        },
+        "acceptedBySchema": false
+      },
+      {
+        "name": "work_retry",
+        "field": "feedback",
+        "input": {
+          "codePoints": 2000,
+          "utf16Units": 4000
+        },
+        "acceptedBySchema": true
+      },
+      {
+        "name": "work_retry",
+        "field": "feedback",
+        "input": {
+          "codePoints": 2001,
+          "utf16Units": 4002
+        },
+        "acceptedBySchema": false
+      }
+    ]
+  }
+}
