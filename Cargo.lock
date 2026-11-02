@@ -1320,6 +1320,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -1328,6 +1329,7 @@ version = "0.1.0"
 dependencies = [
  "icu_collator",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-store",
  "regex",
  "rusqlite",

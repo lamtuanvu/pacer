@@ -21,7 +21,9 @@ fn lineage_is_atomic_and_reads_do_not_drain() {
     assert_eq!(state.read(root).unwrap().unwrap()["state"], "queued");
     state
         .tasks
-        .update(root, 1, 2.0, |t| t["state"] = json!("running"))
+        .edit(root, 1, 2.0, |t| {
+            t.put("/state", pacer_js_json::WireReply::new(json!("running")))
+        })
         .unwrap();
     state
         .create(&task(child), Some(&json!({})), Some(root), 3.0)
@@ -116,7 +118,9 @@ fn explicit_drain_reserves_before_launch_and_restores_failed_launch() {
     );
     state
         .tasks
-        .update(&launched[0], 3, 3.0, |t| t["state"] = json!("done"))
+        .edit(&launched[0], 3, 3.0, |t| {
+            t.put("/state", pacer_js_json::WireReply::new(json!("done")))
+        })
         .unwrap();
     assert!(
         state
@@ -368,7 +372,7 @@ fn mutation_admission_checks_revision_before_any_effect() {
             Ok(())
         })
         .unwrap_err();
-    assert!(matches!(error,MutationError::Conflict {task} if task["rev"]==1));
+    assert!(matches!(error,MutationError::Conflict {task} if task.preview()["rev"]==1));
     assert_eq!(effects, 0);
     for rev in [0.0, -1.0, 1.5, 9_007_199_254_740_992.0] {
         assert!(
@@ -380,10 +384,11 @@ fn mutation_admission_checks_revision_before_any_effect() {
     assert_eq!(
         state
             .mutate(id, 1.0, 2.0, |_, t| {
-                t["dismissed"] = json!(true);
+                t.put("/dismissed", pacer_js_json::WireReply::new(json!(true)))?;
                 Ok(())
             })
-            .unwrap()["rev"],
+            .unwrap()
+            .preview()["rev"],
         2
     );
 }

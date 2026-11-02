@@ -7,6 +7,8 @@ pub mod outbox;
 pub mod publish;
 mod retention;
 mod task;
+mod task_edit;
+pub use task_edit::TaskEdit;
 
 pub use activity::{
     ActivityOptions, ActivityPage, append_activity, read_activity, rotate_activity,

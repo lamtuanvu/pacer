@@ -1,4 +1,5 @@
 //! Disposable admission contention driver; never opens an unmarked home.
+use pacer_js_json::WireReply;
 use pacer_lifecycle::{AdmissionState, DrainRoute};
 use serde_json::{Value, json};
 use std::{env, error::Error, path::PathBuf};
@@ -45,13 +46,17 @@ fn run() -> Result<(), Box<dyn Error>> {
             match state.mutate(&id,rev,1.0,|_,task|{
                 use std::io::Write;
                 use std::os::unix::fs::OpenOptionsExt;
-                let label=json!({"ts":1,"type":"task_review","task_id":id,"accepted":accepted,"kind":task["kind"],"note":null,"executor":task["result"]["executor"]});
+                let label=json!({"ts":1,"type":"task_review","task_id":id,"accepted":accepted,"kind":task.preview()["kind"],"note":null,"executor":task.preview()["result"]["executor"]});
                 let mut labels=std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(home.join("labels.jsonl"))?;
                 writeln!(labels,"{label}")?;
-                task["review"]=json!({"accepted":accepted,"kind":task["kind"],"note":null,"at":1});task["resolved"]=json!("reviewed");Ok(())
+                let kind = if task.preview().get("kind").is_some() { task.subtree("/kind")? } else { WireReply::new(Value::Null) };
+                task.put("/review", WireReply::new(json!({"accepted":accepted,"kind":null,"note":null,"at":1})))?;
+                task.put("/review/kind", kind)?;
+                task.put("/resolved", WireReply::new(json!("reviewed")))?;
+                Ok(())
             }) {
                 Ok(_)=>json!({"ok":true}),
-                Err(pacer_lifecycle::MutationError::Conflict {task})=>json!({"code":"conflict","rev":task["rev"]}),
+                Err(pacer_lifecycle::MutationError::Conflict {task})=>json!({"code":"conflict","rev":task.preview()["rev"]}),
                 Err(error)=>return Err(error.into()),
             }
         }
