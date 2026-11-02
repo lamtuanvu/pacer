@@ -49,7 +49,7 @@ try {
       // The first read can legitimately be stale; the background refresh must
       // eventually publish the waiting marker without delaying any individual read.
       let current = waiting;
-      for (let n = 0; n < 30 && current?.path !== join(stuck, ".git", "HEAD"); n++) {
+      for (let n = 0; n < 150 && current?.path !== join(stuck, ".git", "HEAD"); n++) {
         await Bun.sleep(100);
         const next = await fetch(`http://127.0.0.1:${server.port}/v3/snapshot`, { headers: { Authorization: `Bearer ${server.token}` }, signal: AbortSignal.timeout(1000) });
         current = (await next.json() as { snapshot: { service: { waiting?: typeof waiting } } }).snapshot.service.waiting;

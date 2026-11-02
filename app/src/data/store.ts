@@ -18,7 +18,7 @@ export interface StoreState {
   features: Features; jobs: Record<string, Job>; activity: ActivityEntry[];
 }
 type EventType = ApiEvent["type"] | EntityEventType;
-export type StoreAction = { type: "snapshot"; snapshot: LinkSnapshot | SnapshotV2 } | { type: "event"; event: Omit<ApiEvent, "type"> & { type: EventType } } | { type: "disconnected" | "connected" | "reconnected" | "session-ended" } | { type: "hello"; hello: Hello };
+export type StoreAction = { type: "waiting"; waiting: NonNullable<SnapshotV2["service"]>["waiting"] } | { type: "snapshot"; snapshot: LinkSnapshot | SnapshotV2 } | { type: "event"; event: Omit<ApiEvent, "type"> & { type: EventType } } | { type: "disconnected" | "connected" | "reconnected" | "session-ended" } | { type: "hello"; hello: Hello };
 const V1_EVENTS = ["budget", "task", "mode", "alert", "config", "reset"] as const;
 const TASK_CAP = 200, ACTIVITY_CAP = 200;
 export function initialState(): StoreState {
@@ -98,6 +98,7 @@ function reduceReadModel(state: StoreState, snapshot: SnapshotV2, type: EventTyp
 }
 export function reduceStore(state: StoreState, action: StoreAction): StoreState {
   switch (action.type) {
+    case "waiting": return state.snapshot?.service ? { ...state, snapshot: { ...state.snapshot, service: { ...state.snapshot.service, waiting: action.waiting } } } : state;
     case "snapshot": return { ...state, snapshot: action.snapshot as SnapshotV2, needsSnapshot: false };
     case "disconnected": return { ...state, connected: false };
     case "connected": return { ...state, connected: true };
@@ -146,10 +147,22 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
   let identity: string | undefined;
   let opened = false, dropped = false;
   let offlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let waitingTimer: ReturnType<typeof setInterval> | undefined;
+  let waitingRead = false;
   const acknowledgedReviews = new Set<string>();
   const dispatch = (action: StoreAction) => { if (["disconnected", "session-ended"].includes(action.type)) invalidateQueryCache(api); state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; if (action.type === "disconnected") platform.setConnectionStatus("reconnecting"); else if (action.type === "reconnected") platform.setConnectionStatus("connected"); else if (action.type === "session-ended") platform.setConnectionStatus("disconnected"); for (const listener of listeners) listener(); };
   const endSession = () => { stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); api.setConnected?.(false); dispatch({ type: "session-ended" }); };
   const api = injectedApi ?? createApi(endSession);
+  const pollWaiting = async () => {
+    if (stopped || !state.connected || waitingRead) return;
+    waitingRead = true;
+    const current = generation;
+    try {
+      const result = await api.snapshot();
+      if (!stopped && state.connected && current === generation) dispatch({ type: "waiting", waiting: (result.snapshot as SnapshotV2).service?.waiting });
+    } catch { /* The stream owns connection and retry state. */ }
+    finally { waitingRead = false; }
+  };
   const retry = () => {
     clearTimeout(timer);
     timer = setTimeout(() => { if (!stopped && !state.sessionEnded) void refresh(); }, retryDelay);
@@ -226,6 +239,6 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
     /** Resynchronize after an unreplayable gap or an explicit identity/protocol change. */
     refresh: () => { cursorReset = true; state = { ...state, needsSnapshot: true }; invalidateQueryCache(api); return refresh(); },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    start() { stopped = false; platform.setConnectionStatus("connecting"); void refresh(); return () => { stopped = true; generation++; stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); platform.setConnectionStatus("disconnected"); }; },
+    start() { stopped = false; platform.setConnectionStatus("connecting"); void refresh(); waitingTimer = setInterval(() => void pollWaiting(), 5000); return () => { stopped = true; clearInterval(waitingTimer); generation++; stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); platform.setConnectionStatus("disconnected"); }; },
   };
 }

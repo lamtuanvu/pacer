@@ -157,3 +157,22 @@ test('shared API actions stay online before open and during grace, then refuse a
     await expect(api.call('task.answer',{})).resolves.toEqual({ok:true});
   } finally { stop(); globalThis.fetch = original; }
 });
+
+test('connected store refreshes folder wait status without replacing streamed state', async () => {
+  const { createStore } = await import('../app/src/data/store');
+  const original = globalThis.setInterval;
+  let tick: (() => void) | undefined;
+  globalThis.setInterval = ((callback: () => void) => { tick = callback; return 1 as any; }) as typeof setInterval;
+  let waiting: { kind: 'folder'; path: string; since: number } | undefined;
+  const api = {hello:async()=>({protocol:'3.0.0',pacer:'1.0.0',ops:[],events:['config']}),snapshot:async()=>({protocol:'3.0.0',seq:10,snapshot:{...fixture,service:{...fixture.service,waiting}} as never}),call:async<T>()=>({} as T)};
+  const store = createStore(api, Events as unknown as typeof EventSource), stop = store.start();
+  try {
+    await flush(); Events.instances.at(-1)!.emit('open');
+    expect(tick).toBeDefined();
+    waiting = {kind:'folder',path:'/repo/.git/HEAD',since:1};
+    tick!(); await flush();
+    expect(store.getState().snapshot?.service?.waiting).toEqual(waiting);
+    waiting = undefined; tick!(); await flush();
+    expect(store.getState().snapshot?.service?.waiting).toBeUndefined();
+  } finally { stop(); globalThis.setInterval = original; }
+});

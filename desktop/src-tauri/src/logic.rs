@@ -725,15 +725,15 @@ pub fn startup_error(error: &str) -> &str {
 }
 
 /// Additive v2/v3 snapshot field `service.waiting { kind: "volume" | "folder", path, since }`:
-/// a repo filesystem call has been outstanding for a second or more, usually behind a macOS
-/// privacy prompt. Both kinds suppress restarts; unknown kinds are ignored.
+/// A repo filesystem call has been outstanding for ten seconds or more. Only volume waits
+/// trigger the permission page; folder waits remain visible in the app.
 pub fn volume_waiting(snapshot: &Value) -> Option<String> {
     let service = snapshot
         .get("snapshot")
         .unwrap_or(snapshot)
         .get("service")?;
     let waiting = service.get("waiting")?;
-    matches!(waiting["kind"].as_str(), Some("volume" | "folder"))
+    matches!(waiting["kind"].as_str(), Some("volume"))
         .then(|| waiting["path"].as_str().unwrap_or("").to_owned())
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2468,7 +2468,7 @@ mod tests {
                     "future": true
                 }
             });
-            assert_eq!(volume_waiting(&snapshot).as_deref(), Some("/tmp/repo"));
+            assert_eq!(volume_waiting(&snapshot).as_deref(), (kind == "volume").then_some("/tmp/repo"));
             assert_eq!(snapshot_seq(900, &snapshot, true), 1000000000003);
             assert_eq!(snapshot_seq(1000000000002, &snapshot, false), 1000000000002);
         }
@@ -2542,7 +2542,7 @@ mod tests {
     }
 
     #[test]
-    fn waiting_on_a_volume_or_a_folder_both_ask_for_os_approval() {
+    fn only_volume_waiting_asks_for_os_approval() {
         let volume = serde_json::json!({"snapshot":{"service":{"waiting":{"kind":"volume","path":"/Volumes/External","since":1}}}});
         let folder = serde_json::json!({"service":{"waiting":{"kind":"folder","path":"/Users/me/Projects/app","since":1}}});
         let other =
@@ -2551,10 +2551,7 @@ mod tests {
             volume_waiting(&volume).as_deref(),
             Some("/Volumes/External")
         );
-        assert_eq!(
-            volume_waiting(&folder).as_deref(),
-            Some("/Users/me/Projects/app")
-        );
+        assert_eq!(volume_waiting(&folder), None);
         assert_eq!(volume_waiting(&other), None);
         assert_eq!(volume_waiting(&serde_json::json!({"service":{}})), None);
     }

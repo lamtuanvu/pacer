@@ -25,8 +25,8 @@ export const repoFs = {
   readdir: (path: string) => tracked("readdir", path, () => fsp.readdir(path)),
 };
 export interface Waiting { kind: "volume" | "folder"; path: string; since: number }
-export const WAITING_AFTER_MS = 1000;
-/** The oldest repo-path call outstanding for at least a second, as a volume root under /Volumes. */
+export const WAITING_AFTER_MS = 10_000;
+/** The oldest repo-path call outstanding for at least ten seconds, as a volume root under /Volumes. */
 export function stuckIO(now = Date.now()): { path: string; since: number }[] {
   return [...inflight.values()].filter(entry => now - entry.since >= WAITING_AFTER_MS).sort((a, b) => a.since - b.since);
 }
