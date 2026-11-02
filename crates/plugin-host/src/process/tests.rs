@@ -258,3 +258,54 @@ async fn identity_fixture_uses_rust_capability_broker() {
     assert_eq!(result["machineId"], "fixture-machine");
     child.terminate().await.unwrap();
 }
+#[tokio::test]
+async fn retained_read_owner_requests_and_events_work_after_parent_call_finishes() {
+    let script = r#"const r=Bun.stdin.stream().getReader();let b='';for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){let i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='policy.before'){if(m._meta?.capabilityCall!=='issued')process.exit(3);console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{verdict:'allow'}}));setTimeout(()=>console.log(JSON.stringify({jsonrpc:'2.0',id:9,method:'capability.tasks.read',params:{id:'task'},_meta:{readOwner:'retained'}})),10);}else if(m.method==='$/event'){console.log(JSON.stringify({jsonrpc:'2.0',id:10,method:'capability.tasks.read',params:{id:m.params.type},_meta:{readOwner:'retained'}}));}}}"#;
+    let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+    let result = child
+        .request_with_metadata(
+            "policy.before",
+            json!({}),
+            Some(json!({"capabilityCall":"issued"})),
+            Duration::from_secs(3),
+            None,
+            |_, _, _| async { Err(json!({})) },
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["verdict"], "allow");
+    let mut seen = false;
+    child
+        .handle_idle_request(Duration::from_secs(3), |method, params, metadata| {
+            assert_eq!(method, "capability.tasks.read");
+            assert_eq!(params["id"], "task");
+            assert_eq!(metadata.unwrap()["readOwner"], "retained");
+            seen = true;
+            async { Ok(json!({"task":{"id":"task","state":"done"}})) }
+        })
+        .await
+        .unwrap();
+    assert!(seen);
+    child
+        .notify_bounded(
+            "$/event",
+            json!({"type":"task"}),
+            Duration::from_secs(1),
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+    child
+        .handle_idle_request(Duration::from_secs(3), |_, p, _| {
+            assert_eq!(p["id"], "task");
+            async { Ok(json!({})) }
+        })
+        .await
+        .unwrap();
+    child.terminate().await.unwrap();
+}
+#[test]
+fn frame_number_spellings_and_envelope_size_match_javascript() {
+    assert_eq!(frame(json!({"n":1.0})).unwrap(), b"{\"n\":1}\n");
+    assert_eq!(frame(json!({"n":-0.0})).unwrap(), b"{\"n\":0}\n");
+}

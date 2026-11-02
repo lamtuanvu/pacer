@@ -30,12 +30,15 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown) {
     let value: unknown = null;
     switch (p.kind) {
       case "prepare": value = parseOpParams(ctx, p.op, p.params); break;
-      case "call":
+      case "call": {
+        const dropCache = p.method === "ui.action"
+          ? reg.nativeCacheInvalidator(ctx, p.id, (p.params as { id: string }).id) : undefined;
         value = await reg.call(ctx, p.id, p.method, p.params);
         if (p.method === "ui.action" && (value as { result?: string })?.result === "refresh") {
-          reg.nativeDropCache(ctx, p.id, (p.params as { id: string }).id);
+          dropCache?.();
         }
         break;
+      }
       case "stop": await reg.nativeStop(ctx, p.id); break;
       case "changed":
         if (p.reset) reg.nativeReset(ctx, p.id);

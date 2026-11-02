@@ -1717,8 +1717,12 @@ export class PluginRegistry {
     this.refresh(ctx);
   }
 
-  nativeDropCache(ctx: Ctx, id: string, surfaceId: string): void {
+  nativeCacheInvalidator(ctx: Ctx, id: string, surfaceId: string): () => void {
     const e = this.findEntry(ctx, id);
+    return () => this.dropSurfaceCache(e, surfaceId);
+  }
+
+  private dropSurfaceCache(e: Entry, surfaceId: string): void {
     e.nativeSurfaceRevisions.set(surfaceId, (e.nativeSurfaceRevisions.get(surfaceId) ?? 0) + 1);
     for (const k of [...e.cache.keys()]) if (k.startsWith(`${surfaceId}\u0000`)) e.cache.delete(k);
   }
@@ -1989,7 +1993,7 @@ export class PluginRegistry {
     e.actions.push(now); e.inflight.add(surfaceId);
     try {
       const out = await this.call<{ result: "done" | "refresh"; message?: string }>(ctx, id, "ui.action", { surface, id: surfaceId, action, context, requestId, ...(values ? { values } : {}) });
-      if (out.result === "refresh") this.nativeDropCache(ctx, id, surfaceId);
+      if (out.result === "refresh") this.dropSurfaceCache(e, surfaceId);
       return out;
     } finally { e.inflight.delete(surfaceId); }
   }

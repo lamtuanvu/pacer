@@ -1,0 +1,66 @@
+[
+  {
+    "name": "lone-high",
+    "base64": "eyJ2ZXJzaW9uIjoxLCJwdWJsaXNoZXJzIjp7Ilx1ZDgwMCI6IllNNHdUek1lb012cERBWEJQNkdNMDd1cEgvSjQwNjVCdjI1bUpzMzlFbWs9In19",
+    "error": {
+      "code": "invalid_input",
+      "message": "invalid publisher name"
+    }
+  },
+  {
+    "name": "lone-low",
+    "base64": "eyJ2ZXJzaW9uIjoxLCJwdWJsaXNoZXJzIjp7Ilx1ZGZmZiI6IllNNHdUek1lb012cERBWEJQNkdNMDd1cEgvSjQwNjVCdjI1bUpzMzlFbWs9In19",
+    "error": {
+      "code": "invalid_input",
+      "message": "invalid publisher name"
+    }
+  },
+  {
+    "name": "invalid-utf8",
+    "base64": "eyJ2ZXJzaW9uIjoxLCJwdWJsaXNoZXJzIjp7Iv8iOiJZTTR3VHpNZW9NdnBEQVhCUDZHTTA3dXBIL0o0MDY1QnYyNW1KczM5RW1rPSJ9fQ==",
+    "error": {
+      "code": "invalid_input",
+      "message": "invalid publisher name"
+    }
+  },
+  {
+    "name": "overflow-key",
+    "base64": "eyJ2ZXJzaW9uIjoxLCJwdWJsaXNoZXJzIjp7IkZpeHR1cmUiOjFlNDAwfX0=",
+    "error": {
+      "code": "plugin_refused",
+      "message": "invalid publisher key"
+    }
+  },
+  {
+    "name": "negative-overflow-key",
+    "base64": "eyJ2ZXJzaW9uIjoxLCJwdWJsaXNoZXJzIjp7IkZpeHR1cmUiOi0xZTQwMH19",
+    "error": {
+      "code": "plugin_refused",
+      "message": "invalid publisher key"
+    }
+  },
+  {
+    "name": "overflow-version",
+    "base64": "eyJ2ZXJzaW9uIjoxZTQwMCwicHVibGlzaGVycyI6e319",
+    "error": {
+      "code": "plugin_refused",
+      "message": "invalid publisher store shape"
+    }
+  },
+  {
+    "name": "deep-key",
+    "base64": "eyJ2ZXJzaW9uIjoxLCJwdWJsaXNoZXJzIjp7IkZpeHR1cmUiOltbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbbnVsbF1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dfX0=",
+    "error": {
+      "code": "plugin_refused",
+      "message": "invalid publisher key"
+    }
+  },
+  {
+    "name": "bom",
+    "base64": "77u/eyJ2ZXJzaW9uIjoxLCJwdWJsaXNoZXJzIjp7fX0=",
+    "error": {
+      "code": "plugin_refused",
+      "message": "invalid publisher store JSON"
+    }
+  }
+]

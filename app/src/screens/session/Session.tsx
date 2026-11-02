@@ -1,3 +1,4 @@
+import { useUniqueId as useId } from '../../ds/useUniqueId';
 import { Tabs, Skeleton, EmptyState } from '../../ds/Patterns';
 import { Disclosure, Field } from '../../ds/Controls';
 import { ChoicePicker } from '../../ds/ChoicePicker';
@@ -5,7 +6,7 @@ import { Dialog } from '../../ds/Dialog';
 import { Prose } from '../../ds/Prose';
 import { branchCopy } from '../../../../src/view-model/copy';
 import { SectionHeading } from '../../ds/SectionHeading';
-import { useState } from 'preact/hooks';
+import { useState } from "preact/hooks";
 import type { ComponentChildren } from 'preact';
 import { AgentMark } from '../../ds/AgentMark';
 import { Button, IconButton } from '../../ds/Button';
@@ -53,6 +54,7 @@ export function Brief({ data }: { data: SessionData }) {
 
 export function Session({ embedded = false, data, loading, error, initialTab, view, onAction, onAttach, onReload, onTakeover,
   takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent, slots, onReadFile }: SessionProps) {
+  const viewId = useId();
   const [chosenTab, setTab] = useState<SessionTab | undefined>(initialTab);
   const [selected, setSelected] = useState(''), [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState(''), [notice, setNotice] = useState('');
@@ -88,8 +90,8 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
   const takeover = active && !driving && session ? <span className="pc-control-with-reason">
     <Button variant={headless ? 'primary' : 'secondary'} disabled={takeoverBusy || !session.takeover.available || !onTakeover}
       title={!session.takeover.available ? session.takeover.reason : undefined}
-      aria-describedby={!session.takeover.available ? `takeover-${data.id}-reason` : undefined} onClick={onTakeover}>Take over</Button>
-    {!session.takeover.available && <span id={`takeover-${data.id}-reason`} className="pc-session-muted">{session.takeover.reason ?? 'Live takeover is unavailable for this session.'}</span>}
+      aria-describedby={!session.takeover.available ? `${viewId}-takeover-reason` : undefined} onClick={onTakeover}>Take over</Button>
+    {!session.takeover.available && <span id={`${viewId}-takeover-reason`} className="pc-session-muted">{session.takeover.reason ?? 'Live takeover is unavailable for this session.'}</span>}
   </span> : null;
   const retries = data.retryOptions ?? [];
   const retry = retries.find(item => item.id === selected) ?? retries.find(item => item.available);
@@ -163,10 +165,10 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
     {actionError && !retryOpen && <p role="alert">{actionError}</p>}
     <div className="pc-session-notice" role="status" aria-live="polite">{notice}</div>
     <div className="pc-session-layout"><div className="pc-session-main">
-      {!view&&<Tabs label="Session views" id={`session-${data.id}`} value={tab} options={[
+      {!view&&<Tabs label="Session views" id={`${viewId}-session`} value={tab} options={[
         { value: 'brief', label: 'Brief' }, { value: 'terminal', label: 'Output' }, { value: 'changes', label: 'Changes' },
       ]} onChange={value => setTab(value as SessionTab)}/>}
-      <div role={view?undefined:'tabpanel'} id={`session-${data.id}-${tab}-panel`} aria-labelledby={view?undefined:`session-${data.id}-${tab}-tab`} tabIndex={view?undefined:0} className="pc-session-panel">
+      <div role={view?undefined:'tabpanel'} id={`${viewId}-session-${tab}-panel`} aria-labelledby={view?undefined:`${viewId}-session-${tab}-tab`} tabIndex={view?undefined:0} className="pc-session-panel">
         {tab === 'terminal' ? <>{terminal}{session?.host === 'orca' && takeover}</>
           : tab === 'changes' ? <div className="pc-session-changes">
             {data.changesSummary && <p className="pc-session-muted">{data.changesSummary}</p>}
@@ -178,7 +180,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
     {retryOpen && <Dialog title={active ? 'Stop and retry session' : 'Retry session'} close={() => setRetryOpen(false)}>
       <div className="pc-form">
         <p>{active ? 'The current run will stop before a new attempt starts.' : 'Start a new attempt with an available executor.'}</p>
-        <Field label="Retry on"><ChoicePicker id={`session-${data.id}-retry`} value={retry?.id ?? ''} onValueChange={setSelected} disabled={busy}
+        <Field label="Retry on"><ChoicePicker id={`${viewId}-session-retry`} value={retry?.id ?? ''} onValueChange={setSelected} disabled={busy}
           placeholder="No available executor" searchable options={retries.map(option => ({ value: option.id, agent: option.id, label: option.label, disabled: !option.available, reason: option.reason }))} /></Field>
         {!retry && <p className="pc-session-muted">No executor is available. Try again when a slot is free.</p>}
         {actionError && <p role="alert">{actionError}</p>}

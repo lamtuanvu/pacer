@@ -2,8 +2,10 @@
 
 use crate::{
     doc::{StrategyDoc, parse_value},
+    js_semantics,
     write::atomic_strategy_write,
 };
+use pacer_foundation::js_semantics::JsTrim;
 use serde_json::{Map, Value, json};
 use std::{
     fs, io,
@@ -57,6 +59,7 @@ fn string(value: &Value) -> String {
             })
             .collect::<Vec<_>>()
             .join(","),
+        Value::Number(number) => js_semantics::number_text(number),
         _ => value.to_string(),
     }
 }
@@ -100,28 +103,16 @@ fn decimal(text: &str) -> Option<f64> {
     }
     text.parse().ok()
 }
-// ECMAScript WhiteSpace and LineTerminator, used by String.prototype.trim and /\s/.
-fn js_whitespace(c: char) -> bool {
-    matches!(c, '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
-}
-fn js_trim(text: &str) -> &str {
-    text.trim_matches(js_whitespace)
-}
-fn positive_safe_integer(value: &Value) -> bool {
-    value
-        .as_f64()
-        .is_some_and(|n| n > 0. && n <= 9_007_199_254_740_991. && n.fract() == 0.)
-}
 fn size(value: &Value) -> Option<f64> {
-    if let Some(n) = value.as_f64() {
+    if let Some(n) = js_semantics::number(value) {
         return Some(n);
     }
-    let text = js_trim(value.as_str()?);
+    let text = value.as_str()?.js_trim();
     let cut = text
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(text.len());
     let n = decimal(&text[..cut])?;
-    let mult = match js_trim(&text[cut..]).to_ascii_lowercase().as_str() {
+    let mult = match text[cut..].js_trim().to_ascii_lowercase().as_str() {
         "" => 1.,
         "k" => 1e3,
         "m" => 1e6,
@@ -131,15 +122,12 @@ fn size(value: &Value) -> Option<f64> {
     Some(n * mult)
 }
 fn duration(value: &Value) -> Option<f64> {
-    if let Some(n) = value.as_f64() {
+    if let Some(n) = js_semantics::number(value) {
         return Some(n);
     }
-    let text = js_trim(value.as_str()?);
-    let unit = text.chars().last()?;
-    if !matches!(unit, 's' | 'm' | 'h' | 'd') {
-        return None;
-    }
-    let n = decimal(js_trim(&text[..text.len() - 1]))?;
+    let text = value.as_str()?.js_trim();
+    let (end, unit) = text.char_indices().last()?;
+    let n = decimal(text[..end].js_trim())?;
     Some(
         n * match unit {
             's' => 1.,
@@ -219,7 +207,7 @@ fn account(name: &str, c: &Value, kind: &str, raw_kind: bool) -> Value {
     json!({"name":name,"model":optional_string(field(c,"model")),"kind":kind_value,"source":source,
         "home":field(c,"home").as_str(),"orcaAccount":field(c,"orca_account").as_str(),"usage":usage,
         "usageSource":usage_source,"quotaSource":quota,"provider":field(c,"provider").as_str(),
-        "weeklyUsd":field(field(c,"budget"),"weekly_usd").as_f64().map(numeric),"weeklyTokens":size(field(field(c,"budget"),"weekly_tokens")).map(numeric),
+        "weeklyUsd":js_semantics::number(field(field(c,"budget"),"weekly_usd")).map(numeric),"weeklyTokens":size(field(field(c,"budget"),"weekly_tokens")).map(numeric),
         "cooldownS":numeric(c.get("cooldown").and_then(duration).unwrap_or(21600.)),"allowPaid":field(c,"allow_paid") == true})
 }
 fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut Vec<String>) {
@@ -279,18 +267,18 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
                         problems.push(format!("{loc} must be a mapping"));
                         continue;
                     }
-                    if m["id"].as_str().is_none_or(|s| js_trim(s).is_empty()) {
+                    if m["id"].as_str().is_none_or(|s| s.js_trim().is_empty()) {
                         problems.push(format!("{loc}.id must be non-empty"));
                     } else if !ids.insert(m["id"].as_str().unwrap_or("")) {
                         problems.push(format!("{loc}.id must be unique"));
                     }
                     if m.get("name")
-                        .is_some_and(|v| v.as_str().is_none_or(|s| js_trim(s).is_empty()))
+                        .is_some_and(|v| v.as_str().is_none_or(|s| s.js_trim().is_empty()))
                     {
                         problems.push(format!("{loc}.name must be non-empty"));
                     }
                     for key in ["context", "output"] {
-                        if !positive_safe_integer(&m[key]) {
+                        if !js_semantics::safe_integer(&m[key]).is_some_and(|n| n > 0.0) {
                             problems.push(format!("{loc}.{key} must be a positive integer"));
                         }
                     }
@@ -316,7 +304,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     }
     for key in ["home", "orca_account"] {
         if let Some(v) = value.get(key)
-            && (v.as_str().is_none_or(|s| js_trim(s).is_empty())
+            && (v.as_str().is_none_or(|s| s.js_trim().is_empty())
                 || !["claude", "codex"].contains(&kind.as_str()))
         {
             problems.push(format!(
@@ -381,7 +369,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
         }
         if budget
             .get("weekly_usd")
-            .is_some_and(|v| v.as_f64().is_none_or(|n| !n.is_finite() || n <= 0.))
+            .is_some_and(|v| js_semantics::number(v).is_none_or(|n| !n.is_finite() || n <= 0.))
         {
             problems.push(format!("{at}: budget.weekly_usd must be a positive number"));
         }
@@ -396,9 +384,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     }
     if kind != "endpoint"
         && usage == "metered"
-        && cfg["weeklyTokens"]
-            .as_f64()
-            .is_none_or(|n| !n.is_finite() || n <= 0.)
+        && js_semantics::number(&cfg["weeklyTokens"]).is_none_or(|n| n <= 0.)
     {
         problems.push(format!("{at}: metered usage needs budget.weekly_tokens"));
     }
@@ -408,7 +394,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
             .get("budget")
             .and_then(|b| b.get("weekly_tokens"))
             .is_some()
-        && cfg["weeklyTokens"].as_f64().is_none_or(|n| n <= 0.)
+        && js_semantics::number(&cfg["weeklyTokens"]).is_none_or(|n| n <= 0.)
     {
         problems.push(format!(
             "{at}: budget.weekly_tokens must be a positive size such as 20M"
@@ -416,9 +402,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     }
     if value.get("cooldown").is_some()
         && (value.get("cooldown").and_then(duration).is_none()
-            || cfg["cooldownS"]
-                .as_f64()
-                .is_none_or(|n| !n.is_finite() || n < 0.))
+            || js_semantics::number(&cfg["cooldownS"]).is_none_or(|n| n < 0.))
     {
         problems.push(format!("{at}: cooldown must look like 30m, 6h or 2d"));
     }
@@ -455,7 +439,7 @@ fn add_runner(
     }
     if declaration
         .get("max_tasks")
-        .is_some_and(|v| !positive_safe_integer(v) || v.as_f64().is_none_or(|n| n > 16.))
+        .is_some_and(|v| js_semantics::integer(v).is_none_or(|n| !(1.0..=16.0).contains(&n)))
     {
         problems.push(format!("runners.{reference}.max_tasks must be 1..16"));
     }
@@ -732,7 +716,10 @@ fn add_runner(
                     valid = false;
                     break;
                 }
-                let Some(mid) = m["id"].as_str().filter(|s| !s.is_empty() && s.len() <= 256) else {
+                let Some(mid) = m["id"]
+                    .as_str()
+                    .filter(|s| !s.is_empty() && js_semantics::code_points(s) <= 256)
+                else {
                     valid = false;
                     break;
                 };
@@ -747,15 +734,17 @@ fn add_runner(
                 let strengths = m.get("strengths").cloned().unwrap_or(json!([]));
                 if strengths.as_array().is_none_or(|a| {
                     a.len() > 64
-                        || a.iter()
-                            .any(|v| v.as_str().is_none_or(|s| s.is_empty() || s.len() > 256))
+                        || a.iter().any(|v| {
+                            v.as_str()
+                                .is_none_or(|s| s.is_empty() || js_semantics::code_points(s) > 256)
+                        })
                 }) {
                     valid = false;
                     break;
                 }
                 if m.get("tools").is_some_and(|v| !v.is_boolean())
                     || m.get("context")
-                        .is_some_and(|v| v.as_u64().is_none_or(|n| n < 1))
+                        .is_some_and(|v| js_semantics::safe_integer(v).is_none_or(|n| n < 1.0))
                 {
                     valid = false;
                     break;
@@ -1339,13 +1328,13 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     if !["spread", "fill"].contains(&accounts_mode.as_str()) {
         p.push("pacing.accounts must be spread or fill".into());
     }
-    if fill.as_f64().is_some_and(|n| !(50. ..=100.).contains(&n)) {
+    if js_semantics::number(&fill).is_some_and(|n| !(50. ..=100.).contains(&n)) {
         p.push("pacing.fill_threshold must be between 50 and 100".into());
     }
-    if reserve.as_f64().is_some_and(|n| !(0. ..100.).contains(&n)) {
+    if js_semantics::number(&reserve).is_some_and(|n| !(0. ..100.).contains(&n)) {
         p.push("pacing.planner_reserve must be between 0 and 99".into());
     }
-    if headroom.as_f64().is_some_and(|n| !(0. ..100.).contains(&n)) {
+    if js_semantics::number(&headroom).is_some_and(|n| !(0. ..100.).contains(&n)) {
         p.push("pacing.planner_reserve_headroom must be between 0 and 99".into());
     }
     if !["ask", "auto", "off"].contains(&probe.as_str()) {
@@ -1429,8 +1418,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     if let Some(v) = execution.get("local_max_tasks")
         && !v.is_null()
         && v != "unlimited"
-        && v.as_f64()
-            .is_none_or(|n| n.fract() != 0. || !(1. ..=9007199254740991.).contains(&n))
+        && js_semantics::safe_integer(v).is_none_or(|n| n < 1.0)
     {
         p.push(
             "execution.local_max_tasks must be a whole number of at least 1, or \"unlimited\""
@@ -1446,7 +1434,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     if let Some(v) = execution.get("local_load_limit")
         && !v.is_null()
         && v != "off"
-        && v.as_f64().is_none_or(|n| !n.is_finite() || n <= 0.)
+        && js_semantics::number(v).is_none_or(|n| n <= 0.)
     {
         p.push(
             "execution.local_load_limit must be a positive number (load per CPU core) or \"off\""
@@ -1464,10 +1452,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
         .filter(|v| !v.is_null())
         .cloned()
         .unwrap_or(json!(14));
-    if retention
-        .as_f64()
-        .is_none_or(|n| n.fract() != 0. || !(0. ..=9007199254740991.).contains(&n))
-    {
+    if js_semantics::safe_integer(&retention).is_none_or(|n| n < 0.0) {
         p.push("task_retention_days must be a non-negative integer".into());
     }
     let plug = plugins(raw.get("plugins"), &mut p);
@@ -1492,7 +1477,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
     }
     if let Some(open) = raw.get("terminal").and_then(|t| t.get("open")) {
         let value = string(open);
-        if value.encode_utf16().count() > 2000 || value.bytes().any(|b| b < 32 || b == 127) {
+        if js_semantics::utf16_units(&value) > 2000 || value.bytes().any(|b| b < 32 || b == 127) {
             return Err(StrategyError::Other("invalid terminal.open".into()));
         }
         if !value.is_empty()
@@ -1540,7 +1525,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
 pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
     let active = home.join("active");
     let name = if active.exists() {
-        js_trim(&fs::read_to_string(active)?).to_owned()
+        fs::read_to_string(active)?.js_trim().to_owned()
     } else {
         String::new()
     };
@@ -1620,7 +1605,7 @@ fn display_name(id: &str) -> String {
     }
     provider_name(agent)
 }
-fn summary(strategy: &Value) -> String {
+pub(crate) fn summary(strategy: &Value) -> String {
     let planner = strategy["planner"]["agent"].as_str().unwrap_or("");
     let first = strategy["pacing"]["order"]
         .as_array()
@@ -1632,7 +1617,7 @@ fn summary(strategy: &Value) -> String {
     let mut out = format!(
         "{prefix}, {} keeps {}%",
         display_name(planner),
-        strategy["pacing"]["plannerReserve"]
+        string(&strategy["pacing"]["plannerReserve"])
     );
     if strategy["pacing"]["policy"] != "priority" {
         out.push_str(&format!(

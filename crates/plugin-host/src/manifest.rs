@@ -50,7 +50,7 @@ fn clean_field(object: &mut serde_json::Map<String, Value>, key: &str) {
     }
 }
 
-pub(crate) fn normalize_ui(ui: &mut Value) {
+pub fn normalize_ui(ui: &mut Value) {
     let Some(points) = ui.as_object_mut() else {
         return;
     };
@@ -587,7 +587,7 @@ pub fn parse_manifest(raw: Value) -> Result<ParsedManifest, ManifestError> {
     })
 }
 
-pub(crate) fn valid_plugin_id(s: &str) -> bool {
+pub fn valid_plugin_id(s: &str) -> bool {
     s.len() >= 2
         && s.len() <= 64
         && s.as_bytes()[0].is_ascii_alphanumeric()

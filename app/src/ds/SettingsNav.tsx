@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef } from "preact/hooks";
+import { useUniqueId as useId } from './useUniqueId';
+import { useEffect, useRef } from "preact/hooks";
 import { TextAction } from "./Button";
 import { Icon, type IconName } from "./icons";
 import type { PillProps } from "./Pill";

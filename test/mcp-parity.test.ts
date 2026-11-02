@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { tmpDir } from "./helpers";
@@ -147,7 +147,7 @@ function validationArgs(name: string): Record<string, unknown> {
 // The SDK normalizes JSON numbers when it serializes arguments. This transport
 // writes a literal tools/call frame so spelling-sensitive decoder ports are tested.
 async function rawValidation(env: Record<string, string>, cases: readonly (typeof validationCases)[number][]) {
-  const proc = Bun.spawn([process.execPath, join(import.meta.dir, "..", "src", "cli.ts"), "mcp"], {
+  const proc = Bun.spawn([process.execPath, ...(env.PACER_TEST_RUST_MCP ? [join(import.meta.dir, "fixtures/mcp/rust-stdio.ts")] : [join(import.meta.dir, "..", "src", "cli.ts"), "mcp"])], {
     cwd: join(import.meta.dir, ".."), env, stdin: "pipe", stdout: "pipe", stderr: "ignore",
   });
   const reader = proc.stdout.getReader();
@@ -245,7 +245,7 @@ async function rawValidation(env: Record<string, string>, cases: readonly (typeo
   }
 }
 
-async function capture(mode: "planner" | "grant") {
+async function capture(mode: "planner" | "grant", native = false) {
   const home = tmpDir();
   const pacerHome = join(home, ".pacer");
   mkdirSync(pacerHome, { recursive: true });
@@ -258,6 +258,8 @@ async function capture(mode: "planner" | "grant") {
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
   env.HOME = home;
   env.PACER_HOME = pacerHome;
+  delete env.PACER_TEST_RUST_MCP;
+  if (native) env.PACER_TEST_RUST_MCP = rustBinary;
   // The golden captures installed executors with no availability evidence.
   // Give both stdio processes the same isolated executable inventory on every host.
   const bin = join(home, "bin");
@@ -276,7 +278,7 @@ async function capture(mode: "planner" | "grant") {
   }
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [join(import.meta.dir, "..", "src", "cli.ts"), "mcp"],
+    args: native ? [join(import.meta.dir, "fixtures/mcp/rust-stdio.ts")] : [join(import.meta.dir, "..", "src", "cli.ts"), "mcp"],
     env,
     cwd: join(import.meta.dir, ".."),
     stderr: "pipe",
@@ -438,9 +440,30 @@ test("TypeScript planner and grant MCP stdio tool contracts and results match ca
   expect(observed).toEqual(JSON.parse(readFileSync(goldenPath, "utf8")));
 }, 90_000);
 
+// A separate target avoids sharing Cargo artifacts with other pacer executors.
+const rustBinary = join(import.meta.dir, "..", "target", "mcp-slice", "debug", "examples", "mcp_stdio");
+let builtRust = false;
+async function buildRust() {
+  if (builtRust) return;
+  const proc = Bun.spawn(["cargo", "build", "--locked", "-p", "pacer-server", "--example", "mcp_stdio"], {
+    cwd: join(import.meta.dir, ".."), env: { ...process.env, CARGO_TARGET_DIR: join(import.meta.dir, "..", "target", "mcp-slice") },
+    stdout: "ignore", stderr: "pipe",
+  });
+  const stderr = await new Response(proc.stderr).text();
+  if (await proc.exited !== 0) throw new Error(stderr);
+  builtRust = true;
+}
+
+test("Rust planner and grant MCP stdio match every TypeScript golden", async () => {
+  await buildRust();
+  const observed = { planner: await capture("planner", true), grant: await capture("grant", true) };
+  expect(observed).toEqual(JSON.parse(readFileSync(goldenPath, "utf8")));
+}, 180_000);
+
 // The runner is injected so these success paths cannot launch an installed agent.
 // Grant calls still traverse the real scoped HTTP operation boundary.
-test("successful planner and grant delegation and mutation results match goldens", async () => {
+for (const native of [false, true]) test(`${native ? "Rust" : "TypeScript"} successful planner and grant delegation and mutation results match goldens`, async () => {
+  if (native) await buildRust();
   const home = tmpDir(), repo = gitRepo();
   const ctx = withLoginIndicators(fakeCtx({ home, run: realRun, now: 1_900_000_000 }));
   mkdirSync(ctx.pacerHome, { recursive: true });
@@ -460,7 +483,19 @@ test("successful planner and grant delegation and mutation results match goldens
     await client.connect(clientTransport);
     return client;
   }
-  const planner = await connect(plannerServer), scoped = await connect(grantServer);
+  const backends: Array<Awaited<ReturnType<typeof import("./fixtures/mcp/rust-backend")["domainBackend"]>>> = [];
+  async function nativeClient(getCtx: () => typeof ctx, spawnRunner?: () => number) {
+    const { domainBackend } = await import("./fixtures/mcp/rust-backend");
+    const backend = await domainBackend(getCtx, { spawnRunner });
+    backends.push(backend);
+    const transport = new StdioClientTransport({ command: rustBinary,
+      args: [getCtx().env.PACER_WORK_GRANT ? "grant" : "planner", "test", basename(backend.path)], cwd: dirname(backend.path), env: process.env as Record<string, string> });
+    const client = new Client({ name: "success-golden", version: "1" });
+    await client.connect(transport);
+    return client;
+  }
+  const planner = native ? await nativeClient(() => ctx, () => 1234) : await connect(plannerServer);
+  const scoped = native ? await nativeClient(() => grantCtx) : await connect(grantServer);
   const ids = new Map<string, string>([[root.id, "task-root"]]);
   const results: unknown[] = [];
   try {
@@ -499,5 +534,101 @@ test("successful planner and grant delegation and mutation results match goldens
     expect(observed).toEqual(JSON.parse(readFileSync(path, "utf8")));
   } finally {
     await planner.close(); await scoped.close(); await server.stop();
+    for (const backend of backends) await backend.close();
   }
 }, 90_000);
+
+// These cases extend the golden corpus at the validation seam. Each is compared
+// with the live TS SDK; the Rust backend still bypasses TS SDK validation.
+test("Rust nested validation, refinements, stripping and JS trim match the TS SDK", async () => {
+  await buildRust();
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const mcp = createMcpServer(() => ctx);
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await mcp.connect(st);
+  const reference = new Client({ name: "validation-reference", version: "1" });
+  await reference.connect(ct);
+  const { domainBackend } = await import("./fixtures/mcp/rust-backend");
+  const backend = await domainBackend(() => ctx);
+  const transport = new StdioClientTransport({ command: rustBinary, args: ["planner", "test", basename(backend.path)], cwd: dirname(backend.path), env: process.env as Record<string, string> });
+  const native = new Client({ name: "validation-native", version: "1" });
+  await native.connect(transport);
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ["unknown", {}], ["task_status", {}], ["task_status", { task_id: null }],
+    ["delegate", { goal: "g", repo: "relative", base: "", kind: 4 }],
+    ["delegate", { goal: "g", repo: "relative", acceptance_timeout_min: 9007199254740992 }],
+    ["task_wait", { task_id: "missing", timeout_s: 9007199254740992 }],
+    ["dispatch_preview", { goal: "g", repo: "relative", requirements: { "2": 2, "1": 1, "\u{f0000}": 3, "\ud800": 4 } }],
+    ["strategy_preview", { draft: { from: "missing", set: JSON.parse('{"__proto__":1}') } }],
+    ["work_answer", { task_id: "missing", expect_rev: 1, requestId: "r", text: "\ud800" }],
+    ["work_answer", { task_id: "missing", expect_rev: 1, requestId: "r", text: "\udc00" }],
+    ["work_answer", { task_id: "missing", expect_rev: 1, requestId: "r", text: "\u{f0000}\u{f0800}\u{f07ff}" }],
+    ["task_request_review", { task_id: "missing", note: "\u0085" }],
+    ["task_request_review", { task_id: "missing", note: "\uFEFF ok \uFEFF", extra: true }],
+    ["dispatch_preview", { goal: "g", repo: "relative", requirements: { extra: 1 } }],
+    ["dispatch_preview", { goal: "g", repo: "relative", preferences: { models: [42] } }],
+    ["dispatch_preview", { goal: "g", repo: "relative", preferences: { a: 1, b: 2 } }],
+    ["dispatch_preview", { goal: "g", repo: "relative", requirements: { context: -9007199254740992 } }],
+    ["strategy_preview", { draft: { from: "missing", set: { nested: { a: [false, null, 1] } }, extra: true } }],
+    ["strategy_preview", { draft: { from: "missing", unset: [false] } }],
+    ["msg_policy", { check: { from: 42, to: true, kind: "bad" } }],
+    ["msg_read", { ids: [false] }], ["msg_read", { ids: ["id"], ignored: true }],
+    ...["-x", "bad..branch", "@{-1}", "good-branch", "abcdef0", "bad\u0000base"].map(base => ["delegate", { goal: "g", repo: "relative", base }] as [string, Record<string, unknown>]),
+    ...["bad/name", "-bad", "A_ok", "a".repeat(41)].map(group => ["delegate", { goal: "g", repo: "relative", group }] as [string, Record<string, unknown>]),
+    ...[false, "invalid", [], ["invalid"], ["self", "parent"], "any"].map(relation => ["delegate", { goal: "g", repo: "relative", messaging: { rules: [{ effect: "allow", relation }] } }] as [string, Record<string, unknown>]),
+    ["delegate", { goal: "g", repo: "relative", messaging: { rules: [{ effect: "allow", unexpected: 1 }] } }],
+    ["delegate", { goal: "g", repo: "relative", messaging: { liveness: { unexpected: 1 } } }],
+    ["delegate", { goal: "g", repo: "relative", title: "\u0085", dispatch: { arbitrary: [1, false] } }],
+  ];
+  try {
+    for (const [name, args] of cases) {
+      const want = await reference.callTool({ name, arguments: args });
+      const got = await native.callTool({ name, arguments: args });
+      expect(got, `${name}: ${JSON.stringify(args)}`).toEqual(want);
+    }
+  } finally { await reference.close(); await native.close(); await backend.close(); }
+}, 180_000);
+
+test("Rust raw JSON numbers and malformed method params match TS wire responses", async () => {
+  await buildRust();
+  const home = tmpDir();
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  env.HOME = home; env.PACER_HOME = join(home, ".pacer");
+  delete env.PACER_WORK_GRANT; delete env.PACER_ROLE; delete env.PACER_TASK_ID;
+  const frames = [
+    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-10-07","capabilities":{},"clientInfo":{"name":"raw","version":"1"}}}',
+    '{"jsonrpc":"2.0","id":2,"method":"initialize"}',
+    '{"jsonrpc":"2.0","id":3,"method":"initialize","params":{}}',
+    ...[null, [], "bad"].map((args, i) => JSON.stringify({ jsonrpc: "2.0", id: 4 + i, method: "tools/call", params: { name: "task_status", arguments: args } })),
+    ...["3.6662850235276904e-53", "1.1098444899886019e+69", "2.6599639661238314e-135", "-3.2570694962996e-201"].map((raw, i) => `{"jsonrpc":"2.0","id":${40 + i},"method":"tools/call","params":{"name":"report_limit","arguments":{"provider":"cursor","until":${raw}}}}`),
+    ...["1e400", "-1e400", '{"nested":1e400}'].map((raw, i) => `{"jsonrpc":"2.0","id":${30 + i},"method":"tools/call","params":{"name":"delegate","arguments":{"goal":"g","repo":"relative","dispatch":${raw}}}}`),
+    ...["-1e400", "1e400", "1e-400", "9007199254740993"].map((raw, i) => `{"jsonrpc":"2.0","id":${10 + i},"method":"tools/call","params":{"name":"report_limit","arguments":{"provider":"missing","until":${raw}}}}`),
+    '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"work_answer","arguments":{"task_id":"missing","expect_rev":1,"requestId":"r","text":"\\ud800"}}}',
+    '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"work_answer","arguments":{"task_id":"missing","expect_rev":1,"requestId":"r","text":"\\udc00"}}}',
+  ];
+  async function captureFrames(native: boolean) {
+    const proc = Bun.spawn(native ? [process.execPath, join(import.meta.dir, "fixtures/mcp/rust-stdio.ts")] : [process.execPath, join(import.meta.dir, "..", "src/cli.ts"), "mcp"], {
+      env: native ? { ...env, PACER_TEST_RUST_MCP: rustBinary } : env,
+      cwd: join(import.meta.dir, ".."), stdin: "pipe", stdout: "pipe", stderr: "ignore",
+    });
+    const reader = proc.stdout.getReader(), decoder = new TextDecoder();
+    let pending = "";
+    const replies = [];
+    try {
+      for (const frame of frames) {
+        proc.stdin.write(frame + "\n");
+        while (!pending.includes("\n")) {
+          const next = await reader.read();
+          if (next.done) throw new Error("raw MCP closed before response");
+          pending += decoder.decode(next.value, { stream: true });
+        }
+        const end = pending.indexOf("\n");
+        replies.push(JSON.parse(pending.slice(0, end)));
+        pending = pending.slice(end + 1);
+      }
+      return replies;
+    } finally { proc.stdin.end(); reader.releaseLock(); await proc.exited; }
+  }
+  expect(await captureFrames(true)).toEqual(await captureFrames(false));
+}, 180_000);

@@ -26,7 +26,7 @@ fn debug(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
 }
 
 fn plugin_install(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
-    Box::pin(async move { pacer_plugin_host::public::retired_install(params) })
+    Box::pin(async move { pacer_plugin_ops::public::retired_install(params) })
 }
 
 static OPS: &[NativeOp] = &[
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn service_registers_the_whole_plugin_slice_with_individual_fallbacks() {
-        for name in pacer_plugin_host::public::OPERATIONS {
+        for name in pacer_plugin_ops::public::OPERATIONS {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
         }

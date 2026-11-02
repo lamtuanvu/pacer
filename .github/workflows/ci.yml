@@ -5,6 +5,9 @@ on:
     types: [opened, synchronize, reopened, edited, ready_for_review, converted_to_draft]
   push:
     branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '41 3 * * 1'
 
 permissions:
   contents: read
@@ -19,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       bun: ${{ steps.changes.outputs.bun }}
+      full: ${{ steps.changes.outputs.full }}
+      focused_tests: ${{ steps.changes.outputs.focused_tests }}
       rust: ${{ steps.changes.outputs.rust }}
       e2e: ${{ steps.changes.outputs.e2e }}
       ui: ${{ steps.changes.outputs.ui }}
@@ -121,7 +126,7 @@ jobs:
         with:
           toolchain: 1.99.0
       - name: Cache
-        if: ${{ needs.changes.outputs.bun == 'true' }}
+        if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install dependencies
         if: ${{ needs.changes.outputs.bun == 'true' }}
@@ -133,10 +138,10 @@ jobs:
         if: ${{ needs.changes.outputs.bun == 'true' }}
         run: bun run typecheck
       - name: Build the Rust fixture plugin
-        if: ${{ needs.changes.outputs.bun == 'true' }}
+        if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}
         run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
       - name: Build production and native dispatch test front doors
-        if: ${{ needs.changes.outputs.bun == 'true' }}
+        if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}
         run: |
           cargo build --locked -p pacer
           cp target/debug/pacer "$RUNNER_TEMP/pacer-production"
@@ -147,13 +152,13 @@ jobs:
           echo "PACER_TEST_NATIVE_FRONT_DOOR=$RUNNER_TEMP/pacer-native-test" >> "$GITHUB_ENV"
           echo "PACER_TEST_REFERENCE_CORE=$RUNNER_TEMP/pacer-core" >> "$GITHUB_ENV"
       - name: Build the SQLite cross-runtime proof
-        if: ${{ needs.changes.outputs.bun == 'true' }}
+        if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}
         run: cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof
       - name: Build the task store parity probe
-        if: ${{ needs.changes.outputs.bun == 'true' }}
+        if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}
         run: cargo build --locked -p pacer-store --bin task_store_probe
       - name: Install Linux test cross-build prerequisites
-        if: ${{ needs.changes.outputs.bun == 'true' && runner.os == 'Linux' }}
+        if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' && runner.os == 'Linux' }}
         run: |
           rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
           python3 -m venv "$RUNNER_TEMP/pacer-cross"
@@ -161,19 +166,27 @@ jobs:
           echo "$RUNNER_TEMP/pacer-cross/bin" >> "$GITHUB_PATH"
       # The frozen playwright-core dependency pins the matching Chromium revision.
       - name: Install locked Chromium test browser
-        if: ${{ needs.changes.outputs.bun == 'true' }}
+        if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}
         run: |
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Test
-        if: ${{ needs.changes.outputs.bun == 'true' }}
+        if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}
         env:
           PACER_SQLITE_PROOF_BIN: ${{ github.workspace }}/target/debug/pacer-sqlite-proof
           PACER_STORE_PROBE_BIN: ${{ github.workspace }}/target/debug/task_store_probe
         run: bun run test
+      - name: Focused tests
+        if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'false' }}
+        env:
+          FOCUSED_TESTS: ${{ needs.changes.outputs.focused_tests }}
+        run: python3 -c 'import json, os, subprocess; subprocess.run(["bun", "run", "test", *json.loads(os.environ["FOCUSED_TESTS"])], check=True)'
       - name: Build
         if: ${{ needs.changes.outputs.bun == 'true' }}
         run: bun run build
+      - name: Smoke test release artifact
+        if: ${{ needs.changes.outputs.bun == 'true' }}
+        run: ./dist/pacer --version
       # These existing required checks must still reject incomplete evidence.
       - name: Require UI review readiness
         if: ${{ always() }}
@@ -225,7 +238,7 @@ jobs:
   linux-service-survival:
     name: Linux service restart keeps running work
     needs: changes
-    if: ${{ needs.changes.outputs.bun == 'true' }}
+    if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

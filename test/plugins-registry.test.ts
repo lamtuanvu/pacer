@@ -70,6 +70,25 @@ test("shutdown drains a burst of plugin state events in transition order", async
   expect(states).toEqual(expected);
 });
 
+test("a refresh action succeeds when its plugin entry retires before the reply", async () => {
+  const ctx = home();
+  const dir = installFixture("ui", join(ctx.pacerHome, "plugins"));
+  const r = registry();
+  await r.enable(ctx, "fx-ui", true);
+  const dropCache = r.nativeCacheInvalidator(ctx, "fx-ui", "checklist");
+  // Model the owner returning a successful RPC after a concurrent refresh has
+  // retired the captured entry. actionSurface must not resolve the id again.
+  r.call = async <T>() => {
+    rmSync(dir, { recursive: true });
+    r.refresh(ctx);
+    return { result: "refresh", message: "done" } as T;
+  };
+  const result = await r.actionSurface(ctx, "fx-ui", "activity", "checklist", "run", { route: "overview", theme: "light" }, "retire");
+  expect(result).toEqual({ result: "refresh", message: "done" });
+  expect(() => dropCache()).not.toThrow();
+  expect(r.list(ctx)).toEqual([]);
+});
+
 test("enable needs a grant once, then starts lazily, answers declared capabilities and logs", async () => {
   const ctx = home();
   installFixture("good", join(ctx.pacerHome, "plugins"));

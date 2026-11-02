@@ -1,3 +1,4 @@
+import { workspaceKey, workspaceManager } from '../app/src/workspace/manager';
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import fixture from "./fixtures/ui/snapshot.json";
@@ -30,7 +31,7 @@ test("layout_renders_same_landmarks", () => {
   ]);
   expect(html).toContain('<header');
   expect(html.indexOf('class="pc-live-region"')).toBeLessThan(html.indexOf('class="pc-body"'));
-  expect(html).toContain('<main id="main-content" tabindex="-1" class="pc-main pc-main--canvas"><fieldset class="pc-offline-controls">');
+  expect(html).toContain('<main id="main-content" tabindex="-1" class="pc-main pc-main--canvas"><div class="pc-offline-controls">');
   expect(html).not.toContain('aria-label="Scope"');
   expect(html).not.toContain('aria-label="Inspector"');
   expect(html).not.toContain("pc-dock");
@@ -63,25 +64,27 @@ test("narrow_layout_has_no_side_panels_or_dock", () => {
   expect(frame.indexOf("<header>")).toBeGreaterThan(frame.indexOf('class="pc-work"'));
   const wide = renderToString(<AppFrame main={<p>body</p>} right={<p>right</p>} dock={<p>dock</p>} />);
   expect(wide).toContain("pc-app--with-dock");
-  expect(wide).toContain('<div class="pc-dock"><fieldset class="pc-offline-controls"><p>dock</p></fieldset></div>');
+  expect(wide).toContain('<div class="pc-dock"><div class="pc-offline-controls"><p>dock</p></div></div>');
   expect(wide).toContain("<p>right</p></div>");
 });
 
 test("dock_not_rendered_on_terminal_route", () => {
+  const scope = workspaceKey("pending", undefined, "shell-panels");
+  workspaceManager.set(scope, "panel:dock", true);
   const key = "pacer.panel.dock";
   const store = new Map<string, string>([[key, "1"]]);
   const previous = (globalThis as any).localStorage;
   (globalThis as any).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) };
   try {
     // Saved open: other routes mount the dock, the terminal route never does and offers no dock control.
-    expect(withService("#/")).toContain('<div class="pc-dock"><fieldset class="pc-offline-controls"><section id="pc-terminal-dock"');
+    expect(withService("#/")).toContain('<div class="pc-dock"><div class="pc-offline-controls"><section id="pc-terminal-dock"');
     const terminal = withService("#/workspace");
     expect(terminal).not.toContain("pc-dock");
     expect(terminal).not.toContain('aria-label="Terminal panel"');
     expect(terminal).toContain('aria-label="Toggle terminal panel (Ctrl+`)"');
     expect(terminal).toContain("This screen has no terminal panel");
     expect(withService("#/setup")).not.toContain("pc-dock");
-  } finally { (globalThis as any).localStorage = previous; }
+  } finally { workspaceManager.clearIdentity("pending"); (globalThis as any).localStorage = previous; }
 });
 
 test("settings attention counts enabled executors that cannot take work and names the count", async () => {

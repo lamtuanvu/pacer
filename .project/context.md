@@ -41,8 +41,10 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/task-protocol` | `pacer-task-protocol`: generated task operation types (`task.*` ops), split from the client schema under CRATE-3 |
 | `crates/assistant-protocol` | `pacer-assistant-protocol`: generated assistant operation types, split from the client schema under CRATE-3 |
 | `crates/mdns` | `pacer-mdns`: the LAN discovery radio's mDNS responder and browser for `_pacer._udp.local.`, IPv4 on one interface, on-link traffic only (SEC-11) |
+| `crates/read-model` | `pacer-read-model`: snapshot composition, task/message/discovery reads, v2 compatibility, status/context caches and SSE replay semantics; library only until native cutover |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
+| `crates/plugin-ops` | `pacer-plugin-ops`: native plugin public operations, UI/settings, JSON compatibility and signed archive/publisher content; layer 5, target ≤ 5,000 LOC ([ADR 0019](../docs/decisions/0019-native-plugin-operations-crate.md)) |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |

@@ -676,5 +676,29 @@
     "wire": "-2",
     "accepted": true,
     "normalized": "-2"
+  },
+  {
+    "field": "storedRev",
+    "wire": "1e309",
+    "accepted": true,
+    "normalized": "null"
+  },
+  {
+    "field": "storedRev",
+    "wire": "-1e309",
+    "accepted": true,
+    "normalized": "null"
+  },
+  {
+    "field": "storedRev",
+    "wire": "1e400",
+    "accepted": true,
+    "normalized": "null"
+  },
+  {
+    "field": "storedRev",
+    "wire": "-1e400",
+    "accepted": true,
+    "normalized": "null"
   }
 ]

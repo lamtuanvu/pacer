@@ -7,6 +7,45 @@ import { tmpDir } from "./helpers";
 const front = process.env.PACER_TEST_FRONT_DOOR;
 const context = { route: "overview", theme: "light" };
 
+test.skipIf(!front)("native raw JSON decoding matches fetch and JSON.parse boundaries", async () => {
+  const results: unknown[][] = [];
+  for (const forward of ["", "*"]) {
+    const s = await service(forward), responses: unknown[] = [];
+    try {
+      await s.post("plugin.enable", { id: "fx-ui", grant: true });
+      const raw = async (op: string, body: Uint8Array | string) => {
+        const response = await fetch(`${s.base}/v3/ops/${op}`, { method: "POST", headers: { Authorization: `Bearer ${s.token}`, "Content-Type": "application/json" }, body: typeof body === "string" ? body : new Uint8Array(body), signal: AbortSignal.timeout(15000) });
+        return response.json() as Promise<any>;
+      };
+      for (const wire of ["1e309", "-1e309", "1e400", "-1e400"]) {
+        const rev = await raw("plugin.settings.set", `{"plugin":"fx-ui","values":{},"expect_rev":${wire}}`);
+        expect(rev.error.code).toBe("invalid_input");
+        expect(rev.error.message).not.toBe("body is not JSON");
+        responses.push(rev);
+        const value = await raw("plugin.settings.set", `{"plugin":"fx-ui","values":{"required":${wire}},"expect_rev":0}`);
+        expect(value.error.code).toBe("invalid_input");
+        responses.push(value);
+      }
+      const get = '{"plugin":"fx-ui"}';
+      responses.push(await raw("plugin.settings.get", Buffer.concat([Buffer.from([239, 187, 191]), Buffer.from(get)])));
+      const badUtf8 = Buffer.from('{"plugin":"fx-ui","values":{"items":["X"]},"expect_rev":0}');
+      badUtf8[badUtf8.indexOf("X")] = 255;
+      expect(await raw("plugin.settings.set", badUtf8)).toMatchObject({ result: { rev: 1 } });
+      responses.push(await s.post("plugin.settings.get", { plugin: "fx-ui" }));
+      writeFileSync(join(s.state, "plugin-settings.json"), Buffer.concat([Buffer.from('{"fx-ui":{"rev":3,"values":{"items":["'), Buffer.from([255]), Buffer.from('"]}}}') ]));
+      const stored = await s.post("plugin.settings.get", { plugin: "fx-ui" });
+      expect(stored.result).toMatchObject({ rev: 3, values: { items: ["�"] } });
+      responses.push(stored);
+      writeFileSync(join(s.state, "plugin-settings.json"), '{"fx-ui":{"rev":1e400,"values":{"required":true}},"other":{"rev":3,"values":{"kept":true}}}');
+      expect((await s.post("plugin.settings.get", { plugin: "fx-ui" })).result).toMatchObject({ rev: null, values: { required: true } });
+      expect(readFileSync(join(s.state, "plugin-settings.json"), "utf8")).toContain('"other"');
+      responses.push(await s.post("plugin.settings.set", { plugin: "fx-ui", values: {}, expect_rev: 0 }));
+    } finally { await s.stop(); }
+    results.push(responses);
+  }
+  expect(results[0]).toEqual(results[1]);
+}, 60000);
+
 async function service(forward = "", homeKind = "absolute") {
   const home = realpathSync(tmpDir()), state = join(home, ".pacer");
   mkdirSync(state, { mode: 0o700 });

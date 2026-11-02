@@ -8866,32 +8866,15 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
 ///              ],
 ///              "properties": {
 ///                "backends": {
-///                  "anyOf": [
-///                    {
-///                      "type": "array",
-///                      "items": false,
-///                      "maxItems": 1,
-///                      "minItems": 1,
-///                      "prefixItems": [
-///                        {
-///                          "type": "string",
-///                          "const": "direct"
-///                        }
-///                      ]
-///                    },
-///                    {
-///                      "type": "array",
-///                      "items": false,
-///                      "maxItems": 1,
-///                      "minItems": 1,
-///                      "prefixItems": [
-///                        {
-///                          "type": "string",
-///                          "const": "orca"
-///                        }
-///                      ]
-///                    }
-///                  ]
+///                  "type": "array",
+///                  "items": {
+///                    "enum": [
+///                      "direct",
+///                      "orca"
+///                    ]
+///                  },
+///                  "maxItems": 1,
+///                  "minItems": 1
 ///                }
 ///              },
 ///              "additionalProperties": false
@@ -8904,15 +8887,17 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
 ///              "properties": {
 ///                "kinds": {
 ///                  "type": "array",
-///                  "items": false,
-///                  "maxItems": 1,
-///                  "minItems": 1,
-///                  "prefixItems": [
+///                  "items": [
 ///                    {
 ///                      "type": "string",
-///                      "const": "ssh"
+///                      "enum": [
+///                        "ssh"
+///                      ]
 ///                    }
-///                  ]
+///                  ],
+///                  "additionalItems": false,
+///                  "maxItems": 1,
+///                  "minItems": 1
 ///                }
 ///              },
 ///              "additionalProperties": false
@@ -9350,32 +9335,15 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///          ],
 ///          "properties": {
 ///            "backends": {
-///              "anyOf": [
-///                {
-///                  "type": "array",
-///                  "items": false,
-///                  "maxItems": 1,
-///                  "minItems": 1,
-///                  "prefixItems": [
-///                    {
-///                      "type": "string",
-///                      "const": "direct"
-///                    }
-///                  ]
-///                },
-///                {
-///                  "type": "array",
-///                  "items": false,
-///                  "maxItems": 1,
-///                  "minItems": 1,
-///                  "prefixItems": [
-///                    {
-///                      "type": "string",
-///                      "const": "orca"
-///                    }
-///                  ]
-///                }
-///              ]
+///              "type": "array",
+///              "items": {
+///                "enum": [
+///                  "direct",
+///                  "orca"
+///                ]
+///              },
+///              "maxItems": 1,
+///              "minItems": 1
 ///            }
 ///          },
 ///          "additionalProperties": false
@@ -9388,15 +9356,17 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///          "properties": {
 ///            "kinds": {
 ///              "type": "array",
-///              "items": false,
-///              "maxItems": 1,
-///              "minItems": 1,
-///              "prefixItems": [
+///              "items": [
 ///                {
 ///                  "type": "string",
-///                  "const": "ssh"
+///                  "enum": [
+///                    "ssh"
+///                  ]
 ///                }
-///              ]
+///              ],
+///              "additionalItems": false,
+///              "maxItems": 1,
+///              "minItems": 1
 ///            }
 ///          },
 ///          "additionalProperties": false
@@ -9824,32 +9794,15 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
 ///      ],
 ///      "properties": {
 ///        "backends": {
-///          "anyOf": [
-///            {
-///              "type": "array",
-///              "items": false,
-///              "maxItems": 1,
-///              "minItems": 1,
-///              "prefixItems": [
-///                {
-///                  "type": "string",
-///                  "const": "direct"
-///                }
-///              ]
-///            },
-///            {
-///              "type": "array",
-///              "items": false,
-///              "maxItems": 1,
-///              "minItems": 1,
-///              "prefixItems": [
-///                {
-///                  "type": "string",
-///                  "const": "orca"
-///                }
-///              ]
-///            }
-///          ]
+///          "type": "array",
+///          "items": {
+///            "enum": [
+///              "direct",
+///              "orca"
+///            ]
+///          },
+///          "maxItems": 1,
+///          "minItems": 1
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -9862,15 +9815,17 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
 ///      "properties": {
 ///        "kinds": {
 ///          "type": "array",
-///          "items": false,
-///          "maxItems": 1,
-///          "minItems": 1,
-///          "prefixItems": [
+///          "items": [
 ///            {
 ///              "type": "string",
-///              "const": "ssh"
+///              "enum": [
+///                "ssh"
+///              ]
 ///            }
-///          ]
+///          ],
+///          "additionalItems": false,
+///          "maxItems": 1,
+///          "minItems": 1
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -10070,32 +10025,15 @@ impl ::std::default::Default for HelloParamsManifestContributes {
 ///  ],
 ///  "properties": {
 ///    "backends": {
-///      "anyOf": [
-///        {
-///          "type": "array",
-///          "items": false,
-///          "maxItems": 1,
-///          "minItems": 1,
-///          "prefixItems": [
-///            {
-///              "type": "string",
-///              "const": "direct"
-///            }
-///          ]
-///        },
-///        {
-///          "type": "array",
-///          "items": false,
-///          "maxItems": 1,
-///          "minItems": 1,
-///          "prefixItems": [
-///            {
-///              "type": "string",
-///              "const": "orca"
-///            }
-///          ]
-///        }
-///      ]
+///      "type": "array",
+///      "items": {
+///        "enum": [
+///          "direct",
+///          "orca"
+///        ]
+///      },
+///      "maxItems": 1,
+///      "minItems": 1
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -10105,76 +10043,21 @@ impl ::std::default::Default for HelloParamsManifestContributes {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct HelloParamsManifestContributesExecutor {
-    pub backends: HelloParamsManifestContributesExecutorBackends,
+    pub backends: [HelloParamsManifestContributesExecutorBackendsItem; 1usize],
 }
-///`HelloParamsManifestContributesExecutorBackends`
+///`HelloParamsManifestContributesExecutorBackendsItem`
 ///
 /// <details><summary>JSON schema</summary>
 ///
 /// ```json
 ///{
-///  "anyOf": [
-///    {
-///      "type": "array",
-///      "items": false,
-///      "maxItems": 1,
-///      "minItems": 1,
-///      "prefixItems": [
-///        {
-///          "type": "string",
-///          "const": "direct"
-///        }
-///      ]
-///    },
-///    {
-///      "type": "array",
-///      "items": false,
-///      "maxItems": 1,
-///      "minItems": 1,
-///      "prefixItems": [
-///        {
-///          "type": "string",
-///          "const": "orca"
-///        }
-///      ]
-///    }
+///  "enum": [
+///    "direct",
+///    "orca"
 ///  ]
 ///}
 /// ```
 /// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum HelloParamsManifestContributesExecutorBackends {
-    Variant0([HelloParamsManifestContributesExecutorBackendsVariant0Item; 1usize]),
-    Variant1([HelloParamsManifestContributesExecutorBackendsVariant1Item; 1usize]),
-}
-impl ::std::convert::From<&Self> for HelloParamsManifestContributesExecutorBackends {
-    fn from(value: &HelloParamsManifestContributesExecutorBackends) -> Self {
-        value.clone()
-    }
-}
-impl ::std::convert::From<[HelloParamsManifestContributesExecutorBackendsVariant0Item; 1usize]>
-    for HelloParamsManifestContributesExecutorBackends
-{
-    fn from(value: [HelloParamsManifestContributesExecutorBackendsVariant0Item; 1usize]) -> Self {
-        Self::Variant0(value)
-    }
-}
-impl ::std::convert::From<[HelloParamsManifestContributesExecutorBackendsVariant1Item; 1usize]>
-    for HelloParamsManifestContributesExecutorBackends
-{
-    fn from(value: [HelloParamsManifestContributesExecutorBackendsVariant1Item; 1usize]) -> Self {
-        Self::Variant1(value)
-    }
-}
-///`HelloParamsManifestContributesExecutorBackendsVariant0Item`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///false
-/// ```
-/// </details>
 #[derive(
     ::serde::Deserialize,
     ::serde::Serialize,
@@ -10187,38 +10070,39 @@ impl ::std::convert::From<[HelloParamsManifestContributesExecutorBackendsVariant
     PartialEq,
     PartialOrd,
 )]
-#[serde(deny_unknown_fields)]
-pub enum HelloParamsManifestContributesExecutorBackendsVariant0Item {}
-impl ::std::convert::From<&Self> for HelloParamsManifestContributesExecutorBackendsVariant0Item {
-    fn from(value: &HelloParamsManifestContributesExecutorBackendsVariant0Item) -> Self {
+pub enum HelloParamsManifestContributesExecutorBackendsItem {
+    #[serde(rename = "direct")]
+    Direct,
+    #[serde(rename = "orca")]
+    Orca,
+}
+impl ::std::convert::From<&Self> for HelloParamsManifestContributesExecutorBackendsItem {
+    fn from(value: &HelloParamsManifestContributesExecutorBackendsItem) -> Self {
         value.clone()
     }
 }
-///`HelloParamsManifestContributesExecutorBackendsVariant1Item`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///false
-/// ```
-/// </details>
-#[derive(
-    ::serde::Deserialize,
-    ::serde::Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-#[serde(deny_unknown_fields)]
-pub enum HelloParamsManifestContributesExecutorBackendsVariant1Item {}
-impl ::std::convert::From<&Self> for HelloParamsManifestContributesExecutorBackendsVariant1Item {
-    fn from(value: &HelloParamsManifestContributesExecutorBackendsVariant1Item) -> Self {
-        value.clone()
+impl ::std::fmt::Display for HelloParamsManifestContributesExecutorBackendsItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Direct => f.write_str("direct"),
+            Self::Orca => f.write_str("orca"),
+        }
+    }
+}
+impl ::std::str::FromStr for HelloParamsManifestContributesExecutorBackendsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "direct" => Ok(Self::Direct),
+            "orca" => Ok(Self::Orca),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for HelloParamsManifestContributesExecutorBackendsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`HelloParamsManifestContributesHostRunner`
@@ -10234,15 +10118,17 @@ impl ::std::convert::From<&Self> for HelloParamsManifestContributesExecutorBacke
 ///  "properties": {
 ///    "kinds": {
 ///      "type": "array",
-///      "items": false,
-///      "maxItems": 1,
-///      "minItems": 1,
-///      "prefixItems": [
+///      "items": [
 ///        {
 ///          "type": "string",
-///          "const": "ssh"
+///          "enum": [
+///            "ssh"
+///          ]
 ///        }
-///      ]
+///      ],
+///      "additionalItems": false,
+///      "maxItems": 1,
+///      "minItems": 1
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -10252,14 +10138,19 @@ impl ::std::convert::From<&Self> for HelloParamsManifestContributesExecutorBacke
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct HelloParamsManifestContributesHostRunner {
-    pub kinds: [HelloParamsManifestContributesHostRunnerKindsItem; 1usize],
+    pub kinds: (HelloParamsManifestContributesHostRunnerKindsItem0,),
 }
-///`HelloParamsManifestContributesHostRunnerKindsItem`
+///`HelloParamsManifestContributesHostRunnerKindsItem0`
 ///
 /// <details><summary>JSON schema</summary>
 ///
 /// ```json
-///false
+///{
+///  "type": "string",
+///  "enum": [
+///    "ssh"
+///  ]
+///}
 /// ```
 /// </details>
 #[derive(
@@ -10274,11 +10165,35 @@ pub struct HelloParamsManifestContributesHostRunner {
     PartialEq,
     PartialOrd,
 )]
-#[serde(deny_unknown_fields)]
-pub enum HelloParamsManifestContributesHostRunnerKindsItem {}
-impl ::std::convert::From<&Self> for HelloParamsManifestContributesHostRunnerKindsItem {
-    fn from(value: &HelloParamsManifestContributesHostRunnerKindsItem) -> Self {
+pub enum HelloParamsManifestContributesHostRunnerKindsItem0 {
+    #[serde(rename = "ssh")]
+    Ssh,
+}
+impl ::std::convert::From<&Self> for HelloParamsManifestContributesHostRunnerKindsItem0 {
+    fn from(value: &HelloParamsManifestContributesHostRunnerKindsItem0) -> Self {
         value.clone()
+    }
+}
+impl ::std::fmt::Display for HelloParamsManifestContributesHostRunnerKindsItem0 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Ssh => f.write_str("ssh"),
+        }
+    }
+}
+impl ::std::str::FromStr for HelloParamsManifestContributesHostRunnerKindsItem0 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "ssh" => Ok(Self::Ssh),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for HelloParamsManifestContributesHostRunnerKindsItem0 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`HelloParamsManifestEntry`
@@ -10902,32 +10817,15 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
 ///          ],
 ///          "properties": {
 ///            "backends": {
-///              "anyOf": [
-///                {
-///                  "type": "array",
-///                  "items": false,
-///                  "maxItems": 1,
-///                  "minItems": 1,
-///                  "prefixItems": [
-///                    {
-///                      "type": "string",
-///                      "const": "direct"
-///                    }
-///                  ]
-///                },
-///                {
-///                  "type": "array",
-///                  "items": false,
-///                  "maxItems": 1,
-///                  "minItems": 1,
-///                  "prefixItems": [
-///                    {
-///                      "type": "string",
-///                      "const": "orca"
-///                    }
-///                  ]
-///                }
-///              ]
+///              "type": "array",
+///              "items": {
+///                "enum": [
+///                  "direct",
+///                  "orca"
+///                ]
+///              },
+///              "maxItems": 1,
+///              "minItems": 1
 ///            }
 ///          },
 ///          "additionalProperties": false
@@ -10940,15 +10838,17 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
 ///          "properties": {
 ///            "kinds": {
 ///              "type": "array",
-///              "items": false,
-///              "maxItems": 1,
-///              "minItems": 1,
-///              "prefixItems": [
+///              "items": [
 ///                {
 ///                  "type": "string",
-///                  "const": "ssh"
+///                  "enum": [
+///                    "ssh"
+///                  ]
 ///                }
-///              ]
+///              ],
+///              "additionalItems": false,
+///              "maxItems": 1,
+///              "minItems": 1
 ///            }
 ///          },
 ///          "additionalProperties": false
@@ -11376,32 +11276,15 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
 ///      ],
 ///      "properties": {
 ///        "backends": {
-///          "anyOf": [
-///            {
-///              "type": "array",
-///              "items": false,
-///              "maxItems": 1,
-///              "minItems": 1,
-///              "prefixItems": [
-///                {
-///                  "type": "string",
-///                  "const": "direct"
-///                }
-///              ]
-///            },
-///            {
-///              "type": "array",
-///              "items": false,
-///              "maxItems": 1,
-///              "minItems": 1,
-///              "prefixItems": [
-///                {
-///                  "type": "string",
-///                  "const": "orca"
-///                }
-///              ]
-///            }
-///          ]
+///          "type": "array",
+///          "items": {
+///            "enum": [
+///              "direct",
+///              "orca"
+///            ]
+///          },
+///          "maxItems": 1,
+///          "minItems": 1
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -11414,15 +11297,17 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
 ///      "properties": {
 ///        "kinds": {
 ///          "type": "array",
-///          "items": false,
-///          "maxItems": 1,
-///          "minItems": 1,
-///          "prefixItems": [
+///          "items": [
 ///            {
 ///              "type": "string",
-///              "const": "ssh"
+///              "enum": [
+///                "ssh"
+///              ]
 ///            }
-///          ]
+///          ],
+///          "additionalItems": false,
+///          "maxItems": 1,
+///          "minItems": 1
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -11622,32 +11507,15 @@ impl ::std::default::Default for ManifestContributes {
 ///  ],
 ///  "properties": {
 ///    "backends": {
-///      "anyOf": [
-///        {
-///          "type": "array",
-///          "items": false,
-///          "maxItems": 1,
-///          "minItems": 1,
-///          "prefixItems": [
-///            {
-///              "type": "string",
-///              "const": "direct"
-///            }
-///          ]
-///        },
-///        {
-///          "type": "array",
-///          "items": false,
-///          "maxItems": 1,
-///          "minItems": 1,
-///          "prefixItems": [
-///            {
-///              "type": "string",
-///              "const": "orca"
-///            }
-///          ]
-///        }
-///      ]
+///      "type": "array",
+///      "items": {
+///        "enum": [
+///          "direct",
+///          "orca"
+///        ]
+///      },
+///      "maxItems": 1,
+///      "minItems": 1
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -11657,76 +11525,21 @@ impl ::std::default::Default for ManifestContributes {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ManifestContributesExecutor {
-    pub backends: ManifestContributesExecutorBackends,
+    pub backends: [ManifestContributesExecutorBackendsItem; 1usize],
 }
-///`ManifestContributesExecutorBackends`
+///`ManifestContributesExecutorBackendsItem`
 ///
 /// <details><summary>JSON schema</summary>
 ///
 /// ```json
 ///{
-///  "anyOf": [
-///    {
-///      "type": "array",
-///      "items": false,
-///      "maxItems": 1,
-///      "minItems": 1,
-///      "prefixItems": [
-///        {
-///          "type": "string",
-///          "const": "direct"
-///        }
-///      ]
-///    },
-///    {
-///      "type": "array",
-///      "items": false,
-///      "maxItems": 1,
-///      "minItems": 1,
-///      "prefixItems": [
-///        {
-///          "type": "string",
-///          "const": "orca"
-///        }
-///      ]
-///    }
+///  "enum": [
+///    "direct",
+///    "orca"
 ///  ]
 ///}
 /// ```
 /// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum ManifestContributesExecutorBackends {
-    Variant0([ManifestContributesExecutorBackendsVariant0Item; 1usize]),
-    Variant1([ManifestContributesExecutorBackendsVariant1Item; 1usize]),
-}
-impl ::std::convert::From<&Self> for ManifestContributesExecutorBackends {
-    fn from(value: &ManifestContributesExecutorBackends) -> Self {
-        value.clone()
-    }
-}
-impl ::std::convert::From<[ManifestContributesExecutorBackendsVariant0Item; 1usize]>
-    for ManifestContributesExecutorBackends
-{
-    fn from(value: [ManifestContributesExecutorBackendsVariant0Item; 1usize]) -> Self {
-        Self::Variant0(value)
-    }
-}
-impl ::std::convert::From<[ManifestContributesExecutorBackendsVariant1Item; 1usize]>
-    for ManifestContributesExecutorBackends
-{
-    fn from(value: [ManifestContributesExecutorBackendsVariant1Item; 1usize]) -> Self {
-        Self::Variant1(value)
-    }
-}
-///`ManifestContributesExecutorBackendsVariant0Item`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///false
-/// ```
-/// </details>
 #[derive(
     ::serde::Deserialize,
     ::serde::Serialize,
@@ -11739,38 +11552,39 @@ impl ::std::convert::From<[ManifestContributesExecutorBackendsVariant1Item; 1usi
     PartialEq,
     PartialOrd,
 )]
-#[serde(deny_unknown_fields)]
-pub enum ManifestContributesExecutorBackendsVariant0Item {}
-impl ::std::convert::From<&Self> for ManifestContributesExecutorBackendsVariant0Item {
-    fn from(value: &ManifestContributesExecutorBackendsVariant0Item) -> Self {
+pub enum ManifestContributesExecutorBackendsItem {
+    #[serde(rename = "direct")]
+    Direct,
+    #[serde(rename = "orca")]
+    Orca,
+}
+impl ::std::convert::From<&Self> for ManifestContributesExecutorBackendsItem {
+    fn from(value: &ManifestContributesExecutorBackendsItem) -> Self {
         value.clone()
     }
 }
-///`ManifestContributesExecutorBackendsVariant1Item`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///false
-/// ```
-/// </details>
-#[derive(
-    ::serde::Deserialize,
-    ::serde::Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-#[serde(deny_unknown_fields)]
-pub enum ManifestContributesExecutorBackendsVariant1Item {}
-impl ::std::convert::From<&Self> for ManifestContributesExecutorBackendsVariant1Item {
-    fn from(value: &ManifestContributesExecutorBackendsVariant1Item) -> Self {
-        value.clone()
+impl ::std::fmt::Display for ManifestContributesExecutorBackendsItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Direct => f.write_str("direct"),
+            Self::Orca => f.write_str("orca"),
+        }
+    }
+}
+impl ::std::str::FromStr for ManifestContributesExecutorBackendsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "direct" => Ok(Self::Direct),
+            "orca" => Ok(Self::Orca),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ManifestContributesExecutorBackendsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`ManifestContributesHostRunner`
@@ -11786,15 +11600,17 @@ impl ::std::convert::From<&Self> for ManifestContributesExecutorBackendsVariant1
 ///  "properties": {
 ///    "kinds": {
 ///      "type": "array",
-///      "items": false,
-///      "maxItems": 1,
-///      "minItems": 1,
-///      "prefixItems": [
+///      "items": [
 ///        {
 ///          "type": "string",
-///          "const": "ssh"
+///          "enum": [
+///            "ssh"
+///          ]
 ///        }
-///      ]
+///      ],
+///      "additionalItems": false,
+///      "maxItems": 1,
+///      "minItems": 1
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -11804,14 +11620,19 @@ impl ::std::convert::From<&Self> for ManifestContributesExecutorBackendsVariant1
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct ManifestContributesHostRunner {
-    pub kinds: [ManifestContributesHostRunnerKindsItem; 1usize],
+    pub kinds: (ManifestContributesHostRunnerKindsItem0,),
 }
-///`ManifestContributesHostRunnerKindsItem`
+///`ManifestContributesHostRunnerKindsItem0`
 ///
 /// <details><summary>JSON schema</summary>
 ///
 /// ```json
-///false
+///{
+///  "type": "string",
+///  "enum": [
+///    "ssh"
+///  ]
+///}
 /// ```
 /// </details>
 #[derive(
@@ -11826,11 +11647,35 @@ pub struct ManifestContributesHostRunner {
     PartialEq,
     PartialOrd,
 )]
-#[serde(deny_unknown_fields)]
-pub enum ManifestContributesHostRunnerKindsItem {}
-impl ::std::convert::From<&Self> for ManifestContributesHostRunnerKindsItem {
-    fn from(value: &ManifestContributesHostRunnerKindsItem) -> Self {
+pub enum ManifestContributesHostRunnerKindsItem0 {
+    #[serde(rename = "ssh")]
+    Ssh,
+}
+impl ::std::convert::From<&Self> for ManifestContributesHostRunnerKindsItem0 {
+    fn from(value: &ManifestContributesHostRunnerKindsItem0) -> Self {
         value.clone()
+    }
+}
+impl ::std::fmt::Display for ManifestContributesHostRunnerKindsItem0 {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Ssh => f.write_str("ssh"),
+        }
+    }
+}
+impl ::std::str::FromStr for ManifestContributesHostRunnerKindsItem0 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "ssh" => Ok(Self::Ssh),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ManifestContributesHostRunnerKindsItem0 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`ManifestEntry`

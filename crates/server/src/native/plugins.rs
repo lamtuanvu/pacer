@@ -11,7 +11,7 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, NativeOp, OpFuture},
 };
-use pacer_plugin_host::public::{Entry, PublicOperations, Runtime};
+use pacer_plugin_ops::public::{Entry, PublicOperations, Runtime};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -28,7 +28,7 @@ fn requires_owner(_: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 pub(super) fn operations() -> Vec<NativeOp> {
-    pacer_plugin_host::public::OPERATIONS
+    pacer_plugin_ops::public::OPERATIONS
         .iter()
         .filter(|n| **n != "plugin.install")
         .map(|name| NativeOp {
@@ -208,7 +208,7 @@ impl Owner {
                 ))
                 .header("authorization", format!("Bearer {}", self.target.1))
                 .header("content-type", "application/json")
-                .body(Body::from(pacer_plugin_host::settings::js_json(&body)))
+                .body(Body::from(pacer_plugin_ops::settings::ipc_json(&body)))
                 .map_err(internal)?;
             let response = client.request(req).await.map_err(|_| {
                 CoreError::new(Code::Unavailable, "plugin process owner is unavailable")
@@ -222,7 +222,7 @@ impl Owner {
             let bytes = axum::body::to_bytes(Body::new(response.into_body()), 8 * 1024 * 1024)
                 .await
                 .map_err(internal)?;
-            let value: Value = pacer_plugin_host::json::parse(&bytes).map_err(|e| {
+            let value: Value = pacer_plugin_ops::json::parse(&bytes).map_err(|e| {
                 if e == "JSON nesting exceeds 512 levels" {
                     CoreError::new(Code::InvalidInput, "This plugin's view couldn't be shown")
                 } else {

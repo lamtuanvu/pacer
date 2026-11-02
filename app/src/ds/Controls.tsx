@@ -1,8 +1,9 @@
+import { useUniqueId as useId } from './useUniqueId';
 import { classNames as classes } from "./classNames";
 import { useDensity } from "./Density";
 import { forwardRef } from "preact/compat";
 import { cloneElement, isValidElement, toChildArray, type JSX, type ComponentChildren, type VNode } from "preact";
-import { useId, useLayoutEffect, useRef } from "preact/hooks";
+import { useLayoutEffect, useRef } from "preact/hooks";
 import { ChoicePicker } from "./ChoicePicker";
 import { Icon } from "./icons";
 
