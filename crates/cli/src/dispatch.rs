@@ -1,5 +1,6 @@
 use crate::core_exec::{CoreMissing, child_env, exec_core, resolve_core};
 use std::collections::HashMap;
+mod guard;
 
 pub fn main(argv: Vec<String>) -> i32 {
     let args = argv.get(1..).unwrap_or_default();
@@ -18,6 +19,13 @@ pub fn main(argv: Vec<String>) -> i32 {
     }
     if args.first().is_some_and(|a| a == "status") && args.iter().any(|a| a == "--line") {
         return crate::status_line::run(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "guard")
+        && std::env::var_os("PACER_INTERNAL_NATIVE_BOOTSTRAP").is_none()
+        && std::env::var("PACER_ROLE").is_ok_and(|v| v == "executor")
+        && std::env::var("PACER_ENFORCEMENT_MODE").is_ok_and(|v| v == "strict")
+    {
+        return guard::run(&args[1..]);
     }
     let exe = match std::env::current_exe().and_then(|p| p.canonicalize()) {
         Ok(exe) => exe,
@@ -76,7 +84,15 @@ pub fn main(argv: Vec<String>) -> i32 {
     }
     match resolve_core(&env, &exe) {
         Ok(core) => {
-            let env = child_env(&env, &exe);
+            let mut child = child_env(&env, &exe);
+            // The core consumes this input before the guard can run. Preserve it
+            // only for this command so its startup validation remains authoritative.
+            if args.first().is_some_and(|arg| arg == "guard")
+                && let Some(value) = env.get("PACER_INTERNAL_NATIVE_BOOTSTRAP")
+            {
+                child.insert("PACER_INTERNAL_NATIVE_BOOTSTRAP".into(), value.clone());
+            }
+            let env = child;
             // Only the exact transport forms run natively; usage, help and errors stay the core's.
             let words: Vec<&str> = args.iter().map(String::as_str).collect();
             if words == ["api", "--stdio"] {
