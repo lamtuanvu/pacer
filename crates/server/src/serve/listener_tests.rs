@@ -163,6 +163,19 @@ async fn public_listener_forwards_to_available_core() {
         .unwrap()
         .unwrap();
     assert_eq!(echoed.to_text().unwrap(), "echo");
+    let bytes = vec![0, 255, 27, 128];
+    websocket
+        .send(tokio_tungstenite::tungstenite::Message::Binary(
+            bytes.clone().into(),
+        ))
+        .await
+        .unwrap();
+    let echoed = tokio::time::timeout(std::time::Duration::from_secs(2), websocket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(echoed.into_data().as_ref(), bytes.as_slice());
     websocket.close(None).await.unwrap();
     core.shutdown().await;
     server.abort();

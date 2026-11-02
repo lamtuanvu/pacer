@@ -104,20 +104,23 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 #[test]
-fn embedded_assets_match_fresh_web_output() {
+fn embedded_assets_match_typescript_bundle() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let output = std::process::Command::new("bun")
-        .args(["-e", "import { buildApp } from './app/build.ts'; process.stdout.write(JSON.stringify(await buildApp()));"])
+        .args(["-e", "import { APP_FILES } from './src/app/assets.generated.ts'; process.stdout.write(JSON.stringify(APP_FILES));"])
         .current_dir(root).output().unwrap();
     assert!(
         output.status.success(),
-        "fresh web build failed: {}",
+        "asset import failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let fresh: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let typescript: Value = serde_json::from_slice(&output.stdout).unwrap();
     let embedded: Value =
         serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/app-assets.json"))).unwrap();
-    assert_eq!(fresh, embedded, "embedded web output is stale");
+    assert_eq!(
+        typescript, embedded,
+        "embedded assets differ from TypeScript"
+    );
 }
 
 fn fixture() -> (tempfile::TempDir, Ctx) {
