@@ -573,7 +573,7 @@ fn repeated_auth_headers_use_fetch_combination() {
     let cookie = format!("pacer_session={}", sessions::create(&ctx).unwrap());
     for (name, first, second, expected) in [
         ("authorization", format!("Bearer {token}"), "other", 401),
-        ("cookie", cookie.clone(), "other=1", 401),
+        ("cookie", cookie.clone(), "other=1", 200),
         (
             "origin",
             "http://localhost:4317".into(),
@@ -605,6 +605,31 @@ fn repeated_auth_headers_use_fetch_combination() {
             status_of(auth::classify(&request, 4317, &token, &ctx)),
             expected,
             "{name}"
+        );
+    }
+}
+
+#[test]
+fn repeated_cookie_fields_preserve_session_order() {
+    let (_dir, ctx) = fixture();
+    let token = auth::ensure_token(&ctx).unwrap();
+    let cookie = format!("pacer_session={}", sessions::create(&ctx).unwrap());
+    for (first, second, expected) in [
+        ("other=1", cookie.as_str(), 200),
+        (cookie.as_str(), "other=1", 200),
+        ("pacer_session=bad", cookie.as_str(), 401),
+        (cookie.as_str(), "pacer_session=bad", 200),
+    ] {
+        let req = Request::builder()
+            .uri("/app/")
+            .header("host", "localhost:4317")
+            .header("cookie", first)
+            .header("cookie", second)
+            .body(())
+            .unwrap();
+        assert_eq!(
+            status_of(auth::classify(&req, 4317, &token, &ctx)),
+            expected
         );
     }
 }

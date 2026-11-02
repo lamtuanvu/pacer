@@ -43,7 +43,8 @@ use pacer_foundation::{
 };
 use serde_json::Value;
 use std::{collections::HashMap, io, sync::Arc};
-// Fetch Headers.get combines repeated values in arrival order with comma-space.
+// Bun's HTTP listener joins Cookie fields with semicolon-space; Fetch joins
+// other repeated fields with comma-space, in arrival order.
 fn header_value(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
     let values = headers.get_all(name);
     let mut iter = values.iter().peekable();
@@ -51,7 +52,11 @@ fn header_value(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
     let mut combined = Vec::new();
     for (index, value) in iter.enumerate() {
         if index > 0 {
-            combined.extend_from_slice(b", ");
+            combined.extend_from_slice(if name.eq_ignore_ascii_case("cookie") {
+                b"; "
+            } else {
+                b", "
+            });
         }
         combined.extend_from_slice(value.as_bytes());
     }

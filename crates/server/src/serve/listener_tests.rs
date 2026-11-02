@@ -28,6 +28,7 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         .await
         .unwrap();
     let port = socket.local_addr().unwrap().port();
+    let session = sessions::create(&ctx.at_now()).unwrap();
     let state = Arc::new(Listener {
         core: core.clone(),
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
@@ -46,6 +47,13 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         .unwrap();
     });
     let bearer = "Authorization: Bearer token\r\n";
+    for headers in [
+        format!("Cookie: other=1\r\nCookie: pacer_session={session}\r\n"),
+        format!("Cookie: pacer_session={session}\r\nCookie: other=1\r\n"),
+    ] {
+        let response = request(port, "GET", "/app/", &headers).await;
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    }
     for (method, path, headers, status) in [
         ("GET", "/app/", bearer, "200"),
         ("HEAD", "/app/app.js", bearer, "200"),
@@ -90,7 +98,7 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
 
 #[tokio::test]
 async fn public_listener_forwards_to_available_core() {
-    let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req,s){const path=new URL(req.url).pathname;if(path.endsWith('/session')){if(s.upgrade(req))return;return new Response('upgrade required',{status:426})}return new Response('core:'+path,{status:path.includes('missing.js')?404:200})},websocket:{message(ws,message){ws.send(message)}}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
+    let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req,s){const path=new URL(req.url).pathname;if(path.endsWith('/session')){if(s.upgrade(req,{data:req.headers.get('x-test')}))return;return new Response('upgrade required',{status:426})}return new Response('core:'+path,{status:path.includes('missing.js')?404:200})},websocket:{message(ws,message){ws.send(message === 'headers' ? ws.data : message)}}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
     let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
         .map(|dir| dir.join("bun"))
         .find(|path| path.is_file())
@@ -159,8 +167,22 @@ async fn public_listener_forwards_to_available_core() {
     upgrade
         .headers_mut()
         .insert("authorization", "Bearer token".parse().unwrap());
+    upgrade
+        .headers_mut()
+        .append("x-test", "first".parse().unwrap());
+    upgrade
+        .headers_mut()
+        .append("x-test", "second".parse().unwrap());
     let (mut websocket, response) = tokio_tungstenite::connect_async(upgrade).await.unwrap();
     assert_eq!(response.status().as_u16(), 101);
+    websocket
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            "headers".into(),
+        ))
+        .await
+        .unwrap();
+    let headers = websocket.next().await.unwrap().unwrap();
+    assert_eq!(headers.to_text().unwrap(), "first, second");
     websocket
         .send(tokio_tungstenite::tungstenite::Message::Text("echo".into()))
         .await
