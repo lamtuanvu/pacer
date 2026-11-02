@@ -37,3 +37,13 @@ test("account schema distinguishes managed and OpenCode provider input", () => {
   expect(accepted("account.remove", {name: "work-1", delete_home: true})).toBe(true);
   expect(accepted("account.remove", {name: "../work"})).toBe(false);
 });
+
+test("shared strategy account boundaries match the TypeScript validator", async () => {
+  const {validateStrategy} = await import("../src/config/strategy");
+  const cases = await Bun.file("test/fixtures/strategy-read/account-parity.json").json() as {name: string; raw: unknown; valid: boolean}[];
+  for (const item of cases) {
+    let valid = true;
+    try { validateStrategy(item.raw, "strategy.yaml", "parity"); } catch { valid = false; }
+    expect(valid).toBe(item.valid);
+  }
+});

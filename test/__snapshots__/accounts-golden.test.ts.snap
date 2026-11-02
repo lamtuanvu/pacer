@@ -190,10 +190,7 @@ exports[`account and endpoint operation results 1`] = `
           "claude-code",
         ],
         "signedIn": false,
-        "signin_command": 
-"CLAUDE_CONFIG_DIR=$HOME/.claude claude
-# Then run /login to sign in."
-,
+        "signin_command": "CLAUDE_CONFIG_DIR=$HOME/.claude claude\\n# Then run /login to sign in.",
         "source": "default",
         "usage": "quota",
         "usageCheck": {
