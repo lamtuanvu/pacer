@@ -5,11 +5,11 @@ import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
 
-test("CI runs the Linux restart survival check in full mode", () => {
+test("CI runs the Linux restart survival check in full mode outside pull requests", () => {
   const workflow = readFileSync(join(root, ".github/workflows/ci.yml"), "utf8");
   const job = workflow.split("\n  linux-service-survival:\n")[1]?.split(/\n  [a-z-]+:\n/)[0] ?? "";
   expect(job).toContain("runs-on: ubuntu-latest");
-  expect(job).toContain("if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}");
+  expect(job).toContain("if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' && github.event_name != 'pull_request' }}");
   expect(job).toContain("sudo loginctl enable-linger");
   expect(job).toContain("run: bun scripts/ci/service-survival.ts");
 });

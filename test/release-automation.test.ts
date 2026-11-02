@@ -13,7 +13,7 @@ test("CI keeps production and test-enabled front doors separate for native dispa
   const steps = load("ci.yml").jobs.test!.steps;
   const build = steps.find(step => step.name === "Build production and native dispatch test front doors");
   expect(build).toBeDefined();
-  expect(build!.if).toBe("${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}");
+  expect(build!.if).toBe("${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}");
   expect(steps.indexOf(build!)).toBeLessThan(steps.findIndex(step => step.name === "Test"));
   const lines = build!.run!.trim().split("\n").map(line => line.trim());
   expect(lines.filter(line => line.startsWith("cargo build --locked -p pacer"))).toEqual([

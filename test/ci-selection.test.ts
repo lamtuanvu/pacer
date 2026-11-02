@@ -95,7 +95,8 @@ test("gate rejects missing classification and missing/failed required evidence",
   for (const changes of ["failure", "cancelled", "skipped"]) expect(run(changes, "false", "skipped")).not.toBe(0);
   for (const evidence of ["failure", "cancelled", "skipped"]) expect(run("success", "true", evidence)).not.toBe(0);
   expect(run("success", "false", "skipped", "failure")).not.toBe(0);
-  for (const step of jobs.test.steps.slice(0, -1)) expect(step.if).toContain("needs.changes.outputs.bun == 'true'");
+  expect(jobs.test.env.RUN_CHECKS).toContain("needs.changes.outputs.bun == 'true'");
+  for (const step of jobs.test.steps.slice(0, -1)) expect(step.if).toContain("env.RUN_CHECKS == 'true'");
   expect(jobs.rust.if).toContain("outputs.rust");
   expect(jobs.e2e.if).toContain("outputs.e2e");
   expect(jobs["ui-evidence"].if).toContain("outputs.ui");
@@ -199,6 +200,14 @@ test("workflow selection retains full-history detection and full scheduled CodeQ
   expect(codeql.jobs.analyze.if).toContain("needs.changes.result != 'success'");
   const ci = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
   expect(ci.jobs.test["runs-on"]).toContain("|| 'ubuntu-latest'");
+  // PRs run only Linux logic tests; required Test names stay, macOS work moves to main/schedule/dispatch.
+  const prLinuxOnly = "github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'";
+  expect(ci.jobs.test.strategy.matrix.os).toEqual(["ubuntu-latest", "macos-latest"]);
+  expect(ci.jobs.test["runs-on"]).toContain(prLinuxOnly);
+  expect(ci.jobs.test.env.RUN_CHECKS).toContain(prLinuxOnly);
+  expect(ci.jobs.rust.strategy.matrix.os).toContain("github.event_name == 'pull_request' && '[\"ubuntu-latest\"]'");
+  expect(ci.jobs.rust.strategy.matrix.os).toContain("macos-latest");
+  for (const job of ["e2e", "linux-service-survival"]) expect(ci.jobs[job].if).toContain("github.event_name != 'pull_request'");
   for (const step of ci.jobs.rust.steps.filter((step: any) => /timings/i.test(step.name))) {
     expect(step.if).toContain("outputs.timings == 'true'");
   }

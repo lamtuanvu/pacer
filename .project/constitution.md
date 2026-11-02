@@ -151,6 +151,10 @@ run focused tests, typechecks and host artifact smoke checks, while scheduled an
 manual CI run full validation. Source mappings retain their affected integration jobs. Unknown
 or unresolvable changes select full validation. The Test check names, security
 scans, readiness gates, release validation and local CT-11 requirements remain.
+Pull requests run only the OS-independent logic tests on Linux; macOS Test and Rust
+work, the macOS install/sign-in/delegation e2e and the Linux service survival check
+run on main pushes, schedule and manual dispatch. Both required Test names still
+report on every PR.
 See [CI selection](../docs/testing/ci-selection.md) for the current conservative
 mapping and coverage tradeoffs.
 
