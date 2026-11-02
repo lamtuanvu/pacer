@@ -1,13 +1,20 @@
 //! Call-issued root snapshots for the shadow host's exact-file read methods.
 //! Each request opens a no-follow descriptor and checks the observed file identity.
-use crate::{BrokerError, ReadResource};
+use crate::{BrokerError, CallAuthority, ReadResource, ScopeRoots};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use nix::{
+    dir::Dir,
+    fcntl::{AtFlags, OFlag, openat},
+    sys::stat::{FileStat, Mode, SFlag, fstat, fstatat},
+};
 use serde_json::{Value, json};
 use std::{
-    fs::{self, Metadata, OpenOptions},
+    fs::{self, File, Metadata},
     io::{Read, Seek, SeekFrom},
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
+    os::unix::fs::MetadataExt,
+    os::{fd::AsFd, unix::ffi::OsStrExt},
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 const CHUNK: u64 = 256 * 1024;
@@ -22,15 +29,24 @@ struct Image {
 /// Prepare exact file resources at call issuance, before any plugin RPC.
 pub struct NativeRead {
     images: Vec<Image>,
+    directories: Vec<Image>,
 }
 
 impl NativeRead {
     pub fn prepare(resources: &[ReadResource]) -> Result<Self, BrokerError> {
         let mut images = Vec::new();
-        for resource in resources.iter().filter(|r| r.kind == "file") {
+        let mut directories = Vec::new();
+        for resource in resources
+            .iter()
+            .filter(|r| r.kind == "file" || r.kind == "codex-logs")
+        {
             crate::authority::valid_path(&resource.path)?;
             let path = Path::new(&resource.path);
-            let logical_parent = path.parent().ok_or(BrokerError::Invalid("read parent"))?;
+            let logical_parent = if resource.kind == "codex-logs" {
+                path
+            } else {
+                path.parent().ok_or(BrokerError::Invalid("read parent"))?
+            };
             let (parent, parent_identity) = match fs::canonicalize(logical_parent) {
                 Ok(parent) => {
                     let identity = fs::symlink_metadata(&parent)
@@ -43,14 +59,209 @@ impl NativeRead {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => (None, None),
                 Err(_) => return Err(BrokerError::Invalid("read root unavailable")),
             };
-            images.push(Image {
-                path: resource.path.clone(),
+            let image = Image {
+                path: if resource.kind == "codex-logs" {
+                    crate::authority::normalize_path(&resource.path)
+                } else {
+                    resource.path.clone()
+                },
                 logical_parent: logical_parent.to_path_buf(),
                 parent,
                 parent_identity,
-            });
+            };
+            if resource.kind == "codex-logs" {
+                directories.push(image);
+            } else {
+                images.push(image);
+            }
         }
-        Ok(Self { images })
+        Ok(Self {
+            images,
+            directories,
+        })
+    }
+
+    pub fn list(
+        &self,
+        params: &Value,
+        scopes: &[String],
+        scope_roots: &ScopeRoots,
+        authority: &CallAuthority,
+        deadline: Instant,
+    ) -> Result<Value, BrokerError> {
+        self.list_with_hook(params, scopes, scope_roots, authority, deadline, |_| {})
+    }
+
+    fn list_with_hook(
+        &self,
+        params: &Value,
+        scopes: &[String],
+        scope_roots: &ScopeRoots,
+        authority: &CallAuthority,
+        deadline: Instant,
+        mut on_directory: impl FnMut(&Path),
+    ) -> Result<Value, BrokerError> {
+        let dir = params
+            .get("dir")
+            .and_then(Value::as_str)
+            .ok_or(BrokerError::Invalid("dir"))?;
+        let image = self
+            .directories
+            .iter()
+            .find(|i| i.path == dir)
+            .ok_or(BrokerError::Invalid("read directory was not issued"))?;
+        authority.active()?;
+        let glob = params
+            .get("glob")
+            .and_then(Value::as_str)
+            .ok_or(BrokerError::Invalid("glob"))?;
+        if glob.is_empty()
+            || crate::js_semantics::utf16_len(glob) > 4096
+            || glob.starts_with('/')
+            || glob.contains('\0')
+            || glob
+                .split(['/', '\\'])
+                .any(|part| part == "." || part == "..")
+        {
+            return Err(BrokerError::Invalid("read glob"));
+        }
+        let limit = match params.get("limit") {
+            None => 1000,
+            Some(value) => crate::js_semantics::safe_u64(value)
+                .filter(|n| (1..=1000).contains(n))
+                .ok_or(BrokerError::Invalid("list limit"))? as usize,
+        };
+        let Some(root) = &image.parent else {
+            return Ok(json!({"files":[],"complete":true}));
+        };
+        check_root(image)?;
+        let patterns = expand_braces(glob, deadline)?;
+        let root_dir = open_directory(root)?;
+        if !image.parent_identity.as_ref().is_some_and(|old| {
+            fstat(&root_dir)
+                .is_ok_and(|now| now.st_dev as u64 == old.dev() && now.st_ino == old.ino())
+        }) {
+            return Err(BrokerError::Invalid("read root changed"));
+        }
+        let mut stack = vec![(
+            Dir::openat(&root_dir, ".", directory_flags(), Mode::empty())
+                .map_err(|_| BrokerError::Invalid("read directory unavailable"))?,
+            PathBuf::new(),
+        )];
+        let mut files: Vec<Value> = Vec::new();
+        let mut total = 0usize;
+        while let Some((mut directory, relative_dir)) = stack.pop() {
+            on_directory(&relative_dir);
+            authority.active()?;
+            if Instant::now() >= deadline {
+                return Err(BrokerError::Timeout);
+            }
+            let dir_fd = directory
+                .as_fd()
+                .try_clone_to_owned()
+                .map_err(|_| BrokerError::Invalid("read directory unavailable"))?;
+            for entry in directory.iter() {
+                authority.active()?;
+                if Instant::now() >= deadline {
+                    return Err(BrokerError::Timeout);
+                }
+                let entry = entry.map_err(|_| BrokerError::Invalid("read directory changed"))?;
+                let name = std::ffi::OsStr::from_bytes(entry.file_name().to_bytes());
+                if name.as_bytes() == b"." || name.as_bytes() == b".." {
+                    continue;
+                }
+                let relative = relative_dir.join(name);
+                let stat = match fstatat(&dir_fd, name, AtFlags::AT_SYMLINK_NOFOLLOW) {
+                    Ok(stat) => stat,
+                    Err(nix::errno::Errno::ENOENT) => continue,
+                    Err(_) => return Err(BrokerError::Invalid("read entry unavailable")),
+                };
+                let kind = SFlag::from_bits_truncate(stat.st_mode & libc::S_IFMT);
+                if kind == SFlag::S_IFLNK {
+                    continue;
+                }
+                if kind == SFlag::S_IFDIR {
+                    if patterns
+                        .iter()
+                        .any(|pattern| may_descend(pattern, &relative))
+                    {
+                        let child = Dir::openat(&dir_fd, name, directory_flags(), Mode::empty())
+                            .map_err(|_| BrokerError::Invalid("read directory changed"))?;
+                        if !fstat(&child)
+                            .is_ok_and(|now| now.st_dev == stat.st_dev && now.st_ino == stat.st_ino)
+                        {
+                            return Err(BrokerError::Invalid("read directory changed"));
+                        }
+                        stack.push((child, relative));
+                    }
+                    continue;
+                }
+                if kind != SFlag::S_IFREG {
+                    continue;
+                }
+                if !patterns
+                    .iter()
+                    .any(|pattern| matches_visible(pattern, &relative))
+                {
+                    continue;
+                }
+                let Some(name) = name.to_str() else {
+                    continue;
+                };
+                if !(name.starts_with("rollout-")
+                    && name.ends_with(".jsonl")
+                    && !name.contains(['\n', '\r', '\u{2028}', '\u{2029}']))
+                {
+                    continue;
+                }
+                let logical = Path::new(dir).join(&relative);
+                let Some(path_str) = logical.to_str() else {
+                    continue;
+                };
+                if !scope_roots.declares_path(scopes, path_str)? {
+                    continue;
+                }
+                let current = fstatat(&dir_fd, name, AtFlags::AT_SYMLINK_NOFOLLOW)
+                    .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+                if current.st_dev != stat.st_dev
+                    || current.st_ino != stat.st_ino
+                    || current.st_mode != stat.st_mode
+                    || current.st_size != stat.st_size
+                {
+                    return Err(BrokerError::Invalid("read entry changed"));
+                }
+                check_descendant(&root_dir, &relative_dir, &dir_fd)?;
+                total += 1;
+                let item = stat_info(path_str, &current);
+                let index = files
+                    .iter()
+                    .position(|old| {
+                        old["mtimeMs"].as_f64().unwrap_or(0.0)
+                            < item["mtimeMs"].as_f64().unwrap_or(0.0)
+                    })
+                    .unwrap_or(files.len());
+                if index < limit {
+                    files.insert(index, item);
+                }
+                if files.len() > limit {
+                    files.pop();
+                }
+            }
+        }
+        check_root(image)?;
+        for item in &files {
+            let path = item["path"]
+                .as_str()
+                .ok_or(BrokerError::Invalid("read entry changed"))?;
+            let relative = Path::new(path)
+                .strip_prefix(dir)
+                .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+            check_listed_entry(&root_dir, relative, item)?;
+        }
+        if Instant::now() >= deadline {
+            return Err(BrokerError::Timeout);
+        }
+        Ok(json!({"files":files,"complete":total <= limit}))
     }
 
     pub fn answer(&mut self, method: &str, params: &Value) -> Result<Value, BrokerError> {
@@ -77,42 +288,58 @@ impl NativeRead {
             return Err(BrokerError::Invalid("read root changed"));
         }
         let named = Path::new(path);
-        let current = match fs::symlink_metadata(named) {
+        let name = named
+            .file_name()
+            .ok_or(BrokerError::Invalid("read file name"))?;
+        let root_dir = open_directory(parent)?;
+        if !image.parent_identity.as_ref().is_some_and(|old| {
+            fstat(&root_dir)
+                .is_ok_and(|now| now.st_dev as u64 == old.dev() && now.st_ino == old.ino())
+        }) {
+            return Err(BrokerError::Invalid("read root changed"));
+        }
+        let current = match fstatat(&root_dir, name, AtFlags::AT_SYMLINK_NOFOLLOW) {
             Ok(current) => current,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(nix::errno::Errno::ENOENT) => {
                 return Ok(json!({"missing":true}));
             }
             Err(_) => return Err(BrokerError::Invalid("read target unavailable")),
         };
-        if !current.is_file() || current.file_type().is_symlink() {
+        if SFlag::from_bits_truncate(current.st_mode & libc::S_IFMT) != SFlag::S_IFREG {
             return Err(BrokerError::Invalid("read target is not a regular file"));
         }
-        let mut file = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(named)
-            .map_err(|_| BrokerError::Invalid("read file unavailable"))?;
+        let mut file = File::from(
+            openat(
+                &root_dir,
+                name,
+                OFlag::O_RDONLY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| BrokerError::Invalid("read file unavailable"))?,
+        );
         let before = file
             .metadata()
             .map_err(|_| BrokerError::Invalid("read descriptor unavailable"))?;
-        if !same(&before, &current) {
+        if !same_stat_meta(&current, &before) {
             return Err(BrokerError::Invalid("read contents changed"));
         }
         let info = info(path, &before);
         if method == "capability.fs.stat" {
+            check_root(image)?;
             return Ok(json!({"info":info}));
         }
         if method == "capability.fs.read" && before.len() > CHUNK {
+            check_root(image)?;
             return Ok(json!({"ranged":info}));
         }
         let (offset, length) = if method == "capability.fs.readRange" {
             let offset = params
                 .get("offset")
-                .and_then(Value::as_u64)
+                .and_then(crate::js_semantics::safe_u64)
                 .ok_or(BrokerError::Invalid("offset"))?;
             let length = params
                 .get("length")
-                .and_then(Value::as_u64)
+                .and_then(crate::js_semantics::safe_u64)
                 .filter(|n| *n <= CHUNK)
                 .ok_or(BrokerError::Invalid("length"))?;
             let expected = params
@@ -135,11 +362,12 @@ impl NativeRead {
         let after = file
             .metadata()
             .map_err(|_| BrokerError::Invalid("read descriptor unavailable"))?;
-        let named_after = fs::symlink_metadata(named)
+        let named_after = fstatat(&root_dir, name, AtFlags::AT_SYMLINK_NOFOLLOW)
             .map_err(|_| BrokerError::Invalid("read target disappeared"))?;
-        if !same(&after, &before) || !same(&named_after, &before) {
+        if !same(&after, &before) || !same_stat_meta(&named_after, &before) {
             return Err(BrokerError::Invalid("read changed"));
         }
+        check_root(image)?;
         if method == "capability.fs.readRange" {
             Ok(json!({"base64":STANDARD.encode(bytes),"info":info}))
         } else {
@@ -163,8 +391,414 @@ fn same(a: &Metadata, b: &Metadata) -> bool {
         && a.mode() == b.mode()
 }
 
+fn same_stat_meta(stat: &FileStat, meta: &Metadata) -> bool {
+    stat.st_dev as u64 == meta.dev()
+        && stat.st_ino == meta.ino()
+        && stat.st_size as u64 == meta.len()
+        && stat.st_mtime == meta.mtime()
+        && stat.st_mtime_nsec == meta.mtime_nsec()
+        && stat.st_mode as u32 == meta.mode()
+}
+
 fn same_root(a: &Metadata, b: &Metadata) -> bool {
     a.is_dir() && !a.file_type().is_symlink() && a.dev() == b.dev() && a.ino() == b.ino()
+}
+
+fn directory_flags() -> OFlag {
+    OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC
+}
+
+fn open_directory(path: &Path) -> Result<Dir, BrokerError> {
+    Dir::open(path, directory_flags(), Mode::empty())
+        .map_err(|_| BrokerError::Invalid("read directory changed"))
+}
+
+fn check_descendant(root: &Dir, relative: &Path, opened: &impl AsFd) -> Result<(), BrokerError> {
+    let clone = root
+        .as_fd()
+        .try_clone_to_owned()
+        .map_err(|_| BrokerError::Invalid("read directory unavailable"))?;
+    let mut reachable =
+        Dir::from_fd(clone).map_err(|_| BrokerError::Invalid("read directory unavailable"))?;
+    for part in relative.iter() {
+        reachable = Dir::openat(&reachable, part, directory_flags(), Mode::empty())
+            .map_err(|_| BrokerError::Invalid("read descendant moved"))?;
+    }
+    let actual = fstat(opened).map_err(|_| BrokerError::Invalid("read directory unavailable"))?;
+    let current = fstat(&reachable).map_err(|_| BrokerError::Invalid("read descendant moved"))?;
+    if actual.st_dev != current.st_dev || actual.st_ino != current.st_ino {
+        return Err(BrokerError::Invalid("read descendant moved"));
+    }
+    Ok(())
+}
+
+fn check_listed_entry(root: &Dir, relative: &Path, item: &Value) -> Result<(), BrokerError> {
+    let parent = relative
+        .parent()
+        .ok_or(BrokerError::Invalid("read entry changed"))?;
+    let name = relative
+        .file_name()
+        .ok_or(BrokerError::Invalid("read entry changed"))?;
+    let mut directory = Dir::openat(root, ".", directory_flags(), Mode::empty())
+        .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+    for part in parent.iter() {
+        directory = Dir::openat(&directory, part, directory_flags(), Mode::empty())
+            .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+    }
+    let stat = fstatat(&directory, name, AtFlags::AT_SYMLINK_NOFOLLOW)
+        .map_err(|_| BrokerError::Invalid("read entry changed"))?;
+    if SFlag::from_bits_truncate(stat.st_mode & libc::S_IFMT) != SFlag::S_IFREG
+        || crate::js_semantics::safe_u64(&item["inode"]) != Some(stat.st_ino)
+        || crate::js_semantics::safe_u64(&item["device"]) != Some(stat.st_dev as u64)
+        || crate::js_semantics::safe_u64(&item["size"]) != Some(stat.st_size as u64)
+        || crate::js_semantics::safe_u64(&item["mode"]) != Some(stat.st_mode as u64)
+        || crate::js_semantics::finite_f64(&item["mtimeMs"])
+            != Some(stat.st_mtime as f64 * 1000.0 + stat.st_mtime_nsec as f64 / 1e6)
+    {
+        return Err(BrokerError::Invalid("read entry changed"));
+    }
+    Ok(())
+}
+
+struct ScanPattern {
+    glob: String,
+    explicit_dot: Vec<bool>,
+}
+
+fn expand_braces(input: &str, deadline: Instant) -> Result<Vec<ScanPattern>, BrokerError> {
+    expand_braces_mode(input, deadline, true)
+}
+
+pub(crate) fn matches_bun_scope(pattern: &str, path: &str) -> Result<bool, BrokerError> {
+    let alternatives = expand_braces_mode(
+        pattern,
+        Instant::now() + std::time::Duration::from_secs(5),
+        false,
+    )?;
+    Ok(alternatives
+        .iter()
+        .any(|alternative| pattern_reaches(alternative, Path::new(path), true, false)))
+}
+
+fn expand_braces_mode(
+    input: &str,
+    deadline: Instant,
+    scan: bool,
+) -> Result<Vec<ScanPattern>, BrokerError> {
+    // Keep each byte's original component visibility. A dot introduced by brace
+    // expansion is not an explicit dot in Bun.Glob.scan's source pattern.
+    let mut source_dot = Vec::with_capacity(input.len());
+    let mut component_dot = false;
+    let mut at_start = true;
+    for byte in input.bytes() {
+        if at_start {
+            component_dot = byte == b'.';
+            at_start = false;
+        }
+        source_dot.push(component_dot);
+        if byte == b'/' {
+            at_start = true;
+        }
+    }
+    let mut pending = vec![(input.to_owned(), source_dot)];
+    let mut expanded = Vec::new();
+    while let Some((pattern, source_dot)) = pending.pop() {
+        if Instant::now() >= deadline {
+            return Err(BrokerError::Timeout);
+        }
+        let bytes = pattern.as_bytes();
+        let mut escaped = false;
+        let mut bracket = false;
+        let mut opening = None;
+        let mut closing = None;
+        let mut depth = 0usize;
+        for (index, byte) in bytes.iter().copied().enumerate() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if byte == b'\\' {
+                escaped = true;
+                continue;
+            }
+            if byte == b'[' {
+                bracket = true;
+                continue;
+            }
+            if byte == b']' {
+                bracket = false;
+                continue;
+            }
+            if bracket {
+                continue;
+            }
+            if byte == b'{' {
+                if opening.is_none() {
+                    opening = Some(index);
+                }
+                depth += 1;
+            } else if byte == b'}' && depth > 0 {
+                depth -= 1;
+                if depth == 0 {
+                    closing = Some(index);
+                    break;
+                }
+            }
+        }
+        let (Some(start), Some(end)) = (opening, closing) else {
+            let mut explicit_dot = Vec::new();
+            let mut at_start = true;
+            for (index, byte) in pattern.bytes().enumerate() {
+                if at_start {
+                    explicit_dot.push(source_dot[index]);
+                    at_start = false;
+                }
+                if byte == b'/' {
+                    at_start = true;
+                }
+            }
+            expanded.push(ScanPattern {
+                glob: pattern,
+                explicit_dot,
+            });
+            continue;
+        };
+        // Bun.Glob.scan does not enumerate patterns whose brace expression
+        // spans path components, even when another alternative has no slash.
+        if scan && bytes[start..=end].contains(&b'/') {
+            return Ok(Vec::new());
+        }
+        let mut start_alt = start + 1;
+        let mut depth = 0usize;
+        let mut escaped = false;
+        let mut bracket = false;
+        for index in start + 1..=end {
+            let byte = bytes[index];
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if byte == b'\\' {
+                escaped = true;
+                continue;
+            }
+            if byte == b'[' {
+                bracket = true;
+                continue;
+            }
+            if byte == b']' {
+                bracket = false;
+                continue;
+            }
+            if bracket {
+                continue;
+            }
+            if byte == b'{' {
+                depth += 1;
+            }
+            if byte == b'}' && index != end {
+                depth -= 1;
+            }
+            if index == end || (byte == b',' && depth == 0) {
+                let next = format!(
+                    "{}{}{}",
+                    &pattern[..start],
+                    &pattern[start_alt..index],
+                    &pattern[end + 1..]
+                );
+                let mut next_source = Vec::with_capacity(next.len());
+                next_source.extend_from_slice(&source_dot[..start]);
+                next_source.extend_from_slice(&source_dot[start_alt..index]);
+                next_source.extend_from_slice(&source_dot[end + 1..]);
+                pending.push((next, next_source));
+                start_alt = index + 1;
+            }
+        }
+    }
+    Ok(expanded)
+}
+
+// Match one Bun glob component. Adjacent stars are ordinary wildcards and a
+// backslash escapes the following character, including a literal star.
+fn component_matches(pattern: &str, value: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let value: Vec<char> = value.chars().collect();
+    let mut memo = vec![vec![None; value.len() + 1]; pattern.len() + 1];
+    fn matches(
+        p: &[char],
+        v: &[char],
+        pi: usize,
+        vi: usize,
+        memo: &mut [Vec<Option<bool>>],
+    ) -> bool {
+        if let Some(result) = memo[pi][vi] {
+            return result;
+        }
+        let result = if pi == p.len() {
+            vi == v.len()
+        } else {
+            match p[pi] {
+                '*' => {
+                    matches(p, v, pi + 1, vi, memo)
+                        || (vi < v.len() && matches(p, v, pi, vi + 1, memo))
+                }
+                '?' => vi < v.len() && matches(p, v, pi + 1, vi + 1, memo),
+                '\\' => {
+                    pi + 1 < p.len()
+                        && vi < v.len()
+                        && p[pi + 1] == v[vi]
+                        && matches(p, v, pi + 2, vi + 1, memo)
+                }
+                '[' => {
+                    let start = pi + 1;
+                    let negated = matches!(p.get(start), Some('!' | '^'));
+                    let members = start + usize::from(negated);
+                    let mut end = members;
+                    // An initial ] is a member if another unescaped ] closes the class.
+                    if p.get(end) == Some(&']') {
+                        end += 1;
+                    }
+                    while end < p.len() && p[end] != ']' {
+                        end += if p[end] == '\\' && end + 1 < p.len() {
+                            2
+                        } else {
+                            1
+                        };
+                    }
+                    if end == p.len() && p.get(members) == Some(&']') {
+                        end = members;
+                    }
+                    if end < p.len() {
+                        let mut items = Vec::new();
+                        let mut i = members;
+                        while i < end {
+                            let escaped = p[i] == '\\' && i + 1 < end;
+                            if escaped {
+                                i += 1;
+                            }
+                            items.push((p[i], escaped));
+                            i += 1;
+                        }
+                        let mut i = 0;
+                        let mut found = false;
+                        while i < items.len() {
+                            if i + 2 < items.len() && items[i + 1] == ('-', false) {
+                                found |=
+                                    vi < v.len() && items[i].0 <= v[vi] && v[vi] <= items[i + 2].0;
+                                i += 3;
+                            } else {
+                                found |= vi < v.len() && items[i].0 == v[vi];
+                                i += 1;
+                            }
+                        }
+                        vi < v.len()
+                            && members < end
+                            && (found != negated)
+                            && matches(p, v, end + 1, vi + 1, memo)
+                    } else {
+                        false
+                    }
+                }
+                literal => vi < v.len() && literal == v[vi] && matches(p, v, pi + 1, vi + 1, memo),
+            }
+        };
+        memo[pi][vi] = Some(result);
+        result
+    }
+    matches(&pattern, &value, 0, 0, &mut memo)
+}
+
+fn pattern_reaches(pattern: &ScanPattern, path: &Path, complete: bool, scan: bool) -> bool {
+    let patterns: Vec<_> = if scan {
+        pattern
+            .glob
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .collect()
+    } else {
+        pattern
+            .glob
+            .split('/')
+            .skip(usize::from(pattern.glob.starts_with('/')))
+            .collect()
+    };
+    let parts: Vec<_> = path
+        .components()
+        .filter_map(|part| match part {
+            std::path::Component::Normal(value) => value.to_str(),
+            _ => None,
+        })
+        .collect();
+    fn reachable(
+        patterns: &[&str],
+        explicit_dot: &[bool],
+        parts: &[&str],
+        pi: usize,
+        di: usize,
+        complete: bool,
+        scan: bool,
+    ) -> bool {
+        if di == parts.len() {
+            return if complete {
+                patterns[pi..].iter().all(|part| *part == "**")
+            } else {
+                pi < patterns.len()
+            };
+        }
+        if pi >= patterns.len() {
+            return false;
+        }
+        if patterns[pi] == "**" {
+            return reachable(patterns, explicit_dot, parts, pi + 1, di, complete, scan)
+                || ((!scan || !parts[di].starts_with('.'))
+                    && reachable(patterns, explicit_dot, parts, pi, di + 1, complete, scan));
+        }
+        (!scan || !parts[di].starts_with('.') || explicit_dot.get(pi) == Some(&true))
+            && component_matches(patterns[pi], parts[di])
+            && reachable(
+                patterns,
+                explicit_dot,
+                parts,
+                pi + 1,
+                di + 1,
+                complete,
+                scan,
+            )
+    }
+    reachable(
+        &patterns,
+        &pattern.explicit_dot,
+        &parts,
+        0,
+        0,
+        complete,
+        scan,
+    )
+}
+
+fn may_descend(pattern: &ScanPattern, directory: &Path) -> bool {
+    pattern_reaches(pattern, directory, false, true)
+}
+
+fn matches_visible(pattern: &ScanPattern, file: &Path) -> bool {
+    pattern_reaches(pattern, file, true, true)
+}
+
+fn check_root(image: &Image) -> Result<(), BrokerError> {
+    let Some(parent) = image.parent.as_ref() else {
+        return Ok(());
+    };
+    if fs::canonicalize(&image.logical_parent).ok().as_deref() != Some(parent.as_path())
+        || !fs::symlink_metadata(parent).is_ok_and(|m| {
+            image
+                .parent_identity
+                .as_ref()
+                .is_some_and(|old| same_root(&m, old))
+        })
+    {
+        return Err(BrokerError::Invalid("read root changed"));
+    }
+    Ok(())
 }
 
 fn info(path: &str, meta: &Metadata) -> Value {
@@ -172,100 +806,24 @@ fn info(path: &str, meta: &Metadata) -> Value {
         "inode":meta.ino(),"device":meta.dev(),"mode":meta.mode()})
 }
 
+fn stat_info(path: &str, stat: &FileStat) -> Value {
+    let (seconds, nanos) = (stat.st_mtime, stat.st_mtime_nsec);
+    json!({"path":path,"size":stat.st_size,"mtimeMs":seconds as f64 * 1000.0 + nanos as f64 / 1e6,
+        "inode":stat.st_ino,"device":stat.st_dev,"mode":stat.st_mode})
+}
+
 fn expected_identity(value: &Value, meta: &Metadata) -> bool {
-    value.get("size").and_then(Value::as_u64) == Some(meta.len())
-        && value.get("inode").and_then(Value::as_u64) == Some(meta.ino())
-        && value.get("device").and_then(Value::as_u64) == Some(meta.dev())
-        && value.get("mtimeMs").and_then(Value::as_f64)
+    value.get("size").and_then(crate::js_semantics::safe_u64) == Some(meta.len())
+        && value.get("inode").and_then(crate::js_semantics::safe_u64) == Some(meta.ino())
+        && value.get("device").and_then(crate::js_semantics::safe_u64) == Some(meta.dev())
+        && value
+            .get("mtimeMs")
+            .and_then(crate::js_semantics::finite_f64)
             == Some(meta.mtime() as f64 * 1000.0 + meta.mtime_nsec() as f64 / 1e6)
         && value
             .get("mode")
-            .is_none_or(|v| v.as_u64() == Some(meta.mode() as u64))
+            .is_none_or(|v| crate::js_semantics::safe_u64(v) == Some(meta.mode() as u64))
 }
 
 #[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    use super::*;
-    use std::os::unix::fs::symlink;
-
-    #[test]
-    fn exact_file_range_and_changed_name() {
-        let root = std::env::temp_dir().join(format!("pacer-native-read-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        let path = root.join("telemetry.json");
-        fs::write(&path, b"abc\xff").unwrap();
-        let resource = ReadResource {
-            path: path.to_str().unwrap().into(),
-            kind: "file".into(),
-        };
-        let mut reader = NativeRead::prepare(&[resource]).unwrap();
-        let stat = reader
-            .answer("capability.fs.stat", &json!({"path":path}))
-            .unwrap();
-        let expected = stat["info"].clone();
-        let ranged = reader
-            .answer(
-                "capability.fs.readRange",
-                &json!({"path":path,"offset":1,"length":3,"expected":expected}),
-            )
-            .unwrap();
-        assert_eq!(ranged["base64"], "YmP/");
-        assert!(
-            reader
-                .answer(
-                    "capability.fs.readRange",
-                    &json!({"path":path,"offset":0,"length":1,"expected":{"size":0}})
-                )
-                .is_err()
-        );
-        fs::rename(&path, root.join("old")).unwrap();
-        symlink(root.join("old"), &path).unwrap();
-        assert!(
-            reader
-                .answer("capability.fs.read", &json!({"path":path}))
-                .is_err()
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn new_file_under_issued_root_is_readable_but_new_root_is_not() {
-        let root = std::env::temp_dir().join(format!("pacer-native-read-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        let path = root.join("later");
-        let resource = ReadResource {
-            path: path.to_str().unwrap().into(),
-            kind: "file".into(),
-        };
-        let mut reader = NativeRead::prepare(&[resource]).unwrap();
-        assert_eq!(
-            reader
-                .answer("capability.fs.read", &json!({"path":path}))
-                .unwrap(),
-            json!({"missing":true})
-        );
-        fs::write(&path, "created").unwrap();
-        assert_eq!(
-            reader
-                .answer("capability.fs.read", &json!({"path":path}))
-                .unwrap()["text"],
-            "created"
-        );
-        let absent = root.join("new-root").join("later");
-        let mut missing_root = NativeRead::prepare(&[ReadResource {
-            path: absent.to_str().unwrap().into(),
-            kind: "file".into(),
-        }])
-        .unwrap();
-        fs::create_dir(root.join("new-root")).unwrap();
-        fs::write(&absent, "new content").unwrap();
-        assert_eq!(
-            missing_root
-                .answer("capability.fs.read", &json!({"path":absent}))
-                .unwrap(),
-            json!({"missing":true})
-        );
-        fs::remove_dir_all(root).unwrap();
-    }
-}
+mod tests;

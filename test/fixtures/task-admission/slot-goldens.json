@@ -1,0 +1,11 @@
+[
+  {"id":"running-local","tasks":[{"state":"running","executor":"codex"}],"expected":{"byExecutor":{"codex":1},"byHost":{},"local":1}},
+  {"id":"null-run-executor-fallback","tasks":[{"state":"running","executor":"codex","run":{"executor":null}}],"expected":{"byExecutor":{"codex":1},"byHost":{},"local":1}},
+  {"id":"remote-from-runner","tasks":[{"state":"running","executor":"codex@devbox"}],"expected":{"byExecutor":{"codex@devbox":1},"byHost":{"devbox":1},"local":0}},
+  {"id":"explicit-run-host","tasks":[{"state":"running","executor":"codex","run":{"executor":"cursor@remote","host":"build"}}],"expected":{"byExecutor":{"cursor@remote":1},"byHost":{"build":1},"local":0}},
+  {"id":"empty-run-host","tasks":[{"state":"running","executor":"codex@devbox","run":{"host":""}}],"expected":{"byExecutor":{"codex@devbox":1},"byHost":{},"local":1}},
+  {"id":"invalid-runner-host","tasks":[{"state":"running","executor":"custom@devbox"}],"expected":{"byExecutor":{"custom@devbox":1},"byHost":{},"local":1}},
+  {"id":"needs-input-live","tasks":[{"state":"needs_input","executor":"codex","live":true}],"expected":{"byExecutor":{"codex":1},"byHost":{},"local":1}},
+  {"id":"needs-input-retried","tasks":[{"state":"needs_input","executor":"codex","live":true,"retriedBy":"new"}],"expected":{"byExecutor":{},"byHost":{},"local":0}},
+  {"id":"done","tasks":[{"state":"done","executor":"codex"}],"expected":{"byExecutor":{},"byHost":{},"local":0}}
+]

@@ -13,6 +13,7 @@ test-ops = []
 tokio.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+ryu-js = "1"
 pacer-foundation = { path = "../foundation" }
 pacer-store = { path = "../store" }
 pacer-mdns = { path = "../mdns" }
@@ -31,6 +32,7 @@ base64 = "0.22"
 
 [build-dependencies]
 serde_json.workspace = true
+icu_collator = { version = "=2.4.0", features = ["unstable"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "0.31", features = ["socket", "uio", "fs", "user", "signal", "process"] }
