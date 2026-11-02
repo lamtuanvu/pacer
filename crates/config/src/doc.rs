@@ -1,3 +1,4 @@
+use pacer_foundation::js_semantics::JsTrim;
 use saphyr_parser::{Event, Parser, ScalarStyle};
 use serde_json::{Map, Value};
 use std::ops::Range;
@@ -985,7 +986,7 @@ fn emit_bun_scalar(value: &Value) -> String {
             || matches!(lower.as_str(), ".inf" | ".nan")
             || matches!(s.as_str(), "." | "...");
         let syntax = s.is_empty()
-            || s.trim() != s
+            || s.js_trim() != s
             || s.starts_with([
                 '{', '[', '-', '?', ':', '#', '!', '&', '*', '|', '>', '<', '%', '@', '`',
             ])

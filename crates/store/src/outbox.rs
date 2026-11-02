@@ -1,7 +1,7 @@
 // Keep each optional nested shape visibly separate from its field validation.
 #![allow(clippy::collapsible_if)]
 use crate::file::{append_publication, atomic_publication, js_number, json_bytes};
-use pacer_foundation::Ctx;
+use pacer_foundation::{Ctx, js_semantics::JsTrim};
 use serde_json::{Value, json};
 use std::{fs, io, path::PathBuf};
 
@@ -142,7 +142,7 @@ fn parse_task(data: &Value) -> Option<Value> {
     }
     let mut row = json!({"id":id,"state":state,"updatedAt":data["updatedAt"]});
     if let Some(title) = optional_string(data, "title", 60)
-        .map(|s| s.trim().to_owned())
+        .map(|s| s.js_trim().to_owned())
         .filter(|s| !s.is_empty())
     {
         row["title"] = json!(title);

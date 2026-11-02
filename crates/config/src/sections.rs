@@ -1,4 +1,5 @@
 use crate::js_semantics;
+use pacer_foundation::js_semantics::JsTrim;
 use serde_json::{Map, Value, json};
 
 fn object(value: &Value) -> Option<&Map<String, Value>> {
@@ -446,7 +447,7 @@ pub(crate) fn hosts(raw: Option<&Value>, problems: &mut Vec<String>) -> Value {
                             "{at}.repos: {key} is not a canonical repo key (host/owner/repo)"
                         ));
                     }
-                    if path.as_str().is_none_or(|s| s.trim().is_empty()) {
+                    if path.as_str().is_none_or(|s| s.js_trim().is_empty()) {
                         problems.push(format!("{at}.repos.{key} must be a non-empty path"));
                     } else {
                         repos.insert(key.clone(), path.clone());
@@ -472,7 +473,7 @@ pub(crate) fn hosts(raw: Option<&Value>, problems: &mut Vec<String>) -> Value {
                         }
                         if c.get("home")
                             .and_then(Value::as_str)
-                            .is_none_or(|s| s.trim().is_empty())
+                            .is_none_or(|s| s.js_trim().is_empty())
                         {
                             problems.push(format!("{loc}.home must be a non-empty folder"));
                         } else {

@@ -6,6 +6,7 @@ use crate::{
         StrategyError, list_strategies, load_strategy, show_strategy, summary, validate_strategy,
     },
 };
+use pacer_foundation::js_semantics::JsTrim;
 use serde_json::{Value, json};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -327,7 +328,7 @@ pub fn save_strategy(
     options: SaveOptions<'_>,
 ) -> Result<Value, StrategyError> {
     check_name(name, true)?;
-    if reason.trim().is_empty() {
+    if reason.js_trim().is_empty() {
         return Err(StrategyError::Other("a save reason is required".into()));
     }
     let source = draft["from"].as_str().unwrap_or("default");

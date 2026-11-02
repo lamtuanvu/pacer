@@ -1002,6 +1002,7 @@ dependencies = [
 name = "pacer-config"
 version = "0.0.0"
 dependencies = [
+ "pacer-foundation",
  "saphyr-parser",
  "serde",
  "serde_json",

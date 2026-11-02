@@ -284,6 +284,27 @@ test("save refusals and notification migration match TS errors and bytes", () =>
   expect(rust(binary, { op: "notifications.set", home: rsHome, level: "bad" })).toEqual({ ok: false, error: tsError });
 });
 
+test("strategy save reason uses the JavaScript trim character set", () => {
+  const binary = configBinary();
+  const whitespace = ["\t", "\n", "\v", "\f", "\r", " ", "\u00a0", "\u1680",
+    ...Array.from({ length: 11 }, (_, i) => String.fromCodePoint(0x2000 + i)),
+    "\u2028", "\u2029", "\u202f", "\u205f", "\u3000", "\ufeff"];
+  for (const char of whitespace) {
+    for (const reason of [char, `${char}approved${char}`]) {
+      const tsHome = home(), rsHome = home();
+      const ctx = fakeCtx({ pacerHome: tsHome });
+      let ts: unknown;
+      try { ts = { ok: true, value: strategy.save(ctx, "review", { from: "default" }, reason) }; }
+      catch (error) { ts = { ok: false, error: (error as Error).message }; }
+      const rs = rust(binary, { op: "strategy.save", home: rsHome, name: "review", draft: { from: "default" },
+        reason, nowIso: new Date(ctx.now * 1000).toISOString() });
+      expect(result(rs, rsHome)).toEqual(result(ts, tsHome));
+      if ((ts as {ok: boolean}).ok) expect(readFileSync(join(rsHome, "strategies/review.yaml"), "utf8"))
+        .toBe(readFileSync(join(tsHome, "strategies/review.yaml"), "utf8"));
+    }
+  }
+});
+
 test("routing rule insertion keeps surviving YAML nodes", async () => {
   const binary = configBinary();
   const tsHome = home(), rsHome = home();

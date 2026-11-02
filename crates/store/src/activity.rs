@@ -111,11 +111,15 @@ fn safe_text(text: &str) -> String {
         r"(?i)authorization\s*[:=]\s*[^\r\n]*",
         "Authorization: [redacted]",
     );
-    value = replace(value, r"(?i)\bBearer\s+\S+", "Bearer [redacted]");
     value = replace(
         value,
-        r"(?i)\b(?:sk|pk|api[_-]?key|token)[_-][A-Za-z0-9_-]+",
-        "[redacted]",
+        r"(?i)(^|[^A-Za-z0-9_])Bearer\s+\S+",
+        "${1}Bearer [redacted]",
+    );
+    value = replace(
+        value,
+        r"(?i)(^|[^A-Za-z0-9_])(?:sk|pk|api[_-]?key|token)[_-][A-Za-z0-9_-]+",
+        "${1}[redacted]",
     );
     value = replace(
         value,
@@ -123,7 +127,11 @@ fn safe_text(text: &str) -> String {
         "${1}[redacted]",
     );
     value = slice_utf16(value.lines().next().unwrap_or(""), 500);
-    value = replace(value, r"(?i)(\btoken\s*[=:]\s*)[^\s,;]+", "${1}[redacted]");
+    value = replace(
+        value,
+        r"(?i)((?:^|[^A-Za-z0-9_])token\s*[=:]\s*)[^\s,;]+",
+        "${1}[redacted]",
+    );
     replace(
         value,
         r"(?i)[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}",

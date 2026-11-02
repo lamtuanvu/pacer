@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 saphyr-parser = "0.3"
+pacer-foundation = { path = "../foundation" }
 serde_json.workspace = true
 thiserror.workspace = true
 url = "2"

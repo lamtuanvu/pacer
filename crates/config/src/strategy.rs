@@ -5,6 +5,7 @@ use crate::{
     js_semantics,
     write::atomic_strategy_write,
 };
+use pacer_foundation::js_semantics::JsTrim;
 use serde_json::{Map, Value, json};
 use std::{
     fs, io,
@@ -106,12 +107,12 @@ fn size(value: &Value) -> Option<f64> {
     if let Some(n) = js_semantics::number(value) {
         return Some(n);
     }
-    let text = value.as_str()?.trim();
+    let text = value.as_str()?.js_trim();
     let cut = text
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(text.len());
     let n = decimal(&text[..cut])?;
-    let mult = match text[cut..].trim().to_ascii_lowercase().as_str() {
+    let mult = match text[cut..].js_trim().to_ascii_lowercase().as_str() {
         "" => 1.,
         "k" => 1e3,
         "m" => 1e6,
@@ -124,9 +125,9 @@ fn duration(value: &Value) -> Option<f64> {
     if let Some(n) = js_semantics::number(value) {
         return Some(n);
     }
-    let text = value.as_str()?.trim();
+    let text = value.as_str()?.js_trim();
     let unit = text.chars().last()?;
-    let n = decimal(text[..text.len() - 1].trim())?;
+    let n = decimal(text[..text.len() - 1].js_trim())?;
     Some(
         n * match unit {
             's' => 1.,
@@ -266,13 +267,13 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
                         problems.push(format!("{loc} must be a mapping"));
                         continue;
                     }
-                    if m["id"].as_str().is_none_or(|s| s.trim().is_empty()) {
+                    if m["id"].as_str().is_none_or(|s| s.js_trim().is_empty()) {
                         problems.push(format!("{loc}.id must be non-empty"));
                     } else if !ids.insert(m["id"].as_str().unwrap_or("")) {
                         problems.push(format!("{loc}.id must be unique"));
                     }
                     if m.get("name")
-                        .is_some_and(|v| v.as_str().is_none_or(|s| s.trim().is_empty()))
+                        .is_some_and(|v| v.as_str().is_none_or(|s| s.js_trim().is_empty()))
                     {
                         problems.push(format!("{loc}.name must be non-empty"));
                     }
@@ -303,7 +304,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     }
     for key in ["home", "orca_account"] {
         if let Some(v) = value.get(key)
-            && (v.as_str().is_none_or(|s| s.trim().is_empty())
+            && (v.as_str().is_none_or(|s| s.js_trim().is_empty())
                 || !["claude", "codex"].contains(&kind.as_str()))
         {
             problems.push(format!(
@@ -1502,7 +1503,7 @@ pub fn validate_strategy(raw: &Value, path: &Path, name: &str) -> Result<Value, 
 pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
     let active = home.join("active");
     let name = if active.exists() {
-        fs::read_to_string(active)?.trim().to_owned()
+        fs::read_to_string(active)?.js_trim().to_owned()
     } else {
         String::new()
     };

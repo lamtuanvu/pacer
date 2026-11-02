@@ -898,6 +898,55 @@ appendActivity(c,{kind:'plugin_state',level:'warn',text:'Bearer secret-token use
 }
 
 #[test]
+fn ascii_word_boundaries_redact_after_non_ascii_prefix() {
+    let rust = tempfile::tempdir().unwrap();
+    let ts = tempfile::tempdir().unwrap();
+    let input = "éBearer secret ésk_secret épk_secret éapi_key_secret étoken_secret étoken=secret";
+    append_activity(
+        &ctx(rust.path()),
+        json!({"kind":"plugin_state","level":"warn","text":input}),
+    )
+    .unwrap();
+    bun(
+        ts.path(),
+        r#"
+import {appendActivity} from './src/activity/log.ts';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{}};
+appendActivity(c,{kind:'plugin_state',level:'warn',text:'éBearer secret ésk_secret épk_secret éapi_key_secret étoken_secret étoken=secret'});
+"#,
+    );
+    let id = Regex::new(r"1760000000-[0-9a-f]{4}").unwrap();
+    for file in ["state/activity.jsonl", "link/outbox.jsonl"] {
+        let actual = fs::read_to_string(rust.path().join(".pacer").join(file)).unwrap();
+        let expected = fs::read_to_string(ts.path().join(".pacer").join(file)).unwrap();
+        assert_eq!(
+            id.replace_all(&actual, "fixed"),
+            id.replace_all(&expected, "fixed"),
+            "{file}"
+        );
+    }
+}
+
+#[test]
+fn decimal_json_snapshot_sequence_reports_js_integer_value() {
+    let root = tempfile::tempdir().unwrap();
+    let c = ctx(root.path());
+    fs::create_dir_all(c.pacer_home.join("link")).unwrap();
+    for literal in ["1.0", "1e0", "100.0"] {
+        let snapshot =
+            format!("{{\"v\":1,\"seq\":{literal},\"at\":1,\"serviceInstalled\":false}}\n");
+        fs::write(c.pacer_home.join("link/latest.json"), snapshot).unwrap();
+        let report = publish(&c, &[]);
+        assert!(report.errors.is_empty(), "{literal}: {:?}", report.errors);
+        assert_eq!(
+            report.seq,
+            literal.parse::<f64>().unwrap() as u64,
+            "{literal}"
+        );
+    }
+}
+
+#[test]
 fn activity_rotation_keeps_recent_twenty_thousand() {
     let tmp = tempfile::tempdir().unwrap();
     let c = ctx(tmp.path());
@@ -942,7 +991,7 @@ fn snapshot_parser_matches_bun_normalization() {
         {"v":2,"seq":1,"at":1},
         {"v":1,"seq":"bad","at":1}
     ]);
-    let full = json!({"v":1,"seq":1,"at":1,"serviceInstalled":true,"budget":{"generatedAt":1,"strategy":"s","planner":"p","mode":"m","providers":[{"id":"p","verdict":"ok","usedPct":1,"pacePct":1,"resetsAt":1,"blockedReason":"b","blockedUntil":1}],"ranked":[]},"mode":{"mode":"m","strategy":"s","at":1},"tasks":[{"id":"t","state":"running","updatedAt":1,"stopPending":{"attempt":1,"requestedAt":1,"providerId":"p","graceMs":1},"session":{"host":"builtin","live":true,"viewers":1},"reviewRequest":{"note":"n","at":1},"review":{"accepted":true,"at":1},"attemptStartedAt":1,"progress":{"phase":"work","lastOutputAt":1,"files":1,"commits":1,"logBytes":1}}],"alerts":[{"key":"a","title":"t","body":"b","at":1,"notification":{"kind":"failed","resetsAt":1}}],"console":{"pid":1,"startedAt":1,"heartbeatAt":1,"busyUntil":1},"consoles":[{"pid":1,"startedAt":1,"heartbeatAt":1}],"strategies":[{"name":"s","active":true,"summary":"x","description":"d"}]});
+    let full = json!({"v":1,"seq":1,"at":1,"serviceInstalled":true,"budget":{"generatedAt":1,"strategy":"s","planner":"p","mode":"m","providers":[{"id":"p","verdict":"ok","usedPct":1,"pacePct":1,"resetsAt":1,"blockedReason":"b","blockedUntil":1}],"ranked":[]},"mode":{"mode":"m","strategy":"s","at":1},"tasks":[{"id":"t","title":"task","state":"running","updatedAt":1,"stopPending":{"attempt":1,"requestedAt":1,"providerId":"p","graceMs":1},"session":{"host":"builtin","live":true,"viewers":1},"reviewRequest":{"note":"n","at":1},"review":{"accepted":true,"at":1},"attemptStartedAt":1,"progress":{"phase":"work","lastOutputAt":1,"files":1,"commits":1,"logBytes":1}}],"alerts":[{"key":"a","title":"t","body":"b","at":1,"notification":{"kind":"failed","resetsAt":1}}],"console":{"pid":1,"startedAt":1,"heartbeatAt":1,"busyUntil":1},"consoles":[{"pid":1,"startedAt":1,"heartbeatAt":1}],"strategies":[{"name":"s","active":true,"summary":"x","description":"d"}]});
     let variants = [
         Value::Null,
         json!(false),
@@ -974,6 +1023,7 @@ fn snapshot_parser_matches_bun_normalization() {
         "/mode/strategy",
         "/mode/at",
         "/tasks/0/id",
+        "/tasks/0/title",
         "/tasks/0/state",
         "/tasks/0/updatedAt",
         "/tasks/0/stopPending/attempt",
@@ -1002,6 +1052,16 @@ fn snapshot_parser_matches_bun_normalization() {
         for variant in &variants {
             let mut input = full.clone();
             *input.pointer_mut(field).unwrap() = variant.clone();
+            inputs.as_array_mut().unwrap().push(input);
+        }
+    }
+    for space in [
+        '\u{00A0}', '\u{1680}', '\u{2028}', '\u{2029}', '\u{202F}', '\u{205F}', '\u{3000}',
+        '\u{FEFF}',
+    ] {
+        for title in [space.to_string(), format!("{space}Task{space}")] {
+            let mut input = full.clone();
+            input["tasks"][0]["title"] = json!(title);
             inputs.as_array_mut().unwrap().push(input);
         }
     }

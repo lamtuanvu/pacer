@@ -164,6 +164,33 @@ function fieldCase(base: Json, path: (string | number)[], value: Json): Json {
   return raw;
 }
 
+test("JavaScript trim boundaries match Rust for scoped strategy fields", () => {
+  const built = spawnSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_diff", "--locked"], { encoding: "utf8" });
+  if (built.status !== 0) throw Error(`Rust test binary build failed: ${built.stderr}`);
+  const binary = "target/debug/examples/strategy_diff";
+  const whitespace = ["\t", "\n", "\v", "\f", "\r", " ", "\u00a0", "\u1680",
+    ...Array.from({ length: 11 }, (_, i) => String.fromCodePoint(0x2000 + i)),
+    "\u2028", "\u2029", "\u202f", "\u205f", "\u3000", "\ufeff"];
+  const fields: {label: string; base: Json; path: (string | number)[]; good: string}[] = [
+    { label: "model id", base: bases[2]!, path: ["accounts", "edge", "connection", "models", 0, "id"], good: "fast" },
+    { label: "model name", base: bases[2]!, path: ["accounts", "edge", "connection", "models", 0, "name"], good: "Fast" },
+    { label: "account home", base: bases[2]!, path: ["accounts", "codex", "home"], good: "/tmp/codex" },
+    { label: "account orca", base: bases[2]!, path: ["accounts", "codex", "orca_account"], good: "work" },
+    { label: "host repo", base: bases[1]!, path: ["hosts", "build", "repos", "github.com/org/repo"], good: "/srv/repo" },
+    { label: "host account", base: bases[1]!, path: ["hosts", "build", "accounts", "work", "home"], good: "/srv/codex" },
+    { label: "weekly tokens", base: bases[2]!, path: ["accounts", "edge", "budget", "weekly_tokens"], good: "1k" },
+    { label: "cooldown", base: bases[2]!, path: ["accounts", "edge", "cooldown"], good: "1h" },
+  ];
+  const cases = fields.flatMap(field => whitespace.flatMap(char => [char, `${char}${field.good}${char}`]
+    .map(value => ({ label: `${field.label} U+${char.codePointAt(0)!.toString(16)} ${JSON.stringify(value)}`,
+      raw: fieldCase(field.base, field.path, value) }))));
+  const actual = rust(binary, cases.map(item => item.raw));
+  for (const [i, item] of cases.entries()) {
+    const expected = ts(item.raw);
+    if (canonical(actual[i]) !== canonical(expected)) throw Error(`${item.label}: TS ${canonical(expected)} Rust ${canonical(actual[i])}`);
+  }
+});
+
 test("raw JSON number and Unicode length boundaries match TypeScript for every config field", () => {
   const built = spawnSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_diff", "--locked"], { encoding: "utf8" });
   if (built.status !== 0) throw Error(`Rust test binary build failed: ${built.stderr}`);
