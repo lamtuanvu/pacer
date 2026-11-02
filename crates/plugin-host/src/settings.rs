@@ -22,11 +22,13 @@ fn empty() -> Value {
 }
 fn store(ctx: &Ctx) -> Result<Value, CoreError> {
     let path = ctx.pacer_home.join("plugin-settings.json");
-    let Some(bytes) = crate::private::read(&path, u64::MAX - 1, false)? else {
+    if !path.exists() {
         return Ok(json!({}));
-    };
-    let raw = serde_json::from_slice::<Value>(&bytes);
-    let Ok(Value::Object(raw)) = raw else {
+    }
+    let raw = fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+    let Some(Value::Object(raw)) = raw else {
         let _ = fs::rename(
             &path,
             path.with_file_name(format!(

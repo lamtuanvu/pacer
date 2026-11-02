@@ -104,3 +104,42 @@ test("the ordinary D8 refusal still covers plugin.remove outside the seeded fixt
   }
   expect(existsSync(join(root, "plugin-remove.claimed"))).toBe(false);
 });
+
+test("the CLI seed admission accepts only an exact inline fixture request", () => {
+  const args = ["api", "call", "plugin.remove", "--params", JSON.stringify({ id: REMOVE_FIXTURE_ID }), "--json"];
+  expect(refusal(args, true)).toBeUndefined();
+  expect(refusal(args)).toContain("D3");
+  for (const body of [{ id: "fx-other" }, { id: REMOVE_FIXTURE_ID, extra: true }]) {
+    expect(refusal(["api", "call", "plugin.remove", "--params", JSON.stringify(body), "--json"], true)).toContain("D3");
+  }
+  expect(refusal(["plugin", "remove", REMOVE_FIXTURE_ID], true)).toContain("D3");
+  expect(refusal(["api", "call", "plugin.remove", "--params-file", "input.json", "--json"], true)).toContain("D3");
+});
+
+test("the guarded CLI removes the one-use seed with owner authentication", async () => {
+  const core = await import(`${checkout}/scripts/live/core.ts`) as typeof import("../scripts/live/core");
+  const session = await up(`remove-cli-${randomUUID().slice(0, 8)}`, undefined, liveRoot, "plugin-remove");
+  try {
+    const base = `http://127.0.0.1:${session.port}`;
+    const token = readFileSync(join(session.root, "home/token"), "utf8").trim();
+    for (const headers of [
+      { Authorization: "Bearer wrong" },
+      { Authorization: `Bearer ${token}`, Cookie: "session=untrusted" },
+      { Authorization: `Bearer ${token}`, Origin: "http://evil.invalid" },
+    ] as Record<string, string>[]) {
+      const response = await fetch(`${base}/v3/ops/plugin.remove`, {
+        method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ id: REMOVE_FIXTURE_ID }),
+      });
+      expect(response.status).toBe(403);
+      expect(existsSync(join(session.root, "plugin-remove.claimed"))).toBe(false);
+    }
+    const result = await core.run([join(session.root, "bin/pacer"), "api", "call", "plugin.remove", "--params", JSON.stringify({ id: REMOVE_FIXTURE_ID }), "--json"], session);
+    expect(result.code, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ result: { id: REMOVE_FIXTURE_ID, removed: true } });
+    expect(existsSync(join(session.root, "home/plugins", REMOVE_FIXTURE_ID))).toBe(false);
+    const repeat = await core.run([join(session.root, "bin/pacer"), "api", "call", "plugin.remove", "--params", JSON.stringify({ id: REMOVE_FIXTURE_ID }), "--json"], session);
+    expect(repeat.code).not.toBe(0);
+    expect(existsSync(join(session.root, "plugin-remove.claimed"))).toBe(true);
+  } finally { await down(session); }
+}, 25000);

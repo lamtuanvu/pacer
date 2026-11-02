@@ -65,16 +65,28 @@ fn settings_compare_and_swap_serializes_independent_writers() {
 }
 
 #[test]
-fn settings_refuse_redirected_store_lock_and_strategy_without_outside_writes() {
+fn settings_replace_linked_stores_but_refuse_redirected_locks_and_strategy() {
     let (_dir, ctx) = fixture();
     let outside = ctx.home.join("outside");
     fs::write(&outside, "untouched").unwrap();
     let store = ctx.pacer_home.join("plugin-settings.json");
     symlink(&outside, &store).unwrap();
-    assert!(settings::save(&ctx, "fx-ui", json!({}), 0.0).is_err());
+    assert_eq!(
+        settings::save(&ctx, "fx-ui", json!({}), 0.0).unwrap()["rev"],
+        1
+    );
+    assert!(
+        !fs::symlink_metadata(&store)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     fs::remove_file(&store).unwrap();
     fs::hard_link(&outside, &store).unwrap();
-    assert!(settings::save(&ctx, "fx-ui", json!({}), 0.0).is_err());
+    assert_eq!(
+        settings::save(&ctx, "fx-ui", json!({}), 0.0).unwrap()["rev"],
+        1
+    );
     fs::remove_file(store).unwrap();
     let lock = ctx.pacer_home.join("orca/plugin-settings.lock");
     symlink(&outside, &lock).unwrap();

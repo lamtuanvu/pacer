@@ -53,10 +53,14 @@ export function ownedRemovalTree(root: string): boolean {
 export async function authorizeSeedPluginRemove(session: Session, request: Request): Promise<boolean> {
   try {
     const url = new URL(request.url);
+    const app = [`http://127.0.0.1:${session.port}`, `http://localhost:${session.port}`].includes(request.headers.get("origin") ?? "")
+      && request.headers.get("x-pacer-client") === "app";
+    // The guarded CLI uses the owner bearer token, without cookies or browser headers.
+    const cli = !request.headers.has("origin") && !request.headers.has("x-pacer-client") && !request.headers.has("cookie")
+      && request.headers.get("authorization") === `Bearer ${readFileSync(join(session.root, "home/token"), "utf8").trim()}`;
     if (session.seed !== "plugin-remove" || session.stopped || session.root !== join(liveRoot, session.id) ||
       request.method !== "POST" || url.pathname !== "/v3/ops/plugin.remove" || url.search ||
-      ![`http://127.0.0.1:${session.port}`, `http://localhost:${session.port}`].includes(request.headers.get("origin") ?? "") ||
-      request.headers.get("x-pacer-client") !== "app" ||
+      !(app || cli) ||
       request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") return false;
 
     const reader = request.clone().body?.getReader();

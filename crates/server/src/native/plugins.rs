@@ -39,7 +39,7 @@ pub(super) fn operations() -> Vec<NativeOp> {
 }
 #[derive(Default)]
 struct State {
-    ops: PublicOperations,
+    ops: Arc<PublicOperations>,
     epochs: HashMap<String, String>,
     surface_epochs: HashMap<String, Value>,
     generation: String,
@@ -121,59 +121,62 @@ impl Service {
         } else {
             None
         };
-        let mut state = self.state.lock().await;
-        if state.generation != target.1 {
-            *state = State {
-                generation: target.1.clone(),
-                ..State::default()
-            };
-        }
         let params = runtime
             .request(json!({"kind":"prepare", "op":op, "params":params}))
             .await?;
-        let epochs = runtime
-            .entries
-            .iter()
-            .map(|e| {
-                (
-                    e["id"].as_str().unwrap_or("").to_owned(),
-                    e["epoch"].as_str().unwrap_or("").to_owned(),
-                )
-            })
-            .collect::<HashMap<_, _>>();
-        let changed = state
-            .epochs
-            .keys()
-            .chain(epochs.keys())
-            .filter(|id| state.epochs.get(*id) != epochs.get(*id))
-            .cloned()
-            .collect::<HashSet<_>>();
-        for id in changed {
-            state.ops.invalidate(&id, None);
-        }
-        state.epochs = epochs;
-        for e in &runtime.entries {
-            let id = e["id"].as_str().unwrap_or("");
-            let previous = state
-                .surface_epochs
-                .get(id)
+        let ops = {
+            let mut state = self.state.lock().await;
+            if state.generation != target.1 {
+                *state = State {
+                    generation: target.1.clone(),
+                    ..State::default()
+                };
+            }
+            let epochs = runtime
+                .entries
+                .iter()
+                .map(|e| {
+                    (
+                        e["id"].as_str().unwrap_or("").to_owned(),
+                        e["epoch"].as_str().unwrap_or("").to_owned(),
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            let changed = state
+                .epochs
+                .keys()
+                .chain(epochs.keys())
+                .filter(|id| state.epochs.get(*id) != epochs.get(*id))
                 .cloned()
-                .unwrap_or_else(|| json!({}));
-            if let Some(surfaces) = e["surfaceEpochs"].as_object() {
-                for (surface, revision) in surfaces {
-                    if previous[surface] != *revision {
-                        state.ops.invalidate(id, Some(surface));
+                .collect::<HashSet<_>>();
+            for id in changed {
+                state.ops.invalidate(&id, None);
+            }
+            state.epochs = epochs;
+            for e in &runtime.entries {
+                let id = e["id"].as_str().unwrap_or("");
+                let previous = state
+                    .surface_epochs
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                if let Some(surfaces) = e["surfaceEpochs"].as_object() {
+                    for (surface, revision) in surfaces {
+                        if previous[surface] != *revision {
+                            state.ops.invalidate(id, Some(surface));
+                        }
                     }
                 }
+                state
+                    .surface_epochs
+                    .insert(id.into(), e["surfaceEpochs"].clone());
             }
             state
                 .surface_epochs
-                .insert(id.into(), e["surfaceEpochs"].clone());
-        }
-        state
-            .surface_epochs
-            .retain(|id, _| runtime.entries.iter().any(|e| e["id"] == *id));
-        let result = state.ops.call(ctx, &mut runtime, op, params).await;
+                .retain(|id, _| runtime.entries.iter().any(|e| e["id"] == *id));
+            Arc::clone(&state.ops)
+        };
+        let result = ops.call(ctx, &mut runtime, op, params).await;
         for (id, message) in std::mem::take(&mut runtime.logs) {
             // Logging must not replace the original operation error.
             let _ = runtime

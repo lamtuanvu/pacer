@@ -15,6 +15,7 @@ struct Host {
     calls: Vec<String>,
     veto: Vec<Value>,
     document: Value,
+    ttl: Value,
 }
 impl Runtime for Host {
     fn refresh(&mut self, ctx: &Ctx) -> Result<Vec<Entry>, CoreError> {
@@ -53,7 +54,7 @@ impl Runtime for Host {
             e.protocol = Some("1.10.0".into());
             e.served = vec!["diagnostic".into(), "ui".into()];
             Ok(match method {
-                "ui.render" => json!({"document":self.document,"ttlS":60}),
+                "ui.render" => json!({"document":self.document,"ttlS":self.ttl}),
                 "ui.action" => json!({"result":"refresh","message":"done"}),
                 "ui.settings.validate" => {
                     if self.veto.is_empty() {
@@ -111,13 +112,14 @@ fn fixture() -> (tempfile::TempDir, Ctx, Host, PublicOperations) {
         }],
         calls: vec![],
         veto: vec![],
+        ttl: json!(60),
         document: json!({"type":"text","text":"Ready"}),
     };
     (dir, ctx, host, PublicOperations::default())
 }
 #[tokio::test]
 async fn whole_public_sequence_and_revision_errors() {
-    let (_dir, ctx, mut host, mut ops) = fixture();
+    let (_dir, ctx, mut host, ops) = fixture();
     assert_eq!(OPERATIONS.len(), 12);
     assert_eq!(
         ops.call(&ctx, &mut host, "plugin.ui.list", json!({}))
@@ -255,7 +257,7 @@ async fn whole_public_sequence_and_revision_errors() {
 }
 #[tokio::test]
 async fn static_surface_checks_precede_runtime_and_status_never_starts() {
-    let (_dir, ctx, mut host, mut ops) = fixture();
+    let (_dir, ctx, mut host, ops) = fixture();
     ops.call(
         &ctx,
         &mut host,
@@ -385,7 +387,7 @@ fn settings_corruption_and_ecmascript_revision_rendering() {
 
 #[tokio::test]
 async fn cancelled_action_releases_its_inflight_slot() {
-    let (_dir, ctx, mut host, mut ops) = fixture();
+    let (_dir, ctx, mut host, ops) = fixture();
     ops.call(
         &ctx,
         &mut host,
@@ -422,4 +424,67 @@ fn settings_veto_is_validated_and_normalized() {
         .is_err()
     );
     assert_eq!(pacer_plugin_host::ui::validate_result(json!({"ok":false,"errors":[{"path":"items","message":"e\u{301}\u{202e}","extra":"ignored"}]})).unwrap(),vec![json!({"path":"items","message":"é"})]);
+}
+
+#[tokio::test]
+async fn shared_operation_number_matrix() {
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../../test/fixtures/plugin-operation-number-parity.json"
+    ))
+    .unwrap();
+    for row in cases.as_array().unwrap() {
+        let value: Value =
+            serde_json::from_str(row["wire"].as_str().unwrap()).unwrap_or(Value::Null);
+        let accepted = row["accepted"].as_bool().unwrap();
+        let field = row["field"].as_str().unwrap();
+        if field == "expect_rev" {
+            for op in ["plugin.settings.set", "plugin.ui.visibility"] {
+                let (_dir, ctx, mut host, ops) = fixture();
+                ops.call(
+                    &ctx,
+                    &mut host,
+                    "plugin.enable",
+                    json!({"id":"fx-ui","grant":true}),
+                )
+                .await
+                .unwrap();
+                let params = json!({"plugin":"fx-ui","values":{},"expect_rev":value,"surface":"activity","id":"checklist","visible":true});
+                let result = ops.call(&ctx, &mut host, op, params).await;
+                // A valid nonzero revision reaches the CAS check; invalid wire numbers must fail validation.
+                let valid = result
+                    .as_ref()
+                    .map_or_else(|e| e.code == Code::Conflict, |_| true);
+                assert_eq!(valid, accepted, "{op}: {row}");
+            }
+        } else if field == "ttlS" {
+            let (_dir, ctx, mut host, ops) = fixture();
+            ops.call(
+                &ctx,
+                &mut host,
+                "plugin.enable",
+                json!({"id":"fx-ui","grant":true}),
+            )
+            .await
+            .unwrap();
+            host.ttl = value;
+            let result = ops.call(&ctx, &mut host, "plugin.ui.render", json!({"plugin":"fx-ui","surface":"activity","id":"checklist","context":{"route":"overview","theme":"light"}})).await;
+            assert_eq!(result.is_ok(), accepted, "{row}");
+            if accepted {
+                assert_eq!(result.unwrap()["ttlS"].as_f64(), host.ttl.as_f64(), "{row}");
+            }
+        } else {
+            let node = if field == "level" {
+                json!({"type":"heading","text":"Ready","level":value})
+            } else {
+                let mut n = json!({"type":"meter","label":"Ready","usedPct":50});
+                n[field] = value.clone();
+                n
+            };
+            let result = pacer_plugin_host::ui::parse(node, false);
+            assert_eq!(result.is_ok(), accepted, "{row}");
+            if accepted {
+                assert_eq!(result.unwrap()[field].as_f64(), value.as_f64(), "{row}");
+            }
+        }
+    }
 }

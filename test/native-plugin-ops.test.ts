@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { installFixture } from "../conformance/install";
 import { tmpDir } from "./helpers";
@@ -144,3 +144,65 @@ test.skipIf(!front)("native and individually forwarded UI operations share targe
     } finally { await s.stop(); }
   }
 }, 45000);
+
+// A release file controls the response; this tests admission, not plugin timeout speed.
+test.skipIf(!front)("pending actions leave independent plugin requests available", async () => {
+  for (const forward of ["", "*"]) {
+    const s = await service(forward);
+    const started = join(s.home, "started"), release = join(s.home, "release");
+    let pending: Promise<any> | undefined;
+    try {
+      writeFileSync(join(s.plugin, "main.ts"), `#!/usr/bin/env bun
+import {serve,stdinLines} from '@pacer/plugin';
+import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+const manifest=JSON.parse(readFileSync(new URL('./pacer-plugin.json',import.meta.url),'utf8'));
+await serve({manifest,input:stdinLines(),handlers:{'ui.action':async p=>{
+ if(p.action==='hold'){writeFileSync(${JSON.stringify(started)},'started');while(!existsSync(${JSON.stringify(release)}))await Bun.sleep(10);}
+ return {result:'done'};
+}}});`);
+      const other = join(s.state, "plugins/fx-other"); cpSync(s.plugin, other, { recursive: true });
+      const manifest = JSON.parse(readFileSync(join(other, "pacer-plugin.json"), "utf8"));
+      manifest.id = "fx-other"; writeFileSync(join(other, "pacer-plugin.json"), JSON.stringify(manifest));
+      for (const id of ["fx-ui", "fx-other"]) expect((await s.post("plugin.enable", { id, grant: true })).error).toBeUndefined();
+      const action = { plugin: "fx-ui", surface: "activity", id: "checklist", context, action: "hold", requestId: "hold" };
+      pending = s.post("plugin.ui.action", action);
+      for (let i = 0; i < 500 && !existsSync(started); i++) await Bun.sleep(10);
+      expect(existsSync(started), JSON.stringify(await Promise.race([pending, Bun.sleep(1).then(() => "pending")]))).toBe(true);
+      const independent = Promise.all([
+        s.post("plugin.list", {}), s.post("plugin.ui.list", {}),
+        s.post("plugin.settings.get", { plugin: "fx-ui" }),
+        s.post("plugin.ui.action", { ...action, action: "quick", id: "checklist-tab", surface: "panelTab", requestId: "other-surface" }),
+        s.post("plugin.ui.action", { ...action, plugin: "fx-other", action: "quick", requestId: "other-plugin" }),
+      ]);
+      const outcome = await Promise.race([independent, Bun.sleep(1500).then(() => "blocked")]);
+      expect(outcome).not.toBe("blocked");
+      for (const response of outcome as any[]) expect(response.error).toBeUndefined();
+      expect((await s.post("plugin.ui.action", action)).error?.code).toBe("conflict");
+    } finally {
+      writeFileSync(release, "release"); await pending; await s.stop();
+    }
+  }
+}, 60000);
+
+test.skipIf(!front)("linked settings reads and atomic replacement match TypeScript", async () => {
+  for (const kind of ["symlink", "hardlink"]) {
+    const results: unknown[] = [];
+    for (const forward of ["", "*"]) {
+      const s = await service(forward);
+      try {
+        await s.post("plugin.enable", { id: "fx-ui", grant: true });
+        const target = join(s.home, "settings-target.json"), name = join(s.state, "plugin-settings.json");
+        const text = JSON.stringify({ "fx-ui": { rev: 7, values: { required: true }, hidden: ["activity:checklist"] } });
+        writeFileSync(target, text, { mode: 0o600 });
+        if (kind === "symlink") symlinkSync(target, name); else linkSync(target, name);
+        const get = await s.post("plugin.settings.get", { plugin: "fx-ui" });
+        expect(get.result?.rev, JSON.stringify(get)).toBe(7);
+        results.push(get, await s.post("plugin.ui.list", {}));
+        const save = await s.post("plugin.settings.set", { plugin: "fx-ui", values: { required: false }, expect_rev: 7 });
+        expect(save.result?.rev).toBe(8); results.push(save);
+        expect(readFileSync(target, "utf8")).toBe(text);
+      } finally { await s.stop(); }
+    }
+    expect(results.slice(0, 3)).toEqual(results.slice(3));
+  }
+}, 60000);

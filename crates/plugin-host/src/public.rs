@@ -141,7 +141,7 @@ impl Drop for InFlight {
 }
 #[derive(Default)]
 pub struct PublicOperations {
-    ui: HashMap<String, UiState>,
+    ui: Mutex<HashMap<String, UiState>>,
 }
 fn find(entries: &[Entry], id: &str) -> Result<Entry, CoreError> {
     entries
@@ -329,14 +329,19 @@ fn params(op: &str, p: &Value) -> Result<(), CoreError> {
     Ok(())
 }
 impl PublicOperations {
-    pub fn invalidate(&mut self, id: &str, surface: Option<&str>) {
-        if let Some(s) = self.ui.get_mut(id) {
+    fn ui(&self) -> std::sync::MutexGuard<'_, HashMap<String, UiState>> {
+        self.ui
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+    pub fn invalidate(&self, id: &str, surface: Option<&str>) {
+        if let Some(s) = self.ui().get_mut(id) {
             s.cache
                 .retain(|(key, _)| surface.is_some_and(|id| !key.starts_with(&format!("{id}\0"))));
         }
     }
     pub async fn call(
-        &mut self,
+        &self,
         ctx: &Ctx,
         runtime: &mut dyn Runtime,
         op: &str,
@@ -543,7 +548,7 @@ impl PublicOperations {
                 edit_config(ctx, id, None, Some(None))?;
                 edit_config(ctx, id, Some(false), None)?;
                 settings::forget(ctx, id)?;
-                self.ui.remove(id);
+                self.ui().remove(id);
                 runtime.changed(ctx, id, false).await?;
                 Ok(json!({"id":id,"removed":true}))
             }
@@ -608,7 +613,7 @@ impl PublicOperations {
         }
     }
     async fn render(
-        &mut self,
+        &self,
         ctx: &Ctx,
         runtime: &mut dyn Runtime,
         e: Entry,
@@ -629,34 +634,38 @@ impl PublicOperations {
             c["theme"].as_str().unwrap_or("")
         );
         let at = now();
-        let state = self.ui.entry(id.clone()).or_default();
-        let hit = state
-            .cache
-            .iter()
-            .find(|(k, _)| k == &key)
-            .map(|(_, v)| v.clone());
         let response = |v: &Cached, stale| json!({"document":v.document,"renderedAt":v.at,"ttlS":v.ttl,"stale":stale});
-        if let Some(h) = &hit
-            && at - h.at < h.ttl * 1000.0
-        {
-            return Ok(response(h, false));
-        }
-        if surface == "status" && e.state != "ready" {
-            return Err(CoreError::new(
-                Code::PluginUnavailable,
-                format!("plugin {id} is not running"),
-            ));
-        }
-        let recent = state.renders.entry(sid.into()).or_default();
-        recent.retain(|t| at - t < 1000.0);
-        if recent.len() >= 2 {
-            return Err(CoreError::new(
-                Code::Conflict,
-                format!("surface {sid} is rendering too often"),
-            )
-            .hint("Retry in a second."));
-        }
-        recent.push(at);
+        let hit = {
+            let mut ui = self.ui();
+            let state = ui.entry(id.clone()).or_default();
+            let hit = state
+                .cache
+                .iter()
+                .find(|(k, _)| k == &key)
+                .map(|(_, v)| v.clone());
+            if let Some(h) = &hit
+                && at - h.at < h.ttl * 1000.0
+            {
+                return Ok(response(h, false));
+            }
+            if surface == "status" && e.state != "ready" {
+                return Err(CoreError::new(
+                    Code::PluginUnavailable,
+                    format!("plugin {id} is not running"),
+                ));
+            }
+            let recent = state.renders.entry(sid.into()).or_default();
+            recent.retain(|t| at - t < 1000.0);
+            if recent.len() >= 2 {
+                return Err(CoreError::new(
+                    Code::Conflict,
+                    format!("surface {sid} is rendering too often"),
+                )
+                .hint("Retry in a second."));
+            }
+            recent.push(at);
+            hit
+        };
         let raw = runtime
             .call(
                 ctx,
@@ -682,7 +691,8 @@ impl PublicOperations {
                                 .as_f64()
                                 .unwrap_or(60.0)
                                 .clamp(if surface == "status" { 30.0 } else { 0.0 }, 3600.0);
-                            let state = self.ui.entry(id.clone()).or_default();
+                            let mut ui = self.ui();
+                            let state = ui.entry(id.clone()).or_default();
                             state.cache.retain(|(_, v)| at - v.at < v.ttl * 10000.0);
                             while state.cache.len() >= 64 {
                                 state.cache.pop_front();
@@ -693,7 +703,8 @@ impl PublicOperations {
                             Ok(response(&cached, false))
                         }
                         Err(error) => {
-                            let state = self.ui.entry(id.clone()).or_default();
+                            let mut ui = self.ui();
+                            let state = ui.entry(id.clone()).or_default();
                             if at - state.invalid_logs.get(sid).copied().unwrap_or(0.0) >= 60000.0 {
                                 state.invalid_logs.insert(sid.into(), at);
                                 runtime.log(
@@ -728,7 +739,7 @@ impl PublicOperations {
         }
     }
     async fn action(
-        &mut self,
+        &self,
         ctx: &Ctx,
         runtime: &mut dyn Runtime,
         e: Entry,
@@ -739,33 +750,35 @@ impl PublicOperations {
         let sid = string(p, "id")?;
         e.surface(surface, sid)?;
         let at = now();
-        let state = self.ui.entry(id.clone()).or_default();
-        state.actions.retain(|t| at - t < 60000.0);
-        if state.actions.len() >= 10 {
-            return Err(CoreError::new(
-                Code::Conflict,
-                format!("plugin {id} has had too many actions"),
-            )
-            .hint("Retry in a minute."));
-        }
-        {
-            let mut inflight = state
-                .inflight
-                .lock()
-                .map_err(|_| CoreError::new(Code::Internal, "plugin action state unavailable"))?;
-            if inflight.contains(sid) {
+        let _inflight = {
+            let mut ui = self.ui();
+            let state = ui.entry(id.clone()).or_default();
+            state.actions.retain(|t| at - t < 60000.0);
+            if state.actions.len() >= 10 {
                 return Err(CoreError::new(
                     Code::Conflict,
-                    format!("surface {sid} already has an action in flight"),
+                    format!("plugin {id} has had too many actions"),
                 )
-                .hint("Retry shortly."));
+                .hint("Retry in a minute."));
             }
-            state.actions.push(at);
-            inflight.insert(sid.into());
-        }
-        let _inflight = InFlight {
-            set: Arc::clone(&state.inflight),
-            id: sid.into(),
+            {
+                let mut inflight = state.inflight.lock().map_err(|_| {
+                    CoreError::new(Code::Internal, "plugin action state unavailable")
+                })?;
+                if inflight.contains(sid) {
+                    return Err(CoreError::new(
+                        Code::Conflict,
+                        format!("surface {sid} already has an action in flight"),
+                    )
+                    .hint("Retry shortly."));
+                }
+                state.actions.push(at);
+                inflight.insert(sid.into());
+            }
+            InFlight {
+                set: Arc::clone(&state.inflight),
+                id: sid.into(),
+            }
         };
         let mut input = p.clone();
         if let Some(o) = input.as_object_mut() {

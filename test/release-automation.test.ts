@@ -167,6 +167,22 @@ test("Release verify and each M1 build prebuild and supply the SQLite proof bina
   }
 });
 
+test("Release verify and each M1 build prebuild and supply the task store probe binary", () => {
+  const release = load("release.yml");
+  const probeBuild = "cargo build --locked -p pacer-store --bin task_store_probe";
+  const probePath = "${{ github.workspace }}/target/debug/task_store_probe";
+  for (const [jobName, invocation] of [
+    ["verify", "bun run test"],
+    ["build", "bun run gate:m1 --release-dir"],
+  ]) {
+    const steps = release.jobs[jobName]!.steps;
+    const build = steps.findIndex(s => s.run === probeBuild);
+    const testStep = steps.findIndex(s => s.run?.includes(invocation));
+    expect(build).toBeGreaterThan(-1);
+    expect(testStep).toBeGreaterThan(build);
+    expect(steps[testStep]!.env?.PACER_STORE_PROBE_BIN).toBe(probePath);
+  }
+});
 
 test("Release tag accepts a squash commit with the tested tree", () => {
   const subject = "chore: release 0.5.0 (#220)";

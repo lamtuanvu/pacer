@@ -1,0 +1,170 @@
+[
+  {
+    "mode": "planner",
+    "name": "delegate",
+    "args": {
+      "goal": "planner child",
+      "repo": "$REPO",
+      "executor": "codex"
+    },
+    "result": {
+      "isError": false,
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n \"task_id\": \"task-planner\",\n \"title\": \"planner child\",\n \"goal\": \"planner child\",\n \"state\": \"queued\",\n \"kind\": null,\n \"requested_executor\": \"codex\",\n \"placement\": {\n  \"requested\": \"auto\"\n },\n \"queue\": null,\n \"attempts\": [],\n \"result\": null,\n \"review\": null,\n \"resolved\": null\n}"
+        }
+      ],
+      "structuredContent": {
+        "task_id": "task-planner",
+        "title": "planner child",
+        "goal": "planner child",
+        "state": "queued",
+        "kind": null,
+        "requested_executor": "codex",
+        "placement": {
+          "requested": "auto"
+        },
+        "queue": null,
+        "attempts": [],
+        "result": null,
+        "review": null,
+        "resolved": null
+      }
+    }
+  },
+  {
+    "mode": "planner",
+    "name": "task_review",
+    "args": {
+      "task_id": "task-planner",
+      "verdict": "accept",
+      "note": "checked"
+    },
+    "result": {
+      "isError": false,
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n \"task\": {\n  \"id\": \"task-planner\",\n  \"title\": \"planner child\",\n  \"state\": \"done\",\n  \"goal\": \"planner child\",\n  \"executor\": null,\n  \"backend\": null,\n  \"worktree\": null,\n  \"updatedAt\": 0,\n  \"acceptanceState\": \"none\",\n  \"review\": {\n   \"accepted\": true,\n   \"kind\": null,\n   \"note\": \"checked\",\n   \"at\": 0\n  },\n  \"resolved\": \"reviewed\",\n  \"fullTitle\": \"planner child\",\n  \"rev\": 5,\n  \"queue\": null,\n  \"source\": \"planner\",\n  \"repo\": {\n   \"key\": \"local:fixture\",\n   \"path\": \"$REPO\",\n   \"label\": \"t-fixture-home\"\n  },\n  \"kind\": null,\n  \"host\": null\n }\n}"
+        }
+      ],
+      "structuredContent": {
+        "task": {
+          "id": "task-planner",
+          "title": "planner child",
+          "state": "done",
+          "goal": "planner child",
+          "executor": null,
+          "backend": null,
+          "worktree": null,
+          "updatedAt": 0,
+          "acceptanceState": "none",
+          "review": {
+            "accepted": true,
+            "kind": null,
+            "note": "checked",
+            "at": 0
+          },
+          "resolved": "reviewed",
+          "fullTitle": "planner child",
+          "rev": 5,
+          "queue": null,
+          "source": "planner",
+          "repo": {
+            "key": "local:fixture",
+            "path": "$REPO",
+            "label": "t-fixture-home"
+          },
+          "kind": null,
+          "host": null
+        }
+      }
+    }
+  },
+  {
+    "mode": "grant",
+    "name": "delegate",
+    "args": {
+      "goal": "scoped child",
+      "requestId": "child-1",
+      "executor": "codex"
+    },
+    "result": {
+      "isError": false,
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n \"task_id\": \"task-grant\",\n \"title\": \"scoped child\",\n \"goal\": \"scoped child\",\n \"state\": \"queued\",\n \"kind\": null,\n \"requested_executor\": \"codex\",\n \"placement\": {\n  \"requested\": \"new\",\n  \"reason\": \"Isolated delegated child work\"\n },\n \"queue\": null,\n \"attempts\": [],\n \"result\": null,\n \"review\": null,\n \"resolved\": null\n}"
+        }
+      ],
+      "structuredContent": {
+        "task_id": "task-grant",
+        "title": "scoped child",
+        "goal": "scoped child",
+        "state": "queued",
+        "kind": null,
+        "requested_executor": "codex",
+        "placement": {
+          "requested": "new",
+          "reason": "Isolated delegated child work"
+        },
+        "queue": null,
+        "attempts": [],
+        "result": null,
+        "review": null,
+        "resolved": null
+      }
+    }
+  },
+  {
+    "mode": "grant",
+    "name": "task_review",
+    "args": {
+      "task_id": "task-grant",
+      "accepted": true,
+      "expect_rev": 3,
+      "note": "checked"
+    },
+    "result": {
+      "isError": false,
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n \"task\": {\n  \"id\": \"task-grant\",\n  \"title\": \"scoped child\",\n  \"state\": \"done\",\n  \"goal\": \"scoped child\",\n  \"executor\": null,\n  \"backend\": null,\n  \"worktree\": null,\n  \"updatedAt\": 0,\n  \"acceptanceState\": \"none\",\n  \"review\": {\n   \"accepted\": true,\n   \"kind\": null,\n   \"note\": \"checked\",\n   \"at\": 0\n  },\n  \"resolved\": \"reviewed\",\n  \"fullTitle\": \"scoped child\",\n  \"rev\": 4,\n  \"queue\": null,\n  \"source\": \"planner\",\n  \"repo\": {\n   \"key\": \"local:fixture\",\n   \"path\": \"$REPO\",\n   \"label\": \"t-fixture-home\"\n  },\n  \"kind\": null,\n  \"host\": null\n }\n}"
+        }
+      ],
+      "structuredContent": {
+        "task": {
+          "id": "task-grant",
+          "title": "scoped child",
+          "state": "done",
+          "goal": "scoped child",
+          "executor": null,
+          "backend": null,
+          "worktree": null,
+          "updatedAt": 0,
+          "acceptanceState": "none",
+          "review": {
+            "accepted": true,
+            "kind": null,
+            "note": "checked",
+            "at": 0
+          },
+          "resolved": "reviewed",
+          "fullTitle": "scoped child",
+          "rev": 4,
+          "queue": null,
+          "source": "planner",
+          "repo": {
+            "key": "local:fixture",
+            "path": "$REPO",
+            "label": "t-fixture-home"
+          },
+          "kind": null,
+          "host": null
+        }
+      }
+    }
+  }
+]
