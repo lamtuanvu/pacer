@@ -1187,3 +1187,231 @@ async fn native_exact_file_read_does_not_invoke_adapter() {
     assert_eq!(echo.calls, 0);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+async fn file_transfer_numeric_effects_match_typescript() {
+    use std::process::Command;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("bun")
+        .current_dir(root)
+        .args(["run", "test/fixtures/plugin-transfer-effects.ts"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    let mut actual = Vec::new();
+    for field in ["bytes", "offset", "mode"] {
+        for literal in [
+            "0.0",
+            "0e0",
+            "3.0",
+            "3e0",
+            "384.0",
+            "3.84e2",
+            "1.5",
+            "9007199254740992",
+        ] {
+            let mut b = broker(10000);
+            let mut e = Echo { calls: 0 };
+            let bytes: Value = serde_json::from_str(literal).unwrap();
+            let begin = b
+            .handle(
+                "capability.fs.beginWrite",
+                json!({"path":"/tmp/issued","bytes":if field == "bytes" { bytes.clone() } else { json!(3) },"mode":if field == "mode" { bytes.clone() } else { json!(384) }}),
+                &mut e,
+            )
+            .await;
+            let mut effects = Vec::new();
+            let accepted = if let Ok(value) = begin {
+                let handle = value["handle"].as_str().unwrap();
+                let offset: Value = if field == "offset" { bytes } else { json!(0) };
+                if b.handle(
+                    "capability.fs.writeChunk",
+                    json!({"handle":handle,"offset":offset,"base64":"YWJj"}),
+                    &mut e,
+                )
+                .await
+                .is_ok()
+                {
+                    if let Ok(value) = b
+                        .handle(
+                            "capability.fs.commitWrite",
+                            json!({"handle":handle}),
+                            &mut e,
+                        )
+                        .await
+                    {
+                        effects.push(value);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            assert_eq!(e.calls, effects.len());
+            actual.push(json!({"accepted":accepted,"effects":effects}));
+        }
+    }
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn http_transfer_numeric_effects_match_typescript() {
+    use std::process::Command;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("bun")
+        .current_dir(root)
+        .args(["run", "test/fixtures/plugin-http-transfer-effects.ts"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let expected: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    struct HttpEffect {
+        bodies: Vec<Value>,
+    }
+    impl CapabilityEffect for HttpEffect {
+        async fn call(&mut self, _method: &str, params: Value) -> Result<Value, BrokerError> {
+            self.bodies.push(params["body"].clone());
+            Ok(json!({"status":200,"headers":{},"body":"\0".repeat(300_000)}))
+        }
+    }
+    let mut actual = Vec::new();
+    for field in ["bytes", "stageOffset", "readOffset", "length"] {
+        for literal in ["0.0", "0e0", "3.0", "3e0", "1.5", "9007199254740992"] {
+            let mut b = http_broker(&["example.test"], &["example.test"], &[]);
+            b.features.push("httpBodyChunks".into());
+            let mut e = HttpEffect { bodies: Vec::new() };
+            let value: Value = serde_json::from_str(literal).unwrap();
+            let mut effects = Vec::new();
+            let result: Result<(), BrokerError> = async {
+                let begin = b.handle("capability.net.http.body.begin", json!({"bytes": if field == "bytes" { value.clone() } else { json!(3) }}), &mut e).await?;
+                let handle = begin["handle"].as_str().unwrap();
+                b.handle("capability.net.http.body.stageChunk", json!({"handle":handle,"offset":if field == "stageOffset" { value.clone() } else { json!(0) },"base64":"YWJj"}), &mut e).await?;
+                let response = b.handle("capability.net.http", json!({"url":"https://example.test/","method":"POST","timeoutMs":1000,"body":{"handle":handle}}), &mut e).await?;
+                let response_handle = response["body"]["handle"].as_str().unwrap();
+                let chunk = b.handle("capability.net.http.body.readChunk", json!({"handle":response_handle,"offset":if field == "readOffset" { value.clone() } else { json!(0) },"length":if field == "length" { value.clone() } else { json!(3) }}), &mut e).await?;
+                effects.push(chunk);
+                b.handle("capability.net.http.body.release", json!({"handle":response_handle}), &mut e).await?;
+                Ok(())
+            }.await;
+            let mut all_effects = e.bodies;
+            all_effects.extend(effects);
+            actual.push(json!({"accepted":result.is_ok(),"effects":all_effects}));
+        }
+    }
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn worktree_attempts_match_typescript_effects_with_issued_grants() {
+    use std::process::Command;
+    let methods = [
+        "capability.worktree.inspect",
+        "capability.worktree.resolveBase",
+        "capability.worktree.createOrReuse",
+    ];
+    let values = [
+        ("1.0", true),
+        ("1e2", true),
+        ("0", false),
+        ("1.5", false),
+        ("9007199254740991", false),
+        ("9007199254740992", false),
+    ];
+    let cases: Vec<_> = methods
+        .iter()
+        .flat_map(|method| {
+            values
+                .iter()
+                .map(move |(spelling, accepted)| (*method, *spelling, *accepted))
+        })
+        .collect();
+    let wire: Vec<_> = cases
+        .iter()
+        .map(|(method, spelling, _)| json!({"method":method,"spelling":spelling}))
+        .collect();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = Command::new("bun")
+        .current_dir(root)
+        .args([
+            "run",
+            "test/fixtures/worktree-numeric.ts",
+            &json!(wire).to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ts: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+    let sha = "a".repeat(40);
+    for ((method, spelling, accepted), ts_ok) in cases.into_iter().zip(ts) {
+        let value: Value = serde_json::from_str(spelling).unwrap();
+        let issued = if accepted {
+            json!(crate::js_semantics::safe_u64(&value).unwrap())
+        } else {
+            json!(1)
+        };
+        let resources: CallResources = serde_json::from_value(
+            json!({"worktree":{"taskId":"t-fixture","attempt":issued,"baseSha":sha}}),
+        )
+        .unwrap();
+        let manifest = parse_manifest(json!({"id":"fx-worktree","version":"1.0.0","publisher":"fixture","host":">=1.10.0","capabilities":[{"name":"worktree","scopes":[]}]})).unwrap();
+        let mut broker = CapabilityBroker::new(
+            manifest,
+            CallAuthority::new(
+                resources,
+                ["worktree".into()],
+                Instant::now() + Duration::from_secs(10),
+            ),
+            vec![],
+        );
+        let mut effect = Echo { calls: 0 };
+        let mut params = json!({"taskId":"t-fixture","attempt":value});
+        if method.ends_with("createOrReuse") {
+            params["baseSha"] = json!(sha);
+        }
+        let result = broker.handle(method, params, &mut effect).await;
+        assert_eq!(
+            ts_ok,
+            if accepted {
+                "ok"
+            } else if spelling == "9007199254740991" {
+                "capability_denied"
+            } else {
+                "invalid_input"
+            },
+            "TS {method} {spelling}"
+        );
+        assert_eq!(
+            result.is_ok(),
+            accepted,
+            "Rust {method} {spelling}: {result:?}"
+        );
+        if spelling == "9007199254740991" {
+            assert!(
+                matches!(result, Err(BrokerError::Authority(_))),
+                "safe boundary must reach authority: {result:?}"
+            );
+        }
+        assert_eq!(
+            effect.calls,
+            usize::from(accepted),
+            "effect {method} {spelling}"
+        );
+    }
+}

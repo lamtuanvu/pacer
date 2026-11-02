@@ -1,3 +1,4 @@
+import { useWorkspaceKey, useWorkspaceState } from '../../workspace/state';
 import { useState } from "preact/hooks";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
@@ -12,17 +13,17 @@ import { ErrorMessage, useAction, useQuery } from "../task-shared";
 export function AnswerPanel({ id, close }: { id: string; close: () => void }) {
   const { data: task, loading, error } = useQuery<TaskDetail>("task.get", { id });
   const log = useOutputTail(id);
-  const action = useAction(), [text, setText] = useState("");
+  const action = useAction(), [text, setText] = useWorkspaceState(useWorkspaceKey(id), "draft:answer", "");
   const agent = markAgent(task?.executor ?? "codex"), name = agentInfo(agent).name;
   const question = task?.question as (NonNullable<TaskDetail["question"]> & { options?: string[] }) | undefined;
   const available = task?.state === "needs_input" && question && question.answer === undefined && !task.retriedBy;
   const session = `#/workspace?task=${encodeURIComponent(id)}&panel=session`;
   const send = () => {
     if (!text.trim() || text.length > 2000 || !available || action.busy) return;
-    void action.run("task.answer", { id, text: text.trim(), expect_rev: task.rev }, close);
+    void action.run("task.answer", { id, text: text.trim(), expect_rev: task.rev }, () => { setText(""); close(); });
   };
   return <SideDialog title={`${name} asks`} mark={<AgentMark agent={agent} size={20} labelled={false} />} close={close} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); send(); } }} footer={<>
-    <span className="ny-cap ny-resume">{name} resumes on send · ⌘↵</span><ButtonLink href={session}>Answer in the terminal</ButtonLink><Button variant="primary" busy={action.busy} onClick={send} disabled={!available || !text.trim() || text.length > 2000}>Send answer</Button>
+    <span className="ny-cap ny-resume">{name} resumes on send · ⌘↵</span><ButtonLink href={session}>Answer in the terminal</ButtonLink><Button variant="primary" busy={action.busy} onClick={send} disabled={!!action.unavailable || !available || !text.trim() || text.length > 2000} title={action.unavailable}>Send answer</Button>
   </>}>
     {loading && <span role="status">Loading question…</span>}<ErrorMessage error={error} />
     {task && <>
@@ -32,6 +33,6 @@ export function AnswerPanel({ id, close }: { id: string; close: () => void }) {
       {!!question?.options?.length && <div className="ny-quick"><span className="ny-label">Quick answers</span><div className="ny-options">{question.options.map(option => <Button className="ny-chip" key={option} onClick={() => setText(option)}>{option}</Button>)}</div></div>}
       {available ? <><label className="ny-answer"><span className="ny-label">Your answer</span><TextArea rows={4} value={text} maxLength={2000} onInput={event => setText(event.currentTarget.value)} placeholder={`Answer in your own words. ${name} continues from here.`} /></label><div className="ny-heading"><Checkbox checked disabled label="Add this answer to the task's brief" /><span className="ny-cap">Answers are always included in the resumed task's brief.</span></div>{!text.trim() && <span className="ny-cap">Enter an answer to send.</span>}</> : <span role="status">This task is no longer waiting for an answer. Open its session to see what happened.</span>}
     </>}
-    <ErrorMessage error={action.error} />{action.message && <span role="status">{action.message}</span>}
+    {action.unavailable && <p className="muted">{action.unavailable}</p>}<ErrorMessage error={action.error} />{action.message && <span role="status">{action.message}</span>}
   </SideDialog>;
 }

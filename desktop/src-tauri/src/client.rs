@@ -428,6 +428,10 @@ pub struct Session {
     pub client: Client,
     pub origin: String,
     service_version: Option<String>,
+    hello_identity: std::sync::Arc<std::sync::Mutex<Value>>,
+    owner_identity: String,
+    pub cookies: std::sync::Arc<reqwest::cookie::Jar>,
+    pub ops: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 async fn count_active_tasks(session: &Session) -> Option<usize> {
     let mut count = 0usize;
@@ -448,7 +452,7 @@ impl Session {
     pub fn service_version(&self) -> Option<&str> { self.service_version.as_deref() }
     #[cfg(test)]
     pub(crate) fn for_capture_test(client: Client, origin: String) -> Self {
-        Self { client, origin, service_version: None }
+        Self { client, origin, service_version: None, cookies: Default::default(), ops: Default::default(), hello_identity: Default::default(), owner_identity: String::new() }
     }
     pub async fn connect(cli: &Cli, auth: &Url) -> Result<Self, String> {
         // Use exactly the home passed to CLI discovery, including PACER_HOME overrides.
@@ -458,29 +462,26 @@ impl Session {
     }
     async fn exchange(auth: &Url, token: String) -> Result<Self, String> {
         let origin = logic::local_origin(auth).ok_or("Invalid origin")?;
+        let cookies = std::sync::Arc::new(reqwest::cookie::Jar::default());
         let client = Client::builder()
-            .cookie_store(true)
+            .cookie_provider(cookies.clone())
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
             .user_agent(concat!("pacer-desktop/", env!("CARGO_PKG_VERSION")))
-            .default_headers({
-                let mut h = reqwest::header::HeaderMap::new();
-                h.insert(
-                    "X-Pacer-Client",
-                    reqwest::header::HeaderValue::from_static(concat!(
-                        "desktop/",
-                        env!("CARGO_PKG_VERSION")
-                    )),
-                );
-                h
-            })
+            .default_headers(native_headers(&origin)?)
             .build()
             .map_err(|_| "Unable to create client")?;
+        use sha2::Digest;
+        let owner_identity=format!("{:x}",sha2::Sha256::digest(token.trim().as_bytes()));
         let mut session = Self {
             client,
             origin,
             service_version: None,
+            hello_identity: Default::default(),
+            owner_identity,
+            cookies,
+            ops: Default::default(),
         };
         if token.trim().is_empty() {
             return Err("Missing service token".into());
@@ -515,8 +516,13 @@ impl Session {
         }
         let hello = session.json("/v3/hello").await?;
         logic::check_hello(&hello).map_err(str::to_owned)?;
+        session.replace_ops(&hello);
         session.service_version = hello["pacer"].as_str().map(str::to_owned);
         Ok(session)
+    }
+    pub fn replace_ops(&self, hello: &Value) {
+        *self.hello_identity.lock().unwrap()=serde_json::json!([hello["instance"],hello["instance_id"],hello["service_id"],hello["service"]["identity"]]);
+        *self.ops.lock().unwrap() = hello["ops"].as_array().map(|ops|ops.iter().filter_map(|v|v.as_str().map(str::to_owned)).collect()).unwrap_or_default();
     }
     pub async fn op(&self, op: &str, params: &Value) -> Result<Value, String> {
         if crate::actions::dispatch(&serde_json::json!({"op":op,"params":params})).is_none()
@@ -552,7 +558,13 @@ impl Session {
             .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?
             .json()
             .await
-            .map_err(|_| "Invalid service response".into())
+            .map_err(|error| {
+                if error.is_decode() {
+                    if path == "/v3/hello" { "protocol" } else { "Invalid service response" }
+                } else {
+                    "stopped"
+                }.into()
+            })
     }
 }
 
@@ -875,7 +887,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
         .as_str()
         .ok_or("Missing client id")?
         .to_owned();
-    let seq = snapshot["seq"].as_u64().unwrap_or(0);
+    reconcile_cursor(app,&session,&cli.pacer_home,&snapshot).await?;
     if logic::local_origin(&web_auth).as_deref() != Some(&session.origin) {
         return Err("stopped".into());
     }
@@ -938,20 +950,12 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             }
         }
     }
-    #[cfg(feature = "ota-fixture")]
-    {
-        let tray_auth = cli.auth().await?;
-        if !logic::fixture_tray_auth(&tray_auth, &session.origin) {
-            return Err("Isolated tray service origin changed".into());
-        }
-        *app.state::<Shell>().fixture_tray_auth.lock().unwrap() = Some(tray_auth);
-    }
-    crate::activate(app, &session.origin, web_auth)?;
     *app.state::<Shell>().session.lock().unwrap() = Some(session.clone());
+    crate::activate(app, &session.origin, web_auth)?;
     crate::update_tray(app, TrayModel::from_snapshot(&snapshot));
     let shell = app.state::<Shell>();
     let result = tokio::select! {
-        result = listen(app, &session, &client_id, seq) => result,
+        result = listen(app, &session, &client_id, &cli.pacer_home) => result,
         result = heartbeat(app, &session, &client_id) => result,
         _ = async {
             if let Some(token) = registration["capture_worker"].as_str() {
@@ -980,7 +984,7 @@ async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> 
     app.state::<Shell>().update_transaction.store(false, Ordering::SeqCst);
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let probe = health(client).await;
+        let probe = health(client, true).await;
         let shell = app.state::<Shell>();
         let transaction = shell.update_transaction.load(Ordering::SeqCst)
             || shell.adoption.lock().unwrap().is_some();
@@ -1015,19 +1019,57 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
             .await?;
     }
 }
+fn native_headers(origin: &str) -> Result<reqwest::header::HeaderMap,String> {
+    let mut headers=crate::ipc_transport::app_headers(origin,"validate")?;
+    headers.remove("x-pacer-client-instance");
+    headers.insert("x-pacer-client",reqwest::header::HeaderValue::from_static(concat!("desktop/",env!("CARGO_PKG_VERSION"))));
+    Ok(headers)
+}
+fn process_service_identity(details: &pacer_desktop::ota::native::ProcessDetails) -> Value {
+    serde_json::json!([details.executable,details.uid])
+}
+fn event_identity(origin: &str, home: &Path, owner: &str, process: &Value, registration: &Value, hello: &Value) -> String {
+    serde_json::json!([origin,home,owner,process,registration,hello]).to_string()
+}
+async fn reconcile_cursor(app: &AppHandle, session: &Session, home: &std::path::Path, snapshot: &Value) -> Result<u64,String> {
+    use sha2::Digest;
+    let health=session.json("/health").await?;
+    // A process restart is not a new store. Bind to the owner token and service
+    // image/registration; PID and birth time alone must not discard replay.
+    let process=health["pid"].as_u64().and_then(|pid|u32::try_from(pid).ok())
+        .and_then(|pid|pacer_desktop::ota::native::process_details(pid).ok().flatten())
+        .map(|details|process_service_identity(&details)).unwrap_or(Value::Null);
+    let mut registration=Value::Null;
+    if let (Some(trust),Some(user_home))=(pacer_desktop::ota::trust::ReleaseTrust::configured(),std::env::var_os("HOME")) {
+        if let Ok(observed)=pacer_desktop::ota::control::observe_service_registration(&PathBuf::from(user_home),home,service_port(),&trust) {
+            registration=serde_json::json!([format!("{:x}",sha2::Sha256::digest(&observed.registration)),observed.executable]);
+        }
+    }
+    let identity=event_identity(&session.origin,home,&session.owner_identity,&process,&registration,&session.hello_identity.lock().unwrap());
+    Ok(app.state::<crate::ipc_transport::Bridge>().reconcile_cursor(identity,snapshot["seq"].as_u64().unwrap_or(0)))
+}
 async fn listen(
     app: &AppHandle,
     session: &Session,
     client_id: &str,
-    mut seq: u64,
+    home: &std::path::Path,
 ) -> Result<(), String> {
     // Exactly one owner of the native stream. Reconnect sequentially, never from window callbacks.
     loop {
+        let hello=session.json("/v3/hello").await?;
+        logic::check_hello(&hello).map_err(str::to_owned)?;
+        session.replace_ops(&hello);
+        let snapshot=wait_for_snapshot(app,session).await?;
+        let mut seq=reconcile_cursor(app,session,home,&snapshot).await?;
         let response = tokio::time::timeout(
             Duration::from_secs(15),
             session
                 .client
                 .get(format!("{}/v3/events?since={seq}", session.origin))
+                .headers(match app.state::<crate::ipc_transport::Bridge>().instance() {
+                    Some(instance)=>crate::ipc_transport::app_headers(&session.origin,&instance)?,
+                    None=>native_headers(&session.origin)?,
+                })
                 .header("Accept", "text/event-stream")
                 .send(),
         )
@@ -1044,6 +1086,7 @@ async fn listen(
         {
             return Err("stopped".into());
         }
+        app.state::<crate::ipc_transport::Bridge>().status(serde_json::json!({"type":"status","status":"connected"}));
         let mut stream = response.bytes_stream();
         let mut parser = logic::Sse::default();
         loop {
@@ -1061,6 +1104,8 @@ async fn listen(
                 if let Some(id) = event.id {
                     seq = id;
                 }
+                app.state::<crate::ipc_transport::Bridge>().broadcast(crate::ipc_transport::event_message(&event));
+                app.state::<crate::ipc_transport::Bridge>().cursor.lock().unwrap().seq = Some(seq);
                 if event.kind == "notify" {
                     if let Ok(data) = serde_json::from_str::<Value>(&event.data) {
                         if let Some(notification) =
@@ -1077,10 +1122,15 @@ async fn listen(
                 let snapshot = wait_for_snapshot(app, session).await?;
                 // A reset invalidates the old sequence space; the fresh snapshot owns the cursor.
                 // Ordinary refreshes preserve the event cursor for alerts arriving during the GET.
+                // Identity/rewind reconciliation belongs to connection setup.
+                // The cached snapshot may lag events on this live connection;
+                // that is not a store rewind and must not manufacture a resync.
                 seq = logic::snapshot_seq(seq, &snapshot, reset);
+                app.state::<crate::ipc_transport::Bridge>().cursor.lock().unwrap().seq = Some(seq);
                 crate::update_tray(app, TrayModel::from_snapshot(&snapshot));
             }
         }
+        app.state::<crate::ipc_transport::Bridge>().status(serde_json::json!({"type":"status","status":"reconnecting","reason":"stream-ended"}));
         {
             // Recheck version and session on reconnect, including service upgrades.
             logic::check_hello(&session.json("/v3/hello").await?).map_err(str::to_owned)?;
@@ -1581,6 +1631,8 @@ pub async fn run(app: AppHandle) {
     let mut attempts = logic::Reconnect::default();
     let mut previous = String::new();
     let mut first_run = FirstRun::default();
+    // Keep connection history after recovery clears the current session.
+    let mut previously_connected = false;
     loop {
         let waiting_for_service_choice = logic::waiting_for_choice(
             app.state::<Shell>().diagnosis.lock().unwrap().as_ref().map(|d| d.page),
@@ -1599,7 +1651,7 @@ pub async fn run(app: AppHandle) {
         if app.state::<Shell>().retry.swap(false, Ordering::SeqCst) {
             path = Cli::login_path().await;
         }
-        let probe = health(&probe_client).await;
+        let probe = health(&probe_client, previously_connected).await;
         // Preserve ownership for sustained failed probes, including stale heartbeats.
         let (job, owner) = if matches!(
             probe,
@@ -1746,6 +1798,7 @@ pub async fn run(app: AppHandle) {
                         result = connected(&app, &cli, &mut first_run) => result,
                         result = monitor_health(&app, &probe_client) => result,
                     };
+                    previously_connected |= app.state::<Shell>().session.lock().unwrap().is_some();
                     if let Err(error) = result {
                         if matches!(error.as_str(), "outdatedService" | "unverifiedService" | "takeover") {
                             desktop_log!("pacer lifecycle: live service release needs user review; waiting for choice");
@@ -1792,6 +1845,62 @@ pub async fn run(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn health_gateway_http_bodies_respect_connection_history() {
+        use std::io::{Read, Write};
+        for (status, body, prior, expected) in [
+            (502, "<html>Bad Gateway</html>", true, crate::logic::HealthProbe::NoAnswer),
+            (502, "", true, crate::logic::HealthProbe::NoAnswer),
+            (502, "<html>Bad Gateway</html>", false, crate::logic::HealthProbe::Invalid),
+            (502, "", false, crate::logic::HealthProbe::Invalid),
+            (200, "<html>bad hello</html>", true, crate::logic::HealthProbe::Invalid),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = std::thread::spawn(move || {
+                // The lifecycle checks the TCP listener before requesting /health.
+                drop(listener.accept().unwrap());
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 4096];
+                stream.read(&mut request).unwrap();
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            });
+            let client = reqwest::Client::builder().no_proxy().build().unwrap();
+            let probe = super::health_on_port(&client, port, prior).await;
+            server.join().unwrap();
+            assert_eq!(probe, expected, "HTTP {status}, {body:?}, prior={prior}");
+        }
+    }
+    #[tokio::test]
+    async fn hello_http_failures_and_malformed_success_are_distinct() {
+        use std::io::{Read, Write};
+        for (status, body, expected) in [
+            (502, "<html>Bad Gateway</html>", "stopped"),
+            (502, "", "stopped"),
+            (200, "<html>Bad Gateway</html>", "protocol"),
+            (200, "", "protocol"),
+            (200, "{}", "protocol"),
+            (200, r#"{"protocol":"4.0.0"}"#, "oldApp"),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 4096];
+                stream.read(&mut request).unwrap();
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            });
+            let session = super::Session::for_capture_test(reqwest::Client::builder().no_proxy().build().unwrap(), origin);
+            let result = match session.json("/v3/hello").await {
+                Ok(hello) => crate::logic::check_hello(&hello).map_err(str::to_owned),
+                Err(error) => Err(error),
+            };
+            server.join().unwrap();
+            assert_eq!(result, Err(expected.to_owned()), "HTTP {status}, {body:?}");
+            let page = crate::logic::recovery_page(expected);
+            assert_eq!(crate::logic::recovery_status(page), if expected == "stopped" { "reconnecting" } else { "incompatible" });
+        }
+    }
     #[test]
     fn cancelled_native_connect_closes_its_late_result() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -2251,14 +2360,9 @@ mod tests {
                     }
                 }
                 let request = String::from_utf8(request).unwrap().to_lowercase();
-                if request.starts_with("post /v3/ops/") {
-                    assert!(request.contains("x-pacer-client: app\r\n"));
-                } else {
-                    assert!(request.contains(concat!(
-                        "x-pacer-client: desktop/",
-                        env!("CARGO_PKG_VERSION")
-                    )));
-                }
+                if n==2 {assert!(request.contains("x-pacer-client: app\r\n"));}
+                else {assert!(request.contains(concat!("x-pacer-client: desktop/",env!("CARGO_PKG_VERSION"),"\r\n")));}
+                assert!(!request.contains("x-pacer-client-instance:"));
                 assert!(request.contains(&format!("host: {address}")));
                 let response = if n == 0 {
                     assert!(request.starts_with("post /v3/session/exchange "));
@@ -2360,9 +2464,11 @@ fn service_port() -> u16 {
         .and_then(|s| s.parse().ok())
         .unwrap_or(4317)
 }
-async fn health(client: &Client) -> logic::HealthProbe {
+async fn health(client: &Client, previously_connected: bool) -> logic::HealthProbe {
+    health_on_port(client, service_port(), previously_connected).await
+}
+async fn health_on_port(client: &Client, port: u16, previously_connected: bool) -> logic::HealthProbe {
     use logic::HealthProbe;
-    let port = service_port();
     match tokio::time::timeout(
         Duration::from_secs(2),
         tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port)),
@@ -2382,10 +2488,12 @@ async fn health(client: &Client) -> logic::HealthProbe {
             .send()
             .await?;
         let status = response.status().as_u16();
-        if status == 503 {
-            return Ok(logic::health_response(status, &Value::Null));
+        // Classify failed HTTP responses before decoding: gateways may return HTML
+        // or no body. Only successful malformed responses indicate a protocol error.
+        if status != 200 {
+            return Ok(logic::health_response_for_connection(status, &Value::Null, previously_connected));
         }
-        response.json::<Value>().await.map(|value| logic::health_response(status, &value))
+        response.json::<Value>().await.map(|value| logic::health_response_for_connection(status, &value, previously_connected))
     })
     .await
     {
@@ -2672,5 +2780,52 @@ pub async fn monitor_approvals(app: AppHandle) {
                 }})()"#));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod native_identity_tests {
+    use super::*;
+    #[test]
+    fn native_identity_has_no_page_instance_and_forwarding_overrides_it() {
+        let native=native_headers("http://127.0.0.1:4317").unwrap();
+        assert_eq!(native["x-pacer-client"],concat!("desktop/",env!("CARGO_PKG_VERSION")));
+        assert!(!native.contains_key("x-pacer-client-instance"));
+        let client=Client::builder().default_headers(native).build().unwrap();
+        let forwarded=client.get("http://127.0.0.1:4317/v3/hello")
+            .headers(crate::ipc_transport::app_headers("http://127.0.0.1:4317","page-id").unwrap()).build().unwrap();
+        assert_eq!(forwarded.headers()["x-pacer-client"],"app");
+        assert_eq!(forwarded.headers()["x-pacer-client-instance"],"page-id");
+        let notification=client.post("http://127.0.0.1:4317/v3/ops/task.answer").header("x-pacer-client","app").build().unwrap();
+        assert!(!notification.headers().contains_key("x-pacer-client-instance"));
+    }
+}
+
+#[cfg(test)]
+mod event_identity_tests {
+    use super::*;
+    #[test]
+    fn same_service_restart_keeps_identity_but_service_changes_do_not() {
+        let home=Path::new("service-home");
+        let before=pacer_desktop::ota::native::ProcessDetails {
+            identity:pacer_desktop::ota::native::ProcessIdentity{pid:100,boot_id:"boot".into(),birth:"1".into()},
+            executable:"pacer".into(),uid:501,parent_pid:1,
+        };
+        let mut after=before.clone();after.identity.pid=101;after.identity.birth="2".into();
+        let image=process_service_identity(&before);
+        let restarted=process_service_identity(&after);
+        let identity=event_identity("http://127.0.0.1:4317",home,"owner-a",&image,&Value::Null,&Value::Null);
+        // Re-exchange after a restart uses the same token, registration and image.
+                let bridge=crate::ipc_transport::Bridge::default();
+        assert_eq!(bridge.reconcile_cursor(identity.clone(),10),10);
+        bridge.cursor.lock().unwrap().seq=Some(15);
+        assert_eq!(bridge.reconcile_cursor(event_identity("http://127.0.0.1:4317",home,"owner-a",&restarted,&Value::Null,&Value::Null),20),15);
+        for changed in [
+            event_identity("http://127.0.0.1:4318",home,"owner-a",&image,&Value::Null,&Value::Null),
+            event_identity("http://127.0.0.1:4317",home,"owner-b",&image,&Value::Null,&Value::Null),
+            event_identity("http://127.0.0.1:4317",home,"owner-a",&serde_json::json!(["other",501]),&Value::Null,&Value::Null),
+            event_identity("http://127.0.0.1:4317",home,"owner-a",&image,&serde_json::json!("new registration"),&Value::Null),
+            event_identity("http://127.0.0.1:4317",home,"owner-a",&image,&Value::Null,&serde_json::json!("new hello")),
+        ] {assert_ne!(identity,changed);}
     }
 }

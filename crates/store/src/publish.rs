@@ -48,7 +48,7 @@ pub fn publish(ctx: &Ctx, events: &[Value]) -> PublishReport {
             write_latest(ctx, &snapshot)?;
             rotate_outbox(ctx)?;
         }
-        Ok(snapshot["seq"].as_u64().unwrap_or(0))
+        Ok(snapshot["seq"].as_f64().unwrap_or(0.0) as u64)
     });
     match result {
         Ok(Ok(seq)) => {

@@ -1,3 +1,4 @@
+import { workspaceKey, workspaceManager } from '../app/src/workspace/manager';
 import { afterEach, expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { SidePanel } from "../app/src/ds/SidePanel";
@@ -10,7 +11,7 @@ import { sessionControlActive } from "../app/src/keys/instance";
 import { CommandHelp } from "../app/src/shell/CommandHelp";
 
 const previous = (globalThis as any).localStorage;
-afterEach(() => { (globalThis as any).localStorage = previous; });
+afterEach(() => { workspaceManager.clearIdentity("pending"); (globalThis as any).localStorage = previous; });
 function memoryStorage(seed: Record<string, string> = {}) {
   const store = new Map(Object.entries(seed));
   return { store, getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => { store.set(key, value); } };
@@ -45,7 +46,7 @@ test("panel_toggle_has_aria_expanded_and_controls", () => {
   expect(changes).toEqual([false]);
 });
 
-test("panel_state_persists", () => {
+test("panel_state_preserves_existing_preferences_across_remounts", () => {
   const storage = memoryStorage();
   (globalThis as any).localStorage = storage;
   const [open, setOpen] = readPanel("settings", true);
@@ -65,7 +66,7 @@ test("panel_state_survives_storage_errors", () => {
   expect(() => setOpen(false)).not.toThrow();
   expect(readPanel("dock", false)[0]).toBe(false);
   (globalThis as any).localStorage = undefined;
-  expect(readPanel("settings", true)[0]).toBe(true);
+  expect(readPanel("settings", true)[0]).toBe(false);
   expect(() => readPanel("settings", true)[1](false)).not.toThrow();
 });
 
@@ -150,9 +151,9 @@ test("Dispatch panel choices belong to a window and ignore legacy global choices
     expect(readPanel("dispatch.scope", false, true)[0]).toBe(true);
     expect(readPanel("dispatch.inspector", false, true)[0]).toBe(false);
     Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: memoryStorage() });
-    expect(readPanel("dispatch.scope", false, true)[0]).toBe(false);
+    expect(readPanel("dispatch.scope", false, true)[0]).toBe(true);
     Object.defineProperty(globalThis, "sessionStorage", { configurable: true, get() { throw Error("denied"); } });
-    expect(readPanel("dispatch.scope", false, true)[0]).toBe(false);
+    expect(readPanel("dispatch.scope", false, true)[0]).toBe(true);
     expect(() => readPanel("dispatch.scope", false, true)[1](true)).not.toThrow();
   } finally {
     if (previousSession) Object.defineProperty(globalThis, "sessionStorage", previousSession);

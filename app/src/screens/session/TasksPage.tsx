@@ -1,3 +1,6 @@
+import { useUniqueId as useId } from '../../ds/useUniqueId';
+
+import { useWorkspaceKey, useWorkspaceState, useViewActive } from '../../workspace/state';
 import { useMemo, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import { Page } from "../../ds/Page";
@@ -53,10 +56,11 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const busy = useDelayedBusy(updating);
   const {state} = useTaskContext();
   const heading = (node: TaskNodeView) => state.snapshot?.tasks.find(task => task.id === node.id)?.title || taskHeading(node.title);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [search, setSearch] = useState("");
-  const [shown, setShown] = useState(PAGE);
-  const [selected, setSelected] = useState<string>();
+  const viewId=useId();
+  const [filter, setFilter] = useWorkspaceState<Filter>(useWorkspaceKey(), "filter", "all");
+  const [search, setSearch] = useWorkspaceState(useWorkspaceKey(), "search", "");
+  const [shown, setShown] = useWorkspaceState(useWorkspaceKey(), "shown", PAGE);
+  const [selected, setSelected] = useWorkspaceState<string | undefined>(useWorkspaceKey(), "selected", undefined);
   const roots = nodes ?? [];
   const counts = useMemo(() => {
     const total: Record<Filter, number> = { all: roots.length, needs: 0, running: 0, accepted: 0, stopped: 0 };
@@ -85,10 +89,10 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
         value={query.repo || null} onChange={go} options={[{ value: null, label: "All repos" }, ...repos.map(repo => ({ value: repo.key, label: repo.label, searchText: `${repo.label} ${repo.key}` }))]} />}
       <Button variant="primary" onClick={onNew}>New task</Button>
     </header>
-    <Tabs label="Task filter" id="task-filter" value={filter} onChange={value => { setFilter(value as Filter); setShown(PAGE); }}
+    <Tabs label="Task filter" id={`${viewId}-task-filter`} value={filter} onChange={value => { setFilter(value as Filter); setShown(PAGE); }}
       options={FILTERS.map(item => ({ value: item.value, label: <>{item.dot && <span className={`pc-tasks-page__dot pc-tasks-page__dot--${item.dot}`} aria-hidden="true" />}{item.label} <span className="pc-tasks-page__count">{counts[item.value]}</span></> }))} />
     {error}
-    <div className="pc-tasks-page__columns" role="tabpanel" id={`task-filter-${filter}-panel`} aria-labelledby={`task-filter-${filter}-tab`}>
+    <div className="pc-tasks-page__columns" role="tabpanel" id={`${viewId}-task-filter-${filter}-panel`} aria-labelledby={`${viewId}-task-filter-${filter}-tab`}>
       <section className="pc-tasks-page__tree" aria-label="Task tree">
         <ResourceView layout="list" value={nodes ? { data: page } : { loading: true }} loading="Loading tasks…" empty={needle || filter !== "all" ? "No tasks match." : "No tasks yet."}>
           {list => <TaskTree nodes={list} density="regular" href={href} viewHref={viewHref} heading={heading} renderBranch={node => node.branch ? <span className="pc-task-card__branch" title={node.branch}>{node.branch}</span> : <LazyTaskBranch id={node.id}/>} selectedId={here?.node.id} onSelect={setSelected} label="Tasks" />}

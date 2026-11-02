@@ -111,6 +111,19 @@ fn bounded(s: &str) -> String {
 fn string<'a>(v: &'a Value, key: &str) -> Result<&'a str, BrokerError> {
     v[key].as_str().filter(|s| !s.is_empty()).ok_or_else(denied)
 }
+// src/exec/orca/state.ts SAFE_ID: ASCII only, no trimming, 1..100 JS units.
+fn safe_dispatch_id(id: &str) -> bool {
+    (1..=100).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+}
+fn dispatch_id<'a>(v: &'a Value, key: &str) -> Result<&'a str, BrokerError> {
+    v[key]
+        .as_str()
+        .filter(|s| safe_dispatch_id(s))
+        .ok_or_else(denied)
+}
 pub(crate) fn real(path: &str) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path))
 }
@@ -238,6 +251,7 @@ impl OrcaAttempt {
             self.phase = Phase::Checked;
             return Ok(json!({"kind":"none"}));
         }
+        let worker = dispatch_id(live, "worker")?.to_owned();
         let answering = if task["retryOf"].as_str().is_some_and(|s| !s.is_empty()) {
             asked["question"].get("answer").is_some()
         } else {
@@ -282,7 +296,7 @@ impl OrcaAttempt {
             }
         }
         self.reattach = true;
-        self.dispatch = Some(string(live, "worker")?.into());
+        self.dispatch = Some(worker);
         self.terminal = Some(string(live, "terminal")?.into());
         self.incarnation = live["incarnation"].as_str().map(str::to_owned);
         self.worktree = asked["worktree"].as_str().map(str::to_owned);
@@ -765,7 +779,7 @@ impl OrcaAttempt {
                 if reply["ok"] == true
                     && reply["result"]["dispatchId"]
                         .as_str()
-                        .is_some_and(|s| !s.is_empty()) =>
+                        .is_some_and(safe_dispatch_id) =>
             {
                 self.bind(reply["result"].clone()).await?;
                 self.started()
@@ -797,7 +811,7 @@ impl OrcaAttempt {
             .await
     }
     async fn bind(&mut self, start: Value) -> Result<(), BrokerError> {
-        self.dispatch = Some(string(&start, "dispatchId")?.into());
+        self.dispatch = Some(dispatch_id(&start, "dispatchId")?.into());
         self.start = start;
         self.phase = Phase::Started;
         self.started_at = now();

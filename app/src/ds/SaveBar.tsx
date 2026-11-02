@@ -1,5 +1,6 @@
+import { useUniqueId as useId } from './useUniqueId';
 import type { ComponentChildren } from "preact";
-import { useId } from "preact/hooks";
+
 import { Button } from "./Button";
 import { classNames } from "./classNames";
 

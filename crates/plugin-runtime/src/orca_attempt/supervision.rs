@@ -97,11 +97,7 @@ impl OrcaAttempt {
                 let mail = json!({"kind":"done","outcome":payload["outcome"].as_str().unwrap_or("unknown"),"subject":message["subject"].as_str().unwrap_or(""),"body":message["body"].as_str().unwrap_or(""),"filesModified":payload["filesModified"].as_array().cloned().unwrap_or_default()});
                 if Some(dispatch) == self.dispatch.as_deref() {
                     done = Some(mail);
-                } else if dispatch.len() <= 100
-                    && dispatch
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-                {
+                } else if super::safe_dispatch_id(dispatch) {
                     let path = PathBuf::from("orca/inbox").join(format!("{dispatch}.json"));
                     if !self.home.join(&path).exists() {
                         super::launch::write_private(
@@ -159,6 +155,9 @@ impl OrcaAttempt {
             .ok_or_else(denied)?
             .min(self.deadline);
         let dispatch = self.dispatch.clone().ok_or_else(denied)?;
+        if !super::safe_dispatch_id(&dispatch) {
+            return Err(denied());
+        }
         let terminal = self.terminal.clone().ok_or_else(denied)?;
         let mut ack = None::<String>;
         let mut replied = HashSet::new();
@@ -682,3 +681,6 @@ impl OrcaAttempt {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

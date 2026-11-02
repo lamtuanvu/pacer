@@ -21,8 +21,22 @@ pub struct RunDirectory {
     pub path: PathBuf,
     pins: Vec<(PathBuf, File)>,
 }
+fn file_name(name: &str) -> Result<(), BrokerError> {
+    if name.is_empty()
+        || [".", ".."].contains(&name)
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    {
+        return Err(denied());
+    }
+    Ok(())
+}
 impl RunDirectory {
     pub fn claim(home: &Path, id: &str, attempt: u64, recover: bool) -> Result<Self, BrokerError> {
+        if !pacer_store::is_task_id(id) {
+            return Err(denied());
+        }
         let root = File::from(
             open(home, flags() | OFlag::O_DIRECTORY, Mode::empty()).map_err(|_| denied())?,
         );
@@ -62,6 +76,9 @@ impl RunDirectory {
         Ok(result)
     }
     pub fn existing(home: &Path, id: &str, attempt: u64) -> Result<Self, BrokerError> {
+        if !pacer_store::is_task_id(id) {
+            return Err(denied());
+        }
         let mut pins = vec![];
         let mut path = home.to_path_buf();
         for name in [
@@ -119,6 +136,7 @@ impl RunDirectory {
         Ok(())
     }
     pub fn bytes(&self, name: &str, tail: usize) -> Result<Option<Vec<u8>>, BrokerError> {
+        file_name(name)?;
         self.check()?;
         let parent = &self.pins.last().ok_or_else(denied)?.1;
         let mut file = match openat(parent, name, flags(), Mode::empty()) {
@@ -141,6 +159,7 @@ impl RunDirectory {
         Ok(Some(bytes))
     }
     pub fn write(&self, name: &str, bytes: &[u8]) -> Result<(), BrokerError> {
+        file_name(name)?;
         self.check()?;
         let path = self.path.join(name).to_string_lossy().into_owned();
         let mut writer = crate::NativeWrite::prepare(
@@ -155,6 +174,7 @@ impl RunDirectory {
         self.check()
     }
     pub fn publish(&self, name: &str, bytes: &[u8], mode: u32) -> Result<(), BrokerError> {
+        file_name(name)?;
         use nix::fcntl::AtFlags;
         use nix::unistd::{UnlinkatFlags, linkat, unlinkat};
         use std::io::Write;

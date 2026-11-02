@@ -67,6 +67,9 @@ elif args[:2]==['orchestration','worker-read']: result={'terminal':{'tail':['usa
 elif args[:2]==['orchestration','worker-release']: result={'dispatchId':'dispatch-owned','state':'succeeded'}
 elif args[:2]==['orchestration','worker-stop']: result={'dispatchId':'dispatch-owned','state':'stopped'}
 else: raise Exception(args)
+if args[:2]==['orchestration','worker-start'] and os.path.exists(home+'/dispatch.json'): result['dispatchId']=json.load(open(home+'/dispatch.json'))
+if args[:2]==['orchestration','worker-list'] and os.path.exists(home+'/dispatch.json'):
+ for worker in result['workers']: worker['dispatchId']=json.load(open(home+'/dispatch.json'))
 print(json.dumps({'ok':True,'result':result}))
 "##).unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
@@ -583,5 +586,48 @@ async fn unsupported_or_malformed_runner_is_refused_before_any_orca_effect() {
         );
         assert!(!root.join("calls.jsonl").exists());
         fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn unsafe_dispatch_ids_never_bind_or_adopt_a_worker() {
+    let ids = [
+        "",
+        "../../orca",
+        "../../tasks/victim",
+        "/absolute",
+        "a/b",
+        "a\\b",
+        "a\0b",
+        "a∕b",
+        "a／b",
+        "a\u{2028}b",
+        " dispatch",
+        "dispatch\n",
+    ];
+    for dispatch in ids.into_iter().map(str::to_owned).chain(["a".repeat(101)]) {
+        for scenario in ["success", "lost-found"] {
+            let (root, mut attempt) = fixture(scenario);
+            fs::write(
+                root.join("dispatch.json"),
+                serde_json::to_vec(&dispatch).unwrap(),
+            )
+            .unwrap();
+            terminal(&mut attempt).await;
+            let started = attempt.invoke("start", json!({})).await.unwrap();
+            assert_eq!(started["kind"], "uncertain", "{dispatch:?}");
+            if scenario == "lost-found" {
+                attempt.invoke("lookup", json!({})).await.unwrap();
+                assert!(
+                    attempt.invoke("adopt", json!({})).await.is_err(),
+                    "{dispatch:?}"
+                );
+            }
+            let journal: Value =
+                serde_json::from_slice(&fs::read(root.join("orca.json")).unwrap()).unwrap();
+            assert_eq!(journal["workers"], json!({}));
+            assert!(!root.join("orca/inbox").exists());
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }

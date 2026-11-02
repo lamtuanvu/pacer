@@ -1,3 +1,4 @@
+use pacer_foundation::js_semantics::JsTrim;
 use saphyr_parser::{Event, Parser, ScalarStyle};
 use serde_json::{Map, Value};
 use std::ops::Range;
@@ -91,6 +92,7 @@ fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> 
             "null" | "Null" | "NULL" | "~" | "" => Value::Null,
             "true" | "True" | "TRUE" => Value::Bool(true),
             "false" | "False" | "FALSE" => Value::Bool(false),
+            "-0" => Value::from(-0.0_f64),
             _ => content
                 .parse::<i64>()
                 .map(Value::from)
@@ -498,6 +500,124 @@ impl StrategyDoc {
         }
         self.set_in(path, &Value::Array(value.to_vec()))
     }
+
+    /// Remove mapping entries from a block sequence after their child lists
+    /// have been edited. Surviving entries retain their source bytes.
+    pub fn remove_sequence_indices(&mut self, path: &[Value], indices: &[usize]) -> Result<()> {
+        let doc = self.document()?;
+        let Some(Node {
+            kind: Kind::Seq(items, false),
+            ..
+        }) = doc.at(path)
+        else {
+            return Err(EditError("strategy key is not a block list".into()));
+        };
+        for index in indices.iter().rev() {
+            let item = items
+                .get(*index)
+                .ok_or_else(|| EditError("missing list item".into()))?;
+            let start = self.text[..item.span.start]
+                .rfind('\n')
+                .map_or(0, |at| at + 1);
+            let end = if let Some(next) = items.get(index + 1) {
+                self.text[..next.span.start]
+                    .rfind('\n')
+                    .map_or(0, |at| at + 1)
+            } else {
+                item.span.end
+            };
+            self.replace(start..end, "");
+        }
+        // The TypeScript editor reserializes the surviving YAML nodes when
+        // filtering a sequence. Its default flow collection padding is on.
+        let updated = self.document()?;
+        let Some(Node {
+            kind: Kind::Seq(survivors, false),
+            ..
+        }) = updated.at(path)
+        else {
+            return Ok(());
+        };
+        let mut ranges = Vec::new();
+        for item in survivors {
+            if let Kind::Map(entries, _) = &item.kind {
+                for (_, value) in entries {
+                    if matches!(value.kind, Kind::Seq(_, true)) {
+                        ranges.push(value.span.start..value.core_end);
+                    }
+                }
+            }
+        }
+        for range in ranges.into_iter().rev() {
+            let source = &self.text[range.clone()];
+            if source.starts_with('[')
+                && source.ends_with(']')
+                && !source.starts_with("[ ")
+                && source != "[]"
+            {
+                self.replace(range, &format!("[ {} ]", &source[1..source.len() - 1]));
+            }
+        }
+        Ok(())
+    }
+    /// `routing.set` reuses the edited prefix nodes when its rule count changes.
+    /// The TypeScript node serializer pads flow collections in those clones.
+    pub fn set_sequence_preserving_prefix(
+        &mut self,
+        path: &[Value],
+        values: &[Value],
+    ) -> Result<()> {
+        let doc = self.document()?;
+        let Some(Node {
+            kind: Kind::Seq(items, false),
+            span,
+            ..
+        }) = doc.at(path)
+        else {
+            return self.set_list(path, values);
+        };
+        let indent = self.column(span.start);
+        let mut rendered = String::new();
+        for (index, value) in values.iter().enumerate() {
+            if index < items.len() {
+                let start = self.text[..items[index].span.start]
+                    .rfind('\n')
+                    .map_or(0, |at| at + 1);
+                let end = if index + 1 < items.len() {
+                    self.text[..items[index + 1].span.start]
+                        .rfind('\n')
+                        .map_or(0, |at| at + 1)
+                } else {
+                    span.end
+                };
+                let source = &self.text[start..end];
+                for line in source.split_inclusive('\n') {
+                    if let (Some(open), Some(close)) = (line.find('['), line.find(']'))
+                        && close > open + 1
+                        && !line[open + 1..].starts_with(' ')
+                    {
+                        rendered.push_str(&line[..open + 1]);
+                        rendered.push(' ');
+                        rendered.push_str(&line[open + 1..close]);
+                        rendered.push(' ');
+                        rendered.push_str(&line[close..]);
+                        continue;
+                    }
+                    rendered.push_str(line);
+                }
+            } else {
+                rendered.push_str(&" ".repeat(indent));
+                rendered.push_str("- ");
+                rendered.push_str(
+                    &emit(value, false, 0).replace('\n', &format!("\n{}", " ".repeat(indent + 2))),
+                );
+                rendered.push('\n');
+            }
+        }
+        let line_start = self.text[..span.start].rfind('\n').map_or(0, |at| at + 1);
+        self.replace(line_start..span.end, &rendered);
+        Ok(())
+    }
     /// Apply the serializable node-clone transforms used by the strategy-doc
     /// conformance corpus. The resulting edit is still confined to the old
     /// node's source range, as in the TypeScript editor.
@@ -762,7 +882,7 @@ impl StrategyDoc {
                     .rfind('}')
                     .map_or(value.core_end, |i| value.span.start + i);
                 let open = value.span.start + self.text[value.span.clone()].find('{').unwrap_or(0);
-                if self.text.as_bytes().get(open + 1) != Some(&b' ') {
+                if !entries.is_empty() && self.text.as_bytes().get(open + 1) != Some(&b' ') {
                     edits.push((open + 1..open + 1, " ".into()));
                 }
                 let content_end = self.text[..closer].trim_end_matches(' ').len();
@@ -770,7 +890,7 @@ impl StrategyDoc {
                     content_end..content_end,
                     format!(
                         "{}kind: {kind}{}",
-                        if entries.is_empty() { "" } else { ", " },
+                        if entries.is_empty() { " " } else { ", " },
                         if content_end == closer { " " } else { "" }
                     ),
                 ));
@@ -820,7 +940,9 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
                 return serde_json::to_string(s).unwrap_or_default();
             }
             if s.is_empty()
+                || s.parse::<f64>().is_ok()
                 || matches!(s.as_str(), "true" | "false" | "null" | "~")
+                || s.parse::<f64>().is_ok()
                 || s.contains(": ")
                 || s.contains(" #")
                 || s.starts_with([
@@ -831,12 +953,154 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
             }
             s.to_owned()
         }
+        Value::Number(number) => crate::js_semantics::number_text(number),
         _ => value.to_string(),
     }
 }
 
-fn emit(value: &Value, flow: bool, indent: usize) -> String {
+fn emit_bun_scalar(value: &Value) -> String {
+    if let Value::Number(number) = value
+        && let Some(n) = number.as_f64()
+        && n.fract() == 0.0
+        && n.abs() < 1e21
+    {
+        if n == 0.0 && n.is_sign_negative() {
+            return "-0".into();
+        }
+        return crate::js_semantics::number_text(number);
+    }
+    if let Value::String(s) = value {
+        let lower = s.to_ascii_lowercase();
+        let canonical_case = s.as_str() == lower
+            || s.as_str() == s.to_ascii_uppercase()
+            || s.as_str() == capitalize_ascii(&lower);
+        let reserved = (canonical_case
+            && matches!(
+                lower.as_str(),
+                "true" | "false" | "null" | "~" | "yes" | "no" | "on" | "off" | "y" | "n"
+            ))
+            || s.parse::<f64>().is_ok_and(f64::is_finite)
+            || numeric_prefix_ambiguous(s)
+            || (s.get(2..).is_some_and(|digits| {
+                !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_hexdigit())
+            }) && (s.starts_with("0x") || s.starts_with("0X")))
+            || (s.get(2..).is_some_and(|digits| {
+                !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+            }) && (s.starts_with("0o") || s.starts_with("0O")))
+            || matches!(lower.as_str(), ".inf" | ".nan")
+            || matches!(s.as_str(), "." | "...");
+        let syntax = s.is_empty()
+            || s.js_trim() != s
+            || s.starts_with([
+                '{', '[', '-', '?', ':', '#', '!', '&', '*', '|', '>', '<', '%', '@', '`',
+            ])
+            || s.ends_with(':')
+            || s.contains(": ")
+            || s.chars().any(|ch| {
+                ((ch as u32) <= 0x1f || ch == '\u{7f}' || ch == '\u{85}')
+                    || matches!(
+                        ch,
+                        '\'' | '"'
+                            | '#'
+                            | ','
+                            | '['
+                            | ']'
+                            | '{'
+                            | '}'
+                            | '`'
+                            | '\u{2028}'
+                            | '\u{2029}'
+                    )
+            });
+        if reserved || syntax {
+            return bun_quoted(s);
+        }
+        return s.clone();
+    }
+    emit_scalar(value, None)
+}
+
+fn capitalize_ascii(value: &str) -> String {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+fn numeric_prefix_ambiguous(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() < 2 || !matches!(bytes[0], b'+' | b'-' | b'.' | b'0'..=b'9') {
+        return false;
+    }
+    let mut signs = 0;
+    let mut dots = 0;
+    let mut exponents = 0;
+    for byte in bytes {
+        match byte {
+            b'0'..=b'9' => {}
+            b'+' | b'-' => signs += 1,
+            b'.' => dots += 1,
+            b'e' | b'E' => exponents += 1,
+            _ => return false,
+        }
+    }
+    dots <= 1
+        && exponents <= 1
+        && signs
+            <= if matches!(bytes[0], b'+' | b'-') {
+                2
+            } else {
+                1
+            }
+}
+
+fn bun_quoted(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\0' => out.push_str("\\0"),
+            '\u{7}' => out.push_str("\\a"),
+            '\u{8}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{b}' => out.push_str("\\v"),
+            '\u{c}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            '\u{85}' => out.push_str("\\N"),
+            '\u{1b}' => out.push_str("\\e"),
+            '\u{2028}' => out.push_str("\\L"),
+            '\u{2029}' => out.push_str("\\P"),
+            ch if ((ch as u32) <= 0x1f || ch == '\u{7f}') && (ch as u32) <= 0xff => {
+                out.push_str(&format!("\\x{:02x}", ch as u32))
+            }
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn emit_style(value: &Value, flow: bool, indent: usize, bun: bool) -> String {
+    let scalar = |value: &Value| {
+        if bun {
+            emit_bun_scalar(value)
+        } else {
+            emit_scalar(value, None)
+        }
+    };
     match value {
+        Value::String(s)
+            if flow && (s.contains(['{', '}', '[', ']', ',', '\n', '\r']) || s.trim() != s) =>
+        {
+            if s.contains('"') && !s.contains('\'') && !s.chars().any(char::is_control) {
+                format!("'{s}'")
+            } else {
+                serde_json::to_string(s).unwrap_or_default()
+            }
+        }
         Value::Array(items) if items.is_empty() => "[]".into(),
         Value::Object(items) if items.is_empty() => "{}".into(),
         Value::Array(items) if flow => {
@@ -847,7 +1111,7 @@ fn emit(value: &Value, flow: bool, indent: usize) -> String {
                     "[ {} ]",
                     items
                         .iter()
-                        .map(|v| emit(v, true, indent))
+                        .map(|v| emit_style(v, true, indent, bun))
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
@@ -859,8 +1123,8 @@ fn emit(value: &Value, flow: bool, indent: usize) -> String {
                 .iter()
                 .map(|(k, v)| format!(
                     "{}: {}",
-                    emit_scalar(&Value::String(k.clone()), None),
-                    emit(v, true, indent)
+                    scalar(&Value::String(k.clone())),
+                    emit_style(v, true, indent, bun)
                 ))
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -868,7 +1132,7 @@ fn emit(value: &Value, flow: bool, indent: usize) -> String {
         Value::Array(items) => items
             .iter()
             .map(|v| {
-                let child = emit(v, false, indent + 2);
+                let child = emit_style(v, false, indent + 2, bun);
                 if v.is_object() {
                     format!("- {}", child)
                 } else if v.is_array() {
@@ -882,8 +1146,8 @@ fn emit(value: &Value, flow: bool, indent: usize) -> String {
         Value::Object(items) => items
             .iter()
             .map(|(k, v)| {
-                let key = emit_scalar(&Value::String(k.clone()), None);
-                let child = emit(v, false, indent + 2);
+                let key = scalar(&Value::String(k.clone()));
+                let child = emit_style(v, false, indent + 2, bun);
                 if v.is_array() || v.is_object() {
                     format!("{key}:\n{}{}", " ".repeat(indent + 2), child)
                 } else {
@@ -892,8 +1156,30 @@ fn emit(value: &Value, flow: bool, indent: usize) -> String {
             })
             .collect::<Vec<_>>()
             .join(&format!("\n{}", " ".repeat(indent))),
-        _ => emit_scalar(value, None),
+        _ => scalar(value),
     }
+}
+
+fn emit(value: &Value, flow: bool, indent: usize) -> String {
+    emit_style(value, flow, indent, false)
+}
+
+/// Bun.YAML.stringify(value, null, 2) as used by strategy.save for the
+/// normalized mapping/list shapes accepted by the strategy validator.
+pub fn stringify_bun(value: &Value) -> String {
+    let emitted = emit_style(value, false, 0, true);
+    emitted
+        .split('\n')
+        .map(|line| {
+            if line.ends_with(':') {
+                format!("{line} ")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
 }
 
 fn inline_comment(node: &Node, source: &str) -> String {
