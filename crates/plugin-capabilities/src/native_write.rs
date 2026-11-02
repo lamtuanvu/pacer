@@ -1,4 +1,6 @@
-//! Descriptor-relative writes pinned at issuance. No descendant symlinks are followed.
+//! Descriptor-relative writes pinned at issuance or at an explicit host
+//! transaction re-baseline of an already-issued exact file. No descendant
+//! symlinks are followed.
 use crate::{BrokerError, WriteResource};
 use nix::{
     errno::Errno,
@@ -56,6 +58,10 @@ struct Resource {
     descriptor: WriteResource,
     relative: PathBuf,
     expected: Option<Identity>,
+    /// Identity fd retained while `expected` came from a host re-baseline, so
+    /// the expected inode number cannot be reused while the CAS relies on it.
+    pin: Option<File>,
+    rebased: bool,
 }
 pub struct NativeWrite {
     logical: PathBuf,
@@ -149,6 +155,8 @@ impl NativeWrite {
                 descriptor: descriptor.clone(),
                 relative,
                 expected,
+                pin: None,
+                rebased: false,
             });
         }
         native.current_root()?;
@@ -209,6 +217,65 @@ impl NativeWrite {
                 r.descriptor.path == path && r.descriptor.operations.iter().any(|o| o == operation)
             })
             .ok_or_else(denied)
+    }
+    /// Root-only recheck of the original pinned root, for host transactions.
+    pub fn check_root(&self) -> Result<(), BrokerError> {
+        self.current_root()
+    }
+    /// Host-only bytes of an already-issued exact writable file, read through
+    /// the pinned root and parent descriptors. Never consults or changes the
+    /// expected identity or cleanup state. Not reachable through `answer`.
+    pub fn read_current_file(&self, path: &str) -> Result<Option<Vec<u8>>, BrokerError> {
+        Ok(self.observe(path)?.map(|(_, _, bytes)| bytes))
+    }
+    /// Host-only transaction read: like `read_current_file`, then re-baselines
+    /// the expected identity to the inode just read, retaining its fd. Every
+    /// fallible step precedes the commit; on error nothing changes.
+    pub fn read_for_update(&mut self, path: &str) -> Result<Option<Vec<u8>>, BrokerError> {
+        self.retirement()?;
+        let index = self.issued_file(path)?;
+        let observed = self.observe(path)?;
+        let r = &mut self.resources[index];
+        Ok(match observed {
+            Some((id, file, bytes)) => {
+                (r.expected, r.pin, r.rebased) = (Some(id), Some(file), true);
+                Some(bytes)
+            }
+            None => {
+                (r.expected, r.pin, r.rebased) = (None, None, true);
+                None
+            }
+        })
+    }
+    fn issued_file(&self, path: &str) -> Result<usize, BrokerError> {
+        let index = self.index(path, "write")?;
+        if self.resources[index].descriptor.kind != "file" {
+            return Err(denied());
+        }
+        Ok(index)
+    }
+    fn observe(&self, path: &str) -> Result<Option<(Identity, File, Vec<u8>)>, BrokerError> {
+        let index = self.issued_file(path)?;
+        let relative = &self.resources[index].relative;
+        let parent = self.parent(relative)?;
+        let name = Path::new(relative.file_name().ok_or_else(denied)?);
+        let Some(mut file) = target(&parent, name)? else {
+            self.parent(relative)?;
+            return Ok(None);
+        };
+        let owned = |m: &Metadata| m.uid() == nix::unistd::Uid::current().as_raw();
+        let before = checked(&file, "file")?;
+        if !owned(&before) {
+            return Err(denied());
+        }
+        let mut bytes = vec![];
+        file.read_to_end(&mut bytes).map_err(|_| denied())?;
+        let after = checked(&file, "file")?;
+        if identity(&before) != identity(&after) || !owned(&after) {
+            return Err(denied());
+        }
+        self.parent(relative)?;
+        Ok(Some((identity(&after), file, bytes)))
     }
     /// Host-only binary capture; the write descriptors still authorize exact paths.
     pub fn write_bytes(&mut self, path: &str, bytes: &[u8]) -> Result<Value, BrokerError> {
@@ -297,11 +364,16 @@ impl NativeWrite {
             write(&mut file, bytes).map_err(|_| denied())?;
             file.sync_all().map_err(|_| denied())?;
             let id = identity(&checked(&file, "file")?);
+            let keep = if self.resources[index].rebased {
+                Some(file.try_clone().map_err(|_| denied())?)
+            } else {
+                None
+            };
             self.parent(&relative)?;
             self.current(index, &parent)?;
             guard()?;
             renameat(&parent, temp.as_str(), &parent, name).map_err(|_| denied())?;
-            self.resources[index].expected = Some(id);
+            (self.resources[index].expected, self.resources[index].pin) = (Some(id), keep);
             self.parent(&relative)?;
             self.current(index, &parent)?;
             Ok(json!({"ok":true}))
@@ -379,7 +451,7 @@ impl NativeWrite {
                     file.set_permissions(Permissions::from_mode(0o700))
                         .map_err(|_| denied())?;
                     let id = identity(&checked(&file, "directory")?);
-                    self.resources[index].expected = Some(id);
+                    (self.resources[index].expected, self.resources[index].pin) = (Some(id), None);
                     self.directories.insert(relative.clone(), (id, file));
                 }
                 self.parent(&relative)?;
@@ -410,7 +482,7 @@ impl NativeWrite {
                     }
                     for resource in &mut self.resources {
                         if resource.relative.starts_with(&relative) {
-                            resource.expected = None;
+                            (resource.expected, resource.pin) = (None, None);
                         }
                     }
                     self.directories
