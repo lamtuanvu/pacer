@@ -955,6 +955,8 @@ fn activity_rotation_keeps_recent_twenty_thousand() {
 
 #[test]
 fn snapshot_parser_matches_bun_normalization() {
+    use std::process::Stdio;
+
     let mut inputs = json!([
         {"v":1,"seq":2,"at":100,"serviceInstalled":true,"tasks":[{"id":"t","state":"running","updatedAt":1,"goal":"g","executor":"codex","backend":null,"worktree":null}],"alerts":[{"title":"hello","error":"bad"}],"console":{"pid":12,"startedAt":90,"heartbeatAt":99,"handle":"h","paneKey":null},"strategies":["default",{"name":"alt","active":true,"summary":"s","description":"d"}],"unknown":"discard"},
         {"v":1,"seq":5,"at":10,"budget":{"generatedAt":1,"strategy":"s","planner":"p","mode":"normal"},"mode":{"mode":"normal","strategy":"s","at":1}},
@@ -1048,18 +1050,27 @@ fn snapshot_parser_matches_bun_normalization() {
         .parent()
         .and_then(Path::parent)
         .unwrap();
-    let result = Command::new("bun")
+    let mut result = Command::new("bun")
         .arg("-e")
         .arg(
             r#"
 import {parseSnapshot} from './src/link/envelope.ts';
-process.stdout.write(JSON.stringify(JSON.parse(process.env.TEST_INPUTS).map(parseSnapshot)));
+process.stdout.write(JSON.stringify(JSON.parse(await Bun.stdin.text()).map(parseSnapshot)));
 "#,
         )
-        .env("TEST_INPUTS", inputs.to_string())
         .current_dir(root)
-        .output()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap();
+    result
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(inputs.to_string().as_bytes())
+        .unwrap();
+    let result = result.wait_with_output().unwrap();
     assert!(
         result.status.success(),
         "{}",

@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 pacer-foundation = { path = "../foundation" }
+ryu-js = "1"
 saphyr-parser = "0.3"
 serde_json.workspace = true
 thiserror.workspace = true
