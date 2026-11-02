@@ -1,3 +1,4 @@
+import { platform } from "../../platform";
 import { agentKey, markAgent } from "../../../../src/view-model/agents";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { AssistantScope, TurnView } from "../../../../src/assistant/types";
@@ -25,7 +26,7 @@ const isMac = () => typeof navigator !== "undefined" && /Mac/i.test(navigator.pl
 
 /** Reads the per-turn SSE stream until it ends. Rejects when streaming is unavailable, so the caller can poll instead. */
 async function follow(turnId: string, onFrame: (frame: ReturnType<typeof parseFrames>["frames"][number]) => void, signal: AbortSignal): Promise<void> {
-  const response = await fetch(`/v3/assistant/turns/${encodeURIComponent(turnId)}/stream`, { credentials: "same-origin", signal });
+  const response = await platform.request(`/v3/assistant/turns/${encodeURIComponent(turnId)}/stream`, { credentials: "same-origin", signal });
   if (!response.ok || !response.body) throw new Error("no stream");
   const reader = response.body.getReader(), decoder = new TextDecoder();
   let buffer = "", done = false;

@@ -1,3 +1,4 @@
+import { platform } from "../../platform";
 import type { BrowserApi } from "../../data/api";
 import { useTaskContext } from "../task-shared";
 import { Disclosure } from "../../ds/Controls";
@@ -6,11 +7,12 @@ import { Button } from "../../ds/Button";
 type LogHandlers = { open: () => void; log: (event: MessageEvent) => void; done: () => void; error: (error?: unknown) => void };
 type LogSource = { onopen: ((event: Event) => void) | null; onerror: ((event: Event) => void) | null; addEventListener(type: string, listener: (event: MessageEvent) => void): void; close(): void };
 /** Use the API client's negotiated hello, including its existing older-service fallback. */
-export function followLog(api: Pick<BrowserApi,"hello">, id: string, handlers: LogHandlers, Source: new (url: string) => LogSource = EventSource) {
+export function followLog(api: Pick<BrowserApi,"hello">, id: string, handlers: LogHandlers, Source?: new (url: string) => LogSource) {
  let active=true,stream:LogSource|undefined;
  void api.hello().then(hello=>{
   if(!active)return;
-  stream=new Source(`/v${hello.protocol.split('.')[0]==='3'?3:2}/tasks/${encodeURIComponent(id)}/log?follow=1`);
+  const path=(`/v${hello.protocol.split('.')[0]==='3'?3:2}/tasks/${encodeURIComponent(id)}/log?follow=1`);
+  stream=Source?new Source(path):platform.subscribeEvents(path);
   stream.onopen=()=>{if(active)handlers.open();};
   stream.addEventListener('log',event=>{if(active)handlers.log(event);});
   stream.addEventListener('done',()=>{if(active){handlers.done();active=false;stream?.close();}});

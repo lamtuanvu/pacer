@@ -1,5 +1,5 @@
 export interface DesktopHost {
-  __TAURI__?: { core?: { invoke(command: string, args?: Record<string, unknown>): Promise<unknown> } };
+  __TAURI__?: { core?: import('./ipc').IpcCore };
 }
 export function desktopHost(): DesktopHost {
   return globalThis as typeof globalThis & DesktopHost;

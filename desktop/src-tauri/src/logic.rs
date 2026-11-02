@@ -347,7 +347,7 @@ pub fn bundled_shell(current: Option<&Url>) -> bool {
             && url.username().is_empty()
             && url.password().is_none()
             && url.port().is_none()
-            && matches!(url.path(), "/" | "/index.html")
+            && matches!(url.path(), "" | "/" | "/index.html")
     })
 }
 
@@ -429,6 +429,7 @@ pub fn takeover_page(current: Option<&Url>) -> Option<TakeoverPage> {
 pub struct MainPage {
     current: Option<Url>,
     takeover: Option<TakeoverToken>,
+    shell_state: Option<String>,
 }
 struct TakeoverToken {
     token: String,
@@ -436,6 +437,30 @@ struct TakeoverToken {
     candidate: Option<String>,
 }
 impl MainPage {
+    /// A shell state is not a document navigation. Tokens still follow that state.
+    pub fn shell_state(&mut self, state: &str) {
+        if self.shell_state.as_deref()!=Some(state) { self.takeover=None; }
+        self.shell_state=Some(state.into());
+    }
+    pub fn allows_shell_action(&self, action: ShellAction) -> bool {
+        matches!((self.shell_state.as_deref(),action),
+            (Some("welcome"),ShellAction::Begin)
+            | (Some("consent"),ShellAction::Consent{..})
+            | (Some("existing"),ShellAction::UseApp | ShellAction::KeepMine)
+            | (Some("relink"),ShellAction::Relink)
+            | (Some("incomplete"),ShellAction::Download)
+            | (Some("outdatedService" | "unverifiedService"),ShellAction::ContinueOldService))
+    }
+    pub fn in_shell_state(&self, state: &str) -> bool { self.shell_state.as_deref()==Some(state) }
+    pub fn takeover_page(&self) -> Option<TakeoverPage> {
+        if !bundled_shell(self.current.as_ref()) { return None; }
+        match self.shell_state.as_deref() {
+            Some("takeover")=>Some(TakeoverPage::Offer),
+            Some("takeoverRestored")=>Some(TakeoverPage::Restored),
+            Some(_)=>None,
+            None=>takeover_page(self.current.as_ref()),
+        }
+    }
     pub fn current(&self) -> Option<&Url> {
         self.current.as_ref()
     }
@@ -467,7 +492,7 @@ impl MainPage {
     /// The token to inject into the current bundled takeover page showing
     /// `candidate`: the unused token already issued for it, or `fresh`.
     pub fn issue_takeover_token(&mut self, candidate: Option<&str>, fresh: String) -> Option<String> {
-        let Some(page) = takeover_page(self.current.as_ref()) else {
+        let Some(page) = self.takeover_page() else {
             self.takeover = None;
             return None;
         };
@@ -495,7 +520,7 @@ impl MainPage {
             _ => false,
         };
         permitted
-            && takeover_page(self.current.as_ref()) == Some(issued.page)
+            && self.takeover_page() == Some(issued.page)
             && issued.candidate.as_deref() == candidate
             && takeover_token(url).is_some_and(|presented| presented == issued.token)
     }
@@ -1071,7 +1096,7 @@ pub fn recovery_page(error: &str) -> &'static str {
         "oldService" => "oldService",
         "oldApp" => "oldApp",
         "protocol" => "protocol",
-        "sessionExpired" => "starting",
+        "sessionExpired" => "sessionExpired",
         _ => "starting",
     }
 }
@@ -1107,11 +1132,34 @@ pub enum Navigation {
 
 /// Decide from the navigation target and the last completed page load. The
 /// current page may be absent during startup; service sign-in must still work.
+pub fn bundled_document(url: &Url, tray: bool) -> bool {
+    url.scheme()=="tauri" && url.host_str()==Some("localhost")
+        && url.username().is_empty() && url.password().is_none() && url.port().is_none()
+        && if tray {url.path()=="/tray.html"} else {matches!(url.path(),"" | "/" | "/index.html")}
+}
+pub fn bundled_navigation(url: &Url, current: Option<&Url>, tray: bool) -> Navigation {
+    let same = current.is_none_or(|current| {
+        let mut a=current.clone();let mut b=url.clone();a.set_fragment(None);b.set_fragment(None);a==b
+    });
+    if bundled_document(url,tray) && same && (url.query().is_none() || (tray && url.query()==Some("compact=1"))) { Navigation::Allow }
+    else if current.is_some_and(|u|bundled_document(u,tray)) && url.scheme()=="https"
+        && url.host_str().is_some_and(|host| {
+            let host=host.trim_end_matches('.');
+            host!="localhost" && !host.ends_with(".localhost")
+                && host.trim_matches(['[',']']).parse::<std::net::IpAddr>().map_or(true,|ip|match ip {
+                    std::net::IpAddr::V4(ip)=>!ip.is_loopback(),
+                    std::net::IpAddr::V6(ip)=>!ip.is_loopback() && !ip.to_ipv4_mapped().is_some_and(|ip|ip.is_loopback()),
+                })
+        }) {
+        Navigation::OpenExternal
+    } else { Navigation::Block }
+}
+
 pub fn main_navigation(url: &Url, current: Option<&Url>, origin: Option<&str>) -> Navigation {
     let shell_page = |url: &Url| {
         url.scheme() == "tauri"
             && url.host_str() == Some("localhost")
-            && matches!(url.path(), "/" | "/index.html")
+            && matches!(url.path(), "" | "/" | "/index.html")
     };
     if shell_page(url) || service_navigation(url, origin) {
         Navigation::Allow
@@ -1369,6 +1417,17 @@ impl Sse {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bundled_shell_state_keeps_document_and_binds_takeover_token() {
+        let url=Url::parse("tauri://localhost/index.html").unwrap();
+        let mut page=MainPage::default(); page.finished(url.clone());
+        page.shell_state("takeover");
+        let token="a".repeat(64);
+        assert_eq!(page.issue_takeover_token(Some("candidate"),token.clone()),Some(token));
+        assert_eq!(page.current(),Some(&url));
+        page.shell_state("starting");
+        assert!(page.issue_takeover_token(Some("candidate"),"b".repeat(64)).is_none());
+    }
     #[test]
     fn tray_route_contract() {
         let cases: serde_json::Value = serde_json::from_str(include_str!("../../../test/fixtures/tray-routes.json")).unwrap();
@@ -2053,7 +2112,7 @@ mod tests {
     #[test]
     fn expired_session_reenters_sign_in_and_unreachable_service_uses_shell_page() {
         assert_eq!(session_error(Some(401)), "sessionExpired");
-        assert_eq!(recovery_page(session_error(Some(401))), "starting");
+        assert_eq!(recovery_page(session_error(Some(401))), "sessionExpired");
         assert_eq!(recovery_page(session_error(None)), "starting");
         assert_eq!(recovery_page(session_error(Some(503))), "starting");
         assert_eq!(recovery_page("oldApp"), "oldApp");
@@ -2905,5 +2964,37 @@ mod desktop_connection_tests {
         std::fs::remove_file(dir.path().join("takeover-dismissed.json")).unwrap();
         std::fs::create_dir(dir.path().join("takeover-dismissed.json")).unwrap();
         assert!(!takeover_dismissed(dir.path(), &identity));
+    }
+}
+
+#[cfg(test)]
+mod bundled_navigation_tests {
+    use super::*;
+    #[test]
+    fn bundle_navigation_is_three_way_and_document_locked() {
+        let main=Url::parse("tauri://localhost/").unwrap();
+        let tray=Url::parse("tauri://localhost/tray.html?compact=1").unwrap();
+        for (current,is_tray) in [(&main,false),(&tray,true)] {
+            assert_eq!(bundled_navigation(current,None,is_tray),Navigation::Allow);
+            let mut hash=current.clone();hash.set_fragment(Some("/tasks"));
+            assert_eq!(bundled_navigation(&hash,Some(current),is_tray),Navigation::Allow);
+            for raw in ["file:///tmp/test.app","smb://host/share","custom://launch","http://127.0.0.1:1234/","https://localhost/","https://127.0.0.1/","https://[::1]/","https://localhost./","https://[::ffff:127.0.0.1]/","tauri://localhost/other","tauri://user@localhost/","tauri://localhost/?reload=1"] {
+                assert_eq!(bundled_navigation(&Url::parse(raw).unwrap(),Some(current),is_tray),Navigation::Block,"{raw}");
+            }
+            assert_eq!(bundled_navigation(&Url::parse("https://example.com/docs").unwrap(),Some(current),is_tray),Navigation::OpenExternal);
+        }
+        assert_eq!(bundled_navigation(&main,Some(&tray),true),Navigation::Block);
+        assert_eq!(bundled_navigation(&tray,Some(&main),false),Navigation::Block);
+    }
+    #[test]
+    fn shell_actions_require_the_offering_overlay() {
+        let mut page=MainPage::default();page.finished(Url::parse("tauri://localhost/").unwrap());
+        for (state,action) in [("welcome",ShellAction::Begin),("consent",ShellAction::Consent{path:true}),("existing",ShellAction::UseApp),("existing",ShellAction::KeepMine),("relink",ShellAction::Relink),("incomplete",ShellAction::Download),("outdatedService",ShellAction::ContinueOldService)] {
+            for other in ["connected","welcome","consent","existing","install","permission","starting"] {
+                page.shell_state(other);
+                assert_eq!(page.allows_shell_action(action),other==state,"{other}: {action:?}");
+            }
+            page.shell_state(state);assert!(page.allows_shell_action(action));
+        }
     }
 }

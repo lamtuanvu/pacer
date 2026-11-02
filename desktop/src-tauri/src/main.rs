@@ -6,6 +6,7 @@ mod actions;
 mod approvals;
 mod capture;
 mod client;
+mod ipc_transport;
 mod client_control;
 mod link;
 mod logging;
@@ -23,7 +24,6 @@ use std::sync::{
     Arc, Mutex,
 };
 use tauri::{
-    ipc::CapabilityBuilder,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, WebviewUrl, WebviewWindow,
@@ -71,7 +71,6 @@ struct Shell {
     origin: Mutex<Option<String>>,
     route: Mutex<String>,
     recovery: Mutex<String>,
-    granted: Mutex<Vec<String>>,
     waiting: Mutex<Option<String>>,
     diagnosis: Mutex<Option<logic::Diagnosis>>,
     retry: AtomicBool,
@@ -107,7 +106,6 @@ impl Default for Shell {
             origin: Mutex::new(None),
             route: Mutex::new(logic::remembered_route("#/")),
             recovery: Mutex::new(String::new()),
-            granted: Mutex::new(Vec::new()),
             waiting: Mutex::new(None),
             diagnosis: Mutex::new(None),
             retry: AtomicBool::new(false),
@@ -132,27 +130,17 @@ struct TakeoverView {
 const TRAY_WIDTH: f64 = 340.;
 
 fn authorized(window: &WebviewWindow, app: &AppHandle) -> Result<(), String> {
-    let url = window.url().map_err(|_| "Unknown caller")?;
-    if !logic::command_authorized(
-        window.label(),
-        "main",
-        &url,
-        app.state::<Shell>().origin.lock().unwrap().as_deref(),
-    ) {
-        return Err("IPC is restricted to the active local service".into());
+    if window.label() != "main" || !window.url().is_ok_and(|url| shell_url(&url)) {
+        return Err("IPC requires the bundled main window".into());
     }
+    let _ = app;
     Ok(())
 }
 fn authorized_tray(window: &WebviewWindow, app: &AppHandle) -> Result<(), String> {
-    let url = window.url().map_err(|_| "Unknown caller")?;
-    if !logic::command_authorized(
-        window.label(),
-        "tray",
-        &url,
-        app.state::<Shell>().origin.lock().unwrap().as_deref(),
-    ) {
-        return Err("IPC is restricted to the active local tray".into());
+    if window.label() != "tray" || !window.url().is_ok_and(|url| shell_url(&url)) {
+        return Err("IPC requires the bundled tray window".into());
     }
+    let _ = app;
     Ok(())
 }
 #[tauri::command]
@@ -296,8 +284,8 @@ fn check_main_document(window: &WebviewWindow, url: &Url) {
     let shell = app.state::<Shell>();
     let origin = shell.origin.lock().unwrap().clone();
     if let Some(origin) = origin {
-        if logic::command_authorized("main", "main", url, Some(&origin))
-            && matches!(url.path(), "/app" | "/app/")
+        if shell_url(url) && window.label()=="main"
+            && matches!(url.path(), "" | "/" | "/index.html")
             && shell.native.lock().unwrap().is_some()
         {
             if let Ok(nonce) = shell.navigation.lock().unwrap().begin_navigation(&origin) {
@@ -311,7 +299,9 @@ fn check_main_document(window: &WebviewWindow, url: &Url) {
             }
         }
     }
-    let _ = window.eval(CHECK_SESSION_PAGE);
+    if shell.session.lock().unwrap().is_some() {
+        let _ = window.eval(CHECK_SESSION_PAGE);
+    }
 }
 
 fn show_service_version_notice(window: &WebviewWindow, raw_version: &str) {
@@ -409,23 +399,14 @@ fn app_quit(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     app.exit(0);
     Ok(())
 }
-fn create_tray_window(app: &AppHandle, origin: &str) -> Result<(), String> {
+fn create_tray_window(app: &AppHandle, _origin: &str) -> Result<(), String> {
     if app.get_webview_window("tray").is_some() {
         return Ok(());
     }
-    #[cfg(feature = "ota-fixture")]
-    let initial = app
-        .state::<Shell>()
-        .fixture_tray_auth
-        .lock()
-        .unwrap()
-        .take()
-        .filter(|url| logic::fixture_tray_auth(url, origin))
-        .ok_or("Isolated tray sign-in unavailable")?;
-    #[cfg(not(feature = "ota-fixture"))]
-    let initial = Url::parse(&format!("{origin}/app/tray.html")).expect("validated service origin");
     let nav = app.clone();
-    let window = tauri::WebviewWindowBuilder::new(app, "tray", WebviewUrl::External(initial))
+    let document=Arc::new(Mutex::new(None::<Url>));
+    let loaded=document.clone();
+    let window = tauri::WebviewWindowBuilder::new(app, "tray", WebviewUrl::App("tray.html?compact=1".into()))
         .incognito(cfg!(feature = "ota-fixture"))
         .title("pacer")
         .inner_size(TRAY_WIDTH, 120.)
@@ -436,40 +417,19 @@ fn create_tray_window(app: &AppHandle, origin: &str) -> Result<(), String> {
         .skip_taskbar(true)
         .visible(false)
         .focused(false)
-        .on_page_load(|window, payload| {
-            if payload.event() == tauri::webview::PageLoadEvent::Finished {
-                #[cfg(feature = "ota-fixture")]
-                if payload.url().path() == "/app/" {
-                    let origin = window
-                        .app_handle()
-                        .state::<Shell>()
-                        .origin
-                        .lock()
-                        .unwrap()
-                        .clone();
-                    if origin
-                        .as_deref()
-                        .is_some_and(|origin| logic::fixture_tray_navigation(payload.url(), origin))
-                    {
-                        let _ = window.eval("location.replace('/app/tray.html')");
-                    }
-                    return;
-                }
-                let _ = window.eval(CHECK_SESSION_PAGE);
+        .on_page_load(move |window,payload| {
+            if payload.event()==tauri::webview::PageLoadEvent::Finished {
+                *loaded.lock().unwrap()=Some(payload.url().clone());
+                render_diagnosis_in(window.app_handle(),&["tray"]);
             }
         })
         .on_navigation(move |url| {
-            let origin = nav.state::<Shell>().origin.lock().unwrap().clone();
-            #[cfg(feature = "ota-fixture")]
-            {
-                origin
-                    .as_deref()
-                    .is_some_and(|origin| logic::fixture_tray_navigation(url, origin))
-            }
-            #[cfg(not(feature = "ota-fixture"))]
-            {
-                logic::command_authorized("tray", "tray", url, origin.as_deref())
-                    && url.path() == "/app/tray.html"
+            let current=document.lock().unwrap().clone();
+            if shell_action(&nav,url,current.as_ref(),false) { return false; }
+            match logic::bundled_navigation(url,current.as_ref(),true) {
+                logic::Navigation::Allow=>true,
+                logic::Navigation::OpenExternal=>{open_external(url);false},
+                logic::Navigation::Block=>false,
             }
         })
         .build()
@@ -605,22 +565,19 @@ fn navigate(app: &AppHandle, raw: &str) {
     if let Some(route) = logic::route(raw) {
         let state = app.state::<Shell>();
         *state.route.lock().unwrap() = logic::remembered_route(&route);
-        let origin = state.origin.lock().unwrap().clone();
-        if let Some(origin) = origin {
-            if let Some(w) = app.get_webview_window("main") {
-                if let Ok(url) = Url::parse(&format!("{origin}/app/{route}")) {
-                    let _ = w.navigate(url);
-                }
-            }
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.eval(format!("location.hash = {};", serde_json::to_string(&route).unwrap()));
         }
         show(app);
     }
 }
 fn shell_url(url: &Url) -> bool {
-    url.scheme() == "tauri" && url.host_str() == Some("localhost")
+    url.scheme() == "tauri" && url.host_str() == Some("localhost") && url.username().is_empty() && url.password().is_none() && url.port().is_none()
 }
 fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>, main: bool) -> bool {
-    if logic::dismiss_relink(url, current)
+    let source_is_bundled=current.is_some_and(|url|logic::bundled_document(url,!main));
+    if app.state::<Shell>().main_page.lock().unwrap().in_shell_state("relink")
+        && source_is_bundled && url.as_str()=="tauri://localhost/index.html?state=starting"
         && app
             .state::<Shell>()
             .diagnosis
@@ -633,13 +590,13 @@ fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>, main: bool) -
             .relink_dismissed
             .store(true, Ordering::SeqCst);
         app.state::<Shell>().startup.lock().unwrap().ready();
-        return false; // Allow the requested local starting page to load.
+        return true; // The bundled document stays loaded.
     }
-    if logic::onboarding_back(url, current) {
+    if source_is_bundled && url.as_str()=="tauri://localhost/index.html?state=welcome" && app.state::<Shell>().main_page.lock().unwrap().in_shell_state("consent") {
         *app.state::<Shell>().onboarding_page.lock().unwrap() = Some(logic::Onboarding::Welcome);
         return true;
     }
-    let bundled = logic::bundled_shell(current);
+    let bundled = current.is_some_and(|url|logic::bundled_document(url,!main));
     if let Some(action) = logic::shell_action_url(url) {
         if matches!(
             action,
@@ -669,15 +626,7 @@ fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>, main: bool) -
             }
             return true;
         }
-        if bundled
-            && (action != logic::ShellAction::ContinueOldService
-                || app
-                    .state::<Shell>()
-                    .diagnosis
-                    .lock()
-                    .unwrap()
-                    .as_ref()
-                    .is_some_and(|d| matches!(d.page, "outdatedService" | "unverifiedService")))
+        if bundled && app.state::<Shell>().main_page.lock().unwrap().allows_shell_action(action)
         {
             // The lifecycle loop is the sole owner of setup and service mutations.
             app.state::<Shell>()
@@ -696,7 +645,7 @@ fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>, main: bool) -
     }
     let bundled = current
         .is_some_and(|current| shell_url(current) && matches!(current.path(), "/" | "/index.html"));
-    if !bundled {
+    if !bundled || !app.state::<Shell>().main_page.lock().unwrap().in_shell_state("permission") {
         return false;
     }
     #[cfg(target_os = "macos")]
@@ -733,6 +682,8 @@ fn render_diagnosis_in(app: &AppHandle, labels: &[&str]) {
     if let Some(detail) = detail {
         if let Ok(json) = serde_json::to_string(&detail) {
             for label in labels.iter().copied() {
+                let loaded = if label=="main" {app.state::<Shell>().main_page.lock().unwrap().current().is_some()} else {app.state::<ipc_transport::Bridge>().has_page(label)};
+                if !loaded {continue;}
                 if let Some(window) = app.get_webview_window(label) {
                     if window.url().is_ok_and(|url| shell_url(&url)) {
                         let _ = window.eval(format!("window.renderShell?.({json})"));
@@ -766,13 +717,7 @@ fn render_takeover(app: &AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    let Some(kind) = window
-        .url()
-        .ok()
-        .and_then(|url| logic::takeover_page(Some(&url)))
-    else {
-        return;
-    };
+    let Some(kind) = shell.main_page.lock().unwrap().takeover_page() else { return; };
     // No action is possible while a transaction runs; only an error re-enables the offer.
     let in_flight = progress.as_ref().is_some_and(|p| p["state"] != "error");
     // Never hold the page lock across webview calls, which run on the main thread.
@@ -807,15 +752,11 @@ fn set_takeover_progress(app: &AppHandle, value: Value) {
 }
 fn recovery(app: &AppHandle, state: &str) {
     let shell = app.state::<Shell>();
+    shell.main_page.lock().unwrap().shell_state(state);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_title("pacer");
     }
-    let had_origin = shell.origin.lock().unwrap().take().is_some();
-    if had_origin {
-        if let Some(window) = app.get_webview_window("tray") {
-            let _ = window.destroy();
-        }
-    }
+    shell.origin.lock().unwrap().take();
     *shell.session.lock().unwrap() = None;
     let changed = {
         let mut current = shell.recovery.lock().unwrap();
@@ -846,6 +787,7 @@ fn recovery(app: &AppHandle, state: &str) {
                     "takeoverFailed" => "takeoverFailed",
                     "foreign" => "foreign",
                     "stuck" => "stuck",
+                    "sessionExpired" => "sessionExpired",
                     "installing" => "installing",
                     "rollingBack" => "rollingBack",
                     "restored" => "restored",
@@ -859,12 +801,8 @@ fn recovery(app: &AppHandle, state: &str) {
     }
     if changed {
         desktop_log!("pacer lifecycle: showing the {state} page");
-        if let Some(window) = app.get_webview_window("main") {
-            if let Ok(url) = Url::parse(&format!("tauri://localhost/index.html?state={state}")) {
-                let _ = window.navigate(url);
-            }
-        }
     }
+    app.state::<ipc_transport::Bridge>().status(serde_json::json!({"type":"status","status": if matches!(state,"oldService"|"outdatedService"|"unverifiedService"|"oldApp"|"protocol") {"incompatible"} else {"reconnecting"},"reason":state}));
     render_diagnosis(app);
     render_takeover(app);
     let title = match state {
@@ -909,128 +847,37 @@ fn recovery(app: &AppHandle, state: &str) {
     }
 }
 fn create_recovery_tray(app: &AppHandle) -> tauri::Result<()> {
-    if app.get_webview_window("tray").is_some() {
-        return Ok(());
+    create_tray_window(app, "").map_err(|error| tauri::Error::Io(std::io::Error::other(error)))
+}
+fn activate(app: &AppHandle, origin: &str, auth: Url) -> Result<(), String> {
+    let shell = app.state::<Shell>();
+    *shell.origin.lock().unwrap() = Some(origin.into());
+    *shell.diagnosis.lock().unwrap() = None;
+    shell.recovery.lock().unwrap().clear();
+    shell.main_page.lock().unwrap().shell_state("connected");
+    let current=shell.main_page.lock().unwrap().current().cloned();
+    if let (Some(window),Some(url))=(app.get_webview_window("main"),current) {
+        check_main_document(&window,&url);
     }
-    let nav = app.clone();
-    let current = Arc::new(Mutex::new(None::<Url>));
-    let loaded = current.clone();
-    let window = tauri::WebviewWindowBuilder::new(
-        app,
-        "tray",
-        WebviewUrl::App("index.html?compact=1".into()),
-    )
-    .incognito(cfg!(feature = "ota-fixture"))
-    .title("pacer")
-    .inner_size(TRAY_WIDTH, 440.)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .resizable(false)
-    .skip_taskbar(true)
-    .visible(false)
-    .focused(false)
-    .on_page_load(move |window, payload| {
-        if payload.event() == tauri::webview::PageLoadEvent::Finished {
-            *loaded.lock().unwrap() = Some(payload.url().clone());
-            // Only the tray reloaded; the main window keeps its own page.
-            render_diagnosis_in(window.app_handle(), &["tray"]);
-        }
-    })
-    .on_navigation(move |url| {
-        if shell_action(&nav, url, current.lock().unwrap().as_ref(), false) {
-            return false;
-        }
-        shell_url(url) && matches!(url.path(), "/" | "/index.html")
-    })
-    .build()?;
-    let blur = window.clone();
-    window.on_window_event(move |event| {
-        if matches!(event, tauri::WindowEvent::Focused(false)) {
-            let _ = blur.hide();
-        }
+    if let Some(window)=app.get_webview_window("main") {
+        let title=match shell.old_service_ack.lock().unwrap().as_deref() {
+            Some(version) if logic::display_service_release(Some(version))=="Unknown"=>"pacer — service version unverified".to_owned(),
+            Some(version)=>format!("pacer — older service {version}"),
+            None=>"pacer".into(),
+        };
+        let _=window.set_title(&title);
+    }
+    let _ = auth;
+    let warning=shell.old_service_ack.lock().unwrap().as_deref().map(|version| {
+        let release=logic::display_service_release(Some(version));
+        if release=="Unknown" {"Service version unverified. Update pacer's service to use the current controls.".to_owned()}
+        else {format!("Older service {release}. Update pacer's service to use the current controls.")}
     });
+    app.state::<ipc_transport::Bridge>().status(serde_json::json!({"type":"status","status":"connected","warning":warning}));
+    create_tray_window(app, origin)?;
     Ok(())
 }
-fn activate(app: &AppHandle, origin: &str, mut auth: Url) -> Result<(), String> {
-    let shell = app.state::<Shell>();
-    let mut granted = shell.granted.lock().unwrap();
-    if !granted.iter().any(|g| g == origin) {
-        app.add_capability(
-            CapabilityBuilder::new(format!("service-{}", auth.port_or_known_default().unwrap()))
-                .local(false)
-                .window("main")
-                .remote(format!("{origin}/*"))
-                .permission("allow-setLaunchAtLogin")
-                .permission("allow-setTheme")
-                .permission("allow-client-control")
-                .permission("allow-notifyRoute")
-                .permission("allow-session-expired")
-                .permission("allow-session-ready")
-                .permission("allow-desktop-version")
-                .permission("allow-rounded-window-supported")
-                .permission("allow-native-titlebar-supported")
-                .permission("allow-desktop-update-connection")
-                .permission("allow-takeover-open")
-                .permission("allow-native-validation-setup")
-                .permission("allow-windowMinimize")
-                .permission("allow-windowToggleMaximize")
-                .permission("allow-windowClose")
-                .permission("core:window:allow-start-dragging")
-                .permission("core:window:allow-internal-toggle-maximize"),
-        )
-        .map_err(|e| e.to_string())?;
-        app.add_capability(
-            CapabilityBuilder::new(format!(
-                "tray-service-{}",
-                auth.port_or_known_default().unwrap()
-            ))
-            .local(false)
-            .window("tray")
-            .remote(format!("{origin}/*"))
-            .permission("allow-tray-resize")
-            .permission("allow-client-control")
-            .permission("allow-tray-open")
-            .permission("allow-tray-hide")
-            .permission("allow-tray-login-item")
-            .permission("allow-app-quit")
-            .permission("allow-session-expired"),
-        )
-        .map_err(|e| e.to_string())?;
-        granted.push(origin.into());
-    }
-    if let Some(window) = app.get_webview_window("tray") {
-        if cfg!(feature = "ota-fixture") || window.url().is_ok_and(|url| shell_url(&url)) {
-            let _ = window.destroy();
-        }
-    }
-    *shell.diagnosis.lock().unwrap() = None;
-    if let Some(tray) = app.tray_by_id("pacer") {
-        let _ = tray.set_tooltip(Some("pacer"));
-    }
-    *shell.origin.lock().unwrap() = Some(origin.into());
-    shell.recovery.lock().unwrap().clear();
-    auth.set_fragment(Some(shell.route.lock().unwrap().trim_start_matches('#')));
-    let window = app.get_webview_window("main").ok_or("Missing window")?;
-    if let Some(version) = shell.old_service_ack.lock().unwrap().as_deref() {
-        let label = if logic::service_release(env!("CARGO_PKG_VERSION"), Some(version))
-            == logic::ServiceRelease::Older
-        {
-            format!(
-                "older service {}",
-                logic::display_service_release(Some(version))
-            )
-        } else {
-            "service version unverified".into()
-        };
-        let _ = window.set_title(&format!("pacer — {label}"));
-    } else {
-        let _ = window.set_title("pacer");
-    }
-    window
-        .navigate(auth)
-        .map_err(|_| "Unable to load the desktop sign-in page".into())
-}
+
 fn set_error_dot(app: &AppHandle, error: bool) {
     if let Some(tray) = app.tray_by_id("pacer") {
         if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) {
@@ -1438,8 +1285,28 @@ fn main() {
                 .build(),
         );
     let app = app
+        .manage(ipc_transport::Bridge::default())
         .manage(shell)
         .invoke_handler(tauri::generate_handler![
+            ipc_transport::service_call,
+            ipc_transport::service_hello,
+            ipc_transport::service_snapshot,
+            ipc_transport::service_events,
+            ipc_transport::stream_cancel,
+            ipc_transport::stream_ack,
+            ipc_transport::assistant_turn_stream,
+            ipc_transport::task_log_follow,
+            ipc_transport::attachment_upload,
+            ipc_transport::attachment_list,
+            ipc_transport::attachment_read,
+            ipc_transport::attachment_delete,
+            ipc_transport::terminal_attach,
+            ipc_transport::terminal_send,
+            ipc_transport::terminal_resize,
+            ipc_transport::terminal_take,
+            ipc_transport::terminal_release,
+            ipc_transport::terminal_detach,
+            ipc_transport::terminal_ack,
             client_control::client_control,
             setLaunchAtLogin,
             setTheme,
@@ -1552,21 +1419,10 @@ fn main() {
                         if shell_action(&nav, url, current.as_ref(), true) {
                             return false;
                         }
-                        let origin = nav.state::<Shell>().origin.lock().unwrap().clone();
-                        match logic::main_navigation(url, current.as_ref(), origin.as_deref()) {
-                            logic::Navigation::Allow => {
-                                nav.state::<Shell>()
-                                    .main_page
-                                    .lock()
-                                    .unwrap()
-                                    .navigating(url);
-                                true
-                            }
-                            logic::Navigation::OpenExternal => {
-                                open_external(url);
-                                false
-                            }
-                            logic::Navigation::Block => false,
+                        match logic::bundled_navigation(url,current.as_ref(),false) {
+                            logic::Navigation::Allow=>{nav.state::<Shell>().main_page.lock().unwrap().navigating(url);true},
+                            logic::Navigation::OpenExternal=>{open_external(url);false},
+                            logic::Navigation::Block=>false,
                         }
                     });
             #[cfg(target_os = "macos")]

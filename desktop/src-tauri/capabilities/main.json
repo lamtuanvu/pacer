@@ -1,0 +1,42 @@
+{
+  "identifier": "main",
+  "local": true,
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-service-call",
+    "allow-service-hello",
+    "allow-service-snapshot",
+    "allow-service-events",
+    "allow-stream-cancel",
+    "allow-stream-ack",
+    "allow-assistant-turn-stream",
+    "allow-task-log-follow",
+    "allow-attachment-upload",
+    "allow-attachment-list",
+    "allow-attachment-read",
+    "allow-attachment-delete",
+    "allow-terminal-attach",
+    "allow-terminal-send",
+    "allow-terminal-resize",
+    "allow-terminal-take",
+    "allow-terminal-release",
+    "allow-terminal-detach",
+    "allow-terminal-ack",
+    "allow-client-control",
+    "allow-session-expired",
+    "allow-session-ready",
+    "allow-desktop-version",
+    "allow-rounded-window-supported",
+    "allow-native-titlebar-supported",
+    "allow-desktop-update-connection",
+    "allow-takeover-open",
+    "allow-native-validation-setup",
+    "allow-windowMinimize",
+    "allow-windowToggleMaximize",
+    "allow-windowClose",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}

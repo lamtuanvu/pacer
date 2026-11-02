@@ -1,3 +1,4 @@
+import { DesktopConnectionShell } from "./shell/DesktopConnection";
 import { PluginContext, usePluginCatalog } from "./plugins/catalog";
 import { discoveryNoticeHiddenOn, updateNoticeHiddenOn } from "./settings-pages";
 import { startPolling } from "./data/poll";
@@ -135,4 +136,4 @@ function App() {
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider>;
 }
-render(<NotificationProvider><App /></NotificationProvider>, document.getElementById("app")!);
+render(<DesktopConnectionShell><NotificationProvider><App /></NotificationProvider></DesktopConnectionShell>, document.getElementById("app")!);

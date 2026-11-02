@@ -1,3 +1,4 @@
+import { DesktopConnectionShell } from "../shell/DesktopConnection";
 import { startClientControl } from "../data/control";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
@@ -22,4 +23,4 @@ function TrayApp() {
   }, []);
   return <Tray snapshot={state.snapshot} activity={state.activity} connected={state.connected} sessionEnded={state.sessionEnded || sessionEnded} api={api} ipc={ipc} />;
 }
-render(<TrayApp />, document.getElementById("app")!);
+render(<DesktopConnectionShell><TrayApp /></DesktopConnectionShell>, document.getElementById("app")!);
