@@ -309,7 +309,9 @@ bun run live report --id my-change
 bun run live down --id my-change --keep
 ```
 
-`down` stops the sandbox proxy, inner service and tmux session, and in a `--real-keychain` sandbox deletes the sandbox's machine identity Keychain items. `--keep` preserves the sandbox and evidence for review; without it, the entire sandbox is removed. A retained sandbox can be removed later with `down` without `--keep`. The service PID is checked against inner `/health` and the proxy PID against public `/__live/health` before signaling each; a live but unverified PID causes teardown to refuse rather than kill an unrelated process. If startup fails, inspect the retained logs and process state before deleting its directory.
+`down` stops the sandbox proxy and inner service's dedicated process groups, waits for descendants in those same groups to stop, then closes the tmux session and deletes sandbox machine identity Keychain items when `--real-keychain` was used. Before signaling a group, it verifies the stored leader's birth/boot identity and that its process-group ID equals its PID. A changed identity, a missing leader with live descendants, an unavailable process observation or a group that does not stop within three seconds preserves the sandbox for inspection. Children that detach into another process group, including detached activity or plugin effects, are outside this group ledger. Independently running executors must be stopped separately.
+
+`--keep` preserves the stopped sandbox and evidence; a later `down` without `--keep` removes it without signaling stopped groups again. Sessions created before process-group ownership was recorded cannot be torn down automatically: missing ownership metadata causes a refusal, not an inferred group kill. Inspect their process state and retained logs before arranging explicit cleanup. If startup fails, inspect the retained logs and process state before deleting its directory.
 
 ## Disposable desktop OTA fixtures
 

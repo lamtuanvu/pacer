@@ -179,7 +179,7 @@ test("session ids cannot escape the live root; metadata must match", () => {
   expect(sessions(base)).toEqual([session]);
   atomicWrite(join(session.root, "session.json"), JSON.stringify({ ...session, port: 4317 }));
   expect(() => loadSession(session.id, base)).toThrow("Invalid");
-  for (const extra of [{ innerPort: 4317 }, { innerPort: session.port }, { innerPort: 70000 }, { proxyPid: 0 }]) {
+  for (const extra of [{ innerPort: 4317 }, { innerPort: session.port }, { innerPort: 70000 }, { proxyPid: 0 }, { serviceGroup: { leader: { pid: session.pid, bootId: "boot" } } }, { serviceGroup: { leader: { pid: session.pid + 1, bootId: "boot", birth: "1" } } }]) {
     atomicWrite(join(session.root, "session.json"), JSON.stringify({ ...session, ...extra }));
     expect(() => loadSession(session.id, base)).toThrow("Invalid");
   }
