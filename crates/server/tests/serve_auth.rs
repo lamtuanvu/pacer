@@ -303,6 +303,41 @@ fn token_reuse_and_safe_comparison() {
 }
 
 #[test]
+fn concurrent_token_initialization_publishes_one_token() {
+    for empty in [false, true] {
+        let (_dir, ctx) = fixture();
+        std::fs::create_dir_all(&ctx.pacer_home).unwrap();
+        if empty {
+            std::fs::write(ctx.pacer_home.join("token"), "").unwrap();
+        }
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let tokens = std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..16)
+                .map(|_| {
+                    let barrier = barrier.clone();
+                    let ctx = &ctx;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        auth::ensure_token(ctx).unwrap()
+                    })
+                })
+                .collect();
+            threads
+                .into_iter()
+                .map(|thread| thread.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(tokens.iter().all(|token| token == &tokens[0]));
+        assert_eq!(
+            std::fs::read_to_string(ctx.pacer_home.join("token"))
+                .unwrap()
+                .trim(),
+            tokens[0]
+        );
+    }
+}
+
+#[test]
 fn token_and_cookie_trim_match_javascript() {
     let rows: Vec<Value> =
         serde_json::from_str(include_str!("../../../test/fixtures/js-trim-parity.json")).unwrap();
@@ -348,7 +383,20 @@ fn token_replacement_is_atomic_and_private() {
             & 0o777,
         0o700
     );
-    assert_eq!(std::fs::read_dir(&ctx.pacer_home).unwrap().count(), 1);
+    let mut names: Vec<_> = std::fs::read_dir(&ctx.pacer_home)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    names.sort();
+    assert_eq!(names, [".token.lock", "token"]);
+    assert_eq!(
+        std::fs::metadata(ctx.pacer_home.join(".token.lock"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
 }
 
 #[test]

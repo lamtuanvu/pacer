@@ -48,6 +48,20 @@ pub fn js_trim(value: &str) -> &str {
 }
 
 pub fn ensure_token(ctx: &Ctx) -> io::Result<String> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&ctx.pacer_home)?;
+    fs::set_permissions(&ctx.pacer_home, fs::Permissions::from_mode(0o700))?;
+    // Keep the lock file stable: unlinking it would allow concurrent locks on
+    // different inodes. The OS releases the lock if the process exits.
+    let lock = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .open(ctx.pacer_home.join(".token.lock"))?;
+    lock.lock()?;
     let path = ctx.pacer_home.join("token");
     match fs::read_to_string(&path) {
         Ok(token) if !js_trim(&token).is_empty() => return Ok(js_trim(&token).to_owned()),
@@ -55,11 +69,6 @@ pub fn ensure_token(ctx: &Ctx) -> io::Result<String> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&ctx.pacer_home)?;
-    fs::set_permissions(&ctx.pacer_home, fs::Permissions::from_mode(0o700))?;
     let token = hex::encode(rand::random::<[u8; 24]>());
     let temp = ctx.pacer_home.join(format!(
         ".token.{}.tmp",

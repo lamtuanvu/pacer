@@ -4,6 +4,7 @@ fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     for input in [
         "app/src",
+        "src",
         "app/index.html",
         "app/build.ts",
         "app/xterm-csp.ts",
@@ -11,7 +12,7 @@ fn main() {
         "app/tsconfig.json",
         "package.json",
         "bun.lock",
-        "node_modules/@xterm/xterm/css/xterm.css",
+        "node_modules",
     ] {
         let path = root.join(input);
         if !path.exists() {
@@ -22,9 +23,9 @@ fn main() {
         }
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    // Cargo watches the web inputs; Bun rebuilds their content-hashed output.
+    // Compare against the exact bundle served by the TypeScript runtime.
     let output = Command::new("bun")
-        .args(["-e", "import { buildApp } from './app/build.ts'; process.stdout.write(JSON.stringify(await buildApp()));"])
+        .args(["-e", "import { buildApp, generatedSource } from './app/build.ts'; import { APP_FILES } from './src/app/assets.generated.ts'; const files = await buildApp(); if (await Bun.file('./src/app/assets.generated.ts').text() !== generatedSource(files)) throw new Error('embedded app assets are stale; run bun run app:build'); process.stdout.write(JSON.stringify(APP_FILES));"])
         .current_dir(&root)
         .output()
         .unwrap_or_else(|error| panic!("cannot build embedded web app (bun): {error}; run bun install --frozen-lockfile"));
