@@ -8,7 +8,7 @@ behavior notes without a verdict still count as UNVERIFIED.
 
 ## Native operation routing
 
-Release builds start with an empty native operation registry. In development and
+Release builds include the native operations listed in the M2 ledger. In development and
 future native-enabled builds, `PACER_FORWARD_OPS` is a comma-separated list of
 operation names, or `*`, that forces native operations back through the TypeScript
 core. It cannot enable an operation. The setting is read at startup and logged once
