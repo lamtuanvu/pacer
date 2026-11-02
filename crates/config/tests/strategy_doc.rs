@@ -80,3 +80,17 @@ fn committed_strategy_doc_corpus() {
         failures.join("\n")
     );
 }
+
+#[test]
+fn loader_keeps_last_duplicate_value_while_the_editor_refuses_duplicate_keys() {
+    let text = "key: first\nkey: last\n";
+    assert_eq!(
+        pacer_config::doc::parse_value(text).unwrap(),
+        json!({"key":"last"})
+    );
+    let error = StrategyDoc::new(text).get_in(&[json!("key")]).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Map keys must be unique at line 2, column 1:\n\nkey: first\nkey: last\n^\n"
+    );
+}

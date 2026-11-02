@@ -166,13 +166,13 @@ pub async fn run_serve(
     }
     let registry = registry(if scoped_work { "*" } else { forward });
     let token = auth::ensure_token(&ctx)?;
-    // Requests clone the context; the listener needs only the pacer home.
-    ctx.env.clear();
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
     // The internal HTTP listener binds independently. Its desktop integration
     // still needs the actual public port, including explicit/ephemeral binds.
     env.insert("PACER_PORT".into(), port.to_string());
+    // Native operations and the core must observe the same configuration environment.
+    ctx.env = env.clone();
     // Runtime environment cannot turn a generic front door into a native owner.
     env.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
     #[cfg(target_os = "macos")]

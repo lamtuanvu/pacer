@@ -146,7 +146,7 @@ fn scalar(text: &str, span: Range<usize>, content: &str, style: ScalarStyle) -> 
     }
 }
 
-fn parse(text: &str) -> Result<Node> {
+fn parse(text: &str, unique_keys: bool) -> Result<Node> {
     let mut stack: Vec<Frame> = Vec::new();
     let mut root = None;
     let mut anchors = std::collections::HashMap::<usize, Node>::new();
@@ -159,9 +159,10 @@ fn parse(text: &str) -> Result<Node> {
             }
             if message.starts_with("while parsing a block mapping, did not find expected key") {
                 let line = e.marker().line();
-                let lines: Vec<&str> = text.lines().collect();
-                if let Some(current) = lines.get(line.saturating_sub(1)) && current.trim_start().starts_with("- ") {
+                let lines: Vec<&str> = text.split('\n').collect();
+                if let Some(current) = lines.get(line.saturating_sub(1)) && current.trim_start_matches(' ').starts_with("- ") {
                     let previous = lines.get(line.saturating_sub(2)).copied().unwrap_or("");
+                    let current = current.trim_end_matches('\r');
                     return EditError(format!("A block sequence may not be used as an implicit map key at line {line}, column 1:\n\n{previous}\n{current}\n^\n"));
                 }
             }
@@ -196,6 +197,36 @@ fn parse(text: &str) -> Result<Node> {
                     .pop()
                     .ok_or_else(|| EditError("invalid YAML collection".into()))?;
                 let flow = text[frame.start..].starts_with(if frame.mapping { '{' } else { '[' });
+                if unique_keys && frame.mapping {
+                    let pairs = frame.children.as_chunks::<2>().0;
+                    for (index, pair) in pairs.iter().enumerate() {
+                        if pairs[..index]
+                            .iter()
+                            .any(|old| old[0].value() == pair[0].value())
+                        {
+                            let offset = pair[0].span.start;
+                            let line =
+                                text[..offset].bytes().filter(|byte| *byte == b'\n').count() + 1;
+                            let line_start = text[..offset].rfind('\n').map_or(0, |at| at + 1);
+                            let column = text[line_start..offset].chars().count() + 1;
+                            let current = text[line_start..]
+                                .split('\n')
+                                .next()
+                                .unwrap_or("")
+                                .trim_end_matches('\r');
+                            let previous = text[..line_start]
+                                .strip_suffix('\n')
+                                .unwrap_or("")
+                                .rsplit('\n')
+                                .next()
+                                .unwrap_or("");
+                            return Err(EditError(format!(
+                                "Map keys must be unique at line {line}, column {column}:\n\n{previous}\n{current}\n{}^\n",
+                                " ".repeat(column - 1)
+                            )));
+                        }
+                    }
+                }
                 let kind = if frame.mapping {
                     Kind::Map(
                         frame
@@ -248,7 +279,8 @@ fn parse(text: &str) -> Result<Node> {
 /// Parse a strategy document into the same JSON-shaped value used by the
 /// validator. Source spans remain available separately through `StrategyDoc`.
 pub fn parse_value(text: &str) -> Result<Value> {
-    parse(text).map(|node| node.value())
+    // Bun.YAML.parse accepts duplicate keys; only the YAML document editor refuses them.
+    parse(text, false).map(|node| node.value())
 }
 
 fn key_text(key: &Value) -> String {
@@ -285,7 +317,7 @@ impl StrategyDoc {
         offset - self.text[..offset].rfind('\n').map_or(0, |p| p + 1)
     }
     fn document(&self) -> Result<Node> {
-        parse(&self.text)
+        parse(&self.text, true)
     }
     pub fn get_in(&self, path: &[Value]) -> Result<Option<Value>> {
         Ok(self.document()?.at(path).map(Node::value))
@@ -432,6 +464,8 @@ impl StrategyDoc {
             let start = key.span.start - self.column(key.span.start);
             let end = if val.span.start == val.core_end && index + 1 < items.len() {
                 items[index + 1].0.span.start
+            } else if self.text[val.span.end..].starts_with("\r\n") {
+                val.span.end + 2
             } else if self.text[val.span.end..].starts_with('\n') {
                 val.span.end + 1
             } else {
@@ -555,9 +589,13 @@ impl StrategyDoc {
                     } else if matches!(value.kind, Kind::Seq(_, false) | Kind::Map(_, false)) {
                         let before = &self.text[..value.span.start];
                         if let Some(newline) = before.rfind('\n') {
-                            let colon = before[..newline].trim_end_matches([' ', '\r']).len();
-                            if colon < newline && before[..colon].ends_with(':') {
-                                ranges.push((colon..newline, false));
+                            let line_end = newline
+                                - usize::from(
+                                    before.as_bytes().get(newline.wrapping_sub(1)) == Some(&b'\r'),
+                                );
+                            let colon = before[..line_end].trim_end_matches(' ').len();
+                            if colon < line_end && before[..colon].ends_with(':') {
+                                ranges.push((colon..line_end, false));
                             }
                         }
                     }
@@ -651,7 +689,7 @@ impl StrategyDoc {
         match kind {
             "yaml" => {
                 let yaml = recipe.get("yaml").and_then(Value::as_str).unwrap_or("");
-                let parsed = parse(yaml)?;
+                let parsed = parse(yaml, true)?;
                 let parent = doc.at(&path[..path.len().saturating_sub(1)]);
                 if parent.is_some_and(Node::flow)
                     && matches!(parsed.kind, Kind::Map(..) | Kind::Seq(..))

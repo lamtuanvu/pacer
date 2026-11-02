@@ -84,6 +84,7 @@ fn legacy_dir(ctx: &Ctx) -> std::path::PathBuf {
     let base = ctx
         .env
         .get("PACER_ORCA_USER_DATA")
+        .filter(|value| !value.is_empty())
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
             if cfg!(target_os = "macos") {
@@ -91,6 +92,7 @@ fn legacy_dir(ctx: &Ctx) -> std::path::PathBuf {
             } else {
                 ctx.env
                     .get("XDG_CONFIG_HOME")
+                    .filter(|value| !value.is_empty())
                     .map(std::path::PathBuf::from)
                     .unwrap_or_else(|| ctx.home.join(".config"))
                     .join("orca")

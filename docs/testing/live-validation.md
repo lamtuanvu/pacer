@@ -549,7 +549,11 @@ then run `bun run live native-config --id config-writes`. The fixed fixture exer
 `strategy.use/save/remove`, `routing.set`, `runner.set/reorder/remove`, and
 `notifications.get/set` over protocol-3 stdio and authenticated public HTTP on
 fresh, owned fixture services. It seeds malformed UTF-8 in an unrelated notification
-setting to verify replacement decoding during migration and writes, and saves a
+setting and a legacy off preference to verify environment-dependent migration and
+replacement decoding during writes. The service receives `PACER_AGENT=alice`; saved
+headers must retain that author. Block-routing cases exercise CRLF preservation,
+trailing mapping-key spaces, middle-rule deletion errors and CRLF error excerpts.
+It also saves a
 `0.000001` planner reserve to check YAML number bytes. It compares each result and
 persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
 delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private

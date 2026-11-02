@@ -2,11 +2,8 @@
 
 use serde_json::{Value, json};
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::os::unix::fs::PermissionsExt;
 use std::{fs, io, path::Path};
-
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, thiserror::Error)]
 pub enum NotificationError {
@@ -28,23 +25,16 @@ fn write_settings(path: &Path, level: &str) -> io::Result<()> {
     fs::create_dir_all(parent)?;
     #[cfg(unix)]
     fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
-    let temp = path.with_file_name(format!(
-        "settings.json.{}.{}.tmp",
-        std::process::id(),
-        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-    ));
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options.open(&temp)?;
+    let (temp, mut file) = crate::temp_file::create(path)?;
     let result = (|| {
         use std::io::Write;
         file.write_all(&bytes)?;
         file.flush()?;
         fs::rename(&temp, path)
     })();
-    let _ = fs::remove_file(temp);
+    if result.is_err() {
+        let _ = fs::remove_file(temp);
+    }
     result
 }
 

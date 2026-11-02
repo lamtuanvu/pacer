@@ -309,3 +309,15 @@ test("raw JSON number and Unicode length boundaries match TypeScript for every c
     if (canonical(actual[index]) !== canonical(expected)) throw Error(`${input.label}: TS ${canonical(expected)} Rust ${canonical(actual[index])}`);
   }
 }, 60_000);
+
+test("invalid Unicode duration suffixes return validation errors", () => {
+  const built = spawnSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_diff", "--locked"], { encoding: "utf8" });
+  if (built.status !== 0) throw Error(`Rust test binary build failed: ${built.stderr}`);
+  const cases = ["1é", "1😀", "é", "1中", "1é h", "1h😀"].map(value =>
+    fieldCase(bases[2]!, ["accounts", "codex", "cooldown"], value));
+  const actual = rust("target/debug/examples/strategy_diff", cases);
+  for (const [i, raw] of cases.entries()) {
+    const expected = ts(raw);
+    if (expected.ok || canonical(actual[i]) !== canonical(expected)) throw Error(`duration ${i}: TS ${canonical(expected)} Rust ${canonical(actual[i])}`);
+  }
+});

@@ -31,7 +31,7 @@ async function compare(op: string, params: unknown, setup?: (home: string) => vo
   try {expected = {result: await callOp(ctx, op, params)};} catch (error) {expected = {error:toApiError(error)};}
   const input = `{"op":${JSON.stringify(op)},"params":${rawParams ?? JSON.stringify(params)},"home":${JSON.stringify(rs)},"now":${ctx.now},"agent":"fixture"}\n`;
   const actual = JSON.parse(execFileSync(driver(), [], {input}).toString());
-  expect(normalize(actual,rs), `${op} ${JSON.stringify(params)}`).toEqual(normalize(expected,ts));
+  expect(normalize(actual,rs), `${op} ${JSON.stringify(params)} actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`).toEqual(normalize(expected,ts));
   for (const file of ["strategy.yaml", "active", "strategies/review.yaml", "settings.json"]) {
     const read = (path: string) => existsSync(join(path,file)) ? readFileSync(join(path,file)) : null;
     expect(read(rs), `${op}: ${file}`).toEqual(read(ts));
@@ -152,3 +152,23 @@ test("raw JSON numeric API fields match TS validation, results and persisted byt
   }
   await compare("strategy.save", {name:"review", draft:{from:"default", set:{"providers.codex.model":"fixture-model"}}, reason:"runner model parity"});
 }, 120_000);
+
+// Preserve the reference editor's behavior for block routing, including rejected edits.
+const blockRouting = golden.initial.replace(
+  "  - kinds: [docs]\n    executors: [codex, cursor] # keep list\n  - default: [codex, cursor]",
+  "  - kinds:\n      - docs\n    executors:\n      - codex\n  - kinds: [tests]\n    executors: [cursor] # c\n  - default:\n      - codex");
+
+test("block routing removal preserves CRLF, trailing spaces and exact error excerpts", async () => {
+  for (const newline of ["\n", "\r\n"]) for (const padding of ["", " ", "   "]) {
+    const initial = blockRouting.replaceAll("kinds:\n", `kinds:${padding}\n`).replaceAll("\n", newline);
+    const setup = (path: string) => writeFileSync(join(path, "strategy.yaml"), initial);
+    await compare("runner.remove", {id:"cursor"}, setup);
+    await compare("routing.set", {rules:[{kinds:["docs"],executors:["cursor"]},{executors:["codex"]}]}, setup);
+    await compare("routing.set", {rules:[{executors:["codex"]}]}, setup);
+  }
+}, 60_000);
+
+test("native load accepts duplicate keys before the editor returns the reference diagnostic", async () => {
+  await compare("runner.set", {id:"codex", enabled:false}, path => writeFileSync(join(path,"strategy.yaml"),
+    golden.initial.replace("  codex: {} # keep runner", "  codex: {} # keep runner\n  codex: {}")));
+});

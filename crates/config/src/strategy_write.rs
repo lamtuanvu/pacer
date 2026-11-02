@@ -360,16 +360,7 @@ pub fn save_strategy(
         one_line(reason),
         stringify_bun(&raw)
     );
-    let temp = path.with_file_name(format!(
-        "{name}.{}.{}.tmp",
-        std::process::id(),
-        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-    ));
-    let mut file_options = fs::OpenOptions::new();
-    file_options.write(true).create_new(true);
-    #[cfg(unix)]
-    file_options.mode(0o600);
-    let mut file = file_options.open(&temp)?;
+    let (temp, mut file) = crate::temp_file::create(&path)?;
     let write = (|| -> io::Result<()> {
         use std::io::Write;
         file.write_all(content.as_bytes())?;

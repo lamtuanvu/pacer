@@ -181,3 +181,42 @@ fn activation_modes_under_umask_child() {
         0o600
     );
 }
+
+#[test]
+fn deeply_nested_notifications_preserve_existing_data_and_surrogates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let nested = format!("{}1e400{}", "[".repeat(140), "]".repeat(140));
+    let original = format!("{{\"other\":42,\"nested\":{nested}}}");
+    std::fs::write(&path, original).unwrap();
+    notifications::set_level(dir.path(), "all").unwrap();
+    let result = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        result,
+        format!(
+            "{{\"other\":42,\"nested\":{}null{},\"notifications\":\"all\"}}",
+            "[".repeat(140),
+            "]".repeat(140)
+        )
+    );
+    let unsupported = format!("{{\"nested\":{nested},\"surrogate\":\"\\uD800\"}}");
+    std::fs::write(&path, &unsupported).unwrap();
+    notifications::set_level(dir.path(), "all").unwrap();
+    let saved = std::fs::read_to_string(&path).unwrap();
+    assert!(saved.contains("\\ud800"));
+    assert!(saved.contains("\"notifications\":\"all\""));
+    let near_limit = format!("{{\"nested\":{}0{}}}", "[".repeat(500), "]".repeat(500));
+    std::fs::write(&path, &near_limit).unwrap();
+    notifications::set_level(dir.path(), "all").unwrap();
+    let too_deep = format!("{{\"nested\":{}0{}}}", "[".repeat(513), "]".repeat(513));
+    std::fs::write(&path, &too_deep).unwrap();
+    notifications::set_level(dir.path(), "all").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        format!(
+            "{{\"nested\":{}0{},\"notifications\":\"all\"}}",
+            "[".repeat(513),
+            "]".repeat(513)
+        )
+    );
+}

@@ -5,8 +5,19 @@ use pacer_foundation::api::{Code, CoreError};
 use serde_json::Value;
 
 pub(crate) fn error(value: &Value) -> CoreError {
-    let body = value.get("data").unwrap_or(value);
+    let body = if value["code"].is_number() {
+        value.get("data").unwrap_or(value)
+    } else {
+        value
+    };
     let code = match body["code"].as_str().unwrap_or("") {
+        "unknown_op" => Code::UnknownOp,
+        "unknown_task" => Code::UnknownTask,
+        "invalid_input" => Code::InvalidInput,
+        "unknown_executor" => Code::UnknownExecutor,
+        "not_found" => Code::NotFound,
+        "too_large" => Code::TooLarge,
+        "rate_limited" => Code::RateLimited,
         "internal" => Code::Internal,
         "plugin_timeout" => Code::PluginTimeout,
         "plugin_unavailable" => Code::PluginUnavailable,
@@ -25,6 +36,7 @@ pub(crate) fn error(value: &Value) -> CoreError {
             .unwrap_or("endpoint synchronization failed"),
     );
     error.hint = body.get("hint").and_then(Value::as_str).map(str::to_owned);
+    error.data = body.get("data").and_then(Value::as_object).cloned();
     error
 }
 #[allow(clippy::result_large_err)]
@@ -126,6 +138,37 @@ async fn receive_sync(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_api_error_code_and_http_data_survive_the_bridge() {
+        for code in [
+            Code::UnknownOp,
+            Code::UnknownTask,
+            Code::InvalidInput,
+            Code::UnknownExecutor,
+            Code::Conflict,
+            Code::NotAllowed,
+            Code::NotFound,
+            Code::TooLarge,
+            Code::Internal,
+            Code::Unavailable,
+            Code::RateLimited,
+            Code::PluginTimeout,
+            Code::PluginUnavailable,
+            Code::PluginRefused,
+            Code::CapabilityDenied,
+            Code::UnknownPlugin,
+        ] {
+            let original = CoreError::new(code, "sync failed")
+                .hint("retry")
+                .data(serde_json::from_value(serde_json::json!({"key": "value"})).unwrap());
+            assert_eq!(error(&original.body()["error"]), original);
+            let rpc = error(&original.rpc());
+            assert_eq!(rpc.code, code);
+            assert_eq!(rpc.message, original.message);
+            assert_eq!(rpc.hint, original.hint);
+            assert_eq!(rpc.data, None); // The reference RPC transport omits operation data.
+        }
+    }
     #[tokio::test]
     async fn late_sync_response_cannot_complete_the_next_edit() {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();

@@ -3,8 +3,12 @@ import {existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, writ
 import {join} from "node:path";
 import {isDeepStrictEqual} from "node:util";
 import golden from "../../test/fixtures/config-writes-goldens.json";
-import {freePort, healthy, pacerArgv, record, run, sandboxEnv, type Session} from "./core";
+import {atomicWrite, freePort, healthy, pacerArgv, record, run, sandboxEnv, type Session} from "./core";
 import {createFixtureHome, settingsFixtureRoot} from "./settings";
+
+const blockRouting = golden.initial.replace(
+  "  - kinds: [docs]\n    executors: [codex, cursor] # keep list\n  - default: [codex, cursor]",
+  "  - kinds: \n      - docs\n    executors: \n      - codex\n  - kinds: [tests]\n    executors: [cursor] # c\n  - default: \n      - codex");
 
 export const configSteps = [
   {op:"notifications.get",params:{}},
@@ -19,6 +23,9 @@ export const configSteps = [
   {op:"strategy.remove",params:{name:"review"}},
   {op:"runner.set",params:{id:"codex",rank:1.5},error:"invalid_input"},
   {op:"strategy.remove",params:{name:"default"},error:"not_allowed"},
+  {op:"runner.remove",params:{id:"cursor"},fixture:blockRouting.replaceAll("\n","\r\n")},
+  {op:"routing.set",params:{rules:[{kinds:["docs"],executors:["cursor"]},{executors:["codex"]}]},error:"invalid_input",fixture:blockRouting},
+  {op:"routing.set",params:{rules:[{executors:["codex"]}]},error:"invalid_input",fixture:blockRouting.replaceAll("\n","\r\n")},
 ] as const;
 
 function normalized(value: unknown, home: string): unknown {
@@ -29,20 +36,31 @@ function files(home: string) {
     const path=join(home,file);
     if (!existsSync(path)) return [file,null];
     if ((statSync(path).mode & 0o077) !== 0) throw Error(`Nonprivate fixture state: ${file}`);
-    return [file,readFileSync(path,"utf8")];
+    const text=readFileSync(path,"utf8");
+    if(file==="strategies/review.yaml" && !text.includes("# created by alice on ")) throw Error("Save author environment was ignored");
+    return [file,text];
   }));
 }
 function fixtureEnv(session: Session, home: string, forwarded: boolean) {
   return {...sandboxEnv(session),HOME:home,PACER_HOME:home,PACER_BIN:pacerArgv(session)[0],
     PACER_ORCA_USER_DATA:join(home,"orca-user-data"),CODEX_HOME:join(home,".codex"),CLAUDE_CONFIG_DIR:join(home,".claude"),
     XDG_CONFIG_HOME:join(home,".config"),XDG_DATA_HOME:join(home,".local/share"),PACER_DEBUG_NATIVE:"1",PACER_NO_SELF_REPAIR:"1",
-    PACER_FORWARD_OPS:forwarded?"*":""};
+    PACER_AGENT:"alice",PACER_FORWARD_OPS:forwarded?"*":""};
 }
 function prepare(home: string) {
   createFixtureHome(home);
   writeFileSync(join(home,"strategy.yaml"),golden.initial,{mode:0o600,flag:"wx"});
+  const legacy=join(home,"orca-user-data/plugins-data/lamtuanvu.pacer");
+  mkdirSync(legacy,{recursive:true,mode:0o700});
+  writeFileSync(join(legacy,"settings.json"),'{"notifications":"off"}',{mode:0o600,flag:"wx"});
   // Exercise Node-compatible replacement decoding during get migration and set.
   writeFileSync(join(home,"settings.json"), Buffer.concat([Buffer.from('{"keep":"'), Buffer.from([0xff]), Buffer.from('","notifications":"invalid"}')]), {mode:0o600,flag:"wx"});
+}
+function resetFixture(home: string, step: typeof configSteps[number]) {
+  if (!("fixture" in step)) return;
+  const active=join(home,"active");
+  const name=existsSync(active)?readFileSync(active,"utf8").trim():"default";
+  atomicWrite(name==="default"?join(home,"strategy.yaml"):join(home,"strategies",`${name}.yaml`),step.fixture);
 }
 async function stdio(session: Session, home: string, forwarded: boolean) {
   const child=Bun.spawn([...pacerArgv(session),"api","--stdio"],{cwd:join(session.root,"repo"),env:fixtureEnv(session,home,forwarded),stdin:"pipe",stdout:"pipe",stderr:"pipe",timeout:120000});
@@ -79,6 +97,7 @@ async function stdio(session: Session, home: string, forwarded: boolean) {
     for (const [i,step] of configSteps.entries()) {
       // A delayed save must use request time, rather than connection-start time.
       if (step.op === "strategy.save") await Bun.sleep(1100);
+      resetFixture(home,step);
       const started=Date.now();
       const reply=await request(i+2,step.op,step.params);
       checkReply(step,reply);
@@ -101,6 +120,7 @@ async function stdio(session: Session, home: string, forwarded: boolean) {
   }
 }
 function checkReply(step: typeof configSteps[number], reply: {error?:{code:string};result?:unknown}) {
+  if (step.op==="notifications.get" && (reply.result as {level?:string})?.level!=="off") throw Error("Legacy notification environment was ignored");
   if ("error" in step ? reply.error?.code!==step.error : reply.error || reply.result===undefined) throw Error(`Fixed ${step.op} returned an unexpected result: ${JSON.stringify(reply)}`);
 }
 function checkTrace(trace: string, forwarded: boolean) {
@@ -145,6 +165,7 @@ async function http(session: Session, home: string, forwarded: boolean, log: str
     if(!endpointReady) throw Error("Fixture endpoint plugin did not become ready");
     const states=[];
     for (const step of configSteps) {
+      resetFixture(home,step);
       const response=await fetch(`http://127.0.0.1:${port}/v3/ops/${step.op}`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json"},body:JSON.stringify(step.params),signal:AbortSignal.timeout(30000)});
       const reply=await response.json();checkReply(step,reply);
       states.push({reply,files:files(home)});
@@ -198,7 +219,7 @@ export async function exerciseNativeConfig(session: Session): Promise<void> {
         throw Error(`${transport} native/forwarded config parity differs`);
       }
       comparisons[transport]=results[0];
-      for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:`${transport} API`,verdict:"PASS",text:"Fixed native and PACER_FORWARD_OPS=* results and file states match; native trace verified. Endpoint plugin synchronization exercised for document edits."});
+      for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:`${transport} API`,verdict:"PASS",text:"Fixed native and PACER_FORWARD_OPS=* results and file states match; native trace verified. Legacy migration and alice author environment, CRLF/trailing-space rule removal, exact rejected-edit diagnostics and endpoint synchronization exercised."});
     }
     writeFileSync(join(fixture,"results.json"),JSON.stringify(comparisons,null,2),{mode:0o600,flag:"wx"});
     await guardedCli(session, fixture);
@@ -223,6 +244,7 @@ async function guardedCli(session: Session, fixture: string): Promise<void> {
   const states = [];
   for (const step of configSteps) {
     if ("error" in step) continue;
+    resetFixture(home,step);
     const params = JSON.parse(JSON.stringify(step.params).replaceAll('"review"', JSON.stringify(saved)).replace('"from":"default"', `"from":"${name}"`));
     const reply = await call(step.op, params);
     const savedPath = join(home, "strategies", `${saved}.yaml`);

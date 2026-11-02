@@ -8,6 +8,7 @@ pub mod notifications;
 mod sections;
 pub mod strategy;
 pub mod strategy_write;
+mod temp_file;
 pub mod write;
 
 pub use js_semantics::normalize_json;
