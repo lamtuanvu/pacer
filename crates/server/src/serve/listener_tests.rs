@@ -37,6 +37,7 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         token: "token".into(),
         registry: registry(""),
         scoped_work: false,
+        forward_log_follow: false,
     });
     let server = tokio::spawn(async move {
         axum::serve(
@@ -137,6 +138,7 @@ async fn public_listener_forwards_to_available_core() {
         token: "token".into(),
         registry: registry(""),
         scoped_work: false,
+        forward_log_follow: false,
     });
     let server = tokio::spawn(async move {
         axum::serve(
