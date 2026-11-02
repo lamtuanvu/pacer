@@ -248,17 +248,14 @@ async function capture(mode: "planner" | "grant") {
     const normalize = (value: unknown): any => {
       if (typeof value === "string") return value.replaceAll(realpathSync(home), "$HOME").replaceAll(home, "$HOME")
         .replaceAll(task.id, "task-fixture").replace(/local:[0-9a-f]{12}/g, "local:fixture")
+        .replace(/("(?:generatedAt|evaluatedAt|capturedAt)":\s*)-?\d+(?:\.\d+)?/g, "$10")
         .replace(homePattern, "t-fixture-home");
       if (Array.isArray(value)) return value.map(normalize);
       if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) =>
-        [key, ["generatedAt", "evaluatedAt", "capturedAt"].includes(key) ? 0 : normalize(item)]));
+        [key, ["generatedAt", "evaluatedAt", "capturedAt"].includes(key) && typeof item === "number" ? 0 : normalize(item)]));
       return value;
     };
-    const normalizedResults = results.map(row => {
-      const clean = normalize(row);
-      if (clean.result.structuredContent) clean.result.content = [{ type: "text", text: JSON.stringify(clean.result.structuredContent, null, 1) }];
-      return clean;
-    });
+    const normalizedResults = results.map(row => normalize(row));
     return { tools, results: normalizedResults, validation: normalize(validation) };
   } finally {
     await client.close();
