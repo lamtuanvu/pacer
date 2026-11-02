@@ -580,6 +580,351 @@ async fn numeric_broker_fields_match_typescript_request_schemas() {
         assert_eq!(rust, bun, "{method}.{field}={spelling}");
     }
 }
+
+#[tokio::test]
+async fn numeric_transfer_and_worktree_fields_reach_their_broker_validators() {
+    use std::process::Command;
+    let cases = [
+        ("capability.fs.writeChunk", "offset", "1.0", true),
+        ("capability.fs.writeChunk", "offset", "1e2", true),
+        ("capability.fs.writeChunk", "offset", "1.5", false),
+        (
+            "capability.fs.writeChunk",
+            "offset",
+            "9007199254740992",
+            false,
+        ),
+        ("capability.net.http.body.begin", "bytes", "1.0", true),
+        ("capability.net.http.body.begin", "bytes", "1e2", true),
+        ("capability.net.http.body.begin", "bytes", "1.5", false),
+        ("capability.net.http.body.begin", "bytes", "4194305", false),
+        (
+            "capability.net.http.body.begin",
+            "bytes",
+            "9007199254740992",
+            false,
+        ),
+        ("capability.net.http.body.stageChunk", "offset", "1.0", true),
+        ("capability.net.http.body.stageChunk", "offset", "1e2", true),
+        (
+            "capability.net.http.body.stageChunk",
+            "offset",
+            "1.5",
+            false,
+        ),
+        (
+            "capability.net.http.body.stageChunk",
+            "offset",
+            "9007199254740992",
+            false,
+        ),
+        (
+            "capability.net.http.body.stageChunk",
+            "offset",
+            "4194305",
+            false,
+        ),
+        ("capability.net.http.body.readChunk", "offset", "1.0", true),
+        ("capability.net.http.body.readChunk", "offset", "1e2", true),
+        ("capability.net.http.body.readChunk", "offset", "1.5", false),
+        (
+            "capability.net.http.body.readChunk",
+            "offset",
+            "9007199254740992",
+            false,
+        ),
+        (
+            "capability.net.http.body.readChunk",
+            "offset",
+            "4194305",
+            false,
+        ),
+        ("capability.net.http.body.readChunk", "length", "1.0", true),
+        ("capability.net.http.body.readChunk", "length", "1e2", true),
+        ("capability.net.http.body.readChunk", "length", "1.5", false),
+        (
+            "capability.net.http.body.readChunk",
+            "length",
+            "262145",
+            false,
+        ),
+        ("capability.worktree.inspect", "attempt", "1.0", true),
+        ("capability.worktree.inspect", "attempt", "1e2", true),
+        ("capability.worktree.inspect", "attempt", "0", false),
+        ("capability.worktree.inspect", "attempt", "1.5", false),
+        (
+            "capability.worktree.inspect",
+            "attempt",
+            "9007199254740992",
+            false,
+        ),
+        ("capability.worktree.resolveBase", "attempt", "1.0", true),
+        ("capability.worktree.resolveBase", "attempt", "1e2", true),
+        ("capability.worktree.resolveBase", "attempt", "1.5", false),
+        (
+            "capability.worktree.resolveBase",
+            "attempt",
+            "9007199254740992",
+            false,
+        ),
+        ("capability.worktree.createOrReuse", "attempt", "1.0", true),
+        ("capability.worktree.createOrReuse", "attempt", "1e2", true),
+        ("capability.worktree.createOrReuse", "attempt", "1.5", false),
+        (
+            "capability.worktree.createOrReuse",
+            "attempt",
+            "9007199254740992",
+            false,
+        ),
+    ];
+    let mut wire = Vec::new();
+    let mut requests = Vec::new();
+    for (method, field, spelling, accepted) in cases {
+        let mut params = match method {
+            "capability.fs.writeChunk" | "capability.net.http.body.stageChunk" => {
+                json!({"handle":"missing","offset":0,"base64":"AA=="})
+            }
+            "capability.net.http.body.begin" => json!({"bytes":1}),
+            "capability.net.http.body.readChunk" => {
+                json!({"handle":"missing","offset":0,"length":1})
+            }
+            "capability.worktree.createOrReuse" => {
+                json!({"taskId":"t-fixture","attempt":1,"baseSha":"0000000000000000000000000000000000000000"})
+            }
+            _ => json!({"taskId":"t-fixture","attempt":1}),
+        };
+        params[field] = serde_json::from_str(spelling).unwrap();
+        wire.push(json!({"method":method,"params":params}));
+        requests.push((method, field, spelling, accepted, params));
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = "import {SCOPED_CAPABILITY_METHODS} from './src/plugins/capability-protocol.ts'; import {FS_WRITE_METHODS} from './src/plugins/write-protocol.ts'; import {HTTP_CAPABILITY_METHODS} from './src/plugins/http-protocol.ts'; import {WORKTREE_CAPABILITY_METHODS} from './src/plugins/executor-worktree-protocol.ts'; const m={...SCOPED_CAPABILITY_METHODS,...FS_WRITE_METHODS,...HTTP_CAPABILITY_METHODS,...WORKTREE_CAPABILITY_METHODS}; console.log(JSON.stringify(JSON.parse(Bun.argv.at(-1)).map(c=>m[c.method].params.safeParse(c.params).success)));";
+    let output = Command::new("bun")
+        .current_dir(root)
+        .args(["-e", script, &json!(wire).to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ts: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+    for ((method, field, spelling, accepted, params), ts_accepts) in requests.into_iter().zip(ts) {
+        assert_eq!(ts_accepts, accepted, "TS {method}.{field}={spelling}");
+        let mut b = if method.starts_with("capability.worktree") {
+            let manifest = parse_manifest(json!({"id":"fx-worktree","version":"1.0.0","publisher":"fixture","host":">=1.10.0","capabilities":[{"name":"worktree","scopes":[]}]})).unwrap();
+            let resources: CallResources = serde_json::from_value(
+                json!({"worktree":{"taskId":"t-fixture","attempt":1,"baseSha":"abc"}}),
+            )
+            .unwrap();
+            CapabilityBroker::new(
+                manifest,
+                CallAuthority::new(
+                    resources,
+                    ["worktree".into()],
+                    Instant::now() + Duration::from_secs(2),
+                ),
+                vec![],
+            )
+        } else if method.starts_with("capability.net") {
+            CapabilityBroker {
+                features: vec!["httpBodyChunks".into()],
+                ..http_broker(
+                    &["example.test"],
+                    &["example.test"],
+                    &["https://example.test"],
+                )
+            }
+        } else {
+            broker(2000)
+        };
+        let mut effect = Echo { calls: 0 };
+        let result = b.handle(method, params, &mut effect).await;
+        let conversion_failed = matches!(
+            result,
+            Err(BrokerError::Invalid(
+                "offset" | "length" | "bytes" | "attempt"
+            ))
+        );
+        assert_eq!(
+            !conversion_failed, accepted,
+            "Rust {method}.{field}={spelling}: {result:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn host_run_numeric_bounds_match_typescript_through_broker() {
+    use std::process::Command;
+    struct HostEcho(ProviderSnapshot);
+    impl CapabilityEffect for HostEcho {
+        async fn call(&mut self, _method: &str, _params: Value) -> Result<Value, BrokerError> {
+            Ok(json!({"code":0,"stdout":"","stderr":"","timedOut":false}))
+        }
+        fn provider_snapshot(&self, _alias: &str) -> Option<ProviderSnapshot> {
+            Some(self.0.clone())
+        }
+    }
+    let cases = [
+        ("timeoutMs", "1.0", true),
+        ("timeoutMs", "1e2", true),
+        ("timeoutMs", "1.5", false),
+        ("timeoutMs", "120001", false),
+        ("maxBytes", "1.0", true),
+        ("maxBytes", "1e2", true),
+        ("maxBytes", "1.5", false),
+        ("maxBytes", "0", false),
+        ("maxBytes", "524289", false),
+    ];
+    let mut requests = Vec::new();
+    for (field, spelling, accepted) in cases {
+        let mut params = json!({"session":"ABCDEFGHIJKLMNOP","script":"PROBE","args":[],"timeoutMs":100,"maxBytes":100});
+        params[field] = serde_json::from_str(spelling).unwrap();
+        requests.push((field, spelling, accepted, params));
+    }
+    let wire: Vec<_> = requests.iter().map(|(_, _, _, params)| params).collect();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = "import {HOSTS_METHODS} from './src/plugins/hosts-protocol.ts';console.log(JSON.stringify(JSON.parse(Bun.argv.at(-1)).map(p=>HOSTS_METHODS['capability.hosts.run'].params.safeParse(p).success)));";
+    let output = Command::new("bun")
+        .current_dir(root)
+        .args(["-e", script, &json!(wire).to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ts: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+    for ((field, spelling, accepted, mut params), ts_accepts) in requests.into_iter().zip(ts) {
+        assert_eq!(ts_accepts, accepted, "TS {field}={spelling}");
+        let snapshot = ProviderSnapshot {
+            alias: "fixture".into(),
+            host_fingerprint: "fingerprint".into(),
+            caller_generation: "caller".into(),
+            provider_generation: "provider".into(),
+            provider_process: 1,
+        };
+        let manifest = parse_manifest(json!({"id":"fx-host","version":"1.0.0","publisher":"fixture","host":">=1.10.0","capabilities":[{"name":"hosts","scopes":[]}]})).unwrap();
+        let resources: CallResources = serde_json::from_value(json!({"hosts":[{"alias":"fixture","hostFingerprint":"fingerprint","script":"PROBE","args":[],"timeoutMs":120000,"maxBytes":524288}]})).unwrap();
+        let authority = CallAuthority::new(
+            resources,
+            ["hosts".into()],
+            Instant::now() + Duration::from_secs(2),
+        );
+        let mut broker =
+            CapabilityBroker::new(manifest, authority, vec![]).with_hosts([snapshot.clone()]);
+        let mut effect = HostEcho(snapshot);
+        let opened = broker
+            .handle(
+                "capability.hosts.open",
+                json!({"alias":"fixture"}),
+                &mut effect,
+            )
+            .await
+            .unwrap();
+        params["session"] = opened["session"].clone();
+        let result = broker
+            .handle("capability.hosts.run", params, &mut effect)
+            .await;
+        let rejected = matches!(result, Err(BrokerError::Invalid("timeout" | "bytes")));
+        assert_eq!(!rejected, accepted, "Rust {field}={spelling}: {result:?}");
+    }
+}
+
+#[tokio::test]
+async fn string_limits_reach_path_glob_and_handle_admission() {
+    use std::process::Command;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let paths = [
+        (format!("/{}", "😀".repeat(2047)), true),
+        (format!("/{}", "😀".repeat(2048)), false),
+    ];
+    let globs = [("😀".repeat(2048), true), ("😀".repeat(2049), false)];
+    let handles = [("😀".repeat(256), true), ("😀".repeat(257), false)];
+    let wire = json!({"paths":paths.iter().map(|(v,_)|v).collect::<Vec<_>>(),
+        "globs":globs.iter().map(|(v,_)|v).collect::<Vec<_>>(),
+        "handles":handles.iter().map(|(v,_)|v).collect::<Vec<_>>()});
+    let script = "import {absolutePath} from './src/plugins/capability-paths.ts'; import {SCOPED_CAPABILITY_METHODS} from './src/plugins/capability-protocol.ts'; import {HTTP_CAPABILITY_METHODS} from './src/plugins/http-protocol.ts'; const v=JSON.parse(Bun.argv.at(-1)); console.log(JSON.stringify({paths:v.paths.map(x=>{try{absolutePath(x);return true}catch{return false}}),globs:v.globs.map(x=>SCOPED_CAPABILITY_METHODS['capability.fs.list'].params.safeParse({dir:'/tmp/logs',glob:x}).success && x.length<=4096),handles:v.handles.map(x=>HTTP_CAPABILITY_METHODS['capability.net.http'].params.safeParse({url:'https://example.test/',method:'GET',timeoutMs:100,body:{handle:x}}).success)}));";
+    let output = Command::new("bun")
+        .current_dir(root)
+        .args(["-e", script, &wire.to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ts: Value = serde_json::from_slice(&output.stdout).unwrap();
+    for (i, (path, expected)) in paths.iter().enumerate() {
+        assert_eq!(ts["paths"][i], *expected);
+        let mut b = broker(2000);
+        let result = b
+            .handle(
+                "capability.fs.read",
+                json!({"path":path}),
+                &mut Echo { calls: 0 },
+            )
+            .await;
+        let invalid = matches!(result, Err(BrokerError::Authority(AuthorityError::Denied(ref message))) if message == "invalid absolute path");
+        assert_eq!(
+            !invalid,
+            *expected,
+            "path UTF-16 units={}",
+            path.encode_utf16().count()
+        );
+    }
+    for (i, (glob, expected)) in globs.iter().enumerate() {
+        assert_eq!(ts["globs"][i], *expected);
+        let manifest = parse_manifest(json!({"id":"fx-list","version":"1.0.0","publisher":"fixture","host":">=1.10.0","capabilities":[{"name":"fs.read","scopes":["/tmp/logs/rollout-*.jsonl"]}]})).unwrap();
+        let resources: CallResources =
+            serde_json::from_value(json!({"reads":[{"path":"/tmp/logs","kind":"codex-logs"}]}))
+                .unwrap();
+        let mut b = CapabilityBroker::new(
+            manifest,
+            CallAuthority::new(
+                resources,
+                ["fs.read".into()],
+                Instant::now() + Duration::from_secs(2),
+            ),
+            vec![],
+        );
+        let result = b
+            .handle(
+                "capability.fs.list",
+                json!({"dir":"/tmp/logs","glob":glob}),
+                &mut Echo { calls: 0 },
+            )
+            .await;
+        assert_eq!(
+            result.is_ok(),
+            *expected,
+            "glob UTF-16 units={}",
+            glob.encode_utf16().count()
+        );
+    }
+    for (i, (handle, expected)) in handles.iter().enumerate() {
+        assert_eq!(ts["handles"][i], *expected);
+        let mut b = CapabilityBroker {
+            features: vec!["httpBodyChunks".into()],
+            ..http_broker(
+                &["example.test"],
+                &["example.test"],
+                &["https://example.test"],
+            )
+        };
+        let result = b.handle("capability.net.http", json!({"url":"https://example.test/","method":"GET","timeoutMs":100,"body":{"handle":handle}}), &mut Echo { calls: 0 }).await;
+        let field_rejected = matches!(result, Err(BrokerError::Invalid("HTTP upload handle")));
+        assert_eq!(
+            !field_rejected,
+            *expected,
+            "handle code points={}",
+            handle.chars().count()
+        );
+    }
+}
 #[tokio::test]
 async fn denies_adversarial_paths_and_commands_before_effect() {
     let mut b = broker(1000);

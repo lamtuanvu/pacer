@@ -216,6 +216,7 @@ impl CapabilityBroker {
                 let size = p
                     .get("bytes")
                     .and_then(crate::js_semantics::safe_u64)
+                    .filter(|bytes| *bytes <= 4 * 1024 * 1024)
                     .ok_or(BrokerError::Invalid("bytes"))?;
                 let size = usize::try_from(size).map_err(|_| BrokerError::Invalid("bytes"))?;
                 let mode = p.get("mode").map(crate::js_semantics::safe_u64);
@@ -420,6 +421,7 @@ impl CapabilityBroker {
                 let size = p
                     .get("bytes")
                     .and_then(crate::js_semantics::safe_u64)
+                    .filter(|bytes| *bytes <= 4 * 1024 * 1024)
                     .ok_or(BrokerError::Invalid("bytes"))?;
                 let size = usize::try_from(size).map_err(|_| BrokerError::Invalid("bytes"))?;
                 let handle = self
@@ -433,6 +435,7 @@ impl CapabilityBroker {
                 let offset = p
                     .get("offset")
                     .and_then(crate::js_semantics::safe_u64)
+                    .filter(|offset| *offset <= 4 * 1024 * 1024)
                     .ok_or(BrokerError::Invalid("offset"))?;
                 let offset = usize::try_from(offset).map_err(|_| BrokerError::Invalid("offset"))?;
                 let bytes = self
@@ -451,10 +454,12 @@ impl CapabilityBroker {
                 let offset = p
                     .get("offset")
                     .and_then(crate::js_semantics::safe_u64)
+                    .filter(|offset| *offset <= 4 * 1024 * 1024)
                     .ok_or(BrokerError::Invalid("offset"))?;
                 let length = p
                     .get("length")
                     .and_then(crate::js_semantics::safe_u64)
+                    .filter(|length| *length <= 256 * 1024)
                     .ok_or(BrokerError::Invalid("length"))?;
                 let data = self
                     .transfers
@@ -499,6 +504,7 @@ impl CapabilityBroker {
                 let attempt = p
                     .get("attempt")
                     .and_then(crate::js_semantics::safe_u64)
+                    .filter(|attempt| *attempt > 0)
                     .ok_or(BrokerError::Invalid("attempt"))?;
                 let sha = field("baseSha")?;
                 self.authority.consume_worktree(task, attempt, sha)?;
@@ -508,6 +514,7 @@ impl CapabilityBroker {
                     field("taskId")?,
                     p.get("attempt")
                         .and_then(crate::js_semantics::safe_u64)
+                        .filter(|attempt| *attempt > 0)
                         .ok_or(BrokerError::Invalid("attempt"))?,
                 )?;
             }
@@ -552,10 +559,12 @@ impl CapabilityBroker {
                     timeout_ms: p
                         .get("timeoutMs")
                         .and_then(crate::js_semantics::safe_u64)
+                        .filter(|timeout| (1..=120_000).contains(timeout))
                         .ok_or(BrokerError::Invalid("timeout"))?,
                     max_bytes: p
                         .get("maxBytes")
                         .and_then(crate::js_semantics::safe_u64)
+                        .filter(|bytes| (1..=524_288).contains(bytes))
                         .ok_or(BrokerError::Invalid("bytes"))?,
                 };
                 hosts
