@@ -235,3 +235,129 @@ async fn listener_refuses_linked_database_without_modifying_target() {
         server.abort();
     }
 }
+
+fn legacy_json(home: &Path, id: &str, rev: serde_json::Value, state: &str, run: &Path) {
+    let file = home.join("tasks").join(format!("{id}.json"));
+    let temp = file.with_extension("tmp");
+    std::fs::write(&temp, serde_json::to_vec(&json!({"id":id,"rev":rev,"state":state,"createdAt":1000,"brief":{"repo":"/tmp/repo"},"attempts":[],"run":{"dir":run}})).unwrap()).unwrap();
+    std::fs::rename(temp, file).unwrap();
+}
+
+fn ts_read(home: &Path, id: &str) -> serde_json::Value {
+    let module = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/tasks/store.ts");
+    let code = format!(
+        "import {{ readTask }} from {}; console.log(JSON.stringify(readTask({{pacerHome:{}}}, {})))",
+        serde_json::to_string(&module).unwrap(),
+        serde_json::to_string(home).unwrap(),
+        serde_json::to_string(id).unwrap()
+    );
+    let output = std::process::Command::new("bun")
+        .args(["-e", &code])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[tokio::test]
+async fn listener_merges_new_and_updated_legacy_json_like_typescript() {
+    for existing in [false, true] {
+        let home = tempfile::tempdir().unwrap();
+        let run = home.path().join("run");
+        task(home.path(), &run, "running");
+        let id = if existing {
+            ID
+        } else {
+            "t-20261102-101125-16aa"
+        };
+        legacy_json(home.path(), id, json!(2.0), "done", &run);
+        let (port, server) = listener(home.path(), false).await;
+        let response = client()
+            .request(request(
+                port,
+                &format!("/v3/tasks/{id}/log?follow=1"),
+                Method::GET,
+                true,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = tokio::time::timeout(Duration::from_secs(3), response.into_body().collect())
+            .await
+            .unwrap()
+            .unwrap()
+            .to_bytes();
+        assert!(String::from_utf8_lossy(&body).contains("event: done"));
+        // Native merging does not persist an import or acquire a writer lock.
+        let code = format!(
+            "import {{ Database }} from 'bun:sqlite'; const db = new Database({}, {{readonly:true}}); console.log(JSON.stringify(db.query('SELECT rev FROM tasks WHERE id=?').get({})))",
+            serde_json::to_string(&home.path().join("state/tasks.db")).unwrap(),
+            serde_json::to_string(id).unwrap()
+        );
+        let output = std::process::Command::new("bun")
+            .args(["-e", &code])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let row: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            row,
+            if existing {
+                json!({"rev":1})
+            } else {
+                json!(null)
+            }
+        );
+        assert_eq!(ts_read(home.path(), id)["state"], "done");
+        server.abort();
+    }
+}
+
+#[tokio::test]
+async fn connected_listener_observes_legacy_update_and_database_replacement() {
+    for replace_database in [false, true] {
+        let home = tempfile::tempdir().unwrap();
+        let run = home.path().join("run");
+        task(home.path(), &run, "running");
+        let (port, server) = listener(home.path(), false).await;
+        let response = client()
+            .request(request(
+                port,
+                &format!("/v3/tasks/{ID}/log?follow=1"),
+                Method::GET,
+                true,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut body = response.into_body();
+        assert_eq!(
+            body.frame().await.unwrap().unwrap().into_data().unwrap(),
+            ": connected\n\n"
+        );
+        if replace_database {
+            let replacement = tempfile::tempdir().unwrap();
+            let replacement_run = replacement.path().join("run");
+            task(replacement.path(), &replacement_run, "done");
+            std::fs::rename(
+                replacement.path().join("state/tasks.db"),
+                home.path().join("state/tasks.db"),
+            )
+            .unwrap();
+        } else {
+            legacy_json(home.path(), ID, json!(2), "done", &run);
+        }
+        let rest = tokio::time::timeout(Duration::from_secs(3), body.collect())
+            .await
+            .unwrap()
+            .unwrap()
+            .to_bytes();
+        assert_eq!(rest, "event: done\ndata: {}\n\n");
+        assert_eq!(ts_read(home.path(), ID)["state"], "done");
+        server.abort();
+    }
+}
