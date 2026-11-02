@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 pacer-store = { path = "../store" }
+pacer-js-json = { path = "../js-json" }
 pacer-foundation = { path = "../foundation" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 ryu-js = "1"
