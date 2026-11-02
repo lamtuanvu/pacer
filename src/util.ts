@@ -18,3 +18,10 @@ export function toNum(v: unknown): number | null {
 export function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
+
+/** Clip by UTF-16 units while keeping the final Unicode scalar whole. */
+export function sliceText(s: string, max: number): string {
+  const result = s.slice(0, max);
+  const last = result.charCodeAt(result.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? result.slice(0, -1) : result;
+}

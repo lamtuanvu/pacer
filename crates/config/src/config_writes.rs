@@ -351,12 +351,9 @@ pub fn set_runner(home: &Path, reference: &str, options: &Value) -> Result<Value
     }
     let id = runner["id"].as_str().unwrap_or(reference).to_owned();
     let rank = options.get("rank").and_then(|value| {
-        value.as_u64().or_else(|| {
-            value.as_f64().and_then(|number| {
-                (number.is_finite() && number >= 0.0 && number.fract() == 0.0)
-                    .then_some(number as u64)
-            })
-        })
+        crate::js_semantics::integer(value)
+            .filter(|number| *number >= 0.0)
+            .map(|number| number as u64)
     });
     if options.get("rank").is_some() && rank.is_none() {
         return Err(StrategyError::Other(

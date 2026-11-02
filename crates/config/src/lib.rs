@@ -2,6 +2,7 @@
 
 pub mod config_writes;
 pub mod doc;
+mod js_semantics;
 pub mod notifications;
 mod sections;
 pub mod strategy;

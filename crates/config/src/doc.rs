@@ -954,6 +954,16 @@ fn emit_scalar(value: &Value, original: Option<&str>) -> String {
 }
 
 fn emit_bun_scalar(value: &Value) -> String {
+    if let Value::Number(number) = value
+        && let Some(n) = number.as_f64()
+        && n.fract() == 0.0
+        && n.abs() < 1e21
+    {
+        if n == 0.0 && n.is_sign_negative() {
+            return "-0".into();
+        }
+        return crate::js_semantics::number_text(number);
+    }
     if let Value::String(s) = value {
         let lower = s.to_ascii_lowercase();
         let canonical_case = s.as_str() == lower

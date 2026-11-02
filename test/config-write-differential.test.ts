@@ -354,3 +354,32 @@ test("committed byte goldens cover each P2-C write family", () => {
   step({ op: "notifications.set", level: "all" }, "settings.json", golden.notifications);
   step({ op: "strategy.save", name: "review", draft: { from: "default", set: { "pacing.planner_reserve": 25 } }, reason: "Approved", who: "Codex", nowIso: "2026-10-10T12:00:00.000Z" }, "strategies/review.yaml", golden.save);
 });
+
+test("raw integral JSON decimals stringify with JavaScript numeric bytes", () => {
+  const binary = configBinary();
+  const literals = ["1.0", "1e2", "-0.0", "9007199254740992", "9007199254740993", "9223372036854775807", "1e20", "1e21", "-1e21", "1e-7", "1.5"];
+  const input = literals.map(literal => `{"op":"yaml.stringify","value":{"x":${literal}}}`).join("\n") + "\n";
+  const output = execFileSync(binary, [], { input }).toString().trimEnd().split("\n");
+  for (const [index, literal] of literals.entries()) {
+    const value = JSON.parse(`{"x":${literal}}`);
+    const expected = Bun.YAML.stringify(value, null, 2).replace(/\n?$/, "\n");
+    expect(JSON.parse(output[index]!).value).toBe(expected);
+  }
+});
+
+test("named strategy save normalizes raw JSON integral decimals in YAML", () => {
+  const binary = configBinary();
+  for (const literal of ["1.0", "1e2"]) {
+    const tsHome = home(), rsHome = home();
+    const ctx = fakeCtx({ pacerHome: tsHome });
+    const draft = JSON.parse(`{"from":"default","set":{"pacing.planner_reserve":${literal}}}`) as strategy.Draft;
+    let ts: unknown;
+    try { ts = { ok: true, value: strategy.save(ctx, "review", draft, "approved") }; }
+    catch (error) { ts = { ok: false, error: (error as Error).message }; }
+    const raw = `{"op":"strategy.save","home":${JSON.stringify(rsHome)},"name":"review","draft":{"from":"default","set":{"pacing.planner_reserve":${literal}}},"reason":"approved","nowIso":${JSON.stringify(new Date(ctx.now * 1000).toISOString())}}\n`;
+    const rs = JSON.parse(execFileSync(binary, [], { input: raw }).toString());
+    expect(result(rs, rsHome)).toEqual(result(ts, tsHome));
+    if ((ts as {ok: boolean}).ok) expect(readFileSync(join(rsHome, "strategies", "review.yaml"), "utf8"))
+      .toBe(readFileSync(join(tsHome, "strategies", "review.yaml"), "utf8"));
+  }
+});

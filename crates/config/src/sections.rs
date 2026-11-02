@@ -1,3 +1,4 @@
+use crate::js_semantics;
 use serde_json::{Map, Value, json};
 
 fn object(value: &Value) -> Option<&Map<String, Value>> {
@@ -19,7 +20,7 @@ fn merge(defaults: &Value, input: &Value) -> Value {
     }
 }
 fn positive_int(v: &Value, max: usize) -> bool {
-    v.as_u64().is_some_and(|n| n > 0 && n <= max as u64)
+    js_semantics::safe_integer(v).is_some_and(|n| n > 0.0 && n <= max as f64)
 }
 
 pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
@@ -63,34 +64,33 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
         return None;
     }
     for key in ["reservePct", "comfortablePct"] {
-        if result[key]
-            .as_f64()
-            .is_none_or(|v| !(0. ..=100.).contains(&v))
-        {
+        if js_semantics::number(&result[key]).is_none_or(|v| !(0. ..=100.).contains(&v)) {
             return None;
         }
     }
     let learning = &result["learning"];
     if !check_keys(learning, &["enabled", "minSamples", "maxAgeDays"])
         || !learning["enabled"].is_boolean()
-        || !learning["minSamples"]
-            .as_u64()
-            .is_some_and(|n| (20..=1000).contains(&n))
-        || !learning["maxAgeDays"]
-            .as_u64()
-            .is_some_and(|n| (1..=365).contains(&n))
+        || !js_semantics::safe_integer(&learning["minSamples"])
+            .is_some_and(|n| (20.0..=1000.0).contains(&n))
+        || !js_semantics::safe_integer(&learning["maxAgeDays"])
+            .is_some_and(|n| (1.0..=365.0).contains(&n))
     {
         return None;
     }
     let discovery = &result["discovery"];
     if !check_keys(discovery, &["enabled", "runners", "models"])
         || !discovery["enabled"].is_boolean()
-        || discovery["runners"]
-            .as_array()
-            .is_none_or(|a| a.len() > 128 || a.iter().any(|v| v.as_str().is_none_or(str::is_empty)))
-        || discovery["models"]
-            .as_array()
-            .is_none_or(|a| a.len() > 512 || a.iter().any(|v| v.as_str().is_none_or(str::is_empty)))
+        || discovery["runners"].as_array().is_none_or(|a| {
+            a.len() > 128
+                || a.iter()
+                    .any(|v| v.as_str().is_none_or(|s| !js_semantics::zod_name(s)))
+        })
+        || discovery["models"].as_array().is_none_or(|a| {
+            a.len() > 512
+                || a.iter()
+                    .any(|v| v.as_str().is_none_or(|s| !js_semantics::zod_name(s)))
+        })
     {
         return None;
     }
@@ -116,7 +116,7 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
         }
         let merged = merge(&default_step("", "comfortable"), step);
         let id = merged["id"].as_str()?;
-        if id.is_empty() || id.len() > 256 || !ids.insert(id.to_owned()) {
+        if !js_semantics::zod_name(id) || !ids.insert(id.to_owned()) {
             return None;
         }
         if !check_keys(&merged["match"], &["kind"])
@@ -128,7 +128,7 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
         }
         if merged["match"]
             .get("kind")
-            .is_some_and(|v| v.as_str().is_none_or(str::is_empty))
+            .is_some_and(|v| v.as_str().is_none_or(|s| !js_semantics::zod_name(s)))
             || merged["require"]
                 .get("minTier")
                 .is_some_and(|v| !matches!(v.as_str(), Some("small" | "medium" | "frontier")))
@@ -151,7 +151,7 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
                 v.as_array().is_none_or(|a| {
                     a.len() > max
                         || a.iter()
-                            .any(|v| v.as_str().is_none_or(|s| s.is_empty() || s.len() > 256))
+                            .any(|v| v.as_str().is_none_or(|s| !js_semantics::zod_name(s)))
                 })
             }) {
                 return None;
@@ -204,9 +204,8 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
     let defaults = json!({"defaults":true,"rules":[],"message":{"max_bytes":65536},"tree":{"max_turns":50},"liveness":{"interval_s":60,"backoff_max_s":900,"max_nudges":3,"nudge_in_modes":["relaxed","normal"],"escalate_after_s":900,"retry_delivery":true},"hooks":{"stop":"block","stop_release_after":2},"grants":{"user_started_tasks":"on"},"keep_worktree_days":7});
     let result = merge(&defaults, raw);
     if !result["defaults"].is_boolean()
-        || !result["keep_worktree_days"]
-            .as_u64()
-            .is_some_and(|v| v <= 3650)
+        || !js_semantics::safe_integer(&result["keep_worktree_days"])
+            .is_some_and(|v| (0.0..=3650.0).contains(&v))
     {
         return None;
     }
@@ -230,8 +229,8 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
         ],
     ) || ["interval_s", "backoff_max_s", "escalate_after_s"]
         .iter()
-        .any(|k| live[*k].as_u64().is_none_or(|n| n < 10))
-        || !live["max_nudges"].is_u64()
+        .any(|k| js_semantics::safe_integer(&live[*k]).is_none_or(|n| n < 10.0))
+        || js_semantics::safe_integer(&live["max_nudges"]).is_none_or(|n| n < 0.0)
         || !live["retry_delivery"].is_boolean()
     {
         return None;
@@ -413,7 +412,7 @@ pub(crate) fn hosts(raw: Option<&Value>, problems: &mut Vec<String>) -> Value {
             problems.push(format!("{at}.session must be recording or full"));
         }
         let max = host.get("max_tasks").cloned().unwrap_or(json!(2));
-        if max.as_u64().is_none_or(|n| !(1..=16).contains(&n)) {
+        if js_semantics::integer(&max).is_none_or(|n| !(1.0..=16.0).contains(&n)) {
             problems.push(format!("{at}.max_tasks must be 1..16"));
         }
         let mut repos = Map::new();

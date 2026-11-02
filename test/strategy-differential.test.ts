@@ -145,3 +145,108 @@ test("seeded TypeScript and Rust strategy validators agree", () => {
   }
   console.log(`Strategy differential: ${requested} cases, seed ${seed}, zero divergences`);
 }, 30_000);
+
+function rawRust(binary: string, inputs: string[]): Outcome[] {
+  const run = spawnSync(binary, { input: inputs.join("\n") + "\n", encoding: "utf8" });
+  if (run.status !== 0) throw Error(`Rust validator failed: ${run.stderr}`);
+  return run.stdout.trimEnd().split("\n").map(line => JSON.parse(line) as Outcome);
+}
+
+function fieldCase(base: Json, path: (string | number)[], value: Json): Json {
+  const raw = clone(base) as Record<string, Json>;
+  let current: Record<string, Json> = raw;
+  for (let i = 0; i < path.length - 1; i++) {
+    const key = String(path[i]);
+    if (current[key] === undefined) current[key] = typeof path[i + 1] === "number" ? [] : {};
+    current = current[key] as Record<string, Json>;
+  }
+  current[String(path.at(-1))] = value;
+  return raw;
+}
+
+test("raw JSON number and Unicode length boundaries match TypeScript for every config field", () => {
+  const built = spawnSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_diff", "--locked"], { encoding: "utf8" });
+  if (built.status !== 0) throw Error(`Rust test binary build failed: ${built.stderr}`);
+  const binary = "target/debug/examples/strategy_diff";
+  const base = bases[0]!;
+  const endpoint = bases[2]!;
+  const runner = fieldCase(bases[3]!, ["runners", "codex@box", "models"], [{ id: "fast" }]);
+  const dispatch = fieldCase(base, ["dispatch", "steps"], [{ id: "step" }]);
+  const messaging = fieldCase(base, ["messaging"], {});
+  const numberFields: { label: string; base: Json; path: (string | number)[]; validZero?: boolean; safe?: boolean }[] = [
+    { label: "endpoint context", base: endpoint, path: ["accounts", "edge", "connection", "models", 0, "context"], safe: true },
+    { label: "endpoint output", base: endpoint, path: ["accounts", "edge", "connection", "models", 0, "output"], safe: true },
+    { label: "runner max_tasks", base: endpoint, path: ["runners", "edge", "max_tasks"] },
+    { label: "host max_tasks", base: bases[1]!, path: ["hosts", "build", "max_tasks"] },
+    { label: "runner model context", base: runner, path: ["runners", "codex@box", "models", 0, "context"], safe: true },
+    { label: "local max tasks", base, path: ["execution", "local_max_tasks"], safe: true },
+    { label: "task retention", base, path: ["task_retention_days"], safe: true, validZero: true },
+    { label: "dispatch timeout", base: dispatch, path: ["dispatch", "timeoutMs"], safe: true },
+    { label: "dispatch learning samples", base: dispatch, path: ["dispatch", "learning", "minSamples"], safe: true },
+    { label: "dispatch learning age", base: dispatch, path: ["dispatch", "learning", "maxAgeDays"], safe: true },
+    { label: "dispatch required context", base: dispatch, path: ["dispatch", "steps", 0, "require", "context"], safe: true },
+    { label: "messaging keep days", base: messaging, path: ["messaging", "keep_worktree_days"], safe: true, validZero: true },
+    { label: "messaging max bytes", base: messaging, path: ["messaging", "message", "max_bytes"], safe: true },
+    { label: "messaging max turns", base: messaging, path: ["messaging", "tree", "max_turns"], safe: true },
+    { label: "messaging interval", base: messaging, path: ["messaging", "liveness", "interval_s"], safe: true },
+    { label: "messaging backoff", base: messaging, path: ["messaging", "liveness", "backoff_max_s"], safe: true },
+    { label: "messaging nudges", base: messaging, path: ["messaging", "liveness", "max_nudges"], safe: true, validZero: true },
+    { label: "messaging escalation", base: messaging, path: ["messaging", "liveness", "escalate_after_s"], safe: true },
+    { label: "messaging stop release", base: messaging, path: ["messaging", "hooks", "stop_release_after"], safe: true },
+    { label: "messaging rule per minute", base: fieldCase(messaging, ["messaging", "rules"], [{ effect: "allow", limits: {} }]), path: ["messaging", "rules", 0, "limits", "per_minute"], safe: true },
+    { label: "messaging rule max bytes", base: fieldCase(messaging, ["messaging", "rules"], [{ effect: "allow", limits: {} }]), path: ["messaging", "rules", 0, "limits", "max_bytes"], safe: true },
+  ];
+  const inputs: { label: string; raw: string; accepted: boolean }[] = [];
+  for (const field of numberFields) {
+    const literals = field.label === "dispatch learning samples" ? ["20.0", "2e1", "20.5"]
+      : field.label === "messaging interval" || field.label === "messaging backoff" || field.label === "messaging escalation" ? ["10.0", "1e1", "10.5"]
+      : [field.validZero ? "0.0" : "1.0", field.validZero ? "0e0" : "1e0", "1.5"];
+    if (field.safe) literals.push("9007199254740991", "9007199254740992");
+    for (const literal of literals) {
+      const raw = JSON.stringify(fieldCase(field.base, field.path, "__RAW_NUMBER__")).replace('"__RAW_NUMBER__"', literal);
+      const bounded = ["runner max_tasks", "host max_tasks", "dispatch timeout", "dispatch learning samples", "dispatch learning age",
+        "messaging keep days", "messaging max bytes", "messaging max turns", "messaging rule max bytes"].includes(field.label);
+      inputs.push({ label: `${field.label}=${literal}`, raw, accepted: literal.endsWith(".5") ? false
+        : literal === "9007199254740992" ? false : literal === "9007199254740991" ? !bounded : true });
+    }
+  }
+  const finiteFields: { label: string; base: Json; path: (string | number)[]; accepted: string; rejected: string }[] = [
+    { label: "weekly USD", base: endpoint, path: ["accounts", "edge", "budget", "weekly_usd"], accepted: "1.5", rejected: "0" },
+    { label: "local load", base, path: ["execution", "local_load_limit"], accepted: "1.5", rejected: "0" },
+    { label: "pacing fill", base, path: ["pacing", "fill_threshold"], accepted: "75.5", rejected: "49.5" },
+    { label: "pacing reserve", base, path: ["pacing", "planner_reserve"], accepted: "25.5", rejected: "100" },
+    { label: "pacing headroom", base, path: ["pacing", "planner_reserve_headroom"], accepted: "25.5", rejected: "100" },
+    { label: "dispatch reserve", base: dispatch, path: ["dispatch", "reservePct"], accepted: "25.5", rejected: "100.5" },
+    { label: "dispatch comfortable", base: dispatch, path: ["dispatch", "comfortablePct"], accepted: "25.5", rejected: "100.5" },
+  ];
+  for (const field of finiteFields) for (const [literal, accepted] of [[field.accepted, true], [field.rejected, false]] as const) {
+    const raw = JSON.stringify(fieldCase(field.base, field.path, "__RAW_NUMBER__")).replace('"__RAW_NUMBER__"', literal);
+    inputs.push({ label: `${field.label}=${literal}`, raw, accepted });
+  }
+  const names: { label: string; base: Json; path: (string | number)[] }[] = [
+    { label: "runner model id", base: runner, path: ["runners", "codex@box", "models", 0, "id"] },
+    { label: "runner model strength", base: fieldCase(runner, ["runners", "codex@box", "models", 0, "strengths"], ["x"]), path: ["runners", "codex@box", "models", 0, "strengths", 0] },
+    { label: "dispatch step id", base: dispatch, path: ["dispatch", "steps", 0, "id"] },
+    { label: "dispatch match kind", base: dispatch, path: ["dispatch", "steps", 0, "match", "kind"] },
+    { label: "dispatch discovery runner", base: fieldCase(dispatch, ["dispatch", "discovery", "runners"], ["x"]), path: ["dispatch", "discovery", "runners", 0] },
+    { label: "dispatch discovery model", base: fieldCase(dispatch, ["dispatch", "discovery", "models"], ["x"]), path: ["dispatch", "discovery", "models", 0] },
+    { label: "dispatch preferred model", base: fieldCase(dispatch, ["dispatch", "steps", 0, "prefer", "models"], ["x"]), path: ["dispatch", "steps", 0, "prefer", "models", 0] },
+    { label: "dispatch preferred strength", base: fieldCase(dispatch, ["dispatch", "steps", 0, "prefer", "strengths"], ["x"]), path: ["dispatch", "steps", 0, "prefer", "strengths", 0] },
+    { label: "dispatch candidate model", base: fieldCase(dispatch, ["dispatch", "steps", 0, "candidates", "models"], ["x"]), path: ["dispatch", "steps", 0, "candidates", "models", 0] },
+    { label: "dispatch candidate executor", base: fieldCase(dispatch, ["dispatch", "steps", 0, "candidates", "executors"], ["x"]), path: ["dispatch", "steps", 0, "candidates", "executors", 0] },
+  ];
+  for (const field of names) for (const length of [128, 256, 257]) {
+    inputs.push({ label: `${field.label}=${length} emoji`, raw: JSON.stringify(fieldCase(field.base, field.path, "😀".repeat(length))), accepted: length <= 256 });
+  }
+  for (const count of [997, 998]) inputs.push({ label: `terminal.open=${count} emoji`, raw: JSON.stringify(fieldCase(base, ["terminal", "open"], "😀".repeat(count) + "{cmd}")), accepted: count === 997 });
+  const actual = rawRust(binary, inputs.map(input => input.raw));
+  for (const [index, input] of inputs.entries()) {
+    let expected: unknown;
+    try { expected = { ok: true, value: validateStrategy(JSON.parse(input.raw), "strategy.yaml", "differential") }; }
+    catch (error) { expected = error instanceof StrategyError
+      ? { ok: false, code: "invalid", problems: error.problems }
+      : { ok: false, error: (error as Error).message }; }
+    if ((expected as {ok: boolean}).ok !== input.accepted) throw Error(`${input.label}: expected acceptance ${input.accepted}, got ${canonical(expected)}`);
+    if (canonical(actual[index]) !== canonical(expected)) throw Error(`${input.label}: TS ${canonical(expected)} Rust ${canonical(actual[index])}`);
+  }
+}, 30_000);
