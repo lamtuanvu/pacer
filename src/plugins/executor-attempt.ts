@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, lstatSync, openSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
+import { closeSync, fchmodSync, fstatSync, lstatSync, openSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { CoreError } from "../core/errors";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
@@ -70,6 +70,10 @@ export function claimRunDirectory(ctx: Ctx, taskId: string, attempt: number, rec
       try { fd = native.openAt(parent, name, WRITE_DIRECTORY); }
       catch { throw new CoreError("conflict", "executor run directory is unavailable"); }
       opened.push(fd);
+      if (name === "runs" && parent === homeFd) {
+        privateDirectory(path, fd, 0o022);
+        if ((fstatSync(fd).mode & 0o777) !== 0o700) fchmodSync(fd, 0o700);
+      }
       privateDirectory(path, fd);
       return fd;
     };
