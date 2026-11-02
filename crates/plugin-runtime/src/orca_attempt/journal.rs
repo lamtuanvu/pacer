@@ -45,6 +45,7 @@ impl Journal {
         self.lock_named("coordinator").await
     }
     pub async fn lock_named(&self, name: &str) -> Result<JournalLock, BrokerError> {
+        self.writer.check_root()?;
         let dir = self.home.join("orca");
         let d = fs::symlink_metadata(&dir).map_err(|_| denied())?;
         if !d.is_dir() || d.mode() & 0o077 != 0 || d.uid() != nix::unistd::Uid::current().as_raw() {
@@ -56,13 +57,18 @@ impl Journal {
         let path = dir.join(format!("{name}.lock"));
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
+            self.writer.check_root()?;
             match OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .mode(0o600)
                 .open(&path)
             {
-                Ok(file) => return Ok(JournalLock { path, file }),
+                Ok(file) => {
+                    let lock = JournalLock { path, file };
+                    self.writer.check_root()?;
+                    return Ok(lock);
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                     let m = fs::symlink_metadata(&path).map_err(|_| denied())?;
                     if !m.is_file()
@@ -88,57 +94,115 @@ impl Journal {
             }
         }
     }
-    pub fn read(&self) -> Result<Value, BrokerError> {
-        let path = self.home.join("orca.json");
-        let mut state = match fs::symlink_metadata(&path) {
-            Ok(m) => {
-                if !m.is_file() || m.nlink() != 1 || m.uid() != nix::unistd::Uid::current().as_raw()
-                {
-                    return Err(denied());
-                }
-                serde_json::from_slice(&fs::read(path).map_err(|_| denied())?)
-                    .unwrap_or(Value::Null)
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Null,
-            Err(_) => return Err(denied()),
-        };
-        if !state.is_object() {
-            state = json!({"coordinator":null,"run":null});
-        }
-        for key in [
-            "workers",
-            "starting",
-            "uncertain",
-            "stranded",
-            "unclosed",
-            "strays",
-            "removed",
-            "groups",
-        ] {
-            if !state[key].is_object() {
-                state[key] = json!({});
-            }
-        }
-        Ok(state)
+    fn path(&self) -> Result<String, BrokerError> {
+        Ok(self
+            .home
+            .join("orca.json")
+            .to_str()
+            .ok_or_else(denied)?
+            .to_owned())
     }
-    pub fn write(&mut self, state: &Value) -> Result<(), BrokerError> {
-        let path = self.home.join("orca.json");
-        self.writer.write_bytes(
-            path.to_str().ok_or_else(denied)?,
-            &serde_json::to_vec(state).map_err(|_| denied())?,
-        )?;
-        Ok(())
+    /// Unlocked read through the original pinned home; never re-baselines.
+    pub fn read(&self) -> Result<Value, BrokerError> {
+        Ok(normalize(self.writer.read_current_file(&self.path()?)?))
+    }
+    /// Enter a write transaction under `lock`, which must be this home's
+    /// still-held `name` lock. The read re-baselines the journal target, so a
+    /// completed foreign write is accepted and a later one is denied.
+    pub fn edit<'a>(
+        &'a mut self,
+        lock: &'a JournalLock,
+        name: &'static str,
+    ) -> Result<(JournalEdit<'a>, Value), BrokerError> {
+        let expected = self.lock_path(name)?;
+        self.writer.check_root()?;
+        held(lock, &expected)?;
+        let bytes = self.writer.read_for_update(&self.path()?)?;
+        Ok((
+            JournalEdit {
+                journal: self,
+                lock,
+                expected,
+            },
+            normalize(bytes),
+        ))
+    }
+    fn lock_path(&self, name: &str) -> Result<PathBuf, BrokerError> {
+        if !["coordinator", "orca-group"].contains(&name) {
+            return Err(denied());
+        }
+        Ok(self.home.join("orca").join(format!("{name}.lock")))
     }
     pub async fn mutate<T>(
         &mut self,
         change: impl FnOnce(&mut Value) -> Result<T, BrokerError>,
     ) -> Result<T, BrokerError> {
         let lock = self.lock().await?;
-        let mut state = self.read()?;
+        let (mut edit, mut state) = self.edit(&lock, "coordinator")?;
         let result = change(&mut state)?;
-        self.write(&state)?;
+        edit.write(&state)?;
         lock.release()?;
         Ok(result)
+    }
+}
+fn normalize(bytes: Option<Vec<u8>>) -> Value {
+    let mut state = bytes
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(Value::Null);
+    if !state.is_object() {
+        state = json!({"coordinator":null,"run":null});
+    }
+    for key in [
+        "workers",
+        "starting",
+        "uncertain",
+        "stranded",
+        "unclosed",
+        "strays",
+        "removed",
+        "groups",
+    ] {
+        if !state[key].is_object() {
+            state[key] = json!({});
+        }
+    }
+    state
+}
+/// The lock must still be the regular private file this process created at
+/// the expected path. Path checks keep the existing check-to-use window.
+fn held(lock: &JournalLock, expected: &Path) -> Result<(), BrokerError> {
+    let m = fs::symlink_metadata(expected).map_err(|_| denied())?;
+    let h = lock.file.metadata().map_err(|_| denied())?;
+    if lock.path != expected
+        || m.dev() != h.dev()
+        || m.ino() != h.ino()
+        || !m.is_file()
+        || m.nlink() != 1
+        || m.mode() & 0o077 != 0
+        || m.uid() != nix::unistd::Uid::current().as_raw()
+    {
+        return Err(denied());
+    }
+    Ok(())
+}
+/// The only way to publish journal state: borrowed from a lock-held read.
+pub struct JournalEdit<'a> {
+    journal: &'a mut Journal,
+    lock: &'a JournalLock,
+    expected: PathBuf,
+}
+impl JournalEdit<'_> {
+    pub fn write(&mut self, state: &Value) -> Result<(), BrokerError> {
+        let (lock, expected) = (self.lock, &self.expected);
+        self.journal.writer.check_root()?;
+        held(lock, expected)?;
+        let path = self.journal.path()?;
+        self.journal.writer.write_bytes_owned(
+            &path,
+            &serde_json::to_vec(state).map_err(|_| denied())?,
+            || held(lock, expected),
+        )?;
+        Ok(())
     }
 }
 pub struct JournalLock {
@@ -167,3 +231,5 @@ impl Drop for JournalLock {
         let _ = self.remove();
     }
 }
+#[cfg(test)]
+mod tests;

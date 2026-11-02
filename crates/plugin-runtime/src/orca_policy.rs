@@ -228,7 +228,7 @@ pub(super) async fn coordinator(
 ) -> Result<(String, String), BrokerError> {
     // Hold the same cross-runtime coordinator lock across discovery and creation.
     let lock = journal.lock().await?;
-    let mut state = journal.read()?;
+    let (mut edit, mut state) = journal.edit(&lock, "coordinator")?;
     let mut handle = state["coordinator"].as_str().unwrap_or("").to_owned();
     let mut run = state["run"].as_str().unwrap_or("").to_owned();
     if !handle.is_empty() {
@@ -268,7 +268,7 @@ pub(super) async fn coordinator(
         {
             state["coordinator"] = Value::Null;
             state["run"] = Value::Null;
-            journal.write(&state)?;
+            edit.write(&state)?;
             let old = handle;
             handle = create_coordinator(client, top).await?;
             if old != handle {
@@ -279,14 +279,14 @@ pub(super) async fn coordinator(
         if r["ok"] != true {
             state["coordinator"] = json!(handle);
             state["run"] = Value::Null;
-            journal.write(&state)?;
+            edit.write(&state)?;
             return Err(reply_error("orca run-create failed", &r));
         }
         run = r["result"]["run"]["id"].as_str().ok_or_else(denied)?.into();
     }
     state["coordinator"] = json!(handle);
     state["run"] = json!(run);
-    journal.write(&state)?;
+    edit.write(&state)?;
     drop(lock);
     Ok((handle, run))
 }
@@ -661,7 +661,7 @@ async fn ensure_group(
         ));
     }
     let lock = j.lock_named("orca-group").await?;
-    let mut s = j.read()?;
+    let (mut edit, mut s) = j.edit(&lock, "orca-group")?;
     let key = format!("{repo}:{group}");
     if let Some(selector) = s["groups"][&key]["selector"].as_str() {
         let r = c
@@ -677,7 +677,7 @@ async fn ensure_group(
             return Err(reply_error("orca worktree show failed for group", &r));
         }
         s["groups"].as_object_mut().map(|o| o.remove(&key));
-        j.write(&s)?;
+        edit.write(&s)?;
     }
     let r = c
         .call(
@@ -705,7 +705,7 @@ async fn ensure_group(
         .ok_or_else(denied)?;
     let selector = format!("path:{path}");
     s["groups"][key] = json!({"selector":selector});
-    j.write(&s)?;
+    edit.write(&s)?;
     drop(lock);
     Ok(selector)
 }
