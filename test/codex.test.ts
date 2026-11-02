@@ -104,3 +104,22 @@ test("missing event time leaves a relative reset unknown and preserves credit se
   expect(r.windows[0].resetsAt).toBeNull();
   expect(r.spending).toEqual({ creditsAvailable: true, creditBalance: 20, paidConsumption: "unknown" });
 });
+
+test("a zero-duration window is dropped instead of persisting an invalid 0h artifact", async () => {
+  const ctx = fakeCtx({ now: 1791640000 });
+  await rollout(ctx.home, "10", "zero", [
+    line({ used_percent: 70, window_minutes: 0 }, null, "2026-10-10T12:00:00Z"),
+  ], ctx.now);
+  const r = await readCodex(ctx);
+  expect(r.windows).toEqual([]);
+});
+
+test("a primary-null secondary-only snapshot still reports the valid secondary window", async () => {
+  const ctx = fakeCtx({ now: 1791640000 });
+  await rollout(ctx.home, "10", "solo", [
+    line(null, { used_percent: 5, window_minutes: 300, resets_at: 1791650000 }, "2026-10-10T12:00:00Z"),
+  ], ctx.now);
+  expect((await readCodex(ctx)).windows).toEqual([
+    { name: "5h", usedPct: 5, resetsAt: 1791650000, lengthS: 18000, paced: false },
+  ]);
+});
