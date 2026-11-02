@@ -31,9 +31,16 @@ test("a fresh reader can read a migrated store while another process owns the wr
 
 test("legacy JSON filesystem reads do not hold the database writer lock", () => {
   const ctx = fakeCtx(), task = createTask(ctx, input);
-  const file = join(tasksDir(ctx), `${task.id}.json`), tmp = `${file}.older.tmp`;
+  const dir = tasksDir(ctx), file = join(dir, `${task.id}.json`), tmp = `${file}.older.tmp`;
+  const fileMtime = fs.statSync(file).mtimeMs, dirMtime = fs.statSync(dir).mtimeMs;
+  // The importer must see both changes even when rename shares a filesystem clock tick.
+  const changedAt = new Date(Math.max(fileMtime, dirMtime) + 1000);
   fs.writeFileSync(tmp, JSON.stringify({ ...task, rev: 2, title: "legacy update" }));
+  fs.utimesSync(tmp, changedAt, changedAt);
   fs.renameSync(tmp, file);
+  fs.utimesSync(dir, changedAt, changedAt);
+  expect(fs.statSync(file).mtimeMs).toBeGreaterThan(fileMtime);
+  expect(fs.statSync(dir).mtimeMs).toBeGreaterThan(dirMtime);
   const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
   writer.exec("PRAGMA busy_timeout=0");
   let observed = false;
