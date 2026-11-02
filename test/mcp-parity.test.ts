@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { tmpDir } from "./helpers";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, gitRepo, realRun, withLoginIndicators } from "./helpers";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { createMcpServer } from "../src/mcp/server";
 import { createTask, updateTask } from "../src/tasks/store";
 import { issueWorkGrant, registerWork } from "../src/dispatch/work";
 import { startServer } from "../src/serve/http";
@@ -38,6 +40,21 @@ const validationCases = [
   { name: "work_events", field: "after", raw: "1e2", accepted: true },
   { name: "work_events", field: "after", value: -1, accepted: false },
   { name: "work_events", field: "after", value: 9007199254740992, accepted: false },
+  // Every exposed numeric field gets literal spellings and both range edges.
+  ...([ ["delegate", "timeout_min", 1, 240, false], ["delegate", "acceptance_timeout_min", 1, 120, true],
+    ["task_wait", "timeout_s", 1, 3000, true],
+    ...["task_send", "task_answer", "task_request_review", "task_review", "task_stop", "work_answer", "work_retry"].map(name => [name, "expect_rev", 1, 9007199254740991, true] as const),
+    ["work_events", "after", 0, 9007199254740991, true],
+  ] as const).flatMap(([name, field, min, max, integer]) => [
+    { name, field, raw: `${min}.0`, accepted: true },
+    { name, field, raw: "1e2", accepted: true },
+    { name, field, raw: "1.5", accepted: !integer },
+    { name, field, raw: String(min - 1), accepted: false },
+    { name, field, raw: String(max), accepted: true },
+    { name, field, raw: String(max + 1), accepted: false },
+    { name, field, raw: "1e400", accepted: false },
+  ]),
+  ...["1.0", "1e2", "1.5", "-1", "9007199254740992"].map(raw => ({ name: "report_limit", field: "until", raw, accepted: true })),
   // Zod string bounds count Unicode code points; JS .length would count each emoji twice.
   { name: "work_answer", field: "text", value: "😀".repeat(2000), accepted: true },
   { name: "work_answer", field: "text", value: "😀".repeat(2001), accepted: false },
@@ -410,4 +427,68 @@ test("TypeScript planner and grant MCP stdio tool contracts and results match ca
     writeFileSync(goldenPath, JSON.stringify(observed, null, 2) + "\n");
   }
   expect(observed).toEqual(JSON.parse(readFileSync(goldenPath, "utf8")));
+}, 90_000);
+
+// The runner is injected so these success paths cannot launch an installed agent.
+// Grant calls still traverse the real scoped HTTP operation boundary.
+test("successful planner and grant delegation and mutation results match goldens", async () => {
+  const home = tmpDir(), repo = gitRepo();
+  const ctx = withLoginIndicators(fakeCtx({ home, run: realRun, now: 1_900_000_000 }));
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: { usage: reactive }\n  cursor: {}\n");
+  const root = createTask(ctx, { brief: { goal: "root", repo }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  registerWork(ctx, root.id, { allowDelegation: true });
+  updateTask(ctx, root.id, task => { task.state = "running"; });
+  const server = startServer(() => ctx, { port: 0, listener: false, pumpMs: 0, opDeps: { spawnRunner: () => 1234 } });
+  const grant = issueWorkGrant(ctx, root.id, 1);
+  const plannerServer = createMcpServer(() => ctx, { spawnRunner: () => 1234 });
+  const grantCtx = { ...ctx, env: { ...ctx.env, PACER_WORK_GRANT: grant, PACER_PORT: String(server.port) } };
+  const grantServer = createMcpServer(() => grantCtx);
+  async function connect(mcp: ReturnType<typeof createMcpServer>) {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await mcp.connect(serverTransport);
+    const client = new Client({ name: "success-golden", version: "1" });
+    await client.connect(clientTransport);
+    return client;
+  }
+  const planner = await connect(plannerServer), scoped = await connect(grantServer);
+  const ids = new Map<string, string>([[root.id, "task-root"]]);
+  const results: unknown[] = [];
+  try {
+    async function call(client: Client, mode: string, name: string, args: Record<string, unknown>) {
+      const result = await client.callTool({ name, arguments: args }) as ToolResult;
+      expect(result.isError ?? false).toBe(false);
+      const data = result.structuredContent as Record<string, any>;
+      if (typeof data?.task_id === "string" && !ids.has(data.task_id)) ids.set(data.task_id, `task-${mode}`);
+      results.push({ mode, name, args, result: { isError: result.isError ?? false, content: result.content, structuredContent: result.structuredContent } });
+      return data;
+    }
+    const delegated = await call(planner, "planner", "delegate", { goal: "planner child", repo, executor: "codex" });
+    updateTask(ctx, delegated.task_id, task => { task.state = "done"; });
+    await call(planner, "planner", "task_review", { task_id: delegated.task_id, verdict: "accept", note: "checked" });
+    const child = await call(scoped, "grant", "delegate", { goal: "scoped child", requestId: "child-1", executor: "codex" });
+    updateTask(ctx, child.task_id, task => { task.state = "done"; });
+    const revision = (await import("../src/tasks/store")).readTask(ctx, child.task_id)!.rev;
+    await call(scoped, "grant", "task_review", { task_id: child.task_id, accepted: true, expect_rev: revision, note: "checked" });
+    const normalize = (value: unknown): any => {
+      if (typeof value === "string") {
+        let text = value.replaceAll(realpathSync(home), "$HOME").replaceAll(home, "$HOME")
+          .replaceAll(realpathSync(repo), "$REPO").replaceAll(repo, "$REPO");
+        for (const [id, replacement] of ids) text = text.replaceAll(id, replacement);
+        return text.replace(/local:[0-9a-f]{12}/g, "local:fixture").replace(/t-[A-Za-z0-9]{6}/g, "t-fixture-home")
+          .replace(/\b[0-9a-f]{40,64}\b/g, "HASH")
+          .replace(/("(?:createdAt|updatedAt|generatedAt|evaluatedAt|capturedAt|at)":\s*)-?\d+(?:\.\d+)?/g, "$10");
+      }
+      if (Array.isArray(value)) return value.map(normalize);
+      if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) =>
+        [key, ["createdAt", "updatedAt", "generatedAt", "evaluatedAt", "capturedAt", "at"].includes(key) && typeof item === "number" ? 0 : normalize(item)]));
+      return value;
+    };
+    const observed = normalize(results);
+    const path = join(import.meta.dir, "fixtures", "mcp", "ts-success-golden.json");
+    if (process.env.PACER_UPDATE_MCP_GOLDENS === "1") writeFileSync(path, JSON.stringify(observed, null, 2) + "\n");
+    expect(observed).toEqual(JSON.parse(readFileSync(path, "utf8")));
+  } finally {
+    await planner.close(); await scoped.close(); await server.stop();
+  }
 }, 90_000);

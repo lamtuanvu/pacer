@@ -4337,6 +4337,686 @@
         }
       },
       {
+        "name": "delegate",
+        "field": "timeout_min",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "timeout_min",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "timeout_min",
+        "input": "1.5",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "timeout_min",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected number to be >=1 at timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "timeout_min",
+        "input": "240",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "timeout_min",
+        "input": "241",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected number to be <=240 at timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "timeout_min",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected number, received Infinity at timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected number to be >=1 at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "120",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "repo must be an absolute path or a registered repo key"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "121",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected number to be <=120 at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected number, received Infinity at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected int, received number at timeout_s"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too small: expected number to be >=1 at timeout_s"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "3000",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "3001",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too big: expected number to be <=3000 at timeout_s"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected number, received Infinity at timeout_s"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "task_send",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_send: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "task_answer",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_answer: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "task_request_review",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_request_review: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown task missing"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Unknown managed work"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Unknown managed work"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Unknown managed work"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Unknown managed work"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Unknown managed work"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "Unknown managed work"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "until",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown provider \"missing\""
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "until",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown provider \"missing\""
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "until",
+        "input": "1.5",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown provider \"missing\""
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "until",
+        "input": "-1",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown provider \"missing\""
+        }
+      },
+      {
+        "name": "report_limit",
+        "field": "until",
+        "input": "9007199254740992",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown provider \"missing\""
+        }
+      },
+      {
         "name": "work_answer",
         "field": "text",
         "input": {
@@ -8466,6 +9146,559 @@
         "response": {
           "isError": true,
           "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Too big: expected int to be <=9007199254740991 at after"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Cannot resolve the parent worktree commit for isolated child work\"\n}",
+          "structuredContent": {
+            "error": "Cannot resolve the parent worktree commit for isolated child work"
+          }
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Cannot resolve the parent worktree commit for isolated child work\"\n}",
+          "structuredContent": {
+            "error": "Cannot resolve the parent worktree commit for isolated child work"
+          }
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected int, received number at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too small: expected number to be >=1 at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "120",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Cannot resolve the parent worktree commit for isolated child work\"\n}",
+          "structuredContent": {
+            "error": "Cannot resolve the parent worktree commit for isolated child work"
+          }
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "121",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Too big: expected number to be <=120 at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "acceptance_timeout_min",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected number, received Infinity at acceptance_timeout_min"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected int, received number at timeout_s"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too small: expected number to be >=1 at timeout_s"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "3000",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "3001",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Too big: expected number to be <=3000 at timeout_s"
+        }
+      },
+      {
+        "name": "task_wait",
+        "field": "timeout_s",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_wait: Invalid input: expected number, received Infinity at timeout_s"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "task_review",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_review: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "task_stop",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool task_stop: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "work_answer",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_answer: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "work_retry",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": "0.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Invalid input: expected int, received number at after"
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": "-1",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Too small: expected number to be >=0 at after"
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "{\n \"error\": \"Operation is outside the delegated subtree\"\n}",
+          "structuredContent": {
+            "error": "Operation is outside the delegated subtree"
+          }
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Too big: expected int to be <=9007199254740991 at after"
+        }
+      },
+      {
+        "name": "work_events",
+        "field": "after",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_events: Invalid input: expected number, received Infinity at after"
         }
       },
       {
