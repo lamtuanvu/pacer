@@ -82,3 +82,20 @@ fn isolated_named_reads_match_typescript_results_and_yaml() {
         fixture["expected"]["load"]
     );
 }
+
+#[test]
+fn account_boundaries_match_typescript() {
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../../test/fixtures/strategy-read/account-parity.json"
+    ))
+    .unwrap();
+    for case in cases.as_array().unwrap() {
+        let result = validate_strategy(&case["raw"], Path::new("strategy.yaml"), "parity");
+        assert_eq!(
+            result.is_ok(),
+            case["valid"].as_bool().unwrap(),
+            "{}: {result:?}",
+            case["name"]
+        );
+    }
+}

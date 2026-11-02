@@ -100,16 +100,28 @@ fn decimal(text: &str) -> Option<f64> {
     }
     text.parse().ok()
 }
+// ECMAScript WhiteSpace and LineTerminator, used by String.prototype.trim and /\s/.
+fn js_whitespace(c: char) -> bool {
+    matches!(c, '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+fn js_trim(text: &str) -> &str {
+    text.trim_matches(js_whitespace)
+}
+fn positive_safe_integer(value: &Value) -> bool {
+    value
+        .as_f64()
+        .is_some_and(|n| n > 0. && n <= 9_007_199_254_740_991. && n.fract() == 0.)
+}
 fn size(value: &Value) -> Option<f64> {
     if let Some(n) = value.as_f64() {
         return Some(n);
     }
-    let text = value.as_str()?.trim();
+    let text = js_trim(value.as_str()?);
     let cut = text
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(text.len());
     let n = decimal(&text[..cut])?;
-    let mult = match text[cut..].trim().to_ascii_lowercase().as_str() {
+    let mult = match js_trim(&text[cut..]).to_ascii_lowercase().as_str() {
         "" => 1.,
         "k" => 1e3,
         "m" => 1e6,
@@ -122,9 +134,12 @@ fn duration(value: &Value) -> Option<f64> {
     if let Some(n) = value.as_f64() {
         return Some(n);
     }
-    let text = value.as_str()?.trim();
+    let text = js_trim(value.as_str()?);
     let unit = text.chars().last()?;
-    let n = decimal(text[..text.len() - 1].trim())?;
+    if !matches!(unit, 's' | 'm' | 'h' | 'd') {
+        return None;
+    }
+    let n = decimal(js_trim(&text[..text.len() - 1]))?;
     Some(
         n * match unit {
             's' => 1.,
@@ -264,18 +279,18 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
                         problems.push(format!("{loc} must be a mapping"));
                         continue;
                     }
-                    if m["id"].as_str().is_none_or(|s| s.trim().is_empty()) {
+                    if m["id"].as_str().is_none_or(|s| js_trim(s).is_empty()) {
                         problems.push(format!("{loc}.id must be non-empty"));
                     } else if !ids.insert(m["id"].as_str().unwrap_or("")) {
                         problems.push(format!("{loc}.id must be unique"));
                     }
                     if m.get("name")
-                        .is_some_and(|v| v.as_str().is_none_or(|s| s.trim().is_empty()))
+                        .is_some_and(|v| v.as_str().is_none_or(|s| js_trim(s).is_empty()))
                     {
                         problems.push(format!("{loc}.name must be non-empty"));
                     }
                     for key in ["context", "output"] {
-                        if !m[key].as_u64().is_some_and(|n| n > 0) {
+                        if !positive_safe_integer(&m[key]) {
                             problems.push(format!("{loc}.{key} must be a positive integer"));
                         }
                     }
@@ -301,7 +316,7 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
     }
     for key in ["home", "orca_account"] {
         if let Some(v) = value.get(key)
-            && (v.as_str().is_none_or(|s| s.trim().is_empty())
+            && (v.as_str().is_none_or(|s| js_trim(s).is_empty())
                 || !["claude", "codex"].contains(&kind.as_str()))
         {
             problems.push(format!(
@@ -440,7 +455,7 @@ fn add_runner(
     }
     if declaration
         .get("max_tasks")
-        .is_some_and(|v| v.as_u64().is_none_or(|n| !(1..=16).contains(&n)))
+        .is_some_and(|v| !positive_safe_integer(v) || v.as_f64().is_none_or(|n| n > 16.))
     {
         problems.push(format!("runners.{reference}.max_tasks must be 1..16"));
     }
