@@ -73,7 +73,7 @@ test("seeded routing, runner order and notification writes match TS bytes and re
 
 test("notification settings preserve enumerable JSON properties", () => {
   const binary = configBinary();
-  for (const input of ['{"other":42}', '["alpha","beta"]', '"a😀b"', '{"literal":"\\\\ud800","pair":"\\ud83d\\ude00"}', '42', 'null', '{broken', '{"2":"b","1":"a","x":{"10":10,"2":2,"01":1,"4294967295":3,"0":0},"01":4,"4294967294":5,"4294967295":6}']) {
+  for (const input of ['{"other":42}', '["alpha","beta"]', '"a😀b"', '{"literal":"\\\\ud800","pair":"\\ud83d\\ude00"}', '42', 'null', '{broken', '{"x":01}', '{"x":1e+}', '{"other":42,"huge":1e400,"negative":-1e999,"nested":[1.0,1e2,9007199254740993,1e-324,5e-324,1e-7,1e-6,-0,1e21,1e20,1.7976931348623157e308,1.7976931348623159e308]}', '[1e400,{"x":9007199254740993}]', '{"2":"b","1":"a","x":{"10":10,"2":2,"01":1,"4294967295":3,"0":0},"01":4,"4294967294":5,"4294967295":6}']) {
     for (const op of ["get", "set"] as const) {
       const tsHome = home(), rsHome = home();
       writeFileSync(join(tsHome, "settings.json"), input);
@@ -91,7 +91,7 @@ test("notification settings preserve enumerable JSON properties", () => {
 
 test("notification writes refuse unsupported surrogate JSON without losing data", () => {
   const binary = configBinary();
-  for (const input of ['{"other":42,"nested":{"bad":"\\ud800"}}', '{"array":["\\udfff"]}', '"\\ud800"', '"\\udfff"']) {
+  for (const input of ['{"other":42,"nested":{"bad":"\\ud800"}}', '{"array":["\\udfff"]}', '"\\ud800"', '"\\udfff"', '{"huge":1e400,"bad":"\\ud800"}', '{"bad":"\\udfff","huge":-1e400}']) {
     for (const op of ["get", "set"] as const) {
       const tsHome = home(), rsHome = home();
       writeFileSync(join(tsHome, "settings.json"), input);

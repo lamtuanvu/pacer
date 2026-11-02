@@ -27,12 +27,13 @@ fn read_object(path: &Path) -> io::Result<SettingsObject> {
         Ok(bytes) => bytes,
         Err(_) => return Ok(Default::default()),
     };
-    let value = match serde_json::from_slice::<Value>(&bytes) {
+    let normalized = normalize_numbers(&bytes);
+    let value = match serde_json::from_slice::<Value>(&normalized) {
         Ok(value) => value,
         Err(_) => {
             // JSON.parse accepts lone UTF-16 surrogates, which serde_json cannot
             // represent. Detect otherwise valid JSON and refuse to overwrite it.
-            let mut sanitized = bytes.clone();
+            let mut sanitized = normalized.clone();
             let mut i = 0;
             while i + 5 < sanitized.len() {
                 if sanitized[i] == b'\\' {
@@ -48,7 +49,7 @@ fn read_object(path: &Path) -> io::Result<SettingsObject> {
                     i += 1;
                 }
             }
-            if sanitized != bytes && serde_json::from_slice::<Value>(&sanitized).is_ok() {
+            if sanitized != normalized && serde_json::from_slice::<Value>(&sanitized).is_ok() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "settings contain unsupported UTF-16 surrogates",
@@ -72,6 +73,95 @@ fn read_object(path: &Path) -> io::Result<SettingsObject> {
     })
 }
 
+// Normalize valid JSON number tokens to the doubles used by JSON.parse. Do not
+// touch strings or invalid tokens: serde_json still decides whether the document
+// is valid. Non-finite doubles stringify as null in JavaScript.
+fn normalize_numbers(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    let mut in_string = false;
+    while i < bytes.len() {
+        let byte = bytes[i];
+        if in_string {
+            out.push(byte);
+            i += 1;
+            if byte == b'\\' && i < bytes.len() {
+                out.push(bytes[i]);
+                i += 1;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+        } else if byte == b'"' {
+            in_string = true;
+            out.push(byte);
+            i += 1;
+        } else if byte == b'-' || byte.is_ascii_digit() {
+            let start = i;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_digit()
+                    || matches!(bytes[i], b'-' | b'+' | b'.' | b'e' | b'E'))
+            {
+                i += 1;
+            }
+            let token = &bytes[start..i];
+            if valid_number(token)
+                && let Ok(text) = std::str::from_utf8(token)
+                && let Ok(number) = text.parse::<f64>()
+            {
+                if let Some(number) = serde_json::Number::from_f64(number) {
+                    out.extend_from_slice(crate::js_semantics::number_text(&number).as_bytes());
+                } else {
+                    out.extend_from_slice(b"null");
+                }
+                continue;
+            }
+            out.extend_from_slice(token);
+        } else {
+            out.push(byte);
+            i += 1;
+        }
+    }
+    out
+}
+
+fn valid_number(token: &[u8]) -> bool {
+    let mut i = usize::from(token.first() == Some(&b'-'));
+    match token.get(i) {
+        Some(b'0') => i += 1,
+        Some(b'1'..=b'9') => {
+            i += 1;
+            while token.get(i).is_some_and(u8::is_ascii_digit) {
+                i += 1;
+            }
+        }
+        _ => return false,
+    }
+    if token.get(i) == Some(&b'.') {
+        i += 1;
+        let start = i;
+        while token.get(i).is_some_and(u8::is_ascii_digit) {
+            i += 1;
+        }
+        if i == start {
+            return false;
+        }
+    }
+    if matches!(token.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(token.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        let start = i;
+        while token.get(i).is_some_and(u8::is_ascii_digit) {
+            i += 1;
+        }
+        if i == start {
+            return false;
+        }
+    }
+    i == token.len()
+}
+
 // ECMAScript enumerates array-index keys first, then other keys in insertion order.
 fn js_order(value: &mut Value) {
     match value {
@@ -92,6 +182,35 @@ fn js_order(value: &mut Value) {
             object.extend(entries);
         }
         _ => {}
+    }
+}
+
+fn write_js_value(writer: &mut impl io::Write, value: &Value) -> io::Result<()> {
+    match value {
+        Value::Number(number) => write!(writer, "{}", crate::js_semantics::number_text(number)),
+        Value::Array(values) => {
+            write!(writer, "[")?;
+            for (i, value) in values.iter().enumerate() {
+                if i > 0 {
+                    write!(writer, ",")?;
+                }
+                write_js_value(writer, value)?;
+            }
+            write!(writer, "]")
+        }
+        Value::Object(values) => {
+            write!(writer, "{{")?;
+            for (i, (key, value)) in values.iter().enumerate() {
+                if i > 0 {
+                    write!(writer, ",")?;
+                }
+                serde_json::to_writer(&mut *writer, key)?;
+                write!(writer, ":")?;
+                write_js_value(writer, value)?;
+            }
+            write!(writer, "}}")
+        }
+        _ => serde_json::to_writer(writer, value).map_err(io::Error::other),
     }
 }
 
@@ -140,7 +259,7 @@ fn write_settings(
         } else {
             let mut ordered = Value::Object(settings.clone());
             js_order(&mut ordered);
-            serde_json::to_writer(&mut file, &ordered)?;
+            write_js_value(&mut file, &ordered)?;
         }
         file.flush()?;
         fs::rename(&temp, path)
