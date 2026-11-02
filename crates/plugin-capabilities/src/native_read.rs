@@ -266,15 +266,15 @@ impl NativeRead {
     }
 
     pub fn answer(&mut self, method: &str, params: &Value) -> Result<Value, BrokerError> {
-        let mut normalized = params.clone();
-        if let Some(path) = params["path"].as_str() {
-            normalized["path"] = json!(crate::authority::normalize_path(path));
-        }
-        let params = &normalized;
         let path = params["path"]
             .as_str()
             .ok_or(BrokerError::Invalid("path"))?;
         crate::authority::valid_path(path)?;
+        let path = crate::authority::normalize_path(path);
+        let mut normalized = params.clone();
+        normalized["path"] = json!(path);
+        let params = &normalized;
+        let path = path.as_str();
         if let Some(image) = self.images.iter().find(|i| i.path == path) {
             return Self::answer_image(image, method, params);
         }

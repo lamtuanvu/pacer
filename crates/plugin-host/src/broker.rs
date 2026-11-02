@@ -354,7 +354,9 @@ impl CapabilityBroker {
                 }
             }
             "capability.fs.read" | "capability.fs.stat" | "capability.fs.readRange" => {
-                let normalized = crate::authority::normalize_path(field("path")?);
+                let path = field("path")?;
+                crate::authority::valid_path(path)?;
+                let normalized = crate::authority::normalize_path(path);
                 let path = normalized.as_str();
                 forwarded["path"] = json!(path);
                 let issued = if method == "capability.fs.stat" {
