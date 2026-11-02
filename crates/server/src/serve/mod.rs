@@ -24,6 +24,7 @@ pub mod proxy;
 pub mod sessions;
 pub mod ws;
 
+use crate::native::{call_native, registry};
 use axum::{
     Router,
     body::Body,
@@ -32,7 +33,11 @@ use axum::{
     response::{IntoResponse, Response},
     routing::any,
 };
-use pacer_foundation::Ctx;
+use pacer_foundation::{
+    Ctx,
+    api::{Code, CoreError, Registry},
+};
+use serde_json::Value;
 use std::{collections::HashMap, io, sync::Arc};
 struct Listener {
     core: Arc<core_child::CoreChild>,
@@ -40,6 +45,8 @@ struct Listener {
     ctx: Ctx,
     port: u16,
     token: String,
+    registry: Registry<'static>,
+    scoped_work: bool,
 }
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
@@ -68,6 +75,36 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         auth::Decision::AppAuth => auth::AuthKind::Bearer,
         auth::Decision::Forward { auth } => auth,
     };
+    // The core remains authoritative for task grants and scoped work sessions.
+    if !state.scoped_work
+        && auth != auth::AuthKind::Task
+        && req.method() == axum::http::Method::POST
+        && let Some(name) = req.uri().path().strip_prefix("/v3/ops/")
+        && let Some(op) = state.registry.get(name)
+    {
+        let max = 256 * 1024;
+        if req
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<usize>().ok())
+            .is_some_and(|n| n > max)
+        {
+            return native_error(CoreError::new(Code::TooLarge, "body exceeds 256 KiB"));
+        }
+        let bytes = match axum::body::to_bytes(req.into_body(), max + 1).await {
+            Ok(bytes) if bytes.len() <= max => bytes,
+            _ => return native_error(CoreError::new(Code::TooLarge, "body exceeds 256 KiB")),
+        };
+        let params: Value = match serde_json::from_slice(&bytes) {
+            Ok(params) => params,
+            Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
+        };
+        return match call_native(&ctx, op, params, None).await {
+            Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+            Err(error) => native_error(error),
+        };
+    }
     let Some(target) = state.core.target().await else {
         return proxy::unavailable(req.uri().path().starts_with("/app/"));
     };
@@ -82,6 +119,19 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         return ws::bridge(req, target, auth).await;
     }
     proxy::forward(req, target, auth).await
+}
+fn native_error(error: CoreError) -> Response {
+    let status =
+        StatusCode::from_u16(error.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    native_json(status, error.body())
+}
+fn native_json(status: StatusCode, body: Value) -> Response {
+    let mut response = (status, axum::Json(body)).into_response();
+    response.headers_mut().insert(
+        "content-type",
+        axum::http::HeaderValue::from_static("application/json;charset=utf-8"),
+    );
+    response
 }
 async fn shutdown_signal() {
     let term = async {
@@ -102,6 +152,15 @@ pub async fn run_serve(
     _argv: Vec<String>,
 ) -> io::Result<()> {
     let mut ctx = Ctx::from_env();
+    let scoped_work = env.contains_key("PACER_WORK_GRANT");
+    let forward = env
+        .get("PACER_FORWARD_OPS")
+        .map(String::as_str)
+        .unwrap_or("");
+    if !forward.is_empty() {
+        eprintln!("pacer: PACER_FORWARD_OPS={forward}");
+    }
+    let registry = registry(if scoped_work { "*" } else { forward });
     let token = auth::ensure_token(&ctx)?;
     // Requests clone the context; the listener needs only the pacer home.
     ctx.env.clear();
@@ -140,6 +199,8 @@ pub async fn run_serve(
         ctx,
         port,
         token,
+        registry,
+        scoped_work,
     });
     let app = Router::new()
         .fallback(any(handle))

@@ -1,5 +1,8 @@
-use crate::native::{ApiError, NATIVE_OPS, call_native};
-use pacer_foundation::Ctx;
+use crate::native::{call_native, registry};
+use pacer_foundation::{
+    Ctx,
+    api::{Code, CoreError, Registry},
+};
 use serde_json::{Value, json};
 use std::{collections::HashMap, io, process::Stdio};
 use tokio::{
@@ -8,7 +11,26 @@ use tokio::{
     sync::Mutex,
 };
 
-type NativeCall = fn(&Ctx, &str, &Value) -> Option<Result<Value, ApiError>>;
+/// Generated from the TypeScript hello bodies; the parity test catches drift.
+fn hello_body(version: u8) -> io::Result<Value> {
+    let bodies: Value = serde_json::from_str(include_str!("stdio_hello.json"))?;
+    Ok(bodies[if version == 3 { "v3" } else { "v2" }].clone())
+}
+
+fn hello_version(params: Option<&Value>) -> Result<u8, &'static str> {
+    let params = params.filter(|value| !value.is_null());
+    let protocol = match params {
+        None => None,
+        Some(Value::Object(map)) => map.get("protocol").filter(|value| !value.is_null()),
+        _ => return Err("hello params must be an object"),
+    };
+    match protocol {
+        None => Ok(2),
+        Some(Value::Number(number)) if number.as_f64() == Some(2.0) => Ok(2),
+        Some(Value::Number(number)) if number.as_f64() == Some(3.0) => Ok(3),
+        _ => Err("protocol must be 2 or 3"),
+    }
+}
 
 async fn write_line<W: AsyncWrite + Unpin>(out: &Mutex<W>, line: &[u8]) -> io::Result<()> {
     let mut out = out.lock().await;
@@ -21,38 +43,95 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
     mut core: W,
     out: &Mutex<O>,
     ctx: &Ctx,
-    native_ops: &[&str],
-    native: NativeCall,
+    registry: &Registry<'_>,
+    forward_hello: bool,
 ) -> io::Result<()> {
     let mut line = Vec::new();
+    let mut protocol = 2;
     loop {
         line.clear();
         if input.read_until(b'\n', &mut line).await? == 0 {
             return core.shutdown().await;
         }
-        if let Ok(request) = serde_json::from_slice::<Value>(&line)
-            && let Some(method) = request.get("method").and_then(Value::as_str)
-            && native_ops.contains(&method)
-            && request["jsonrpc"] == "2.0"
-            && request
-                .get("id")
-                .is_none_or(|id| id.is_null() || id.is_string() || id.is_number())
-            && let Some(result) = native(ctx, method, request.get("params").unwrap_or(&json!({})))
+        let request = serde_json::from_slice::<Value>(&line).ok();
+        let method = request
+            .as_ref()
+            .and_then(|r| r.get("method"))
+            .and_then(Value::as_str);
+        let valid = request.as_ref().is_some_and(|r| {
+            r["jsonrpc"] == "2.0"
+                && r.get("id")
+                    .is_none_or(|id| id.is_null() || id.is_string() || id.is_number())
+        });
+        if method == Some("hello")
+            && valid
+            && let Some(request) = request.as_ref()
         {
-            if let Some(id) = request.get("id") {
-                let mut response = json!({"jsonrpc":"2.0", "id":id});
-                match result {
-                    Ok(value) => response["result"] = value,
-                    Err(error) => response["error"] = error.to_rpc(),
+            if forward_hello {
+                if let Ok(version) = hello_version(request.get("params")) {
+                    protocol = version;
                 }
+                core.write_all(&line).await?;
+                core.flush().await?;
+                continue;
+            }
+            match hello_version(request.get("params")) {
+                Ok(version) => {
+                    // The child still owns forwarded operations, so mirror only
+                    // the accepted negotiation as a notification before the next line.
+                    let notification = json!({"jsonrpc":"2.0", "method":"hello", "params":request.get("params").cloned().unwrap_or(Value::Null)});
+                    let mut bytes = serde_json::to_vec(&notification)?;
+                    bytes.push(b'\n');
+                    core.write_all(&bytes).await?;
+                    core.flush().await?;
+                    protocol = version;
+                    if let Some(id) = request.get("id") {
+                        if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+                            eprintln!("native hello {id}");
+                        }
+                        let response =
+                            json!({"jsonrpc":"2.0", "id":id, "result":hello_body(version)?});
+                        let mut bytes = serde_json::to_vec(&response)?;
+                        bytes.push(b'\n');
+                        write_line(out, &bytes).await?;
+                    }
+                }
+                Err(message) => {
+                    if let Some(id) = request.get("id") {
+                        let response = json!({"jsonrpc":"2.0", "id":id, "error":CoreError::new(Code::InvalidInput, message).rpc()});
+                        let mut bytes = serde_json::to_vec(&response)?;
+                        bytes.push(b'\n');
+                        write_line(out, &bytes).await?;
+                    }
+                }
+            }
+            continue;
+        }
+        if protocol == 3
+            && valid
+            && let Some(op) = method.and_then(|name| registry.get(name))
+            && let Some(request) = request.as_ref()
+        {
+            let result = call_native(
+                ctx,
+                op,
+                request.get("params").cloned().unwrap_or_else(|| json!({})),
+                request.get("id"),
+            )
+            .await;
+            if let Some(id) = request.get("id") {
+                let response = match result {
+                    Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
+                    Err(error) => json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()}),
+                };
                 let mut bytes = serde_json::to_vec(&response)?;
                 bytes.push(b'\n');
                 write_line(out, &bytes).await?;
             }
-        } else {
-            core.write_all(&line).await?;
-            core.flush().await?;
+            continue;
         }
+        core.write_all(&line).await?;
+        core.flush().await?;
     }
 }
 
@@ -102,6 +181,19 @@ pub async fn run_stdio(core: Vec<String>, env: HashMap<String, String>) -> i32 {
 
 async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i32> {
     let scoped_work = env.contains_key("PACER_WORK_GRANT");
+    let forward = env
+        .get("PACER_FORWARD_OPS")
+        .map(String::as_str)
+        .unwrap_or("");
+    if !forward.is_empty() {
+        eprintln!("pacer: PACER_FORWARD_OPS={forward}");
+    }
+    let registry = registry(if scoped_work { "*" } else { forward });
+    let forward_hello = scoped_work
+        || forward
+            .split(',')
+            .map(str::trim)
+            .any(|name| name == "*" || name == "hello");
     let (program, prefix) = core
         .split_first()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty core argv"))?;
@@ -129,8 +221,8 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         input,
         &out,
         &ctx,
-        if scoped_work { &[] } else { NATIVE_OPS },
-        call_native,
+        &registry,
+        forward_hello,
     );
     let outgoing = forward_output(BufReader::new(output), &out);
     tokio::pin!(incoming, outgoing);
@@ -151,57 +243,6 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
                     outgoing.await?;
                 }
                 return Ok(status?.code().unwrap_or(1));
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    use super::*;
-
-    #[tokio::test]
-    async fn native_ops_are_answered_locally() {
-        fn echo(_: &Ctx, _: &str, params: &Value) -> Option<Result<Value, ApiError>> {
-            Some(Ok(params.clone()))
-        }
-        let ctx = Ctx::from_env();
-        let mut core = Vec::new();
-        let out = Mutex::new(Vec::new());
-        let input = b"{\"jsonrpc\":\"2.0\",\"method\":\"test.echo\",\"id\":7,\"params\":{\"ok\":true}}\n{\"jsonrpc\":\"2.0\",\"method\":\"test.echo\"}\n";
-        forward_input(&input[..], &mut core, &out, &ctx, &["test.echo"], echo)
-            .await
-            .unwrap();
-        assert!(core.is_empty());
-        let response: Value = serde_json::from_slice(&out.into_inner()).unwrap();
-        assert_eq!(
-            response,
-            json!({"jsonrpc":"2.0","id":7,"result":{"ok":true}})
-        );
-        assert!(NATIVE_OPS.is_empty());
-        assert!(call_native(&ctx, "test.echo", &Value::Null).is_none());
-    }
-
-    #[test]
-    fn rpc_errors_match_typescript() {
-        for (code, number) in [
-            ("unknown_op", -32601),
-            ("invalid_input", -32602),
-            ("conflict", -32000),
-        ] {
-            for hint in [None, Some(""), Some("retry")] {
-                let error = ApiError {
-                    code: code.into(),
-                    message: "message".into(),
-                    hint: hint.map(String::from),
-                    data: Some(json!({"private":true})),
-                };
-                let mut expected = json!({"code":number,"message":"message","data":{"code":code}});
-                if hint == Some("retry") {
-                    expected["data"]["hint"] = json!("retry");
-                }
-                assert_eq!(error.to_rpc(), expected);
             }
         }
     }

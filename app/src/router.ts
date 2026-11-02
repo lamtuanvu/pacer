@@ -205,3 +205,13 @@ export function inheritQuery(href: string, current: string): string {
   for (const key of ["repo", "scope"]) if (!params.has(key) && before.has(key)) params.set(key, before.get(key)!);
   return `${path}${params.size ? `?${params}` : ""}`;
 }
+
+/** Follow compatibility redirects before choosing the screen for this paint. */
+export function resolveRouteBeforeRender(hash: string, setupComplete: boolean | null = true, interactiveEntry = false): { route: Route; hash: string } {
+  let resolved = resolveRoute(hash, setupComplete, interactiveEntry);
+  for (let hops = 0; "redirect" in resolved && hops < 5; hops++) {
+    hash = resolved.redirect;
+    resolved = resolveRoute(hash, setupComplete, interactiveEntry);
+  }
+  return { route: "redirect" in resolved ? {name:"dispatch",query:{repo:null,scope:null}} : resolved, hash };
+}

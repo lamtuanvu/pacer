@@ -19,6 +19,7 @@ import { shutdownPlugins } from "../src/plugins";
 import { executorRefusal, refusal } from "../scripts/live/guard";
 import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
+import { exerciseNativeStdio, verifyForwardedHello, verifyNativeStdio } from "../scripts/live/native-stdio";
 import { BLOCKED_OPS, ClientWebSocket, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
 
 function fixture(): Session {
@@ -28,6 +29,33 @@ function fixture(): Session {
 }
 
 describe("live guard (D3)", () => {
+  test("generic stdio remains refused while the fixed harness mode rejects unsafe sessions", async () => {
+    expect(refusal(["api", "--stdio"])).toContain("D3");
+    await expect(exerciseNativeStdio(fixture())).rejects.toThrow("requires an active sandbox Rust test-ops build");
+    await expect(exerciseNativeStdio({ ...fixture(), frontDoor: "rust", nativeTestOps: true, nativeForwardEcho: true })).rejects.toThrow("without forwarding");
+    await expect(main(["native-stdio", "--id", "missing", "--", "api", "--stdio"])).rejects.toThrow("usage: live native-stdio");
+  });
+  test("fixed stdio evidence requires protocol negotiation, exact result and native trace", () => {
+    const replies = [{ id: 1, result: { protocol: "3.0.0" } }, { id: 2, result: { fixture: "native-stdio", n: 1 } }, { id: 3, result: { protocol: "2.8.0" } }];
+    const output = replies.map(reply => JSON.stringify(reply)).join("\n") + "\n";
+    const trace = "native hello 1\nnative test.echo 2\nnative hello 3\n";
+    expect(() => verifyNativeStdio(output, trace, 0)).not.toThrow();
+    expect(() => verifyNativeStdio(output, "native test.echo 2\n", 0)).toThrow("native hello execution trace");
+    expect(() => verifyNativeStdio(output, `${trace}native hello 3\n`, 0)).toThrow("native hello execution trace");
+    expect(() => verifyNativeStdio(output, "native test.echo\n", 0)).toThrow("trace");
+    expect(() => verifyNativeStdio(output, "native test.echo 1\n", 0)).toThrow("trace");
+    expect(() => verifyNativeStdio(output, "native test.echo 2\nnative test.echo 2\n", 0)).toThrow("trace");
+    expect(() => verifyNativeStdio(output, "", 0)).toThrow("trace");
+    expect(() => verifyNativeStdio(output, "native test.echo\n", 1)).toThrow("exited");
+    expect(() => verifyNativeStdio(output.replace("3.0.0", "2.8.0"), "native test.echo\n", 0)).toThrow("protocol 3");
+  });
+  test("fixed forwarded hello control rejects a native trace", () => {
+    const output = ["3.0.0", "2.8.0"].map((protocol, index) =>
+      JSON.stringify({ id: index + 1, result: { protocol } })).join("\n") + "\n";
+    expect(() => verifyForwardedHello(output, "pacer: PACER_FORWARD_OPS=*\n", 0)).not.toThrow();
+    expect(() => verifyForwardedHello(output, "native hello 1\n", 0)).toThrow("executed natively");
+    expect(() => verifyForwardedHello(output.replace("2.8.0", "3.0.0"), "", 0)).toThrow("replies differed");
+  });
   for (const args of [
     ["install", "codex"], ["uninstall"], ["init"], ["setup"], ["statusline"], ["update", "--check"],
     ["service", "install"], ["service", "uninstall"], ["plugin", "uninstall"], ["plugin", "remove"],
