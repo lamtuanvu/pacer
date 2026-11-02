@@ -1,6 +1,7 @@
-import { test } from "bun:test";
+import { beforeAll, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { validateStrategy, StrategyError } from "../src/config/strategy";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -10,6 +11,8 @@ const bases = ["simple-legacy", "host-defaults", "endpoint-connection", "remote-
   .map(name => fixture.find(c => c.name === name)!.raw);
 const seed = 0x554ff02;
 let state = seed;
+const root = join(import.meta.dir, "..");
+const binary = join(root, "target/debug/examples/strategy_diff");
 
 test("review boundary goldens still match TypeScript", () => {
   const cases = JSON.parse(readFileSync("test/fixtures/strategy-read/boundaries.json", "utf8")) as
@@ -107,6 +110,18 @@ function rust(binary: string, inputs: Json[]): Outcome[] {
   if (run.status !== 0) throw Error(`Rust validator failed: ${run.stderr}`);
   return run.stdout.trimEnd().split("\n").map(x => JSON.parse(x) as Outcome);
 }
+
+beforeAll(() => {
+  const built = spawnSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_diff", "--locked"], {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 600_000,
+  });
+  if (built.error || built.status !== 0) {
+    throw Error(`Rust test binary build failed: ${built.error?.message ?? built.stderr}`);
+  }
+}, 600_000);
+
 function minimize(binary: string, document: Json): Json {
   let current = clone(document);
   let changed = true;
@@ -127,9 +142,6 @@ function minimize(binary: string, document: Json): Json {
 }
 
 test("seeded TypeScript and Rust strategy validators agree", () => {
-  const built = spawnSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "strategy_diff", "--locked"], { encoding: "utf8" });
-  if (built.status !== 0) throw Error(`Rust test binary build failed: ${built.stderr}`);
-  const binary = "target/debug/examples/strategy_diff";
   const requested = Number(process.env.STRATEGY_DIFF_COUNT ?? 3000);
   if (!Number.isSafeInteger(requested) || requested < 1) throw Error("STRATEGY_DIFF_COUNT must be a positive integer");
   const cases = directed();
