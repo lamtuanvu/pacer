@@ -530,7 +530,8 @@ impl PublicOperations {
                     .hint("Use plugin.disable instead."));
                 }
                 runtime.stop(ctx, id).await?;
-                let root = ctx.pacer_home.join("plugins");
+                let root = std::fs::canonicalize(ctx.pacer_home.join("plugins"))
+                    .map_err(crate::private::error)?;
                 crate::private::parents(&root)?;
                 let dir = root.join(id);
                 match std::fs::symlink_metadata(&dir) {

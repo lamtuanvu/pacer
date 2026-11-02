@@ -1,4 +1,4 @@
-//! Private durable files shared by plugin stores. No symlink traversal on writes.
+//! Private durable files shared by plugin stores. Resolve roots; protect leaf files.
 #![allow(clippy::result_large_err)] // Matches the operation boundary CoreError ABI.
 use pacer_foundation::api::{Code, CoreError};
 use std::{
@@ -152,14 +152,31 @@ pub(crate) fn write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
     result
 }
 
+/// Resolve configured directory aliases before applying private-store checks.
+/// Leaf lock/store opens still use O_NOFOLLOW; atomic saves replace store links.
+fn resolved_root(path: &Path) -> Result<std::path::PathBuf, CoreError> {
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+        .map_err(error)?;
+    let resolved = fs::canonicalize(path).map_err(error)?;
+    root(&resolved, true)?;
+    Ok(resolved)
+}
+
 /// Shared TS lock name and stale-lock protocol, with private creation modes.
 pub(crate) fn locked<T>(
     ctx: &pacer_foundation::Ctx,
     name: &str,
-    f: impl FnOnce() -> Result<T, CoreError>,
+    f: impl FnOnce(&pacer_foundation::Ctx) -> Result<T, CoreError>,
 ) -> Result<T, CoreError> {
-    let dir = ctx.pacer_home.join("orca");
-    root(&dir, true)?;
+    // PACER_HOME is a configured directory, not an untrusted state-file leaf.
+    // Like TS mkdir/join, accept relative paths and symlinked ancestors. Retain
+    // the resolved owned root for the entire transaction, including its reads.
+    let mut ctx = ctx.clone();
+    ctx.pacer_home = resolved_root(&ctx.pacer_home)?;
+    let dir = resolved_root(&ctx.pacer_home.join("orca"))?;
     let path = dir.join(format!("{name}.lock"));
     struct Guard(std::path::PathBuf);
     impl Drop for Guard {
@@ -178,7 +195,13 @@ pub(crate) fn locked<T>(
         {
             Ok(_) => break,
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                let m = fs::symlink_metadata(&path).map_err(error)?;
+                let m = match fs::symlink_metadata(&path) {
+                    Ok(m) => m,
+                    // The previous holder may release between create_new and
+                    // inspection. Retry acquisition, as the TS lock does.
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(e) => return Err(error(e)),
+                };
                 if !m.is_file()
                     || m.file_type().is_symlink()
                     || m.nlink() != 1
@@ -203,5 +226,5 @@ pub(crate) fn locked<T>(
         }
     }
     let _guard = Guard(path);
-    f()
+    f(&ctx)
 }

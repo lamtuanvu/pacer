@@ -1,11 +1,18 @@
 import { expect, test } from "bun:test";
 import cases from "./fixtures/plugin-operation-number-parity.json";
+import { validateSettings } from "../src/plugins/settings";
 import { OPS } from "../src/api/ops";
 import { uiRenderResult, viewNodeSchema } from "../src/plugins/ui-schema";
 
 for (const row of cases) test(`plugin number parity: ${row.field}=${row.wire}`, () => {
   const value = JSON.parse(row.wire);
-  if (row.field === "expect_rev") {
+  if (row.field === "settingsInteger") {
+    const schema = { fields: { Budget: { type: "integer" as const, title: "Budget", minimum: row.minimum!, maximum: row.maximum! } } };
+    expect(validateSettings(schema, { Budget: value })).toEqual(row.accepted ? [] : [{ path: "Budget", message: row.error! }]);
+  } else if (row.field === "actionScalar") {
+    if (row.accepted) expect(JSON.stringify(value)).toBe(row.normalized!);
+    expect(OPS["plugin.ui.action"].params.safeParse({ plugin: "fx-ui", surface: "activity", id: "checklist", action: "run", requestId: "matrix", context: { route: "overview", theme: "light" }, values: { Budget: value } }).success).toBe(row.accepted);
+  } else if (row.field === "expect_rev") {
     for (const [name, params] of [
       ["plugin.settings.set", { plugin: "fx-ui", values: {}, expect_rev: value }],
       ["plugin.ui.visibility", { plugin: "fx-ui", surface: "activity", id: "checklist", visible: true, expect_rev: value }],

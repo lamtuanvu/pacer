@@ -5,7 +5,7 @@ use pacer_plugin_host::{publishers::PublisherTrust, settings};
 use serde_json::{Value, json};
 use std::{
     fs,
-    os::unix::fs::{PermissionsExt, symlink},
+    os::unix::fs::{MetadataExt, PermissionsExt, symlink},
     sync::{Arc, Barrier},
 };
 
@@ -36,7 +36,7 @@ fn settings_compare_and_swap_serializes_independent_writers() {
         .collect::<Vec<_>>();
     assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 1);
     for error in results.into_iter().filter_map(Result::err) {
-        assert_eq!(error.code, Code::Conflict);
+        assert_eq!(error.code, Code::Conflict, "{error:?}");
         assert_eq!(
             error.message,
             "plugin fx-ui settings are at revision 1, not 0"
@@ -134,4 +134,93 @@ fn publisher_store_uses_javascript_numeric_key_order_and_number_encoding() {
         trust.lookup(&ctx, "2").unwrap_err().message,
         "invalid publisher store encoding"
     );
+}
+
+#[test]
+fn settings_resolve_configured_home_and_lock_directory_aliases() {
+    // No chdir: Rust tests run in parallel. Relative paths are rooted at the
+    // current working directory exactly as TS filesystem operations are.
+    for kind in [
+        "symlink",
+        "relative",
+        "relative-symlink",
+        "lock-symlink",
+        "new-relative",
+    ] {
+        let dir = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
+        let real = dir.path().join("real");
+        fs::create_dir(&real).unwrap();
+        let linked = dir.path().join("linked");
+        symlink("real", &linked).unwrap();
+        let path = match kind {
+            "symlink" => linked,
+            "relative" => real
+                .strip_prefix(std::env::current_dir().unwrap())
+                .unwrap()
+                .to_path_buf(),
+            "relative-symlink" => linked
+                .strip_prefix(std::env::current_dir().unwrap())
+                .unwrap()
+                .to_path_buf(),
+            "new-relative" => dir
+                .path()
+                .join("new/nested")
+                .strip_prefix(std::env::current_dir().unwrap())
+                .unwrap()
+                .to_path_buf(),
+            _ => {
+                fs::create_dir(dir.path().join("locks")).unwrap();
+                symlink("../locks", real.join("orca")).unwrap();
+                real.clone()
+            }
+        };
+        let ctx = Ctx::with(dir.path().to_path_buf(), path, Default::default(), 0.0);
+        assert_eq!(
+            settings::save(&ctx, "fx-ui", json!({"ok":true}), 0.0).unwrap()["rev"],
+            1,
+            "{kind}"
+        );
+        assert_eq!(
+            settings::visibility(&ctx, "fx-ui", "activity:checklist", false, 1.0).unwrap()["hidden"],
+            json!(["activity:checklist"]),
+            "{kind}"
+        );
+        assert_eq!(
+            settings::read(&ctx, "fx-ui").unwrap()["values"],
+            json!({"ok":true}),
+            "{kind}"
+        );
+        settings::forget(&ctx, "fx-ui").unwrap();
+        assert_eq!(settings::read(&ctx, "fx-ui").unwrap()["rev"], 0, "{kind}");
+        assert_eq!(
+            fs::metadata(ctx.pacer_home.join("plugin-settings.json"))
+                .unwrap()
+                .mode()
+                & 0o777,
+            0o600,
+            "{kind}"
+        );
+        assert_eq!(
+            fs::metadata(ctx.pacer_home.join("orca")).unwrap().mode() & 0o777,
+            0o700,
+            "{kind}"
+        );
+    }
+}
+
+#[test]
+fn resolved_home_still_refuses_unsafe_owned_root() {
+    let (_dir, ctx) = fixture();
+    let real = ctx.pacer_home.join("real");
+    fs::create_dir(&real).unwrap();
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o777)).unwrap();
+    let linked = ctx.pacer_home.join("linked");
+    symlink(&real, &linked).unwrap();
+    let ctx = Ctx {
+        pacer_home: linked,
+        ..ctx
+    };
+    assert!(settings::save(&ctx, "fx-ui", json!({}), 0.0).is_err());
+    assert!(!real.join("plugin-settings.json").exists());
+    assert_eq!(fs::metadata(real).unwrap().mode() & 0o777, 0o777);
 }

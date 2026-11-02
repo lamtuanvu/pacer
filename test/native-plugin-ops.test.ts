@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { installFixture } from "../conformance/install";
 import { tmpDir } from "./helpers";
 
 const front = process.env.PACER_TEST_FRONT_DOOR;
 const context = { route: "overview", theme: "light" };
 
-async function service(forward = "") {
+async function service(forward = "", homeKind = "absolute") {
   const home = realpathSync(tmpDir()), state = join(home, ".pacer");
   mkdirSync(state, { mode: 0o700 });
   writeFileSync(join(state, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n# preserve this comment\n", { mode: 0o600 });
@@ -15,8 +15,14 @@ async function service(forward = "") {
   const plugin = installFixture("ui", join(state, "plugins"));
   const socket = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
   const port = socket.port!; socket.stop(true);
+  let configuredHome = state;
+  if (homeKind.includes("symlink")) {
+    configuredHome = join(home, "linked");
+    symlinkSync(".pacer", configuredHome, "dir");
+  }
+  if (homeKind.includes("relative")) configuredHome = relative(process.cwd(), configuredHome);
   const child = Bun.spawn([front!, "serve", "--port", String(port)], {
-    env: { HOME: home, PACER_HOME: state, PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
+    env: { HOME: home, PACER_HOME: configuredHome, PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
       PACER_CORE_ARGV: JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]),
       PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
       PACER_DEBUG_NATIVE: "1", PACER_FORWARD_OPS: forward },
@@ -204,5 +210,29 @@ test.skipIf(!front)("linked settings reads and atomic replacement match TypeScri
       } finally { await s.stop(); }
     }
     expect(results.slice(0, 3)).toEqual(results.slice(3));
+  }
+}, 60000);
+
+
+test.skipIf(!front)("configured symlinked and relative homes match TypeScript settings writes", async () => {
+  for (const kind of ["symlink", "relative", "relative-symlink"]) {
+    const results: unknown[][] = [];
+    for (const forward of ["", "*"]) {
+      const s = await service(forward, kind), actual: unknown[] = [];
+      try {
+        const enable = await s.post("plugin.enable", { id: "fx-ui", grant: true });
+        expect(enable.result?.state, JSON.stringify(enable)).toBe("idle"); actual.push(enable);
+        const save = await s.post("plugin.settings.set", { plugin: "fx-ui", values: { required: true }, expect_rev: 0 });
+        expect(save.result?.rev, JSON.stringify(save)).toBe(1); actual.push(save);
+        const hidden = await s.post("plugin.ui.visibility", { plugin: "fx-ui", surface: "activity", id: "checklist", visible: false, expect_rev: 1 });
+        expect(hidden.result?.rev, JSON.stringify(hidden)).toBe(2); actual.push(hidden);
+        actual.push(await s.post("plugin.settings.get", { plugin: "fx-ui" }));
+        const remove = await s.post("plugin.remove", { id: "fx-ui" });
+        expect(remove.result?.removed, JSON.stringify(remove)).toBe(true); actual.push(remove);
+        expect(JSON.parse(readFileSync(join(s.state, "plugin-settings.json"), "utf8"))["fx-ui"]).toBeUndefined();
+        results.push(actual);
+      } finally { await s.stop(); }
+    }
+    expect(results[0], kind).toEqual(results[1]);
   }
 }, 60000);

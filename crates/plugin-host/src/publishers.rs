@@ -164,7 +164,7 @@ impl PublisherTrust {
             return Err(invalid("invalid expected fingerprint"));
         }
         parents(&ctx.pacer_home)?;
-        crate::private::locked(ctx, "plugins", || {
+        crate::private::locked(ctx, "plugins", |ctx| {
             if self.shipped.contains_key(publisher) {
                 return Err(CoreError::new(
                     Code::NotAllowed,

@@ -90,7 +90,7 @@ pub fn edit_config(
     grant: Option<Option<serde_json::Value>>,
 ) -> Result<(), pacer_foundation::api::CoreError> {
     use serde_json::json;
-    crate::private::locked(ctx, "plugins", || {
+    crate::private::locked(ctx, "plugins", |ctx| {
         let cfg = read_config(ctx)?;
         let (path, _) = pacer_config::strategy::strategy_path(&ctx.pacer_home)
             .map_err(crate::private::error)?;

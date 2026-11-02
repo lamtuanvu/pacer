@@ -139,7 +139,7 @@ fn mutate(
     visibility: Option<(&str, bool)>,
     values: Option<Value>,
 ) -> Result<Value, CoreError> {
-    crate::private::locked(ctx, "plugin-settings", || {
+    crate::private::locked(ctx, "plugin-settings", |ctx| {
         let mut all = store(ctx)?;
         let mut cur = all.get(id).cloned().unwrap_or_else(empty);
         let actual = cur["rev"].as_f64().unwrap_or(0.0);
@@ -199,7 +199,7 @@ pub fn visibility(
     mutate(ctx, id, rev, Some((key, visible)), None)
 }
 pub fn forget(ctx: &Ctx, id: &str) -> Result<(), CoreError> {
-    crate::private::locked(ctx, "plugin-settings", || {
+    crate::private::locked(ctx, "plugin-settings", |ctx| {
         let mut all = store(ctx)?;
         if all.as_object_mut().is_some_and(|o| o.remove(id).is_some()) {
             crate::private::write(

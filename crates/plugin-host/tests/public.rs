@@ -437,7 +437,50 @@ async fn shared_operation_number_matrix() {
             serde_json::from_str(row["wire"].as_str().unwrap()).unwrap_or(Value::Null);
         let accepted = row["accepted"].as_bool().unwrap();
         let field = row["field"].as_str().unwrap();
-        if field == "expect_rev" {
+        if field == "settingsInteger" {
+            let schema = json!({"fields":{"Budget":{"type":"integer","title":"Budget","minimum":row["minimum"],"maximum":row["maximum"]}}});
+            let errors = settings::validate(&schema, &json!({"Budget":value}));
+            assert_eq!(
+                errors,
+                if accepted {
+                    vec![]
+                } else {
+                    vec![json!({"path":"Budget","message":row["error"]})]
+                },
+                "{row}"
+            );
+        } else if field == "actionScalar" {
+            let (_dir, ctx, mut host, ops) = fixture();
+            ops.call(
+                &ctx,
+                &mut host,
+                "plugin.enable",
+                json!({"id":"fx-ui","grant":true}),
+            )
+            .await
+            .unwrap();
+            // Overflowing JSON numbers are rejected by the HTTP JSON decoder;
+            // do not substitute null (a valid scalar) for a decoding error.
+            let value = serde_json::from_str::<Value>(row["wire"].as_str().unwrap());
+            if let Ok(value) = value {
+                if accepted {
+                    assert_eq!(
+                        settings::js_json(&value),
+                        row["normalized"].as_str().unwrap(),
+                        "{row}"
+                    );
+                }
+                let result = ops.call(&ctx, &mut host, "plugin.ui.action", json!({"plugin":"fx-ui","surface":"activity","id":"checklist","context":{"route":"overview","theme":"light"},"action":"run","requestId":"matrix","values":{"Budget":value}})).await;
+                assert_eq!(result.is_ok(), accepted, "{row}");
+                assert_eq!(
+                    host.calls.contains(&"ui.action".to_owned()),
+                    accepted,
+                    "{row}"
+                );
+            } else {
+                assert!(!accepted, "{row}");
+            }
+        } else if field == "expect_rev" {
             for op in ["plugin.settings.set", "plugin.ui.visibility"] {
                 let (_dir, ctx, mut host, ops) = fixture();
                 ops.call(
