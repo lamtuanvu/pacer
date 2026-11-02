@@ -40,3 +40,34 @@ pub(crate) fn number_text(value: &Number) -> String {
     }
     value.to_string()
 }
+
+/// JSON.parse/Object.entries order: canonical array-index keys precede strings.
+pub fn normalize_json(value: &mut serde_json::Value) {
+    use serde_json::{Map, Value};
+    match value {
+        Value::Array(values) => values.iter_mut().for_each(normalize_json),
+        Value::Object(map) => {
+            let mut source = std::mem::take(map);
+            source.values_mut().for_each(normalize_json);
+            let mut indices = source
+                .keys()
+                .filter_map(|key| {
+                    key.parse::<u32>()
+                        .ok()
+                        .filter(|n| *n != u32::MAX && n.to_string() == *key)
+                        .map(|n| (n, key.clone()))
+                })
+                .collect::<Vec<_>>();
+            indices.sort_by_key(|(n, _)| *n);
+            let mut ordered = Map::new();
+            for (_, key) in indices {
+                if let Some(value) = source.shift_remove(&key) {
+                    ordered.insert(key, value);
+                }
+            }
+            ordered.extend(source);
+            *map = ordered;
+        }
+        _ => {}
+    }
+}

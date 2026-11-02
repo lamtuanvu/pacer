@@ -221,10 +221,11 @@ fn schema_keys(prefix: &[&str]) -> Option<&'static [&'static str]> {
 }
 
 fn distance(a: &str, b: &str) -> usize {
+    let b: Vec<u16> = b.encode_utf16().collect();
     let mut row = (0..=b.len()).collect::<Vec<_>>();
-    for (i, a) in a.bytes().enumerate() {
+    for (i, a) in a.encode_utf16().enumerate() {
         let mut next = vec![i + 1];
-        for (j, b) in b.bytes().enumerate() {
+        for (j, &b) in b.iter().enumerate() {
             next.push(
                 (next[j] + 1)
                     .min(row[j + 1] + 1)
@@ -263,6 +264,8 @@ fn check_draft_path(keys: &[&str], path: &str) -> Result<(), StrategyError> {
 }
 
 fn apply_draft(mut raw: Value, draft: &Value) -> Result<Value, StrategyError> {
+    let mut draft = draft.clone();
+    crate::normalize_json(&mut draft);
     if !raw.is_object() {
         return Err(StrategyError::Other(
             "base strategy must be a mapping".into(),
@@ -362,13 +365,13 @@ pub fn save_strategy(
         std::process::id(),
         NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
     ));
+    let mut file_options = fs::OpenOptions::new();
+    file_options.write(true).create_new(true);
+    #[cfg(unix)]
+    file_options.mode(0o600);
+    let mut file = file_options.open(&temp)?;
     let write = (|| -> io::Result<()> {
-        let mut file_options = fs::OpenOptions::new();
-        file_options.write(true).create_new(true);
-        #[cfg(unix)]
-        file_options.mode(0o600);
         use std::io::Write;
-        let mut file = file_options.open(&temp)?;
         file.write_all(content.as_bytes())?;
         file.sync_all()?;
         if path.exists() && !options.overwrite {

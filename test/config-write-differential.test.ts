@@ -11,6 +11,12 @@ import * as strategy from "../src/strategy/service";
 import { useStrategy } from "../src/config/strategy";
 import { pluginDataDir } from "../src/link/paths";
 import { fakeCtx } from "./helpers";
+import {pluginRegistry} from "../src/plugins";
+function configCtx(options: Parameters<typeof fakeCtx>[0]) {
+  const ctx=fakeCtx(options);
+  pluginRegistry(ctx,{bundled:[],spawnBundled:()=>{throw Error("library-only parity must not spawn plugins");}});
+  return ctx;
+}
 import golden from "./fixtures/config-writes-goldens.json";
 
 const root = join(import.meta.dir, "..");
@@ -27,10 +33,13 @@ function rust(binary: string, input: Record<string, unknown>) {
   return JSON.parse(execFileSync(binary, [], { input: JSON.stringify(input) + "\n" }).toString());
 }
 
+let configDriver: string | undefined;
 function configBinary() {
+  if (configDriver) return configDriver;
   execFileSync("cargo", ["build", "-q", "-p", "pacer-config", "--example", "config_write_diff", "--locked"], { cwd: root });
   const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--locked", "--format-version", "1"], { cwd: root }).toString());
-  return join(metadata.target_directory, "debug/examples/config_write_diff");
+  configDriver = join(metadata.target_directory, "debug/examples/config_write_diff");
+  return configDriver;
 }
 
 function result(value: unknown, homePath: string) {
@@ -43,7 +52,7 @@ test("seeded routing, runner order and notification writes match TS bytes and re
   const rand = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return seed >>> 0; };
   for (let i = 0; i < 24; i++) {
     const tsHome = home(), rsHome = home();
-    const ctx = fakeCtx({ pacerHome: tsHome });
+    const ctx = configCtx({ pacerHome: tsHome });
     const order = rand() & 1 ? ["cursor", "codex"] : ["codex", "cursor"];
     const rules = rand() & 1
       ? [{ kinds: ["docs"], executors: order }, { executors: [...order].reverse() }]
@@ -77,7 +86,7 @@ test("removing a runner drops its empty routing rule without changing surviving 
   const changed = yaml.replace("executors: [codex, cursor] # keep list", "executors: [cursor] # keep list");
   writeFileSync(join(tsHome, "strategy.yaml"), changed);
   writeFileSync(join(rsHome, "strategy.yaml"), changed);
-  const ctx = fakeCtx({ pacerHome: tsHome });
+  const ctx = configCtx({ pacerHome: tsHome });
   const ts = await runners.remove(ctx, "cursor");
   const rs = rust(binary, { op: "runner.remove", home: rsHome, id: "cursor" });
   expect(result(rs, rsHome)).toEqual(result({ ok: true, value: ts }, tsHome));
@@ -107,7 +116,7 @@ test("named strategy save matches TS result and generated YAML bytes", () => {
   }
   for (const draft of drafts) {
     const tsHome = home(), rsHome = home();
-    const ctx = fakeCtx({ pacerHome: tsHome });
+    const ctx = configCtx({ pacerHome: tsHome });
     const name = "review";
     const reason = "Approved by user";
     const who = "Codex";
@@ -141,7 +150,7 @@ test("runner.set numeric inputs match direct writes and the API boundary", async
   const binary = configBinary();
   const literals = ["1", "1.0", "1e0", "1e2", "-0", "-1", "0.5", "9007199254740991", "9007199254740992", "1e21", '"1"', "null"];
   for (const field of ["rank", "max_tasks"] as const) for (const literal of literals) {
-    const tsHome = home(), rsHome = home(), ctx = fakeCtx({ pacerHome: tsHome });
+    const tsHome = home(), rsHome = home(), ctx = configCtx({ pacerHome: tsHome });
     const value = JSON.parse(literal);
     const options = { [field]: value };
     const api = OPS["runner.set"]!.params.safeParse({ id: "codex", ...options });
@@ -175,7 +184,7 @@ test("runner references resolve like TypeScript across mutation and routing", as
   ] as const;
   for (const input of cases) {
     const tsHome = home("initial" in input ? input.initial : yaml), rsHome = home("initial" in input ? input.initial : yaml);
-    const ctx = fakeCtx({ pacerHome: tsHome });
+    const ctx = configCtx({ pacerHome: tsHome });
     let ts: unknown;
     try {
       ts = { ok: true, value: input.op === "runner.set" ? await runners.set(ctx, input.id, input.options)
@@ -212,7 +221,7 @@ test("generated string corpus matches Bun YAML bytes and saved strategies re-rea
   }
   for (const value of fixed) {
     const tsHome = home(), rsHome = home();
-    const ctx = fakeCtx({ pacerHome: tsHome });
+    const ctx = configCtx({ pacerHome: tsHome });
     const draft: strategy.Draft = { from: "default", set: { "execution.base_branch": value } };
     let ts: unknown;
     try { ts = { ok: true, value: strategy.save(ctx, "review", draft, "approved") }; }
@@ -221,7 +230,7 @@ test("generated string corpus matches Bun YAML bytes and saved strategies re-rea
     expect(result(rs, rsHome)).toEqual(result(ts, tsHome));
     if ((ts as {ok:boolean}).ok) {
       expect(readFileSync(join(rsHome, "strategies", "review.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategies", "review.yaml"), "utf8"));
-      expect(strategy.show(fakeCtx({ pacerHome: rsHome }), "review").yaml).toBe(readFileSync(join(rsHome, "strategies", "review.yaml"), "utf8"));
+      expect(strategy.show(configCtx({ pacerHome: rsHome }), "review").yaml).toBe(readFileSync(join(rsHome, "strategies", "review.yaml"), "utf8"));
     }
   }
 }, 30_000);
@@ -232,7 +241,7 @@ test("Rust state writers tighten file and directory modes under both umasks", as
     const oldMask = process.umask(mask);
     try {
       const tsHome = home(), rsHome = home();
-      const ctx = fakeCtx({ pacerHome: tsHome });
+      const ctx = configCtx({ pacerHome: tsHome });
       for (const dir of [tsHome, rsHome]) chmodSync(join(dir, "strategy.yaml"), 0o644);
       const tsSet = notify.setLevel(ctx, "all");
       const rsSet = rust(binary, { op: "notifications.set", home: rsHome, level: "all" });
@@ -268,11 +277,12 @@ test("Rust state writers tighten file and directory modes under both umasks", as
 test("save refusals and notification migration match TS errors and bytes", () => {
   const binary = configBinary();
   const tsHome = home(), rsHome = home();
-  const ctx = fakeCtx({ pacerHome: tsHome });
+  const ctx = configCtx({ pacerHome: tsHome });
   const nowIso = new Date(ctx.now * 1000).toISOString();
   const cases: {name: string; draft: strategy.Draft; reason: string}[] = [
     { name: "default", draft: { from: "default" }, reason: "approved" },
     { name: "draft", draft: { from: "default", set: { "pacing.planer_reserve": 20 } }, reason: "approved" },
+    { name: "draft", draft: { from: "default", set: { "rénglopp": 20 } }, reason: "approved" },
     { name: "draft", draft: { from: "default", set: { "routing.0": 1 } }, reason: "approved" },
     { name: "draft", draft: { from: "default" }, reason: " " },
   ];
@@ -303,7 +313,7 @@ test("strategy save reason uses the JavaScript trim character set", () => {
   for (const char of whitespace) {
     for (const reason of [char, `${char}approved${char}`]) {
       const tsHome = home(), rsHome = home();
-      const ctx = fakeCtx({ pacerHome: tsHome });
+      const ctx = configCtx({ pacerHome: tsHome });
       let ts: unknown;
       try { ts = { ok: true, value: strategy.save(ctx, "review", { from: "default" }, reason) }; }
       catch (error) { ts = { ok: false, error: (error as Error).message }; }
@@ -319,7 +329,7 @@ test("strategy save reason uses the JavaScript trim character set", () => {
 test("strategy save headers preserve the same characters as TypeScript", () => {
   const binary = configBinary();
   for (const char of [...Array.from({length: 32}, (_, i) => String.fromCharCode(i)), "\u007f", "\u0085"]) {
-    const tsHome = home(), rsHome = home(), ctx = fakeCtx({pacerHome: tsHome});
+    const tsHome = home(), rsHome = home(), ctx = configCtx({pacerHome: tsHome});
     const draft = {from: "default", description: `x${char}y`}, reason = `reason${char}end`;
     strategy.save(ctx, "review", draft, reason);
     rust(binary, {op: "strategy.save", home: rsHome, name: "review", draft, reason,
@@ -331,7 +341,7 @@ test("strategy save headers preserve the same characters as TypeScript", () => {
 test("routing rule insertion keeps surviving YAML nodes", async () => {
   const binary = configBinary();
   const tsHome = home(), rsHome = home();
-  const ctx = fakeCtx({ pacerHome: tsHome });
+  const ctx = configCtx({ pacerHome: tsHome });
   const rules = [
     { kinds: ["docs"], executors: ["codex"] },
     { kinds: ["feature"], executors: ["cursor"] },
@@ -349,7 +359,7 @@ test("runner reorder migrates a legacy strategy and keeps backup parity", async 
   const legacy = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n  cursor: {}\n";
   writeFileSync(join(tsHome, "strategy.yaml"), legacy);
   writeFileSync(join(rsHome, "strategy.yaml"), legacy);
-  const ctx = fakeCtx({ pacerHome: tsHome });
+  const ctx = configCtx({ pacerHome: tsHome });
   const ids = ["cursor", "codex"];
   const ts = await runners.reorder(ctx, ids);
   const rs = rust(binary, { op: "runner.reorder", home: rsHome, ids });
@@ -362,7 +372,7 @@ test("runner reorder migrates a legacy strategy and keeps backup parity", async 
 test("routing and runner refusals leave both homes byte-identical", async () => {
   const binary = configBinary();
   const tsHome = home(), rsHome = home();
-  const ctx = fakeCtx({ pacerHome: tsHome });
+  const ctx = configCtx({ pacerHome: tsHome });
   const cases = [
     { op: "routing.set", rules: [{ kinds: ["docs"], executors: ["codex"] }] },
     { op: "routing.set", rules: [{ executors: ["missing"] }] },
@@ -415,7 +425,7 @@ test("named strategy save normalizes raw JSON integral decimals in YAML", () => 
   const binary = configBinary();
   for (const literal of ["1.0", "1e2"]) {
     const tsHome = home(), rsHome = home();
-    const ctx = fakeCtx({ pacerHome: tsHome });
+    const ctx = configCtx({ pacerHome: tsHome });
     const draft = JSON.parse(`{"from":"default","set":{"pacing.planner_reserve":${literal}}}`) as strategy.Draft;
     let ts: unknown;
     try { ts = { ok: true, value: strategy.save(ctx, "review", draft, "approved") }; }
@@ -425,5 +435,22 @@ test("named strategy save normalizes raw JSON integral decimals in YAML", () => 
     expect(result(rs, rsHome)).toEqual(result(ts, tsHome));
     if ((ts as {ok: boolean}).ok) expect(readFileSync(join(rsHome, "strategies", "review.yaml"), "utf8"))
       .toBe(readFileSync(join(tsHome, "strategies", "review.yaml"), "utf8"));
+  }
+});
+
+test("native library writers preserve a preexisting temp on exclusive-create failure", async () => {
+  const binary = configBinary();
+  for (const op of ["notifications.set", "routing.set", "strategy.save"]) {
+    const dir = home();
+    mkdirSync(join(dir,"strategies"),{mode:0o700});
+    const child=Bun.spawn([binary],{stdin:"pipe",stdout:"pipe",stderr:"pipe"});
+    const temp=op==="notifications.set"?join(dir,`settings.json.${child.pid}.0.tmp`):op==="strategy.save"?join(dir,"strategies",`review.${child.pid}.0.tmp`):join(dir,`strategy.yaml.${child.pid}.0.tmp`);
+    writeFileSync(temp,"unowned sentinel",{mode:0o600,flag:"wx"});
+    const input=op==="notifications.set"?{level:"all"}:op==="strategy.save"?{name:"review",draft:{from:"default"},reason:"approved",nowIso:"2026-11-02T00:00:00.000Z"}:{rules:[{kinds:["docs"],executors:["cursor"]},{executors:["codex"]}]};
+    await child.stdin.write(JSON.stringify({op,home:dir,...input})+"\n");await child.stdin.end();
+    const output=await new Response(child.stdout).text();
+    expect(await child.exited).toBe(0);
+    expect(JSON.parse(output).ok).toBe(false);
+    expect(readFileSync(temp,"utf8")).toBe("unowned sentinel");
   }
 });

@@ -79,3 +79,15 @@ test("EOF drains pending requests and stops subscription polling", async () => {
   await Bun.sleep(60);
   expect(out).toHaveLength(count);
 });
+
+test("private config sync refuses missing, incorrect and work-scoped credentials", async () => {
+  for (const env of [{}, {PACER_NATIVE_CONFIG_SYNC_KEY:"fixture-private-key"}, {PACER_NATIVE_CONFIG_SYNC_KEY:"fixture-private-key",PACER_WORK_GRANT:"fixture-grant"}]) {
+    const ctx=fakeCtx({env});
+    const params={key:env.PACER_WORK_GRANT?"fixture-private-key":"incorrect"};
+    async function* input(){yield JSON.stringify({jsonrpc:"2.0",id:1,method:"_internal.config.sync",params});}
+    const out: unknown[]=[];
+    await runStdio(ctx,input(),line=>out.push(JSON.parse(line)));
+    expect(out).toMatchObject([{id:1,error:{code:-32601,data:{code:"unknown_op"}}}]);
+    expect(JSON.stringify(out)).not.toContain("fixture-private-key");
+  }
+});

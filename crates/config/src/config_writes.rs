@@ -11,11 +11,16 @@ use std::{collections::HashSet, fs, path::Path};
 #[cfg(test)]
 mod tests;
 
+fn selected_settings_match(home: &Path, path: &Path, before: &str) -> bool {
+    strategy_path(home).is_ok_and(|(selected, _)| selected == path)
+        && fs::read_to_string(path).is_ok_and(|current| current == before)
+}
+
 fn ensure_migrated(home: &Path) -> Result<Option<Value>, StrategyError> {
     let (path, _) = strategy_path(home)?;
     let before = fs::read_to_string(&path)?;
     let strategy = load_strategy(home)?;
-    if fs::read_to_string(&path)? != before {
+    if !selected_settings_match(home, &path, &before) {
         return Err(StrategyError::Other(
             "Your settings changed while they were being updated. Try again.".into(),
         ));
@@ -24,6 +29,11 @@ fn ensure_migrated(home: &Path) -> Result<Option<Value>, StrategyError> {
         return Ok(None);
     }
     let migration = migrate_strategy(&path, Some(&before))?;
+    if !strategy_path(home).is_ok_and(|(selected, _)| selected == path) {
+        return Err(StrategyError::Other(
+            "Your settings changed while they were being updated. Try again.".into(),
+        ));
+    }
     if !migration.changed {
         return Ok(None);
     }
@@ -39,7 +49,7 @@ fn edit(
     let (path, name) = strategy_path(home)?;
     let before = fs::read_to_string(&path)?;
     let strategy = load_strategy(home)?;
-    if fs::read_to_string(&path)? != before {
+    if !selected_settings_match(home, &path, &before) {
         return Err(StrategyError::Other(
             "Your settings changed while they were being updated. Try again.".into(),
         ));
@@ -52,7 +62,7 @@ fn edit(
     if before == after {
         return Ok(String::new());
     }
-    if fs::read_to_string(&path)? != before {
+    if !selected_settings_match(home, &path, &before) {
         return Err(StrategyError::Other(
             "Your settings changed while they were being updated. Try again.".into(),
         ));

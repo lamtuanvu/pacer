@@ -13,6 +13,8 @@ test-ops = []
 tokio.workspace = true
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+pacer-config = { path = "../config" }
 pacer-store = { path = "../store" }
 pacer-mdns = { path = "../mdns" }
 

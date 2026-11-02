@@ -156,6 +156,14 @@ fn parse(text: &str) -> Result<Node> {
                 let line = text.bytes().filter(|byte| *byte == b'\n').count() + 1;
                 return EditError(format!("Flow sequence in block collection must be sufficiently indented and end with a ] at line {line}, column 1:\n\n{}\n^\n", text));
             }
+            if message.starts_with("while parsing a block mapping, did not find expected key") {
+                let line = e.marker().line();
+                let lines: Vec<&str> = text.lines().collect();
+                if let Some(current) = lines.get(line.saturating_sub(1)) && current.trim_start().starts_with("- ") {
+                    let previous = lines.get(line.saturating_sub(2)).copied().unwrap_or("");
+                    return EditError(format!("A block sequence may not be used as an implicit map key at line {line}, column 1:\n\n{previous}\n{current}\n^\n"));
+                }
+            }
             EditError(message)
         })?;
         let start = byte_index(text, span.start.index());
@@ -542,12 +550,25 @@ impl StrategyDoc {
             if let Kind::Map(entries, _) = &item.kind {
                 for (_, value) in entries {
                     if matches!(value.kind, Kind::Seq(_, true)) {
-                        ranges.push(value.span.start..value.core_end);
+                        ranges.push((value.span.start..value.core_end, true));
+                    } else if matches!(value.kind, Kind::Seq(_, false) | Kind::Map(_, false)) {
+                        let before = &self.text[..value.span.start];
+                        if let Some(newline) = before.rfind('\n') {
+                            let colon = before[..newline].trim_end_matches([' ', '\r']).len();
+                            if colon < newline && before[..colon].ends_with(':') {
+                                ranges.push((colon..newline, false));
+                            }
+                        }
                     }
                 }
             }
         }
-        for range in ranges.into_iter().rev() {
+        ranges.sort_by_key(|(range, _)| range.start);
+        for (range, flow) in ranges.into_iter().rev() {
+            if !flow {
+                self.replace(range, "");
+                continue;
+            }
             let source = &self.text[range.clone()];
             if source.starts_with('[')
                 && source.ends_with(']')
@@ -1156,7 +1177,9 @@ fn emit(value: &Value, flow: bool, indent: usize) -> String {
 /// Bun.YAML.stringify(value, null, 2) as used by strategy.save for the
 /// normalized mapping/list shapes accepted by the strategy validator.
 pub fn stringify_bun(value: &Value) -> String {
-    let emitted = emit_style(value, false, 0, true);
+    let mut value = value.clone();
+    crate::normalize_json(&mut value);
+    let emitted = emit_style(&value, false, 0, true);
     emitted
         .split('\n')
         .map(|line| {

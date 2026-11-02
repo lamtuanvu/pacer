@@ -31,12 +31,12 @@ pub fn atomic_strategy_write(path: &Path, text: &str) -> io::Result<()> {
         std::process::id(),
         suffix
     ));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&temp)?;
     let result = (|| {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        options.mode(0o600);
-        let mut file = options.open(&temp)?;
         file.write_all(text.as_bytes())?;
         file.flush()?;
         fs::rename(&temp, path)

@@ -38,13 +38,18 @@ async fn write_line<W: AsyncWrite + Unpin>(out: &Mutex<W>, line: &[u8]) -> io::R
     out.flush().await
 }
 
-async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncWrite + Unpin>(
+async fn forward_input<
+    R: AsyncBufRead + Unpin,
+    W: AsyncWrite + Unpin + Send,
+    O: AsyncWrite + Unpin,
+>(
     mut input: R,
     mut core: W,
     out: &Mutex<O>,
     ctx: &Ctx,
     registry: &Registry<'_>,
     forward_hello: bool,
+    sync: (&str, &str, &mut tokio::sync::mpsc::UnboundedReceiver<Value>),
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -112,11 +117,15 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
             && let Some(op) = method.and_then(|name| registry.get(name))
             && let Some(request) = request.as_ref()
         {
+            let request_ctx = ctx.at_now();
             let result = call_native(
-                ctx,
+                &request_ctx,
                 op,
                 request.get("params").cloned().unwrap_or_else(|| json!({})),
                 request.get("id"),
+                Some(Box::pin(crate::native::config_sync::stdio(
+                    &mut core, sync.0, sync.1, sync.2,
+                ))),
             )
             .await;
             if let Some(id) = request.get("id") {
@@ -138,12 +147,23 @@ async fn forward_input<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin, O: AsyncW
 async fn forward_output<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
     mut core: R,
     out: &Mutex<W>,
+    sync_id: &str,
+    sync: tokio::sync::mpsc::UnboundedSender<Value>,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     loop {
         line.clear();
         if core.read_until(b'\n', &mut line).await? == 0 {
             return Ok(());
+        }
+        if let Ok(value) = serde_json::from_slice::<Value>(&line)
+            && value
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.starts_with(&format!("{sync_id}:")))
+        {
+            let _ = sync.send(value);
+            continue;
         }
         write_line(out, &line).await?;
     }
@@ -197,10 +217,14 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     let (program, prefix) = core
         .split_first()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty core argv"))?;
+    let sync_id = hex::encode(rand::random::<[u8; 32]>());
+    let sync_key = hex::encode(rand::random::<[u8; 32]>());
+    let (sync_tx, mut sync_rx) = tokio::sync::mpsc::unbounded_channel();
     let mut child = Command::new(program)
         .args(prefix)
         .args(["api", "--stdio"])
         .envs(env)
+        .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -223,8 +247,9 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         &ctx,
         &registry,
         forward_hello,
+        (&sync_id, &sync_key, &mut sync_rx),
     );
-    let outgoing = forward_output(BufReader::new(output), &out);
+    let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx);
     tokio::pin!(incoming, outgoing);
     let mut input_done = false;
     let mut output_done = false;

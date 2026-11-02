@@ -43,6 +43,16 @@ export async function runStdio(
     try {
       let result: unknown;
       switch (r.method) {
+        case "_internal.config.sync": {
+          const key = getCtx().env.PACER_NATIVE_CONFIG_SYNC_KEY;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as {key?: unknown}).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const {syncEndpointConfig} = await import("../core/accounts");
+          await syncEndpointConfig(getCtx());
+          result = null;
+          break;
+        }
         case "hello": {
           const params=r.params??{};
           if(!params||typeof params!=="object"||Array.isArray(params))throw new CoreError("invalid_input","hello params must be an object");

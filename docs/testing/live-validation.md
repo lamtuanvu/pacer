@@ -542,6 +542,26 @@ outbox rotation and verify that both stale files survive. The fixture accepts
 no values, paths or command overrides and leaves
 ordinary D8 refusals in place. Run `live report`, then `live down --keep`.
 
+## Fixed native config-write fixture
+
+Start `bun run live up --id config-writes --seed ui --front-door rust --native-test-ops`,
+then run `bun run live native-config --id config-writes`. The fixed fixture exercises
+`strategy.use/save/remove`, `routing.set`, `runner.set/reorder/remove`, and
+`notifications.get/set` over protocol-3 stdio and authenticated public HTTP on
+fresh, owned fixture services. It compares each result and persisted file state
+with `PACER_FORWARD_OPS=*`, verifies native execution traces, delayed stdio save
+timestamps, endpoint-plugin synchronization, protected/invalid requests, private
+route refusal and public SSE replay of configuration and strategy-switch events.
+
+Only fixed synthetic strategy/account declarations are used. Fixture homes and
+agent configuration locations are private and disposable; no agent runs, native
+credentials, installed service or service-manager action is involved. The command
+accepts only a sandbox ID and refuses existing fixture roots, unseeded sessions,
+real Keychain mode and non-Rust/non-test builds. Ordinary D3/D8 guards remain in
+force. Files and logs remain under `native-config-fixture/` for inspection. Run
+`live report`, then `live down --keep`. Desktop/tray, browser rendering and
+interactive TUI behavior remain UNVERIFIED unless separately exercised.
+
 ## Fixed settings save fixture
 
 `bun run live settings --id <seeded-id>` exercises the real `config.set` handler

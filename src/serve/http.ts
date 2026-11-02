@@ -170,6 +170,17 @@ export function startServer(
           const status = Number(params.get("status") ?? 200);
           return appPage(params.get("message") ?? "", Number.isInteger(status) && status >= 200 && status <= 599 ? status : 500);
         }
+        if (pathname === "/_internal/config-sync" && req.method === "POST") {
+          try {
+            const {syncEndpointConfig} = await import("../core/accounts");
+            await syncEndpointConfig(getCtx());
+            return Response.json({result: null});
+          } catch (error) {
+            const {toApiError, httpStatus} = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({error: body}, {status: httpStatus(body.code)});
+          }
+        }
         // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
         if (pathname === "/_internal/discovery/config" && req.method === "POST") {
           const { buildRadioConfig } = await import("../discovery/radio");

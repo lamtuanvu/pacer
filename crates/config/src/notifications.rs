@@ -1,6 +1,6 @@
 //! Notification setting writes. Config-change publication remains with the caller.
 
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,15 +20,8 @@ fn valid(level: &str) -> bool {
     matches!(level, "off" | "important" | "all")
 }
 
-fn read_object(path: &Path) -> Map<String, Value> {
-    fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or_default()
-}
-
-fn write_settings(path: &Path, settings: &Map<String, Value>) -> io::Result<()> {
+fn write_settings(path: &Path, level: &str) -> io::Result<()> {
+    let bytes = crate::notification_json::settings(path, level);
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("settings has no parent"))?;
@@ -40,14 +33,14 @@ fn write_settings(path: &Path, settings: &Map<String, Value>) -> io::Result<()> 
         std::process::id(),
         NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
     ));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&temp)?;
     let result = (|| {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        options.mode(0o600);
         use std::io::Write;
-        let mut file = options.open(&temp)?;
-        serde_json::to_writer(&mut file, settings)?;
+        file.write_all(&bytes)?;
         file.flush()?;
         fs::rename(&temp, path)
     })();
@@ -59,21 +52,14 @@ fn write_settings(path: &Path, settings: &Map<String, Value>) -> io::Result<()> 
 /// the legacy plugin setting, or initialized to `important`, as in TypeScript.
 pub fn get_level(home: &Path, legacy_plugin_data: &Path) -> Result<Value, NotificationError> {
     let path = home.join("settings.json");
-    let mut settings = read_object(&path);
-    if let Some(level) = settings.get("notifications").and_then(Value::as_str)
-        && valid(level)
-    {
+    if let Some(level) = crate::notification_json::level(&path).filter(|v| valid(v)) {
         return Ok(json!({"level":level}));
     }
     let legacy = legacy_plugin_data.join("settings.json");
-    let level = read_object(&legacy)
-        .get("notifications")
-        .and_then(Value::as_str)
-        .filter(|value| valid(value))
-        .unwrap_or("important")
-        .to_owned();
-    settings.insert("notifications".into(), json!(level));
-    write_settings(&path, &settings)?;
+    let level = crate::notification_json::level(&legacy)
+        .filter(|v| valid(v))
+        .unwrap_or_else(|| "important".into());
+    write_settings(&path, &level)?;
     Ok(json!({"level":level}))
 }
 
@@ -82,8 +68,6 @@ pub fn set_level(home: &Path, level: &str) -> Result<Value, NotificationError> {
         return Err(NotificationError::InvalidLevel);
     }
     let path = home.join("settings.json");
-    let mut settings = read_object(&path);
-    settings.insert("notifications".into(), json!(level));
-    write_settings(&path, &settings)?;
+    write_settings(&path, level)?;
     Ok(json!({"level":level}))
 }
