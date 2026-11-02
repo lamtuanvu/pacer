@@ -172,7 +172,9 @@ test("service starts an asynchronous retention sweep and keeps health available"
   const { startServer } = await import("../src/serve/http");
   const server = startServer(() => ctx, { port: 0, listener: false, pumpMs: 0 });
   try {
-    const deadline = Date.now() + 3000;
+    // Maintenance now starts a separate source CLI process; its import time is
+    // outside the service request thread and varies on a loaded machine.
+    const deadline = Date.now() + 10000;
     while (!readTask(ctx, task.id)?.archived) {
       const response = await fetch(`http://127.0.0.1:${server.port}/health`);
       expect(response.status).toBe(200);
@@ -182,5 +184,5 @@ test("service starts an asynchronous retention sweep and keeps health available"
     }
     // Let the bounded-page sweep finish before disposing its home.
     await Bun.sleep(20);
-  } finally { server.stop(); }
+  } finally { await server.stop(); }
 });

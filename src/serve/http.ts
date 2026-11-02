@@ -1,5 +1,5 @@
 import { autoCleanSweep } from "../core/tasks";
-import { backfillFirstSettled } from "../insights/summary";
+import { startTaskHistory } from "../tasks/history";
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant } from "../dispatch/work";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
@@ -10,9 +10,7 @@ import { resetCaptureBroker } from "../desktop/capture-broker";
 import { configuredNativeServices } from "../update/desktop/native-provider";
 import type { PairedNativeBootstrap } from "../update/desktop/native-paired-bootstrap";
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
-import { backfillAttemptUsage } from "../tokens/store";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
-import { retentionScheduler } from "../tasks/retention";
 import { superviseTasks } from "../tasks/api";
 import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
@@ -69,9 +67,6 @@ export function startServer(
   reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),
     async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary));
-  // History gets its token index in the background; it reads logs and writes only attempt_usage.
-  try { backfillFirstSettled(initialCtx); } catch (error) { console.error(`pacer: first-settle backfill skipped: ${error instanceof Error ? error.message : String(error)}`); }
-  void backfillAttemptUsage(initialCtx).catch(error => console.error(`pacer: token usage backfill skipped: ${error instanceof Error ? error.message : String(error)}`));
   // Serving diagnostics must not wait on account configuration writes. New local
   // launches serialize with this job through the shared installation lock.
   void Promise.resolve().then(() => refreshConnectedIntegrations(initialCtx)).then(results => {
@@ -271,6 +266,7 @@ export function startServer(
     throw error;
   }
   void desktopUpdates.start().catch(() => { console.error("pacer: desktop update startup requires recovery"); });
+  const history = startTaskHistory(initialCtx);
   const unregisterJobs = registerJobDaemon(initialCtx);
   refreshSnapshot();
   let busy = false;
@@ -304,12 +300,6 @@ export function startServer(
   };
   const cleanStart = setTimeout(sweep, 0);
   const cleanTimer = setInterval(sweep, 60 * 60_000);
-  const retention = retentionScheduler();
-  const prune = () => {
-    if (!stopped) void retention.tick(getCtx()).catch(error => console.warn(`pacer: task retention failed: ${String(error)}`));
-  };
-  const retentionStart = setTimeout(prune, 0);
-  const retentionTimer = setInterval(prune, 60_000);
   let supervising = false;
   const supervise = () => {
     if (stopped || supervising) return;
@@ -361,8 +351,6 @@ export function startServer(
     stopped = true;
     clearTimeout(cleanStart);
     clearInterval(cleanTimer);
-    clearTimeout(retentionStart);
-    clearInterval(retentionTimer);
     clearInterval(supervisorTimer);
     clearInterval(certificationTimer);
     clearInterval(brokerTimer);
@@ -376,6 +364,6 @@ export function startServer(
     clearTimeout(scheduled);
     for (const watcher of watchers) watcher.close();
     server.stop(true);
-    return shutdownPlugins(initialCtx);
+    return Promise.all([history.stop(), shutdownPlugins(initialCtx)]).then(() => {});
   } };
 }

@@ -50,46 +50,56 @@ function importJson(ctx: Ctx, entry: Connection): void {
   const stat = statSync(dir, { bigint: true });
   const stamp = `${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`;
   if (entry.directoryStamp === stamp) return;
-  db.transaction(() => {
-    for (const name of readdirSync(dir)) {
-      if (!name.endsWith(".json") || !isTaskId(name.slice(0, -5))) continue;
-      const file = join(dir, name);
-      let task: TaskRecord, mtime: number;
-      try {
-        mtime = statSync(file).mtimeMs;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw error;
-      }
-      const row = db.query<{ rev: number; json_mtime: number | null }, [string]>(
-        "SELECT rev, json_mtime FROM tasks WHERE id = ?").get(name.slice(0, -5));
-      if (row?.json_mtime === mtime) continue;
-      try {
-        task = JSON.parse(readFileSync(file, "utf8")) as TaskRecord;
-        if (!task || !isTaskId(task.id) || name !== `${task.id}.json` ||
-          !Number.isFinite(task.createdAt) || !Array.isArray(task.attempts) ||
-          !task.attempts.every(a => a && Number.isFinite(a.startedAt) && Number.isFinite(a.endedAt)) ||
-          !["queued", "running", ...TERMINAL_STATES].includes(task.state) ||
-          typeof task.brief?.repo !== "string") throw Error("invalid task record");
-        task.rev ??= 1;
-        if (!Number.isSafeInteger(task.rev) || task.rev < 1) throw Error("invalid task revision");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`pacer: skipping corrupt task ${name}: ${String(error)}`);
-        continue;
-      }
-      // A restored older revision must not overwrite a newer DB revision.
-      // Database failures propagate: they must not masquerade as corrupt JSON.
-      db.query(`INSERT INTO tasks (${columns}, json_mtime) VALUES (${placeholders}, ?)
-        ON CONFLICT(id) DO UPDATE SET rev=excluded.rev, state=excluded.state,
-        created_at=excluded.created_at, updated_at=excluded.updated_at,
-        settled_at=excluded.settled_at, repo=excluded.repo, record=excluded.record, archived=excluded.archived,
-        json_mtime=excluded.json_mtime
-        WHERE excluded.rev > tasks.rev OR (excluded.rev = tasks.rev AND
-          (tasks.json_mtime IS NULL OR excluded.json_mtime > tasks.json_mtime))`)
-        .run(...values(task, activityAt(task)), mtime);
-      if (task.settledAt !== undefined) db.query("INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)").run(task.id, task.settledAt);
+  const pending: { task: TaskRecord; mtime: number }[] = [];
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith(".json") || !isTaskId(name.slice(0, -5))) continue;
+    const file = join(dir, name);
+    let task: TaskRecord, mtime: number;
+    try {
+      mtime = statSync(file).mtimeMs;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
     }
-  }).immediate();
+    const row = db.query<{ rev: number; json_mtime: number | null }, [string]>(
+      "SELECT rev, json_mtime FROM tasks WHERE id = ?").get(name.slice(0, -5));
+    if (row?.json_mtime === mtime) continue;
+    try {
+      task = JSON.parse(readFileSync(file, "utf8")) as TaskRecord;
+      if (!task || !isTaskId(task.id) || name !== `${task.id}.json` ||
+        !Number.isFinite(task.createdAt) || !Array.isArray(task.attempts) ||
+        !task.attempts.every(a => a && Number.isFinite(a.startedAt) && Number.isFinite(a.endedAt)) ||
+        !["queued", "running", ...TERMINAL_STATES].includes(task.state) ||
+        typeof task.brief?.repo !== "string") throw Error("invalid task record");
+      task.rev ??= 1;
+      if (!Number.isSafeInteger(task.rev) || task.rev < 1) throw Error("invalid task revision");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`pacer: skipping corrupt task ${name}: ${String(error)}`);
+      continue;
+    }
+    pending.push({ task, mtime });
+  }
+  // Scanning/parsing may fault on disk or take arbitrarily long. Acquire the
+  // writer only for bounded commits, and let SQL recheck revisions against
+  // concurrent writers rather than trusting the scan's earlier snapshot.
+  for (let offset = 0; offset < pending.length; offset += 64) {
+    const batch = pending.slice(offset, offset + 64).map(item => ({
+      ...item, bindings: values(item.task, activityAt(item.task)),
+    }));
+    db.transaction(() => {
+      for (const { task, mtime, bindings } of batch) {
+        db.query(`INSERT INTO tasks (${columns}, json_mtime) VALUES (${placeholders}, ?)
+          ON CONFLICT(id) DO UPDATE SET rev=excluded.rev, state=excluded.state,
+          created_at=excluded.created_at, updated_at=excluded.updated_at,
+          settled_at=excluded.settled_at, repo=excluded.repo, record=excluded.record, archived=excluded.archived,
+          json_mtime=excluded.json_mtime
+          WHERE excluded.rev > tasks.rev OR (excluded.rev = tasks.rev AND
+            (tasks.json_mtime IS NULL OR excluded.json_mtime > tasks.json_mtime))`)
+          .run(...bindings, mtime);
+        if (task.settledAt !== undefined) db.query("INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)").run(task.id, task.settledAt);
+      }
+    }).immediate();
+  }
   // Keep the pre-scan stamp: an atomic write during the scan is seen next time.
   entry.directoryStamp = stamp;
 }
@@ -104,6 +114,16 @@ function writeCompatibilityJson(ctx: Ctx, task: TaskRecord): number {
     rmSync(tmp, { force: true });
   }
   return statSync(file).mtimeMs;
+}
+
+/** Existing WAL stores can be opened by readers while another process writes. */
+function schemaReady(db: Database): boolean {
+  const fields = db.query<{ name: string }, []>("PRAGMA table_info(tasks)").all();
+  if (!["json_mtime", "archived"].every(name => fields.some(field => field.name === name))) return false;
+  const objects = new Set(db.query<{ name: string }, []>(
+    "SELECT name FROM sqlite_master WHERE type IN ('index', 'table')").all().map(row => row.name));
+  return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "task_first_settle"]
+    .every(name => objects.has(name));
 }
 
 function connection(ctx: Ctx) {
@@ -137,7 +157,7 @@ function connection(ctx: Ctx) {
     db.run("PRAGMA busy_timeout = 5000");
     db.run("PRAGMA journal_mode = WAL");
     db.run("PRAGMA synchronous = NORMAL");
-    db.transaction(() => {
+    if (!schemaReady(db)) db.transaction(() => {
       db.run(`CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL,
         updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0

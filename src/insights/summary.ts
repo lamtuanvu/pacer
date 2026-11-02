@@ -14,10 +14,22 @@ export type InsightsInput = z.infer<typeof insightsInputSchema>;
  */
 export function backfillFirstSettled(ctx: Ctx): number {
   const db = dispatchDatabase(ctx);
-  return db.query(`INSERT OR IGNORE INTO task_first_settle(task_id,at)
-    SELECT id, CASE WHEN json_array_length(record,'$.attempts')>1 AND json_extract(record,'$.attempts[0].endedAt') IS NOT NULL
-        THEN json_extract(record,'$.attempts[0].endedAt') ELSE json_extract(record,'$.settledAt') END
-    FROM tasks WHERE json_extract(record,'$.settledAt') IS NOT NULL`).run().changes;
+  const page = db.query<{ id: string; at: number }, [string | null]>(`SELECT id,
+    CASE WHEN json_array_length(record,'$.attempts')>1 AND json_extract(record,'$.attempts[0].endedAt') IS NOT NULL
+      THEN json_extract(record,'$.attempts[0].endedAt') ELSE json_extract(record,'$.settledAt') END AS at
+    FROM tasks WHERE (?1 IS NULL OR id < ?1)
+      AND NOT EXISTS (SELECT 1 FROM task_first_settle WHERE task_id=tasks.id)
+      AND json_extract(record,'$.settledAt') IS NOT NULL ORDER BY id DESC LIMIT 64`);
+  const insert = db.query("INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)");
+  let before: string | null = null, changes = 0;
+  for (;;) {
+    // JSON extraction/history traversal can be expensive: finish that read
+    // before acquiring the writer for this small, idempotent insert batch.
+    const rows = page.all(before);
+    if (!rows.length) return changes;
+    changes += db.transaction(() => rows.reduce((count, row) => count + insert.run(row.id, row.at).changes, 0)).immediate();
+    before = rows.at(-1)!.id;
+  }
 }
 
 interface Row { task_id: string; attempt: number; root_id: string; executor: string; kind: string | null; outcome: string | null; ladder_rule: string | null;
