@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, symlinkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ProviderCfg, loadStrategy } from "../src/config/strategy";
@@ -310,3 +310,53 @@ test("an owned claude-code headless run reports take over unavailable and keeps 
     expect((await running).exec.code).toBe(0);
   } finally { rmSync(release, { force: true }); cleanup(); }
 }, 30_000);
+
+
+test("a four-hour task launches through the direct provider", async () => {
+  const { ctx, repo, cleanup } = fixture(runners("codex", "headless"), { codex: CODEX });
+  try {
+    const created = selected(ctx, repo, "codex");
+    const task = updateTask(ctx, created.id, current => { current.timeoutS = 14400; });
+    const out = await runOwnedDirectCurrent(ctx, loadStrategy(ctx).providers.codex as ProviderCfg, task);
+    expect(out.exec.code).toBe(0);
+  } finally { cleanup(); }
+});
+
+test("a 5 KiB interactive Claude brief is published as a prompt file", async () => {
+  const { ctx, repo, cleanup } = fixture(runners("claude-code", "interactive"), { claude: CLAUDE });
+  try {
+    const goal = "x".repeat(5000), task = selected(ctx, repo, "claude-code", goal);
+    await runOwnedDirectCurrent(ctx, loadStrategy(ctx).providers["claude-code"] as ProviderCfg, task);
+    expect(readFileSync(join(readTask(ctx, task.id)!.run!.dir, "prompt.md"), "utf8")).toContain(goal);
+  } finally { cleanup(); }
+});
+
+test("a refused run directory settles the task once with the actual reason", async () => {
+  const { ctx, repo, cleanup } = fixture(runners("codex", "headless"), { codex: CODEX });
+  try {
+    const task = selected(ctx, repo, "codex");
+    updateTask(ctx, task.id, current => { current.state = "queued"; delete current.executor; delete current.executorProvider; });
+    symlinkSync(repo, join(ctx.pacerHome, "runs"));
+    const result = await runTask(ctx, task.id, deps(["codex"]));
+    expect(result.state).toBe("failed");
+    expect(result.attempts).toHaveLength(1);
+    expect(result.result?.report).toContain("executor run directory is unavailable");
+  } finally { cleanup(); }
+});
+
+test("a refusal after new worktree preparation clears the intent and removes the checkout", async () => {
+  const { ctx, repo, cleanup } = fixture(runners("codex", "headless"), { codex: CODEX });
+  try {
+    const task = updateTask(ctx, selected(ctx, repo, "codex").id, current => {
+      current.state = "queued"; delete current.executor; delete current.executorProvider;
+      current.placement = { requested: "new" }; current.brief.worktreeBase = "head";
+    });
+    symlinkSync(repo, join(ctx.pacerHome, "runs"));
+    const result = await runTask(ctx, task.id, deps(["codex"]));
+    expect(result.state).toBe("failed");
+    expect(result.attempts).toHaveLength(1);
+    expect(result.worktreeIntent).toBeUndefined();
+    const listing = await ctx.run(["git", "-C", repo, "worktree", "list", "--porcelain"], 10000);
+    expect(listing.stdout.match(/^worktree /gm)).toHaveLength(1);
+  } finally { cleanup(); }
+});

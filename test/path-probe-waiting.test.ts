@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { repoFs, stuckIO, waitingFor, WAITING_AFTER_MS } from "../src/core/path-probe";
 
 test("a stuck repo read is reported as waiting, shared by callers, and cleared when it returns", async () => {
+  expect(WAITING_AFTER_MS).toBe(10_000);
   const dir = mkdtempSync(join(tmpdir(), "pacer-waiting-")), fifo = join(dir, "HEAD");
   try {
     Bun.spawnSync(["mkfifo", fifo]);
@@ -13,7 +14,11 @@ test("a stuck repo read is reported as waiting, shared by callers, and cleared w
     expect(second).toBe(first);
     const mine = (now?: number) => stuckIO(now).filter(entry => entry.path === fifo);
     expect(mine()).toEqual([]);
-    expect(mine(Date.now() + WAITING_AFTER_MS)).toHaveLength(1);
+    expect(mine(Date.now() + 1_000)).toEqual([]);
+    const [entry] = mine(Date.now() + WAITING_AFTER_MS);
+    expect(entry).toBeDefined();
+    expect(mine(entry!.since + 9_999)).toEqual([]);
+    expect(mine(entry!.since + 10_000)).toHaveLength(1);
     // A writer releases the open, like a click on the macOS prompt.
     const writer = Bun.spawn(["/bin/sh", "-c", `printf 'ref: refs/heads/main\\n' > '${fifo}'`]);
     expect(await first).toBe("ref: refs/heads/main\n");

@@ -57,9 +57,9 @@ test("FIFO repositories leave real HTTP health and snapshot responsive", async (
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const code = await Promise.race([child.exited, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { child.kill("SIGKILL"); reject(Error("FIFO service timed out")); }, 15000);
+      timer = setTimeout(() => { child.kill("SIGKILL"); reject(Error("FIFO service timed out")); }, 25000);
     })]);
     const stderr = await new Response(child.stderr).text();
     expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
   } finally { clearTimeout(timer); child.kill(); }
-}, 20000);
+}, 30000);

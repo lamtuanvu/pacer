@@ -58,7 +58,7 @@ fn expiry_and_final_positions_reload_after_a_concurrent_writer() {
             assert_eq!(state.read(next).unwrap().unwrap()["state"], "failed");
         } else {
             assert_eq!(current["queue"]["position"], 1);
-            assert_eq!(current["queue"]["since"], 1);
+            assert_eq!(current["queue"]["since"].as_f64(), Some(1.0));
             assert_eq!(state.read(next).unwrap().unwrap()["queue"]["position"], 2);
         }
     }

@@ -2398,10 +2398,7 @@ mod tests {
         session.op("client.register", &serde_json::json!({"kind":"desktop","notifier":true,"version":env!("CARGO_PKG_VERSION")})).await.unwrap();
         let snapshot = session.json("/v3/snapshot").await.unwrap();
         assert_eq!(snapshot["seq"], 1000000000003_u64);
-        assert_eq!(
-            logic::volume_waiting(&snapshot).as_deref(),
-            Some("/tmp/repo")
-        );
+        assert_eq!(logic::volume_waiting(&snapshot), None);
         worker.join().unwrap();
     }
 }

@@ -637,6 +637,23 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         return { code: 2, out: "", err: explain(e) };
       }
     }
+    case "_task-history": {
+      if (rest.length) return { code: 2, out: "", err: "usage: pacer _task-history" };
+      const parentClosed = () => process.exit(0);
+      if (ctx.env.PACER_HISTORY_PARENT_PIPE === "1") {
+        process.stdin.once("end", parentClosed);
+        process.stdin.resume();
+      }
+      try {
+        await (await import("./tasks/history")).maintainTaskHistory(ctx);
+        return { code: 0, out: "", err: "" };
+      } catch (error) {
+        return { code: 1, out: "", err: `pacer: task history maintenance failed: ${explain(error)}` };
+      } finally {
+        process.stdin.removeListener("end", parentClosed);
+        process.stdin.pause();
+      }
+    }
     case "report": return reportCommand(rest, ctx);
     case "_session-hook":
       if (rest.length !== 1) return {code: 2, out: "", err: "usage: pacer _session-hook <run-dir>"};

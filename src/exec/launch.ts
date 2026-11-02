@@ -94,8 +94,9 @@ export function launchArgvFor(cfg: ProviderCfg, worktree: string, runDir: string
   throw Error(`no Orca terminal launcher for provider "${cfg.id}"`);
 }
 
-/** An interactive prompt over 32 KiB is passed as a run file; the argv names the file instead. */
-export const INTERACTIVE_PROMPT_BYTES = 32 * 1024;
+/** Leave room for the launch instruction within the plugin argv limit. */
+export const EXECUTOR_ARGV_BYTES = 4096;
+export const INTERACTIVE_PROMPT_BYTES = EXECUTOR_ARGV_BYTES - 512;
 export const promptFileInstruction = (promptFile: string) =>
   `Read the complete task instructions in ${JSON.stringify(promptFile)} and carry them out.`;
 
