@@ -10,6 +10,11 @@ export function reportSessionEnded(): void {
 }
 /** Ops that are v3-only, or whose /v2 result is frozen to an older shape. */
 const V3_OPS = new Set(["account.usage.check","dispatch.config.get", "runner.settings.get", "runner.settings.save", "task.list", "doctor.run", "project.strategy.list", "project.strategy.get", "project.strategy.set", "project.strategy.remove", "setup.check", "service.install", "onboarding.try", "onboarding.skip", "limits.refresh", "terminal.list", "terminal.create", "terminal.rename", "terminal.close", "msg.log", "msg.send", "msg.read", "msg.policy", "liveness.status"]);
+// Reads may still succeed over HTTP when the event transport is unavailable.
+function readOperation(op: string): boolean {
+  return /\.(get|list|status|summary|log|diff|session|preview|explain|show|search|tree|events|wait|models|analytics|dependencies|retry_options)$/.test(op)
+    || ['setup.check', 'plugin.ui.render', 'dispatch.enforcement', 'liveness.status', 'routing.route', 'msg.policy', 'session.file.read'].includes(op);
+}
 export type BrowserApi = Pick<ApiClient, "hello" | "snapshot" | "call"> & { setConnected?: (connected: boolean) => void };
 export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
   const terminalRequests=new TerminalActionRequests(()=>crypto.randomUUID());
@@ -56,9 +61,9 @@ export function createApi(onSessionEnded: () => void = () => {}): BrowserApi {
     hello: async () => { if (!version) return select(); const hello = validateHello(await request<Hello>(`/v${version}/hello`)); return version === 2 ? legacyHello(hello) : hello; },
     snapshot: async () => { if (!version) await select(); return request<Awaited<ReturnType<ApiClient["snapshot"]>>>(`/v${version}/snapshot`); },
     call: async <T>(op: string, params: unknown = {}): Promise<T> => {
-      if (!connected) throw new ApiError("offline", "pacer is offline");
+      if (!connected && !readOperation(op)) throw new ApiError("offline", "pacer is offline");
       if (!version) await select();
-      if (!connected) throw new ApiError("offline", "pacer is offline");
+      if (!connected && !readOperation(op)) throw new ApiError("offline", "pacer is offline");
       if (version === 2 && op.startsWith("desktop.update.")) throw new ApiError("unknown_op", "Desktop updates require a newer service.");
       const prepared=terminalRequests.prepare(op,params);
       params=prepared.params;

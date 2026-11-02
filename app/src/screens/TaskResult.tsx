@@ -94,7 +94,7 @@ export function MessageAnswer({ task, question, focus = false, onSent }: { task:
     setSentAnswer(params.body); input.current?.focus();
     if (answerDelivered(result.delivery) && params.reply_to) void api.call("msg.read", { ids: [params.reply_to] }).catch(() => undefined);
     onSent(result.delivery === "pending" ? "Answer recorded; delivery is not confirmed yet. The question stays open." : answerDeliveryWords(result.delivery, result.hold));
-    void runner?.refetch();
+    // Message events update the question and invalidate this task’s messages.
   });
   const log = useQuery<{ messages: ThreadMessage[] }>("msg.log", { task: task.id }, "", false, !!pending.item);
   useEffect(() => { if (log.data) pending.reconcile(log.data.messages); }, [pending, log.data]);

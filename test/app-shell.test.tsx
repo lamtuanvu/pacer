@@ -64,11 +64,11 @@ test("an older service sees an update notice on the new screens, not empty secti
   expect(renderToString(<Layout route={at("#/settings")} state={ready("2.0.0")} title="Settings"><p>body</p></Layout>)).toContain("<p>body</p>");
 });
 
-test("loading waits for the skeleton delay, never flashing the setup screen", () => {
+test("unknown setup shows a status before mounting Dispatch", () => {
   const html = renderToString(<Layout route={resolveRoute("#/", null) as Route} state={ready()} title="Overview"><p>body</p></Layout>);
   expect(html).not.toContain("pc-skeleton");
   expect(html).not.toContain("<p>body</p>");
-  expect(html).not.toContain("Setup");
+  expect(html).toContain("Checking setup");
 });
 
 test("session ended replaces the app", () => {
@@ -159,4 +159,17 @@ test('every settings destination has exactly one h1 in the real shell', async ()
     expect({path, headings:(html.match(/<h1\b/g) ?? []).length}).toEqual({path, headings:1});
     expect(html).toContain(`aria-label="Settings${path}"`);
   }
+});
+
+test("full-area loading is reserved for a missing snapshot", () => {
+  const html = renderToString(<Layout route={at("#/")} state={initialState()} title="Dispatch"><p>body</p></Layout>);
+  expect(html).not.toContain("<p>body</p>");
+});
+
+test('first-run routing waits for setup and then shows Setup before Dispatch', async () => {
+  const source = await Bun.file('app/src/main.tsx').text();
+  expect(source).not.toContain('state.snapshot && setupComplete === null ? true');
+  const { resolveRouteBeforeRender } = await import('../app/src/router');
+  expect(resolveRouteBeforeRender('#/',null).route.name).toBe('loading');
+  expect(resolveRouteBeforeRender('#/',false).route.name).toBe('setup');
 });

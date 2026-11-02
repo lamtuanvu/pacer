@@ -5,12 +5,13 @@ import { Skeleton } from "../../ds/Patterns";
 import type { RouteQuery } from "../../router";
 
 /** The composer is its own chunk, so app.js stays inside its gzip budget. */
+let resolvedView: ComponentType<{ query: RouteQuery }> | null = null;
 export function LazyNewTask({ query }: { query: RouteQuery }) {
-  const [View, setView] = useState<ComponentType<{ query: RouteQuery }> | null>(null), [error, setError] = useState(false), [attempt, setAttempt] = useState(0);
+  const [View, setView] = useState<ComponentType<{ query: RouteQuery }> | null>(() => resolvedView), [error, setError] = useState(false), [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
     setError(false);
-    void import("./NewTask").then(module => { if (active) setView(() => module.NewTask); }, () => { if (active) setError(true); });
+    void import("./NewTask").then(module => { resolvedView = module.NewTask; if (active) setView(() => module.NewTask); }, () => { if (active) setError(true); });
     return () => { active = false; };
   }, [attempt]);
   if (View) return <View query={query} />;

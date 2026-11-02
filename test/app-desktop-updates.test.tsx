@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { TaskContext } from "../app/src/screens/task-shared";
-import { initialState } from "../app/src/data/store";
+import { initialState, reduceStore } from "../app/src/data/store";
 import { emptySnapshot } from "../src/link/envelope";
 import { DesktopUpdate, UpdatesSection } from "../app/src/screens/settings/Updates";
 import { desktopStatus } from "./fixtures/desktop-update/status";
@@ -38,16 +38,24 @@ test("desktop status replaces the legacy update offer", () => {
   const html = renderToString(<TaskContext.Provider value={{ api, state: { ...initialState(), connected: true, features: { readModel: true, ops: new Set(["desktop.update.restart"]) }, snapshot: { ...emptySnapshot(), desktopUpdates: [status] } } }}><UpdatesSection initialData={{ current: "0.2.3", latest: "0.2.4", available: true }}/></TaskContext.Provider>);
   expect(html).toContain("Restart to update"); expect(html).not.toContain("Update and restart"); expect(html).not.toContain("Orca");
 });
-test("update conflicts refresh status and retain explicit failure rather than claiming another client succeeded", async () => {
+test("update conflicts retain explicit failure and wait for entity events", async () => {
   let refreshed = 0;
   const runner = createActionRunner({ call: async () => { throw new ApiError("conflict", "Status changed"); }, waitFor: async () => false, refetch: async () => { refreshed++; }, navigate() {} });
   const result = await runner.run("update", { label: "Restart to update", op: "desktop.update.restart", params: {} });
-  expect(result).toMatchObject({ status: "error", message: "Status changed" }); expect(refreshed).toBe(1);
+  expect(result).toMatchObject({ status: "error", message: "Status changed" }); expect(refreshed).toBe(0);
+  const old = desktopStatus({phase:'ready',revision:1,target:'0.2.4',actions:['restart']});
+  const next = desktopStatus({phase:'downloading',revision:2,target:'0.2.4',actions:['cancel']});
+  const state = {...initialState(),needsSnapshot:false,features:{readModel:true,ops:new Set<string>()},snapshot:{...emptySnapshot(),seq:1,desktopUpdates:[old]}};
+  const updated = reduceStore(state,{type:'event',event:{type:'desktop.update',seq:2,at:2,data:next}});
+  expect(updated.snapshot!.desktopUpdates![0]).toEqual(next);
+  const html = render(updated.snapshot!.desktopUpdates![0]!);
+  expect(html).toContain('Cancel update'); expect(html).not.toContain('Restart to update');
+
 });
-test("successful desktop requests refresh authoritative state", async () => {
+test("successful desktop requests wait for authoritative entity events", async () => {
   let refreshed = 0;
   const runner = createActionRunner({ call: async <T,>() => ({} as T), waitFor: async () => false, refetch: async () => { refreshed++; }, navigate() {} });
-  expect((await runner.run("update", { label: "Cancel update", op: "desktop.update.cancel", params: {} })).status).toBe("done"); expect(refreshed).toBe(1);
+  expect((await runner.run("update", { label: "Cancel update", op: "desktop.update.cancel", params: {} })).status).toBe("done"); expect(refreshed).toBe(0);
 });
 
 test("tray update indicator links shared settings without a second install mechanism", async () => {
