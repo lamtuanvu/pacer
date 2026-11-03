@@ -1,4 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#[cfg(target_os = "macos")]
+mod native_popover;
 macro_rules! desktop_log {
     ($($arg:tt)*) => { crate::logging::write(format_args!($($arg)*)) };
 }
@@ -346,29 +348,35 @@ fn show_service_version_notice(window: &WebviewWindow, raw_version: &str) {
 }
 
 #[tauri::command]
-fn tray_resize(window: WebviewWindow, app: AppHandle, height: f64) -> Result<(), String> {
+async fn tray_resize(window: WebviewWindow, app: AppHandle, height: f64) -> Result<(), String> {
     authorized_tray(&window, &app)?;
     let height = logic::tray_height(height).ok_or("Invalid height")?;
+    #[cfg(target_os = "macos")]
+    return native_popover::resize(&window, height).await;
+    #[cfg(not(target_os = "macos"))]
     window
         .set_size(tauri::LogicalSize::new(TRAY_WIDTH, height))
         .map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "macos"))]
     let positioned = position_tray(&window);
+    #[cfg(not(target_os = "macos"))]
     if window.is_visible().map_err(|e| e.to_string())? {
         positioned.map_err(|e| e.to_string())?;
     }
+    #[cfg(not(target_os = "macos"))]
     Ok(())
 }
 #[tauri::command]
-fn tray_open(window: WebviewWindow, app: AppHandle, route: String) -> Result<(), String> {
+async fn tray_open(window: WebviewWindow, app: AppHandle, route: String) -> Result<(), String> {
     authorized_tray(&window, &app)?;
     let route = logic::route(&route).ok_or("Invalid route")?;
     navigate(&app, &route);
-    window.hide().map_err(|e| e.to_string())
+    hide_tray(&window).await
 }
 #[tauri::command]
-fn tray_hide(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+async fn tray_hide(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     authorized_tray(&window, &app)?;
-    window.hide().map_err(|e| e.to_string())
+    hide_tray(&window).await
 }
 #[tauri::command]
 fn tray_login_item(
@@ -435,7 +443,9 @@ fn create_tray_window(app: &AppHandle, _origin: &str) -> Result<(), String> {
         })
         .build()
         .map_err(|error| error.to_string())?;
+    #[cfg(not(target_os = "macos"))]
     let blur = window.clone();
+    #[cfg(not(target_os = "macos"))]
     window.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Focused(false)) {
             let _ = blur.hide();
@@ -452,6 +462,24 @@ fn position_tray(window: &WebviewWindow) -> tauri::Result<()> {
     }
     window.move_window(Position::TopCenter)
 }
+async fn hide_tray(window: &WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    { native_popover::hide(window).await }
+    #[cfg(not(target_os = "macos"))]
+    { window.hide().map_err(|e| e.to_string()) }
+}
+async fn show_tray(app: &AppHandle, window: &WebviewWindow, toggle: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    { native_popover::show(app, window, toggle).await }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        if toggle && window.is_visible().map_err(|e| e.to_string())? { return hide_tray(window).await; }
+        position_tray(window).map_err(|e| e.to_string())?;
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())
+    }
+}
 fn toggle_tray(app: &AppHandle) {
     if app.state::<Shell>().session.lock().unwrap().is_none() {
         if let Err(error) = create_recovery_tray(app) {
@@ -459,13 +487,10 @@ fn toggle_tray(app: &AppHandle) {
         }
     }
     if let Some(window) = app.get_webview_window("tray") {
-        if window.is_visible().unwrap_or(false) {
-            let _ = window.hide();
-        } else {
-            let _ = position_tray(&window);
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = show_tray(&app, &window, true).await { desktop_log!("Unable to show tray: {error}"); }
+        });
     } else {
         show(app);
     }
@@ -1550,6 +1575,7 @@ fn main() {
         match _event {
             tauri::RunEvent::Reopen { .. } => show(_app),
             tauri::RunEvent::Exit => {
+                native_popover::shutdown();
                 if _app.state::<Shell>().maintenance.load(Ordering::SeqCst) {
                     _app.state::<Shell>().relaunch.lock().unwrap().take();
                     return;

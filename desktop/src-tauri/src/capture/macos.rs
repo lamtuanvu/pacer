@@ -6,6 +6,7 @@ use objc2::{
     runtime::{AnyClass, AnyObject, Bool},
 };
 use objc2_core_graphics::CGImage;
+use objc2_foundation::NSRect;
 use std::sync::{Arc, Mutex};
 use tauri::WebviewWindow;
 use tokio::sync::oneshot;
@@ -60,9 +61,27 @@ pub async fn capture(
     window: WebviewWindow,
     mode: CaptureMode,
 ) -> Result<CapturedImage, &'static str> {
-    let scale = window.scale_factor().map_err(|_| "window_unavailable")?;
-    let size = window.outer_size().map_err(|_| "window_unavailable")?;
-    if size.width > 16384 || size.height > 16384 {
+    // The tray webview is reparented into NSPopover. Its Tauri NSWindow and
+    // geometry are no longer the window or viewport being captured.
+    let (info_tx, info_rx) = oneshot::channel();
+    window.with_webview(move |webview| unsafe {
+        let view = webview.inner() as *mut AnyObject;
+        let actual: *mut AnyObject = msg_send![view, window];
+        if actual.is_null() { let _ = info_tx.send(None); return; }
+        let visible: bool = msg_send![actual, isVisible];
+        let frame: NSRect = msg_send![actual, frame];
+        let bounds: NSRect = msg_send![view, bounds];
+        let scale: f64 = msg_send![actual, backingScaleFactor];
+        let number: isize = msg_send![actual, windowNumber];
+        let _ = info_tx.send(if visible && number > 0 && scale > 0.0 {
+            Some((number, frame.size.width, frame.size.height, bounds.size.width, bounds.size.height, scale))
+        } else { None });
+    }).map_err(|_| "window_unavailable")?;
+    let (expected_number, point_width, point_height, viewport_width, viewport_height, display_scale) =
+        info_rx.await.map_err(|_| "window_unavailable")?.ok_or("window_unavailable")?;
+    let width = (point_width * display_scale).round();
+    let height = (point_height * display_scale).round();
+    if width <= 0.0 || height <= 0.0 || width > 16384.0 || height > 16384.0 || viewport_width <= 0.0 || viewport_height <= 0.0 {
         return Err("capture_failed");
     }
     let window_identity = Arc::new(Mutex::new(None::<String>));
@@ -72,7 +91,10 @@ pub async fn capture(
     match mode {
         CaptureMode::Content => {
             window.with_webview(move |webview| unsafe {
-                let number: isize = msg_send![webview.ns_window() as *mut AnyObject, windowNumber];
+                let actual: *mut AnyObject = msg_send![webview.inner() as *mut AnyObject, window];
+                if actual.is_null() { finish(&sender, Err("window_unavailable")); return; }
+                let number: isize = msg_send![actual, windowNumber];
+                if number != expected_number { finish(&sender, Err("window_unavailable")); return; }
                 *captured_identity.lock().unwrap() = Some(number.to_string());
                 let block_sender = sender.clone();
                 let completion = RcBlock::new(move |image: *mut AnyObject, error: *mut AnyObject| {
@@ -86,11 +108,12 @@ pub async fn capture(
             if !unsafe { CGPreflightScreenCaptureAccess() } {
                 return Err("permission_denied");
             }
-            let main = window.clone();
-            window.run_on_main_thread(move || unsafe {
+            window.with_webview(move |webview| unsafe {
                 let result = (|| -> Result<(), &'static str> {
-                    let ns_window = main.ns_window().map_err(|_| "window_unavailable")? as *mut AnyObject;
+                    let ns_window: *mut AnyObject = msg_send![webview.inner() as *mut AnyObject, window];
+                    if ns_window.is_null() { return Err("window_unavailable"); }
                     let number: isize = msg_send![ns_window, windowNumber];
+                    if number != expected_number { return Err("window_unavailable"); }
                     *captured_identity.lock().unwrap() = Some(number.to_string());
                     let manager = class(c"SCScreenshotManager")?;
                     let shareable = class(c"SCShareableContent")?;
@@ -112,8 +135,8 @@ pub async fn capture(
                             let filter = Retained::from_raw(filter).ok_or("capture_failed")?;
                             let configuration: *mut AnyObject = msg_send![class(c"SCStreamConfiguration")?, new];
                             let configuration = Retained::from_raw(configuration).ok_or("capture_failed")?;
-                            let _: () = msg_send![&*configuration, setWidth: size.width as usize];
-                            let _: () = msg_send![&*configuration, setHeight: size.height as usize];
+                            let _: () = msg_send![&*configuration, setWidth: width as usize];
+                            let _: () = msg_send![&*configuration, setHeight: height as usize];
                             let _: () = msg_send![&*configuration, setShowsCursor: Bool::NO];
                             let image_sender = outer_sender.clone();
                             let image_completion = RcBlock::new(move |image: *mut CGImage, error: *mut AnyObject| {
@@ -140,12 +163,9 @@ pub async fn capture(
     }
     let png = rx.await.map_err(|_| "capture_failed")??;
     let (width, _) = validate_image(&png)?;
-    let inner = window.inner_size().map_err(|_| "window_unavailable")?;
-    let viewport_width = inner.width as f64 / scale;
-    let viewport_height = inner.height as f64 / scale;
     let point_width = match mode {
         CaptureMode::Content => viewport_width,
-        CaptureMode::Window => size.width as f64 / scale,
+        CaptureMode::Window => point_width,
     };
     let scale = width as f64 / point_width;
     let window_id = window_identity

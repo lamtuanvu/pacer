@@ -77,19 +77,20 @@ pub fn validate_image(bytes: &[u8]) -> Result<(u32, u32), &'static str> {
     reader.finish().map_err(|_| "capture_failed")?;
     Ok((width, height))
 }
+fn capture_document_allowed(label: &str, url: &url::Url) -> bool {
+    crate::logic::bundled_document(url, label == "tray")
+        && (url.query().is_none() || (label == "tray" && url.query() == Some("compact=1")))
+}
 pub async fn capture_owned_window(
     app: &AppHandle,
     label: &str,
     mode: &str,
-    origin: &str,
+    _origin: &str,
 ) -> Result<CapturedImage, &'static str> {
     let mode = validate_request(label, mode)?;
     let window = app.get_webview_window(label).ok_or("window_unavailable")?;
     let url = window.url().map_err(|_| "window_unavailable")?;
-    if crate::logic::local_origin(&url).as_deref() != Some(origin)
-        || !url.path().starts_with("/app/")
-        || url.path() == "/app/auth"
-    {
+    if !capture_document_allowed(label, &url) {
         return Err("window_unavailable");
     }
     #[cfg(target_os = "macos")]
@@ -207,9 +208,15 @@ async fn owned_targets(app: &AppHandle) -> Vec<serde_json::Value> {
         for label in ["main", "tray"] {
             if let Some(window) = handle.get_webview_window(label) {
                 #[cfg(target_os = "macos")]
-                if let Ok(pointer) = window.ns_window() {
-                    let number: isize = unsafe { objc2::msg_send![pointer as *mut objc2::runtime::AnyObject, windowNumber] };
-                    targets.push(serde_json::json!({"label":label,"window_id":number.to_string(),"pid":std::process::id()}));
+                {
+                    let number = if label == "tray" {
+                        crate::native_popover::window_number()
+                    } else {
+                        window.ns_window().ok().map(|pointer| unsafe { objc2::msg_send![pointer as *mut objc2::runtime::AnyObject, windowNumber] })
+                    };
+                    if let Some(number) = number {
+                        targets.push(serde_json::json!({"label":label,"window_id":number.to_string(),"pid":std::process::id()}));
+                    }
                 }
             }
         }
