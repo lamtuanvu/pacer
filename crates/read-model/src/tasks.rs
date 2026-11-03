@@ -269,6 +269,16 @@ pub fn full_title(t: &Value) -> String {
         title.into()
     })
 }
+fn visible_task_state(t: &Value) -> Value {
+    if text(&t["state"]) == "running"
+        && truth(&t["question"])
+        && t["question"].get("answer").is_none()
+    {
+        json!("needs_input")
+    } else {
+        t["state"].clone()
+    }
+}
 pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
     let last = array(&t["attempts"]).last().unwrap_or(&Value::Null);
     let coalesce = |items: &[&Value]| {
@@ -284,15 +294,20 @@ pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
         &t["attemptStartedAt"],
         &t["reviewRequest"]["at"],
         &t["stopPending"]["requestedAt"],
+        &t["question"]["at"],
+        &t["question"]["answeredAt"],
     ]
     .iter()
     .map(|v| num(v))
     .fold(0.0, f64::max);
     let mut row = json!({
-    "id":t["id"],"title":if trim(text(&t["title"])).is_empty(){clip_points(&goal_title(text(&t["brief"]["goal"]),true),60)}else{clip_points(&full_title(t),60)},"state":t["state"],"goal":clip(text(&t["brief"]["goal"]),200),"executor":coalesce(&[&t["result"]["executor"],&t["executor"],&last["executor"]]),"backend":coalesce(&[&t["result"]["backend"],&t["backend"]]),"worktree":coalesce(&[&t["result"]["worktree"],&t["worktree"]]),"updatedAt":number(updated)}
+    "id":t["id"],"title":if trim(text(&t["title"])).is_empty(){clip_points(&goal_title(text(&t["brief"]["goal"]),true),60)}else{clip_points(&full_title(t),60)},"state":visible_task_state(t),"goal":clip(text(&t["brief"]["goal"]),200),"executor":coalesce(&[&t["result"]["executor"],&t["executor"],&last["executor"]]),"backend":coalesce(&[&t["result"]["backend"],&t["backend"]]),"worktree":coalesce(&[&t["result"]["worktree"],&t["worktree"]]),"updatedAt":number(updated)}
     );
     if truth(&t["placement"]["mode"]) && t["placement"].get("why").is_some() {
-        row["placement"] = t["placement"].clone();
+        row["placement"] = json!({"mode":t["placement"]["mode"],"why":t["placement"]["why"]});
+    }
+    if truth(&t["question"]) {
+        row["question"] = t["question"].clone();
     }
     for key in ["interactionMode", "conversation"] {
         if truth(&t[key]) {
