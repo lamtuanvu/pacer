@@ -746,27 +746,27 @@
       },
       {
         "name": "motion-aurora-shift",
-        "value": "16000ms",
+        "value": "4000ms",
         "provisional": "Shell board decorative motion; respects reduced motion."
       },
       {
         "name": "motion-aurora-breathe",
-        "value": "7000ms",
+        "value": "3000ms",
         "provisional": "Shell board decorative motion; respects reduced motion."
       },
       {
         "name": "motion-aurora-first",
-        "value": "9000ms",
+        "value": "2500ms",
         "provisional": "Shell board decorative motion; respects reduced motion."
       },
       {
         "name": "motion-aurora-middle",
-        "value": "11000ms",
+        "value": "3000ms",
         "provisional": "Shell board decorative motion; respects reduced motion."
       },
       {
         "name": "motion-aurora-last",
-        "value": "13000ms",
+        "value": "3500ms",
         "provisional": "Shell board decorative motion; respects reduced motion."
       }
     ]

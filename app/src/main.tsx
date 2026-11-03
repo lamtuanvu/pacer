@@ -1,4 +1,5 @@
 import { DesktopConnectionShell } from "./shell/DesktopConnection";
+import { changeScreen } from "./shell/screen-transition";
 import { PluginContext, usePluginCatalog } from "./plugins/catalog";
 import { discoveryNoticeHiddenOn, updateNoticeHiddenOn } from "./settings-pages";
 import { startPolling } from "./data/poll";
@@ -75,14 +76,15 @@ function App() {
       history.replaceState(null, '', accepted);
       if (navigating) return;
       navigating = true;
-      try { if (await canLeaveScreen()) { accepted=target; history.replaceState(null,'',target); setHash(target); } }
+      try { if (await canLeaveScreen()) { const from=accepted; accepted=target; history.replaceState(null,'',target); changeScreen(from, target, () => setHash(target)); } }
       finally { navigating=false; }
     };
     const stopControl = startClientControl(api, 'main', async route => {
       if (!await canLeaveScreen()) return false;
-      accepted = `#${route}`;
-      history.replaceState(null, '', accepted);
-      setHash(accepted);
+      const from = accepted, to = `#${route}`;
+      accepted = to;
+      history.replaceState(null, '', to);
+      changeScreen(from, to, () => setHash(to));
       return true;
     });
     window.addEventListener("hashchange", navigate);

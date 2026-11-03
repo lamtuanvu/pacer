@@ -257,6 +257,12 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
       && node.type === "CallExpression" && node.callee.type === "MemberExpression"
       && source.slice(node.callee.start ?? 0, node.callee.end ?? 0) === "panelElement.current.style.setProperty"
       && source.slice(value.start ?? 0,value.end ?? 0) === "String(width)") return;
+    // SortableList's drag offset is measured pointer travel or row pitch, a unitless geometry channel
+    // that CSS multiplies by the one-pixel token.
+    if (path === "app/src/ds/SortableList.tsx" && name === "--sortable-offset"
+      && node.type === "CallExpression" && node.callee.type === "MemberExpression"
+      && source.slice(node.callee.start ?? 0, node.callee.end ?? 0) === "row.style.setProperty"
+      && source.slice(value.start ?? 0,value.end ?? 0) === "String(value)") return;
     // These exact data channels are owned by the meter and are unitless clamped values.
     if (path === "app/src/ds/UsageMeter.tsx" && ["--used", "--pace"].includes(name)
       && value.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "clamp" && value.arguments.length === 1
