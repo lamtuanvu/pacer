@@ -62,24 +62,11 @@ function codexTrust(repo: string, root: string): string {
   return `projects={${[...new Set([repo, root])].map(path => `${JSON.stringify(path)}={trust_level="trusted"}`).join(",")}}`;
 }
 
-const INTERACTIVE_AGENTS = ["opencode", "codex", "claude-code", "cursor", "agy"];
 export interface LaunchModeChoice { mode: LaunchMode; explicit: boolean; fallback?: string }
 
-/** Strict delegation enforcement certifies headless launches only. */
-export const MANAGED_HEADLESS = "managed dispatch with strict delegation enforcement runs headless";
-
-/**
- * Runner `session:` > execution.launch_mode > interactive. Only a default-derived interactive mode falls back
- * to headless; `managed` (strict delegation enforcement) keeps it headless as before interactive became the default.
- */
-export function launchModeFor(cfg: Pick<ProviderCfg, "id" | "via" | "session">, exec: Pick<ExecutionCfg, "launchMode">, options: {managed?: boolean} = {}): LaunchModeChoice {
-  if (cfg.session) return {mode: cfg.session, explicit: true};
-  const mode = exec.launchMode ?? "interactive", parsed = parseRunnerId(cfg.id), agent = cfg.via === "opencode" ? "opencode" : parsed?.agent ?? cfg.id;
-  if (mode === "headless") return {mode, explicit: false};
-  if (options.managed) return {mode: "headless", explicit: false, fallback: MANAGED_HEADLESS};
-  if (parsed?.host) return {mode: "headless", explicit: false, fallback: "remote runners run headless"};
-  if (!INTERACTIVE_AGENTS.includes(agent)) return {mode: "headless", explicit: false, fallback: `no interactive launcher for ${agent}`};
-  return {mode, explicit: false};
+/** Explicit runner/strategy headless configuration is retained; defaults never downgrade. */
+export function launchModeFor(cfg: Pick<ProviderCfg, "id" | "via" | "session">, exec: Pick<ExecutionCfg, "launchMode">, _options: {managed?: boolean} = {}): LaunchModeChoice {
+  return {mode: cfg.session ?? exec.launchMode ?? "interactive", explicit: cfg.session !== undefined};
 }
 
 export interface Launch { argv: string[]; cwd: string; stdin?: string; lastMessageFile?: string }

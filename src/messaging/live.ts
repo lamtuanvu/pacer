@@ -133,7 +133,12 @@ export function finishLiveTurn(ctx: Ctx, t: TaskRecord, spawn?: SpawnRunner): vo
  * Take control as viewer `pacer`, paste the body, submit it, and hand control back. "refused": a viewer took control first;
  * "busy": with control held, the agent was no longer between turns, so nothing was typed.
  */
-async function typeIntoSession(path: string, body: string, deps: LiveDeps, stillIdle: () => boolean): Promise<"typed" | "refused" | "busy"> {
+export class SessionInputError extends Error {
+  constructor(error: unknown, readonly inputAttempted: boolean) { super(String(error)); }
+}
+
+export async function typeIntoSession(path: string, body: string, deps: LiveDeps, stillIdle: () => boolean): Promise<"typed" | "refused" | "busy"> {
+  let inputAttempted = false;
   const timeoutMs = deps.timeoutMs ?? 3000;
   const socket: Socket = createConnection(path);
   const decoder = new WireDecoder();
@@ -166,6 +171,7 @@ async function typeIntoSession(path: string, body: string, deps: LiveDeps, still
     while (!control.you && control.reason !== "refused" && !control.controller) control = await next();
     if (!control.you) return "refused";
     if (!stillIdle()) { await send(wire(FrameType.release, {})); return "busy"; }
+    inputAttempted = true;
     await send(wire(FrameType.input, Buffer.from(`${PASTE_START}${body}${PASTE_END}`)));
     // Give the agent's input box a moment to take the paste before it is submitted.
     if (deps.submitDelayMs ?? 150) await Bun.sleep(deps.submitDelayMs ?? 150);
@@ -174,6 +180,8 @@ async function typeIntoSession(path: string, body: string, deps: LiveDeps, still
     // The host applies frames in order: once control is back, the input reached the PTY.
     while ((await next()).you);
     return "typed";
+  } catch (error) {
+    throw new SessionInputError(error, inputAttempted);
   } finally {
     socket.end();
   }

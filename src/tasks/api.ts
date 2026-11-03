@@ -1,3 +1,4 @@
+import { visibleTaskState } from "./types";
 import { prepareCreationAdmission } from "./creation-admission";
 import { createHash } from "node:crypto";
 import { withLock } from "../core/lock";
@@ -81,7 +82,7 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
     interactive:a.interactive, group:a.group, messaging:a.messaging, ...(a.grant!==undefined?{grant:a.grant}:{}) };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
-  return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:t.state, kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
+  return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:visibleTaskState(t), kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
     ...(t.stopPending ? {stop_pending:t.stopPending} : {}),
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
@@ -344,6 +345,7 @@ function commitDelegate(
     kind: input.kind ?? null,
     requestedExecutor: input.executor ?? null,
     timeoutS: Math.round((input.timeoutMin ?? DEFAULT_TIMEOUT_MIN) * 60),
+    ...(input.interactive === false ? {interactive: false} : {}),
     ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}, interactive: true} : {}),
     ...(input.group ? {group: input.group} : {}),
   }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,input.dispatch??{},input.workParent,input.workGrant);else if(userStartedWork(ctx,s,input,created,origin)){managedSkip=strictCandidateSkip(ctx,s,input,selection,repo?.path??realpathSafe(input.brief.repo));if(!managedSkip)registerWork(ctx,created.id,{allowDelegation:true,delegationEnforcement:"strict"});}if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});

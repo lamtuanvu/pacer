@@ -1,3 +1,5 @@
+import { CoreError } from "../src/core/errors";
+import { pluginRegistry } from "../src/plugins";
 import { expect, test } from "bun:test";
 import { existsSync, symlinkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -158,7 +160,7 @@ async function strictWork(session = "") {
 }
 
 test("strict managed work through the runner launches claude with the certified Agent|Task guard", async () => {
-  const { ctx, id, cleanup } = await strictWork();
+  const { ctx, id, cleanup } = await strictWork("headless");
   try {
     const result = await runTask({ ...ctx, now: Date.now() / 1000 }, id, deps(["codex", "claude-code"]));
     expect(result.executorProvider).toBe("pacer-exec-direct");
@@ -358,5 +360,26 @@ test("a refusal after new worktree preparation clears the intent and removes the
     expect(result.worktreeIntent).toBeUndefined();
     const listing = await ctx.run(["git", "-C", repo, "worktree", "list", "--porcelain"], 10000);
     expect(listing.stdout.match(/^worktree /gm)).toHaveLength(1);
+  } finally { cleanup(); }
+});
+
+test("lease timeout after durable interactive exit reobserves the same run without starting again", async () => {
+  const {ctx,repo,cleanup} = fixture(runners("codex", "interactive"), {codex:CODEX});
+  try {
+    const task = selected(ctx,repo,"codex");
+    let calls = 0, firstDir: string | undefined;
+    const caller = {call: async (...args: Parameters<ReturnType<typeof pluginRegistry>["call"]>) => {
+      const result = await pluginRegistry(ctx).call(...args);
+      if (++calls === 1) {
+        firstDir = readTask(ctx,task.id)!.run!.dir;
+        throw new CoreError("plugin_timeout","executor.run lease expired after result was persisted");
+      }
+      return result;
+    }};
+    const out = await runOwnedDirectCurrent(ctx,loadStrategy(ctx).providers.codex as ProviderCfg,task,caller);
+    expect(calls).toBe(2);
+    expect(readTask(ctx,task.id)!.run!.dir).toBe(firstDir!);
+    expect(readTask(ctx,task.id)!.run!.attempt).toBe(1);
+    expect(out.exec.code).toBe(1); // Fixture exits cleanly without reporting completion.
   } finally { cleanup(); }
 });

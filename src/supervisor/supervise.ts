@@ -1,3 +1,4 @@
+import { activeDeadlineExpired, inputWaitStartedAt } from "./active-time";
 import type { RunState } from "./run";
 import { type RunIO, Unreachable } from "./io";
 import type { InteractionMode } from "../tasks/types";
@@ -6,12 +7,14 @@ export type SuperviseEnd = { kind: "reported" | "exited" | "timeout" | "stopped"
 
 export async function supervise(o: {
   interactionMode?: InteractionMode;
+  runDir?: string;
   io: RunIO; unreachableGraceMs?: number; deadlineMs: number; isStopped: () => boolean; pollMs?: number; graceMs?: number;
   now?: () => number; sleep?: (ms: number) => Promise<void>; onPoll?: (s: RunState) => Promise<"continue" | "idle" | "asked">;
 }): Promise<SuperviseEnd> {
   const now = o.now ?? (() => Date.now()), sleep = o.sleep ?? ((ms: number) => Bun.sleep(ms)), poll = o.pollMs ?? 2000;
   const stop = async (kind: SuperviseEnd["kind"]) => ({ kind, code: (await o.io.stop({ graceMs: o.graceMs ?? 5000, sleep })).code });
   let missing = 0, unreachableSince: number | null = null;
+  let deadline = o.deadlineMs, waitingSince: number | null = null;
   for (;;) {
     let s: RunState;
     try {
@@ -35,10 +38,14 @@ export async function supervise(o: {
       if (++missing > 1) return { kind: "lost", code: 137 };
     } else missing = 0;
     if (o.isStopped()) return stop("stopped");
-    if (o.interactionMode !== "conversation" && now() >= o.deadlineMs) return stop("timeout");
+    // A terminal waiting for input is still owned and answerable. Waiting time is not execution time.
+    const waiting = inputWaitStartedAt(s, now()) !== null;
+    if (waiting) waitingSince ??= Math.min(now(), (s.report?.at ?? now() / 1000) * 1000);
+    else if (waitingSince !== null) { deadline += now() - waitingSince; waitingSince = null; }
+    if (o.interactionMode !== "conversation" && (o.runDir ? activeDeadlineExpired(o.runDir, o.deadlineMs, s, now()) : !waiting && now() >= deadline)) return stop("timeout");
     // "asked": a delegated executor asked its parent and ended its turn; the run ends so the task can wait for the answer.
     const next = o.onPoll ? await o.onPoll(s) : "continue";
-    if (next !== "continue" && o.interactionMode !== "conversation") return stop(next);
+    if (next !== "continue" && !(s.interactive && next === "asked") && !waiting && o.interactionMode !== "conversation") return stop(next);
     await sleep(poll);
   }
 }
