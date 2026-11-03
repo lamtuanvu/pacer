@@ -182,8 +182,9 @@ export function TerminalScreen({ id: routeId, query, embedded = false, folder, c
     }}>
       <Tabs variant="terminal" id="terminal" label="Terminals" className="pc-workspace-terminal__tabs" value={selected?.id ?? ""} onChange={show}
         options={tabs.map(tab => ({ value: tab.id,
-          label: <><Icon name="status-terminal" />{tab.title}{!tab.live && tab.exit !== null ? ` · exited ${tab.exit}` : ""}</>,
-          buttonProps: { onDblClick: () => startRename(tab), title: `${folderHint(tab.cwd)} · double-click to rename${locked[tab.id] ? " · Only one window can type into this shell at a time" : ""}` },
+          leading: <Icon name="status-terminal" />,
+          label: <>{tab.title}{!tab.live && tab.exit !== null ? ` · exited ${tab.exit}` : ""}</>,
+          buttonProps: { onDblClick: () => startRename(tab), title: `${tab.title} · ${folderHint(tab.cwd)} · double-click to rename${locked[tab.id] ? " · Only one window can type into this shell at a time" : ""}` },
           replacement: renaming && selected?.id === tab.id ? <form onSubmit={event => { event.preventDefault(); void rename(); }}><TextInput aria-label="Terminal name" autoFocus value={newTitle} maxLength={80} onInput={event => setNewTitle(event.currentTarget.value)} onBlur={() => { if (!cancelRename.current && newTitle.trim()) void rename(); else setRenaming(false); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); cancelRename.current = true; setRenaming(false); } }} /></form> : undefined,
           trailing: selected?.id === tab.id ? <IconButton className="pc-terminal-tab-kill" size="sm" variant="quiet" aria-label={`Kill ${tab.title}`} title="Kill terminal" onClick={() => void close(tab)}>×</IconButton> : undefined,
         }))} />

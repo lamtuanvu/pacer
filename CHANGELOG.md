@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Identify workspace session tabs by task title and additional agent tabs by owning task, executor and session ordinal; refresh existing tab labels when task data arrives.
+
 - Keep delegated tasks interactive by default without implicit headless fallbacks; preserve answerable terminals and timeout accounting across input waits and supervisor reattachment. Built-in PTYs accept live sends and answers, and Orca retains unanswered workers.
 
 - Tighten the app UI for space and consistency: a narrower activity rail, one framed list with hairline rows for Tasks (grouped Running, Needs you, Accepted, Stopped) and the workspace list, two-line task and Needs you rows that wrap when narrow, single-line subtasks, consistent same-role font sizes, and status tint only on the selected or focused row.
