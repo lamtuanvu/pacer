@@ -64,7 +64,7 @@ JSON-RPC errors use `{ jsonrpc: "2.0", id, error: { code, message, data? } }`:
 | Route | Response |
 |---|---|
 | `POST /v3/session/exchange` | Bearer authentication only; creates an app cookie session, returns 204 with Set-Cookie and Cache-Control: no-store |
-| `GET /v3/hello` | `{ protocol, pacer, ops, events }`: protocol and pacer versions, operation names and event types |
+| `GET /v3/hello` | `{ protocol, pacer, ops, events, coreBuild }`: versions, operation names, event types and an optional diagnostic core build descriptor. The descriptor is a claim, not native proof. |
 | `GET /v3/snapshot` | `{ protocol, seq, snapshot }`: current snapshot and its sequence number |
 | `GET /v3/events?since=<seq>` | SSE events after `since` (default 0); `Last-Event-ID` overrides the query parameter |
 | `POST /v3/ops/<name>` | JSON params body; success is `200 { result }`, errors use the table above |
@@ -2183,6 +2183,89 @@ Params JSON Schema:
 ### `desktop.capture.targets`
 
 List owned windows reported by connected authenticated desktop capture workers.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `desktop.reconcile.cancel`
+
+Cancel reconciliation; unavailable until reconciliation is implemented.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "candidateId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    }
+  },
+  "required": [
+    "candidateId",
+    "expectRevision",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.reconcile.request`
+
+Request reconciliation of an inspected candidate; unavailable until native proof and implementation exist.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "candidateId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    }
+  },
+  "required": [
+    "candidateId",
+    "expectRevision",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.reconcile.status`
+
+Read bounded service reconciliation assessment; claims do not constitute native proof.
 
 Params JSON Schema:
 

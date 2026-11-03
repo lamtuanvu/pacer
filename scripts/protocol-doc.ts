@@ -240,6 +240,7 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
   ].join("\n");
   if (major === 2) return doc.replaceAll("legacy array until 3.0.", "legacy array during the 2.x overlap.");
   return doc.replaceAll("/v2/", "/v3/")
+    .replace("`{ protocol, pacer, ops, events }`: protocol and pacer versions, operation names and event types", "`{ protocol, pacer, ops, events, coreBuild }`: versions, operation names, event types and an optional diagnostic core build descriptor. The descriptor is a claim, not native proof.")
     .replace("Calls with only limit or no parameters retain the legacy summary array for the 2.x overlap.", "Calls with only limit or no parameters also return a page.")
     .replace("returns `{ tasks, next }` when any new filter/cursor parameter is supplied.", "always returns `{ tasks, next }`.")
     .replace("; `diff` remains an alias for patch in 2.x", "")

@@ -4,6 +4,10 @@ use std::collections::HashMap;
 pub fn main(argv: Vec<String>) -> i32 {
     let args = argv.get(1..).unwrap_or_default();
     let version = option_env!("PACER_BUILD_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+    if args.len() == 1 && args[0] == "--pacer-component-descriptor" {
+        println!("{}", component_descriptor(version));
+        return 0;
+    }
     if std::env::var_os("PACER_WORK_GRANT").is_some() && args.first().is_some_and(|a| a == "status")
     {
         eprintln!("pacer: work grants cannot read global status");
@@ -110,5 +114,23 @@ pub fn main(argv: Vec<String>) -> i32 {
                 1
             }
         }
+    }
+}
+
+fn component_descriptor(version: &str) -> serde_json::Value {
+    serde_json::json!({"schemaVersion": 1, "releaseVersion": version, "buildId": env!("PACER_COMPONENT_BUILD_ID"), "role": "front-door", "targetOs": env!("PACER_COMPONENT_TARGET_OS"), "targetArch": env!("PACER_COMPONENT_TARGET_ARCH")})
+}
+
+#[cfg(test)]
+mod component_descriptor_tests {
+    #[test]
+    fn descriptor_has_independent_build_identity_and_no_hashes() {
+        let value = super::component_descriptor("test-version");
+        assert_eq!(value["role"], "front-door");
+        assert_eq!(value["schemaVersion"], 1);
+        assert_ne!(value["buildId"], "test-version");
+        assert_eq!(value.as_object().unwrap().len(), 6);
+        assert!(!value["targetOs"].as_str().unwrap().is_empty());
+        assert!(!value["targetArch"].as_str().unwrap().is_empty());
     }
 }

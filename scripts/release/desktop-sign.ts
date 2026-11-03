@@ -5,6 +5,7 @@ import { command, DISK_IMAGE_IDENTIFIER } from "./desktop-verify";
 import { desktopAssetName, desktopDiskImageName, stableVersion, digest, type DesktopArch } from "./desktop-feed";
 import { stageDesktopPackage, verifyDesktopExecutable, verifyNativeLibrary } from "./desktop";
 import { signerRequirement } from "../../src/update/desktop/signer-requirement";
+import { encodePairManifest, measurePair, type ComponentDescriptor } from "../../src/update/desktop/build-identity";
 
 interface AppleSigning { signer?: "apple"; teamId: string; identity: string; keychain: string; notaryKey: string; notaryKeyId: string; notaryIssuer: string; signerKey: string; publicKey: string }
 /** Interim signer: the project's self-signed certificate. A bridge release also compiles a Team ID. */
@@ -48,13 +49,23 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
     verifyDesktopExecutable(readFileSync(permissionHelper), o.arch);
   }
   if (metadata.schema !== 1 || metadata.version !== o.version || metadata.arch !== o.arch || metadata.bundleId !== "dev.pacer.desktop" || metadata.admissionProtocol !== 1 || metadata.nativeTransportAbi !== 1 || metadata.rollbackCompatible !== true || JSON.stringify(metadata.protocolMajors) !== "[3]") throw Error("Desktop signing metadata mismatch");
+  if (metadata.pairManifestVersion !== undefined) throw Error("Unexpected staged pair manifest version");
   if (metadata.cliLayout !== undefined && metadata.cliLayout !== "paired") throw Error("Unknown desktop CLI layout");
   const paired = metadata.cliLayout === "paired", core = join(resources, "pacer-core");
+  const front = join(resources, "pacer"), pairPath = join(resources, "pacer-pair-manifest.json");
+  let pairDescriptors: [ComponentDescriptor, ComponentDescriptor] | undefined;
   if (paired) {
     const stat = lstatSync(core);
     if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) throw Error("Desktop core must be a regular executable");
     verifyDesktopExecutable(readFileSync(core), o.arch);
   } else if (existsSync(core)) throw Error("Legacy desktop contains an unverified core");
+  if (paired) {
+    if (existsSync(pairPath)) throw Error("Staged pair manifest already exists");
+    pairDescriptors = await Promise.all([front, core].map(async binary => JSON.parse(await run([binary, "--pacer-component-descriptor"])))) as [ComponentDescriptor, ComponentDescriptor];
+    // Validate claims before signing. They identify components but do not confer trust.
+    measurePair(pairDescriptors[0], pairDescriptors[1], new Uint8Array(), new Uint8Array());
+    if (pairDescriptors.some(d => d.releaseVersion !== o.version || d.targetOs !== "darwin" || d.targetArch !== (o.arch === "aarch64" ? "arm64" : "x64"))) throw Error("Desktop component descriptor mismatch");
+  }
   for (const [binary, role] of [[join(app, "Contents/MacOS/pacer"), "desktop"], [join(resources, "pacer-update-helper"), "update-helper"], [join(resources, "pacer"), "cli"], ...(paired ? [[core, "cli"]] : [])]) {
     const identity = JSON.parse(await run([binary, "--pacer-identity"]));
     if (identity.fixture !== false || identity.role !== role || identity.version !== o.version || identity.arch !== o.arch || identity.bundleId !== (role === "cli" ? "dev.pacer.cli" : "dev.pacer.desktop")) throw Error("Production signing requires production component identity");
@@ -63,7 +74,7 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
       : identity.appleTeamId === apple!.teamId && (identity.signingCertSha1 ?? null) === null;
     if (identity.otaMode !== "production" || !pinned || (role !== "cli" && identity.updaterKeySha256 !== digest(Buffer.from(c.publicKey)))) throw Error("Production signing requires matching compiled trust");
   }
-  writeFileSync(metadataPath, JSON.stringify({ ...metadata, fixture: false }, null, 2) + "\n");
+  writeFileSync(metadataPath, JSON.stringify({ ...metadata, fixture: false, ...(paired ? { pairManifestVersion: 1 } : {}) }, null, 2) + "\n");
   const entitlements = join(o.stage, "cli-entitlements.plist");
   // Bun JSC requires allow-jit. Native transport uses the signed same-Team dylib;
   // runtime C compilation is forbidden. Library validation stays enabled.
@@ -75,6 +86,9 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
     ...(existsSync(permissionHelper) ? [[permissionHelper, "dev.pacer.permission-setup", []] as [string, string, string[]]] : []),
     [app, "dev.pacer.desktop", []]];
   for (const [path, identifier, extra] of components) {
+    if (path === app && pairDescriptors) {
+      writeFileSync(pairPath, encodePairManifest(measurePair(pairDescriptors[0], pairDescriptors[1], readFileSync(front), readFileSync(core))), { flag: "wx" });
+    }
     // Library validation refuses a dylib whose self-signed certificate has no Team ID,
     // so interim builds omit hardened runtime (and its JIT entitlement) instead of
     // disabling validation. Apple's timestamp service accepts only Apple certificates.
@@ -82,6 +96,7 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
     else await run(["/usr/bin/codesign", "--force", "--sign", apple!.identity, "--keychain", c.keychain, "--identifier", identifier, "--options", "runtime", "--timestamp", ...extra, path], 120_000);
   }
   await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
+  if (pairDescriptors && readFileSync(pairPath, "utf8") !== encodePairManifest(measurePair(pairDescriptors[0], pairDescriptors[1], readFileSync(front), readFileSync(core)))) throw Error("Signed pair manifest binding mismatch");
   if (self) for (const [path, identifier] of components) await run(["/usr/bin/codesign", "--verify", "--strict", `-R=${signerRequirement(identifier, { appleTeamId: self.bridgeTeamId, signingCertSha1: self.certSha1 })}`, path]);
   // Smoke only native runner executables, after their final signatures.
   for (const binary of [join(resources, "pacer"), ...(paired ? [core] : []), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) await run([binary, "--version"]);
