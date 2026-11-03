@@ -61,3 +61,11 @@ test("full titles restore generated short labels without changing the compact AP
  expect(displayTitle({...row,goal})).toBe(goal);
  expect(taskHeading(displayTitle({...row,goal}))).toBe(shortTitle(goal));
 });
+
+test('task read model preserves batched unread messages alongside active session counts',()=>{
+ const ctx=fakeCtx(),task=record('done',ctx.now);
+ const counts=new Map([[task.id,{unread:3}]]);
+ const row=apiTask(ctx,task,undefined,counts,2);
+ expect(row.messages?.unreadForHuman).toBe(3);
+ expect(row.activeAgentSessions).toBe(2);
+});

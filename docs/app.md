@@ -7,6 +7,12 @@ pacer clients. Protocol [3.0](protocol.md) is current; `/v2` remains available f
 
 ## Workspace reads
 
+Workspace's Overview, Changes and Notes tabs stay visible while task details
+scroll. On phones they sit below the current header height and above the bottom
+navigation. The stacked task list and session share the remaining phone height,
+so task tabs are also visible on entry, before scrolling or moving keyboard focus.
+Switch tabs by pointer or use Left/Right and Home/End with a tab focused.
+
 Long active-panel identities ellipsize within the header; hover the identity or
 metadata for its full text. Status pills remain fully visible in both themes.
 

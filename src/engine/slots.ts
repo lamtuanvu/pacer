@@ -1,3 +1,5 @@
+import { addAgentSessionSlots } from "../session/agents-state";
+import type { Ctx } from "../types";
 import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import type { Strategy } from "../config/strategy";
 import { validateExecution } from "../config/execution";
@@ -15,7 +17,7 @@ export const SLOT_STATES: TaskRecord["state"][] = ["running", "needs_input"];
 export function holdsSlot(task: TaskRecord): boolean {
   return task.state === "running" || (task.state === "needs_input" && !!task.live && !task.retriedBy);
 }
-export function slotUse(tasks: TaskRecord[]): SlotUse {
+export function slotUse(tasks: TaskRecord[], ctx?:Ctx, exceptSession?:string): SlotUse {
   const use: SlotUse = {byExecutor: {}, byHost: {}, local: 0};
   for (const task of tasks) {
     if (!holdsSlot(task)) continue;
@@ -25,7 +27,7 @@ export function slotUse(tasks: TaskRecord[]): SlotUse {
     if (host) use.byHost[host] = (use.byHost[host] ?? 0) + 1;
     else use.local++;
   }
-  return use;
+  return ctx ? addAgentSessionSlots(ctx,use,exceptSession) : use;
 }
 /** `local` is the hard cap shared by local executors; null for remote runners or when no fixed cap is set. */
 export function slotLimit(s: Strategy, runnerId: string): {executor: number; host: number | null; local: number | null} {

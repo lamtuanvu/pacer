@@ -126,7 +126,7 @@ browserTest("tasks_list_restores_work_scroll_on_back", async () => {
         await page.waitForTimeout(50); // Deliver the scroll event that saves the list position.
         // Activate a real row link without Playwright scrolling it into view first.
         await page.locator('.pc-task-card a[href*="scroll-task-"]').first().evaluate(link => (link as HTMLElement).click());
-        await page.waitForFunction(() => location.hash.startsWith("#/tasks/"));
+        await page.waitForFunction(() => location.hash.startsWith("#/workspace?task="));
         await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop === 0);
         // Model rows whose layout becomes available after the first restoration frame.
         await page.evaluate(() => {

@@ -12,7 +12,7 @@ import {PolicyHashKeyError} from "./policy-key-error";
 
 type Decision = PolicyBeforeParams["decision"];
 type Input<D extends Decision> = Extract<PolicyBeforeParams,{decision:D}>["input"];
-export interface ApplyPolicyOptions extends Pick<PolicyEvaluationOptions,"eligibleRunnerIds"|"allowedPlacements"|"validateDelegate"|"signal"|"deadline"|"budgetDeadline"> {
+export interface ApplyPolicyOptions extends Pick<PolicyEvaluationOptions,"eligibleRunnerIds"|"allowedPlacements"|"validateDelegate"|"strictAmendments"|"signal"|"deadline"|"budgetDeadline"> {
   /** Fresh synchronous task/project/candidate/authority context, checked again before effects. */
   contextFingerprint: () => string;
 }

@@ -36,6 +36,7 @@ export async function prepareSession(
   const routing = await route(ctx, null, strategy, { repo: repo.key, conversation: true });
   const executors: SessionExecutor[] = [];
   for (const cfg of Object.values(strategy.providers)) {
+    if (input.executor && cfg.id !== input.executor) continue;
     const runner = resolveRunner(strategy, cfg.id),
       agent =
         cfg.via === "opencode"

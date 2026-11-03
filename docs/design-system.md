@@ -137,6 +137,15 @@ Authored screen CSS may own grids, flex placement, containment, overflow, sticky
 
 Narrow data-geometry adapters are explicit: `UsageMeter` supplies clamped numeric `--used`/`--pace`; AgentMark/Mark supply only `${size}px` through `--agent-size`/`--mark-size`; `TerminalView`'s `scale` function computes width/height solely from authoritative PTY cell/font metrics or measured xterm screen geometry. These do not permit arbitrary colors, typography or spacing. SVG path/viewBox/stroke geometry, intrinsic 1em icon dimensions, border hairlines, zero, percentages and responsive breakpoints follow the narrowly checked categories in UI-21. The tray resize effect supplies `--tray-menu-height` solely from the measured popup height plus its token-derived bottom offset (rounded up); it keeps the open menu inside the tray overflow boundary without a fixed height floor. Other measurements come from tokens.
 
+`AppFrame` also observes its top bar and supplies `--pc-frame-header-height` from
+the measured border-box height. Workspace uses this geometry only for its sticky
+task-detail navigation in the narrow frame, where the wrapping header shares the
+work area's scrollport. Wide task tabs stick within the side-panel scrollport;
+inline wrappers do not create extra overflow ancestors. The existing DS `Tabs`
+owns appearance, touch targets, roving focus, arrow/Home/End keys, selected state,
+panel associations and reduced-motion behavior. The frame measurement is original
+local code, narrowly checked by UI policy; it is not an authored spacing escape.
+
 ## Checks and evidence
 
 Run `bun run ui:check`, `bun run typecheck`, focused component/behavior tests, the integrated suite and builds. The checker scans every authored app tree, including shell, tray and terminal, and rejects controls outside DS, reverse imports and visual token bypass. Negative fixtures establish that violations actually fail.

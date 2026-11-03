@@ -1,3 +1,4 @@
+import { addAgentSessionSlots } from "../../session/agents-state";
 import { accountEvidenceScope } from "../../evidence/scope";
 import { eligibilityPresentation } from "../../view-model/eligibility";
 import type { Ctx } from "../../types";
@@ -20,12 +21,13 @@ export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: numb
   const host=t.host??(t.executor?resolveRunner(s,t.executor)?.host:null);
   if(host)use.byHost[host]=(use.byHost[host]??0)+1;else use.local++;
  }
+ if(ctx)addAgentSessionSlots(ctx,use);
  const jobs=ctx?listJobs(ctx):[];
  const planner=resolveRunner(s,st.planner)?.id??st.planner;
  const order=[...new Set([...(planner?[planner]:[]),...orderedExecutorIds(s)])];
  const rows:ExecutorRow[]=order.map((id,index)=>{
   const r=resolveRunner(s,id),p=st.providers.find(p=>p.id===id),account=r?.account??p?.account??parseRunnerId(id)?.account??"";
-  const host=r?.host??null,used=tasks.filter(t=>t.state==="running"&&t.executor===id).length,max=slotLimit(s,id).executor;
+  const host=r?.host??null,used=use.byExecutor[id]??0,max=slotLimit(s,id).executor;
   const limits=slotLimit(s,id), shared=limits.host ?? limits.local;
   const limitedBy=shared !== null && max > shared ? (host ? "host" as const : "machine" as const) : undefined;
   const enabled=r?.enabled!==false,lastCheck=ctx?readRunnerCheck(ctx,id):null,block=slotBlock(s,id,use);

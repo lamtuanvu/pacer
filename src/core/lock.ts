@@ -1,3 +1,4 @@
+import { CoreError } from './errors';
 import { closeSync, mkdirSync, openSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
@@ -41,7 +42,7 @@ export async function withLock<T>(
 
 /** Synchronous counterpart for store callers; shares lock files with withLock. */
 export function withLockSync<T>(
-  ctx: Ctx, name: string, fn: () => T, o: { timeoutMs?: number; staleMs?: number } = {},
+  ctx: Ctx, name: string, fn: () => T, o: { timeoutMs?: number; staleMs?: number; conflict?: boolean } = {},
 ): T {
   if (name.includes("/") || name.includes("\\") || name.includes("..")) throw new Error("invalid lock name");
   mkdirSync(lockDir(ctx), { recursive: true });
@@ -56,7 +57,7 @@ export function withLockSync<T>(
       try {
         if (Date.now() - statSync(file).mtimeMs > staleMs) { rmSync(file, { force: true }); continue; }
       } catch { continue; }
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${file}`);
+      if (Date.now() >= deadline) {if(o.conflict)throw new CoreError('conflict','Workspace admission is busy; refresh and retry');throw new Error(`timed out waiting for ${file}`);}
       Atomics.wait(wait, 0, 0, 50);
     }
   }
