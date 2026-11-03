@@ -4,6 +4,8 @@ Date: 2026-10-29
 
 Status: Proposed (accepted on merge)
 
+Current behavior: The opt-in retention and four-hour unanswered-worker expiry below are superseded by the interactive lifecycle fix: ordinary interactive tasks retain their workers while awaiting answers, without idle expiry. See [executor launch mode](../executors.md#launch-mode).
+
 ## Context
 
 Issue #452 asks for long-lived delegated lanes: a planner sends messages into a running executor, the executor can ask a question without losing its process, and many review rounds happen without rebuilding context. The maintainer's decisions are in the [interactive lanes design](../specs/2026-10-29-interactive-lanes-design.md): `pacer send` refuses while another caller drives the lane and `--force` takes over; answering an interactive lane delivers the answer into the running worker and respawns only once it has exited; `--group` nests lanes under one Orca parent worktree; and `--interactive` extends the `conversation` interaction mode rather than adding a third.

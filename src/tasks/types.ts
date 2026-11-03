@@ -331,3 +331,8 @@ export interface TaskRecord {
 }
 
 export type ManagedSkipReason = "interactive" | "unsupported" | "unverified" | "unavailable" | "refused";
+
+/** A live question needs an answer without surrendering the running attempt's ownership. */
+export function visibleTaskState(task: Pick<TaskRecord, "state" | "question">): TaskState {
+  return task.state === "running" && task.question && task.question.answer === undefined ? "needs_input" : task.state;
+}

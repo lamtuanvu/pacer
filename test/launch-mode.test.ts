@@ -1,3 +1,4 @@
+import { planOwnedLaunch } from "../src/plugins/executor-launch-plan";
 import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { folderKeys } from "../src/exec/claude-trust";
@@ -5,7 +6,7 @@ import { prepareInteractive } from "../src/session/reports";
 import { join } from "node:path";
 import { validateExecution } from "../src/config/execution";
 import { validateStrategy } from "../src/config/strategy";
-import { launchModeFor, MANAGED_HEADLESS } from "../src/exec/launch";
+import { launchModeFor } from "../src/exec/launch";
 import { resumeAttempt, runAttempt } from "../src/exec/direct";
 import { certifyExecutor, enforcementExclusion, resolveEnforcementTarget, STRICT_INTERACTIVE_REASON } from "../src/dispatch/enforcement";
 import { resolvePolicyRepoInput } from "../src/core/project-policy";
@@ -30,10 +31,10 @@ test("a runner's explicit session takes precedence over execution.launch_mode", 
   expect(launchModeFor(strategy.providers["claude-code"], validateExecution(strategy.execution))).toEqual({mode: "headless", explicit: true});
 });
 
-test("a default-derived interactive mode falls back to headless where interactive cannot work", () => {
+test("unsupported runners retain interactive mode so launch refuses instead of downgrading", () => {
   const exec = validateExecution(undefined);
-  expect(launchModeFor({...s.providers.codex, id: "codex@devbox"}, exec)).toEqual({mode: "headless", explicit: false, fallback: "remote runners run headless"});
-  expect(launchModeFor({...s.providers.codex, id: "gemini"}, exec)).toEqual({mode: "headless", explicit: false, fallback: "no interactive launcher for gemini"});
+  expect(launchModeFor({...s.providers.codex, id: "codex@devbox"}, exec)).toEqual({mode: "interactive", explicit: false});
+  expect(launchModeFor({...s.providers.codex, id: "gemini"}, exec)).toEqual({mode: "interactive", explicit: false});
   // An explicit interactive runner keeps today's behaviour, including its errors.
   expect(launchModeFor({...s.providers.codex, id: "gemini", session: "interactive"}, exec)).toEqual({mode: "interactive", explicit: true});
 });
@@ -54,14 +55,13 @@ function setup(name: string, script: string) {
   return {ctx, task};
 }
 
-test("a default-derived Codex launch below the hook-override version runs headless and records why", async () => {
-  const {ctx, task} = setup("codex", 'out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; *) shift;; esac; done; cat >/dev/null; echo "HEADLESS REPORT" > "$out"');
+test("a default-derived Codex launch below the hook version refuses without starting headless", async () => {
+  const {ctx, task} = setup("codex", "exit 0");
   ctx.run = async () => ({code: 0, stdout: "codex-cli 0.100.0", stderr: ""});
   const out = await runAttempt(ctx, s.providers.codex, task);
-  expect(out.exec.code).toBe(0);
-  expect(out.report).toContain("launch mode: headless (codex-cli 0.100.0 is below 0.162.1 and has no per-run hook overrides)");
-  expect(out.report).toEndWith("HEADLESS REPORT");
-  expect(readFileSync(join(readTask(ctx, task.id)!.run!.dir, "argv"), "utf8")).toStartWith("codex exec ");
+  expect(out.exec.code).toBe(127);
+  expect(out.report).toContain("below 0.162.1");
+  expect(readTask(ctx, task.id)!.run).toBeUndefined();
 });
 
 test("a default local task launches interactively and finishes when the agent reports", async () => {
@@ -181,12 +181,11 @@ test("a task worktree run approves no MCP servers when the source checkout's ans
   for (const key of ["enableAllProjectMcpServers", "disabledMcpjsonServers", "enabledMcpjsonServers"]) expect(settings).not.toHaveProperty(key);
 });
 
-test("an agent without an interactive launcher runs headless with the reason in the attempt note", async () => {
+test("an agent without an interactive launcher refuses", async () => {
   const {ctx, task} = setup("cursor-agent", "exit 0");
   const out = await runAttempt(ctx, {...s.providers.codex, id: "gemini"}, task);
   expect(out.exec.code).toBe(127);
-  expect(out.report).toContain("launch mode: headless (no interactive launcher for gemini)");
-  expect(out.report).toContain('no launcher for provider "gemini"');
+  expect(out.report).toContain('no interactive launcher for provider "gemini"');
 });
 
 test("execution.launch_mode headless launches the non-interactive CLI without a fallback note", async () => {
@@ -209,10 +208,10 @@ test("strict enforcement targets resolve the launch mode by the same precedence 
   ctx.which = name => name === "claude" ? binary : null;
   ctx.run = async () => ({code: 0, stdout: "2.1.281 (Claude Code)", stderr: ""});
   const base = {planner: "codex", accounts: {"claude-code": {kind: "claude"}, codex: {kind: "codex"}}};
-  // Managed work stays headless unless the runner itself asks for interactive.
+  // Managed work uses the same interactive default.
   const derived = validateStrategy({...base, runners: {"claude-code": {}}}, "/x");
-  expect((await resolveEnforcementTarget(ctx, derived, "claude-code", tmpDir())).launchMode).toBe("headless");
-  expect(await enforcementExclusion(ctx, derived, "claude-code", tmpDir())).toBe("Native subagent control has not been verified");
+  expect((await resolveEnforcementTarget(ctx, derived, "claude-code", tmpDir())).launchMode).toBe("interactive");
+  expect(await enforcementExclusion(ctx, derived, "claude-code", tmpDir())).toBe(STRICT_INTERACTIVE_REASON);
   const configured = await resolveEnforcementTarget(ctx, validateStrategy({...base, runners: {"claude-code": {}}, execution: {launch_mode: "headless"}}, "/x"), "claude-code", tmpDir());
   expect(configured.launchMode).toBe("headless");
   expect(configured.launchArgs).toContain("-p");
@@ -221,8 +220,8 @@ test("strict enforcement targets resolve the launch mode by the same precedence 
   expect(await enforcementExclusion(ctx, validateStrategy({...base, runners: {"claude-code": {session: "interactive"}}}, "/x"), "claude-code", tmpDir())).toBe(STRICT_INTERACTIVE_REASON);
 });
 
-test("managed dispatch keeps a default-derived launch mode headless", () => {
-  expect(launchModeFor(s.providers.codex, validateExecution(undefined), {managed: true})).toEqual({mode: "headless", explicit: false, fallback: MANAGED_HEADLESS});
+test("managed dispatch does not silently downgrade the interactive default", () => {
+  expect(launchModeFor(s.providers.codex, validateExecution(undefined), {managed: true})).toEqual({mode: "interactive", explicit: false});
   expect(launchModeFor(s.providers.codex, validateExecution({launch_mode: "headless"}), {managed: true})).toEqual({mode: "headless", explicit: false});
   expect(launchModeFor({...s.providers.codex, session: "interactive"}, validateExecution(undefined), {managed: true})).toEqual({mode: "interactive", explicit: true});
 });
@@ -256,7 +255,7 @@ async function strictWork(order: string[], requestedExecutor: string | null = nu
   ctx.run = (argv, ms, options) => argv[0] === codex ? Promise.resolve({code: 0, stdout: "codex-cli 0.164.0", stderr: ""})
     : argv[0] === claude ? Promise.resolve({code: 0, stdout: "2.1.281 (Claude Code)", stderr: ""}) : run(argv, ms, options);
   // codex asks for interactive; claude-code resolves headless by default but is not yet certified.
-  const runners = Object.fromEntries(order.map(id => [id, id === "codex" ? {session: "interactive", models: [{id: "provider/deep", tier: "frontier"}]} : {models: [{id: "provider/deep2", tier: "frontier"}]}]));
+  const runners = Object.fromEntries(order.map(id => [id, id === "codex" ? {session: "interactive", models: [{id: "provider/deep", tier: "frontier"}]} : {session: "headless", models: [{id: "provider/deep2", tier: "frontier"}]}]));
   const strategy = validateStrategy({planner: "cursor", accounts: {cursor: {kind: "cursor"}, "claude-code": {kind: "claude", usage: "unmetered"}, codex: {kind: "codex", usage: "unmetered"}}, runners}, "test");
   if (certified) await certifyExecutor(ctx, await resolveEnforcementTarget(ctx, strategy, "claude-code", (await resolvePolicyRepoInput(ctx, repo)).path), async () => ({attempted: true, blocked: true, childStarted: false, entries: ["Agent", "Task"]}));
   const task = createTask(ctx, {brief: {goal: "debug", repo}, kind: "debug", requestedExecutor, timeoutS: 60});
@@ -285,7 +284,7 @@ test("strict work waits when a certified headless runner is only out of reservat
   ctx.run = (argv, ms, options) => argv[0] === codex ? Promise.resolve({code: 0, stdout: "codex-cli 0.164.0", stderr: ""})
     : argv[0] === claude ? Promise.resolve({code: 0, stdout: "2.1.281 (Claude Code)", stderr: ""}) : run(argv, ms, options);
   const strategy = validateStrategy({planner: "cursor", accounts: {cursor: {kind: "cursor"}, "claude-code": {kind: "claude", usage: "unmetered"}, codex: {kind: "codex", usage: "unmetered"}},
-    runners: {codex: {models: [{id: "provider/deep", tier: "frontier"}]}, "claude-code": {session: "headless", models: [{id: "provider/deep2", tier: "frontier"}]}}}, "test");
+    runners: {codex: {session: "headless", models: [{id: "provider/deep", tier: "frontier"}]}, "claude-code": {session: "headless", models: [{id: "provider/deep2", tier: "frontier"}]}}}, "test");
   const resolved = await resolvePolicyRepoInput(ctx, repo);
   await certifyExecutor(ctx, await resolveEnforcementTarget(ctx, strategy, "claude-code", resolved.path), async () => ({attempted: true, blocked: true, childStarted: false, entries: ["Agent", "Task"]}));
   // A root that allows one running child, with one child already queued, refuses the sibling a reservation.
@@ -323,28 +322,23 @@ test("an explicit interactive launch under strict enforcement is refused at laun
   expect(readTask(ctx, task.id)!.run).toBeUndefined();
 });
 
-test("a strict attempt with a default-derived launch mode runs headless and records why", async () => {
-  const {ctx, task} = setup("codex", 'out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; *) shift;; esac; done; cat >/dev/null; echo "MANAGED" > "$out"');
-  let versionChecked = false;
-  const run = ctx.run;
-  ctx.run = async (argv, ...rest) => { if (argv[0] === "codex") versionChecked = true; return run(argv, ...rest); };
+test("strict enforcement refuses unsupported interactive launches rather than downgrading", async () => {
+  const {ctx, task} = setup("codex", "exit 0");
   const out = await runAttempt({...ctx, env: {...ctx.env, PACER_ENFORCEMENT_MODE: "strict"}}, s.providers.codex, task);
-  expect(out.exec.code).toBe(0);
-  expect(out.report).toContain(`launch mode: headless (${MANAGED_HEADLESS})`);
-  expect(out.report).toEndWith("MANAGED");
-  expect(versionChecked).toBe(false);
-  expect(readFileSync(join(readTask(ctx, task.id)!.run!.dir, "argv"), "utf8")).toStartWith("codex exec ");
+  expect(out.exec.code).toBe(1);
+  expect(out.report).toContain(STRICT_INTERACTIVE_REASON);
+  expect(readTask(ctx, task.id)!.run).toBeUndefined();
 });
 
-test("a Codex version that cannot be read falls back with that reason, not as too old", async () => {
+test("a Codex version that cannot be read refuses with the probe reason", async () => {
   const {ctx, task} = setup("codex", 'out=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; *) shift;; esac; done; cat >/dev/null; echo "HEADLESS" > "$out"');
   ctx.run = async () => ({code: 0, stdout: "codex-cli 0.170.0-alpha.1", stderr: ""});
   const out = await runAttempt(ctx, s.providers.codex, task);
-  expect(out.report).toContain('launch mode: headless (could not verify codex-cli version (unrecognized output "codex-cli 0.170.0-alpha.1"))');
+  expect(out.report).toContain('could not verify codex-cli version (unrecognized output "codex-cli 0.170.0-alpha.1")');
   expect(out.report).not.toContain("below 0.162.1");
   const missing = setup("codex", "exit 0");
   missing.ctx.run = async () => ({code: 127, stdout: "", stderr: `codex: command not found\n${"x".repeat(500)}`, timedOut: false});
-  expect((await runAttempt(missing.ctx, s.providers.codex, missing.task)).report).toContain("launch mode: headless (could not verify codex-cli version (codex --version exited 127: codex: command not found))");
+  expect((await runAttempt(missing.ctx, s.providers.codex, missing.task)).report).toContain("could not verify codex-cli version (codex --version exited 127: codex: command not found)");
 });
 
 test("resuming an attempt follows the recorded interactive run, not today's launch mode", async () => {
@@ -357,4 +351,15 @@ test("resuming an attempt follows the recorded interactive run, not today's laun
   expect(out.exec.code).toBe(0);
   expect(out.report).toContain("Interactive result");
   expect(out.report).not.toContain("terminal noise");
+});
+
+test("a Codex account routed through OpenCode uses no native Codex version probe or hook flags", async () => {
+  const {ctx,task}=setup("opencode","exit 0");
+  const cfg={...s.providers.codex,via:"opencode" as const};
+  const plan=await planOwnedLaunch(ctx,{cfg,task,execution:validateExecution(undefined),placement:"current",workdir:task.brief.repo,dir:tmpDir(),brief:"test",repoRoots:[task.brief.repo]});
+  expect("refused" in plan).toBe(false);
+  if ("refused" in plan) throw Error(plan.refused);
+  expect(plan.launch.argv[0]).toBe("opencode");
+  expect(plan.launch.argv).not.toContain("--dangerously-bypass-hook-trust");
+  expect(plan.files.some(f=>f.name==="report-hook.sh")).toBe(false);
 });

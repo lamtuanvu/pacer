@@ -239,7 +239,7 @@ export async function findLiveAnswerWorker(ctx: Ctx, c: OrcaClient, task: TaskRe
   const asked = task.retryOf ? readTask(ctx, task.retryOf) : task;
   if (!asked?.live || asked.live.backend !== "orca") return null;
   const answering = task.retryOf ? asked.question?.answer !== undefined : task.brief.qa?.length;
-  const problem = asked.interactionMode !== "conversation" ? "not an interactive lane"
+  const problem = asked.interactive === false ? "not an interactive lane"
     : !answering ? "a retry is not an answer" : asked.live.executor !== executor ? `the answer runs on ${executor}`
     : await liveAgentProblem(c, asked.live);
   if (problem) {

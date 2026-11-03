@@ -70,7 +70,7 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
       raw = await caller.call(ctx, ORCA_PROVIDER, "executor.run", {
         task: { id: task.id, rev: readTask(ctx, task.id)?.rev ?? task.rev }, attempt: session.attempt, runDir: 1,
         orca: { executor: cfg.id, model: cfg.model ?? null, timeoutMs: Math.max(1, Math.min(Math.ceil(task.timeoutS * 1000), 30 * 60 * 1000)),
-          ...(task.interactionMode === "conversation" ? { session: "interactive" as const } : {}) },
+          ...(task.interactive !== false ? { session: "interactive" as const } : {}) },
       }, { resources: { ...empty(), orcaAttempt: { taskId: task.id, attempt: session.attempt, providerId: ORCA_PROVIDER,
         executor: cfg.id, session: session.id } }, onProgress: () => {}, deadlineMs: task.timeoutS * 1000 + SETUP_BUDGET_MS });
     } catch (error) {

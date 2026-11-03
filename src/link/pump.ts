@@ -1,3 +1,4 @@
+import { visibleTaskState } from "../tasks/types";
 import { agentSessionsRevision } from '../session/agents-state';
 import { readProjectStrategies, type ProjectStrategyFile } from "../config/project-strategies";
 import { buildExecutors } from "../api/read-model/capacity";
@@ -42,8 +43,9 @@ export function acceptanceState(t: TaskRecord): import("./envelope").AcceptanceS
     : !t.brief.acceptance ? "none" : t.progress?.phase === "testing" ? "running" : "pending";
 }
 export function taskData(t:TaskRecord):TaskData & {title:string} {
-  const last=t.attempts.at(-1); return {id:t.id,title:taskTitle(t),state:t.state,goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0,t.reviewRequest?.at??0,t.stopPending?.requestedAt??0),
+  const last=t.attempts.at(-1); return {id:t.id,title:taskTitle(t),state:visibleTaskState(t),goal:clip(t.brief.goal,LIMITS.goal),executor:t.result?.executor??t.executor??last?.executor??null,backend:t.result?.backend??t.backend??null,worktree:t.result?.worktree??t.worktree??null,updatedAt:Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0,t.reviewRequest?.at??0,t.stopPending?.requestedAt??0,t.question?.at??0,t.question?.answeredAt??0),
     ...(t.placement?.mode && t.placement.why!==undefined ? {placement:{mode:t.placement.mode,why:t.placement.why}} : {}),
+    ...(t.question ? {question:t.question} : {}),
     ...(t.interactionMode ? {interactionMode:t.interactionMode} : {}),
     ...(t.conversation ? {conversation:t.conversation} : {}),
     acceptanceState: acceptanceState(t),

@@ -22,7 +22,7 @@ export interface RunSpec { interactionMode?: InteractionMode; takeover?: boolean
   umask?: string;
   /** Color flags the user's profile set, kept in an interactive PTY. */
   keepColor?: string[] }
-export interface RunState { controller?: string | null; interactive?: boolean; report?: SessionReport | null; pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
+export interface RunState { lastInputAt?: number | null; controller?: string | null; interactive?: boolean; report?: SessionReport | null; pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
 
 const num = (file: string): number | null => {
   try { const v = Number(readFileSync(file, "utf8").trim()); return Number.isFinite(v) && readFileSync(file, "utf8").trim() !== "" ? v : null; } catch { return null; }
@@ -98,6 +98,7 @@ export function readRun(dir: string): RunState {
   return {
     ...(interactive && controller ? {controller} : {}),
     ...(interactive ? {interactive: true, report: readReport(dir)} : {}),
+    lastInputAt: mtime(join(dir, "session.input")),
     pid, startedAt: num(join(dir, "started")), exit, stdoutBytes, stderrBytes,
     lastOutputAt: times.length ? Math.max(...times) : null,
     alive: exit === null && pid !== null && wrapperAlive(pid, dir),

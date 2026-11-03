@@ -1,3 +1,4 @@
+import { visibleTaskState } from "../tasks/types";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -35,6 +36,7 @@ export function getWork(ctx:Ctx,id:string): WorkNode|null {
   const row=dispatchDatabase(ctx).query<NodeRow,[string]>("SELECT * FROM work_nodes WHERE task_id=?").get(id);return row?node(row):null;
 }
 export function workRestartEligibility(ctx:Ctx,task:TaskRecord,work:WorkNode):{allowed:boolean;reason?:string}{
+ if(!task.archived && !task.review && !task.dismissed && task.state === "running" && task.question && task.question.answer === undefined) return {allowed:true};
  let reason:string|undefined;
  if(task.archived||!["failed","partial","limit","needs_input","stopped","done"].includes(task.state)||task.review?.accepted||task.state==="done"&&task.review?.accepted!==false)reason="Work is not eligible for another attempt";
  else if(task.state==="stopped"&&ctx.env.PACER_WORK_GRANT)reason="Only the owner may restart stopped work";
@@ -172,10 +174,10 @@ function listTokens(ctx:Ctx,id:string,attempts:Parameters<typeof attemptsWithTok
 export function listWork(ctx:Ctx,filter:{relation?:"roots"|"children"|"all";state?:string;repo?:string;before?:string;limit?:number}={}){
  const relation=filter.relation??"roots",limit=Math.min(100,Math.max(1,filter.limit??50));
  const rows=dispatchDatabase(ctx).query<NodeRow,[string,string,string,string,string,string,string,string,string,number]>(
-  "SELECT n.* FROM work_nodes n JOIN tasks t ON t.id=n.task_id WHERE (?='all' OR (?='roots' AND n.parent_id IS NULL) OR (?='children' AND n.parent_id IS NOT NULL)) AND (?='' OR t.state=?) AND (?='' OR json_extract(t.record,'$.repo.key')=?) AND (?='' OR n.task_id<?) ORDER BY n.task_id DESC LIMIT ?"
+  "SELECT n.* FROM work_nodes n JOIN tasks t ON t.id=n.task_id WHERE (?='all' OR (?='roots' AND n.parent_id IS NULL) OR (?='children' AND n.parent_id IS NOT NULL)) AND (?='' OR (CASE WHEN t.state='running' AND json_extract(t.record,'$.question.text') IS NOT NULL AND json_extract(t.record,'$.question.answer') IS NULL THEN 'needs_input' ELSE t.state END)=?) AND (?='' OR json_extract(t.record,'$.repo.key')=?) AND (?='' OR n.task_id<?) ORDER BY n.task_id DESC LIMIT ?"
  ).all(relation,relation,relation,filter.state??"",filter.state??"",filter.repo??"",filter.repo??"",filter.before??"",filter.before??"",limit+1);
  const page=rows.slice(0,limit);
- return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);return task?[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:task.state,rev:task.rev,executor:task.executor??task.requestedExecutor,createdAt:task.createdAt,review:task.review??null,branch:listBranch(task),tokens:listTokens(ctx,task.id,task.attempts)}]:[];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
+ return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);return task?[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:visibleTaskState(task),rev:task.rev,executor:task.executor??task.requestedExecutor,createdAt:task.createdAt,review:task.review??null,branch:listBranch(task),tokens:listTokens(ctx,task.id,task.attempts)}]:[];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
 }
 export function workTree(ctx:Ctx,id:string){
   const root=getWork(ctx,id);if(!root)throw new CoreError("unknown_task","Unknown work");
@@ -185,7 +187,7 @@ export function workTree(ctx:Ctx,id:string){
     const waivedChildren=dispatchDatabase(ctx).query<{dependency_id:string},[string]>("SELECT dependency_id FROM work_dependency_waivers WHERE task_id=?").all(work.taskId).map(row=>row.dependency_id);
     if(!task)return{...work,waivedChildren,title:"Archived work",state:"archived",rev:0,review:null,question:null,retryEligibility:{allowed:false,reason:"Archived work"},executor:null,model:null,actualModel:null,decisions,attempts:[],[TOKEN_ITEMS]:itemsFromIndex(ctx,work.taskId),createdAt:null,settledAt:null};
     const attempts=attemptsWithTokens(ctx,task.id,task.attempts).map(a=>({tokens:a.tokens,executor:a.executor,model:a.model??null,actualModel:a.actualModel??null,startedAt:a.startedAt,endedAt:a.endedAt,exitCode:a.exitCode,timedOut:a.timedOut,limitHit:a.limitHit,usageAtStart:a.usageAtStart??null,usageAtEnd:a.usageAtEnd??null}));
-    return {...work,waivedChildren,title:task.title??task.brief.goal,state:task.state,rev:task.rev,review:task.review??null,question:task.question??null,retryEligibility:workRestartEligibility(ctx,task,work),executor:task.executor??task.requestedExecutor,model:task.result?.model??task.attempts.at(-1)?.model??null,actualModel:task.attempts.at(-1)?.actualModel??null,decisions,attempts,createdAt:task.createdAt,settledAt:task.settledAt??null};
+    return {...work,waivedChildren,title:task.title??task.brief.goal,state:visibleTaskState(task),rev:task.rev,review:task.review??null,question:task.question??null,retryEligibility:workRestartEligibility(ctx,task,work),executor:task.executor??task.requestedExecutor,model:task.result?.model??task.attempts.at(-1)?.model??null,actualModel:task.attempts.at(-1)?.actualModel??null,decisions,attempts,createdAt:task.createdAt,settledAt:task.settledAt??null};
   });
   return {rootId:root.rootId,nodes,totals:workTotals(nodes,workWaitTotals(ctx,nodes.map(n=>n.taskId)))};
 }

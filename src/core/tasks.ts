@@ -1,3 +1,5 @@
+import { visibleTaskState } from "../tasks/types";
+import { directInputAvailable, sendDirectInput } from "../session/send";
 import { beginWorkSync, finishUnlaunchedWorkSync, validatePendingWorkSync } from "../update/desktop/admission";
 import { resolvePolicyRepo } from "./project-policy";
 import { taskDiff } from "../tasks/diff";
@@ -78,7 +80,7 @@ export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
     .filter(t => o.before === undefined || t.id < o.before)
     .map(t => taskStatus(ctx, t.id) ?? t)
     .filter(t => (o.repo === undefined || (t.repo ?? repoFor(ctx,t.brief.repo)).key === o.repo)
-      && (o.states === undefined || o.states.includes(t.state))
+      && (o.states === undefined || o.states.includes(visibleTaskState(t)))
       && (o.executor === undefined || (t.result?.executor ?? t.executor ?? t.attempts.at(-1)?.executor ?? t.requestedExecutor) === o.executor)
       && (o.since === undefined || t.createdAt >= o.since))
     .slice(0, o.limit ?? 20);
@@ -424,7 +426,7 @@ async function retryTask(
             : task.placement?.reason !== undefined ? {worktree_reason: task.placement.reason} : {}),
           ...(task.force ? { force: true } : {}),
           ...(executor ? { executor } : {}),
-          ...(task.interactive ? { interactive: true } : {}),
+          ...(task.interactive !== undefined ? { interactive: task.interactive } : {}),
           ...(task.group ? { group: task.group } : {}),
           // The retry belongs to whoever the original belongs to, not to whoever retried it.
           ...(origin ? { origin } : {}),
@@ -478,6 +480,10 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
   if (isExecutorSession(ctx)) throw new CoreError("not_allowed", "executors cannot delegate onward");
   if (typeof text !== "string" || text.length < 1 || text.length > 2000) throw new CoreError("invalid_input", "answer must contain 1–2000 characters");
   const current = readTask(ctx, id);
+  if (current && directInputAvailable(current)) {
+    const result = apiTask(ctx, await answerLiveTask(ctx, id, text, o.expectRev));
+    return {task: result, retry: result};
+  }
   let expectRev = o.expectRev;
   if (current && canContinue(ctx, current)) {
     // The same checks as the legacy path: revision, and an unanswered question.
@@ -504,3 +510,33 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
 }
 
 export { clean, cleanTask, autoCleanTask, autoCleanSweep, cleanTestHooks, verifiedTaskWorktreeRoot } from "../tasks/cleanup";
+
+/** Internal caller-authorized answer; keeps the existing interactive attempt and terminal. */
+export async function answerLiveTask(ctx: Ctx, id: string, text: string, expectRev?: number): Promise<TaskRecord> {
+  // Reserve before typing: the agent may ask its next question immediately after submission.
+  const {reserved, questionMessage} = withTaskLock(ctx, id, () => {
+    const task = readTask(ctx, id);
+    if (!task) throw unknown(id);
+    checkRev(ctx, task, expectRev);
+    if (!directInputAvailable(task) || !task.question || task.question.answer !== undefined)
+      throw new CoreError("conflict", "task is not waiting for a live answer");
+    const questionMessage = msgStore.thread(ctx, id).filter(m => m.kind === "question" &&
+      m.from === `task:${id}` && m.body === task.question!.text && m.createdAt === task.question!.at).at(-1);
+    const reserved = updateTask(ctx, id, t => { t.question!.answer = text; t.question!.answeredAt = ctx.now; });
+    return {reserved, questionMessage};
+  });
+  const same = (t: TaskRecord) => t.run?.dir === reserved.run?.dir &&
+    t.question?.at === reserved.question!.at && t.question?.text === reserved.question!.text &&
+    t.question?.answer === text && t.question?.answeredAt === ctx.now;
+  const delivered = await sendDirectInput(ctx, reserved, text, same);
+  if (!delivered.ok) {
+    // A socket error after a write is ambiguous: never silently resend or erase that reservation.
+    if (delivered.definite) withTaskLock(ctx, id, () => {
+      const task = readTask(ctx, id);
+      if (task && same(task)) updateTask(ctx, id, t => { delete t.question!.answer; delete t.question!.answeredAt; });
+    });
+    throw new CoreError(delivered.code, delivered.message);
+  }
+  if (questionMessage) readMessages(ctx, questionMessage.to, [questionMessage.id]);
+  return readTask(ctx, id)!;
+}

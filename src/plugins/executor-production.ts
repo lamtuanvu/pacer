@@ -1,3 +1,4 @@
+import { activeDeadlineExpired } from "../supervisor/active-time";
 import { EXECUTOR_ARGV_BYTES } from "../exec/launch";
 import { appendFileSync, existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -181,12 +182,17 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
       ...(inPlaceTop === undefined ? {} : { inPlaceTop }),
       ...(plan.agentSession ? { agentSession: plan.agentSession } : {}),
       ...(plan.turnResume ? { turnResume: plan.turnResume } : {}) } };
-  const raw = await caller.call(ctx, providerId, "executor.run",
+  let raw: unknown;
+  try { raw = await caller.call(ctx, providerId, "executor.run",
     { task: { id: task.id, rev: admitted.rev }, attempt, runDir: 1,
       owned: { placement, timeoutMs: task.timeoutS * 1000,
         ...(interactive ? { session: "interactive" as const } : {}),
         executor: cfg.id, model: cfg.model ?? null } },
-    { resources, onProgress: () => {}, deadlineMs: task.timeoutS * 1000 + 10_000 });
+    { resources, onProgress: () => {}, deadlineMs: interactive ? 60_000 : task.timeoutS * 1000 + 10_000 });
+  } catch (error) {
+    if (!interactive || !renewInteractive(ctx, task.id, error, {attempt, dir, executor: cfg.id})) throw error;
+    return resumeOwnedDirect(ctx, cfg, readTask(ctx, task.id)!, caller);
+  }
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "direct executor returned an invalid attempt outcome");
   const out = parsed.data;
@@ -273,6 +279,8 @@ export async function runOwnedDirectRemote(ctx: Ctx, cfg: ProviderCfg, task: Tas
   const providerId = "pacer-exec-direct", current = readTask(ctx, task.id);
   const strategy = loadStrategy(ctx), runner = resolveRunner(strategy, cfg.id);
   const alias = runner?.host, host = alias && strategy.hosts[alias];
+  if (task.interactive !== false && launchModeFor(cfg, validateExecution(strategy.execution)).mode === "interactive")
+    throw new CoreError("invalid_input", "Remote runners require explicitly configured headless execution");
   if (!current || !runner || !alias || !host || host.paused ||
     current.state !== "running" || current.stopPending || current.executorProvider !== providerId ||
     current.executor !== cfg.id || task.interactionMode === "conversation" || cfg.session === "interactive" ||
@@ -375,15 +383,20 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
     executorObserve: { taskId: task.id, attempt: run.attempt, providerId,
       executor: cfg.id, workdir: run.workdir, dir: run.dir,
       dirIdentity: { dev: dir.dev, ino: dir.ino }, startedAt: run.startedAt } };
-  const raw = await caller.call(ctx, providerId, "executor.run", {
-    task: { id: task.id, rev: observed.task.rev }, attempt: run.attempt, runDir: 1,
+  let raw: unknown;
+  for (;;) {
+  try { raw = await caller.call(ctx, providerId, "executor.run", {
+    task: { id: task.id, rev: readTask(ctx, task.id)!.rev }, attempt: run.attempt, runDir: 1,
     owned: { placement: run.mode, timeoutMs: task.timeoutS * 1000,
       ...(run.session === "interactive" ? { session: "interactive" as const } : {}),
       executor: cfg.id, model: cfg.model ?? null,
       resume: { startedAt: run.startedAt, logFile: run.logFile,
         ...(run.mode === "new" ? { worktree: run.workdir } : {}) } },
-  }, { resources, onProgress: () => {}, deadlineMs: Math.max(5_000,
+  }, { resources, onProgress: () => {}, deadlineMs: run.session === "interactive" ? 60_000 : Math.max(5_000,
     run.startedAt * 1000 + task.timeoutS * 1000 - Date.now() + 10_000) });
+    break;
+  } catch (error) { if (run.session !== "interactive" || !renewInteractive(ctx, task.id, error, run)) throw error; }
+  }
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "executor resume returned an invalid attempt outcome");
   const out = parsed.data, durable = inspectOwnedExecutorRun(ctx, task.id, run.attempt);
@@ -419,4 +432,17 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
     });
   });
   return out as AttemptOutcome;
+}
+
+/** Renew a finite provider observation lease only while the same task still owns a live run. */
+function renewInteractive(ctx: Ctx, id: string, error: unknown, expected: {attempt: number; dir: string; executor: string; startedAt?: number}): boolean {
+  if (!(error instanceof CoreError) || error.code !== "plugin_timeout") return false;
+  const task = readTask(ctx, id), run = task?.run;
+  if (!task || task.state !== "running" || task.stopPending || !run || run.host || run.session !== "interactive") return false;
+  if (run.attempt !== expected.attempt || run.dir !== expected.dir || run.executor !== expected.executor ||
+    expected.startedAt !== undefined && run.startedAt !== expected.startedAt || task.executorProvider !== "pacer-exec-direct") return false;
+  const state = readRun(run.dir);
+  // A lease can expire after the durable exit/report but before the outcome arrived. Reobserve; never START again.
+  if (state.exit !== null || state.report?.status === "done" || state.report?.status === "failed") return true;
+  return state.alive && state.exit === null && !activeDeadlineExpired(run.dir, run.startedAt * 1000 + task.timeoutS * 1000, state);
 }

@@ -54,7 +54,7 @@ Human-started delegated tasks can coordinate sub-agents through a scoped work gr
 default (`messaging.grants.user_started_tasks: on`). Use `pacer delegate --no-grant`,
 or `grant: false` with `task.delegate`, to opt out for one task. Planner delegates
 and conversations do not receive this default grant. Managed tasks run with strict
-enforcement and default to headless launches; their children use `dispatch.review`.
+enforcement; unsupported interactive launches are refused instead of silently changed to headless; their children use `dispatch.review`.
 
 `acceptance_timeout_min` (or `--acceptance-timeout-min`) is an integer from 1 to 120, default 10. It limits the acceptance command separately from the executor timeout. Retries preserve it. Timed-out results include `timedOut: true`, the deadline in the tail/summary, and a hint to raise this field.
 

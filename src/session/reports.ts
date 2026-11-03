@@ -208,7 +208,8 @@ export async function codexInteractiveGap(ctx: Ctx, env: Record<string, string |
 
 /** Conservative version floor for the per-invocation hook configuration we support. */
 export async function requireCodexInteractive(ctx: Ctx, env: Record<string, string | undefined>): Promise<void> {
-  if (await codexInteractiveGap(ctx, env)) throw Error("Codex interactive mode requires per-run hook overrides (codex-cli >= 0.162.1); upgrade this runner or use session: headless");
+  const gap = await codexInteractiveGap(ctx, env);
+  if (gap) throw Error(`Codex interactive mode requires per-run hook overrides (codex-cli >= 0.162.1): ${gap}; upgrade this runner or explicitly configure session: headless`);
 }
 
 export function reportCommand(args: string[], ctx: Ctx): Result {

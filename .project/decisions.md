@@ -2,6 +2,34 @@
 
 This log holds dated governance decisions, exceptions and superseded rules. Architectural decisions keep their ADRs in [docs/decisions/](../docs/decisions/); entries here link to them.
 
+## Scoped exception: interactive lifecycle local deployment (2026-11-03)
+
+Authority: @lamtuanvu explicitly instructed creation of the interactive-lifecycle
+PR, admin merge, build and deployment to the current machine after disclosure of
+the outstanding validation surfaces. This records that maintainer authorization;
+it is not an AI reviewer approval or a general governance amendment.
+
+Scope: this interactive-lifecycle change only, identified by reviewed source
+fingerprint `5d4cf83a58bba6ebb04630bd976ea0895d5bed90c3e271f6f65f3e5f78e3c25e`.
+For this PR and its one local deployment, outstanding CT-11 and applicable UI
+validation evidence may remain UNVERIFIED: real Orca retention/answers, other
+executors, live service restart/reattachment, TUI, native desktop/tray and manual
+keyboard/focus/VoiceOver coverage. Final-source web answer submission was not
+completed in the browser; CLI answer delivery and web waiting/control presentation
+passed, and an earlier revision passed the two-answer CLI-plus-web lifecycle.
+These gaps remain disclosed and are not converted to PASS.
+
+Basis: final independent code review found no unresolved substantive defects;
+affected automated coverage passed. Final-source native Codex waited 84.647 seconds
+against a 60-second execution budget, accepted an answer on the same attempt and
+completed with exit 0, no timeout and passing acceptance. This exception does not
+waive independent review of later edits, failed checks, security rules, DCO or
+build/deployment verification. Build and deployment follow merge and require their
+own evidence; no public release or remote deployment is authorized by this entry.
+
+Expiry: completion of this PR's first local deployment, or 2026-11-10 at 23:59 UTC,
+whichever occurs first. It cannot authorize subsequent changes or deployments.
+
 ## Log
 
 | Date | Decision | Rules affected | Decided by | Source |

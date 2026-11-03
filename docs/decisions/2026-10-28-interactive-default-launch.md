@@ -2,6 +2,8 @@
 
 Status: Proposed, 2026-10-28. Amends [ADR 0003](0003-interactive-conversations.md) and the specs named under "Superseded statements".
 
+Current behavior: The implicit headless fallback and default-derived strict-headless exceptions below are superseded by the interactive lifecycle fix: defaults never downgrade; unsupported strict interactive launches refuse without weakening certification. See [executor launch mode](../executors.md#launch-mode).
+
 ## Context
 
 Delegated tasks ran headless (`claude -p`, `codex exec`) unless a runner set `session: interactive`. Interactive runs can be watched and taken over, and they finish when the agent runs `pacer report`. Making them the default exposed three gaps.

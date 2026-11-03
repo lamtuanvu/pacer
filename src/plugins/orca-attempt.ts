@@ -525,7 +525,7 @@ export class OrcaAttemptSession {
         });
       });
       // An interactive lane's worker is owned through the task, so `pacer send` and `task.stop` can reach it.
-      if (task.interactionMode === "conversation") updateTask(ctx, task.id, t => {
+      if (task.interactive !== false) updateTask(ctx, task.id, t => {
         t.live = { backend: "orca", worker: dispatchId, terminal, executor: cfg.id, agent: p.agent, ...(this.incarnationId ? { incarnation: this.incarnationId } : {}), since: this.startedAt };
       });
     } catch (e) {
@@ -608,7 +608,7 @@ export class OrcaAttemptSession {
     const w = this.lastWait;
     if (w?.kind !== "settled" || w.state !== "needs_input") return false;
     if (this.mode === "reattach") return true;
-    return this.task.interactionMode === "conversation" && readTask(this.ctx, this.task.id)?.live?.worker === this.dispatchId;
+    return this.task.interactive !== false && readTask(this.ctx, this.task.id)?.live?.worker === this.dispatchId;
   }
 
   async finish(m: Mapped & { keepAlive: boolean }): Promise<AttemptOutcome> {
