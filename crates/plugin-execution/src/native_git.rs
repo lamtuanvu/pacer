@@ -24,6 +24,11 @@ pub struct NativeGit {
     repo: Image,
     home: PathBuf,
     env: HashMap<String, String>,
+    /// The sealed verification map: HOME/PATH plus `/dev/null` global config,
+    /// NOSYSTEM and no proxying. Verification prelude and directory inspection
+    /// run solely under this map; every other command runs under `env` (the
+    /// owner's full environment, D-1).
+    sealed: HashMap<String, String>,
 }
 /// Keeps cancellation from stranding an inspection database. Cleanup checks the
 /// created directory identity before traversing; a replacement is never ours.
@@ -211,14 +216,14 @@ impl NativeGit {
         executable: &str,
         env: &HashMap<String, String>,
     ) -> Result<Self, BrokerError> {
-        let mut private = HashMap::from([
+        let mut sealed = HashMap::from([
             ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
             ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
             ("GIT_TERMINAL_PROMPT".into(), "0".into()),
         ]);
         for k in ["HOME", "PATH"] {
             if let Some(v) = env.get(k) {
-                private.insert(k.into(), v.clone());
+                sealed.insert(k.into(), v.clone());
             }
         }
         Ok(Self {
@@ -226,11 +231,14 @@ impl NativeGit {
             image: Image::pin(executable, true)?,
             repo: Image::pin(repo.to_str().ok_or_else(denied)?, false)?,
             home: home.into(),
-            env: private,
+            env: env.clone(),
+            sealed,
         })
     }
-    pub async fn command(
+    /// Run a command under the owner environment map (ordinary phases).
+    async fn command_env(
         &self,
+        env: &HashMap<String, String>,
         args: &[String],
         input: &[u8],
         max: usize,
@@ -239,7 +247,7 @@ impl NativeGit {
         self.check_context()?;
         self.repo.check()?;
         let result =
-            native_command::run(&self.image, args, &self.env, input, 60000, max, deadline).await?;
+            native_command::run(&self.image, args, env, input, 60000, max, deadline).await?;
         self.repo.check()?;
         self.check_context()?;
         if result.timed_out {
@@ -247,8 +255,19 @@ impl NativeGit {
         }
         Ok(result)
     }
-    pub async fn text(
+    pub async fn command(
         &self,
+        args: &[String],
+        input: &[u8],
+        max: usize,
+        deadline: Instant,
+    ) -> Result<native_command::Output, BrokerError> {
+        self.command_env(&self.env, args, input, max, deadline)
+            .await
+    }
+    async fn text_env(
+        &self,
+        env: &HashMap<String, String>,
         repo: &str,
         args: &[&str],
         input: &[u8],
@@ -259,13 +278,35 @@ impl NativeGit {
             .chain(args.iter().copied())
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        let out = self.command(&argv, input, 1024 * 1024, deadline).await?;
+        let out = self
+            .command_env(env, &argv, input, 1024 * 1024, deadline)
+            .await?;
         if out.code != 0 {
             return Err(BrokerError::Effect(
                 "Git verification or publication failed".into(),
             ));
         }
         Ok(crate::js_semantics::trim(&String::from_utf8_lossy(&out.stdout)).into())
+    }
+    pub async fn text(
+        &self,
+        repo: &str,
+        args: &[&str],
+        input: &[u8],
+        deadline: Instant,
+    ) -> Result<String, BrokerError> {
+        self.text_env(&self.env, repo, args, input, deadline).await
+    }
+    /// The sealed counterpart to `text` for the verification prelude.
+    async fn sealed_text(
+        &self,
+        repo: &str,
+        args: &[&str],
+        input: &[u8],
+        deadline: Instant,
+    ) -> Result<String, BrokerError> {
+        self.text_env(&self.sealed, repo, args, input, deadline)
+            .await
     }
     pub fn repo(&self) -> Result<&str, BrokerError> {
         self.repo.canonical.to_str().ok_or_else(denied)
@@ -344,13 +385,13 @@ impl NativeGit {
         let bytes = ticket.read()?;
         let repo = self.repo()?;
         let email = self
-            .text(repo, &["config", "user.email"], &[], deadline)
+            .sealed_text(repo, &["config", "user.email"], &[], deadline)
             .await?;
         if email.is_empty() || email.contains(['\r', '\n', '\0']) {
             return Err(denied());
         }
         if self
-            .text(
+            .sealed_text(
                 repo,
                 &["rev-parse", "--verify", &format!("{base}^{{commit}}")],
                 &[],
@@ -362,15 +403,15 @@ impl NativeGit {
             return Err(denied());
         }
         let format = self
-            .text(repo, &["rev-parse", "--show-object-format"], &[], deadline)
+            .sealed_text(repo, &["rev-parse", "--show-object-format"], &[], deadline)
             .await?;
         if !matches!((format.as_str(), base.len()), ("sha1", 40) | ("sha256", 64)) {
             return Err(denied());
         }
-        self.text(repo, &["bundle", "verify", "/dev/fd/0"], &bytes, deadline)
+        self.sealed_text(repo, &["bundle", "verify", "/dev/fd/0"], &bytes, deadline)
             .await?;
         let listed = self
-            .text(
+            .sealed_text(
                 repo,
                 &["bundle", "list-heads", "/dev/fd/0"],
                 &bytes,
@@ -384,7 +425,7 @@ impl NativeGit {
             .ok_or_else(denied)?
             .to_owned();
         let objects = self
-            .text(
+            .sealed_text(
                 repo,
                 &[
                     "rev-parse",
@@ -416,14 +457,14 @@ impl NativeGit {
         };
         let inspected = inspection.to_str().ok_or_else(denied)?;
         let result = async {
-            self.text(
+            self.sealed_text(
                 inspected,
                 &["init", "--bare", "-q", &format!("--object-format={format}")],
                 &[],
                 deadline,
             )
             .await?;
-            let mut env = self.env.clone();
+            let mut env = self.sealed.clone();
             env.insert("GIT_ALTERNATE_OBJECT_DIRECTORIES".into(), objects);
             let run = async |args: Vec<String>, input: &[u8]| -> Result<String, BrokerError> {
                 self.check_context()?;

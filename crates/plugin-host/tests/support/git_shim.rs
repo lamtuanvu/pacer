@@ -1,31 +1,32 @@
 //! Owned `/bin/sh` git shim for NativeGit host tests.
 //!
 //! `shim()` writes `<root>/bin/git`, a `/bin/sh` script that wraps
-//! `/usr/bin/git`. Every invocation is appended to `<root>/git.log` as one line
-//! of `\x1f`-joined argv, so a test can prove exactly which Git commands were
-//! dispatched (the log path is baked in as a literal because the NativeGit
-//! owner env may be a sealed map that drops caller variables). `calls()` /
-//! `ran()` parse that log back.
+//! `/usr/bin/git`. Every invocation appends one record to `<root>/git.log`
+//! (mode 0600, created by the test): the argv as NUL-joined fields, then the
+//! separator `\x1f`, then the raw `/usr/bin/env -0` output, then the record
+//! separator `\x1e` and a newline. The log path is baked in as a literal
+//! because the native owner env (a sealed map) drops caller variables.
+//! `calls()` parses each record back into `(args, env)`; `ran()` checks the
+//! argv only. `without_shell()` strips the variables `/bin/sh` itself injects
+//! (`PWD`, `SHLVL`, `_`, `OLDPWD`) so exact key-set comparisons describe the
+//! sequence of commands the owner really provided.
 //!
 //! Rules let a test intercept specific argv (matched by substring of the
 //! space-joined argv) before real Git runs:
 //! * `Print(text)` writes `text`'s *exact bytes* to `<root>/shim-<n>.out` at
 //!   creation time and, on a match, `/bin/cat`s them to stdout and exits 0 --
-//!   no shell escaping or octal parsing, so arbitrary bytes (LF, TAB, BOM,
-//!   NBSP, non-ASCII) survive byte-for-byte;
+//!   no shell escaping or octal parsing, so arbitrary bytes survive;
 //! * `Exit(code)` exits with a code;
 //! * the default (no match) hands through to `/usr/bin/git`.
 //!
-//! The shim uses only `/bin/sh`, `/bin/cat` and `/usr/bin/git`; it sets no
-//! hooksPath, filters or LFS and touches no shared directory, so the real Git
-//! it execs reads only the isolated GIT_CONFIG_*/HOME the owner provides.
+//! The shim uses only `/bin/sh`, `/bin/cat`, `/usr/bin/env` and `/usr/bin/git`.
+//! It sets no hooksPath, filters or LFS and touches no shared directory.
 //!
-//! NOTE on scope: this only logs argv (which is all Task 4's dispatch
-//! assertions need). Full `/usr/bin/env -0` capture and exact-key-set
-//! assertions belong to the plan's env-split task (Task 1), which is out of
-//! scope here.
+//! Task 1 scope only: env capture plus the existing `Exec`/`Print`/`Exit`
+//! actions. `Sleep`/`Stdout`/`Stderr` belong to the future budget/error tasks.
 #![allow(dead_code)]
 use std::{
+    collections::{BTreeMap, HashMap},
     fs,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
@@ -48,16 +49,15 @@ pub fn shim(root: &Path, rules: &[(&str, Action)]) -> PathBuf {
     let bin = root.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let log = root.join("git.log");
-    fs::write(&log, b"").unwrap();
-    fs::set_permissions(&log, fs::Permissions::from_mode(0o600)).unwrap();
-
+    clear(root);
     let script = bin.join("git");
     let mut s = String::new();
     s.push_str("#!/bin/sh\nlog=");
     s.push_str(&single_quote(&log.to_string_lossy()));
-    // Log argv (one record per line, fields joined by \x1f); "$@" stays intact
-    // so the final `exec /usr/bin/git "$@"` sees the original argv.
-    s.push_str("\nall=\"$*\"\n{\n  n=0\n  for a in \"$@\"; do\n    if [ \"$n\" -ne 0 ]; then printf '\\037'; fi\n    printf '%s' \"$a\"\n    n=$((n+1))\n  done\n  printf '\\n'\n} >> \"$log\"\n");
+    // Append argv (NUL-joined), then the full environment, then a record
+    // separator. `env -0` dumps the environment inherited by the child, so the
+    // logged map is exactly what NativeGit dispatched to `native_command::run`.
+    s.push_str("\n{\n  for a in \"$@\"; do\n    printf '%s\\000' \"$a\"\n  done\n  printf '\\037'\n  /usr/bin/env -0\n  printf '\\036\\n'\n} >> \"$log\"\nall=\"$*\"\n");
     for (index, (needle, action)) in rules.iter().enumerate() {
         // Case pattern `*"<needle>"*` -> substring match of the joined argv.
         match action {
@@ -87,31 +87,78 @@ pub fn shim(root: &Path, rules: &[(&str, Action)]) -> PathBuf {
     script
 }
 
+/// Truncate the log so a caller can bracket one API call and inspect exactly
+/// the records that call produced.
+pub fn clear(root: &Path) {
+    let log = root.join("git.log");
+    fs::write(&log, b"").unwrap();
+    fs::set_permissions(&log, fs::Permissions::from_mode(0o600)).unwrap();
+}
+
 /// Build a POSIX-sh case pattern that matches any string whose space-joined form
-/// *contains* `needle` as a literal (no glob interpretation). Needle must not
-/// contain `"`, `$`, backtick or backslash (our needles are simple).
+/// *contains* `needle` as a literal (no glob interpretation).
 fn double_quoted_pattern(needle: &str) -> String {
     format!("\"{}\"*", needle)
 }
 
-/// Parse `<root>/git.log` back into per-invocation argv vectors.
-pub fn calls(root: &Path) -> Vec<Vec<String>> {
+/// Parse `<root>/git.log` back into per-invocation `(argv, env)` records.
+pub fn calls(root: &Path) -> Vec<(Vec<String>, HashMap<String, String>)> {
     let raw = fs::read(root.join("git.log")).unwrap_or_default();
-    raw.split(|b| *b == b'\n')
-        .filter(|line| !line.is_empty())
-        .map(|line| {
-            line.split(|b| *b == 0x1f)
-                .map(|field| String::from_utf8_lossy(field).into_owned())
-                .collect()
-        })
-        .collect()
+    let mut records = Vec::new();
+    for record in raw.split(|b| *b == 0x1e) {
+        let record = record.strip_suffix(b"\n").unwrap_or(record);
+        let sep = match record.iter().position(|b| *b == 0x1f) {
+            Some(i) => i,
+            None => continue,
+        };
+        let (argv, env) = (&record[..sep], &record[sep + 1..]);
+        let args = argv
+            .split(|b| *b == 0)
+            .filter(|f| !f.is_empty())
+            .map(|f| String::from_utf8_lossy(f).into_owned())
+            .collect();
+        let mut map = HashMap::new();
+        for pair in env.split(|b| *b == 0).filter(|f| !f.is_empty()) {
+            if let Some(eq) = pair.iter().position(|b| *b == b'=') {
+                map.insert(
+                    String::from_utf8_lossy(&pair[..eq]).into_owned(),
+                    String::from_utf8_lossy(&pair[eq + 1..]).into_owned(),
+                );
+            }
+        }
+        records.push((args, map));
+    }
+    records
 }
 
 /// True if any recorded invocation's space-joined argv contains `needle`.
 pub fn ran(root: &Path, needle: &str) -> bool {
     calls(root)
         .iter()
-        .any(|args| args.join(" ").contains(needle))
+        .any(|(args, _)| args.join(" ").contains(needle))
+}
+
+/// Shell variables `/bin/sh` injects, which are not part of any owner map.
+pub fn without_shell(env: &HashMap<String, String>) -> BTreeMap<String, String> {
+    env.iter()
+        .filter(|(k, _)| !matches!(k.as_ref(), "PWD" | "SHLVL" | "_" | "OLDPWD"))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
+
+/// The exact sealed verification map `NativeGit::prepare` builds from `env`.
+pub fn sealed_for(env: &HashMap<String, String>) -> BTreeMap<String, String> {
+    let mut m = BTreeMap::from([
+        ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+        ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
+        ("GIT_TERMINAL_PROMPT".into(), "0".into()),
+    ]);
+    for k in ["HOME", "PATH"] {
+        if let Some(v) = env.get(k) {
+            m.insert(k.into(), v.clone());
+        }
+    }
+    m
 }
 
 /// Single-quote a literal for use inside a shell single-quoted string.
