@@ -1512,6 +1512,59 @@
       "properties": {},
       "additionalProperties": false
     },
+    "DesktopReconcileCancelParams": {
+      "type": "object",
+      "properties": {
+        "candidateId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        },
+        "expectRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        }
+      },
+      "required": [
+        "candidateId",
+        "expectRevision",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "DesktopReconcileRequestParams": {
+      "type": "object",
+      "properties": {
+        "candidateId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        },
+        "expectRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+        }
+      },
+      "required": [
+        "candidateId",
+        "expectRevision",
+        "requestId"
+      ],
+      "additionalProperties": false
+    },
+    "DesktopReconcileStatusParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
     "DesktopUpdateAdoptParams": {
       "type": "object",
       "properties": {

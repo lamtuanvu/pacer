@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { compileTarget } from "./release/build";
@@ -48,7 +49,7 @@ export async function buildLocal(root: string): Promise<void> {
   };
   if (!existsSync(join(root, "Cargo.toml"))) return skip("no Cargo workspace");
   try {
-    const result = Bun.spawnSync(["cargo", "build", "--release", "-p", "pacer"], { cwd: root, env: { ...process.env, PACER_BUILD_VERSION: version }, stdout: "pipe", stderr: "pipe" });
+    const result = Bun.spawnSync(["cargo", "build", "--release", "-p", "pacer"], { cwd: root, env: { ...process.env, PACER_BUILD_VERSION: version, PACER_COMPONENT_BUILD_ID: randomUUID() }, stdout: "pipe", stderr: "pipe" });
     if (result.exitCode !== 0) throw Error(`cargo build failed (exit ${result.exitCode}):\n${result.stderr.toString().trim()}`);
     copyFileSync(join(root, "target", "release", "pacer"), join(root, "dist", "pacer"));
   } catch (error) {
