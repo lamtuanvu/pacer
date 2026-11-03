@@ -4,10 +4,9 @@ use serde_json::json;
 #[test]
 fn parses_escaped_lone_surrogates_and_preserves_them_across_metadata_changes() {
     let raw = r#"{"question":{"text":"a\ud83d"},"items":["\ude00","😀"],"rev":1}"#;
-    let original = WireReply::parse(raw).unwrap();
-    let mut value = original.preview().clone();
-    value["rev"] = json!(2);
-    let next = original.preserving(value);
+    let mut next = WireReply::parse(raw).unwrap();
+    next.put("/rev", WireReply::new(json!(2))).unwrap();
+    assert_eq!(next.preview()["rev"], json!(2));
     assert!(next.to_json().unwrap().contains(r#""text":"a\ud83d""#));
     assert!(next.to_json().unwrap().contains(r#""\ude00""#));
     assert!(next.into_value().is_err());

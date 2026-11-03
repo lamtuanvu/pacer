@@ -68,19 +68,6 @@ pub fn is_task_id(id: &str) -> bool {
 fn number(value: Option<&Value>) -> Option<f64> {
     value?.as_f64().filter(|v| v.is_finite())
 }
-fn import_numbers(value: &mut Value) {
-    match value {
-        Value::Number(n) => {
-            if let Some(n) = n.as_f64() {
-                // JSON.parse uses doubles; JSON.stringify writes negative zero as 0.
-                *value = if n == 0.0 { json!(0) } else { json!(n) };
-            }
-        }
-        Value::Array(values) => values.iter_mut().for_each(import_numbers),
-        Value::Object(values) => values.values_mut().for_each(import_numbers),
-        _ => (),
-    }
-}
 pub(crate) fn revision(task: &Value) -> Option<i64> {
     let value = task.get("rev")?.as_f64()?;
     if value.is_finite() && value.fract() == 0.0 && (1.0..=9_007_199_254_740_991.0).contains(&value)
@@ -165,7 +152,51 @@ fn activity_at(task: &Value) -> f64 {
         .chain(attempts),
     )
 }
-fn row_values(task: &Value, now: f64) -> Result<[SqlValue; 9]> {
+/// Indexed values that TS derives from its in-memory record before
+/// JSON.stringify. They are explicit so import can keep an Overflow number's
+/// infinity even though the record and its preview hold null.
+struct Derived {
+    updated_at: f64,
+    archived: bool,
+}
+impl Derived {
+    fn from_preview(task: &Value, now: f64) -> Self {
+        Self {
+            updated_at: now.max(activity_at(task)),
+            archived: truthy(task.get("archived")),
+        }
+    }
+    /// TS `values` (store.ts): `Math.max` over the activity fields without a
+    /// finite filter, and `archived` truthiness, where ±Infinity is truthy.
+    /// `valid` has already established a top-level attempts array.
+    fn from_import(wire: &WireReply) -> Result<Self> {
+        // Detach the exact attempts array once, so each timestamp lookup starts
+        // at the array rather than rescanning the root's members.
+        let attempts = wire.subtree("/attempts")?;
+        let count = attempts
+            .preview()
+            .as_array()
+            .ok_or(StoreError::InvalidRecord)?
+            .len();
+        let fields = [
+            "/createdAt",
+            "/attemptStartedAt",
+            "/review/at",
+            "/reviewRequest/at",
+        ]
+        .into_iter()
+        .map(|path| wire.number_at(path))
+        .chain((0..count).flat_map(|i| {
+            ["startedAt", "endedAt"].map(|key| attempts.number_at(&format!("/{i}/{key}")))
+        }));
+        Ok(Self {
+            updated_at: max_number(fields),
+            archived: truthy(wire.preview().get("archived"))
+                || wire.number_at("/archived").is_some_and(f64::is_infinite),
+        })
+    }
+}
+fn row_values(task: &Value, derived: Derived) -> Result<[SqlValue; 9]> {
     let id = field(task, "id").ok_or(StoreError::InvalidRecord)?;
     let state = field(task, "state").ok_or(StoreError::InvalidRecord)?;
     let settled = if TERMINAL.contains(&state) && settled_at(task).is_finite() {
@@ -178,12 +209,12 @@ fn row_values(task: &Value, now: f64) -> Result<[SqlValue; 9]> {
         SqlValue::Integer(revision(task).ok_or(StoreError::InvalidRecord)?),
         SqlValue::Text(state.into()),
         SqlValue::Real(number(task.get("createdAt")).ok_or(StoreError::InvalidRecord)?),
-        SqlValue::Real(now.max(activity_at(task))),
+        SqlValue::Real(derived.updated_at),
         settled,
         field(task.get("brief").ok_or(StoreError::InvalidRecord)?, "repo")
             .map_or(SqlValue::Null, |r| SqlValue::Text(r.into())),
         SqlValue::Text(serde_json::to_string(task)?),
-        SqlValue::Integer(i64::from(truthy(task.get("archived")))),
+        SqlValue::Integer(i64::from(derived.archived)),
     ])
 }
 fn parse_record(text: &str) -> Result<Value> {
@@ -413,23 +444,31 @@ impl TaskStore {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
                 Err(e) => return Err(e.into()),
             };
-            let Ok(original) = WireReply::parse(&String::from_utf8_lossy(&bytes)) else {
+            let Ok(mut task) = WireReply::parse(&String::from_utf8_lossy(&bytes)) else {
                 continue;
             };
-            let mut task = original.preview().clone();
-            if task.get("rev").is_none_or(Value::is_null) {
-                task["rev"] = json!(1);
-            }
-            if !valid(&task, id) {
+            // Only a missing or literal null rev defaults; an Overflow rev is a
+            // number (Infinity in TS), so validation skips the task.
+            if task.preview().get("rev").is_none_or(Value::is_null)
+                && task.number_at("/rev").is_none()
+                && task.put("/rev", WireReply::new(json!(1))).is_err()
+            {
                 continue;
             }
-            import_numbers(&mut task);
+            if !valid(task.preview(), id) {
+                continue;
+            }
+            task.normalize_js_numbers();
             // JSON.parse represents integral decimal and exponent forms as integers.
-            task["rev"] = json!(revision(&task).ok_or(StoreError::InvalidRecord)?);
-            let mut values = row_values(&task, activity_at(&task))?;
-            values[7] = SqlValue::Text(original.preserving(task.clone()).to_json()?);
+            let rev = revision(task.preview()).ok_or(StoreError::InvalidRecord)?;
+            task.put("/rev", WireReply::new(json!(rev)))?;
+            let derived = Derived::from_import(&task)?;
+            let mut values = row_values(task.preview(), derived)?;
+            // The exact document, including members and subtrees the preview withholds.
+            values[7] = SqlValue::Text(task.to_json()?);
             tx.execute("INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived,json_mtime) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET rev=excluded.rev,state=excluded.state,created_at=excluded.created_at,updated_at=excluded.updated_at,settled_at=excluded.settled_at,repo=excluded.repo,record=excluded.record,archived=excluded.archived,json_mtime=excluded.json_mtime WHERE excluded.rev>tasks.rev OR (excluded.rev=tasks.rev AND (tasks.json_mtime IS NULL OR excluded.json_mtime>tasks.json_mtime))", params_from_iter(values.into_iter().chain([SqlValue::Real(mtime)])))?;
-            if let Some(at) = number(task.get("settledAt")) {
+            // TS records ±Infinity here; settled_at above keeps its finite filter.
+            if let Some(at) = task.number_at("/settledAt") {
                 tx.execute(
                     "INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)",
                     params![id, at],
@@ -452,6 +491,10 @@ impl TaskStore {
         self.refresh()?;
         Ok(&self.db)
     }
+    /// A metadata preview of the stored record, not the record itself. It omits
+    /// members whose key is not scalar text, shows Overflow numbers and subtrees
+    /// deeper than the preview limit as null, and replaces lone surrogates with
+    /// U+FFFD. Use `read_wire` for the exact document.
     pub fn read(&mut self, id: &str) -> Result<Option<Value>> {
         if !is_task_id(id) {
             return Ok(None);
@@ -480,6 +523,7 @@ impl TaskStore {
             .map(|text| WireReply::parse(&text).map_err(StoreError::from))
             .transpose()
     }
+    /// Records are metadata previews, with the omissions documented on `read`.
     pub fn list(&mut self, filter: &TaskFilter<'_>) -> Result<Vec<Value>> {
         if filter.states == Some(&[][..]) || filter.limit == Some(0) {
             return Ok(Vec::new());
@@ -523,6 +567,7 @@ impl TaskStore {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         records.into_iter().map(|s| parse_record(&s)).collect()
     }
+    /// Records are metadata previews, with the omissions documented on `read`.
     pub fn list_live(&mut self) -> Result<Vec<Value>> {
         self.refresh()?;
         let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE json_extract(record, '$.live') IS NOT NULL ORDER BY id DESC")?;
@@ -531,6 +576,7 @@ impl TaskStore {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         records.into_iter().map(|s| parse_record(&s)).collect()
     }
+    /// Records are metadata previews, with the omissions documented on `read`.
     pub fn list_active_and_recent(&mut self, updated_since: f64) -> Result<Vec<Value>> {
         self.refresh()?;
         let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running')) ORDER BY id DESC")?;
@@ -558,7 +604,7 @@ impl TaskStore {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let values = row_values(task, now)?;
+        let values = row_values(task, Derived::from_preview(task, now))?;
         if tx.execute("INSERT OR IGNORE INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived) VALUES(?,?,?,?,?,?,?,?,?)", params_from_iter(values))? == 0 { return Err(StoreError::Collision); }
         admit(&tx)?;
         let mtime = write_json(&self.home, task, None)?;
@@ -756,11 +802,14 @@ fn persist_update(
     let task = wire.preview();
     let mut values = row_values(
         task,
-        if now.is_finite() {
-            now
-        } else {
-            current_seconds()
-        },
+        Derived::from_preview(
+            task,
+            if now.is_finite() {
+                now
+            } else {
+                current_seconds()
+            },
+        ),
     )?;
     let encoded = wire.to_json()?;
     let mtime = write_json(home, task, Some(&encoded))?;

@@ -440,9 +440,9 @@ fn reserve(
         }
         // Keep the existing preview/numeric/object-order no-op rule, but an
         // explicit fresh string must not equal a different UTF-16 sequence.
+        // The comparison is the admission parser's, on the exact queue at any depth.
         if current.preview() == &before
-            && crate::json::Value::parse(&prior_queue.to_json()?).map_err(fail)?
-                == crate::json::Value::parse(&current.subtree("/queue")?.to_json()?).map_err(fail)? {
+            && prior_queue.admission_json_eq(&current.subtree("/queue")?) {
             return Err(StoreError::Unchanged);
         }
         Ok(())
