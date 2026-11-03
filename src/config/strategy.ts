@@ -1,3 +1,4 @@
+import { privateDir, privateWrite } from "../private-file";
 import { parseDispatchConfig } from "./dispatch";
 import type { DispatchConfig } from "../dispatch/types";
 import { parseMessagingConfig, type MessagingConfig } from "../messaging/types";
@@ -327,7 +328,7 @@ export function useStrategy(ctx: Ctx, name: string): string {
   }
   const path = join(ctx.pacerHome, "strategies", `${name}.yaml`);
   parseFile(path, name); // validate before switching
-  mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(active, `${name}\n`);
+  privateDir(ctx.pacerHome, ctx.pacerHome);
+  privateWrite(active, `${name}\n`);
   return path;
 }

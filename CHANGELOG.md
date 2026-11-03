@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Security
+
+- Harden TypeScript strategy, project policy and integration writes with atomic private-file replacement. Preserve existing shared directory permissions and integration rollback owner modes; create missing directories with 0700 and tighten only explicitly owned pacer state directories.
+
 ### Added
 
 - Rust library effects for named strategy saves, routing and runner edits, and notification settings. The TypeScript runtime is unchanged.

@@ -1,5 +1,6 @@
-import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { privateWrite } from "../private-file";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { Document, isMap, isScalar, isSeq, parseDocument, stringify, type Node } from "yaml";
 import { validateStrategy } from "./strategy";
 
@@ -128,11 +129,11 @@ export class StrategyDoc {
 
 /** Same-directory rename prevents readers observing a partial strategy. */
 export function atomicStrategyWrite(path: string, text: string): void {
-  const temp = `${path}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temp, text, { flag: "wx", mode: statSync(path).mode & 0o777 });
-    renameSync(temp, path);
-  } finally { rmSync(temp, { force: true }); }
+  // Preserve the editor contract: only existing non-directory paths can be edited.
+  // Resolve the caller-selected parent once, then traverse its canonical path using
+  // no-follow descriptors. A later symlink swap cannot redirect publication.
+  if (statSync(path).isDirectory()) throw new Error("strategy path is a directory");
+  privateWrite(join(realpathSync(dirname(path)), basename(path)), text);
 }
 
 export function editStrategy(path: string, change: (doc: StrategyDoc) => void): { ok: true; diff: string } | { ok: false; error: string } {
