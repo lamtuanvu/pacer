@@ -2,7 +2,7 @@
 use crate::WireReply;
 use crate::{
     BrokerError, BundleSpec, NativeBundle, NativeGit, NativeSsh, RemoteHost, RemoteOperation,
-    native_command::denied,
+    native_command::{CommandFailure, denied},
     native_git::{facts, remote_preflight, transfer_owner},
     native_run::directory::RunDirectory,
 };
@@ -14,6 +14,10 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
+
+mod start;
+#[cfg(test)]
+mod tests;
 
 pub struct RemoteTransport {
     home: PathBuf,
@@ -83,18 +87,36 @@ impl RemoteTransport {
             60000
         };
         let lease = if mutating {
-            Some(crate::WorkLease::begin(
+            let label = format!(
+                "Remote {} operation on {}",
+                start::operation_label(name)?,
+                self.ssh.config.alias
+            );
+            let blocker = uuid::Uuid::new_v4().to_string();
+            Some(crate::WorkLease::begin_blocker(
                 &self.home,
-                &self.ssh.config.alias,
-                &format!("Remote {name} on {}", self.ssh.config.alias),
+                crate::Blocker {
+                    kind: crate::BlockerKind::Operation,
+                    id: &blocker,
+                    label: &label,
+                },
             )?)
         } else {
             None
         };
+        if let Some(lease) = &lease {
+            // TS registry.ts:425/497/572: re-check after admission, before
+            // dispatch. Synchronous; the finish error wins (D5).
+            if let Err(error) = self.active() {
+                lease.finish()?;
+                return Err(error);
+            }
+        }
         let nonce = lease.as_ref().map(|lease| lease.id().to_owned());
-        let mut result = self
+        // No `.await` between begin_blocker and the spawn inside run_tracked.
+        let mut result = match self
             .ssh
-            .run(
+            .run_tracked(
                 name,
                 args,
                 nonce.as_deref(),
@@ -103,22 +125,33 @@ impl RemoteTransport {
                 max,
                 self.deadline,
             )
-            .await?;
-        self.active()?;
-        if !result["timedOut"].as_bool().unwrap_or(true)
-            && let Some(nonce) = nonce
+            .await
+        {
+            Ok(result) => result,
+            Err(CommandFailure::Undispatched(error)) => {
+                if let Some(lease) = &lease {
+                    lease.finish()?;
+                }
+                return Err(error);
+            }
+            // The effect may have begun: the lease stays pending.
+            Err(CommandFailure::Dispatched(error)) => return Err(error),
+        };
+        if result["timedOut"] == false
+            && let (Some(lease), Some(nonce)) = (&lease, &nonce)
         {
             let suffix = format!("\n__PACER_DONE__={nonce}\n");
             let text = result["stdout"]
                 .as_str()
                 .ok_or_else(denied)?
                 .strip_suffix(&suffix)
-                .ok_or_else(denied)?;
+                .ok_or_else(denied)?
+                .to_owned();
+            // Receipt-proven: release before re-validation (registry.ts:436-438).
+            lease.finish()?;
             result["stdout"] = json!(text);
-            if let Some(lease) = lease {
-                lease.finish()?;
-            }
         }
+        self.active()?;
         Ok(result)
     }
     async fn checked(
@@ -354,60 +387,82 @@ impl RemoteHost for RemoteTransport {
             }
             RemoteOperation::Start => {
                 let launch = &p["launch"];
-                let argv = launch["argv"]
-                    .as_array()
-                    .filter(|a| !a.is_empty())
-                    .ok_or_else(denied)?;
-                let lease = crate::WorkLease::begin(
+                // Existing position (malformed typed input); `[]` fails at issuance.
+                let argv = launch["argv"].as_array().ok_or_else(denied)?;
+                // A non-object env is ignored (existing native default).
+                let env = launch["env"].as_object();
+                // TS run-io.ts:61 env-key precheck, before admission.
+                if env.is_some_and(|env| !env.keys().all(|k| start::env_key(k))) {
+                    return Err(denied());
+                }
+                let alias = self.ssh.config.alias.as_str();
+                let remote_dir = text(run, "remoteDir")?;
+                let session = start::session_blocker_id(alias, remote_dir);
+                let label = format!("Remote session on {alias}");
+                // A reservation error wins over every later validation (TS order).
+                let lease = crate::WorkLease::begin_blocker(
                     &self.home,
-                    id,
-                    &format!("Remote session on {}", self.ssh.config.alias),
+                    crate::Blocker {
+                        kind: crate::BlockerKind::Session,
+                        id: &session,
+                        label: &label,
+                    },
                 )?;
-                let nonce = lease.id().to_owned();
-                lease.attach_remote(
-                    text(run, "dir")?,
-                    &self.ssh.config.alias,
-                    text(run, "remoteDir")?,
-                )?;
-                let dir = RunDirectory::existing(
-                    &self.home,
-                    id,
-                    crate::js_semantics::safe_u64(&intent["attempt"]).ok_or_else(denied)?,
-                )?;
-                dir.write("admission.json",&serde_json::to_vec(&json!({"lease":nonce,"host":self.ssh.config.alias,"remoteDir":run["remoteDir"]})).map_err(|_|denied())?)?;
-                let mut args = vec![
-                    text(run, "remoteDir")?.into(),
-                    text(run, "workdir")?.into(),
-                    "pipe".into(),
-                ];
-                if let Some(env) = launch["env"].as_object() {
-                    for (k, v) in env {
-                        if !k.bytes().enumerate().all(|(i, b)| {
-                            b.is_ascii_alphabetic() || b == b'_' || (i > 0 && b.is_ascii_digit())
-                        }) || k.is_empty()
-                        {
-                            return Err(denied());
-                        }
-                        args.push(format!("{k}={}", v.as_str().ok_or_else(denied)?));
+                // TS `sent = false` window (run-io.ts:67-79). Synchronous; any
+                // error here is proven pre-dispatch. A stale admission.json then
+                // names a lease that no longer exists, so complete_remote matches
+                // nothing; NativeRemote forbids a second START in the attempt, and
+                // TS leaves the same stale file (run-io.ts:71/94).
+                let staged = (|| -> Result<(Vec<String>, Vec<u8>), BrokerError> {
+                    let local = text(run, "dir")?;
+                    lease.attach_remote(local, alias, remote_dir)?;
+                    let attempt =
+                        crate::js_semantics::safe_u64(&intent["attempt"]).ok_or_else(denied)?;
+                    let dir = RunDirectory::existing(&self.home, id, attempt)?;
+                    dir.write(
+                        "admission.json",
+                        &serde_json::to_vec(
+                            &json!({"lease":lease.id(),"host":alias,"remoteDir":run["remoteDir"]}),
+                        )
+                        .map_err(|_| denied())?,
+                    )?;
+                    let args = start::compose(
+                        remote_dir,
+                        text(run, "workdir")?,
+                        env,
+                        id,
+                        lease.id(),
+                        argv,
+                    )?;
+                    // A non-string stdin becomes "" (existing native default).
+                    let input = start::input(launch["stdin"].as_str().unwrap_or_default());
+                    // TS loadStrategy at issuance.
+                    let host = (self.current)();
+                    start::issue(
+                        &start::Issue {
+                            alias,
+                            id,
+                            remote_dir,
+                            local_dir: local,
+                            run,
+                            args: &args,
+                            input: &input,
+                        },
+                        &host,
+                    )?;
+                    Ok((args, input))
+                })();
+                let (args, input) = match staged {
+                    Ok(staged) => staged,
+                    Err(error) => {
+                        // D5: the finish error wins.
+                        lease.finish()?;
+                        return Err(error);
                     }
-                }
-                args.push("PACER_ROLE=executor".into());
-                args.push(format!("PACER_TASK_ID={id}"));
-                args.push(format!("PACER_COMPLETION_NONCE={nonce}"));
-                args.push("--".into());
-                for a in argv {
-                    args.push(a.as_str().ok_or_else(denied)?.into());
-                }
-                let input = format!(
-                    "{}__PACER_STDIN__\n{}",
-                    include_str!("native_run/wrapper.sh"),
-                    launch["stdin"].as_str().unwrap_or_default()
-                );
-                let f = facts(
-                    &self
-                        .checked("START", &args, input.as_bytes(), true, 65536)
-                        .await?,
-                )?;
+                };
+                // TS `sent = true` (run-io.ts:80): every later outcome retains the
+                // session lease, even a nested Undispatched operation.
+                let f = facts(&self.checked("START", &args, &input, true, 65536).await?)?;
                 if f.contains_key("error") {
                     return Err(denied());
                 }

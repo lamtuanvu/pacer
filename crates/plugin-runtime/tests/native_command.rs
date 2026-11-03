@@ -214,3 +214,69 @@ async fn successful_early_close_still_rechecks_the_pinned_executable_identity() 
         .is_err()
     );
 }
+#[tokio::test]
+async fn run_tracked_classifies_only_pre_spawn_errors_as_undispatched() {
+    use native_command::CommandFailure::{Dispatched, Undispatched};
+    use pacer_plugin_runtime::AuthorityError;
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    let soon = || Instant::now() + Duration::from_secs(10);
+    let script = |s: &str| vec!["-c".to_owned(), s.to_owned()];
+    let written = fixture.0.join("replaced");
+    std::fs::write(&written, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&written, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let replaced = Image::pin(written.to_str().unwrap(), true).unwrap();
+    std::fs::remove_file(&written).unwrap();
+    std::fs::write(&written, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&written, std::fs::Permissions::from_mode(0o700)).unwrap();
+    // The interpreter is absent, so the OS exec fails inside `spawn`. The
+    // script's own marker stays absent; that is not evidence of non-dispatch.
+    let absent = fixture.0.join("absent-interpreter");
+    let marker = fixture.0.join("marker");
+    std::fs::write(
+        &absent,
+        format!(
+            "#!/nonexistent-pacer-fixture/interpreter\ntouch {}\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&absent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let absent = Image::pin(absent.to_str().unwrap(), true).unwrap();
+    let py = python();
+    // Each case: (image, args, timeout, max, deadline, name).
+    type Case<'a> = (&'a Image, Vec<String>, u64, usize, Instant, &'a str);
+    let cases: Vec<Case> = vec![
+        (&py, script("pass"), 1000, 1024, Instant::now(), "past"),
+        (&py, script("pass"), 0, 1024, soon(), "zero-timeout"),
+        (&py, script("pass\0"), 1000, 1024, soon(), "nul"),
+        (&replaced, vec![], 1000, 1024, soon(), "replaced"),
+        (&py, script("print('x'*4096)"), 2000, 16, soon(), "bound"),
+        (&py, script("pass"), 2000, 1024, soon(), "ok"),
+        (&absent, vec![], 1000, 1024, soon(), "spawn-err"),
+    ];
+    for (image, args, timeout, max, deadline, name) in cases {
+        let tracked =
+            native_command::run_tracked(image, &args, &HashMap::new(), &[], timeout, max, deadline)
+                .await;
+        let flat =
+            native_command::run(image, &args, &HashMap::new(), &[], timeout, max, deadline).await;
+        match (name, &tracked) {
+            ("past" | "zero-timeout", Err(Undispatched(BrokerError::Timeout))) => {}
+            (
+                "nul" | "replaced",
+                Err(Undispatched(BrokerError::Authority(AuthorityError::Denied(_)))),
+            ) => {}
+            ("bound", Err(Dispatched(BrokerError::Invalid(_)))) => {}
+            ("spawn-err", Err(Dispatched(BrokerError::Authority(AuthorityError::Denied(_))))) => {}
+            ("ok", Ok(out)) => assert_eq!(out.code, 0),
+            _ => panic!("{name}: {:?}", tracked.as_ref().err()),
+        }
+        match (tracked, flat) {
+            (Ok(_), Ok(_)) => {}
+            (Err(t), Err(f)) => assert_eq!(format!("{:?}", BrokerError::from(t)), format!("{f:?}")),
+            (t, f) => panic!("{name}: tracked {:?} flat {:?}", t.is_ok(), f.is_ok()),
+        }
+    }
+    assert!(!marker.exists());
+}

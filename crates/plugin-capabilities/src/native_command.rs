@@ -22,6 +22,23 @@ pub struct Output {
 pub fn denied() -> BrokerError {
     AuthorityError::Denied("host command identity, input or output changed".into()).into()
 }
+/// Failure relative to the only dispatch point, the call to `Command::spawn`.
+/// Tokio can fail after the OS child exists (stdio/reaper registration), so a
+/// spawn error is never proof of non-dispatch.
+#[derive(Debug)]
+pub enum CommandFailure {
+    /// Rejected before `spawn` was called: no program image ran.
+    Undispatched(BrokerError),
+    /// `spawn` was called; the effect may have begun.
+    Dispatched(BrokerError),
+}
+impl From<CommandFailure> for BrokerError {
+    fn from(f: CommandFailure) -> Self {
+        match f {
+            CommandFailure::Undispatched(e) | CommandFailure::Dispatched(e) => e,
+        }
+    }
+}
 pub async fn run(
     image: &Image,
     args: &[String],
@@ -31,26 +48,50 @@ pub async fn run(
     max_bytes: usize,
     deadline: Instant,
 ) -> Result<Output, BrokerError> {
-    image.check()?;
+    run_tracked(image, args, env, input, timeout_ms, max_bytes, deadline)
+        .await
+        .map_err(Into::into)
+}
+pub async fn run_tracked(
+    image: &Image,
+    args: &[String],
+    env: &HashMap<String, String>,
+    input: &[u8],
+    timeout_ms: u64,
+    max_bytes: usize,
+    deadline: Instant,
+) -> Result<Output, CommandFailure> {
+    image.check().map_err(CommandFailure::Undispatched)?;
     if Instant::now() >= deadline || timeout_ms == 0 {
-        return Err(BrokerError::Timeout);
+        return Err(CommandFailure::Undispatched(BrokerError::Timeout));
     }
     if args.iter().any(|s| s.contains('\0')) {
-        return Err(denied());
+        return Err(CommandFailure::Undispatched(denied()));
     }
-    let mut child = OwnedChild(
-        Command::new(&image.canonical)
-            .args(args)
-            .env_clear()
-            .envs(env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .process_group(0)
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|_| denied())?,
-    );
+    // Dispatch point: no `.await` may precede this in the function.
+    let spawned = Command::new(&image.canonical)
+        .args(args)
+        .env_clear()
+        .envs(env)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .kill_on_drop(true)
+        .spawn();
+    supervise(image, spawned, input, timeout_ms, max_bytes, deadline)
+        .await
+        .map_err(CommandFailure::Dispatched)
+}
+async fn supervise(
+    image: &Image,
+    spawned: std::io::Result<tokio::process::Child>,
+    input: &[u8],
+    timeout_ms: u64,
+    max_bytes: usize,
+    deadline: Instant,
+) -> Result<Output, BrokerError> {
+    let mut child = OwnedChild(spawned.map_err(|_| denied())?);
     let mut stdin = child.stdin.take().ok_or_else(denied)?;
     let mut stdout = child.stdout.take().ok_or_else(denied)?;
     let mut stderr = child.stderr.take().ok_or_else(denied)?;
