@@ -4,7 +4,9 @@ import { runInNewContext } from "node:vm";
 
 const script = readFileSync(new URL("../desktop/ui/shell.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../desktop/ui/index.html", import.meta.url), "utf8");
-function shell(search: string) {
+const deliver = readFileSync(new URL("../desktop/ui/shell-deliver.js", import.meta.url), "utf8").trimEnd();
+/** `early` deliveries arrive as the native shell sends them before the deferred shell script runs. */
+function shell(search: string, early: [string, unknown][] = []) {
   const elements = new Map<string, any>();
   const timers: (() => void)[] = [];
   const timeouts = new Map<number, { at: number; fn: () => void }>();
@@ -42,14 +44,20 @@ function shell(search: string) {
       return elements.get(selector);
     },
     body: { classList: { add() {} } },
+    readyState: early.length ? "interactive" : "complete",
   };
   const windowListeners = new Map<string, () => void>();
-  const window: any = { addEventListener(event: string, listener: () => void) { windowListeners.set(event, listener); } };
-  runInNewContext(script, { document, window, location, URLSearchParams,
+  const loadListeners: (() => void)[] = [];
+  const window: any = { addEventListener(event: string, listener: () => void) { if (event === "load") loadListeners.push(listener); else windowListeners.set(event, listener); } };
+  const context = { document, window, location, URLSearchParams,
     Date: { now: () => now }, setInterval: (fn: () => void) => timers.push(fn), clearInterval() {},
     setTimeout: (fn: () => void, ms: number) => { timeouts.set(nextTimeout, { at: now + ms, fn }); return nextTimeout++; },
-    clearTimeout: (id: number) => timeouts.delete(id) });
-  return { element: document.querySelector, render: window.renderShell, takeover: window.renderTakeover, location,
+    clearTimeout: (id: number) => timeouts.delete(id) };
+  const send = (name: string, data: unknown) => runInNewContext(`${deliver}(${JSON.stringify(name)}, ${JSON.stringify(data)});`, context);
+  for (const [name, data] of early) send(name, data);
+  runInNewContext(script, context);
+  return { element: document.querySelector, render: window.renderShell, takeover: window.renderTakeover, location, send, window,
+    load() { document.readyState = "complete"; for (const listener of loadListeners.splice(0)) listener(); },
     focused: () => focused, windowEvent: (event: string) => windowListeners.get(event)?.(),
     wait(ms: number) {
       now += ms;
@@ -623,4 +631,48 @@ test("native service guidance has an independent fixed bundled window", () => {
   expect(source).toContain('window.set_focus()');
   expect(fallback).toContain('Finish active tasks and terminal sessions');
   expect(fallback).not.toMatch(/<script|action\/|<form|<button|<a\s/i);
+});
+
+test("a restored outcome sent before the deferred shell script runs is shown once the document loads", () => {
+  // WebKit reports the bundled document loaded while it is still interactive, so the
+  // native shell's only render of a held state can arrive before renderShell exists.
+  const token = "c".repeat(64);
+  const page = shell("", [
+    ["renderShell", { page: "takeoverRestored", error: "verify:unavailable" }],
+    ["renderTakeover", { inspection, progress: null, token }],
+  ]);
+  expect(page.element("h1").textContent).toBe("Starting pacer…");
+  page.load();
+  expect(page.element("h1").textContent).toBe("Kept your current service");
+  expect(page.element("#takeover-restored").hidden).toBe(false);
+  expect(page.element("#spinner").hidden).toBe(true);
+  expect(page.element("#takeover-restored-actions").hidden).toBe(false);
+  // The waiting payload, including the token, was never exposed on window.
+  expect(JSON.stringify(page.window.__pacerShellDeliveries)).toBe('{"renderShell":1,"renderTakeover":1}');
+  page.element("#takeover-continue").dispatch("click");
+  expect(page.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${token}`);
+});
+
+test("a waiting early delivery never replaces a newer state", () => {
+  const page = shell("", [["renderShell", { page: "takeoverProgress" }]]);
+  page.send("renderShell", { page: "takeoverRestored" });
+  page.load();
+  expect(page.element("h1").textContent).toBe("Kept your current service");
+  // A direct render after the script ran also supersedes a delivery still waiting for load.
+  const late = shell("", [["renderShell", { page: "takeoverProgress" }]]);
+  late.send("renderShell", { page: "takeoverRestored" });
+  late.load();
+  late.send("renderShell", { page: "starting" });
+  expect(late.element("h1").textContent).toBe("Starting pacer…");
+  const direct = shell("", [["renderShell", { page: "takeoverProgress" }]]);
+  direct.send("renderShell", { page: "takeoverRestored" });
+  expect(direct.element("h1").textContent).toBe("Kept your current service");
+  direct.load();
+  expect(direct.element("h1").textContent).toBe("Kept your current service");
+});
+
+test("deliveries to a loaded shell render immediately", () => {
+  const page = shell("");
+  page.send("renderShell", { page: "takeoverRestored" });
+  expect(page.element("h1").textContent).toBe("Kept your current service");
 });

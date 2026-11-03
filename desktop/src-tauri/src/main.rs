@@ -732,7 +732,7 @@ fn render_diagnosis_in(app: &AppHandle, labels: &[&str]) {
                 if !loaded {continue;}
                 if let Some(window) = app.get_webview_window(label) {
                     if window.url().is_ok_and(|url| shell_url(&url)) {
-                        let _ = window.eval(format!("window.renderShell?.({json})"));
+                        let _ = window.eval(logic::shell_delivery("renderShell", &json));
                     }
                 }
             }
@@ -790,7 +790,8 @@ fn render_takeover(app: &AppHandle) {
     };
     let payload = serde_json::json!({"inspection":inspection,"progress":progress,"token":token});
     // `location` is unforgeable: a document from another origin never gets the payload.
-    let _ = window.eval(format!("if (location.protocol === 'tauri:' && location.host === 'localhost') window.renderTakeover?.({payload});"));
+    let delivery = logic::shell_delivery("renderTakeover", &payload.to_string());
+    let _ = window.eval(format!("if (location.protocol === 'tauri:' && location.host === 'localhost') {{ {delivery} }}"));
 }
 fn set_takeover_progress(app: &AppHandle, value: Value) {
     *app.state::<Shell>().takeover_progress.lock().unwrap() = Some(value);
