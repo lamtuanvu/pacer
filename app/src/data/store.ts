@@ -15,6 +15,7 @@ export interface Features { readModel: boolean; ops: ReadonlySet<string> }
 export interface StoreState {
   snapshot: SnapshotV2 | null; connectionRevision: number; connected: boolean; sessionEnded: boolean; needsSnapshot: boolean;
   invalidations: Record<string, number>; version: string | null;
+  desktopBuildDiagnostic: 'unverified' | 'mismatch' | 'unknown';
   features: Features; jobs: Record<string, Job>; activity: ActivityEntry[];
 }
 type EventType = ApiEvent["type"] | EntityEventType;
@@ -22,7 +23,7 @@ export type StoreAction = { type: "waiting"; waiting: NonNullable<SnapshotV2["se
 const V1_EVENTS = ["budget", "task", "mode", "alert", "config", "reset"] as const;
 const TASK_CAP = 200, ACTIVITY_CAP = 200;
 export function initialState(): StoreState {
-  return { snapshot: null, connectionRevision: 0, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, features: { readModel: false, ops: new Set() }, jobs: {}, activity: [] };
+  return { snapshot: null, connectionRevision: 0, connected: false, sessionEnded: false, needsSnapshot: true, invalidations: {}, version: null, desktopBuildDiagnostic: 'unknown', features: { readModel: false, ops: new Set() }, jobs: {}, activity: [] };
 }
 /** The 2.1 read model is on when the service says protocol >= 2.1 and announces attention events. */
 export function featuresOf(hello: Hello): Features {
@@ -104,7 +105,11 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
     case "connected": return { ...state, connected: true };
     case "reconnected": return { ...state, connected: true, connectionRevision: state.connectionRevision + 1 };
     case "session-ended": return { ...state, sessionEnded: true, connected: false, connectionRevision: state.connectionRevision + 1 };
-    case "hello": return { ...state, version: action.hello.pacer, features: featuresOf(action.hello) };
+    case "hello": {
+      const d = action.hello.desktopBuildDiagnostic;
+      const diagnostic = isObj(d) && d.proof === "unverified" && (d.status === "mismatch" || d.status === "unverified") ? d.status : "unknown";
+      return { ...state, version: action.hello.pacer, desktopBuildDiagnostic: diagnostic, features: featuresOf(action.hello) };
+    }
     case "event": {
       const event = action.event;
       if (event.type === "reset") return { ...state, needsSnapshot: true };

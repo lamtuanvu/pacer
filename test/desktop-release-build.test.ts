@@ -11,7 +11,7 @@ test("desktop CLI trust is explicit and ordinary compile arguments retain no tru
   expect(normal.join(" ")).not.toContain("PACER_BUILD_APPLE_TEAM_ID");
   const desktop = compileCommand({ ...input, desktopTrust: { appleTeamId: "ABCDE12345" } });
   expect(desktop).toContain('PACER_BUILD_APPLE_TEAM_ID="ABCDE12345"');
-  expect(desktop.filter(x => x !== "--define" && x !== 'PACER_BUILD_APPLE_TEAM_ID="ABCDE12345"')).toEqual(normal.filter(x => x !== "--define"));
+  expect(desktop.filter(x => x !== "--define" && !x.startsWith("PACER_COMPONENT_BUILD_ID=") && x !== 'PACER_BUILD_APPLE_TEAM_ID="ABCDE12345"')).toEqual(normal.filter(x => x !== "--define" && !x.startsWith("PACER_COMPONENT_BUILD_ID=")));
 });
 test("a self-signed certificate pin compiles alone or beside a Team ID", () => {
   const cert = "2C5405FB6D2906AE2049D59B9DF5D42661997922";
@@ -30,4 +30,10 @@ test("malformed or non-macOS desktop trust is refused before compiling or removi
     await expect(buildRelease({ root: tmpDir(), outRoot: tmpDir(), version: "1.2.3", targets: [], desktopTrust: { appleTeamId } })).rejects.toThrow("Team ID");
   }
   expect(() => compileCommand({ ...input, target: TARGETS.find(t => t.os === "linux")!, desktopTrust: { appleTeamId: "ABCDE12345" } })).toThrow("macOS");
+});
+test("compiled core and front door receive independent descriptor fields for the target", () => {
+  const args = compileCommand(input);
+  expect(args.some(arg => /^PACER_COMPONENT_BUILD_ID="[0-9a-f-]{36}"$/.test(arg))).toBe(true);
+  expect(args).toContain('PACER_COMPONENT_TARGET_OS="darwin"');
+  expect(args).toContain('PACER_COMPONENT_TARGET_ARCH="arm64"');
 });

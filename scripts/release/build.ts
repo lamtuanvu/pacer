@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { randomUUID } from "node:crypto";
 import { validSignerPins, type SignerPins } from "../../src/update/desktop/signer-requirement";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -68,6 +69,9 @@ export function compileCommand(o: CompileOptions): string[] {
     bun, "build", "--compile",
     `--target=${o.target.bunTarget}`,
     "--define", `PACER_BUILD_VERSION=${JSON.stringify(o.version)}`,
+    "--define", `PACER_COMPONENT_BUILD_ID=${JSON.stringify(randomUUID())}`,
+    "--define", `PACER_COMPONENT_TARGET_OS=${JSON.stringify(o.target.os)}`,
+    "--define", `PACER_COMPONENT_TARGET_ARCH=${JSON.stringify(o.target.arch)}`,
     ...(o.desktopTrust?.appleTeamId ? ["--define", `PACER_BUILD_APPLE_TEAM_ID=${JSON.stringify(o.desktopTrust.appleTeamId)}`] : []),
     ...(o.desktopTrust?.signingCertSha1 ? ["--define", `PACER_BUILD_SIGNING_CERT_SHA1=${JSON.stringify(o.desktopTrust.signingCertSha1)}`] : []),
     "--no-compile-autoload-dotenv",
@@ -102,7 +106,7 @@ export function frontDoorBuildCommand(platform: Platform): string[] {
 export function frontDoorBuildEnvironment(o: CompileOptions, inherited: NodeJS.ProcessEnv = Bun.env): NodeJS.ProcessEnv {
   validateDesktopTrust(o.desktopTrust);
   if (o.desktopTrust && o.target.os !== "darwin") throw Error("Desktop trust requires a macOS target");
-  return { ...inherited, PACER_BUILD_VERSION: o.version, CARGO_TARGET_DIR: join(o.root, "target"),
+  return { ...inherited, PACER_BUILD_VERSION: o.version, PACER_COMPONENT_BUILD_ID: randomUUID(), CARGO_TARGET_DIR: join(o.root, "target"),
     PACER_BUILD_APPLE_TEAM_ID: o.desktopTrust?.appleTeamId ?? "",
     PACER_BUILD_SIGNING_CERT_SHA1: o.desktopTrust?.signingCertSha1 ?? "",
     PACER_BUILD_DESKTOP_FIXTURE: "" };

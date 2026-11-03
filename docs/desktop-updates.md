@@ -183,6 +183,17 @@ outside this macOS feature.
 
 ## Recovery
 
+When the desktop cannot verify the running service version, or detects an older
+release, its bundled screen shows the observed releases and conservative manual
+guidance. The version check does not establish installation ownership, active
+work, or permission to reconcile the service. Identify the installation owner
+and finish tasks and terminal sessions before any update or restart. A legacy
+updater can restart immediately. For standalone installations use `pacer update`
+and, if needed, `pacer service restart`; Homebrew uses `brew upgrade pacer`, and
+npm uses `npm install -g @lamtuanvu/pacer@latest`. An external service remains
+attached and its owner manages it. Continuing current work acknowledges the
+observed release for this session; it does not authorize a service change.
+
 If startup verification fails after installation begins, pacer restores the
 previous complete package and managed registration, then verifies them before
 reopening work admission. Settings, task history and credential references stay

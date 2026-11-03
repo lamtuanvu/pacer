@@ -6,6 +6,8 @@ import type { Ctx } from "../../types";
 import { CoreError } from "../../core/errors";
 import { assertIdentifier, type Blocker } from "./types";
 import { withDesktopCoordinator } from "./coordinator";
+import { optionalFence } from "./reconciliation-fence";
+import type { Database } from "bun:sqlite";
 import { ownProcessIdentity } from "./process-identity";
 
 import { OrcaClient, type OrcaReply, type WorkerClosureResult } from "../../exec/orca/client";
@@ -19,16 +21,27 @@ const leaseSchema = z.object({ id: z.string().uuid(), blocker: blockerSchema, ow
 const stateSchema = z.object({ schema: z.literal(1), reservation: z.string().nullable(), leases: z.array(leaseSchema) });
 type AdmissionState = z.infer<typeof stateSchema>;
 
-function mutate<T>(ctx: Ctx, action: (state: AdmissionState) => T): T {
+// The fence marker witnesses this row once initialized. Legacy admission is
+// migrated in the same transaction; a present table without its row is ambiguous.
+export function ensureAdmission(db: Database, allowCreate: boolean): AdmissionState {
+  const table = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='admission'").get();
+  if (!table) {
+    if (!allowCreate) throw new CoreError("conflict", "Desktop admission evidence is unavailable");
+    db.exec("CREATE TABLE admission (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL)");
+    db.query("INSERT INTO admission (id, state) VALUES (1, ?)").run(JSON.stringify({ schema: 1, reservation: null, leases: [] }));
+  }
+  const row = db.query<{ state: string }, []>("SELECT state FROM admission WHERE id = 1").get();
+  try { if (row) return stateSchema.parse(JSON.parse(row.state)); }
+  catch { /* Retain invalid evidence for recovery. */ }
+  throw new CoreError("conflict", "Desktop admission evidence is unavailable");
+}
+function mutate<T>(ctx: Ctx, action: (state: AdmissionState, db: Database) => T): T {
   return withDesktopCoordinator(ctx, db => {
-    db.exec("CREATE TABLE IF NOT EXISTS admission (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL)");
-    const row = db.query<{ state: string }, []>("SELECT state FROM admission WHERE id = 1").get();
-    let state: AdmissionState;
-    try { state = row ? stateSchema.parse(JSON.parse(row.state)) : { schema: 1, reservation: null, leases: [] }; }
-    catch { throw new CoreError("invalid_input", "Invalid desktop admission state", "Retain the state for recovery; do not reset pending work."); }
+    const fence = optionalFence(db);
+    const state = ensureAdmission(db, fence === null);
     reconcileStored(state);
-    const result = action(state);
-    db.query("INSERT INTO admission (id, state) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state").run(JSON.stringify(state));
+    const result = action(state, db);
+    db.query("UPDATE admission SET state = ? WHERE id = 1").run(JSON.stringify(state));
     return result;
   });
 }
@@ -38,8 +51,8 @@ export function beginWorkSync(ctx: Ctx, blocker: Blocker): string {
   const parsed = blockerSchema.safeParse(blocker);
   if (!parsed.success) throw new CoreError("invalid_input", "Invalid desktop work blocker");
   const identity = ownProcessIdentity();
-  return mutate(ctx, state => {
-    if (state.reservation) throw new CoreError("conflict", "Desktop update maintenance is reserved", "Wait for the update to finish or cancel the pending update.");
+  return mutate(ctx, (state, db) => {
+    if (state.reservation || optionalFence(db)?.transaction) throw new CoreError("conflict", "Desktop update maintenance is reserved", "Wait for the update to finish or cancel the pending update.");
     const id = randomUUID();
     state.leases.push({ id, blocker: parsed.data, owner: incarnation, process: identity, state: "pending" });
     return id;
@@ -50,13 +63,13 @@ export async function beginWork(ctx: Ctx, blocker: Blocker): Promise<string> { r
 /** A private unguessable lease is passed to exactly one child, which claims before starting work. */
 export function claimWorkSync(ctx: Ctx, leaseId: string): boolean {
   const identity = ownProcessIdentity();
-  return mutate(ctx, state => {
+  return mutate(ctx, (state, db) => {
     const lease = state.leases.find(item => item.id === leaseId);
     if (!lease || (lease.state === "active" && lease.owner !== incarnation)) {
       throw new CoreError("conflict", "Desktop work lease has no claimable owner");
     }
     // Reservations cannot coexist with leases; treat inconsistent state as unsafe.
-    if (state.reservation) throw new CoreError("conflict", "Desktop update maintenance is reserved");
+    if (state.reservation || optionalFence(db)?.transaction) throw new CoreError("conflict", "Desktop update maintenance is reserved");
     const newlyClaimed=lease.state!=="active";
     lease.owner = incarnation; lease.process = identity; lease.state = "active";
     return newlyClaimed;
@@ -78,7 +91,8 @@ export async function reserveIdle(ctx: Ctx, transactionId: string): Promise<{ re
   assertIdentifier(transactionId);
   await reconcileAdmission(ctx);
   const external = await externalBlockers(ctx);
-  return mutate(ctx, state => {
+  return mutate(ctx, (state, db) => {
+    if (optionalFence(db)?.transaction) throw new CoreError("conflict", "Reconciliation maintenance is reserved");
     if (state.reservation && state.reservation !== transactionId) throw new CoreError("conflict", "Desktop reservation conflict");
     const blockers = [...state.leases.map(lease => lease.blocker), ...storedBlockers(ctx), ...external];
     if (blockers.length) return { reserved: false, blockers };
@@ -157,9 +171,9 @@ export async function withWork<T>(ctx: Ctx, blocker: Blocker, action: () => Prom
 export function reconcileAdmissionSync(ctx: Ctx): void { mutate(ctx, () => {}); }
 
 export function validatePendingWorkSync(ctx: Ctx, leaseId: string): void {
-  mutate(ctx, state => {
+  mutate(ctx, (state, db) => {
     const lease = state.leases.find(item => item.id === leaseId);
-    if (!lease || lease.state !== "pending" || lease.owner !== incarnation || state.reservation) {
+    if (!lease || lease.state !== "pending" || lease.owner !== incarnation || state.reservation || optionalFence(db)?.transaction) {
       throw new CoreError("conflict", "Desktop work lease has no pending owner");
     }
   });
@@ -221,4 +235,12 @@ export function finishOrcaWorkSync(ctx: Ctx, leaseId: string, proof: OrcaReply<W
     state.leases = state.leases.filter(item => item.id !== leaseId);
     return true;
   });
+}
+
+/** Called only inside the coordinator transaction before acquiring the fence. */
+export function assertReconciliationIdle(db: Database, ctx: Ctx): void {
+  const state = ensureAdmission(db, false);
+  reconcileStored(state);
+  if (state.reservation || state.leases.length) throw new CoreError("conflict", "Desktop work is active or reserved");
+  if (storedBlockers(ctx).length) throw new CoreError("conflict", "Stored work blocks reconciliation");
 }

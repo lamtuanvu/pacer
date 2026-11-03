@@ -154,7 +154,7 @@ pub fn inspect_legacy_executable(
 }
 
 #[cfg(target_os = "macos")]
-fn signing_cdhash(
+pub(super) fn signing_cdhash(
     code: &security_framework::os::macos::code_signing::SecStaticCode,
 ) -> Result<String, OtaError> {
     use core_foundation::{

@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { apiCommand } from "./commands/api";
+import { coreBuildDescriptor } from "./update/desktop/build-identity";
 import { askCommand } from "./commands/ask";
 import { compiledNativeFixture, compiledNativeFixtureSha256 } from "./update/desktop/native-fixture";
 import { DESKTOP_IDENTIFIERS } from "./update/desktop/bundle-identity";
@@ -410,6 +411,10 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     } catch { return {code:2,out:"",err:"Verified native transport unavailable"}; }
   }
   switch (cmd) {
+    case "--pacer-component-descriptor": {
+      if (rest.length) return {code:2,out:"",err:"usage: pacer --pacer-component-descriptor"};
+      return {code:0,err:"",out:JSON.stringify(coreBuildDescriptor())};
+    }
     case "--pacer-identity": {
       if (rest.length) return {code:2,out:"",err:"usage: pacer --pacer-identity"};
       const appleTeamId=compiledAppleTeamId(), signingCertSha1=compiledSigningCertSha1(), pins=compiledSignerPins();

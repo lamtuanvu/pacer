@@ -107,6 +107,7 @@ function renderShell(detail) {
     document.querySelector(`#${page}`).hidden = permission || (page === 'outdated-service'
       ? !['outdatedService', 'unverifiedService'].includes(detail.page) : detail.page !== page);
   }
+  document.querySelector('#service-fallback').hidden = permission || compact || !['unavailable', 'startFailed', 'oldService', 'oldApp', 'protocol', 'stuck', 'sessionExpired', 'recoveryFailed'].includes(detail.page);
   document.querySelector('#takeover').hidden = permission || compact || detail.page !== 'takeover';
   document.querySelector('#takeover-restored').hidden = permission || compact || detail.page !== 'takeoverRestored';
   document.querySelector('#live-service-version').textContent = detail.installed || 'Unknown';

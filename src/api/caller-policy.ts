@@ -10,7 +10,7 @@ import type { Ctx } from '../types';
 export const UPGRADE_OPERATIONS: readonly string[] = ['update.apply', 'service.install', 'service.handover'];
 export const UPGRADE_REFUSAL = 'PACER_ROLE=executor: upgrades are not allowed from a delegated task.';
 export function isUpgradeOperation(name: string): boolean {
-  return UPGRADE_OPERATIONS.includes(name) || (name.startsWith('desktop.update.') && name !== 'desktop.update.status');
+  return UPGRADE_OPERATIONS.includes(name) || (name.startsWith('desktop.reconcile.') && name !== 'desktop.reconcile.status') || (name.startsWith('desktop.update.') && name !== 'desktop.update.status');
 }
 
 /** Preserve caller role when a planner-owned daemon performs the operation. */
