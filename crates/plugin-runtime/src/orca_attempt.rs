@@ -309,7 +309,7 @@ impl OrcaAttempt {
                 .as_array()
                 .is_some_and(|a| !a.is_empty())
         };
-        let eligible = asked["interactionMode"] == "conversation"
+        let eligible = asked["interactive"] != false
             && answering
             && live["executor"] == self.spec.executor
             && self.client.live_problem(live).await?.is_none();
@@ -893,7 +893,7 @@ impl OrcaAttempt {
             if let Some(w) = work {
                 t.put("/worktree", WireReply::new(json!(w)))?;
             }
-            if t.preview()["interactionMode"] == "conversation" {
+            if t.preview()["interactive"] != false {
                 let mut live = json!({
                     "backend": "orca", "worker": dispatch, "terminal": terminal,
                     "executor": executor, "agent": agent, "since": started

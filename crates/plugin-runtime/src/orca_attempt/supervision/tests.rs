@@ -99,12 +99,48 @@ async fn live_answer_rejects_unsafe_worker_before_reattachment() {
         let (home, mut attempt) = fixture();
         attempt.edit(|task| {
             task.put("/interactionMode", WireReply::new(json!("conversation")))?;
+            task.put("/interactive", WireReply::new(json!(true)))?;
             task.put("/brief/qa", WireReply::new(json!([{"q":"question","a":"answer"}])))?;
             task.put("/live", WireReply::new(json!({"backend":"orca","worker":dispatch,"terminal":"terminal","executor":"codex#work@host"})))
         }).unwrap();
         assert!(attempt.live_answer().await.is_err(), "{dispatch:?}");
         assert!(!attempt.reattach);
         assert!(attempt.dispatch.is_none());
+        fs::remove_dir_all(home).unwrap();
+    }
+}
+#[tokio::test]
+async fn bind_only_writes_live_when_the_task_is_unfalsely_interactive() {
+    // Worker live-bind writes `/live` when `interactive` is absent or true (post-#643), even
+    // without `interactionMode == "conversation"`; an explicit `false` suppresses it.
+    for (interactive, mode, expect_live) in [
+        (Some(true), None, true),
+        (None, None, true),
+        (Some(false), Some("conversation"), false),
+    ] {
+        let (home, mut attempt) = fixture();
+        attempt.terminal = Some("terminal".into());
+        attempt
+            .edit(|task| {
+                if let Some(v) = interactive {
+                    task.put("/interactive", WireReply::new(json!(v)))?;
+                }
+                if let Some(m) = mode {
+                    task.put("/interactionMode", WireReply::new(json!(m)))?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        attempt
+            .bind(json!({"dispatchId":"dispatch","state":"ready"}))
+            .await
+            .unwrap();
+        let task = attempt.task().unwrap();
+        assert_eq!(
+            task.get("live").is_some(),
+            expect_live,
+            "interactive={interactive:?} mode={mode:?}"
+        );
         fs::remove_dir_all(home).unwrap();
     }
 }
