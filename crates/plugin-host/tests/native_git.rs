@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used)]
 #[path = "support/exact_task.rs"]
 mod exact_task;
+#[path = "support/git_shim.rs"]
+mod git_shim;
 use pacer_plugin_host::{BundleSpec, BundleTicket, NativeBundle, NativeGit, remote_preflight};
 use std::{
     collections::HashMap,
@@ -852,5 +854,151 @@ async fn transfer_intents_copy_exact_run_fields_with_and_without_prior_admission
         assert_eq!(task.preview()["run"]["transferredHead"], f.head);
         exact_task::assert_preserved(&f.root, ID);
         ticket.dispose().unwrap();
+    }
+}
+
+// Task 4 - lexical boundaries (plan §4). Oracle rows taken literally from
+// `.work/reviews/native-git-phase-plan/oracle/oracle-out.json` (executed TS
+// diagnostics at p4b5). Each test uses an owned /bin/sh git shim under the
+// owner's isolated Git config/HOME; no ambient hooks, config, credentials or
+// network are read.
+const BRANCH_ROWS: &[(&str, bool)] = &[
+    ("pacer/", false),
+    ("pacer", false),
+    ("pacer/x", true),
+    ("pacer//", true),
+    ("pacer/.", true),
+    ("pacer/..", true),
+    ("pacer/a..b", true),
+    ("pacer/-", true),
+    ("pacer/UPPER", true),
+    ("pacer/x~y", false),
+    ("pacer/x y", false),
+    ("other/x", false),
+    ("pacer/x\n", false),
+    ("pacer/\u{e9}", false),
+    ("Pacer/x", false),
+    ("pacer/x.lock", true),
+    ("pacer/t-20261103-091837-234d", true),
+    ("pacer/t-20261103-091837-234d-r2", true),
+];
+
+#[tokio::test]
+async fn branch_predicate_matches_typescript() {
+    for (branch, accepted) in BRANCH_ROWS {
+        let f = Fixture::new();
+        let shim = git_shim::shim(&f.root, &[]);
+        let native = NativeGit::prepare(
+            &f.root,
+            &f.repo,
+            shim.to_str().unwrap(),
+            &HashMap::from([
+                ("PATH".into(), std::env::var("PATH").unwrap()),
+                ("HOME".into(), f.root.to_str().unwrap().into()),
+            ]),
+        )
+        .unwrap();
+        let mut ticket = f.ticket(&f.bytes()).await;
+        let result = native
+            .verify(&mut ticket, &f.base, branch, deadline())
+            .await;
+        let dispatched = git_shim::ran(&f.root, "config user.email");
+        if *accepted {
+            assert!(
+                dispatched,
+                "branch {branch:?} must dispatch config user.email like TS"
+            );
+        } else {
+            assert!(
+                result.is_err(),
+                "branch {branch:?} must be denied by the predicate"
+            );
+            assert!(
+                !dispatched,
+                "branch {branch:?} must dispatch no git command (TS rejects)"
+            );
+        }
+    }
+}
+
+const COUNT_ROWS: &[(&str, bool)] = &[
+    ("+1", false),
+    ("+500", false),
+    ("+0", false),
+    ("1", true),
+    ("500", true),
+    ("501", false),
+    ("0", false),
+    ("00", false),
+    ("01", true),
+    ("0001", true),
+    ("0500", true),
+    ("000000000000000000000001", true),
+    ("99999999999999999999", false),
+    ("9007199254740993", false),
+    ("1.0", false),
+    ("1e0", false),
+    ("-1", false),
+    ("", false),
+    ("1 ", true),
+    (" 1\n", true),
+    ("\t500\n", true),
+    ("\u{feff}1\u{feff}", true),
+    ("\u{a0}1", true),
+    ("1\n2", false),
+    ("\u{661}", false),
+    ("\u{ff11}", false),
+    ("0x1", false),
+    ("1_0", false),
+];
+
+// Rows whose JS-trimmed value is exactly 1 commit; only these may complete
+// end-to-end (the fixture range carries exactly one real commit).
+fn is_one_commit(raw: &str) -> bool {
+    [
+        "1",
+        "01",
+        "0001",
+        "000000000000000000000001",
+        "1 ",
+        " 1\n",
+        "\u{feff}1\u{feff}",
+        "\u{a0}1",
+    ]
+    .contains(&raw)
+}
+
+#[tokio::test]
+async fn inspected_count_matches_typescript() {
+    for (raw, accepted) in COUNT_ROWS {
+        let f = Fixture::new();
+        let shim = git_shim::shim(
+            &f.root,
+            &[("rev-list --count", git_shim::Action::Print((*raw).into()))],
+        );
+        let native = NativeGit::prepare(
+            &f.root,
+            &f.repo,
+            shim.to_str().unwrap(),
+            &HashMap::from([
+                ("PATH".into(), std::env::var("PATH").unwrap()),
+                ("HOME".into(), f.root.to_str().unwrap().into()),
+            ]),
+        )
+        .unwrap();
+        let mut ticket = f.ticket(&f.bytes()).await;
+        let result = native
+            .verify(&mut ticket, &f.base, &f.branch, deadline())
+            .await;
+        let inspected = git_shim::ran(&f.root, "log --format=");
+        assert_eq!(
+            inspected, *accepted,
+            "raw {raw:?}: the inspection must proceed to `log` iff TS accepts the count"
+        );
+        assert_eq!(
+            result.is_ok(),
+            is_one_commit(raw),
+            "raw {raw:?}: end-to-end verification must succeed only for a count of exactly 1"
+        );
     }
 }

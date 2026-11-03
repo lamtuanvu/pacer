@@ -467,11 +467,7 @@ impl NativeGit {
             run(args(&["merge-base", "--is-ancestor", base, &head]), &[]).await?;
             let range = format!("{base}..{head}");
             let count = run(args(&["rev-list", "--count", &range]), &[]).await?;
-            let commits = count
-                .parse::<u64>()
-                .ok()
-                .filter(|n| (1..=500).contains(n))
-                .ok_or_else(denied)?;
+            let commits = inspected_count(&count).ok_or_else(denied)?;
             let log = run(
                 args(&["log", "--format=%ae%x00%ce%x00%B%x00%x00", &range]),
                 &[],
@@ -694,9 +690,18 @@ fn valid_sha(s: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 fn valid_branch(s: &str) -> bool {
-    s.starts_with("pacer/")
-        && s.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._/-".contains(&b))
+    s.strip_prefix("pacer/").is_some_and(|rest| {
+        !rest.is_empty()
+            && rest
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._/-".contains(&b))
+    })
+}
+fn inspected_count(text: &str) -> Option<u64> {
+    (!text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| text.parse::<u64>().ok())
+        .flatten()
+        .filter(|n| (1..=500).contains(n))
 }
 pub fn transfer_owner(store: &mut TaskStore, id: &str, run: &Value) -> Result<Value, BrokerError> {
     let task = store.read(id)?.ok_or_else(denied)?;
