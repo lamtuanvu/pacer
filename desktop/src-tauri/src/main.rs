@@ -78,6 +78,9 @@ struct Shell {
     diagnosis: Mutex<Option<logic::Diagnosis>>,
     retry: AtomicBool,
     relink_dismissed: AtomicBool,
+    /// Set by Review service replacement on the restored outcome: the next connection shows the
+    /// offer once, even for a build the user dismissed before.
+    takeover_retry: AtomicBool,
     shell_action: Mutex<Option<logic::ShellAction>>,
     old_service_ack: Mutex<Option<String>>,
     pending_service_key: Mutex<Option<String>>,
@@ -113,6 +116,7 @@ impl Default for Shell {
             diagnosis: Mutex::new(None),
             retry: AtomicBool::new(false),
             relink_dismissed: AtomicBool::new(false),
+            takeover_retry: AtomicBool::new(false),
             shell_action: Mutex::new(None),
             old_service_ack: Mutex::new(None),
             pending_service_key: Mutex::new(None),
@@ -646,7 +650,9 @@ fn shell_action(app: &AppHandle, url: &Url, current: Option<&Url>, main: bool) -
     if let Some(action) = logic::shell_action_url(url) {
         if matches!(
             action,
-            logic::ShellAction::TakeoverConfirm { .. } | logic::ShellAction::TakeoverDismiss
+            logic::ShellAction::TakeoverConfirm { .. }
+                | logic::ShellAction::TakeoverDismiss
+                | logic::ShellAction::TakeoverRetry
         ) {
             // Only the token the bundled takeover page received authorizes these.
             // The token is consumed by any well-formed attempt, including a rejected one.
