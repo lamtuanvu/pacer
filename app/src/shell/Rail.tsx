@@ -38,7 +38,7 @@ export function Rail({ route, counts, narrow = false, settingsAttention: attenti
         </AppLink>
       </Tooltip>;
     })}
-    {!narrow && <><span className="pc-rail__divider" /><div role="group" aria-labelledby="rail-plugins" className="pc-rail__plugins"><span id="rail-plugins" className="pc-rail__plugins-label">Plugins</span>
+    {!narrow && <><span className="pc-rail__divider" />{/* The divider sets plugins apart; the group keeps its name for assistive tech without a visible label. */}<div role="group" aria-label="Plugins" className="pc-rail__plugins">
       {surfaces.filter(s => s.surface === "activity" && s.visible).map(s => {
         const active = route.name === "plugin" && route.plugin === s.plugin && route.id === s.id;
         const label = `${s.title} (plugin)`;

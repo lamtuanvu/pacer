@@ -101,7 +101,7 @@ export function Insights({ query }: { query: RouteQuery }) {
             return <tr key={g.agent}>
               <th scope="row"><span className="pc-insights__agent"><span className={`pc-insights__swatch ${slotClass(slot)}`} /><AgentMark agent={g.agent} size={24} labelled={false} /><span className="pc-insights__name"><strong>{label(g.agent)}</strong><span className="pc-insights__caption">Executor</span></span></span></th>
               <td>{g.rootTasks}</td><td>{g.subtasks}</td><td>{g.attempts}</td>
-              <td><strong>{notMeasured ? "—" : compact(g.total)}</strong>{g.unknownAttempts + g.partialAttempts > 0 && <> <Pill tone="warn">{g.unknownAttempts + g.partialAttempts} not complete</Pill></>}</td>
+              <td><strong>{notMeasured ? "—" : compact(g.total)}</strong>{g.unknownAttempts + g.partialAttempts > 0 && <span className="pc-insights__partial">{g.unknownAttempts + g.partialAttempts} not complete</span>}</td>
               <td><span className="pc-insights__share">{g.share !== null && <progress className={slotClass(slot)} value={Math.round(g.share * 100)} max={100} aria-label={`Share of tokens: ${percent(g.share)}`} />}<span>{percent(g.share)}</span></span></td>
               <td>{g.tokensPerTask === null || !g.total ? "—" : compact(g.tokensPerTask)}</td>
               <td className={accept === null ? "" : accept >= 0.75 ? "pc-insights__good" : accept >= 0.5 ? "pc-insights__warn" : "pc-insights__bad"}><strong>{percent(accept)}</strong></td>
