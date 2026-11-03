@@ -1,3 +1,4 @@
+import { activeDeadlineExpired } from "../supervisor/active-time";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../core/errors";
@@ -34,6 +35,10 @@ export function answerExecutorPoll(authority: CallAuthority, params: { taskId: s
     after.task.run?.startedAt !== before.task.run?.startedAt) return deny();
   const report = observed.report && observed.report.summary.length <= 65_536
     ? { status: observed.report.status, summary: observed.report.summary, at: observed.report.at } : null;
+  if (observed.interactive && observed.alive && !after.task.stopPending &&
+    !["done", "failed"].includes(report?.status ?? "") &&
+    activeDeadlineExpired(before.grant.dir, before.grant.startedAt * 1000 + after.task.timeoutS * 1000, observed))
+    throw new CoreError("plugin_timeout", "Interactive execution budget exhausted");
   authority.assertActive();
   return { state: durable.state, pid: durable.pid, exitCode: durable.exitCode,
     startedAt: durable.startedAt, stdoutBytes: durable.stdoutBytes,

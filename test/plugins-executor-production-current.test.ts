@@ -31,7 +31,7 @@ function fixture() {
   mkdirSync(repo, { mode: 0o700 });
   mkdirSync(bin, { mode: 0o700 });
   writeFileSync(join(pacerHome, "strategy.yaml"),
-    "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nexecution: {worktree: current}\n", { mode: 0o600 });
+    "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nexecution: {worktree: current, launch_mode: headless}\n", { mode: 0o600 });
   const executable = join(bin, "codex");
   writeFileSync(executable, "#!/bin/sh\nprintf 'owned provider result\\n'\n", { mode: 0o700 });
   chmodSync(executable, 0o700);
@@ -524,7 +524,7 @@ test("default automatic child placement runs through the bundled provider", asyn
   const { ctx, task, cleanup } = fixture();
   try {
     writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
-      "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nexecution: {worktree: child-of-current}\n",
+      "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nexecution: {worktree: child-of-current, launch_mode: headless}\n",
       { mode: 0o600 });
     const origin = join(ctx.home, "origin.git");
     Bun.spawnSync(["git", "init", "--bare", "-q", origin]);

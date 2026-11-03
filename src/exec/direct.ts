@@ -10,7 +10,7 @@ import { prepareAgentSession, agentSessionCapabilities } from "../plugins/agent-
 import { resolveAttachments } from "../attachments/claims";
 import { attachmentDirectory } from "../attachments/store";
 import { executorExclusion } from "../executors/availability";
-import { codexInteractiveGap, prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
+import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, renameSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -201,12 +201,6 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     if (s.interactive && !run.takeover && !run.host) {
       try { await liveTick(ctx, task, run, s); } catch { /* messages stay pending for the next poll */ }
     }
-    // A delegated executor that ran pacer ask and then ended its turn waits for its parent, not for someone to attach:
-    // end the run so the task settles needs_input, and the answer resumes the session as a headless turn.
-    if (!conversation && !run.takeover && !controlled && s.interactive && (turnEnded || s.report?.status === "needs-input")) {
-      const question = readTask(ctx, task.id)?.question;
-      if (question && question.answer === undefined && question.at >= run.startedAt - 1 && s.report!.at >= question.at) return "asked";
-    }
     return !conversation && !run.takeover && !needsInput && !controlled && !turnEnded && idleSeconds(p, run.startedAt, now) >= idleFail ? "idle" : "continue";
   };
 }
@@ -221,7 +215,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   try {
     end = await supervise({
       io, ...(host ? { pollMs: 5000 } : {}), deadlineMs: ((task.attemptStartedAt ?? run.startedAt) + task.timeoutS) * 1000,
-      interactionMode: run.interactionMode,
+      interactionMode: run.interactionMode, runDir: run.host ? undefined : run.dir,
       isStopped: () => readTask(ctx, task.id)?.state === "stopped",
       onPoll: async state => {
         const next = onPoll ? await onPoll(state) : "continue";
@@ -378,7 +372,7 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     const env = executorEnv(base.env, account, task.id, profileKeys(base));
     const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
     recordDefaultFolder(ctx, agent, account, base);
-    if (agent === "codex") await requireCodexInteractive(ctx,env);
+    if (agent === "codex" && cfg.via !== "opencode") await requireCodexInteractive(ctx,env);
     // Codex resolves linked-worktree trust against the main repository root.
     const trust = agent === "codex" || agent === "claude-code" ? await gitInfo(ctx.run, run.workdir) : null;
     const trustRoot = trust && !("error" in trust) ? trust.main : task.brief.repo;
@@ -415,12 +409,11 @@ export async function runAttempt(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, o
 async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, onSpawn?: (pid: number) => void): Promise<AttemptOutcome> {
   const conversation = task.interactionMode === "conversation";
   const ex = loadExec(ctx);
-  let choice: LaunchModeChoice = conversation ? {mode: "interactive", explicit: true} : launchModeFor(cfg, ex, {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"});
-  // A message turn runs headless: one prompt in, one report out, then the run settles.
+  let choice: LaunchModeChoice = task.interactive === false ? {mode: "headless", explicit: true} : conversation ? {mode: "interactive", explicit: true} : launchModeFor(cfg, ex, {managed: ctx.env.PACER_ENFORCEMENT_MODE === "strict"});
   const pendingTurn = conversation ? undefined : task.pendingTurn;
-  if (pendingTurn && choice.mode === "interactive" && headlessTurnPath(cfg)) choice = {mode: "headless", explicit: false, fallback: "message turns run headless"};
   cfg = {...cfg, session: choice.mode};
   const alias = parseRunnerId(cfg.id)?.host;
+  if (alias && choice.mode === "interactive") throw new Error("Remote runners require explicitly configured headless execution");
   if (alias) {
     const out = await runRemoteAttempt(ctx, cfg, task, loadStrategy(ctx).hosts[alias], onSpawn);
     if (choice.fallback) try { appendFileSync(out.attempt.log, `launch mode: headless (${choice.fallback})\n`); } catch { /* the attempt result stands */ }
@@ -521,15 +514,11 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     note += terminalEnvNote(base);
     const account = await providerEnv(ctx, cfg);
     env = executorEnv(base.env, account, task.id, profileKeys(base));
-    const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
+    const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
     if (cfg.via !== "opencode") recordDefaultFolder(ctx, agent, account, base);
-    if (choice.mode === "interactive" && !choice.explicit && agent === "codex" && cfg.via !== "opencode") {
-      const gap = await codexInteractiveGap(ctx, env);
-      if (gap) { choice = {mode: "headless", explicit: false, fallback: gap}; cfg = {...cfg, session: "headless"}; }
-    }
     if (choice.fallback) note += `launch mode: headless (${choice.fallback})\n\n`;
     const interactive = cfg.session === "interactive";
-    turn = !interactive && !conversation && task.pendingTurn ? claimTurnMessages(ctx, task) : null;
+    turn = !conversation && task.pendingTurn ? claimTurnMessages(ctx, task) : null;
     if (turn) prompt = renderTurnPrompt(ctx, task, turn.messages);
     const instructions = interactive && !conversation ? `\n\nInteractive pacer session: completion requires running pacer report --task ${task.id} --outcome done --summary "<result>" (or --outcome failed). Run pacer report with the launch environment unchanged; do not override PACER_HOME or HOME for it. Before asking the user, run pacer report --status needs-input --summary "<question>"; when resuming use --status running. Do not infer completion from the terminal. PACER_RUN_DIR identifies this attempt. You may write a longer Markdown result to $PACER_TRANSCRIPT_REPORT.\n` : "";
     // The session captured when the turn started; the runner has already cleared task.run.
@@ -555,7 +544,7 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
       }
     }
     // Only a stored or discovered session resumes; a freshly assigned one replays the brief.
-    resumeSession = turn ? (priorSession ?? (agentSession?.source === "lookup" ? agentSession : undefined)) : undefined;
+    resumeSession = turn && !interactive ? (priorSession ?? (agentSession?.source === "lookup" ? agentSession : undefined)) : undefined;
     if (conversation) {
       const sessionAgent = cfg.via === "opencode" ? "opencode" : agent;
       const probe = await probeAgentSession(ctx, sessionAgent, env);
@@ -577,17 +566,17 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
       materializeAgentReporting(rdir, launch, env);
     } else {
       let resumed: ReturnType<typeof resumeHeadlessFor> | undefined;
-      if (resumeSession) {
+      if (resumeSession && !interactive) {
         // No headless resume for this agent: replay the thread in a fresh session instead.
         try { resumed = resumeHeadlessFor(cfg, resumeSession.id, prompt, workdir, rdir, task.id); }
         catch { if (agentSession === resumeSession) agentSession = undefined; resumeSession = undefined; }
       }
-      launch = resumed ?? launchFor(cfg, turn ? [brief, renderReplayThread(ctx, task, turn.messages), prompt].filter(Boolean).join("\n\n") : prompt + instructions,
+      launch = resumed ?? launchFor(cfg, turn ? [brief, renderReplayThread(ctx, task, turn.messages), prompt, instructions].filter(Boolean).join("\n\n") : prompt + instructions,
         workdir, rdir, task.id, agentSession?.id, "error" in git ? task.brief.repo : git.main);
     }
     if(env.PACER_ENFORCEMENT_MODE==="strict"&&agent==="claude-code")launch={...launch,argv:strictClaudeLaunch(ctx,launch.argv,rdir)};
     if (interactive) {
-      if (agent === "codex" && !conversation && choice.explicit) await requireCodexInteractive(ctx, env);
+      if (agent === "codex" && cfg.via !== "opencode" && !conversation) await requireCodexInteractive(ctx, env);
       // A chat's user answers Claude's trust and MCP prompts; a delegated interactive lane runs unattended, as a task does.
       const attended = conversation && !task.interactive;
       if (agent === "claude-code" && !attended) note += await preapproveClaudeTrust(ctx, env, mode, launch.cwd, "error" in git ? undefined : git.main);

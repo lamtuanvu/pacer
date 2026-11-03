@@ -1,3 +1,6 @@
+import { readRun } from "../supervisor/run";
+import { typeIntoSession, SessionInputError } from "../messaging/live";
+import { sessionSocket } from "./service";
 import { checkRev, taskActivity } from "../core/tasks";
 import { CoreError } from "../core/errors";
 import { isExecutorSession } from "../install/role";
@@ -52,10 +55,11 @@ export async function send(ctx: Ctx, id: string, text: string, o: SendOptions = 
     checkRev(ctx, task, o.expectRev);
     // Only a running lane has a runner supervising its worker; one waiting on its question is answered instead, so
     // the agent's resumed work is captured by the answering attempt.
-    if (task.state === "needs_input") throw new CoreError("conflict", `task is waiting for an answer; use pacer answer ${id}`);
+    if (task.state === "needs_input" || task.question && task.question.answer === undefined) throw new CoreError("conflict", `task is waiting for an answer; use pacer answer ${id}`);
     if (task.state !== "running") throw new CoreError("conflict", `task is ${task.state}, not running`);
-    if (!task.live) throw new CoreError("unavailable", "this task has no live terminal to send into", "only an interactive lane (delegate --interactive) on a backend that keeps its worker live accepts messages");
-    if (!backendById(task.live.backend, o.backends)?.live) {
+    const direct = directInputAvailable(task);
+    if (!task.live && !direct) throw new CoreError("unavailable", "this task has no live terminal to send into", "only an interactive lane (delegate --interactive) on a backend that keeps its worker live accepts messages");
+    if (task.live && !backendById(task.live.backend, o.backends)?.live) {
       throw new CoreError("unavailable", `the ${task.live.backend} backend cannot deliver live input`);
     }
     const holder = task.driving;
@@ -67,7 +71,9 @@ export async function send(ctx: Ctx, id: string, text: string, o: SendOptions = 
     return { task: claimed, previous: holder, contended };
   });
   const live = claim.task.live!;
-  const delivered = await backendById(live.backend, o.backends)!.live!.send(ctx, claim.task, text);
+  const delivered = live
+    ? await backendById(live.backend, o.backends)!.live!.send(ctx, claim.task, text)
+    : await sendDirectInput(ctx, claim.task, text);
   if (!delivered.ok) {
     // Nothing was delivered: give the lease back unless someone else has claimed it since.
     withTaskLock(ctx, id, () => updateTask(ctx, id, t => {
@@ -79,4 +85,27 @@ export async function send(ctx: Ctx, id: string, text: string, o: SendOptions = 
   const updated = readTask(ctx, id) ?? claim.task;
   taskActivity(ctx, updated, "message", `Sent${claim.contended ? ` (took over from ${claim.previous!.by})` : ""}: ${text.slice(0, 200)}`);
   return updated;
+}
+
+/** Built-in PTYs prove liveness from the owned run, not an Orca worker record. */
+export function directInputAvailable(task: TaskRecord): boolean {
+  if (task.state !== "running" || !task.run || task.run.host || task.run.takeover) return false;
+  const state = readRun(task.run.dir);
+  return state.alive && state.exit === null && state.interactive === true;
+}
+
+export async function sendDirectInput(ctx: Ctx, task: TaskRecord, text: string, guard: (task: TaskRecord) => boolean = () => true) {
+  const dir = task.run?.dir;
+  if (!dir) return {ok: false as const, code: "unavailable" as const, definite: true, message: "No interactive run"};
+  const ready = () => {
+    const current = readTask(ctx, task.id);
+    return !!current && current.run?.dir === dir && directInputAvailable(current) && guard(current);
+  };
+  try {
+    const result = await typeIntoSession(sessionSocket(dir), text, {}, ready);
+    return result === "typed" ? {ok: true as const}
+      : {ok: false as const, code: "conflict" as const, definite: true, message: "Terminal is controlled by another viewer or the run changed"};
+  } catch (error) {
+    return {ok: false as const, code: "unavailable" as const, definite: error instanceof SessionInputError && !error.inputAttempted, message: `Interactive input failed: ${String(error)}`};
+  }
 }
