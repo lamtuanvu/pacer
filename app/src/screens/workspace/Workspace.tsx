@@ -39,6 +39,7 @@ import { taskTree, workTasks, type TaskNodeView, type WorkRow } from '../../../.
 import type { AgentSession } from '../../../../src/session/agents';
 import { TaskAgentPanel } from './TaskAgentPanel';
 import { NewAgentSession } from './NewAgentSession';
+import { latestWorkspaceTask, workspaceAgentLabel, workspaceSessionLabel } from './session-label';
 import { TaskActions } from '../trace/TaskActions';
 import { MessageAnswer } from '../TaskResult';
 import { messageQuestion } from '../../model/task-answer';
@@ -81,7 +82,7 @@ export function Workspace({id,panel,query}:{id?:string;panel?:string;query:Route
   document.addEventListener('pointerdown', outside);
   return () => document.removeEventListener('pointerdown', outside);
  }, [menu]);
- const openAgent=(agent:AgentSession)=>open({id:`agent:${agent.id}`,task:agent.task_id,kind:'agent',agent,title:agentSessionLabel(agent.executor,agent.ordinal)});
+ const openAgent=(agent:AgentSession)=>open({id:`agent:${agent.id}`,task:agent.task_id,kind:'agent',agent,title:workspaceAgentLabel(tasks.find(task=>task.id===agent.task_id)??agent.ownerTask,agent)});
  const shells=useQuery<TerminalRecord[]>('terminal.list',{});
  const detail=useQuery<TaskDetail>('task.get',{id:selected??''},'',true,!!selected);
  const selectedTree=useQuery<TraceTree>('dispatch.tree',{id:selected??''},'',false,!!selected);
@@ -89,7 +90,7 @@ export function Workspace({id,panel,query}:{id?:string;panel?:string;query:Route
  if(detail.data)details.current.set(detail.data.id,detail.data);
  const current=panels.find(p=>p.id===active),t=detail.data;
  const open=(p:Panel)=>{setPanels(previous=>previous.some(x=>x.id===p.id)?previous:[...previous,p]);setActive(p.id);setMenu(false);};
- const sessionPanel=(task:ApiTask)=>{const members=membersFor(task);const member=task.executor?task:members.find(t=>t.executor&&['running','queued','needs_input'].includes(t.state))??members.find(t=>t.executor)??task;open({id:`session:${member.id}`,task:member.id,kind:'session',title:'Task workspace'});};
+ const sessionPanel=(task:ApiTask)=>{const members=membersFor(task);const member=task.executor?task:members.find(t=>t.executor&&['running','queued','needs_input'].includes(t.state))??members.find(t=>t.executor)??task;open({id:`session:${member.id}`,task:member.id,kind:'session',title:workspaceSessionLabel(member)});};
  useEffect(()=>{if(id&&!panels.length){setSelected(id);setExpanded(p=>({...p,[id]:true}));sessionPanel(tasks.find(t=>t.id===id)??{id,executor:null} as ApiTask);}},[id]);
  const initialPanelOpened=useRef(false);
  useEffect(()=>{if(!id&&!panels.length&&!initialPanelOpened.current){const first=visible.find(t=>t.id===selected)??visible[0];if(first){initialPanelOpened.current=true;setSelected(first.id);setExpanded({[first.id]:true});sessionPanel(first);}}},[id,selected,visible[0]?.id]);
@@ -98,6 +99,20 @@ export function Workspace({id,panel,query}:{id?:string;panel?:string;query:Route
  const openFile=async(reference:string,taskId=selected)=>{
   if(!taskId)return;setBusy(true);setError(undefined);
   try{const session=await api.call<SessionInfo>('task.session',{id:taskId});if(!session.attempt)throw new Error('File preview requires a recorded session attempt.');const file=await api.call<SessionFileResult>('session.file.read',{id:taskId,attempt:session.attempt,reference});open({id:`file:${taskId}:${file.path}`,task:taskId,kind:'file',title:file.path.split('/').at(-1)!,file,reference});setFilePrompt(false);}catch(e){setError(e);}finally{setBusy(false);}
+ };
+ // Resolve on render so restored panels and late task data refresh their names.
+ const panelTask = (p: Panel) => latestWorkspaceTask(
+   state.snapshot?.tasks.find(task => task.id === p.task),
+   details.current.get(p.task),
+   history.data?.tasks.find(task => task.id === p.task),
+   tasks.find(task => task.id === p.task),
+   p.agent?.ownerTask,
+  );
+ const panelTitle = (p: Panel) => {
+  const task = panelTask(p);
+  if (p.kind === 'session') return workspaceSessionLabel(task);
+  if (p.kind === 'agent' && p.agent) return workspaceAgentLabel(task ?? p.agent.ownerTask, p.agent);
+  return p.title;
  };
  const appliedPanel=useRef('');
  useEffect(()=>{
@@ -128,7 +143,7 @@ export function Workspace({id,panel,query}:{id?:string;panel?:string;query:Route
 
  </div></>:(selected?!detail.error&&<Skeleton layout="rows" label="Loading the task"/>:<EmptyState title="Select a task" description="Choose a task on the left to see its details."/>)}</div>;
  return <div className={`pc-workspace${frame?.inline?' pc-workspace--inline':''}`}><FrameSlot name="left">{left}</FrameSlot><FrameSlot name="right">{rightPanel}</FrameSlot>{frame?.inline&&<>{left}</>}{dialogs.dialog}{agentPrompt&&t&&<Dialog title="New agent session" close={()=>setAgentPrompt(false)}><NewAgentSession key={t.id} task={t} onStarted={agent=>{agents.reload();setAgentPrompt(false);openAgent(agent);}}/></Dialog>}
- <div className="pc-workspace-center"><div className="pc-workspace-panels"><Tabs variant="terminal" id={`${viewId}-workspace-panels`} label="Workspace panels" value={active} onChange={setActive} options={panels.map(p=>({value:p.id,label:p.title,buttonProps:{title:p.title},trailing:<IconButton className="pc-terminal-tab-kill" size="sm" variant="quiet" aria-label={`Close ${p.title}`} title={`Close ${p.title}`} onClick={()=>close(p)}>×</IconButton>}))}/><div className="pc-terminal-menu-anchor"><IconButton geometry="panel" ref={menuTrigger} icon="plus" size="sm" variant="quiet" aria-haspopup="menu" aria-label="New panel" title="New panel" aria-expanded={menu} onClick={()=>setMenu(!menu)}/>{menu&&createPortal(<div ref={menuRoot} className="pc-terminal-menu" role="menu" aria-label="New panel" onKeyDown={event => {
+ <div className="pc-workspace-center"><div className="pc-workspace-panels"><Tabs variant="terminal" id={`${viewId}-workspace-panels`} label="Workspace panels" value={active} onChange={setActive} options={panels.map(p=>{const title=panelTitle(p);return {value:p.id,label:title,leading:(p.kind==='session'||p.kind==='agent')?<AgentMark agent={markAgent((p.kind==='agent'?p.agent?.executor:panelTask(p)?.executor)??'unknown')} size={16} labelled={p.kind!=='agent'}/>:undefined,buttonProps:{title},trailing:<IconButton className="pc-terminal-tab-kill" size="sm" variant="quiet" aria-label={`Close ${title}`} title={`Close ${title}`} onClick={()=>close(p)}>×</IconButton>};})}/><div className="pc-terminal-menu-anchor"><IconButton geometry="panel" ref={menuTrigger} icon="plus" size="sm" variant="quiet" aria-haspopup="menu" aria-label="New panel" title="New panel" aria-expanded={menu} onClick={()=>setMenu(!menu)}/>{menu&&createPortal(<div ref={menuRoot} className="pc-terminal-menu" role="menu" aria-label="New panel" onKeyDown={event => {
 
   if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return; }
   // Anchor native traversal at the trigger before the focused portal unmounts.

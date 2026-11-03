@@ -216,7 +216,7 @@ browserTest('selecting a workspace task issues exactly one task.get and retained
   expect(await count()-before).toBe(1);
   expect(await page.getByText('No saved output is available for this earlier attempt.').count()).toBe(1);
   expect(await page.getByText('No saved output is available for this earlier attempt.').isVisible()).toBe(false);
-  await page.getByRole('tab',{name:'Task workspace',exact:false}).first().click();
+  await page.getByRole('tab',{name:'Inspect workspace session',exact:false}).first().click();
   await page.evaluate(()=>(window as any).workspaceFinish());
   await page.waitForTimeout(500);
   expect(await page.getByRole('button',{name:'Stop task',exact:true}).count()).toBe(0);
@@ -332,10 +332,10 @@ browserTest('workspace without an id opens its initial selection once and respec
   const page=await browser.newPage();page.setDefaultTimeout(3000);await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<div id="app"></div>'}));
   await page.goto('http://pacer.test/?mode=noid#/workspace');await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
   await page.getByLabel('Terminal stream fixture').waitFor({state:'attached'});
-  await page.getByRole('button',{name:'Close Task workspace',exact:true}).click();
+  await page.getByRole('button',{name:'Close Inspect workspace session',exact:true}).click();
   await page.evaluate(()=>(window as any).workspaceTick(true));
   await page.waitForTimeout(400);
-  expect(await page.getByRole('tab',{name:'Task workspace',exact:false}).count()).toBe(0);
+  expect(await page.getByRole('tab',{name:'Inspect workspace session',exact:false}).count()).toBe(0);
  }finally{await browser.close();}
 },15000);
 browserTest('workspace menu remains pointer reachable after panel resizing and viewport changes',async()=>{
@@ -659,3 +659,32 @@ browserTest('workspace unavailable Changes never claims a successful empty file 
   expect(await panel.innerText()).not.toMatch(/0 files|\+0|−0/);
  } finally {await browser.close();}
 },15000);
+
+for(const width of [1440,375]) for(const theme of ['light','dark'] as const) browserTest(`terminal tab text alone ellipsizes at ${width} ${theme}`,async()=>{
+ const result=await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[countedTerminal]});
+ const css=(await buildApp()).find(f=>f.path==='app.css')!.text;
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {for(const executor of ['codex','unknown']) {
+  const page=await browser.newPage({viewport:{width,height:900},colorScheme:theme});
+  await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto(`http://pacer.test/?mode=longidentity&executor=${executor}#/workspace?task=workspace-task`);
+  await page.addStyleTag({content:css});await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
+  await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
+  const strip=page.getByRole('tablist',{name:'Workspace panels',exact:true});
+  const tab=strip.getByRole('tab');await tab.waitFor();await tab.scrollIntoViewIfNeeded();
+  const title='Split the budget store into read and write paths with a long session identity';
+  expect(await tab.getAttribute('title')).toBe(title);
+  expect(await tab.locator('.pc-terminal-tab-text').textContent()).toBe(title);
+  expect(await tab.getByRole('img',{name:executor==='codex'?'Codex':'unknown',exact:true}).count()).toBe(1);
+  const metrics=await strip.evaluate(n=>{
+   const item=n.querySelector('.pc-selection-item')!, text=item.querySelector('.pc-terminal-tab-text')!,mark=item.querySelector('.pc-agent-mark')!,close=item.querySelector('.pc-terminal-tab-kill')!;
+   const t=text.getBoundingClientRect(),m=mark.getBoundingClientRect(),c=close.getBoundingClientRect();
+   return {width:item.getBoundingClientRect().width,cap:parseFloat(getComputedStyle(item).maxWidth),textRight:t.right,closeLeft:c.left,markRight:m.right,textLeft:t.left,overflow:text.scrollWidth>text.clientWidth,ellipsis:getComputedStyle(text).textOverflow,visible:m.top>=0&&c.bottom<=innerHeight,closeHit:close.contains(document.elementFromPoint(c.x+c.width/2,c.y+c.height/2)),gap:parseFloat(getComputedStyle(close).marginLeft)};
+  });
+  expect(metrics.width).toBeLessThanOrEqual(metrics.cap);expect(metrics.textRight).toBeLessThanOrEqual(metrics.closeLeft-metrics.gap);expect(metrics.markRight).toBeLessThanOrEqual(metrics.textLeft);expect(metrics.overflow).toBe(true);expect(metrics.ellipsis).toBe('ellipsis');expect(metrics.visible).toBe(true);expect(metrics.closeHit).toBe(true);
+  await tab.focus();await page.keyboard.press('Tab');
+  expect(await strip.getByRole('button',{name:`Close ${title}`,exact:true}).evaluate(n=>n===document.activeElement)).toBe(true);
+  if(process.env.PACER_TABS_EVIDENCE)await page.screenshot({path:`${process.env.PACER_TABS_EVIDENCE}/${width}-${theme}-${executor}-strip.png`});
+  await page.close();
+ }}finally{await browser.close();}
+},20000);
