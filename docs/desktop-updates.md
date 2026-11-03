@@ -85,7 +85,9 @@ app started the transaction since the Mac last started up. Until the
 transaction finishes, the desktop shows that
 the service is being replaced and does not install, start or sign in to the
 service. It then shows **Kept your current service** with the reason. **Continue
-current service** also hides the offer for that build, like **Not now**. If
+current service** also hides the offer for that build, like **Not now**.
+**Review service replacement** opens the offer again for a new attempt, also for
+a build you dismissed before; the service changes only if you confirm it. If
 recovery cannot verify the original service, the desktop shows **Service
 replacement needs attention** on every launch. It shows the same page when a
 transaction record can't be read, when the recovery run in this launch left it
