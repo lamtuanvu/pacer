@@ -209,6 +209,13 @@ impl OwnedJob {
             .map(|value| self.definition.match_loaded(&value))
             .transpose()
     }
+    fn observe_after_bootout(
+        &self,
+        trust: &ReleaseTrust,
+        program: &ProgramCheck,
+    ) -> Result<Option<LoadedJob>, OtaError> {
+        self.observe_with(trust, program)
+    }
     pub(crate) async fn change(
         &self,
         trust: &ReleaseTrust,
@@ -430,7 +437,7 @@ impl OwnedJob {
         // Bootout completion must use the state after exact exit and retirement,
         // not a manager snapshot captured immediately after launchctl returned.
         let after = if change == JobChange::Bootout {
-            self.observe(trust)?
+            self.observe_after_bootout(trust, program)?
         } else {
             after
         };
@@ -1163,7 +1170,14 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().canonicalize().unwrap();
         let executable = root.join("other-pacer");
-        std::fs::write(&executable, b"unsigned fixture").unwrap();
+        std::fs::copy("/usr/bin/true", &executable).unwrap();
+        assert!(std::process::Command::new("/usr/bin/codesign")
+            .args(["--force", "--sign", "-"])
+            .arg(&executable)
+            .status()
+            .unwrap()
+            .success());
+        let original = std::fs::read(&executable).unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
         let metadata = std::fs::metadata(&executable).unwrap();
         let stamp = |seconds: i64, nanos: i64| {
@@ -1175,7 +1189,7 @@ mod tests {
             size: metadata.size(),
             modified_ns: stamp(metadata.mtime(), metadata.mtime_nsec()),
             changed_ns: stamp(metadata.ctime(), metadata.ctime_nsec()),
-            sha256: digest(b"unsigned fixture"),
+            sha256: digest(&original),
             cdhash: "a".repeat(40),
         };
         let path = root.join("fixture.plist");
@@ -1206,13 +1220,23 @@ mod tests {
             Ok(())
         );
         assert_eq!(job.observe(&trust).err(), Some(OtaError::Identity));
+        // The post-bootout check must retain the authorized legacy identity even
+        // when it is signed differently from the release signer. This label is never loaded.
+        assert_eq!(
+            job.observe_after_bootout(&trust, &ProgramCheck::Pinned(identity.clone())),
+            Ok(None)
+        );
         std::fs::write(&executable, b"changed fixture").unwrap();
+        assert_eq!(
+            job.observe_after_bootout(&trust, &ProgramCheck::Pinned(identity.clone())),
+            Err(OtaError::Identity)
+        );
         assert_eq!(
             job.check_with(&trust, &ProgramCheck::Pinned(identity.clone())),
             Err(OtaError::Identity)
         );
         std::fs::remove_file(&executable).unwrap();
-        std::fs::write(&executable, b"unsigned fixture").unwrap();
+        std::fs::write(&executable, &original).unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(
             job.check_with(&trust, &ProgramCheck::Pinned(identity.clone())),
