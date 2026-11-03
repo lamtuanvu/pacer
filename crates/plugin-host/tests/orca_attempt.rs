@@ -105,11 +105,7 @@ print(json.dumps({'ok':True,'result':result}))
         launch: vec!["codex".into(), "--unattended".into()],
         account_env: HashMap::new(),
     };
-    let env = HashMap::from([
-        ("PATH".into(), std::env::var("PATH").unwrap()),
-        ("SCENARIO".into(), scenario.into()),
-        ("FIXTURE_HOME".into(), root.to_str().unwrap().into()),
-    ]);
+    let env = sealed_env(&root, scenario);
     let attempt = OrcaAttempt::issue(
         &root,
         ID,
@@ -292,6 +288,34 @@ async fn expired_provider_budget_does_not_prevent_host_owned_abort_cleanup() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Seal the fixture owner env so real git (run through `selected_git`/`NativeGit`
+/// and by the Python child `git`) sees only fixture-owned config, never the
+/// operator's ambient system/user git config: an owned HOME and XDG dir, an empty
+/// owned global gitconfig, and GIT_CONFIG_NOSYSTEM. `FIXTURE_HOME` remains the
+/// fixture root and `PATH` keeps the real tool `selected_git` pins.
+fn sealed_env(root: &std::path::Path, scenario: &str) -> HashMap<String, String> {
+    let home = root.join("home");
+    fs::create_dir_all(&home).unwrap();
+    fs::set_permissions(&home, fs::Permissions::from_mode(0o700)).unwrap();
+    let xdg = root.join("xdg");
+    fs::create_dir_all(&xdg).unwrap();
+    fs::set_permissions(&xdg, fs::Permissions::from_mode(0o700)).unwrap();
+    let global = root.join("owner.gitconfig");
+    fs::write(&global, b"").unwrap();
+    fs::set_permissions(&global, fs::Permissions::from_mode(0o600)).unwrap();
+    HashMap::from([
+        ("PATH".into(), std::env::var("PATH").unwrap()),
+        ("SCENARIO".into(), scenario.into()),
+        ("FIXTURE_HOME".into(), root.to_string_lossy().into_owned()),
+        ("HOME".into(), home.to_string_lossy().into_owned()),
+        ("XDG_CONFIG_HOME".into(), xdg.to_string_lossy().into_owned()),
+        ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+        (
+            "GIT_CONFIG_GLOBAL".into(),
+            global.to_string_lossy().into_owned(),
+        ),
+    ])
+}
 fn git_fixture(root: &std::path::Path, args: &[&str]) -> String {
     let output = std::process::Command::new("git")
         .args(["-C", root.join("repo").to_str().unwrap()])
@@ -384,14 +408,7 @@ fn policy_with_source(
         },
         source,
         root.join("bin/orca").to_str().unwrap(),
-        HashMap::from([
-            ("PATH".into(), std::env::var("PATH").unwrap()),
-            ("FIXTURE_HOME".into(), root.to_string_lossy().into_owned()),
-            (
-                "SCENARIO".into(),
-                if group { "lane" } else { "policy" }.into(),
-            ),
-        ]),
+        sealed_env(root, if group { "lane" } else { "policy" }),
         Instant::now() + Duration::from_secs(30),
     )
     .unwrap()
@@ -544,11 +561,7 @@ async fn stopping_a_live_owner_also_releases_its_proven_empty_lane() {
         &root,
         ID,
         root.join("bin/orca").to_str().unwrap(),
-        HashMap::from([
-            ("PATH".into(), std::env::var("PATH").unwrap()),
-            ("FIXTURE_HOME".into(), root.to_string_lossy().into_owned()),
-            ("SCENARIO".into(), "lane".into()),
-        ]),
+        sealed_env(&root, "lane"),
         Instant::now() + Duration::from_secs(30),
     )
     .unwrap();
@@ -612,11 +625,7 @@ async fn unsupported_or_malformed_runner_is_refused_before_any_orca_effect() {
                 login: LoginEnvironment::default(),
             },
             root.join("bin/orca").to_str().unwrap(),
-            HashMap::from([
-                ("PATH".into(), std::env::var("PATH").unwrap()),
-                ("FIXTURE_HOME".into(), root.to_string_lossy().into_owned()),
-                ("SCENARIO".into(), "policy".into()),
-            ]),
+            sealed_env(&root, "policy"),
             Instant::now() + Duration::from_secs(10),
         )
         .unwrap();
@@ -913,9 +922,7 @@ async fn repo_registration_stays_disabled_for_opt_out_and_linked_worktree() {
             provider:json!({"id":"codex"}),execution:json!({"worktree":"current","registerRepos":linked}),
             strategy:json!({"runners":{"codex":{"account":"main"}},"accounts":{"main":{"name":"main","kind":"codex","source":"default"}}}),
             user_home:root.clone(),login:LoginEnvironment::default(),
-        },root.join("bin/orca").to_str().unwrap(),HashMap::from([
-            ("PATH".into(),std::env::var("PATH").unwrap()),("SCENARIO".into(),"policy".into()),("FIXTURE_HOME".into(),root.to_str().unwrap().into()),
-        ]),Instant::now()+Duration::from_secs(15)).unwrap();
+        },root.join("bin/orca").to_str().unwrap(),sealed_env(&root,"policy"),Instant::now()+Duration::from_secs(15)).unwrap();
         attempt.invoke("liveAnswer", json!({})).await.unwrap();
         let result = attempt.invoke("prepare", json!({})).await.unwrap();
         assert_eq!(result["ok"], false, "{result}");
