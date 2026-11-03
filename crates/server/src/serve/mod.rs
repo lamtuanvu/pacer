@@ -33,7 +33,7 @@ pub mod proxy;
 pub mod sessions;
 pub mod ws;
 
-use crate::native::{call_native, registry};
+use crate::native::{call_native, service_registry};
 use axum::{
     Router,
     body::Body,
@@ -76,8 +76,21 @@ struct Listener {
     token: String,
     registry: Registry<'static>,
     scoped_work: bool,
+    plugins: crate::native::plugins::Service,
     forward_log_follow: bool,
 }
+async fn forward_plugin_read(
+    state: &Listener,
+    parts: axum::http::request::Parts,
+    bytes: axum::body::Bytes,
+    auth: auth::AuthKind,
+) -> Response {
+    let Some(target) = state.core.target().await else {
+        return proxy::unavailable(false);
+    };
+    proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth).await
+}
+
 async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
     let ctx = state.ctx.at_now();
@@ -119,15 +132,66 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         {
             return native_error(CoreError::new(Code::TooLarge, "body exceeds 256 KiB"));
         }
-        let bytes = match axum::body::to_bytes(req.into_body(), max + 1).await {
+        let (parts, body) = req.into_parts();
+        let bytes = match axum::body::to_bytes(body, max + 1).await {
             Ok(bytes) if bytes.len() <= max => bytes,
             _ => return native_error(CoreError::new(Code::TooLarge, "body exceeds 256 KiB")),
         };
-        let params: Value = match serde_json::from_slice(&bytes) {
+        let plugin = op.name.starts_with("plugin.");
+        let decoded = if plugin {
+            pacer_plugin_ops::json::parse_body(&bytes)
+        } else {
+            serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+        };
+        let params: Value = match decoded {
             Ok(params) => params,
+            Err(error) if plugin && error == pacer_plugin_ops::json::NESTING_FALLBACK => {
+                return forward_plugin_read(&state, parts, bytes, auth).await;
+            }
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
-        return match call_native(&ctx, op, params, None).await {
+        let result = if op.name.starts_with("plugin.") && op.name != "plugin.install" {
+            if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+                eprintln!("native {}", op.name);
+            }
+            // Reads use the same authoritative process generation as the Core.
+            // Mutating plugin operations are absent from this native registry.
+            let state = Arc::clone(&state);
+            let name = op.name;
+            match tokio::spawn(
+                async move { state.plugins.call(&ctx, &state.core, name, params).await },
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(e) => Err(CoreError::new(Code::Internal, e.to_string())),
+            }
+        } else {
+            let endpoint_sync = state.core.target().await.map(|target| {
+                Box::pin(crate::native::config_sync::http(Some(target), op.name))
+                    as pacer_foundation::api::OpFuture<'_>
+            });
+            call_native(&ctx, op, params, None, endpoint_sync).await
+        };
+        if plugin
+            && result.as_ref().is_err_and(|error| {
+                error.code == Code::Unavailable
+                    && error.message == pacer_plugin_ops::json::NESTING_FALLBACK
+            })
+        {
+            // All registered plugin operations are reads. Unsupported native
+            // envelopes may be replayed safely against the TS reference.
+            return forward_plugin_read(&state, parts, bytes, auth).await;
+        }
+        return match result {
+            Ok(result) if plugin => {
+                plugin_json(StatusCode::OK, serde_json::json!({"result":result}))
+            }
+            Err(error) if plugin => plugin_json(
+                StatusCode::from_u16(error.http_status())
+                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                error.body(),
+            ),
             Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
             Err(error) => native_error(error),
         };
@@ -184,8 +248,13 @@ fn native_error(error: CoreError) -> Response {
         StatusCode::from_u16(error.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     native_json(status, error.body())
 }
+fn plugin_json(status: StatusCode, body: Value) -> Response {
+    json_headers((status, pacer_plugin_ops::settings::js_json(&body)).into_response())
+}
 fn native_json(status: StatusCode, body: Value) -> Response {
-    let mut response = (status, axum::Json(body)).into_response();
+    json_headers((status, axum::Json(body)).into_response())
+}
+fn json_headers(mut response: Response) -> Response {
     response.headers_mut().insert(
         "content-type",
         axum::http::HeaderValue::from_static("application/json;charset=utf-8"),
@@ -219,18 +288,18 @@ pub async fn run_serve(
     if !forward.is_empty() {
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
-    let registry = registry(if scoped_work { "*" } else { forward });
+    let registry = service_registry(if scoped_work { "*" } else { forward });
     let forward_log_follow = forward.split(',').any(|name| {
         js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.task_log_follow"
     });
     let token = auth::ensure_token(&ctx)?;
-    // Requests clone the context; the listener needs only the pacer home.
-    ctx.env.clear();
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
     // The internal HTTP listener binds independently. Its desktop integration
     // still needs the actual public port, including explicit/ephemeral binds.
     env.insert("PACER_PORT".into(), port.to_string());
+    // Native operations and the core must observe the same configuration environment.
+    ctx.env = env.clone();
     // Runtime environment cannot turn a generic front door into a native owner.
     env.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
     #[cfg(target_os = "macos")]
@@ -263,6 +332,7 @@ pub async fn run_serve(
         token,
         registry,
         scoped_work,
+        plugins: crate::native::plugins::Service::default(),
         forward_log_follow,
     });
     let app = Router::new()

@@ -1236,6 +1236,7 @@ dependencies = [
 name = "pacer-config"
 version = "0.0.0"
 dependencies = [
+ "indexmap",
  "pacer-foundation",
  "ryu-js",
  "saphyr-parser",
@@ -1434,6 +1435,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-ops"
+version = "0.0.0"
+dependencies = [
+ "icu_collator",
+ "pacer-foundation",
+ "pacer-plugin-protocol",
+ "ryu-js",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-plugin-ops-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1485,6 +1500,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "chrono",
  "core-foundation",
  "form_urlencoded",
  "futures-util",
@@ -1495,8 +1511,10 @@ dependencies = [
  "icu_collator",
  "libproc",
  "nix",
+ "pacer-config",
  "pacer-foundation",
  "pacer-mdns",
+ "pacer-plugin-ops",
  "pacer-store",
  "rand 0.9.5",
  "ryu-js",

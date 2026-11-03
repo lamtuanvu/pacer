@@ -38,8 +38,9 @@ async fn listener_with_core(
         ctx,
         port,
         token: "test-token".into(),
-        registry: registry("*"),
+        registry: service_registry("*"),
         scoped_work: false,
+        plugins: crate::native::plugins::Service::default(),
         forward_log_follow: forwarded,
     });
     let app = Router::new()

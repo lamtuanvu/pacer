@@ -13,6 +13,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Preserve unrelated notification settings containing malformed UTF-8 in native reads and writes, and match TypeScript number formatting in saved strategy YAML.
 - Keep task-history backfills and retention off the service request thread, retry temporary backfill writer contention, and avoid unnecessary SQLite writer locks when opening or scanning existing task stores. Desktop sign-in no longer waits for historical maintenance.
 
 - Preserve shared legacy task imports, older SQLite migrations, malformed run errors and UTF-8 decoding in native task-log follow streams through the TypeScript compatibility fallback.
@@ -43,6 +44,18 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ## [0.13.0] - 2026-10-31
 
 ### Fixed
+
+- Keep phone Workspace task tabs above bottom navigation and Ask pacer on entry, accounting for the wrapped header when sizing the task list and session.
+
+- Keep Workspace Overview, Changes and Notes tabs visible while reading long task details, including below the wrapping phone header.
+
+- Stop repeatedly probing naturally exited added-agent history on warm task reads, slot checks, workspace admission and lifecycle pumps, while preserving ambiguous starts and retry invalidation.
+
+- Fail closed when the session database is replaced during reservation acquisition, instead of caching old sessions under a replacement database's identity.
+
+- Make Stop all cancel pending task-agent checks before claim or acceptance launch, stop running checker children, retain checkout ownership through diff capture, and report cancelled checks even before a child starts.
+
+- Retain overlapping checkout ownership through task-agent final acceptance and diff capture. Apply delegation and route plugin policy to added-session create, retry and resume before invalidating prior results or spawning an agent; reject amendments that cannot preserve the parent task and checkout.
 
 - Keep the Accounts status pill stale when a retained pacing verdict belongs to expired or old usage.
 
