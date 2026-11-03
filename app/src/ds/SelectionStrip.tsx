@@ -24,7 +24,7 @@ const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matc
 /** One geometry owner for value pickers, view tabs and page navigation. */
 export function SelectionStrip({ label, id, value, options, onChange, disabled, className, variant, describedBy, mode }: StripProps & { mode: "segmented" | "tabs" | "nav" }) {
   const list = useRef<HTMLDivElement>(null), indicator = useRef<HTMLSpanElement>(null);
-  const initialized = useRef(false), previous = useRef(value), snapshot = useRef<HTMLElement | null>(null);
+  const initialized = useRef(false), previous = useRef(value);
   const finish = useRef<(() => void) | undefined>(undefined);
   const available = options.filter(option => !disabled && !option.disabled);
   const current = value;
@@ -53,52 +53,22 @@ export function SelectionStrip({ label, id, value, options, onChange, disabled, 
     root.querySelectorAll<HTMLElement>("[data-strip-value]").forEach(item => observer.observe(item));
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [current, options]);
+  // A changed tab fades its new panel in. The old panel is not kept on screen: overlapping both and
+  // holding the height until the fade ends read as a double image and a jump.
   useLayoutEffect(() => {
-    const panel = mode === "tabs" ? panelFor(value) : null;
-    if (previous.current !== value) {
-      finish.current?.();
-      const old = snapshot.current;
-      if (panel && old && !reduced()) {
-        const parent = panel.parentElement!;
-        old.removeAttribute("id"); old.setAttribute("aria-hidden", "true"); old.setAttribute("inert", "");
-        old.querySelectorAll("[id]").forEach(item => item.removeAttribute("id"));
-        old.classList.remove("pc-tab-enter");
-        // A closed shadow tree keeps a visual snapshot out of live selectors and
-        // accessibility, while preserving the surface's stylesheet context.
-        const ghost = document.createElement("div");
-        ghost.className = "pc-tab-leave";
-        ghost.setAttribute("aria-hidden", "true"); ghost.setAttribute("inert", "");
-        ghost.style.transform = `translateY(${panel.offsetTop}px)`;
-        const shadow = ghost.attachShadow({ mode: "closed" });
-        document.querySelectorAll('link[rel="stylesheet"], style').forEach(sheet => shadow.append(sheet.cloneNode(true)));
-        const context = document.createElement("div");
-        const ancestors: string[] = [];
-        for (let node: HTMLElement | null = parent; node; node = node.parentElement) ancestors.push(node.className);
-        context.className = `${ancestors.join(" ")} pc-tab-context`;
-        context.append(old); shadow.append(context);
-        const minimum = parent.style.minHeight;
-        parent.classList.add("pc-tab-swap");
-        parent.style.minHeight = `${Math.max(parent.offsetHeight, panel.offsetHeight, Number(old.dataset.containerHeight))}px`;
-        parent.append(ghost);
-        panel.classList.add("pc-tab-enter");
-        const done = () => { ghost.remove(); panel.classList.remove("pc-tab-enter"); parent.classList.remove("pc-tab-swap"); parent.style.minHeight = minimum; finish.current = undefined; };
-        // Read the same motion token used by CSS, including theme overrides.
-        const duration = parseFloat(getComputedStyle(panel).getPropertyValue("--motion-panel"));
-        const timer = window.setTimeout(done, duration);
-        finish.current = () => { clearTimeout(timer); done(); };
-      }
-    }
+    if (previous.current === value) return;
     previous.current = value;
-    snapshot.current = panel?.cloneNode(true) as HTMLElement | null;
-    if (snapshot.current && panel) snapshot.current.dataset.containerHeight = String(panel.parentElement!.offsetHeight);
+    finish.current?.();
+    const panel = mode === "tabs" ? panelFor(value) : null;
+    if (!panel || reduced()) return;
+    panel.classList.add("pc-tab-enter");
+    const done = () => { panel.classList.remove("pc-tab-enter"); finish.current = undefined; };
+    // Read the same motion token used by CSS, including theme overrides.
+    const timer = window.setTimeout(done, parseFloat(getComputedStyle(panel).getPropertyValue("--motion-panel")));
+    finish.current = () => { clearTimeout(timer); done(); };
   }, [value, mode]);
   useLayoutEffect(() => () => finish.current?.(), []);
-  const change = (next: string) => {
-    if (next === value) return;
-    const panel = mode === "tabs" ? panelFor(value) : null;
-    if (panel) { snapshot.current = panel.cloneNode(true) as HTMLElement; snapshot.current.dataset.containerHeight = String(panel.parentElement!.offsetHeight); }
-    onChange(next);
-  };
+  const change = (next: string) => { if (next !== value) onChange(next); };
   return <div ref={list} role={mode === "tabs" ? "tablist" : mode === "nav" ? "navigation" : "group"} aria-label={label} aria-describedby={describedBy}
     className={classNames(mode === "segmented" ? "pc-segmented" : "pc-tabs", "pc-selection-strip", mode === "nav" && "pc-tabs--nav", variant && (variant === "terminal" ? "pc-tabs--terminal" : `pc-segmented--${variant}`), className)}>
     <span ref={indicator} aria-hidden="true" className="pc-selection-indicator" hidden />

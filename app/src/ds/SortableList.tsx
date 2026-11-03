@@ -30,7 +30,8 @@ export function useFocusAfterRender() {
 
 export interface SortableItem { key: string; label: string; detail?: ComponentChildren; leading?: ComponentChildren; trailing?: ComponentChildren; displayLabel?: ComponentChildren }
 type Control = "up" | "down" | "remove";
-interface Drag { key: string; from: number; over: number; pointer: number }
+/** A pointer drag: the row follows the pointer by `dy`, and `mids`/`step` are the rows' resting geometry. */
+interface Drag { key: string; from: number; over: number; pointer: number; startY: number; dy: number; mids: number[]; step: number }
 
 /**
  * Ordered list with a pointer drag handle. Move up, Move down and Remove buttons are the
@@ -72,23 +73,26 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
     onRemove?.(item.key);
   };
 
+  const rows = () => [...(list.current?.querySelectorAll(":scope > [data-sortable-key]") ?? [])] as HTMLElement[];
+  // Measured against where the rows rest, not where they are drawn mid-drag.
   const finalIndex = (state: Drag, clientY: number) => {
-    const rows = [...(list.current?.querySelectorAll(":scope > [data-sortable-key]") ?? [])] as HTMLElement[];
-    return rows.filter((row, at) => at !== state.from && row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2 < clientY).length;
+    const centre = state.mids[state.from]! + clientY - state.startY;
+    return state.mids.filter((mid, at) => at !== state.from && mid < centre).length;
   };
   const startDrag = (event: JSX.TargetedPointerEvent<HTMLSpanElement>, index: number) => {
     if (disabled || event.button !== 0 || items.length < 2) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const state = { key: items[index]!.key, from: index, over: index, pointer: event.pointerId };
+    const boxes = rows().map(row => row.getBoundingClientRect());
+    const step = boxes.length > 1 ? boxes[1]!.top - boxes[0]!.top : boxes[0]!.height;
+    const state = { key: items[index]!.key, from: index, over: index, pointer: event.pointerId, startY: event.clientY, dy: 0, mids: boxes.map(box => box.top + box.height / 2), step };
     dragRef.current = state;
     setDrag(state);
   };
   const moveDrag = (event: JSX.TargetedPointerEvent<HTMLSpanElement>) => {
     const state = dragRef.current;
     if (!state || state.pointer !== event.pointerId) return;
-    const over = finalIndex(state, event.clientY);
-    if (over !== state.over) setDrag(dragRef.current = { ...state, over });
+    setDrag(dragRef.current = { ...state, over: finalIndex(state, event.clientY), dy: event.clientY - state.startY });
   };
   const endDrag = (event: JSX.TargetedPointerEvent<HTMLSpanElement>, commit: boolean) => {
     const state = dragRef.current;
@@ -102,11 +106,22 @@ export function SortableList({ label, items, onReorder, onRemove, disabled, rend
     }
   };
 
-  return <div className={classNames("pc-sortable", iconControls && "pc-sortable--icons", layout && `pc-sortable--${layout}`)}>
+  // While dragging, the held row follows the pointer and the rows it passes slide one slot to make room.
+  const offset = (index: number) => {
+    if (!drag) return undefined;
+    if (index === drag.from) return drag.dy;
+    if (drag.from < drag.over && index > drag.from && index <= drag.over) return -drag.step;
+    if (drag.from > drag.over && index >= drag.over && index < drag.from) return drag.step;
+    return 0;
+  };
+  // Measured pointer travel and row pitch, passed as a unitless geometry channel; CSS turns it into a translate.
+  useLayoutEffect(() => {
+    rows().forEach((row, index) => { const value = offset(index); if (value === undefined) row.style.removeProperty("--sortable-offset"); else row.style.setProperty("--sortable-offset", String(value)); });
+  });
+  return <div className={classNames("pc-sortable", iconControls && "pc-sortable--icons", layout && `pc-sortable--${layout}`, drag && "pc-sortable--dragging")}>
     <ol ref={list} className="pc-sortable__list" aria-label={label} tabIndex={-1}>
       {items.map((item, index) => <li key={item.key} data-sortable-key={item.key}
-        className={classNames("pc-sortable__item", drag?.key === item.key && "pc-sortable__item--dragging",
-          drag && drag.over !== drag.from && drag.over === index && "pc-sortable__item--drop-target")}>
+        className={classNames("pc-sortable__item", drag?.key === item.key && "pc-sortable__item--dragging")}>
         <div className="pc-sortable__row">
           {items.length > 1 && <span className="pc-sortable__handle" aria-hidden="true" title="Drag to reorder"
             onPointerDown={event => startDrag(event, index)} onPointerMove={moveDrag}

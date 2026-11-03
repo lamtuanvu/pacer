@@ -303,11 +303,11 @@
   --motion-selection: 160ms;
   --motion-panel: 120ms;
   --motion-skeleton: 1400ms;
-  --motion-aurora-shift: 16000ms;
-  --motion-aurora-breathe: 7000ms;
-  --motion-aurora-first: 9000ms;
-  --motion-aurora-middle: 11000ms;
-  --motion-aurora-last: 13000ms;
+  --motion-aurora-shift: 4000ms;
+  --motion-aurora-breathe: 3000ms;
+  --motion-aurora-first: 2500ms;
+  --motion-aurora-middle: 3000ms;
+  --motion-aurora-last: 3500ms;
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-color-scheme: dark) {

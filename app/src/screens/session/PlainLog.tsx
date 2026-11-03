@@ -1,7 +1,6 @@
 import { platform } from "../../platform";
 import type { BrowserApi } from "../../data/api";
 import { useWorkspaceKey, useWorkspaceState, useViewActive } from '../../workspace/state';
-import { Disclosure } from "../../ds/Controls";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { workspaceManager } from "../../workspace/manager";
 import { useTaskContext } from "../task-shared";
@@ -38,5 +37,12 @@ export function PlainLog({id}:{id:string}){
   error:error=>{if(error){setStatus('Could not connect to output');setError(error instanceof Error?error.message:'Could not connect to output.');}else setStatus('Reconnecting to output…');},
  });},[api,id,visible,state.connectionRevision]);
  useEffect(()=>{if(follow&&box.current)box.current.scrollTop=box.current.scrollHeight;},[text,follow]);
- return <><span role="status">{status}</span>{error&&<p role="alert">{error}</p>}<Disclosure className="pc-disclosure" summary={<>Technical session output</>}><pre ref={box} data-scroll-id={`plain-log:${id}`} role="log" aria-label="Session output" tabIndex={0} className="pc-session-follow-log" onScroll={e=>{const node=e.currentTarget;setFollow(node.scrollHeight-node.clientHeight-node.scrollTop<32);}}>{text||'Waiting for output…'}</pre></Disclosure>{!follow&&<Button onClick={()=>setFollow(true)}>Follow output</Button>}</>;
+ // The output is the panel's content: a status strip above a log that fills the remaining height.
+ const tone=error||status==='Could not connect to output'?'bad':status==='Following output'?'info':status==='Output ended'?'muted':'warn';
+ return <div className="pc-plain-log">
+  <div className="pc-plain-log__bar"><span aria-hidden="true" className={`pc-workspace-dot pc-workspace-dot--${tone}${tone==='info'?' pc-status-dot__dot--live':''}`}/><span role="status">{status}</span>
+   {error&&<span role="alert" className="pc-plain-log__error">{error}</span>}
+   {!follow&&<Button size="sm" className="pc-plain-log__follow" onClick={()=>setFollow(true)}>Follow output</Button>}</div>
+  <pre ref={box} data-scroll-id={`plain-log:${id}`} role="log" aria-label="Session output" tabIndex={0} className="pc-session-follow-log pc-plain-log__body" onScroll={e=>{const node=e.currentTarget;setFollow(node.scrollHeight-node.clientHeight-node.scrollTop<32);}}>{text||<span className="pc-plain-log__empty">Waiting for output…</span>}</pre>
+ </div>;
 }

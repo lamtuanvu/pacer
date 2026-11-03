@@ -26,7 +26,7 @@ browserTest("trace renders recorded decisions and subtasks with usable links and
     return {font:getComputedStyle(title).fontSize,weight:getComputedStyle(title).fontWeight,circle:circle.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth};
    });
    expect(await page.locator('.pc-trace h1').innerText()).toBe('A very long root task title with enough words to verify that the trace heading wraps naturally within the viewport without hiding the review actions or pushing content outside the application canvas');
-   expect(geometry).toEqual({font:"28px",weight:"650",circle:26,overflow:false});
+   expect(geometry).toEqual({font:"22px",weight:"650",circle:26,overflow:false});
    const design=await page.evaluate(()=>{
     const style=(selector:string)=>getComputedStyle(document.querySelector(selector)!);
     return {

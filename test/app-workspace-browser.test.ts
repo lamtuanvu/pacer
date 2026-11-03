@@ -123,7 +123,8 @@ browserTest('workspace resumes pending takeover and can control existing interac
    const head=page.getByRole('button',{name:'Select task: Inspect workspace session',exact:true});await head.waitFor();
    expect(await head.locator('a,button').count()).toBe(0);
    expect(await page.getByRole('button',{name:'Take control',exact:true}).getAttribute('class')).toContain('pc-btn--secondary');
-   expect(await page.locator('.pc-workspace-panel-details').textContent()).toContain('Watching · read-only');
+   // The header names the session only; a read-only watch mode is not spelled out.
+   expect(await page.locator('.pc-workspace-panel-details').textContent()).not.toContain('read-only');
    await head.click();expect(page.url()).toContain('#/workspace');
    await page.getByRole('button',{name:'Collapse sessions for Inspect workspace session',exact:true}).click();
    expect(await page.locator('.pc-workspace-session-icon').first().evaluate(n=>getComputedStyle(n).width)).toBe('26px');
@@ -409,10 +410,10 @@ browserTest('ended workspace metadata is truthful and failed session reads recov
   if(mode==='ended') {
    await page.getByRole('region',{name:'Task result',exact:true}).waitFor();
    const text=await page.locator('.pc-topbar__context').innerText();
-   expect(text).toContain('Ended · read-only');expect(text).not.toContain('Following');expect(text).not.toMatch(/·\s*·/);
+   expect(text).not.toContain('read-only');expect(text).not.toContain('Following');expect(text).not.toMatch(/·\s*·/);
   } else if(mode==='headless') {
    await page.getByRole('button',{name:'Take control',exact:true}).waitFor();
-   expect(await page.locator('.pc-topbar__context').innerText()).toContain('Output · read-only');
+   expect(await page.locator('.pc-topbar__context').innerText()).not.toContain('read-only');
   } else {
    await page.getByRole('alert').filter({hasText:'Session unavailable'}).waitFor();
    expect(await page.getByLabel('Loading session').count()).toBe(0);
@@ -451,7 +452,7 @@ browserTest('workspace long identity and status stay inside their context in bot
     const luminance=(color:string)=>color.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i]!,0);
     const a=luminance(c.color),b=luminance(c.backgroundColor);
     let parent=node.parentElement!;while(getComputedStyle(parent).display==='contents')parent=parent.parentElement!;
-    return {context:box(parent),identity:box(node),children:[...node.children].map(box),title:box(title),pill:box(pill),fullTitle:title.getAttribute('title'),text:title.textContent,metadata:meta.getAttribute('title'),metaText:meta.textContent,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),status:pill.textContent};
+    return {context:box(parent),identity:box(node),children:[...node.children].map(box),title:box(title),pill:box(pill),fullTitle:title.getAttribute('title'),text:title.textContent,metadata:meta?.getAttribute('title')??null,metaText:meta?.textContent??null,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),status:pill.textContent};
    });
    expect(fit.contrast).toBeGreaterThanOrEqual(4.5);
    expect(fit.identity.left).toBeGreaterThanOrEqual(fit.context.left);

@@ -29,7 +29,7 @@ browserTest('header_summary_filters_and_counts_follow_the_board', async () => {
     await page.goto(server.url.toString());
     expect(await page.getByRole('heading', { level: 1, name: 'Tasks' }).count()).toBe(1);
     expect(await page.locator('.pc-tasks-page__caption').first().textContent()).toBe('26 root tasks · 2 subtasks · 214k tokens');
-    expect((await page.getByRole('tab').allTextContents()).map(text => text.replace(/\s+/g, ' ').trim())).toEqual(['All 26', 'Needs you 1', 'Running 1', 'Accepted 24', 'Stopped 0']);
+    expect((await page.getByRole('tab').allTextContents()).map(text => text.replace(/\s+/g, ' ').trim())).toEqual(['All 26', 'Running 1', 'Needs you 1', 'Accepted 24', 'Stopped 0']);
     expect(await page.getByRole('searchbox', { name: 'Search tasks' }).getAttribute('placeholder')).toBe('Search goal, repo or branch');
     // Paging: twenty roots first, then the rest on request.
     expect(await page.locator('.pc-task-card').count()).toBe(20);
@@ -50,9 +50,10 @@ browserTest('selecting_a_row_updates_the_selected_task_panel_and_new_task_asks_t
     await page.goto(server.url.toString());
     const aside = page.getByRole('complementary', { name: 'Selected task' });
     await aside.getByText(/^Root task ·/).waitFor();
-    expect(await aside.locator('b').textContent()).toBe('Fix the retry bug');
-    await page.locator('.pc-task-card__main').nth(1).click();
+    // All groups running work first, so the running task opens selected and the failed one follows.
     expect(await aside.locator('b').textContent()).toBe('Document the budget store');
+    await page.locator('.pc-task-card__main').nth(1).click();
+    expect(await aside.locator('b').textContent()).toBe('Fix the retry bug');
     const rootSelection = page.locator('.pc-task-card__main--selected');
     expect(await rootSelection.locator('.pc-task-card__title').evaluate(node => getComputedStyle(node).fontWeight)).toBe('600');
     await rootSelection.hover();
@@ -108,6 +109,7 @@ test('page_renders_header_filters_search_and_empty_state_without_a_browser', () 
   try {
     await page.goto(server.url.toString());
     const aside = page.getByRole('complementary', { name: 'Selected task' });
+    await page.locator('.pc-task-card__main').nth(1).click();
     await aside.getByText('Report only. Keep existing routes.').waitFor();
     const title = aside.locator('b').first();
     expect(await title.textContent()).toBe('Fix the retry bug');
@@ -121,13 +123,13 @@ test('page_renders_header_filters_search_and_empty_state_without_a_browser', () 
     expect(await aside.getByText('Linked work', { exact: true }).count()).toBe(1);
     expect(await aside.getByText('worktree', { exact: false }).count()).toBeGreaterThan(0);
     expect(await aside.evaluate(node => getComputedStyle(node).top)).toBe('16px');
-    const rowTitle = page.locator('.pc-task-card__title').first();
+    const rowTitle = page.locator('.pc-task-card__title').nth(1);
     expect(await rowTitle.textContent()).toBe('Fix the retry bug');
     expect(await rowTitle.getAttribute('title')).toContain('Full brief');
     expect((await rowTitle.getAttribute('title'))!.length).toBeGreaterThan(400);
     expect(await page.getByRole('link', {name:'Notes for Fix the retry bug',exact:true}).count()).toBe(1);
-    await page.locator('.pc-task-card').nth(1).getByText('fix/retry', {exact:true}).waitFor();
-    expect(await page.locator('.pc-task-card').nth(1).locator('.pc-task-card__tokens').textContent()).toBe('—');
+    await page.locator('.pc-task-card').nth(0).getByText('fix/retry', {exact:true}).waitFor();
+    expect(await page.locator('.pc-task-card').nth(0).locator('.pc-task-card__tokens').textContent()).toBe('—');
   } finally { await page.close(); }
  }, 30_000);
 
@@ -138,15 +140,18 @@ browserTest('board_row_geometry_and_state_tokens_match_at_both_desktop_sizes_and
       await page.setViewportSize({ width, height: width === 1440 ? 900 : 1080 });
       await page.goto(server.url.toString());
       await page.evaluate(theme => document.documentElement.setAttribute('data-theme', theme), theme);
-      const card = page.locator('.pc-task-card').first();
-      expect(await card.evaluate(node => ({ padding: getComputedStyle(node).padding, radius: getComputedStyle(node).borderRadius }))).toEqual({ padding: '4px', radius: '12px' });
+      // Rows sit flush in one framed list; the failed row is tinted only once it is selected.
+      const card = page.locator('.pc-task-card').nth(1);
+      await card.locator('.pc-task-card__main').click();
+      expect(await card.evaluate(node => ({ padding: getComputedStyle(node).padding, radius: getComputedStyle(node).borderRadius }))).toEqual({ padding: '0px', radius: '0px' });
       expect(await card.locator('.pc-task-card__tokens').first().evaluate(node => ({ width: node.getBoundingClientRect().width, align: getComputedStyle(node).textAlign }))).toEqual({ width: 52, align: 'right' });
       expect(await card.locator('.pc-task-card__action').evaluateAll(nodes => nodes.map(node => [node.getBoundingClientRect().width, node.getBoundingClientRect().height]))).toEqual([[26, 26], [26, 26], [26, 26]]);
       expect(await card.locator('.pc-agent-mark').first().evaluate(node => node.getBoundingClientRect().width)).toBe(18);
       expect(await card.locator('.pc-task-card__branch').first().evaluate(node => getComputedStyle(node).textOverflow)).toBe('ellipsis');
       expect(await card.evaluate(node => {
-        const sample = document.createElement('span'); sample.style.background = 'var(--bad-tint)'; sample.style.borderColor = 'var(--bad-line)'; node.append(sample);
-        const result = getComputedStyle(node).backgroundColor === getComputedStyle(sample).backgroundColor && getComputedStyle(node).borderColor === getComputedStyle(sample).borderColor; sample.remove(); return result;
+        // The list frame draws the row borders, so the selected failed row carries the tint alone.
+        const sample = document.createElement('span'); sample.style.background = 'var(--bad-tint)'; node.append(sample);
+        const result = getComputedStyle(node).backgroundColor === getComputedStyle(sample).backgroundColor; sample.remove(); return result;
       })).toBe(true);
       const aside = page.getByRole('complementary', { name: 'Selected task' });
       await aside.getByText('Report only. Keep existing routes.').waitFor();
@@ -209,7 +214,7 @@ browserTest('state_tabs_have_board_dots_and_selected_root_titles_keep_board_weig
         expect(await selected.evaluate(node => {
           const style = getComputedStyle(node);
           return [style.fontSize, style.lineHeight, style.fontWeight];
-        })).toEqual(['14px', '21px', '600']);
+        })).toEqual(['13px', '21px', '600']);
         expect(await page.locator('.pc-task-card__title:not([aria-current])').evaluateAll(nodes =>
           nodes.every(node => getComputedStyle(node).fontWeight === '600'))).toBe(true);
       }

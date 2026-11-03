@@ -22,16 +22,16 @@ test("plugin route round trips encoded segments and query; Settings Plugins pars
 });
 test("rail shows board section, visible activity, active state and Add destination", () => {
   const html = rail([surface, { ...surface, id: "hidden", title: "Hidden", visible: false }, { ...surface, id: "tab", title: "Tab", surface: "panelTabs" }]);
-  expect(html).toContain('>Plugins</span>');
+  expect(html).not.toContain('>Plugins</span>');
   expect(html).not.toContain('title="Release checklist (plugin)"');
-  expect(html).toContain('role="group" aria-labelledby="rail-plugins"');
+  expect(html).toContain('role="group" aria-label="Plugins"');
   expect(html).toContain('aria-label="Release checklist (plugin)"');
   expect(html).toContain('href="#/plugins/fx-ui/checklist"');
   expect(html).toContain('aria-current="page"');
   expect(html).toContain('href="#/settings/plugins"');
   expect(html).toContain('aria-label="Add a plugin"');
   expect(html).not.toContain('Hidden'); expect(html).not.toContain('Tab (plugin)');
-  expect(html.indexOf('pc-rail__divider')).toBeLessThan(html.indexOf('>Plugins<'));
+  expect(html.indexOf('pc-rail__divider')).toBeLessThan(html.indexOf('aria-label="Plugins"'));
   expect(html.match(/pc-rail__divider/g)?.length).toBe(1);
   expect(rail([])).toContain('Add a plugin');
   expect(rail([], true)).not.toContain('Add a plugin');

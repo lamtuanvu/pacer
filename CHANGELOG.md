@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- Tighten the app UI for space and consistency: a narrower activity rail, one framed list with hairline rows for Tasks (grouped Running, Needs you, Accepted, Stopped) and the workspace list, two-line task and Needs you rows that wrap when narrow, single-line subtasks, consistent same-role font sizes, and status tint only on the selected or focused row.
+- Show session output directly under a status strip, name only the session in the workspace header, float the reconnect banner over the page, cross-fade between screens without overlapping tab panels, and let dragged executor rows follow the pointer.
+
 ### Added
 
 - Rust library effects for named strategy saves, routing and runner edits, and notification settings. The TypeScript runtime is unchanged.
