@@ -49,6 +49,18 @@ impl Fixture {
         fs::create_dir(&root).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let root = fs::canonicalize(root).unwrap();
+        // Owned, initially-empty global gitconfig (mode 0600) plus an owned xdg
+        // dir, so an ordinary Git sees only the fixture's config, never the
+        // machine's system or user config (toolchain gitconfigs commonly install
+        // a credential helper and other global settings).
+        fs::write(root.join("owner.gitconfig"), b"").unwrap();
+        fs::set_permissions(
+            root.join("owner.gitconfig"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        fs::create_dir(root.join("xdg")).unwrap();
+        fs::set_permissions(root.join("xdg"), fs::Permissions::from_mode(0o700)).unwrap();
         let repo = root.join("local");
         fs::create_dir(&repo).unwrap();
         git(&repo, &["init", "-q"]);
@@ -92,17 +104,28 @@ impl Fixture {
             branch,
         }
     }
+    /// The owner-selected environment every fixture hands to NativeGit: PATH,
+    /// HOME=<root>, Git config fully owned (NOSYSTEM + owned global gitconfig +
+    /// XDG), plus markers proving `GIT_*` (and `PACER_*`) pass-through or drop.
+    fn owner_env(&self) -> HashMap<String, String> {
+        HashMap::from([
+            ("PATH".into(), std::env::var("PATH").unwrap()),
+            ("HOME".into(), self.root.to_str().unwrap().into()),
+            ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+            (
+                "GIT_CONFIG_GLOBAL".into(),
+                self.root.join("owner.gitconfig").to_str().unwrap().into(),
+            ),
+            (
+                "XDG_CONFIG_HOME".into(),
+                self.root.join("xdg").to_str().unwrap().into(),
+            ),
+            ("PACER_FIXTURE_MARKER".into(), "owner".into()),
+            ("GIT_FIXTURE_MARKER".into(), "owner".into()),
+        ])
+    }
     fn native(&self) -> NativeGit {
-        NativeGit::prepare(
-            &self.root,
-            &self.repo,
-            "/usr/bin/git",
-            &HashMap::from([
-                ("PATH".into(), std::env::var("PATH").unwrap()),
-                ("HOME".into(), self.root.to_str().unwrap().into()),
-            ]),
-        )
-        .unwrap()
+        NativeGit::prepare(&self.root, &self.repo, "/usr/bin/git", &self.owner_env()).unwrap()
     }
     async fn ticket(&self, bytes: &[u8]) -> BundleTicket {
         let source = self.root.join(format!("source-{}", uuid::Uuid::new_v4()));
@@ -360,9 +383,15 @@ sys.stdout.write('__PACER_BEGIN__\n'+output+ ('\n__PACER_DONE__='+nonce[0]+'\n' 
     )
     .unwrap();
     let configured = fingerprint.clone();
-    let host = RemoteTransport::new(&f.root, ssh, f.native(), deadline(), move || {
-        configured.clone()
-    });
+    // Plan §4 Task 1 / review F1: drive the real `RemoteTransport::invoke(
+    // Transfer)` caller path through the *owned git shim* (not /usr/bin/git)
+    // so every Git phase the transfer runs is logged with its argv+env. The
+    // shim `Exec`s through to real git under the env NativeGit selects; this
+    // is the same environment every owner-selected fixture hands NativeGit.
+    let shim = git_shim::shim(&f.root, &[]); // Exec -> real git, argv+env logged
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let host = RemoteTransport::new(&f.root, ssh, native, deadline(), move || configured.clone());
     let intent = RemoteIntent {
         attempt: 1,
         provider_id: "pacer-exec-direct".into(),
@@ -417,6 +446,87 @@ sys.stdout.write('__PACER_BEGIN__\n'+output+ ('\n__PACER_DONE__='+nonce[0]+'\n' 
     let work = Path::new(transferred["reviewWorktree"].as_str().unwrap());
     assert_eq!(text(work, &["rev-parse", "HEAD"]), f.head);
     assert_eq!(fs::read(work.join("change")).unwrap(), b"change");
+    // F1: every Git record the real caller path ran is classified by its argv
+    // (plan §2.2) — never from the observed environment — and its env must be
+    // the owner map (admission #1-3, publication #19-29), the sealed map
+    // (verification prelude #7-13), or sealed plus the alternate objects
+    // (inspection #14-18). A misrouted command still fails loudly.
+    let owner = f.owner_env();
+    let owner_clean = git_shim::without_shell(&owner);
+    let sealed = git_shim::sealed_for(&owner);
+    let objects = f.repo.join(".git").join("objects");
+    let mut want_alternate = sealed.clone();
+    want_alternate.insert(
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES".into(),
+        objects.to_str().unwrap().into(),
+    );
+    let records = git_shim::calls(&f.root);
+    assert!(
+        !records.is_empty(),
+        "RemoteTransport::invoke(Transfer) must run git through the owned shim"
+    );
+    let (mut owner_records, mut sealed_prelude, mut inspected) = (0, 0, 0);
+    for (args, env) in &records {
+        let joined = args.join(" ");
+        let in_inspection = args.iter().any(|a| a.contains(".bundle-inspect-"));
+        let cleaned = git_shim::without_shell(env);
+        if in_inspection {
+            if args.iter().any(|a| a.contains("--bare")) {
+                sealed_prelude += 1; // #13 init --bare stays sealed (no alternate)
+                assert_eq!(
+                    cleaned, sealed,
+                    "verify #13 init `{joined}` must use the sealed map exactly"
+                );
+            } else {
+                inspected += 1; // #14-18
+                assert_eq!(
+                    cleaned, want_alternate,
+                    "verify inspection `{joined}` must use sealed + alternate objects"
+                );
+            }
+        } else if joined.contains("config user.email")
+            || joined.contains("rev-parse --show-object-format")
+            || joined.contains("bundle verify ")
+            || joined.contains("bundle list-heads")
+            || joined.contains("rev-parse --path-format=absolute")
+            || (joined.contains("rev-parse --verify")
+                && args.iter().any(|a| {
+                    // verify's sealed prelude bolts a real 40-64 hex object onto
+                    // ^{commit}; the owner path's equivalent uses a ref like
+                    // HEAD, or refs/heads/..., so it must stay on the owner map.
+                    a.strip_suffix("^{commit}").is_some_and(|hex| {
+                        (40..=64).contains(&hex.len())
+                            && hex
+                                .bytes()
+                                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    })
+                }))
+        {
+            sealed_prelude += 1; // #7-12 verification prelude
+            assert_eq!(
+                cleaned, sealed,
+                "verify prelude `{joined}` must use the sealed map exactly"
+            );
+        } else {
+            owner_records += 1; // admission #1-3, publication #19-29
+            assert_eq!(
+                cleaned, owner_clean,
+                "ordinary `{joined}` must run under the owner map exactly"
+            );
+        }
+    }
+    assert!(
+        owner_records > 0,
+        "no ordinary (admission/publication) git commands were logged through the caller path"
+    );
+    assert_eq!(
+        sealed_prelude, 7,
+        "verify must run exactly the 7 sealed prelude commands through the caller path"
+    );
+    assert_eq!(
+        inspected, 5,
+        "verify must run exactly the 5 inspection commands through the caller path"
+    );
     exact_task::assert_preserved(&f.root, ID);
     assert_eq!(
         pacer_store::TaskStore::open(&f.root)
@@ -435,16 +545,8 @@ async fn cancelled_base_bundle_still_cleans_its_temporary_ref() {
     let marker = f.root.join("bundling");
     fs::write(&shim, format!("#!/usr/bin/env python3\nimport os,sys,time\nif 'bundle' in sys.argv:\n open({},'w').close()\n time.sleep(0.25)\nos.execv('/usr/bin/git',['git']+sys.argv[1:])\n", serde_json::to_string(marker.to_str().unwrap()).unwrap())).unwrap();
     fs::set_permissions(&shim, fs::Permissions::from_mode(0o700)).unwrap();
-    let native = NativeGit::prepare(
-        &f.root,
-        &f.repo,
-        shim.to_str().unwrap(),
-        &HashMap::from([
-            ("PATH".into(), std::env::var("PATH").unwrap()),
-            ("HOME".into(), f.root.to_str().unwrap().into()),
-        ]),
-    )
-    .unwrap();
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
     let base = f.base.clone();
     let task = tokio::spawn(async move { native.base_bundle(ID, &base, deadline()).await });
     let until = Instant::now() + Duration::from_secs(10);
@@ -460,6 +562,10 @@ async fn cancelled_base_bundle_still_cleans_its_temporary_ref() {
             .arg("-C")
             .arg(&f.repo)
             .args(["show-ref", "--verify", "--quiet", &reference])
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .status()
             .unwrap();
         if result.code() == Some(1) {
@@ -888,16 +994,8 @@ async fn branch_predicate_matches_typescript() {
     for (branch, accepted) in BRANCH_ROWS {
         let f = Fixture::new();
         let shim = git_shim::shim(&f.root, &[]);
-        let native = NativeGit::prepare(
-            &f.root,
-            &f.repo,
-            shim.to_str().unwrap(),
-            &HashMap::from([
-                ("PATH".into(), std::env::var("PATH").unwrap()),
-                ("HOME".into(), f.root.to_str().unwrap().into()),
-            ]),
-        )
-        .unwrap();
+        let native =
+            NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
         let mut ticket = f.ticket(&f.bytes()).await;
         let result = native
             .verify(&mut ticket, &f.base, branch, deadline())
@@ -976,16 +1074,8 @@ async fn inspected_count_matches_typescript() {
             &f.root,
             &[("rev-list --count", git_shim::Action::Print((*raw).into()))],
         );
-        let native = NativeGit::prepare(
-            &f.root,
-            &f.repo,
-            shim.to_str().unwrap(),
-            &HashMap::from([
-                ("PATH".into(), std::env::var("PATH").unwrap()),
-                ("HOME".into(), f.root.to_str().unwrap().into()),
-            ]),
-        )
-        .unwrap();
+        let native =
+            NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
         let mut ticket = f.ticket(&f.bytes()).await;
         let result = native
             .verify(&mut ticket, &f.base, &f.branch, deadline())
@@ -1001,4 +1091,319 @@ async fn inspected_count_matches_typescript() {
             "raw {raw:?}: end-to-end verification must succeed only for a count of exactly 1"
         );
     }
+}
+
+// Task 1 - env split (plan §4, D-1). The owner map and the sealed map are
+// asserted per API call by bracketing the shim log. Every record's expected
+// phase comes from the call that produced it (plus the owner's ordinary hex
+// path or the sealed inspection path), never from the observed environment,
+// so a misrouted verify that wrote owner env into a sealed phase fails loudly.
+#[tokio::test]
+async fn every_git_phase_uses_its_owner_environment() {
+    use pacer_plugin_host::WireReply;
+    use pacer_store::TaskStore;
+    use serde_json::json;
+
+    let f = Fixture::new();
+    let shim = git_shim::shim(&f.root, &[]); // Exec everywhere -> real git under the owner env
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let owner = f.owner_env();
+    let owner_clean = git_shim::without_shell(&owner);
+    let sealed = git_shim::sealed_for(&owner);
+    let objects = f.repo.join(".git").join("objects");
+
+    // One running task used by every call; /run and intents come from the task.
+    let mut store = TaskStore::open(&f.root).unwrap();
+    store
+        .insert(
+            &json!({"id":ID,"rev":1,"createdAt":1,"state":"running","executorProvider":"pacer-exec-direct","executor":"tool@host","attempts":[],"brief":{"repo":f.repo}}),
+            1.0,
+        )
+        .unwrap();
+    let run = WireReply::parse(&format!(
+        r#"{{"attempt":1,"dir":"d","startedAt":{{"s":1}},"baseSha":"{}"}}"#,
+        f.base
+    ))
+    .unwrap();
+    let receipt = WireReply::parse(
+        r#"{"attempt":1,"providerId":"pacer-exec-direct","dir":"d","startedAt":{"s":1}}"#,
+    )
+    .unwrap();
+    store
+        .edit(ID, 1, 2.0, |t| {
+            t.put("/run", run.clone())?;
+            t.put("/startIntent", receipt.clone())?;
+            t.put("/executorExitReceipt", receipt.clone())
+        })
+        .unwrap();
+    exact_task::seed(&f.root, ID);
+
+    // Verification runs under the sealed map (asserted inline in the verify
+    // loop below). Admission, base, and publication are ordinary -- asserted by
+    // owner_phase per bracketed call.
+    let owner_phase = |slot: &str, records: &[(Vec<String>, HashMap<String, String>)]| {
+        assert!(
+            !records.is_empty(),
+            "{slot}: expected ordinary git commands under the owner map"
+        );
+        for (args, env) in records {
+            assert_eq!(
+                git_shim::without_shell(env),
+                owner_clean,
+                "{slot}: `{}` must run under the owner env exactly",
+                args.join(" ")
+            );
+        }
+    };
+
+    // Admission and base-set are ordinary.
+    git_shim::clear(&f.root);
+    native
+        .admit_destination(&f.root, ID, run.preview(), deadline())
+        .await
+        .unwrap();
+    owner_phase("admit_destination", &git_shim::calls(&f.root));
+    git_shim::clear(&f.root);
+    native.base_bundle(ID, &f.base, deadline()).await.unwrap();
+    owner_phase("base_bundle", &git_shim::calls(&f.root));
+
+    // Verification is sealed, including the inspection (sealed + alternates).
+    // The phase each record must carry is derived from the known call
+    // sequence (plan §2.2): the prelude (#7-13) runs `-C <repo>` under the
+    // sealed map, and the inspection (#14-18) runs `-C <inspection dir>`
+    // (created under `home/transfers/` with a `.bundle-inspect-` prefix,
+    // native_git.rs:456) under sealed plus the alternate objects path. We
+    // classify by that argv path rather than by the observed environment, so
+    // a misrouted prelude that happened to gain the alternate variable (or an
+    // inspection that dropped it) fails loudly.
+    git_shim::clear(&f.root);
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let verified = native
+        .verify(&mut ticket, &f.base, &f.branch, deadline())
+        .await
+        .unwrap();
+    let verify_records = git_shim::calls(&f.root);
+    let mut prelude = 0;
+    let mut inspected = 0;
+    let mut want_alternate = sealed.clone();
+    want_alternate.insert(
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES".into(),
+        objects.to_str().unwrap().into(),
+    );
+    for (args, env) in &verify_records {
+        let cleaned = git_shim::without_shell(env);
+        let joined = args.join(" ");
+        // Inspection commands (#14-18) run with `-C <.../.bundle-inspect-...>`
+        // AND carry one of the five inspection argv shapes, so they can be told
+        // apart from #13 `init --bare`, which *also* runs in the inspection
+        // dir but stays sealed (no alternate). We classify on that argv shape
+        // (derived from the known call), never from the observed env.
+        let is_alternate = args.iter().any(|a| a.contains(".bundle-inspect-"))
+            && !args.iter().any(|a| a.contains("--bare"));
+        if is_alternate {
+            inspected += 1;
+            assert_eq!(
+                cleaned, want_alternate,
+                "verify inspection `{joined}` must use sealed + alternate objects"
+            );
+        } else {
+            prelude += 1;
+            assert_eq!(
+                cleaned, sealed,
+                "verify `{joined}` must use the sealed map exactly"
+            );
+        }
+    }
+    // Exactly the verified prelude (7) and inspection (5) commands ran.
+    assert_eq!(
+        prelude, 7,
+        "verify must run exactly the 7 sealed prelude commands"
+    );
+    assert_eq!(
+        inspected, 5,
+        "verify must run exactly the 5 inspection commands"
+    );
+    assert!(
+        git_shim::ran(&f.root, "bundle unbundle /dev/fd/0"),
+        "verify must have inspected the bundle (sealed + alternate)"
+    );
+
+    // Fresh publication is ordinary and creates the worktree (#29).
+    git_shim::clear(&f.root);
+    let dest = native
+        .publish(&f.root, ID, run.preview(), verified, deadline())
+        .await
+        .unwrap();
+    owner_phase("publish (fresh)", &git_shim::calls(&f.root));
+    assert!(
+        git_shim::ran(&f.root, "worktree add -q"),
+        "fresh publish must create the worktree"
+    );
+
+    // Reused publication targets the existing worktree (#24 symbolic-ref, #25
+    // status, #28 read-tree). An untracked file in the worktree plus the
+    // owned global config (`status.showUntrackedFiles = no`) lets the owner
+    // proceed; on the pre-split code the sealed map hides that config and the
+    // reuse is rejected, so this is also the ordinary ownership proof.
+    //
+    // The `remoteTransferIntent` below is a legitimate owner proof written the
+    // way `publish` journals it (transfer_owner -> destination, §2.2 #result):
+    // it carries `dir`/`startedAt` copied verbatim from the run receipt, not
+    // null. The prior must compare equal against the freshly-recomputed
+    // destination (native_git.rs:610-621), which takes dir/startedAt from
+    // `run`; nulls would fail that legitimate prove rather than any guard.
+    fs::write(
+        f.root.join("owner.gitconfig"),
+        "[status]\n\tshowUntrackedFiles = no\n",
+    )
+    .unwrap();
+    let work = fs::canonicalize(dest["reviewWorktree"].as_str().unwrap()).unwrap();
+    fs::write(work.join("untracked"), "untracked\n").unwrap();
+
+    // Plan §4 Task 1 RED semantic proof (a) / review F2: an actual TypeScript
+    // oracle for the reused-worktree `status --porcelain` check (#25), run
+    // through the real `execProcess` owner function (the same one `defaultRun`/
+    // `ctx.run` use) under the *same* owned global config -- the one the native
+    // reuse path has just written (`showUntrackedFiles = no`) -- and the *same*
+    // worktree with the untracked file above. TS must see an empty porcelain
+    // output here, exactly as native's reuse proceeds. The Bun process is
+    // isolated (HOME, PACER_HOME, NOSYSTEM, owned GLOBAL, XDG); no operator
+    // gitconfig, credential helper or system config is read.
+    let status_gitconfig = f.root.join("owner.gitconfig");
+    let status_oracle = Command::new("bun")
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .args([
+            "-e",
+            "import {execProcess} from './src/exec/process.ts';const [work, globalConfig]=Bun.argv.slice(-2);const env={...process.env,GIT_CONFIG_GLOBAL:globalConfig,GIT_CONFIG_NOSYSTEM:'1'};const r=await execProcess({argv:['/usr/bin/git','-C',work,'status','--porcelain'],cwd:work,env,timeoutMs:10000});console.log(JSON.stringify({stdout:r.stdout,code:r.code}));",
+        ])
+        .arg(&work)
+        .arg(&status_gitconfig)
+        .env("HOME", &f.root)
+        .env("PACER_HOME", &f.root)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", &status_gitconfig)
+        .env("XDG_CONFIG_HOME", f.root.join("xdg"))
+        .output()
+        .unwrap();
+    assert!(
+        status_oracle.status.success(),
+        "TS oracle failed: {}",
+        String::from_utf8_lossy(&status_oracle.stderr)
+    );
+    let status_row: serde_json::Value = serde_json::from_slice(&status_oracle.stdout)
+        .unwrap_or_else(|e| panic!("TS oracle malformed output: {e}"));
+    assert_eq!(
+        status_row["code"], 0,
+        "TS `git status --porcelain` under the owned config must succeed: {status_row}"
+    );
+    assert_eq!(
+        status_row["stdout"], "",
+        "TS `git status --porcelain` must be empty under `showUntrackedFiles = no` (native reuse would too): {status_row}"
+    );
+    // Sanity: absent the owned `showUntrackedFiles = no`, git would report the
+    // untracked file, so the assertion above is a real parity proof, not vacuous.
+    let control = Command::new("git")
+        .arg("-C")
+        .arg(&work)
+        .args(["status", "--porcelain"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("HOME", &f.root)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&control.stdout).is_empty(),
+        "control: the untracked file must make bare `status --porcelain` non-empty"
+    );
+    let mut ticket2 = f.ticket(&f.bytes()).await;
+    let verified2 = native
+        .verify(&mut ticket2, &f.base, &f.branch, deadline())
+        .await
+        .unwrap();
+    git_shim::clear(&f.root);
+    store
+        .edit_current(ID, 4.0, |t| {
+            t.put(
+                "/remoteTransferIntent",
+                WireReply::new(json!({
+                    "attempt": 1,
+                    "providerId": "pacer-exec-direct",
+                    "dir": run.preview()["dir"],
+                    "startedAt": run.preview()["startedAt"],
+                    "branch": f.branch,
+                    "oldHead": verified2.head(),
+                })),
+            )
+        })
+        .unwrap();
+    git_shim::clear(&f.root);
+    native
+        .publish(&f.root, ID, run.preview(), verified2, deadline())
+        .await
+        .unwrap();
+    owner_phase("publish (reused)", &git_shim::calls(&f.root));
+    assert!(
+        git_shim::ran(&f.root, "symbolic-ref HEAD"),
+        "reused publish must run the symbolic-ref check"
+    );
+    assert!(
+        git_shim::ran(&f.root, "read-tree --reset -u"),
+        "reused publish must reset the existing worktree via read-tree"
+    );
+    ticket.dispose().unwrap();
+    ticket2.dispose().unwrap();
+}
+
+// Plan §4 Task 1 RED semantic proof (b): verification stays sealed even when
+// the *owner* provides a global email. The fixture repo has no local
+// `user.email`, while the owned global config sets one. Because verify (
+// #7) runs `config user.email` under the sealed map (GIT_CONFIG_GLOBAL=/dev/
+// null), git sees no email, the prelude returns empty and verify is denied --
+// an owner-provided email cannot unlock verification. The shim log records
+// that the prelude ran with the /dev/null global, closing the control: the
+// failure is the sealed map, not the fixture.
+#[tokio::test]
+async fn sealed_verification_ignores_owned_global_email() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(&f.root, &[]); // Exec -> real git under the env NativeGit chooses
+    // The local repo has no user config; the owner map would satisfy it.
+    git(&f.repo, &["config", "--unset", "user.email"]);
+    fs::write(
+        f.root.join("owner.gitconfig"),
+        "[user]\n\tname = Fixture\n\temail = from-owner@invalid.test\n",
+    )
+    .unwrap();
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let result = native
+        .verify(&mut ticket, &f.base, &f.branch, deadline())
+        .await;
+    assert!(
+        result.is_err(),
+        "verify must be denied: the sealed map hides the owned global email"
+    );
+    let records = git_shim::calls(&f.root);
+    let email_record = records
+        .iter()
+        .find(|(args, _)| {
+            args.contains(&"config".to_string()) && args.contains(&"user.email".to_string())
+        })
+        .unwrap_or_else(|| panic!("prelude must run `config user.email`"));
+    assert_eq!(
+        email_record.1.get("GIT_CONFIG_GLOBAL").map(String::as_str),
+        Some("/dev/null"),
+        "the email prelude must read the sealed /dev/null global, never the owner's"
+    );
+    assert_eq!(
+        email_record
+            .1
+            .get("GIT_TERMINAL_PROMPT")
+            .map(String::as_str),
+        Some("0"),
+    );
+    ticket.dispose().unwrap();
 }
