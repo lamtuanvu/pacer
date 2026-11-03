@@ -6,7 +6,7 @@ import { classNames } from "./classNames";
 export interface SegmentOption {
   value: string; label: ComponentChildren; disabled?: boolean;
   /** Sibling actions (for example Close) never nest inside the tab. */
-  trailing?: ComponentChildren; replacement?: ComponentChildren;
+  leading?: ComponentChildren; trailing?: ComponentChildren; replacement?: ComponentChildren;
   buttonProps?: ButtonProps; href?: string; controls?: string;
 }
 export interface StripProps {
@@ -89,7 +89,8 @@ export function SelectionStrip({ label, id, value, options, onChange, disabled, 
           Array.from(list.current!.querySelectorAll<HTMLElement>("[data-strip-value]")).find(item => item.dataset.stripValue === target.value)?.focus();
         },
       };
-      const button = mode === "nav" ? <ButtonLink href={option.href!} aria-current={current === option.value ? "page" : undefined} {...(props as unknown as ButtonLinkProps)}>{option.label}</ButtonLink> : <Button {...props}>{option.label}</Button>;
+      const label = variant === "terminal" ? <>{option.leading}<span className="pc-terminal-tab-text">{option.label}</span></> : option.label;
+      const button = mode === "nav" ? <ButtonLink href={option.href!} aria-current={current === option.value ? "page" : undefined} {...(props as unknown as ButtonLinkProps)}>{label}</ButtonLink> : <Button {...props}>{label}</Button>;
       return <span key={option.value} className="pc-selection-item">{option.replacement ?? button}{option.trailing}</span>;
     })}
   </div>;

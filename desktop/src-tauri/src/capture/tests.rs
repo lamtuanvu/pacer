@@ -1,3 +1,15 @@
+#[test]
+fn capture_only_allows_the_expected_bundled_document() {
+    for (label, raw, allowed) in [
+        ("tray", "tauri://localhost/tray.html?compact=1", true),
+        ("main", "tauri://localhost/index.html", true),
+        ("tray", "tauri://localhost/index.html", false),
+        ("tray", "https://localhost/tray.html", false),
+        ("tray", "tauri://localhost/tray.html?other=1", false),
+    ] {
+        assert_eq!(super::capture_document_allowed(label, &url::Url::parse(raw).unwrap()), allowed);
+    }
+}
 use super::*;
 #[test]
 fn rejects_unowned_windows_and_unknown_modes() {

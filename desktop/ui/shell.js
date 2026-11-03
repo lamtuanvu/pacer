@@ -208,6 +208,7 @@ function startTakeover() {
 takeoverConfirm.addEventListener('click', startTakeover);
 document.querySelector('#takeover-dismiss').addEventListener('click', () => takeoverAction('takeover-dismiss'));
 document.querySelector('#takeover-continue').addEventListener('click', () => takeoverAction('takeover-dismiss'));
+document.querySelector('#takeover-retry').addEventListener('click', () => takeoverAction('takeover-retry'));
 function renderTakeover(data) {
   if (data.token && data.token !== takeoverToken) holdConfirm();
   takeoverToken = data.token || null;
@@ -230,7 +231,7 @@ function renderTakeover(data) {
     : (state && takeoverStatus[state]) || (state ? 'Replacing the service…' : '');
   // Keep keyboard focus on the page when the focused action disappears.
   if (wasOffered && takeoverActions.hidden) takeoverStatusLine.focus?.();
-  // The note describes the Continue button, so it shows only with it.
+  // The note describes the restored actions, so it shows only with them.
   document.querySelector('#takeover-restored-actions').hidden = !takeoverToken;
   document.querySelector('#takeover-continue-note').hidden = !takeoverToken;
 }

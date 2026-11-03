@@ -6,6 +6,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Identify workspace session tabs by task title and additional agent tabs by owning task, executor and session ordinal; refresh existing tab labels when task data arrives.
+
+- Keep delegated tasks interactive by default without implicit headless fallbacks; preserve answerable terminals and timeout accounting across input waits and supervisor reattachment. Built-in PTYs accept live sends and answers, and Orca retains unanswered workers.
+
 - Tighten the app UI for space and consistency: a narrower activity rail, one framed list with hairline rows for Tasks (grouped Running, Needs you, Accepted, Stopped) and the workspace list, two-line task and Needs you rows that wrap when narrow, single-line subtasks, consistent same-role font sizes, and status tint only on the selected or focused row.
 - Show session output directly under a status strip, name only the session in the workspace header, float the reconnect banner over the page, cross-fade between screens without overlapping tab panels, and let dragged executor rows follow the pointer.
 
@@ -18,6 +22,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Offer **Review service replacement** on the desktop's **Kept your current service** page, so a service replacement that was rolled back can be reviewed and tried again without hiding the offer. The service changes only after you confirm the offer.
 - Preserve unrelated notification settings containing malformed UTF-8 in native reads and writes, and match TypeScript number formatting in saved strategy YAML.
 - Keep task-history backfills and retention off the service request thread, retry temporary backfill writer contention, and avoid unnecessary SQLite writer locks when opening or scanning existing task stores. Desktop sign-in no longer waits for historical maintenance.
 

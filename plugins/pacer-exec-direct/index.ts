@@ -105,7 +105,7 @@ async function runOwned(params: z.infer<typeof ownedInput>, host: Parameters<Han
     if (signal.aborted) throw new PluginError("plugin_unavailable", "executor start was cancelled");
     await host.call("capability.process.startRun", { task: claim.task, attempt, runDir: 1 });
   }
-  const deadline = owned.resume ? owned.resume.startedAt * 1000 + owned.timeoutMs : Date.now() + owned.timeoutMs;
+  let deadline = owned.resume ? owned.resume.startedAt * 1000 + owned.timeoutMs : Date.now() + owned.timeoutMs;
   let uncertainSince: number | null = null;
   let completed: { status: "done" | "failed"; summary: string; at: number; exitCode: number } | null = null;
   for (;;) {
@@ -149,7 +149,8 @@ async function runOwned(params: z.infer<typeof ownedInput>, host: Parameters<Han
     uncertainSince = state.state === "uncertain" ? uncertainSince ?? Date.now() : null;
     if (uncertainSince !== null && Date.now() - uncertainSince >= 5000)
       throw new PluginError("plugin_unavailable", "executor wrapper state is uncertain; replacement launch refused");
-    if (Date.now() >= deadline)
+    // Interactive active-time budgets are persisted and enforced by the host's owned poll.
+    if (owned.session !== "interactive" && Date.now() >= deadline)
       throw new PluginError("plugin_timeout", "executor deadline reached; persisted wrapper requires stop reconciliation");
     await Bun.sleep(200);
   }

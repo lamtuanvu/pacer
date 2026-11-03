@@ -26,6 +26,7 @@ if(mode==='failedretry')Object.assign(task,{state:'failed',review:null,acceptanc
 if(mode==='managedquestion')Object.assign(task,{state:'needs_input',work:{rootId:'workspace-task',parentId:null,depth:0},question:{text:'Which repository branch should I use?',at:1}});
 if(mode==='question')Object.assign(task,{state:'needs_input',question:{text:'Which repository branch should I use?',at:1}});
 if(mode==='longnotes')task.brief={...task.brief,goal:Array.from({length:80},(_,i)=>`Requirement ${i+1}: retain session identity and output.`).join('\n')};
+if(new URLSearchParams(location.search).get('executor')==='unknown')task.executor='unknown';
 if(mode==='longidentity'||mode==='accepted')task.title=task.goal='Split the budget store into read and write paths with a long session identity';
 if(mode==='accepted'){task.state='done';task.review={accepted:true,at:Date.now()/1000} as any;}
 if(mode==='counts')task.attempts=[{executor:'codex',startedAt:Date.now()/1000-60,endedAt:Date.now()/1000-30,log:''},{executor:'codex',startedAt:Date.now()/1000-20,log:''}] as any;

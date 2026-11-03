@@ -134,21 +134,27 @@ pacer config set execution.launch_mode headless
 
 In the app, use **Settings → This machine → Delegated task launch**.
 
-If the mode comes from `execution.launch_mode` or the default, and a task cannot run
-interactively, it runs headless. The reason is recorded in the attempt's report or
-log. This happens for remote runners, for Codex older than 0.162.1 or whose version
-cannot be confirmed (older versions lack per-run hook overrides), and for agents with
-no interactive launcher. Endpoint test tasks always run headless. A runner with an
-explicit `session: interactive` still reports these cases as errors.
-Conversations are always interactive.
+Defaults never silently downgrade to headless. Remote runners, unsupported interactive
+launchers and native Codex versions lacking per-run hook overrides refuse an
+interactive launch with an actionable error. An explicit runner or global headless
+setting, or the legacy API's `interactive: false`, deliberately opts out.
+Codex accounts routed through OpenCode use OpenCode's capabilities.
 
-Managed work with strict native subagent control stays headless, as it was before
-interactive became the default: `execution.launch_mode` and the default do not
-apply to it, and the attempt note records why. Strict control is certified only for
-headless launches, so a runner with an explicit `session: interactive` cannot take
-strict work. If that runner was requested, or no other runner can take the work, the
-task fails at once and names the setting to change. Pacer does not move requested
-work to a different runner because of its launch mode.
+Strict native subagent control is currently certified only for headless launches.
+Strict dispatch therefore refuses an unsupported interactive launch; it does not
+silently change the launch mode or weaken enforcement. Explicit headless strict
+work retains its existing certification requirements.
+
+An interactive terminal remains owned and answerable while waiting for input,
+including after `pacer ask` and after a turn ends. Waiting time is excluded from
+execution timeouts and its accounting survives supervisor reattachment. Explicit
+completion reports and user stops still terminate the process. `pacer send` can
+write to a built-in PTY as well as an Orca worker; `pacer answer` delivers an answer
+to a running direct task in the same attempt. API and task events present that task
+as `needs_input` while retaining running ownership internally. Orca workers remain
+owned while an unanswered question is open, without the former four-hour expiry.
+Retries and follow-up turns follow the configured mode; default follow-ups replay
+the thread interactively instead of launching a hidden headless continuation.
 
 The launch mode and `execution.backend` combine as follows:
 

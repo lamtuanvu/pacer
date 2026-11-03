@@ -1,3 +1,5 @@
+import { directInputAvailable } from "../session/send";
+import { answerLiveTask } from "./tasks";
 import { prepareCreationAdmission } from "../tasks/creation-admission";
 import { beginWorkSync,finishUnlaunchedWorkSync,validatePendingWorkSync } from "../update/desktop/admission";
 import { validateInput } from "../tasks/api";
@@ -141,6 +143,12 @@ async function restartWork(ctx:Ctx,id:string,input:RetryWorkInput|AnswerWorkInpu
   if(prior){if(prior.fingerprint!==fingerprint)throw new CoreError("conflict","Request ID was used for different work");return readTask(ctx,id)!;}
   const before=readTask(ctx,id),work=getWork(ctx,id);
   if(!before||!work)throw new CoreError("unknown_task","Unknown managed work");
+  if(kind === "answer" && directInputAvailable(before)) {
+    if(work.options.expiresAt !== undefined && work.options.expiresAt <= ctx.now) throw new CoreError("not_allowed","Work deadline has expired");
+    const answered = await answerLiveTask(ctx,id,(input as AnswerWorkInput).text,input.expectRev);
+    db.query("INSERT INTO work_retry_requests(task_id,key,fingerprint,attempt) VALUES(?,?,?,?)").run(id,key,fingerprint,before.attempts.length+1);
+    return answered;
+  }
   const fresh=()=>({...ctx,now:ctx.now+(performance.now()-startedAt)/1000});
   const checkRestart=(transactionCtx:Ctx)=>{
     if(ctx.env.PACER_WORK_GRANT)requireWorkScope(transactionCtx,ctx.env.PACER_WORK_GRANT,id,true);

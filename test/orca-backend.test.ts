@@ -883,8 +883,10 @@ test("an interactive lane whose worker ownership was not recorded is not kept al
   expect(loadOrcaState(x.ctx).workers).toEqual({});
 });
 
-test("a delegated (non-interactive) lane's escalation still stops its worker, unlike an interactive lane", async () => {
+test("an explicitly legacy non-interactive lane stops its worker", async () => {
   const x = setup([[O("orchestration", "check"), question], [O("orchestration", "reply"), envelope({})]]);
+  updateTask(x.ctx, x.task.id, t => {t.interactive = false;});
+  x.task.interactive = false;
   const out = await x.backend.runAttempt(x.ctx, x.cfg, updateTask(x.ctx, x.task.id, t => {t.state = "running";}));
   expect(out.exec.code).toBe(1);
   expect(x.f.count(O("orchestration", "worker-stop"))).toBe(1);
@@ -1069,16 +1071,16 @@ test("task.stop on a kept-alive lane stops its worker and closes its terminal", 
   expect(loadOrcaState(x.ctx).workers.ctx_live).toBeUndefined();
 });
 
-test("a kept-alive worker expires after the idle limit, and settled or reviewed lanes are released", async () => {
+test("an unanswered worker survives the former idle limit; settled or reviewed lanes release", async () => {
   const {LIVE_IDLE_S, reapLiveWorkers} = await import("../src/exec/live");
   const x = setup();
   const asked = askedLane(x);
   const backends = [x.backend];
   expect(await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S - 1}, backends)).toEqual([]);
   expect(x.f.count(O("orchestration", "worker-stop"))).toBe(0);
-  expect(await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S}, backends)).toEqual([asked.id]);
-  expect(x.f.count(O("orchestration", "worker-stop"))).toBe(1);
-  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
+  expect(await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S}, backends)).toEqual([]);
+  expect(x.f.count(O("orchestration", "worker-stop"))).toBe(0);
+  expect(readTask(x.ctx, asked.id)?.live).toBeDefined();
   for (const settle of [(t: TaskRecordish) => { t.state = "done"; }, (t: TaskRecordish) => { t.review = {verdict: "reject", at: 1}; }]) {
     const y = setup();
     const lane = askedLane(y);
@@ -1155,7 +1157,7 @@ test("pacer stop releases a kept-alive lane's worker before the command returns"
   expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
 });
 
-test("the supervision pass releases a live worker once it hits the idle limit", async () => {
+test("the supervision pass retains an unanswered live worker beyond the former idle limit", async () => {
   const {LIVE_IDLE_S} = await import("../src/exec/live");
   const {superviseTasks} = await import("../src/tasks/api");
   const x = setup();
@@ -1164,9 +1166,9 @@ test("the supervision pass releases a live worker once it hits the idle limit", 
   expect(workerStops(x)).toBe(0);
   expect(readTask(x.ctx, asked.id)?.live).toBeDefined();
   await superviseTasks({...x.ctx, now: 1 + LIVE_IDLE_S}, () => 0);
-  expect(workerStops(x)).toBe(1);
-  expect(readTask(x.ctx, asked.id)?.live).toBeUndefined();
-  expect(loadOrcaState(x.ctx).workers.ctx_live).toBeUndefined();
+  expect(workerStops(x)).toBe(0);
+  expect(readTask(x.ctx, asked.id)?.live).toBeDefined();
+  expect(loadOrcaState(x.ctx).workers.ctx_live).toBeDefined();
 });
 
 test("the supervision pass releases a live worker after dismissal, review, settlement or a stop whose release never ran", async () => {
@@ -1351,7 +1353,7 @@ test("an answer round that settles with no work releases the lane's worktree; on
   }
 });
 
-test("an idle-expired lane keeps its worktree, so its open question can still be answered", async () => {
+test("a long-waiting lane keeps its worker and worktree, so its open question can still be answered", async () => {
   const {LIVE_IDLE_S, reapLiveWorkers} = await import("../src/exec/live");
   const {answer} = await import("../src/core/tasks");
   const ref: {x?: ReturnType<typeof setup>} = {}, state = {lane: true};
@@ -1359,7 +1361,7 @@ test("an idle-expired lane keeps its worktree, so its open question can still be
   const asked = askedLane(x);
   updateTask(x.ctx, asked.id, t => { t.result = {status: "needs_input", executor: "codex", model: null, files: "", report: "asked", backend: "orca", worktree: x.root}; });
   await reapLiveWorkers({...x.ctx, now: 1 + LIVE_IDLE_S}, [x.backend]);
-  expect(workerStops(x)).toBe(1);
+  expect(workerStops(x)).toBe(0);
   expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "rm")).toBe(false);
   expect(readTask(x.ctx, asked.id)).toMatchObject({state: "needs_input", worktree: x.root, result: {worktree: x.root}});
   // The answer starts a new attempt from the lane's worktree head, as before the worker was released.
