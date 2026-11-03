@@ -86,7 +86,7 @@ export function get(ctx: Ctx) {
         ? [{value:'auto',label:'Automatic'},{value:'terminal-app',label:'Terminal'},{value:'iterm',label:'iTerm'},{value:'ghostty',label:'Ghostty'}]
         : [{value:'auto',label:'Automatic'},{value:'ghostty',label:'Ghostty'},{value:'wezterm',label:'WezTerm'},{value:'kitty',label:'Kitty'},{value:'alacritty',label:'Alacritty'},{value:'gnome-terminal',label:'GNOME Terminal'},{value:'x-terminal-emulator',label:'System terminal'}],
       // What the local machine guard sees now; Settings re-reads it while open.
-      machine: {used: slotUse(listTasksWhere(ctx, {states: ['running']})).local, ...machineGuardState(validateExecution(s.execution))},
+      machine: {used: slotUse(listTasksWhere(ctx, {states: ['running']}),ctx).local, ...machineGuardState(validateExecution(s.execution))},
       planners: PLANNERS.flatMap(agent => plannerAccounts(ctx, s, agent).map(a => formatRunnerId({agent, account: a.name, host: null}, {...runnerDefaults(s.accounts), opencode: undefined}))),
     };
   } catch (e) { throw toCoreError(e); }

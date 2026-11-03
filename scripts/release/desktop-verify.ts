@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { signerRequirement, type SignerPins } from "../../src/update/desktop/signer-requirement";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { parsePlistDictionary } from "../../src/service";
 import { verifyDesktopExecutable, verifyNativeLibrary } from "./desktop";
+import { verifyPairBinding } from "../../src/update/desktop/build-identity";
 import { validateDesktopTar } from "./desktop-tar";
 import type { DesktopArch, VerifiedDesktopApp } from "./desktop-feed";
 
@@ -95,6 +96,18 @@ export function signedAppChecks(app: string, pins: SignerPins): string[][] {
   if (!pins.signingCertSha1) checks.push(["/usr/bin/xcrun", "stapler", "validate", app], ["/usr/sbin/spctl", "--assess", "--type", "execute", app]);
   return checks;
 }
+/** Called only after the app's platform signature has been checked. Legacy layouts remain readable, never verified pairs. */
+export function verifyAppPairBinding(app: string, metadata: { cliLayout?: string; version: string; pairManifestVersion?: unknown }, arch: DesktopArch): void {
+  const resources = join(app, "Contents/Resources"), pairPath = join(resources, "pacer-pair-manifest.json"), core = join(resources, "pacer-core");
+  if (metadata.cliLayout === "paired" && metadata.pairManifestVersion === undefined) {
+    if (existsSync(pairPath)) throw Error("Unexpected legacy pair manifest");
+    return; // Historical signed pairs carry no binding and remain unverified.
+  }
+  if (metadata.cliLayout === "paired" && metadata.pairManifestVersion === 1) {
+    const pair = verifyPairBinding(existsSync(pairPath) ? readFileSync(pairPath, "utf8") : null, readFileSync(join(resources, "pacer")), readFileSync(core));
+    if ([pair.frontDoor.descriptor, pair.core.descriptor].some(d => d.releaseVersion !== metadata.version || d.targetOs !== "darwin" || d.targetArch !== (arch === "aarch64" ? "arm64" : "x64"))) throw Error("Signed pair descriptor mismatch");
+  } else if (metadata.cliLayout !== undefined || metadata.pairManifestVersion !== undefined || existsSync(pairPath) || existsSync(core)) throw Error("Invalid legacy desktop pair");
+}
 async function verifyApp(app: string, arch: DesktopArch, pins: SignerPins): Promise<VerifiedDesktopApp> {
   for (const [file] of SIGNED_COMPONENTS) (file.endsWith(".dylib") ? verifyNativeLibrary : verifyDesktopExecutable)(readFileSync(join(app, file)), arch);
   for (const check of signedAppChecks(app, pins)) await command(check);
@@ -104,8 +117,14 @@ async function verifyApp(app: string, arch: DesktopArch, pins: SignerPins): Prom
       if (!identity.split("\n").includes(`TeamIdentifier=${pins.appleTeamId}`) || !identity.split("\n").includes(`Identifier=${identifier}`) || !identity.includes("Authority=Developer ID Application:")) throw Error("Apple signing identity mismatch");
     }
   }
-  const metadata = JSON.parse(readFileSync(join(app, "Contents/Resources/pacer-release.json"), "utf8")) as VerifiedDesktopApp;
+  const metadata = JSON.parse(readFileSync(join(app, "Contents/Resources/pacer-release.json"), "utf8")) as VerifiedDesktopApp & { cliLayout?: string };
   if (metadata.nativeTransportAbi !== 1) throw Error("Signed native transport ABI mismatch");
+  if (metadata.cliLayout === "paired") {
+    const core = join(app, "Contents/Resources/pacer-core");
+    verifyDesktopExecutable(readFileSync(core), arch);
+    await command(["/usr/bin/codesign", "--verify", "--strict", `-R=${signerRequirement("dev.pacer.cli", pins)}`, core]);
+  }
+  verifyAppPairBinding(app, metadata, arch);
   const info = parsePlistDictionary(readFileSync(join(app, "Contents/Info.plist"), "utf8"));
   if (info.CFBundleIdentifier !== "dev.pacer.desktop" || info.CFBundleExecutable !== "pacer" || info.CFBundleVersion !== metadata.version || info.CFBundleShortVersionString !== metadata.version) throw Error("Signed app version mismatch");
   return { ...metadata, appTree: appTreeDigest(app) };

@@ -55,6 +55,9 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "files.search",
     "issue.import",
     "issue.search",
+    "desktop.reconcile.status",
+    "desktop.reconcile.request",
+    "desktop.reconcile.cancel",
     "dispatch.config.get",
     "dispatch.preview",
     "dispatch.explain",
@@ -126,6 +129,12 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "project.messaging.get",
     "project.messaging.set",
     "project.messaging.remove",
+    "session.agent.list",
+    "session.agent.get",
+    "session.agent.create",
+    "session.agent.end",
+    "session.agent.retry",
+    "session.agent.resume",
 ];
 pub const V2_PROTOCOL: &str = "2.8.0";
 pub const V2_EVENT_TYPES: &[&str] = &[

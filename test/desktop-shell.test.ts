@@ -572,8 +572,8 @@ test("fixture shell isolates webview storage and excludes global OS integrations
  // Persistent workbench design §5: main and tray each load a bundled page;
  // the former service-page builder is gone. Check isolation on every builder.
  // docs/specs/2026-10-31-persistent-workbench-design.md
- const builders = [...source.matchAll(/tauri::WebviewWindowBuilder::new\(app, "(main|tray)",([\s\S]*?)\.build\(\)/g)];
- expect(builders.map(match => match[1]).sort()).toEqual(["main", "tray"]);
+ const builders = [...source.matchAll(/tauri::WebviewWindowBuilder::new\(app, "(main|tray|service-guidance)",([\s\S]*?)\.build\(\)/g)];
+ expect(builders.map(match => match[1]).sort()).toEqual(["main", "service-guidance", "tray"]);
  expect(source.match(/tauri::WebviewWindowBuilder::new\(/g)).toHaveLength(builders.length);
  for (const [, , builder] of builders) {
    expect(builder).toMatch(/WebviewUrl::App\(/);
@@ -584,4 +584,43 @@ test("fixture shell isolates webview storage and excludes global OS integrations
  expect(source).toContain('Launch at login is unavailable in isolated fixtures');
  expect(source).toMatch(/#\[cfg\(not\(feature\s*=\s*"ota-fixture"\)\)\]\s*\{\s*let links = handle.clone/);
  expect(source).toContain('fn notify(_app: &AppHandle, _notification: notifications::Notification) {}');
+});
+
+test("older or unverified service guidance is local, bounded and does not offer reconciliation", () => {
+  const html = readFileSync(new URL("../desktop/ui/index.html", import.meta.url), "utf8");
+  const guidance = html.split('<section id="outdated-service"')[1].split('</section>')[0];
+  expect(guidance).toContain('Service ownership and active work are unknown');
+  expect(guidance).toContain('terminal sessions');
+  expect(guidance).toContain('installation documentation');
+  expect(guidance).not.toContain('pacer update');
+  expect(guidance).not.toContain('brew upgrade');
+  expect(guidance).not.toContain('npm install');
+  expect(guidance).toContain('external service');
+  expect(guidance).not.toContain('reconcile-confirm');
+});
+
+
+test("bundled fallback guidance is available on connection and recovery states", () => {
+  for (const state of ["unavailable", "startFailed", "oldService", "oldApp", "protocol", "stuck", "sessionExpired", "recoveryFailed"]) {
+    const page = shell(`?state=${state}`);
+    expect(page.element("#service-fallback").hidden).toBe(false);
+  }
+  const guidance = html.split('<section id="service-fallback"')[1].split('</section>')[0];
+  expect(guidance).toContain('installation documentation');
+  expect(guidance).not.toMatch(/pacer update|brew upgrade|npm install|action\//);
+  expect(shell('?state=welcome').element('#service-fallback').hidden).toBe(true);
+});
+
+test("native service guidance has an independent fixed bundled window", () => {
+  const source = readFileSync(new URL("../desktop/src-tauri/src/main.rs", import.meta.url), "utf8");
+  const menu = readFileSync(new URL("../desktop/src-tauri/src/app_menu.rs", import.meta.url), "utf8");
+  const fallback = readFileSync(new URL("../desktop/ui/service-guidance.html", import.meta.url), "utf8");
+  expect(menu).toContain('"native.service-guidance" => crate::show_service_guidance(app)');
+  expect(source).toContain('("service-guidance", "Service guidance…", true)');
+  expect(source).toContain('"service-guidance" => show_service_guidance(app)');
+  expect(source).toContain('WebviewUrl::App("service-guidance.html".into())');
+  expect(source).toContain('.on_navigation(|_| false)');
+  expect(source).toContain('window.set_focus()');
+  expect(fallback).toContain('Finish active tasks and terminal sessions');
+  expect(fallback).not.toMatch(/<script|action\/|<form|<button|<a\s/i);
 });

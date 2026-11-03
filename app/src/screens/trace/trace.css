@@ -1,6 +1,7 @@
 .pc-trace{padding:var(--space-6) var(--space-8) var(--space-10);display:flex;flex-direction:column;gap:var(--space-5);min-width:0;color:var(--ink);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums;box-sizing:border-box}
 .pc-trace h1,.pc-trace h2,.pc-trace p{margin:0}
-.pc-trace h1{letter-spacing:normal;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);overflow-wrap:break-word}
+/* A task page title sits between page titles (28px) and section headings (16px), so long task names stay on one line. */
+.pc-trace h1{letter-spacing:normal;font-size:var(--type-number-lg-size);line-height:var(--type-number-lg-line);font-weight:var(--type-display-weight);overflow-wrap:break-word}
 .pc-trace h2{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight)}
 .pc-trace b{font-weight:var(--type-count-badge-weight)}
 .pc-trace__step-title b,.pc-trace__candidate-copy b,.pc-trace__token-row>b,.pc-trace__subtask>.pc-trace__right{font-weight:var(--type-body-strong-weight)}
@@ -10,6 +11,8 @@
 .pc-trace__header{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:flex-start}
 .pc-trace__identity{display:flex;flex-direction:column;gap:var(--space-2);flex:1 1 var(--size-520);min-width:0}
 .pc-trace__meta{display:flex;flex-wrap:wrap;gap:var(--space-1\.5);align-items:center}
+/* Facts after the pills read as one caption run: repo in the body face, the branch in mono, as on the task rows. */
+.pc-trace__meta>.pc-trace__cap+.pc-trace__cap::before{content:"·";margin-right:var(--space-1\.5);font-family:var(--font-sans);color:var(--ink-muted)}
 .pc-trace__actions{display:flex;gap:var(--space-2);flex-wrap:wrap}
 .pc-trace__cost{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-160),1fr));border:1px solid var(--line);border-radius:var(--radius-card);overflow:hidden}
 .pc-trace__cost>div{padding:var(--space-3\.5) var(--size-18);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:var(--space-half)}

@@ -9,6 +9,7 @@ import { SearchInput } from "../../ds/Controls";
 import { Icon } from "../../ds/icons";
 import { Tabs } from "../../ds/Patterns";
 import { SearchPicker } from "../../ds/SearchPicker";
+import { SectionHeading } from "../../ds/SectionHeading";
 import { TaskTree } from "../../ds/TaskTreeNode";
 import type { TaskCardView } from "../../ds/TaskCard";
 import type { TaskBucket, TaskNodeView } from "../../../../src/view-model/task-tree";
@@ -24,8 +25,13 @@ import { withQuery, type RouteQuery } from "../../router";
 type Filter = "all" | Exclude<TaskBucket, "other">;
 const FILTERS: { value: Filter; label: string; dot?: string }[] = [
   { value: "all", label: "All" },
-  { value: "needs", label: "Needs you", dot: "bad" }, { value: "running", label: "Running", dot: "info" },
+  { value: "running", label: "Running", dot: "info" }, { value: "needs", label: "Needs you", dot: "bad" },
   { value: "accepted", label: "Accepted", dot: "good" }, { value: "stopped", label: "Stopped", dot: "muted" },
+];
+/** The All tab lists live work first, then what waits on the user, then settled work. */
+const GROUPS: { bucket: TaskBucket; label: string; dot: string }[] = [
+  { bucket: "running", label: "Running", dot: "info" }, { bucket: "needs", label: "Needs you", dot: "bad" },
+  { bucket: "accepted", label: "Accepted", dot: "good" }, { bucket: "stopped", label: "Stopped", dot: "muted" }, { bucket: "other", label: "Other", dot: "muted" },
 ];
 const PAGE = 20;
 const matches = (node: TaskNodeView, needle: string): boolean => !needle
@@ -68,7 +74,8 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
     return total;
   }, [roots]);
   const needle = search.trim().toLowerCase();
-  const visible = roots.filter(node => (filter === "all" || node.bucket === filter) && matches(node, needle));
+  const matched = roots.filter(node => (filter === "all" || node.bucket === filter) && matches(node, needle));
+  const visible = filter === "all" ? GROUPS.flatMap(group => matched.filter(node => node.bucket === group.bucket)) : matched;
   const page = visible.slice(0, shown);
   const summary = treeSummary(roots, Date.now() / 1000);
   const sessionHref = taskHref(query.repo ? `repo=${encodeURIComponent(query.repo)}` : "");
@@ -95,7 +102,14 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
     <div className="pc-tasks-page__columns" role="tabpanel" id={`${viewId}-task-filter-${filter}-panel`} aria-labelledby={`${viewId}-task-filter-${filter}-tab`}>
       <section className="pc-tasks-page__tree" aria-label="Task tree">
         <ResourceView layout="list" value={nodes ? { data: page } : { loading: true }} loading="Loading tasks…" empty={needle || filter !== "all" ? "No tasks match." : "No tasks yet."}>
-          {list => <TaskTree nodes={list} density="regular" href={href} viewHref={viewHref} heading={heading} renderBranch={node => node.branch ? <span className="pc-task-card__branch" title={node.branch}>{node.branch}</span> : <LazyTaskBranch id={node.id}/>} selectedId={here?.node.id} onSelect={setSelected} label="Tasks" />}
+          {list => {
+            const tree = (nodes: TaskNodeView[], label: string) => <TaskTree nodes={nodes} density="regular" href={href} viewHref={viewHref} heading={heading} renderBranch={node => node.branch ? <span className="pc-task-card__branch" title={node.branch}>{node.branch}</span> : <LazyTaskBranch id={node.id}/>} selectedId={here?.node.id} onSelect={setSelected} label={label} />;
+            if (filter !== "all") return tree(list, "Tasks");
+            return <>{GROUPS.map(group => ({ ...group, nodes: list.filter(node => node.bucket === group.bucket) })).filter(group => group.nodes.length).map(group => <section key={group.bucket} className="pc-tasks-page__group" aria-labelledby={`${viewId}-group-${group.bucket}`}>
+              <SectionHeading id={`${viewId}-group-${group.bucket}`} className="pc-tasks-page__group-heading"><span className={`pc-tasks-page__dot pc-tasks-page__dot--${group.dot}`} aria-hidden="true" />{group.label} <span className="pc-tasks-page__count">{matched.filter(node => node.bucket === group.bucket).length}</span></SectionHeading>
+              {tree(group.nodes, group.label)}
+            </section>)}</>;
+          }}
         </ResourceView>
         {nodes && roots.length > 0 && <div className="pc-tasks-page__more">
           <span className="pc-tasks-page__caption" role="status">Showing {Math.min(shown, visible.length)} of {visible.length} root tasks</span>

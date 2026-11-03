@@ -1,3 +1,4 @@
+import { workspaceBusy } from "./agents-state";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { withLock } from "../core/lock";
@@ -160,12 +161,7 @@ export async function createConversation(
         revalidate();
         if (
           authorizedPlacement === "current" &&
-          listTasksWhere(ctx, { states: ["queued", "running"] }).some(
-            (t) =>
-              (t.placement?.requested === "current" ||
-                t.placement?.mode === "current") &&
-              realpathSync(t.brief.repo) === realpathSync(repo),
-          )
+          workspaceBusy(ctx, repo)
         ) {
           throw new CoreError("conflict", "Another session owns this checkout");
         }
