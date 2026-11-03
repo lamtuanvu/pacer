@@ -27,6 +27,19 @@ pub enum StrategyError {
     Io(#[from] io::Error),
 }
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod trim_tests {
+    use super::strategy_path;
+
+    #[test]
+    fn strategy_active_name_uses_javascript_trim_set() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join("active"), "\u{FEFF}focus\u{2028}").unwrap();
+        assert_eq!(strategy_path(home.path()).unwrap().1, "focus");
+    }
+}
+
 pub(crate) fn invalid(path: &Path, problems: Vec<String>) -> StrategyError {
     let message = problems
         .iter()

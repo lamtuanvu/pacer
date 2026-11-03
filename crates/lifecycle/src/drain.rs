@@ -6,7 +6,8 @@ use pacer_foundation::{
     Ctx,
     lock::{LockOptions, with_lock},
 };
-use pacer_store::{StoreError, TaskFilter};
+use pacer_js_json::WireReply;
+use pacer_store::{StoreError, TaskEdit, TaskFilter};
 use serde_json::{Value, json};
 
 /// Already ranked, project/policy-authorized route and local exclusion snapshot.
@@ -42,10 +43,32 @@ fn refreshable(queue: &Value) -> bool {
             && queue["limit"] == "machine"
             && queue["detail"] == "Waiting for an available executor")
 }
-fn remove(task: &mut Value, key: &str) {
-    if let Some(map) = task.as_object_mut() {
-        map.remove(key);
+fn remove(task: &mut TaskEdit, key: &str) -> Result<(), StoreError> {
+    let path = format!("/{key}");
+    if task.preview().get(key).is_some() {
+        task.remove(&path)?;
     }
+    Ok(())
+}
+// Value indexing previously created an object from a missing/null queue.
+fn queue_put(task: &mut TaskEdit, key: &str, value: Value) -> Result<(), StoreError> {
+    if task.preview().get("queue").is_none_or(Value::is_null) {
+        task.put("/queue", WireReply::new(json!({})))?;
+    }
+    task.put(&format!("/queue/{key}"), WireReply::new(value))
+}
+fn replace_capacity_queue(task: &mut TaskEdit, next: Value) -> Result<(), StoreError> {
+    let mut next = WireReply::new(next);
+    for key in ["since", "position"] {
+        let path = format!("/queue/{key}");
+        let value = if task.preview().pointer(&path).is_some() {
+            task.subtree(&path)?
+        } else {
+            WireReply::new(Value::Null)
+        };
+        next.put(&format!("/{key}"), value)?;
+    }
+    task.put("/queue", next)
 }
 impl AdmissionState {
     /// Explicit supervisor action. Read APIs call neither this nor its launcher.
@@ -182,10 +205,10 @@ impl AdmissionState {
                 Err(error) => Some(failed_result(None, error.to_string())),
             };
             if let Some(result) = failure {
-                match self.tasks.update(id, rev, now, |t| {
-                    t["state"] = json!("failed");
-                    remove(t, "queue");
-                    t["result"] = result;
+                match self.tasks.edit(id, rev, now, |t| {
+                    t.put("/state", WireReply::new(json!("failed")))?;
+                    remove(t, "queue")?;
+                    t.put("/result", WireReply::new(result))
                 }) {
                     Ok(_) | Err(StoreError::Conflict) => {}
                     Err(error) => return Err(error.into()),
@@ -203,11 +226,14 @@ impl AdmissionState {
                 Err(error) => {
                     if !error.is_conflict() {
                         let detail = format!("Route policy: {error}");
-                        match self.tasks.update(id, rev, now, |t| {
-                            t["queue"]["reason"] = json!("waiting_retry");
-                            t["queue"]["detail"] =
-                                json!(detail.chars().take(500).collect::<String>());
-                            t["queue"]["nextAt"] = json!(now + 30.0);
+                        match self.tasks.edit(id, rev, now, |t| {
+                            queue_put(t, "reason", json!("waiting_retry"))?;
+                            queue_put(
+                                t,
+                                "detail",
+                                json!(detail.chars().take(500).collect::<String>()),
+                            )?;
+                            queue_put(t, "nextAt", json!(now + 30.0))
                         }) {
                             Ok(_) | Err(StoreError::Conflict) => {}
                             Err(error) => return Err(error.into()),
@@ -233,7 +259,7 @@ impl AdmissionState {
                                 &mut admission,
                             )
                         })?;
-                    let selected = match reservation {
+                    let (selected, prior_queue) = match reservation {
                         Ok(t) => t,
                         Err(StoreError::Conflict | StoreError::Unchanged) => return Ok(false),
                         Err(StoreError::Admission(ref message))
@@ -243,27 +269,27 @@ impl AdmissionState {
                         }
                         Err(error) => return Err(error.into()),
                     };
-                    if selected["state"] != "running" {
+                    if selected.preview()["state"] != "running" {
                         return Ok(false);
                     }
-                    let selected_rev = selected["rev"].as_i64().unwrap_or(1);
-                    match launch(&selected) {
+                    let selected_rev = selected.preview()["rev"].as_i64().unwrap_or(1);
+                    match launch(selected.preview()) {
                         Ok(pid) => {
-                            self.tasks.update(id, selected_rev, now, |t| {
+                            self.tasks.edit(id, selected_rev, now, |t| {
                                 if let Some(pid) = pid {
-                                    t["runnerPid"] = json!(pid);
+                                    t.put("/runnerPid", WireReply::new(json!(pid)))
                                 } else {
-                                    remove(t, "runnerPid");
+                                    remove(t, "runnerPid")
                                 }
                             })?;
                             Ok(true)
                         }
                         Err(error) => {
-                            self.tasks.update(id, selected_rev, now, |t| {
-                                t["state"] = json!("queued");
-                                t["queue"] = task["queue"].clone();
-                                remove(t, "executor");
-                                remove(t, "runnerPid");
+                            self.tasks.edit(id, selected_rev, now, |t| {
+                                t.put("/state", WireReply::new(json!("queued")))?;
+                                t.put("/queue", prior_queue)?;
+                                remove(t, "executor")?;
+                                remove(t, "runnerPid")
                             })?;
                             Err(error)
                         }
@@ -296,14 +322,16 @@ fn expire_task(
     id: &str,
     now: f64,
 ) -> Result<(), AdmissionError> {
-    match store.update_current(id, now, |current| {
-        if current["state"] != "queued" || current.get("queue").is_none() {
+    match store.edit_current(id, now, |current| {
+        if current.preview()["state"] != "queued" || current.preview().get("queue").is_none() {
             return Err(StoreError::Unchanged);
         }
-        current["state"] = json!("failed");
-        remove(current, "queue");
-        current["result"] = failed_result(None, "Work dispatch deadline expired".into());
-        Ok(())
+        current.put("/state", WireReply::new(json!("failed")))?;
+        remove(current, "queue")?;
+        current.put(
+            "/result",
+            WireReply::new(failed_result(None, "Work dispatch deadline expired".into())),
+        )
     }) {
         Ok(_) | Err(StoreError::Conflict | StoreError::Unchanged | StoreError::UnknownTask(_)) => {}
         Err(error) => return Err(error.into()),
@@ -317,12 +345,11 @@ fn update_positions(
     now: f64,
 ) -> Result<(), AdmissionError> {
     for (index, t) in remaining.iter().enumerate() {
-        match store.update_current(t["id"].as_str().unwrap_or(""), now, |current| {
-            if current.get("queue").is_none() {
+        match store.edit_current(t["id"].as_str().unwrap_or(""), now, |current| {
+            if current.preview().get("queue").is_none() {
                 return Err(StoreError::Unchanged);
             }
-            current["queue"]["position"] = json!(index + 1);
-            Ok(())
+            queue_put(current, "position", json!(index + 1))
         }) {
             Ok(_)
             | Err(StoreError::Conflict | StoreError::Unchanged | StoreError::UnknownTask(_)) => {}
@@ -365,54 +392,62 @@ fn reserve(
     now: f64,
     paused: bool,
     admission: &mut RouteAdmission<'_>,
-) -> Result<Value, StoreError> {
-    store.update_admitted(id, rev, now, |db, current| {
+) -> Result<(WireReply, WireReply), StoreError> {
+    let mut prior_queue = WireReply::new(Value::Null);
+    let selected = store.edit_admitted(id, rev, now, |db, current| {
         let fail = |e: AdmissionError| StoreError::Admission(e.0);
-        if current["state"] != "queued" || current.get("queue").is_none()
+        if current.preview()["state"] != "queued" || current.preview().get("queue").is_none()
             || !dependencies(db, id).map_err(fail)?.is_empty()
             || get_work(db, id).map_err(fail)?.is_some_and(|w| {
                 w["options"]["expiresAt"].as_f64().is_some_and(|at| at <= now)
             }) { return Err(StoreError::Conflict); }
-        (admission.revalidate)(db, current).map_err(fail)?;
+        (admission.revalidate)(db, current.preview()).map_err(fail)?;
         if paused || read_pause(ctx) { return Err(StoreError::Unchanged); }
+        // Capture from this CAS-checked transaction, never the earlier list preview.
+        prior_queue = current.subtree("/queue")?;
         if admission.project_limited && admission.routes.is_empty()
-            && current["interactionMode"] != "conversation" {
-            current["state"] = json!("limit");
-            remove(current, "queue");
-            current["result"] = json!({"status":"limit","executor":null,"model":null,"files":"",
-                "report":format!("no project executor available ({})",admission.excluded_detail),"backend":"direct"});
+            && current.preview()["interactionMode"] != "conversation" {
+            current.put("/state", WireReply::new(json!("limit")))?;
+            remove(current, "queue")?;
+            current.put("/result", WireReply::new(json!({"status":"limit","executor":null,"model":null,"files":"",
+                "report":format!("no project executor available ({})",admission.excluded_detail),"backend":"direct"})))?;
             return Ok(());
         }
         let mut statement = db.prepare("SELECT record FROM tasks WHERE state IN ('running','needs_input')")?;
         let records = statement.query_map([], |r| r.get::<_,String>(0))?
             .collect::<Result<Vec<_>,_>>()?;
-        let tasks = records.iter().map(|s| serde_json::from_str::<Value>(s)).collect::<Result<Vec<_>,_>>()?;
+        // These previews are only inputs to capacity counting, never stored-value sources.
+        let tasks = records.iter().map(|s| WireReply::parse(s).map(|wire| wire.preview().clone())).collect::<Result<Vec<_>,_>>()?;
         let use_ = slot_use(&tasks);
-        let requested = current["requestedExecutor"].as_str().filter(|s| !s.is_empty());
+        let requested = current.preview()["requestedExecutor"].as_str().filter(|s| !s.is_empty());
         let eligible: Vec<_> = admission.routes.iter().filter(|r| !r.excluded
             && requested.is_none_or(|id| id == r.executor)).collect();
         let capacity = |route: &&DrainRoute| queue_capacity(&route.executor, route.host.as_deref(),
             route.limits, &use_, route.machine_guard.clone());
-        let before = current.clone();
+        let before = current.preview().clone();
         if let Some(route) = eligible.iter().find(|route| capacity(route).is_none()) {
-            current["state"] = json!("running");
-            current["executor"] = json!(route.executor);
-            remove(current,"queue");
-            remove(current,"runnerPid");
-        } else if refreshable(&current["queue"]) {
-            if let Some(mut next) = eligible.first().and_then(capacity) {
-                next["since"] = current["queue"]["since"].clone();
-                next["position"] = current["queue"]["position"].clone();
-                current["queue"] = next;
-            } else if current["queue"]["reason"].as_str().is_some_and(|s| s.starts_with("machine_")) {
-                current["queue"] = json!({"reason":"waiting_retry","limit":"machine",
-                    "detail":"Waiting for an available executor","since":current["queue"]["since"],
-                    "position":current["queue"]["position"]});
+            current.put("/state", WireReply::new(json!("running")))?;
+            current.put("/executor", WireReply::new(json!(route.executor)))?;
+            remove(current,"queue")?;
+            remove(current,"runnerPid")?;
+        } else if refreshable(&current.preview()["queue"]) {
+            if let Some(next) = eligible.first().and_then(capacity) {
+                replace_capacity_queue(current, next)?;
+            } else if current.preview()["queue"]["reason"].as_str().is_some_and(|s| s.starts_with("machine_")) {
+                replace_capacity_queue(current, json!({"reason":"waiting_retry","limit":"machine",
+                    "detail":"Waiting for an available executor"}))?;
             }
         }
-        if *current == before { return Err(StoreError::Unchanged); }
+        // Keep the existing preview/numeric/object-order no-op rule, but an
+        // explicit fresh string must not equal a different UTF-16 sequence.
+        if current.preview() == &before
+            && crate::json::Value::parse(&prior_queue.to_json()?).map_err(fail)?
+                == crate::json::Value::parse(&current.subtree("/queue")?.to_json()?).map_err(fail)? {
+            return Err(StoreError::Unchanged);
+        }
         Ok(())
-    })
+    })?;
+    Ok((selected, prior_queue))
 }
 
 /// Same validation as core/pause.ts. Missing or malformed state is unpaused.

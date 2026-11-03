@@ -1,5 +1,6 @@
 //! Task selection and message/liveness enrichment. SQLite is authoritative; the
 //! shared store imports old-release JSON using the existing revision protocol.
+use crate::snapshot::ActiveCounts;
 use crate::{Error, js::*, read};
 use pacer_foundation::Ctx;
 use pacer_store::TaskStore;
@@ -268,6 +269,16 @@ pub fn full_title(t: &Value) -> String {
         title.into()
     })
 }
+fn visible_task_state(t: &Value) -> Value {
+    if text(&t["state"]) == "running"
+        && truth(&t["question"])
+        && t["question"].get("answer").is_none()
+    {
+        json!("needs_input")
+    } else {
+        t["state"].clone()
+    }
+}
 pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
     let last = array(&t["attempts"]).last().unwrap_or(&Value::Null);
     let coalesce = |items: &[&Value]| {
@@ -283,15 +294,20 @@ pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
         &t["attemptStartedAt"],
         &t["reviewRequest"]["at"],
         &t["stopPending"]["requestedAt"],
+        &t["question"]["at"],
+        &t["question"]["answeredAt"],
     ]
     .iter()
     .map(|v| num(v))
     .fold(0.0, f64::max);
     let mut row = json!({
-    "id":t["id"],"title":if trim(text(&t["title"])).is_empty(){clip_points(&goal_title(text(&t["brief"]["goal"]),true),60)}else{clip_points(&full_title(t),60)},"state":t["state"],"goal":clip(text(&t["brief"]["goal"]),200),"executor":coalesce(&[&t["result"]["executor"],&t["executor"],&last["executor"]]),"backend":coalesce(&[&t["result"]["backend"],&t["backend"]]),"worktree":coalesce(&[&t["result"]["worktree"],&t["worktree"]]),"updatedAt":number(updated)}
+    "id":t["id"],"title":if trim(text(&t["title"])).is_empty(){clip_points(&goal_title(text(&t["brief"]["goal"]),true),60)}else{clip_points(&full_title(t),60)},"state":visible_task_state(t),"goal":clip(text(&t["brief"]["goal"]),200),"executor":coalesce(&[&t["result"]["executor"],&t["executor"],&last["executor"]]),"backend":coalesce(&[&t["result"]["backend"],&t["backend"]]),"worktree":coalesce(&[&t["result"]["worktree"],&t["worktree"]]),"updatedAt":number(updated)}
     );
     if truth(&t["placement"]["mode"]) && t["placement"].get("why").is_some() {
-        row["placement"] = t["placement"].clone();
+        row["placement"] = json!({"mode":t["placement"]["mode"],"why":t["placement"]["why"]});
+    }
+    if truth(&t["question"]) {
+        row["question"] = t["question"].clone();
     }
     for key in ["interactionMode", "conversation"] {
         if truth(&t[key]) {
@@ -413,6 +429,7 @@ fn has_table(db: &Connection, name: &str) -> Result<bool, Error> {
 }
 pub fn api_tasks(
     ctx: &Ctx,
+    active: &ActiveCounts,
     records: &[Value],
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
@@ -443,6 +460,10 @@ pub fn api_tasks(
     }
     records.iter().zip(repos).map(|(t,repo)|{
  let mut row=task_data(t,alive);
+ let n = active.task(text(&t["id"]));
+ if n > 0 {
+     row["activeAgentSessions"]=json!(n);
+ }
 for key in ["archived","archivePath"]{
 if truth(&t["archived"])&& let Some(v)=t.get(key){
 row[key]=v.clone();
@@ -499,6 +520,7 @@ row["messages"]=msg;
 }
 pub fn snapshot_tasks(
     ctx: &Ctx,
+    active: &ActiveCounts,
     records: &[Value],
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
@@ -508,9 +530,12 @@ pub fn snapshot_tasks(
         .filter(|t| !truth(&t["archived"]))
         .cloned()
         .collect();
-    let mut rows = api_tasks(ctx, &selected, store, alive)?;
+    let mut rows = api_tasks(ctx, active, &selected, store, alive)?;
     rows.retain(|t| {
-        ["queued", "running"].contains(&text(&t["state"]))
+        // Missing map entry reads as 0. A session-holding task stays in the
+        // window even if stale (>24h) or dismissed, mirroring `!!t.activeAgentSessions`.
+        active.task(text(&t["id"])) > 0
+            || ["queued", "running"].contains(&text(&t["state"]))
             || (!truth(&t["dismissed"]) && num(&t["updatedAt"]) >= ctx.now - 86400.0)
     });
     rows.sort_by(|a, b| num(&b["updatedAt"]).total_cmp(&num(&a["updatedAt"])));
@@ -559,7 +584,7 @@ pub fn snapshot_document(
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
 ) -> Result<crate::wire::Document, Error> {
-    let rows = snapshot_tasks(ctx, records, store, alive)?;
+    let rows = snapshot_tasks(ctx, &ActiveCounts::default(), records, store, alive)?;
     let questions = crate::wire::questions(store)?;
     let mut doc = crate::wire::Document::new(serde_json::json!(rows));
     crate::wire::task_strings(&mut doc, &rows, "", &questions);

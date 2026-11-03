@@ -1,0 +1,15 @@
+[package]
+name = "pacer-bun-glob"
+version = "0.1.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pacer-js-json = { path = "../js-json" }
+regex = "1"
+thiserror.workspace = true
+
+[lints]
+workspace = true

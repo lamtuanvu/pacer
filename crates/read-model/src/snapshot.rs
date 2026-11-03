@@ -3,10 +3,70 @@ use pacer_config::strategy::{list_strategy_reads, load_strategy, validate_strate
 use pacer_foundation::Ctx;
 use pacer_store::{TaskFilter, TaskStore, read_latest};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
+/// The hex sha256 of the byte string `[]`, matching the TS owner's hash of an
+/// empty `agent_sessions` table (`createHash('sha256').update('[]')`).
+fn empty_sessions_sha256() -> String {
+    format!("{:x}", Sha256::digest(b"[]"))
+}
+/// One active agent session as seen by `activeAgentSessions`. Rust only carries
+/// the written bounded tuples; it never feeds whole expected rows back.
+#[derive(Clone)]
+pub struct ActiveSession {
+    pub task_id: String,
+    pub executor: String,
+}
+/// Agent-session owner probe. `revision` is the TS owner's current
+/// `agentSessionsRevision` hash, captured verbatim (never re-derived); `active`
+/// is the ordered list from `activeAgentSessions()`. Only a MISSING probe
+/// chooses `Default` (the empty-table owner revision and an empty list).
+#[derive(Clone)]
+pub struct SessionProbe {
+    pub revision: String,
+    pub active: Vec<ActiveSession>,
+}
+impl Default for SessionProbe {
+    fn default() -> Self {
+        Self {
+            revision: empty_sessions_sha256(),
+            active: Vec::new(),
+        }
+    }
+}
+/// Derived once from `SessionProbe.active` and threaded into every consumer, so
+/// no consumer re-scans the active list. Missing map entries are 0 (an owned
+/// active count of zero is indistinguishable from an absent key).
+#[derive(Default)]
+pub struct ActiveCounts {
+    pub per_task: HashMap<String, usize>,
+    pub per_executor: HashMap<String, usize>,
+    pub total: usize,
+}
+impl ActiveCounts {
+    pub fn from_sessions(active: &[ActiveSession]) -> Self {
+        let mut per_task = HashMap::new();
+        let mut per_executor = HashMap::new();
+        for s in active {
+            *per_task.entry(s.task_id.clone()).or_insert(0) += 1;
+            *per_executor.entry(s.executor.clone()).or_insert(0) += 1;
+        }
+        Self {
+            per_task,
+            per_executor,
+            total: active.len(),
+        }
+    }
+    pub fn task(&self, id: &str) -> usize {
+        self.per_task.get(id).copied().unwrap_or(0)
+    }
+    pub fn executor(&self, id: &str) -> usize {
+        self.per_executor.get(id).copied().unwrap_or(0)
+    }
+}
 /// External domain probes. `setup` is the deferred setup checklist, not a
 /// snapshot. It is updated here with current status and task review facts.
 #[derive(Clone)]
@@ -18,6 +78,7 @@ pub struct Probes {
     pub desktop_updates: Vec<Value>,
     pub service_installed: bool,
     pub can_pair: bool,
+    pub sessions: SessionProbe,
 }
 pub enum StatusInput {
     Provided(Value),
@@ -237,7 +298,8 @@ impl ReadModel {
                     >= ctx.now - 86400.0
             })
             .collect();
-        let tasks = tasks::snapshot_tasks(ctx, &records, self.store(ctx)?, alive)?;
+        let active = ActiveCounts::from_sessions(&input.probes.sessions.active);
+        let tasks = tasks::snapshot_tasks(ctx, &active, &records, self.store(ctx)?, alive)?;
         let snapshot_tasks: Vec<_> = tasks
             .iter()
             .map(|t| {
@@ -346,7 +408,7 @@ impl ReadModel {
             legacy["budget"] = capacity::budget(&status);
         }
         let p = input.probes;
-        let executors = capacity::executors(ctx, &status, &strategy, &tasks);
+        let executors = capacity::executors(ctx, &active, &status, &strategy, &tasks);
         let accounts = capacity::accounts_in_home(ctx, &status, &strategy);
         let planner = capacity::planner(&status, zone);
         let hosts = summary::hosts(ctx, &strategy, &executors, &tasks);
@@ -385,9 +447,14 @@ impl ReadModel {
                     && t["host"].is_null()
                     && strategy["runners"][text(&t["executor"])]["host"].is_null()
             })
-            .count();
+            .count()
+            + active.total;
         let cap = strategy["execution"]["local_max_tasks"].clone();
         let mut machine = object();
+        // Key order must match the TS owner (src/api/read-model/index.ts), which
+        // places agentSessionsRevision first. `revision` is captured verbatim;
+        // only a missing probe input (test adapter) supplies the Default value.
+        machine["agentSessionsRevision"] = json!(p.sessions.revision.clone());
         for k in ["os", "arch"] {
             if let Some(v) = p.machine.get(k) {
                 machine[k] = v.clone();

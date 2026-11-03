@@ -26323,6 +26323,9 @@
     "files.search",
     "issue.import",
     "issue.search",
+    "desktop.reconcile.status",
+    "desktop.reconcile.request",
+    "desktop.reconcile.cancel",
     "dispatch.config.get",
     "dispatch.preview",
     "dispatch.explain",
@@ -26393,6 +26396,12 @@
     "liveness.status",
     "project.messaging.get",
     "project.messaging.set",
-    "project.messaging.remove"
+    "project.messaging.remove",
+    "session.agent.list",
+    "session.agent.get",
+    "session.agent.create",
+    "session.agent.end",
+    "session.agent.retry",
+    "session.agent.resume"
   ]
 }

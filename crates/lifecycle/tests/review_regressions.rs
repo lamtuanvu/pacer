@@ -35,7 +35,9 @@ fn project_and_mutation_numeric_goldens_use_real_admission_boundaries() {
             state.create(&queued(id), None, None, 1.0).unwrap();
             state
                 .tasks
-                .update(id, 1, 1.0, |t| t["state"] = json!("done"))
+                .edit(id, 1, 1.0, |t| {
+                    t.put("/state", pacer_js_json::WireReply::new(json!("done")))
+                })
                 .unwrap();
             let result = state.mutate(id, input["expect_rev"].as_f64().unwrap(), 2.0, |_, _| {
                 panic!("must refuse before effects")

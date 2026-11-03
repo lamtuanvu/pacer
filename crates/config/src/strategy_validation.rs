@@ -1496,3 +1496,16 @@ pub(crate) fn validate_strategy(
     }
     Ok(result)
 }
+
+#[cfg(test)]
+mod trim_tests {
+    use super::{duration, size};
+    use crate::yaml_value::value as json;
+
+    #[test]
+    fn strategy_values_use_javascript_trim_set() {
+        assert_eq!(size(&json!("\u{FEFF}2 k\u{2028}")), Some(2000.0));
+        assert_eq!(duration(&json!("\u{00A0}3m\u{2029}")), Some(180.0));
+        assert_eq!(size(&json!("\u{0085}2k\u{0085}")), None);
+    }
+}

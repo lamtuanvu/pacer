@@ -1,0 +1,8 @@
+[
+  { "graceMs": 0, "error": "capability_denied" },
+  { "graceMs": 1, "seconds": 1 },
+  { "graceMs": 999, "seconds": 1 },
+  { "graceMs": 1000, "seconds": 1 },
+  { "graceMs": 1001, "seconds": 2 },
+  { "graceMs": 25000, "seconds": 25 }
+]

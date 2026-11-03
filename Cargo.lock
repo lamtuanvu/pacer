@@ -1198,6 +1198,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-bun-glob"
+version = "0.1.0"
+dependencies = [
+ "pacer-js-json",
+ "regex",
+ "thiserror",
+]
+
+[[package]]
 name = "pacer-cli"
 version = "0.2.3"
 dependencies = [
@@ -1306,11 +1315,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-js-json"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "pacer-lifecycle"
 version = "0.1.0"
 dependencies = [
  "icu_collator",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-store",
  "regex",
  "rusqlite",
@@ -1372,6 +1391,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-capabilities"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "nix",
+ "pacer-bun-glob",
+ "pacer-plugin-wire",
+ "pacer-store",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "pacer-plugin-decision-protocol"
 version = "0.2.0"
 dependencies = [
@@ -1390,6 +1429,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-execution"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "nix",
+ "pacer-foundation",
+ "pacer-plugin-capabilities",
+ "pacer-store",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "pacer-plugin-host"
 version = "0.2.0"
 dependencies = [
@@ -1400,6 +1459,7 @@ dependencies = [
  "nix",
  "pacer-foundation",
  "pacer-plugin-protocol",
+ "pacer-plugin-runtime",
  "pacer-store",
  "reqwest",
  "ryu-js",
@@ -1474,6 +1534,36 @@ dependencies = [
  "serde",
  "serde_json",
  "xtask",
+]
+
+[[package]]
+name = "pacer-plugin-runtime"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "pacer-plugin-capabilities",
+ "pacer-plugin-execution",
+ "pacer-store",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "unicode-normalization",
+ "uuid",
+]
+
+[[package]]
+name = "pacer-plugin-wire"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "pacer-js-json",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -1564,6 +1654,7 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "pacer-foundation",
+ "pacer-js-json",
  "rand 0.9.5",
  "regex",
  "rusqlite",

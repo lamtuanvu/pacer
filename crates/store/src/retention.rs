@@ -7,6 +7,7 @@ use pacer_foundation::{
     Ctx,
     lock::{LockError, LockOptions, with_lock},
 };
+use pacer_js_json::WireReply;
 use serde_json::{Value, json};
 use std::{
     fs::{self, File, OpenOptions},
@@ -325,13 +326,13 @@ impl TaskStore {
                     )?;
                     stage_dir = None;
                     let path = archive.to_string_lossy().into_owned();
-                    self.update_locked(
+                    self.edit_locked(
                         &id,
                         revision(task).ok_or(StoreError::InvalidRecord)?,
                         now,
-                        |t| {
-                            t["archived"] = json!(true);
-                            t["archivePath"] = json!(path);
+                        |edit| {
+                            edit.put("/archived", WireReply::new(json!(true)))?;
+                            edit.put("/archivePath", WireReply::new(json!(path)))
                         },
                     )?;
                     for name in &names {
@@ -357,7 +358,9 @@ impl TaskStore {
         outcome
     }
 
-    pub fn restore(&mut self, id: &str, now: f64) -> Result<Value> {
+    /// Restore artifacts and return the complete exact task, including when
+    /// it is already restored. Use preview() only for scalar decisions.
+    pub fn restore(&mut self, id: &str, now: f64) -> Result<WireReply> {
         if !is_task_id(id) {
             return Err(StoreError::UnknownTask(id.into()));
         }
@@ -371,19 +374,24 @@ impl TaskStore {
             timeout: Duration::ZERO,
             stale: Duration::from_secs(86_400),
         };
-        with_lock(&ctx, "task-retention", lock, || -> Result<Value> {
-            let task = self
-                .read(id)?
+        with_lock(&ctx, "task-retention", lock, || -> Result<WireReply> {
+            let mut original = self
+                .read_wire(id)?
                 .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
-            if !crate::task::truthy(task.get("archived")) {
-                return Ok(task);
+            // Match read()'s legacy default without losing any exact strings.
+            if original.preview().get("rev").is_none_or(Value::is_null) {
+                original.put("/rev", WireReply::new(json!(1)))?;
             }
-            let archive = self.archive_path(&task)?;
+            let task = original.preview();
+            if !crate::task::truthy(task.get("archived")) {
+                return Ok(original);
+            }
+            let archive = self.archive_path(task)?;
             let names = artifacts(&archive, id, true)?;
             let task_dir = self.home().join("tasks");
             private_dir(&task_dir)?;
             let stage_dir = stage(&task_dir, ".restore-")?;
-            let outcome = (|| -> Result<Value> {
+            let outcome = (|| -> Result<WireReply> {
                 let mut sigs = Vec::new();
                 let mut files = Vec::new();
                 for name in &names {
@@ -404,8 +412,8 @@ impl TaskStore {
                     &ctx,
                     &format!("task-{id}"),
                     LockOptions::default(),
-                    || -> Result<Value> {
-                        if self.read(id)?.and_then(|v| revision(&v)) != revision(&task) {
+                    || -> Result<WireReply> {
+                        if self.read(id)?.and_then(|v| revision(&v)) != revision(task) {
                             return Err(StoreError::Conflict);
                         }
                         for (name, expected) in &sigs {
@@ -421,15 +429,17 @@ impl TaskStore {
                         for name in &files {
                             fs::rename(stage_dir.join(name), task_dir.join(name))?;
                         }
-                        let restored = self.update_locked(
+                        let restored = self.edit_locked(
                             id,
-                            revision(&task).ok_or(StoreError::InvalidRecord)?,
+                            revision(task).ok_or(StoreError::InvalidRecord)?,
                             now,
-                            |t| {
-                                if let Some(obj) = t.as_object_mut() {
-                                    obj.remove("archived");
-                                    obj.remove("archivePath");
+                            |edit| {
+                                for path in ["/archived", "/archivePath"] {
+                                    if edit.preview().pointer(path).is_some() {
+                                        edit.remove(path)?;
+                                    }
                                 }
+                                Ok(())
                             },
                         )?;
                         for name in &names {
