@@ -1,3 +1,4 @@
+import { agentSessionOps } from "./ops-agent-sessions";
 import { z } from "zod";
 import type { OpDef } from "./ops";
 import { sessionInfo, openSession } from "../session/service";
@@ -20,6 +21,7 @@ import { readSessionFile } from "../session/files";
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
 export const sessionOps: Record<string, OpDef> = {
+  ...agentSessionOps,
   "session.file.read": op({
     description: "Read a bounded UTF-8 file inside one local session attempt's workspace.",
     params: z.object({ id, attempt: z.number().int().positive(), reference: z.string().min(1).max(4096) }),

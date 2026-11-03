@@ -26,6 +26,7 @@ import pkg from "../../package.json";
 import { PROTOCOL_VERSION } from "./protocol";
 import { taskIdText } from "../plugins/ui-schema";
 import { desktopUpdateOps } from "./ops-desktop-update";
+import { desktopReconciliationOps } from "./ops-desktop-reconciliation";
 import { captureBroker } from "../desktop/capture-broker";
 import { desktopOps } from "./ops-desktop";
 import type { DesktopUpdateRuntime } from "../update/desktop/service";
@@ -244,7 +245,7 @@ export const OPS: Record<string, OpDef> = {
     },
   }),
  ...sessionOps, ...msgOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
-  ...desktopUpdateOps,
+  ...desktopUpdateOps, ...desktopReconciliationOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
     handler: ctx => projectStrategies.list(ctx),

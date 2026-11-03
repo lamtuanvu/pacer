@@ -303,6 +303,51 @@ pub async fn service_call(
     )
     .await
 }
+// A comparison of claims only: it cannot establish bundle signature or peer identity.
+fn build_diagnostic(hello: &Value, manifest: Option<&Value>) -> Value {
+    fn descriptor(value: &Value) -> Option<[&str; 5]> {
+        let o = value.as_object()?;
+        if o.len() != 6 || value["schemaVersion"] != 1 || value["role"] != "core" { return None; }
+        let fields = ["releaseVersion", "buildId", "role", "targetOs", "targetArch"];
+        let mut out = [""; 5];
+        for (i, key) in fields.iter().enumerate() {
+            let v = value[*key].as_str()?;
+            if v.is_empty() || v.len() > 128 || !v.bytes().all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b)) { return None; }
+            out[i] = v;
+        }
+        if out[1] == "development-uncompiled" { return None; }
+        Some(out)
+    }
+    let Some(m) = manifest else { return json!({"status":"unknown","reason":"manifest-unavailable","proof":"unverified"}); };
+    if m["schemaVersion"] != 1 { return json!({"status":"unknown","reason":"unsupported-manifest","proof":"unverified"}); }
+    let valid_entry = |entry: &Value, role: &str| {
+        let mut d = entry["descriptor"].clone();
+        if d["role"] != role { return false; }
+        d["role"] = json!("core");
+        entry.as_object().is_some_and(|o| o.len() == 2)
+            && descriptor(&d).is_some()
+            && entry["sha256"].as_str().is_some_and(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    };
+    if !m.as_object().is_some_and(|o| o.len() == 3) || !valid_entry(&m["frontDoor"], "front-door") || !valid_entry(&m["core"], "core") || m["frontDoor"]["descriptor"]["targetOs"] != m["core"]["descriptor"]["targetOs"] || m["frontDoor"]["descriptor"]["targetArch"] != m["core"]["descriptor"]["targetArch"] {
+        return json!({"status":"unknown","reason":"invalid-manifest","proof":"unverified"});
+    }
+    match (descriptor(&hello["coreBuild"]), descriptor(&m["core"]["descriptor"])) {
+        (Some(a), Some(b)) if a != b => json!({"status":"mismatch","reason":"core-descriptor-differs","proof":"unverified"}),
+        (Some(_), Some(_)) => json!({"status":"unverified","reason":"native-proof-unavailable","proof":"unverified"}),
+        _ => json!({"status":"unknown","reason":"descriptor-unavailable","proof":"unverified"}),
+    }
+}
+fn bundled_pair_manifest() -> Option<Value> {
+    let exe = std::env::current_exe().ok()?;
+    let path = exe.parent()?.parent()?.join("Resources/pacer-pair-manifest.json");
+    let file = std::fs::File::open(path).ok()?;
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    file.take(8193).read_to_end(&mut bytes).ok()?;
+    if bytes.len() > 8192 { return None; }
+    serde_json::from_slice(&bytes).ok()
+}
+
 #[tauri::command]
 pub async fn service_hello(
     window: WebviewWindow,
@@ -310,11 +355,19 @@ pub async fn service_hello(
     instance: String,
 ) -> Result<Reply, String> {
     let session = session(&window, &app, &instance, false)?;
-    reply(
+    let mut response = reply(
         request(&session, Method::GET, "/v3/hello", &instance)?,
         2 * 1024 * 1024,
-    )
-    .await
+    ).await?;
+    if response.status == 200 {
+        if let Ok(mut hello) = serde_json::from_slice::<Value>(&response.body) {
+            if hello.is_object() {
+                hello["desktopBuildDiagnostic"] = build_diagnostic(&hello, bundled_pair_manifest().as_ref());
+                if let Ok(body) = serde_json::to_vec(&hello) { response.body = body; }
+            }
+        }
+    }
+    Ok(response)
 }
 #[tauri::command]
 pub async fn service_snapshot(
@@ -1182,5 +1235,31 @@ mod warning_tests {
         assert_eq!(bridge.status.lock().unwrap()["warning"],"older service");
         bridge.status(json!({"status":"connected","warning":null}));
         assert!(bridge.status.lock().unwrap()["warning"].is_null());
+    }
+}
+
+#[cfg(test)]
+mod build_diagnostic_tests {
+    use super::*;
+    #[test]
+    fn compares_claims_without_granting_proof() {
+        let core = json!({"schemaVersion":1,"releaseVersion":"1.2.3","buildId":"a","role":"core","targetOs":"darwin","targetArch":"arm64"});
+        let hello = json!({"coreBuild":core});
+        let mut front = hello["coreBuild"].clone();
+        front["role"] = json!("front-door");
+        let hash = "a".repeat(64);
+        let mut pair = json!({"schemaVersion":1,"frontDoor":{"descriptor":front,"sha256":hash},"core":{"descriptor":hello["coreBuild"],"sha256":hash}});
+        assert_eq!(build_diagnostic(&hello, Some(&pair))["status"], "unverified");
+        // A matching core claim says nothing about the front door or measured bytes.
+        pair["frontDoor"]["descriptor"]["buildId"] = json!("different-front-door");
+        pair["frontDoor"]["sha256"] = json!("b".repeat(64));
+        pair["core"]["sha256"] = json!("c".repeat(64));
+        assert_eq!(build_diagnostic(&hello, Some(&pair))["status"], "unverified");
+        pair["core"]["descriptor"]["buildId"] = json!("b");
+        assert_eq!(build_diagnostic(&hello, Some(&pair))["status"], "mismatch");
+        assert_eq!(build_diagnostic(&json!({}), Some(&pair))["status"], "unknown");
+        assert_eq!(build_diagnostic(&hello, None)["status"], "unknown");
+        pair["schemaVersion"] = json!(2);
+        assert_eq!(build_diagnostic(&hello, Some(&pair))["status"], "unknown");
     }
 }

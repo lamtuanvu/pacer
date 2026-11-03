@@ -64,7 +64,7 @@ JSON-RPC errors use `{ jsonrpc: "2.0", id, error: { code, message, data? } }`:
 | Route | Response |
 |---|---|
 | `POST /v3/session/exchange` | Bearer authentication only; creates an app cookie session, returns 204 with Set-Cookie and Cache-Control: no-store |
-| `GET /v3/hello` | `{ protocol, pacer, ops, events }`: protocol and pacer versions, operation names and event types |
+| `GET /v3/hello` | `{ protocol, pacer, ops, events, coreBuild }`: versions, operation names, event types and an optional diagnostic core build descriptor. The descriptor is a claim, not native proof. |
 | `GET /v3/snapshot` | `{ protocol, seq, snapshot }`: current snapshot and its sequence number |
 | `GET /v3/events?since=<seq>` | SSE events after `since` (default 0); `Last-Event-ID` overrides the query parameter |
 | `POST /v3/ops/<name>` | JSON params body; success is `200 { result }`, errors use the table above |
@@ -2183,6 +2183,89 @@ Params JSON Schema:
 ### `desktop.capture.targets`
 
 List owned windows reported by connected authenticated desktop capture workers.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `desktop.reconcile.cancel`
+
+Cancel reconciliation; unavailable until reconciliation is implemented.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "candidateId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    }
+  },
+  "required": [
+    "candidateId",
+    "expectRevision",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.reconcile.request`
+
+Request reconciliation of an inspected candidate; unavailable until native proof and implementation exist.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "candidateId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    },
+    "expectRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+    }
+  },
+  "required": [
+    "candidateId",
+    "expectRevision",
+    "requestId"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `desktop.reconcile.status`
+
+Read bounded service reconciliation assessment; claims do not constitute native proof.
 
 Params JSON Schema:
 
@@ -6459,6 +6542,200 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `session.agent.create`
+
+Start an idempotent independent interactive agent in an existing task workspace, without creating another task.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "executor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "request": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200000
+    }
+  },
+  "required": [
+    "task_id",
+    "request_id",
+    "executor",
+    "request"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `session.agent.end`
+
+End only the selected agent session, retaining its output and workspace.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "task_id",
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `session.agent.get`
+
+Read one task-owned interactive agent session and its current attempt.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "task_id",
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `session.agent.list`
+
+List independently controlled interactive agents belonging to tasks.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `session.agent.resume`
+
+Resume the selected native conversation with its original executor and account.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "task_id",
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `session.agent.retry`
+
+Start a fresh native conversation for an ended agent session, retaining earlier attempts.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "task_id",
+    "id",
+    "expect_rev"
+  ],
   "additionalProperties": false
 }
 ```

@@ -12,13 +12,13 @@ import { needsReview, supersededTaskIds } from "./tasks";
 export function buildCounts(tasks:ApiTask[],executors:ExecutorRow[],setup:SetupSummary,hosts:HostSummary[],attention:AttentionItem[]=[]):Counts {
  const superseded=supersededTaskIds(tasks), review=(t:ApiTask)=>!superseded.has(t.id)&&needsReview({...t,retriedBy:undefined});
  const byRepo:Counts["byRepo"]={};
- for(const t of tasks){const counts=byRepo[t.repo.key]??={review:0,running:0,attention:0};if(review(t))counts.review++;if(t.state==="running")counts.running++;}
+ for(const t of tasks){const counts=byRepo[t.repo.key]??={review:0,running:0,attention:0};if(review(t))counts.review++;if(t.state==="running"||t.activeAgentSessions)counts.running++;}
  for(const item of attention)if(item.repo){const counts=byRepo[item.repo.key]??={review:0,running:0,attention:0};counts.attention++;}
- return {attention:attention.length,problems:attention.filter(i=>i.severity!=="decide").length,review:tasks.filter(review).length,running:tasks.filter(t=>t.state==="running").length,queued:tasks.filter(t=>t.state==="queued").length,ready:executors.filter(e=>e.rank!=="planner"&&(!e.eligibility||e.eligibility.state==="eligible")&&["ready","busy"].includes(e.state)).length,executors:executors.filter(e=>e.rank!=="planner").length,setupOpen:setup.open,hostsWithProblems:hosts.filter(h=>["down","needs_setup"].includes(h.state)).length,byRepo};
+ return {attention:attention.length,problems:attention.filter(i=>i.severity!=="decide").length,review:tasks.filter(review).length,running:tasks.filter(t=>t.state==="running"||t.activeAgentSessions).length,queued:tasks.filter(t=>t.state==="queued").length,ready:executors.filter(e=>e.rank!=="planner"&&(!e.eligibility||e.eligibility.state==="eligible")&&["ready","busy"].includes(e.state)).length,executors:executors.filter(e=>e.rank!=="planner").length,setupOpen:setup.open,hostsWithProblems:hosts.filter(h=>["down","needs_setup"].includes(h.state)).length,byRepo};
 }
 export function buildToday(ctx:Ctx,tasks:ApiTask[]):Today {
  const d=new Date(ctx.now*1000);d.setHours(0,0,0,0);
- const since=d.getTime()/1000,rows=tasks.filter(t=>t.source!=="onboarding"&&!["running","queued"].includes(t.state)&&t.updatedAt>=since);
+ const since=d.getTime()/1000,rows=tasks.filter(t=>t.source!=="onboarding"&&!t.activeAgentSessions&&!["running","queued"].includes(t.state)&&t.updatedAt>=since);
  const byRepo:Today["byRepo"]={};for(const t of rows)byRepo[t.repo.key]=(byRepo[t.repo.key]??0)+1;
  return {since,done:rows.length,accepted:rows.filter(t=>t.review?.accepted===true).length,rejected:rows.filter(t=>t.review?.accepted===false).length,failed:rows.filter(t=>["failed","limit"].includes(t.state)).length,byRepo};
 }
