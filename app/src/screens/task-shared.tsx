@@ -30,6 +30,7 @@ export function ErrorMessage({ error }: { error: unknown }) {
 /** Task reads follow only this task, rather than unrelated snapshot traffic. */
 const CONFIG_AREAS = ['accounts', 'config', 'delegation', 'hosts', 'machine', 'mode', 'plugins', 'project-strategies', 'routing', 'runners', 'setup', 'strategy', 'update', 'discovery', 'project-messaging'];
 export function queryRevision(state: StoreState, op: string, params: unknown): string {
+  if(op.startsWith("session.agent."))return JSON.stringify([state.invalidations,state.snapshot?.machine?.agentSessionsRevision]);
   const budget = budgetResourceRevision(op, state.invalidations, state.snapshot?.accounts);
   if (budget !== undefined && op !== "account.list") return budget;
   if (op === "msg.log") {

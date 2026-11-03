@@ -62,6 +62,7 @@ pub fn model() -> Vec<Item> {
         ("Go", "go.tasks", "Tasks", None),
         ("Go", "go.needs-you", "Needs you", None),
         ("Help", "help.shortcuts", "Keyboard shortcuts", None),
+        ("Help", "native.service-guidance", "Service guidance…", None),
         ("Help", "native.docs", "Documentation", None),
         ("Help", "native.issue", "Report an issue", None),
     ]
@@ -248,6 +249,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref();
         match id {
+            "native.service-guidance" => crate::show_service_guidance(app),
             "native.docs" => crate::open_external(
                 &reqwest::Url::parse("https://github.com/lamtuanvu/pacer/tree/main/docs").unwrap(),
             ),

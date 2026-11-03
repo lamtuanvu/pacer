@@ -1,5 +1,5 @@
 import type { Verification } from "../tasks/types";
-import { execProcess } from "./process";
+import { execProcess, type ExecSpec, type ExecResult } from "./process";
 
 const TAIL_LINES = 20;
 
@@ -15,7 +15,7 @@ function acceptanceHint(code: number, durationS: number, tail: string): string |
 }
 
 export async function verifyRepo(
-  repo: string, acceptance: string | undefined, env: Record<string, string | undefined>, timeoutMs = 600_000, pipefail = false,
+  repo: string, acceptance: string | undefined, env: Record<string, string | undefined>, timeoutMs = 600_000, pipefail = false, runAcceptance: (spec:ExecSpec)=>Promise<ExecResult> = execProcess,
 ): Promise<Verification> {
   const status = await execProcess({ argv: ["git", "-C", repo, "status", "--porcelain"], cwd: repo, env, timeoutMs: 30_000 });
   let files: string;
@@ -44,7 +44,7 @@ export async function verifyRepo(
     shell = "sh -c";
   }
   const started = performance.now();
-  const r = await execProcess({ argv, cwd: repo, env, timeoutMs });
+  const r = await runAcceptance({ argv, cwd: repo, env, timeoutMs });
   const durationS = Math.round((performance.now() - started) / 100) / 10;
   const outputTail = `${r.stdout}\n${r.stderr}`.trim().split("\n").slice(-TAIL_LINES).join("\n");
   const timeoutMessage = `acceptance timed out after ${timeoutMs / 1000} s (acceptance_timeout_min=${timeoutMs / 60_000})`;

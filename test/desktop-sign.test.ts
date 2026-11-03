@@ -122,7 +122,9 @@ test("paired signing verifies core trust and signs the Bun core before the Rust 
     writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ ...metadata, cliLayout: "paired" }));
     const bytes = Buffer.alloc(32); bytes.writeUInt32LE(0xfeedfacf, 0); bytes.writeUInt32LE(0x0100000c, 4); bytes.writeUInt32LE(2, 12);
     writeFileSync(core, bytes, { mode: 0o755 });
+    writeFileSync(join(resources, "pacer"), bytes, { mode: 0o755 });
     const run = async (argv: string[]) => {
+      if (argv[1] === "--pacer-component-descriptor") return JSON.stringify({ schemaVersion: 1, releaseVersion: "1.2.3", buildId: "fixture", role: argv[0] === core ? "core" : "front-door", targetOs: "darwin", targetArch: "arm64" });
       const result = await f.run(argv);
       if (argv[0] !== core || argv[1] !== "--pacer-identity") return result;
       const identity = JSON.parse(result);
@@ -263,4 +265,31 @@ test("signing configuration selects the self signer only without an Apple signin
   expect(() => signingConfig({ ...base, PACER_SIGNING_CERT_SHA1: CERT, PACER_APPLE_SIGNING_IDENTITY: "a".repeat(40) })).toThrow();
   expect(() => signingConfig({ ...base, PACER_SIGNING_CERT_SHA1: CERT.toLowerCase() })).toThrow();
   expect(() => signingConfig({ PACER_SIGNING_CERT_SHA1: CERT })).toThrow("configured");
+});
+
+test("paired manifest measures signed component bytes before the containing app is signed", async () => {
+  const f = fixture(), resources = join(f.app, "Contents/Resources"), front = join(resources, "pacer"), core = join(resources, "pacer-core");
+  const metadata = JSON.parse(readFileSync(join(resources, "pacer-release.json"), "utf8"));
+  writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ ...metadata, cliLayout: "paired" }));
+  const bytes = Buffer.alloc(32); bytes.writeUInt32LE(0xfeedfacf, 0); bytes.writeUInt32LE(0x0100000c, 4); bytes.writeUInt32LE(2, 12);
+  writeFileSync(front, bytes, { mode: 0o755 }); writeFileSync(core, bytes, { mode: 0o755 });
+  const descriptor = (role: string) => ({ schemaVersion: 1, releaseVersion: "1.2.3", buildId: `independent-${role}`, role, targetOs: "darwin", targetArch: "arm64" });
+  const run = async (argv: string[]) => {
+    if (argv[1] === "--pacer-component-descriptor") return JSON.stringify(descriptor(argv[0] === front ? "front-door" : "core"));
+    if (argv[0] === "/usr/bin/codesign" && argv.includes("--sign")) {
+      if (argv.at(-1) === front || argv.at(-1) === core) writeFileSync(argv.at(-1)!, Buffer.concat([readFileSync(argv.at(-1)!), Buffer.from("signed")]));
+      if (argv.at(-1) === f.app) {
+        expect(JSON.parse(readFileSync(join(resources, "pacer-release.json"), "utf8")).pairManifestVersion).toBe(1);
+        const manifest = JSON.parse(readFileSync(join(resources, "pacer-pair-manifest.json"), "utf8"));
+        expect(manifest.frontDoor.descriptor).toEqual(descriptor("front-door"));
+        expect(manifest.core.descriptor).toEqual(descriptor("core"));
+        expect(manifest.frontDoor.sha256).toBe(createHash("sha256").update(readFileSync(front)).digest("hex"));
+        expect(manifest.core.sha256).toBe(createHash("sha256").update(readFileSync(core)).digest("hex"));
+      }
+    }
+    const value = await f.run(argv);
+    if (argv[0] === core && argv[1] === "--pacer-identity") return JSON.stringify({ ...JSON.parse(value), bundleId: "dev.pacer.cli" });
+    return value;
+  };
+  await signStagedDesktop({ root: "/fixture", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, run);
 });

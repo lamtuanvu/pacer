@@ -1,3 +1,4 @@
+import { activeAgentSessions, agentSessionsRevision } from "../../session/agents-state";
 import { arch, platform } from "node:os";
 import { execFileSync } from "node:child_process";
 import { policySummary } from "../../plugins/policy";
@@ -59,7 +60,7 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  const labels=labelsFor(repos);
  const notifier=activeNotifier(ctx);
  const exec = validateExecution(strategy.execution);
- const machine = {os: machineOS, arch: arch(), used: tasks.filter(t => t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy,t.executor)?.host : null))).length, ...machineCap(exec.localMaxTasks ?? null), ...machineGuardState(exec)};
+ const machine = {agentSessionsRevision:agentSessionsRevision(ctx),os: machineOS, arch: arch(), used: tasks.filter(t => t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy,t.executor)?.host : null))).length+activeAgentSessions(ctx).length, ...machineCap(exec.localMaxTasks ?? null), ...machineGuardState(exec)};
  return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifier:notifier?{client_id:notifier.client_id,kind:notifier.kind}:null,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
 }
 

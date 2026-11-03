@@ -110,3 +110,16 @@ export function requestFingerprint(parameters: Record<string, string | boolean>)
   const canonical = Object.keys(parameters).sort().map(key => [key, parameters[key]]);
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
+
+/** Public, bounded assessment. No claim here grants authority to mutate the service. */
+export interface ReconciliationAssessment {
+  status: "unknown";
+  reason: "peer-data-unavailable";
+  capability: "unavailable";
+  revision: number;
+}
+export interface ReconciliationRequest {
+  candidateId: string;
+  expectRevision: number;
+  requestId: string;
+}

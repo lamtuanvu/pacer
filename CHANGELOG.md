@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- Tighten the app UI for space and consistency: a narrower activity rail, one framed list with hairline rows for Tasks (grouped Running, Needs you, Accepted, Stopped) and the workspace list, two-line task and Needs you rows that wrap when narrow, single-line subtasks, consistent same-role font sizes, and status tint only on the selected or focused row.
+- Show session output directly under a status strip, name only the session in the workspace header, float the reconnect banner over the page, cross-fade between screens without overlapping tab panels, and let dragged executor rows follow the pointer.
+
 ### Added
 
 - Rust library effects for named strategy saves, routing and runner edits, and notification settings. The TypeScript runtime is unchanged.
@@ -44,6 +49,18 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ## [0.13.0] - 2026-10-31
 
 ### Fixed
+
+- Keep phone Workspace task tabs above bottom navigation and Ask pacer on entry, accounting for the wrapped header when sizing the task list and session.
+
+- Keep Workspace Overview, Changes and Notes tabs visible while reading long task details, including below the wrapping phone header.
+
+- Stop repeatedly probing naturally exited added-agent history on warm task reads, slot checks, workspace admission and lifecycle pumps, while preserving ambiguous starts and retry invalidation.
+
+- Fail closed when the session database is replaced during reservation acquisition, instead of caching old sessions under a replacement database's identity.
+
+- Make Stop all cancel pending task-agent checks before claim or acceptance launch, stop running checker children, retain checkout ownership through diff capture, and report cancelled checks even before a child starts.
+
+- Retain overlapping checkout ownership through task-agent final acceptance and diff capture. Apply delegation and route plugin policy to added-session create, retry and resume before invalidating prior results or spawning an agent; reject amendments that cannot preserve the parent task and checkout.
 
 - Keep the Accounts status pill stale when a retained pacing verdict belongs to expired or old usage.
 

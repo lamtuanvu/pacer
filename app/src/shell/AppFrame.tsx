@@ -20,15 +20,22 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
   useLayoutEffect(() => {
     const root = frame.current;
     if (!root) return;
-    let dock: HTMLElement | null = null, sessionHeader: HTMLElement | null = null, workHeader: HTMLElement | null = null;
+    let dock: HTMLElement | null = null, sessionHeader: HTMLElement | null = null, workHeader: HTMLElement | null = null, topBar: HTMLElement | null = null;
     const measureDock = () => {
       root.style.setProperty("--pc-dock-height", `${dock?.getBoundingClientRect().height ?? 0}px`);
       root.style.setProperty("--pc-work-header-height", `${workHeader?.getBoundingClientRect().height ?? 0}px`);
+      root.style.setProperty("--pc-frame-header-height", `${topBar?.getBoundingClientRect().height ?? 0}px`);
       const body = root.querySelector(".pc-body");
       root.style.setProperty("--pc-assistant-header-height", `${sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0}px`);
     };
     const observer = new ResizeObserver(measureDock);
     const observeDock = () => {
+      const nextTopBar = root.querySelector<HTMLElement>(".pc-topbar");
+      if (nextTopBar !== topBar) {
+        if (topBar) observer.unobserve(topBar);
+        topBar = nextTopBar;
+        if (topBar) observer.observe(topBar);
+      }
       const next = root.querySelector<HTMLElement>(".pc-work-wrap > .pc-dock > .pc-offline-controls > .pc-dock__panel");
       if (next !== dock) {
         if (dock) observer.unobserve(dock);

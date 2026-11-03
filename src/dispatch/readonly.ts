@@ -1,3 +1,4 @@
+import { CoreError } from "../core/errors";
 import { Database } from "bun:sqlite";
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -16,7 +17,7 @@ export interface ReadOnlyStore {
   query<T>(sql: string, ...bindings: (string | number)[]): T[];
   close(): void;
 }
-export function openReadOnlyStore(ctx: Ctx): ReadOnlyStore {
+export function openReadOnlyStore(ctx: Ctx, strict = false): ReadOnlyStore {
   const path = resolve(ctx.pacerHome, "state", "tasks.db");
   let db = null as Database | null;
   const open = (target: string, options: ConstructorParameters<typeof Database>[1]) => { const d = new Database(target, options); d.run("PRAGMA query_only = ON"); return d; };
@@ -31,13 +32,13 @@ export function openReadOnlyStore(ctx: Ctx): ReadOnlyStore {
         db = open(`file:${path}?mode=ro&immutable=1`, { readonly: true, strict: true });
       }
     }
-  } catch { db?.close(); db = null; }
+  } catch { db?.close(); db = null; if(strict)throw new CoreError("conflict","Session reservations are unavailable; retry before changing workspaces"); }
   const tables = new Set<string>();
-  if (db) try { for (const r of db.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all()) tables.add(r.name); } catch { /* unreadable store reads as empty */ }
+  if (db) try { for (const r of db.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all()) tables.add(r.name); } catch { if(strict){db.close();throw new CoreError("conflict","Session reservations are unreadable");} /* previews read empty */ }
   return {
     available: db !== null && tables.has("tasks"),
     has: t => tables.has(t),
-    query: <T>(sql: string, ...b: (string | number)[]) => { try { return db ? db.query<T, (string | number)[]>(sql).all(...b) : []; } catch { return []; } },
+    query: <T>(sql: string, ...b: (string | number)[]) => { try { return db ? db.query<T, (string | number)[]>(sql).all(...b) : []; } catch { if(strict)throw new CoreError("conflict","Session reservations could not be read"); return []; } },
     close: () => db?.close(),
   };
 }

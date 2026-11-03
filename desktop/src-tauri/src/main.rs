@@ -587,6 +587,26 @@ fn show(app: &AppHandle) {
         let _ = window.set_focus();
     }
 }
+// A separate, capability-free bundled window leaves the workbench and its tasks intact.
+fn show_service_guidance(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("service-guidance") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return;
+    }
+    match tauri::WebviewWindowBuilder::new(app, "service-guidance", WebviewUrl::App("service-guidance.html".into()))
+        .title("Service guidance")
+        .inner_size(560., 420.)
+        .min_inner_size(340., 300.)
+        .incognito(cfg!(feature = "ota-fixture"))
+        .on_navigation(|_| false)
+        .build()
+    {
+        Ok(window) => { let _ = window.set_focus(); }
+        Err(error) => desktop_log!("Unable to open service guidance: {error}"),
+    }
+}
 fn navigate(app: &AppHandle, raw: &str) {
     if let Some(route) = logic::route(raw) {
         let state = app.state::<Shell>();
@@ -970,6 +990,7 @@ fn render_tray(app: &AppHandle, model: TrayModel) -> tauri::Result<()> {
         .insert("pause".into(), actions::pause(model.paused));
     for (id, label, enabled) in [
         ("open", "Open pacer", true),
+        ("service-guidance", "Service guidance…", true),
         (
             "pause",
             if model.paused { "Resume" } else { "Pause 1h" },
@@ -1499,6 +1520,7 @@ fn main() {
                     match id {
                         "quit" => app.exit(0),
                         "open" => show(app),
+                        "service-guidance" => show_service_guidance(app),
                         #[cfg(target_os = "linux")]
                         "popover" => toggle_tray(app),
                         _ => {

@@ -40,6 +40,8 @@ export async function buildApp(target: "browser" | "desktop" = "browser"): Promi
     files.push({path:'shell-state.js',type:'text/javascript; charset=utf-8',text:'{'+bootstrap+shellScript+'}'});
     files.push({path:'mark.svg',type:'image/svg+xml',text:await Bun.file(join(root,'../desktop/ui/mark.svg')).text()});
     for (const file of files.filter(file=>file.path.endsWith('.html'))) file.text=file.text.replace('<body>', '<body><div id="desktop-shell"></div><script src="./shell-state.js" defer></script>');
+    files.push({path: "service-guidance.html", type: "text/html; charset=utf-8", text: await Bun.file(join(root, "../desktop/ui/service-guidance.html")).text()});
+    files.push({path: "service-guidance.css", type: "text/css; charset=utf-8", text: await Bun.file(join(root, "../desktop/ui/service-guidance.css")).text()});
     // Existing lazy terminal assets resolve under /app; keep that alias bundled.
     files.push({ ...files.find(file => file.path === 'term.css')!, path: 'app/term.css' });
   }
