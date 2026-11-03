@@ -3,7 +3,10 @@
 mod exact_task;
 #[path = "support/git_shim.rs"]
 mod git_shim;
-use pacer_plugin_host::{BundleSpec, BundleTicket, NativeBundle, NativeGit, remote_preflight};
+use pacer_plugin_host::{
+    AuthorityError, BrokerError, BundleSpec, BundleTicket, NativeBundle, NativeGit,
+    remote_preflight,
+};
 use std::{
     collections::HashMap,
     fs,
@@ -172,6 +175,44 @@ impl Fixture {
 }
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(60)
+}
+/// Set up a single running task matching `ID`, with `/run`, `startIntent` and
+/// `executorExitReceipt`, so every NativeGit call can journal. Mirrors the
+/// store preamble of `every_git_phase_uses_its_owner_environment`. Returns the
+/// `run` value and a `NativeGit` built on `shim` under the owner env.
+async fn running_task(f: &Fixture, shim: &Path) -> (serde_json::Value, NativeGit) {
+    use pacer_plugin_host::WireReply;
+    use pacer_store::TaskStore;
+    use serde_json::json;
+    let mut store = TaskStore::open(&f.root).unwrap();
+    store
+        .insert(
+            &json!({"id":ID,"rev":1,"createdAt":1,"state":"running","executorProvider":"pacer-exec-direct","executor":"tool@host","attempts":[],"brief":{"repo":f.repo}}),
+            1.0,
+        )
+        .unwrap();
+    let run = WireReply::parse(&format!(
+        r#"{{"attempt":1,"dir":"d","startedAt":{{"s":1}},"baseSha":"{}"}}"#,
+        f.base
+    ))
+    .unwrap()
+    .preview()
+    .clone();
+    let receipt = WireReply::parse(
+        r#"{"attempt":1,"providerId":"pacer-exec-direct","dir":"d","startedAt":{"s":1}}"#,
+    )
+    .unwrap();
+    store
+        .edit(ID, 1, 2.0, |t| {
+            t.put("/run", WireReply::new(run.clone()))?;
+            t.put("/startIntent", receipt.clone())?;
+            t.put("/executorExitReceipt", receipt)
+        })
+        .unwrap();
+    exact_task::seed(&f.root, ID);
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    (run, native)
 }
 #[tokio::test]
 async fn verified_snapshot_requires_exact_head_identity_history_and_does_not_import_into_local_repo()
@@ -1404,6 +1445,481 @@ async fn sealed_verification_ignores_owned_global_email() {
             .get("GIT_TERMINAL_PROMPT")
             .map(String::as_str),
         Some("0"),
+    );
+    ticket.dispose().unwrap();
+}
+
+// Plan §4, Task 2 - phase budgets. Verification (prelude, init, inspection)
+// runs under the 10 s phase cap with TS-shaped verification errors (Task 3);
+// ordinary, publication and base commands keep the owner env (D-1).
+//
+// Slow tests sleep ~10.5 s to drive a phase past its cap while the owner stays
+// active; they are marked `// slow`, not `#[ignore]`.
+//
+// Task 2 - the prelude cap. `Sleep(10_500)` on `config user.email` (and, in
+// the same call, on `bundle verify` / `init --bare`) with a far caller
+// deadline: the 10 s phase cap fires (owner remains active) and `verify`
+// returns `Timeout` with no later command dispatched. The inspection
+// directory is never created because the prelude never completes.
+// slow
+#[tokio::test]
+async fn verification_prelude_uses_the_ten_second_phase_cap() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(
+        &f.root,
+        &[
+            ("config user.email", git_shim::Action::Sleep(10_500)),
+            ("bundle verify /dev/fd/0", git_shim::Action::Sleep(10_500)),
+            ("init --bare", git_shim::Action::Sleep(10_500)),
+        ],
+    );
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let far = Instant::now() + Duration::from_secs(30);
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let result = native.verify(&mut ticket, &f.base, &f.branch, far).await;
+    let shown = result
+        .as_ref()
+        .map(|_| "ok".to_string())
+        .unwrap_or_else(|e| e.to_string());
+    assert!(
+        matches!(result, Err(BrokerError::Timeout)),
+        "the 10 s phase cap must fire before the 30 s caller deadline: {shown}"
+    );
+    let inspection_created = fs::read_dir(f.root.join("transfers"))
+        .map(|mut it| {
+            it.any(|e| {
+                e.is_ok_and(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .starts_with(".bundle-inspect-")
+                })
+            })
+        })
+        .unwrap_or(false);
+    assert!(
+        !inspection_created,
+        "the inspection subdirectory must not be created when the prelude times out"
+    );
+    let records = git_shim::calls(&f.root);
+    assert_eq!(
+        records.len(),
+        1,
+        "only the capped command may dispatch: {records:?}"
+    );
+    ticket.dispose().unwrap();
+}
+
+// Task 2 control - the inspection phase keeps its 10 s cap. `merge-base`
+// (#16) sleeps past the cap -> `Timeout`; the later signoff `log` call must
+// not dispatch.
+// slow
+#[tokio::test]
+async fn inspection_cap_is_unchanged() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(
+        &f.root,
+        &[("merge-base --is-ancestor", git_shim::Action::Sleep(10_500))],
+    );
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let result = native
+        .verify(&mut ticket, &f.base, &f.branch, deadline())
+        .await;
+    let shown = result
+        .as_ref()
+        .map(|_| "ok".to_string())
+        .unwrap_or_else(|e| e.to_string());
+    assert!(
+        matches!(result, Err(BrokerError::Timeout)),
+        "inspection must keep the 10 s cap: {shown}"
+    );
+    assert!(
+        !git_shim::ran(&f.root, "log --format=%ae"),
+        "inspection timeout must stop before the signoff read"
+    );
+    ticket.dispose().unwrap();
+}
+
+// Task 2 - base ref creation is capped at 10 s (TS base-bundle uses 10 s;
+// #4), while the Group C cleanup (`update-ref -d`) still runs on its own
+// fresh 10 s budget. `Sleep` on the *create* (which has no `-d`) must yield
+// `Timeout` before `bundle create`, with the cleanup still dispatched.
+// slow
+#[tokio::test]
+async fn base_ref_creation_uses_ten_seconds() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(
+        &f.root,
+        &[(
+            "update-ref refs/pacer/base/",
+            git_shim::Action::Sleep(10_500),
+        )],
+    );
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let result = native.base_bundle(ID, &f.base, deadline()).await;
+    assert!(
+        matches!(result, Err(BrokerError::Timeout)),
+        "base ref creation must use the 10 s cap: {result:?}"
+    );
+    assert!(
+        !git_shim::ran(&f.root, "bundle create"),
+        "bundle create must not run after the capped create"
+    );
+    assert!(
+        git_shim::ran(&f.root, "update-ref -d"),
+        "Group C cleanup must still delete the temporary ref"
+    );
+}
+
+// Task 2 - reused-worktree checks (#24 symbolic-ref, #25 status) are capped at
+// 10 s. A prior successful publish creates the worktree; the reused publish
+// then either sleeps in `symbolic-ref` or in `status --porcelain`, times out,
+// and must neither run the CAS `update-ref refs/heads/` nor update
+// `remoteTransferIntent`.
+// slow
+#[tokio::test]
+async fn reused_worktree_checks_use_ten_seconds() {
+    use pacer_plugin_host::WireReply;
+    use pacer_store::TaskStore;
+    use serde_json::json;
+    for needle in ["symbolic-ref HEAD", "status --porcelain"] {
+        let f = Fixture::new();
+        let shim = git_shim::shim(&f.root, &[(needle, git_shim::Action::Sleep(10_500))]);
+        let (run, native) = running_task(&f, &shim).await;
+        // First publish creates the worktree normally.
+        let mut ticket1 = f.ticket(&f.bytes()).await;
+        let verified1 = native
+            .verify(&mut ticket1, &f.base, &f.branch, deadline())
+            .await
+            .unwrap();
+        let dest = native
+            .publish(&f.root, ID, &run, verified1, deadline())
+            .await
+            .unwrap();
+        // Reuse path: owned config ignores the untracked file, so only the
+        // sleeping rule can stop the publish.
+        fs::write(
+            f.root.join("owner.gitconfig"),
+            "[status]\n\tshowUntrackedFiles = no\n",
+        )
+        .unwrap();
+        let work = fs::canonicalize(dest["reviewWorktree"].as_str().unwrap()).unwrap();
+        fs::write(work.join("untracked"), "untracked\n").unwrap();
+        let mut ticket2 = f.ticket(&f.bytes()).await;
+        let verified2 = native
+            .verify(&mut ticket2, &f.base, &f.branch, deadline())
+            .await
+            .unwrap();
+        let v2_head = verified2.head().to_string();
+        let mut store = TaskStore::open(&f.root).unwrap();
+        store
+            .edit_current(ID, 4.0, |t| {
+                t.put(
+                    "/remoteTransferIntent",
+                    WireReply::new(json!({
+                        "attempt": 1,
+                        "providerId": "pacer-exec-direct",
+                        "dir": run["dir"],
+                        "startedAt": run["startedAt"],
+                        "branch": f.branch,
+                        "oldHead": v2_head,
+                    })),
+                )
+            })
+            .unwrap();
+        git_shim::clear(&f.root);
+        let result = native
+            .publish(&f.root, ID, &run, verified2, deadline())
+            .await;
+        assert!(
+            matches!(result, Err(BrokerError::Timeout)),
+            "{needle}: reused-worktree check must use the 10 s cap: {result:?}"
+        );
+        assert!(
+            !git_shim::ran(&f.root, "update-ref refs/heads/"),
+            "{needle}: CAS must not run after the reused-worktree timeout"
+        );
+        assert!(
+            !git_shim::ran(&f.root, "worktree add -q"),
+            "{needle}: no new worktree, the reuse path was taken"
+        );
+        let task = store.read_wire(ID).unwrap().unwrap();
+        assert_eq!(
+            task.preview()["remoteTransferIntent"]["branch"],
+            f.branch,
+            "{needle}: remoteTransferIntent must be unchanged by the timeout"
+        );
+        assert_eq!(
+            task.preview()["remoteTransferIntent"]["oldHead"],
+            v2_head,
+            "{needle}: remoteTransferIntent.oldHead must be unchanged"
+        );
+        ticket1.dispose().unwrap();
+        ticket2.dispose().unwrap();
+    }
+}
+
+// Task 2 short deadline - the verification path adapts a caller deadline to
+// `Expired`, and it never extends it. A 1.5 s deadline with a 5 s sleep
+// returns `Expired` well before the sleep could finish (never a fresh 60 s
+// grant), with exactly one dispatch.
+#[tokio::test]
+async fn verification_never_refreshes_a_short_budget() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(
+        &f.root,
+        &[("config user.email", git_shim::Action::Sleep(5_000))],
+    );
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let start = Instant::now();
+    let short = start + Duration::from_millis(1500);
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let result = native.verify(&mut ticket, &f.base, &f.branch, short).await;
+    let shown = result
+        .as_ref()
+        .map(|_| "ok".to_string())
+        .unwrap_or_else(|e| e.to_string());
+    assert!(
+        matches!(result, Err(BrokerError::Authority(AuthorityError::Expired))),
+        "a short deadline during a verification run must be Expired, not a fresh grant: {shown}"
+    );
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(4500),
+        "verify must return as soon as the deadline passes, not after the 5 s sleep: {elapsed:?}"
+    );
+    let records = git_shim::calls(&f.root);
+    assert_eq!(
+        records.len(),
+        1,
+        "exactly the capped command may dispatch: {records:?}"
+    );
+    ticket.dispose().unwrap();
+}
+
+// Task 2 - an already-expired deadline (before dispatch) is `Expired` for
+// verification with zero git commands. Ordinary admission keeps returning
+// `Timeout` with zero commands (ownership-phase distinction is unchanged).
+#[tokio::test]
+async fn expired_before_dispatch_is_expiry_for_verification_but_timeout_for_ordinary() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(&f.root, &[]);
+    let (run, native) = running_task(&f, &shim).await;
+
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let result = native
+        .verify(&mut ticket, &f.base, &f.branch, Instant::now())
+        .await;
+    let shown = result
+        .as_ref()
+        .map(|_| "ok".to_string())
+        .unwrap_or_else(|e| e.to_string());
+    assert!(
+        matches!(result, Err(BrokerError::Authority(AuthorityError::Expired))),
+        "an expired verification deadline must be Expired: {shown}"
+    );
+    assert!(
+        git_shim::calls(&f.root).is_empty(),
+        "an expired verification must dispatch no git command"
+    );
+
+    let result = native
+        .admit_destination(&f.root, ID, &run, Instant::now())
+        .await;
+    assert!(
+        matches!(result, Err(BrokerError::Timeout)),
+        "an expired ordinary deadline must still be Timeout: {result:?}"
+    );
+    assert!(
+        git_shim::calls(&f.root).is_empty(),
+        "an expired ordinary deadline must dispatch no git command"
+    );
+    ticket.dispose().unwrap();
+}
+
+// Task 2 - ordinary (base-set) does *not* adapt a short deadline to Expired:
+// `ordinary` reports `Timeout` for a timed-out run regardless, so the base
+// set stays `Timeout` (D-3 keeps the clamp, not the expiry reclassification).
+// The Group C cleanup still runs on its own fresh budget.
+#[tokio::test]
+async fn ordinary_base_set_times_out_under_a_short_deadline() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(
+        &f.root,
+        &[(
+            "update-ref refs/pacer/base/",
+            git_shim::Action::Sleep(5_000),
+        )],
+    );
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let short = Instant::now() + Duration::from_millis(1500);
+    let result = native.base_bundle(ID, &f.base, short).await;
+    assert!(
+        matches!(result, Err(BrokerError::Timeout)),
+        "an ordinary base set under a short deadline must be Timeout, not Expired: {result:?}"
+    );
+    assert!(
+        git_shim::ran(&f.root, "update-ref -d"),
+        "Group C cleanup must still run even when the create was capped"
+    );
+}
+
+// Task 3 - verification nonzero exits become the TS verification denial:
+// `Authority(Denied("claimed git bundle failed local verification"))`, both in
+// the prelude (`bundle verify`) and in the inspection (`merge-base`).
+#[tokio::test]
+async fn verification_nonzero_is_a_verification_denial() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(
+        &f.root,
+        &[
+            ("bundle verify /dev/fd/0", git_shim::Action::Exit(1)),
+            ("merge-base --is-ancestor", git_shim::Action::Exit(1)),
+        ],
+    );
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let result = native
+        .verify(&mut ticket, &f.base, &f.branch, deadline())
+        .await;
+    assert_eq!(
+        result.map_err(|e| e.to_string()).err().unwrap(),
+        "capability is not granted to the owning call: claimed git bundle failed local verification",
+        "a nonzero verification exit must be the claimed-bundle denial"
+    );
+    ticket.dispose().unwrap();
+}
+
+// Task 3 - a stdout overflow above the 1 MiB bound is classified as `Timeout`
+// (the TS stdout-overflow category), not `Invalid`. The boundary (exactly
+// 1 MiB) is inclusive: it is accepted and proceeds to the object-format
+// predicate, which then rejects the non-sha payload with the generic denial.
+#[tokio::test]
+async fn verification_stdout_overflow_is_timeout_category() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(
+        &f.root,
+        &[(
+            "rev-parse --show-object-format",
+            git_shim::Action::Stdout(1_048_577),
+        )],
+    );
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let result = native
+        .verify(&mut ticket, &f.base, &f.branch, deadline())
+        .await;
+    let shown = result
+        .as_ref()
+        .map(|_| "ok".to_string())
+        .unwrap_or_else(|e| e.to_string());
+    assert!(
+        matches!(result, Err(BrokerError::Timeout)),
+        "a 1 MiB+1 stdout overflow must be Timeout, not Invalid: {shown}"
+    );
+    assert!(
+        !git_shim::ran(&f.root, "bundle verify"),
+        "an overflowed prelude must stop before the bundle verify"
+    );
+    ticket.dispose().unwrap();
+
+    // Boundary: exactly 1 MiB is accepted (TS `>` is strict), and the
+    // object-format predicate then rejects the 1 MiB of NULs generically.
+    let g = Fixture::new();
+    let shim = git_shim::shim(
+        &g.root,
+        &[(
+            "rev-parse --show-object-format",
+            git_shim::Action::Stdout(1_048_576),
+        )],
+    );
+    let native =
+        NativeGit::prepare(&g.root, &g.repo, shim.to_str().unwrap(), &g.owner_env()).unwrap();
+    let mut ticket = g.ticket(&g.bytes()).await;
+    let result = native
+        .verify(&mut ticket, &g.base, &g.branch, deadline())
+        .await;
+    let shown = result
+        .as_ref()
+        .map(|_| "ok".to_string())
+        .unwrap_or_else(|e| e.to_string());
+    assert!(
+        matches!(
+            result,
+            Err(BrokerError::Authority(AuthorityError::Denied(_)))
+        ),
+        "exactly 1 MiB is within the bound and must reach the object-format predicate: {shown}"
+    );
+    ticket.dispose().unwrap();
+}
+
+// Task 3 - stderr counts against the same combined bound, so a stderr-only
+// overflow (exit 0) still fails closed natively as `Timeout`. This is the
+// documented divergence O-1: TS bounds stdout only and would continue; the
+// native combined bound is a security bound held without a waiver. Written
+// as a native-result assertion labelled OPEN, never as a parity PASS.
+#[tokio::test]
+async fn verification_stderr_overflow_stays_fail_closed() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(
+        &f.root,
+        &[(
+            "config user.email",
+            git_shim::Action::Stderr(2 * 1024 * 1024),
+        )],
+    );
+    let native =
+        NativeGit::prepare(&f.root, &f.repo, shim.to_str().unwrap(), &f.owner_env()).unwrap();
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let result = native
+        .verify(&mut ticket, &f.base, &f.branch, deadline())
+        .await;
+    let shown = result
+        .as_ref()
+        .map(|_| "ok".to_string())
+        .unwrap_or_else(|e| e.to_string());
+    assert!(
+        matches!(result, Err(BrokerError::Timeout)),
+        "a 2 MiB stderr overflow must fail closed as Timeout (O-1 divergent, not TS parity): {shown}"
+    );
+    ticket.dispose().unwrap();
+}
+
+// Task 3 control - ordinary (publication) nonzero keeps the `Effect` error,
+// never the verification denial (Open O-2, unchanged).
+#[tokio::test]
+async fn publication_error_shapes_are_unchanged() {
+    let f = Fixture::new();
+    let shim = git_shim::shim(
+        &f.root,
+        &[("update-ref refs/heads/", git_shim::Action::Exit(1))],
+    );
+    let (run, native) = running_task(&f, &shim).await;
+    let mut ticket = f.ticket(&f.bytes()).await;
+    let verified = native
+        .verify(&mut ticket, &f.base, &f.branch, deadline())
+        .await;
+    let verified = match verified {
+        Ok(v) => v,
+        Err(e) => panic!("verify must succeed on the fresh real-git fixture: {e:?}"),
+    };
+    let result = native
+        .publish(&f.root, ID, &run, verified, deadline())
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(BrokerError::Effect(ref text))
+                if text == "Git verification or publication failed"
+        ),
+        "publication must keep the Effect error, not the verification denial: {result:?}"
     );
     ticket.dispose().unwrap();
 }

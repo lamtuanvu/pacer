@@ -280,3 +280,19 @@ async fn run_tracked_classifies_only_pre_spawn_errors_as_undispatched() {
     }
     assert!(!marker.exists());
 }
+
+// Plan §4, Task 3, D-6: pin the only `Invalid` literal `native_command::run`
+// can produce, so a rename of "host output exceeds bound" fails loudly. This is
+// the literal `verification` matches to classify a bound overflow as `Timeout`.
+#[tokio::test]
+async fn overflow_literal_is_pinned() {
+    let result = run("import sys;sys.stdout.write('x'*9)", &[], 2000, 8).await;
+    assert!(
+        matches!(
+            result,
+            Err(BrokerError::Invalid("host output exceeds bound"))
+        ),
+        "expected an output-overflow denial, got {:?}",
+        result.as_ref().map(|_| ())
+    );
+}

@@ -1,10 +1,15 @@
 //! Verify remote bundles in a disposable object database before publishing a local ref.
 use crate::WireReply;
 use crate::{
-    BrokerError, BundleTicket,
+    AuthorityError, BrokerError, BundleTicket,
     native_command::{self, denied},
     native_process::Image,
 };
+/// Verification (prelude, init and inspection) phase cap, matching the TS
+/// `claimed-bundle` 10 s budget, and the combined stdout+stderr bound its
+/// output is allowed to reach.
+const VERIFY_MS: u64 = 10_000;
+const VERIFY_OUTPUT: usize = 1024 * 1024;
 use pacer_store::TaskStore;
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
@@ -235,19 +240,29 @@ impl NativeGit {
             sealed,
         })
     }
-    /// Run a command under the owner environment map (ordinary phases).
-    async fn command_env(
+    /// Run a command under the owner environment map with an explicit phase cap.
+    /// Ordinary and publication phases use `self.env` (the owner's map, D-1);
+    /// the caller deadline is clamped below the cap (D-3).
+    async fn ordinary(
         &self,
-        env: &HashMap<String, String>,
         args: &[String],
         input: &[u8],
+        timeout_ms: u64,
         max: usize,
         deadline: Instant,
     ) -> Result<native_command::Output, BrokerError> {
         self.check_context()?;
         self.repo.check()?;
-        let result =
-            native_command::run(&self.image, args, env, input, 60000, max, deadline).await?;
+        let result = native_command::run(
+            &self.image,
+            args,
+            &self.env,
+            input,
+            timeout_ms,
+            max,
+            deadline,
+        )
+        .await?;
         self.repo.check()?;
         self.check_context()?;
         if result.timed_out {
@@ -262,15 +277,14 @@ impl NativeGit {
         max: usize,
         deadline: Instant,
     ) -> Result<native_command::Output, BrokerError> {
-        self.command_env(&self.env, args, input, max, deadline)
-            .await
+        self.ordinary(args, input, 60_000, max, deadline).await
     }
-    async fn text_env(
+    async fn text_within(
         &self,
-        env: &HashMap<String, String>,
         repo: &str,
         args: &[&str],
         input: &[u8],
+        timeout_ms: u64,
         deadline: Instant,
     ) -> Result<String, BrokerError> {
         let argv = ["-C", repo]
@@ -279,7 +293,7 @@ impl NativeGit {
             .map(str::to_owned)
             .collect::<Vec<_>>();
         let out = self
-            .command_env(env, &argv, input, 1024 * 1024, deadline)
+            .ordinary(&argv, input, timeout_ms, 1024 * 1024, deadline)
             .await?;
         if out.code != 0 {
             return Err(BrokerError::Effect(
@@ -295,18 +309,67 @@ impl NativeGit {
         input: &[u8],
         deadline: Instant,
     ) -> Result<String, BrokerError> {
-        self.text_env(&self.env, repo, args, input, deadline).await
+        self.text_within(repo, args, input, 60_000, deadline).await
     }
-    /// The sealed counterpart to `text` for the verification prelude.
-    async fn sealed_text(
+    /// Run one verification command (prelude, init or inspection) under the
+    /// sealed map, with the 10 s phase cap and TS-shaped verification errors.
+    /// `dir` is the working repository (`-C <dir>`), `input` the supplied
+    /// stdin bytes, and `alternate` the object directory to add for the
+    /// inspection phase. Order matches the TS owner (§2.3, D-5): deadline →
+    /// context → repo → run → deadline → repo → context, then timeout, then
+    /// exit code.
+    async fn verification(
         &self,
-        repo: &str,
+        dir: &str,
         args: &[&str],
         input: &[u8],
+        alternate: Option<&str>,
         deadline: Instant,
     ) -> Result<String, BrokerError> {
-        self.text_env(&self.sealed, repo, args, input, deadline)
-            .await
+        if Instant::now() >= deadline {
+            return Err(AuthorityError::Expired.into());
+        }
+        self.check_context()?;
+        self.repo.check()?;
+        let argv = ["-C", dir]
+            .into_iter()
+            .chain(args.iter().copied())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let mut env = self.sealed.clone();
+        if let Some(objects) = alternate {
+            env.insert("GIT_ALTERNATE_OBJECT_DIRECTORIES".into(), objects.into());
+        }
+        let out = match native_command::run(
+            &self.image,
+            &argv,
+            &env,
+            input,
+            VERIFY_MS,
+            VERIFY_OUTPUT,
+            deadline,
+        )
+        .await
+        {
+            Ok(out) => Some(out),
+            // Bound overflow maps to the TS stdout-overflow category (`Timeout`).
+            // Exact when stdout alone overflows; fail-closed otherwise (O-1).
+            Err(BrokerError::Invalid("host output exceeds bound")) => None,
+            Err(e) => return Err(e), // includes the dispatch-race Timeout and native denials
+        };
+        if Instant::now() >= deadline {
+            return Err(AuthorityError::Expired.into());
+        }
+        self.repo.check()?;
+        self.check_context()?;
+        let out = out.filter(|o| !o.timed_out).ok_or(BrokerError::Timeout)?;
+        if out.code != 0 {
+            return Err(AuthorityError::Denied(
+                "claimed git bundle failed local verification".into(),
+            )
+            .into());
+        }
+        Ok(crate::js_semantics::trim(&String::from_utf8_lossy(&out.stdout)).into())
     }
     pub fn repo(&self) -> Result<&str, BrokerError> {
         self.repo.canonical.to_str().ok_or_else(denied)
@@ -338,7 +401,13 @@ impl NativeGit {
         let repo = self.repo()?;
         let reference = format!("refs/pacer/base/{id}");
         let create = self
-            .text(repo, &["update-ref", &reference, base], &[], deadline)
+            .text_within(
+                repo,
+                &["update-ref", &reference, base],
+                &[],
+                10_000,
+                deadline,
+            )
             .await;
         let args = ["-C", repo, "bundle", "create", "-", &reference].map(str::to_owned);
         let result = match create {
@@ -385,16 +454,17 @@ impl NativeGit {
         let bytes = ticket.read()?;
         let repo = self.repo()?;
         let email = self
-            .sealed_text(repo, &["config", "user.email"], &[], deadline)
+            .verification(repo, &["config", "user.email"], &[], None, deadline)
             .await?;
         if email.is_empty() || email.contains(['\r', '\n', '\0']) {
             return Err(denied());
         }
         if self
-            .sealed_text(
+            .verification(
                 repo,
                 &["rev-parse", "--verify", &format!("{base}^{{commit}}")],
                 &[],
+                None,
                 deadline,
             )
             .await?
@@ -403,18 +473,31 @@ impl NativeGit {
             return Err(denied());
         }
         let format = self
-            .sealed_text(repo, &["rev-parse", "--show-object-format"], &[], deadline)
+            .verification(
+                repo,
+                &["rev-parse", "--show-object-format"],
+                &[],
+                None,
+                deadline,
+            )
             .await?;
         if !matches!((format.as_str(), base.len()), ("sha1", 40) | ("sha256", 64)) {
             return Err(denied());
         }
-        self.sealed_text(repo, &["bundle", "verify", "/dev/fd/0"], &bytes, deadline)
-            .await?;
+        self.verification(
+            repo,
+            &["bundle", "verify", "/dev/fd/0"],
+            &bytes,
+            None,
+            deadline,
+        )
+        .await?;
         let listed = self
-            .sealed_text(
+            .verification(
                 repo,
                 &["bundle", "list-heads", "/dev/fd/0"],
                 &bytes,
+                None,
                 deadline,
             )
             .await?;
@@ -425,7 +508,7 @@ impl NativeGit {
             .ok_or_else(denied)?
             .to_owned();
         let objects = self
-            .sealed_text(
+            .verification(
                 repo,
                 &[
                     "rev-parse",
@@ -434,6 +517,7 @@ impl NativeGit {
                     "objects",
                 ],
                 &[],
+                None,
                 deadline,
             )
             .await?;
@@ -457,63 +541,65 @@ impl NativeGit {
         };
         let inspected = inspection.to_str().ok_or_else(denied)?;
         let result = async {
-            self.sealed_text(
+            self.verification(
                 inspected,
                 &["init", "--bare", "-q", &format!("--object-format={format}")],
                 &[],
+                None,
                 deadline,
             )
             .await?;
-            let mut env = self.sealed.clone();
-            env.insert("GIT_ALTERNATE_OBJECT_DIRECTORIES".into(), objects);
-            let run = async |args: Vec<String>, input: &[u8]| -> Result<String, BrokerError> {
-                self.check_context()?;
-                self.repo.check()?;
-                let argv = ["-C".into(), inspected.into()]
-                    .into_iter()
-                    .chain(args)
-                    .collect::<Vec<_>>();
-                let out = native_command::run(
-                    &self.image,
-                    &argv,
-                    &env,
-                    input,
-                    10000,
-                    1024 * 1024,
+            if self
+                .verification(
+                    inspected,
+                    &["bundle", "unbundle", "/dev/fd/0"],
+                    &bytes,
+                    Some(&objects),
                     deadline,
                 )
-                .await?;
-                self.repo.check()?;
-                self.check_context()?;
-                if out.timed_out {
-                    return Err(BrokerError::Timeout);
-                }
-                if out.code != 0 {
-                    return Err(denied());
-                }
-                Ok(crate::js_semantics::trim(&String::from_utf8_lossy(&out.stdout)).into())
-            };
-            let args = |s: &[&str]| s.iter().map(|s| (*s).into()).collect::<Vec<String>>();
-            if run(args(&["bundle", "unbundle", "/dev/fd/0"]), &bytes).await?
-                != format!("{head}{suffix}")
-                || run(
-                    args(&["rev-parse", "--verify", &format!("{head}^{{commit}}")]),
-                    &[],
-                )
                 .await?
+                != format!("{head}{suffix}")
+                || self
+                    .verification(
+                        inspected,
+                        &["rev-parse", "--verify", &format!("{head}^{{commit}}")],
+                        &[],
+                        Some(&objects),
+                        deadline,
+                    )
+                    .await?
                     != head
             {
                 return Err(denied());
             }
-            run(args(&["merge-base", "--is-ancestor", base, &head]), &[]).await?;
-            let range = format!("{base}..{head}");
-            let count = run(args(&["rev-list", "--count", &range]), &[]).await?;
-            let commits = inspected_count(&count).ok_or_else(denied)?;
-            let log = run(
-                args(&["log", "--format=%ae%x00%ce%x00%B%x00%x00", &range]),
+            self.verification(
+                inspected,
+                &["merge-base", "--is-ancestor", base, &head],
                 &[],
+                Some(&objects),
+                deadline,
             )
             .await?;
+            let range = format!("{base}..{head}");
+            let count = self
+                .verification(
+                    inspected,
+                    &["rev-list", "--count", &range],
+                    &[],
+                    Some(&objects),
+                    deadline,
+                )
+                .await?;
+            let commits = inspected_count(&count).ok_or_else(denied)?;
+            let log = self
+                .verification(
+                    inspected,
+                    &["log", "--format=%ae%x00%ce%x00%B%x00%x00", &range],
+                    &[],
+                    Some(&objects),
+                    deadline,
+                )
+                .await?;
             let records = log
                 .split("\0\0")
                 .filter(|s| !s.is_empty())
@@ -661,13 +747,13 @@ impl NativeGit {
         let mut switch = false;
         if reuse {
             let checked = self
-                .text(work_text, &["symbolic-ref", "HEAD"], &[], deadline)
+                .text_within(work_text, &["symbolic-ref", "HEAD"], &[], 10_000, deadline)
                 .await?;
             if checked != reference && checked != format!("refs/heads/{primary}") {
                 return Err(denied());
             }
             if !self
-                .text(work_text, &["status", "--porcelain"], &[], deadline)
+                .text_within(work_text, &["status", "--porcelain"], &[], 10_000, deadline)
                 .await?
                 .is_empty()
             {

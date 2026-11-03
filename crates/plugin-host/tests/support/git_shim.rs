@@ -22,8 +22,9 @@
 //! The shim uses only `/bin/sh`, `/bin/cat`, `/usr/bin/env` and `/usr/bin/git`.
 //! It sets no hooksPath, filters or LFS and touches no shared directory.
 //!
-//! Task 1 scope only: env capture plus the existing `Exec`/`Print`/`Exit`
-//! actions. `Sleep`/`Stdout`/`Stderr` belong to the future budget/error tasks.
+//! Env capture (all phases), the `Exec`/`Print`/`Exit` actions, and the
+//! budget/error actions: `Sleep` (phase-cap timing), `Stdout`/`Stderr`
+//! (output-bound timing and overflow).
 #![allow(dead_code)]
 use std::{
     collections::{BTreeMap, HashMap},
@@ -39,6 +40,13 @@ pub enum Action {
     Print(String),
     /// Exit with the given code, stdout empty.
     Exit(i32),
+    /// Sleep `ms` milliseconds, then hand through to `/usr/bin/git`. Used to
+    /// drive a phase past its cap while the owner remains active.
+    Sleep(u64),
+    /// Write `n` zero bytes to stdout, then exit 0.
+    Stdout(usize),
+    /// Write `n` zero bytes to stderr, then exit 0.
+    Stderr(usize),
 }
 
 /// Write `<root>/bin/git` (mode 0700) and an empty, mode-0600 `<root>/git.log`.
@@ -77,6 +85,31 @@ pub fn shim(root: &Path, rules: &[(&str, Action)]) -> PathBuf {
                     "case \"$all\" in\n  *{}) exit {} ;;\nesac\n",
                     double_quoted_pattern(needle),
                     code
+                ));
+            }
+            Action::Sleep(ms) => {
+                // macOS/BSD `sleep` takes whole seconds only, so round `ms` up
+                // to the next second; the guard must exceed the phase cap long
+                // enough that native_command's timeout (not the sleep)
+                // terminates the run.
+                let secs = ms.div_ceil(1000);
+                s.push_str(&format!(
+                    "case \"$all\" in\n  *{}) /bin/sleep {secs}; exec /usr/bin/git \"$@\" ;;\nesac\n",
+                    double_quoted_pattern(needle),
+                ));
+            }
+            Action::Stdout(n) => {
+                s.push_str(&format!(
+                    "case \"$all\" in\n  *{}) /usr/bin/head -c {} /dev/zero; exit 0 ;;\nesac\n",
+                    double_quoted_pattern(needle),
+                    n
+                ));
+            }
+            Action::Stderr(n) => {
+                s.push_str(&format!(
+                    "case \"$all\" in\n  *{}) /usr/bin/head -c {} /dev/zero >&2; exit 0 ;;\nesac\n",
+                    double_quoted_pattern(needle),
+                    n
                 ));
             }
         }
