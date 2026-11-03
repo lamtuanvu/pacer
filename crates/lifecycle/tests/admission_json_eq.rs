@@ -107,3 +107,21 @@ fn equal_content_with_different_projection_histories_is_equal() {
     root.put("/d", composed).unwrap();
     assert!(parsed.admission_json_eq(&root));
 }
+
+/// F2: two parsed deep queues that differ only below the preview boundary.
+/// Their previews coincide, so only the comparator can tell them apart.
+#[test]
+fn deep_leaf_change_behind_equal_previews_is_unequal() {
+    let deep = |leaf: &str| {
+        format!(
+            r#"{{"reason":"machine_load","detail":{}}}"#,
+            "[".repeat(140) + leaf + &"]".repeat(140)
+        )
+    };
+    let (a, b) = (wire(&deep("1")), wire(&deep("2")));
+    assert_eq!(a.preview(), b.preview(), "previews coincide");
+    assert_ne!(a.to_json().unwrap(), b.to_json().unwrap());
+    assert!(!a.admission_json_eq(&b));
+    assert!(!b.admission_json_eq(&a));
+    assert!(a.admission_json_eq(&wire(&deep("1.0"))));
+}

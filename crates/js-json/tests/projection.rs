@@ -82,6 +82,37 @@ fn c2_constructed_depth_20000_value_clones_renders_and_drops_without_recursion()
     );
 }
 
+fn debug_constructed_body() {
+    let reply = WireReply::new(deep_value(20_000, json!(1)));
+    let text = format!("{reply:?}");
+    assert!(!text.is_empty());
+    dispose(reply.into_value().unwrap());
+}
+
+/// §4.6 Debug completes at depth 20,000 on a 2 MiB stack. The Debug text is
+/// not a contract, so only completion is asserted, never its spelling.
+#[test]
+fn debug_of_a_constructed_depth_20000_reply_completes() {
+    isolated(
+        "debug_of_a_constructed_depth_20000_reply_completes",
+        debug_constructed_body,
+    );
+}
+
+fn debug_parsed_body() {
+    let reply = wire(&arrays(20_000, "1"));
+    let text = format!("{reply:?}");
+    assert!(!text.is_empty());
+}
+
+#[test]
+fn debug_of_a_parsed_depth_20000_reply_completes() {
+    isolated(
+        "debug_of_a_parsed_depth_20000_reply_completes",
+        debug_parsed_body,
+    );
+}
+
 #[test]
 fn c3_constructed_subtree_copy_and_splice_beyond_128_keep_base_results() {
     let reply = WireReply::new(deep_value(300, json!("x")));

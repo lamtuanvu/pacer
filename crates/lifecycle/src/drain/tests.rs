@@ -406,6 +406,234 @@ fn q8_hidden_key_queue_change_with_coinciding_previews_is_not_unchanged() {
     assert_eq!(stored(dir.path(), id).0, 2);
 }
 
+/// `n` nested arrays around `leaf`, built without recursion.
+fn deep_value(n: usize, leaf: Value) -> Value {
+    let mut value = leaf;
+    for _ in 0..n {
+        value = Value::Array(vec![value]);
+    }
+    value
+}
+
+/// Q6 (F2): the stored queue holds depth-140 `detail`, `machine.a` and `since`;
+/// the route's machine guard changes the deep `detail`/`machine` leaves from 1
+/// to 2. `queue_capacity` forwards the guard, and `replace_capacity_queue`
+/// keeps only `since`/`position`. The fresh guard preview may differ from the
+/// parsed queue preview, so the outer preview gate can decide this case; the
+/// comparator alone is isolated in `tests/admission_json_eq.rs`.
+#[test]
+fn q6_deep_machine_guard_change_below_the_boundary_publishes_a_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = "t-20261102-000000-0001";
+    let mut state = AdmissionState::open(dir.path()).unwrap();
+    state.create(&task(id), None, None, 1.0).unwrap();
+    let (old, since) = (nest(140, "1"), nest(140, "7"));
+    let queue = format!(
+        r#"{{"position":9,"since":{since},"machine":{{"a":{old},"b":2}},"detail":{old},"limit":"machine","reason":"machine_load"}}"#
+    );
+    store_record(dir.path(), id, "queued", &queued_record(id, &queue));
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        Default::default(),
+        2.0,
+    );
+    let mut route = DrainRoute::local("codex", 1);
+    route.machine_guard = Some(json!({
+        "reason":"machine_load",
+        "detail":deep_value(140, json!(2)),
+        "machine":{"a":deep_value(140, json!(2)),"b":2}
+    }));
+    let mut admission = RouteAdmission::unrestricted(vec![route]);
+    let (wire, _) = reserve(&mut state.tasks, &ctx, id, 1, 2.0, false, &mut admission)
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let (rev, persisted) = stored(dir.path(), id);
+    assert_eq!(rev, 2);
+    assert_eq!(wire.preview()["state"], "queued");
+    let leaf = "/0".repeat(140);
+    for path in ["/queue/detail", "/queue/machine/a"] {
+        let changed = wire.subtree(&format!("{path}{leaf}")).unwrap();
+        assert_eq!(changed.to_json().unwrap(), "2", "{path}");
+    }
+    assert_eq!(
+        wire.subtree("/queue/since").unwrap().to_json().unwrap(),
+        since
+    );
+    assert_eq!(
+        wire.subtree("/queue/position").unwrap().to_json().unwrap(),
+        "9"
+    );
+    let new = nest(140, "2");
+    assert_eq!(
+        wire.subtree("/queue").unwrap().to_json().unwrap(),
+        format!(
+            r#"{{"reason":"machine_load","limit":"machine","detail":{new},"machine":{{"a":{new},"b":2}},"since":{since},"position":9}}"#
+        )
+    );
+    assert_eq!(persisted, wire.to_json().unwrap());
+}
+
+fn running_record(extra: &str) -> String {
+    format!(
+        r#"{{"id":"t-20261102-000000-0002","rev":1,"brief":{{"repo":"/repo"}},"state":"running","createdAt":1,"attempts":[]{extra}}}"#
+    )
+}
+
+/// Q7 (F2): reserve the queued candidate with `route`, beside an optional
+/// stored `running` record.
+fn reserve_with_running(running: Option<&str>, route: DrainRoute) -> WireReply {
+    let dir = tempfile::tempdir().unwrap();
+    let id = "t-20261102-000000-0001";
+    let other = "t-20261102-000000-0002";
+    let mut state = AdmissionState::open(dir.path()).unwrap();
+    state.create(&task(id), None, None, 1.0).unwrap();
+    if let Some(record) = running {
+        state.create(&task(other), None, None, 1.0).unwrap();
+        store_record(dir.path(), other, "running", record);
+    }
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        Default::default(),
+        2.0,
+    );
+    let mut admission = RouteAdmission::unrestricted(vec![route]);
+    let (wire, _) = reserve(&mut state.tasks, &ctx, id, 1, 2.0, false, &mut admission)
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(stored(dir.path(), id).0, 2);
+    wire
+}
+
+/// The running record holds the only slot, so the candidate stays queued with
+/// a `no_slot` queue. Skipping the record would admit the candidate instead.
+fn assert_occupied(running: &str, route: DrainRoute, limit: &str) {
+    let wire = reserve_with_running(Some(running), route);
+    let task = wire.preview();
+    assert_eq!(task["state"], "queued", "{task}");
+    assert!(task.get("executor").is_none(), "{task}");
+    assert_eq!(task["queue"]["reason"], "no_slot");
+    assert_eq!(task["queue"]["limit"], limit);
+    assert_eq!(task["queue"]["capacity"], json!({"used":1,"max":1}));
+    assert_eq!(
+        (&task["queue"]["since"], &task["queue"]["position"]),
+        (&json!(1), &json!(9))
+    );
+}
+
+const HIDDEN: &str = r#","\ud800":1"#;
+
+fn deep_member() -> String {
+    format!(r#","deep":{}"#, nest(140, "1"))
+}
+
+fn executor_slot() -> DrainRoute {
+    DrainRoute::local("codex", 1)
+}
+
+fn host_slot() -> DrainRoute {
+    DrainRoute {
+        host: Some("h1".into()),
+        limits: SlotLimits {
+            executor: 1,
+            host: Some(1),
+            local: None,
+        },
+        ..DrainRoute::local("codex", 1)
+    }
+}
+
+fn local_pool() -> DrainRoute {
+    DrainRoute {
+        limits: SlotLimits {
+            executor: 1,
+            host: None,
+            local: Some(1),
+        },
+        ..DrainRoute::local("codex", 1)
+    }
+}
+
+const SAME_EXECUTOR: &str = r#","executor":"codex""#;
+const SAME_HOST: &str = r#","executor":"other","run":{"host":"h1"}"#;
+const LOCAL: &str = r#","executor":"other""#;
+
+#[test]
+fn q7_unoccupied_capacity_admits_the_candidate() {
+    let wire = reserve_with_running(None, executor_slot());
+    assert_eq!(wire.preview()["state"], "running");
+    assert_eq!(wire.preview()["executor"], "codex");
+    assert!(wire.preview().get("queue").is_none());
+}
+
+#[test]
+fn q7_occupied_executor_slot_old_domain_record_blocks() {
+    assert_occupied(&running_record(SAME_EXECUTOR), executor_slot(), "executor");
+}
+
+#[test]
+fn q7_occupied_executor_slot_hidden_key_record_blocks() {
+    assert_occupied(
+        &running_record(&format!("{SAME_EXECUTOR}{HIDDEN}")),
+        executor_slot(),
+        "executor",
+    );
+}
+
+#[test]
+fn q7_occupied_executor_slot_deep_record_blocks() {
+    assert_occupied(
+        &running_record(&format!("{SAME_EXECUTOR}{}", deep_member())),
+        executor_slot(),
+        "executor",
+    );
+}
+
+#[test]
+fn q7_occupied_host_slot_old_domain_record_blocks() {
+    assert_occupied(&running_record(SAME_HOST), host_slot(), "host");
+}
+
+#[test]
+fn q7_occupied_host_slot_hidden_key_record_blocks() {
+    assert_occupied(
+        &running_record(&format!("{SAME_HOST}{HIDDEN}")),
+        host_slot(),
+        "host",
+    );
+}
+
+#[test]
+fn q7_occupied_host_slot_deep_record_blocks() {
+    assert_occupied(
+        &running_record(&format!("{SAME_HOST}{}", deep_member())),
+        host_slot(),
+        "host",
+    );
+}
+
+#[test]
+fn q7_occupied_local_pool_old_domain_record_blocks() {
+    assert_occupied(&running_record(LOCAL), local_pool(), "machine");
+}
+
+#[test]
+fn q7_occupied_local_pool_hidden_key_record_blocks() {
+    assert_occupied(
+        &running_record(&format!("{LOCAL}{HIDDEN}")),
+        local_pool(),
+        "machine",
+    );
+}
+
+#[test]
+fn q7_occupied_local_pool_deep_record_blocks() {
+    assert_occupied(
+        &running_record(&format!("{LOCAL}{}", deep_member())),
+        local_pool(),
+        "machine",
+    );
+}
+
 const CHILD: &str = "PACER_LIFECYCLE_ISOLATED_TEST";
 
 /// Run `body` on a 2 MiB thread in a re-executed copy of this test binary, so a

@@ -311,6 +311,60 @@ fn row07_depth_20000_import_and_reads() {
     isolated("row07_depth_20000_import_and_reads", row07_body);
 }
 
+/// Arrays between `/deep` and the array the row 24 deep splice edits.
+const DEEP_SPLICE_AT: usize = 19_990;
+
+fn row24_deep_body() {
+    let (id, text) = task_text(0x2407, &format!(r#","deep":{}"#, nest(19_999, "1")));
+    let (home, mut store) = import(&id, &text);
+    let path = format!("/deep{}", "/0".repeat(DEEP_SPLICE_AT));
+    let wire = store
+        .edit(&id, 1, 2000.0, |t| {
+            t.splice(&path, 1, 0, vec![WireReply::new(json!(2))])
+        })
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let inner = nest(19_999 - DEEP_SPLICE_AT - 1, "1");
+    let edited = format!(
+        "{}{inner},2{}",
+        "[".repeat(DEEP_SPLICE_AT + 1),
+        "]".repeat(DEEP_SPLICE_AT + 1)
+    );
+    let expected = js_canonical(
+        &task_text(0x2407, &format!(r#","deep":{edited}"#))
+            .1
+            .replacen(r#""rev":1"#, r#""rev":2"#, 1),
+    );
+    // The TS oracle record has this canonical length and equals this text.
+    assert_eq!(expected.len(), 40_122);
+    let sub = wire.subtree(&path).unwrap().to_json().unwrap();
+    assert_eq!(js_canonical(&sub), format!("[{inner},2]"));
+    let row = sql_row(&home.path, &id).unwrap();
+    assert_eq!(
+        (row.rev, row.updated_at, row.settled_at, row.archived),
+        (2, 2000.0, None, 0)
+    );
+    assert_eq!(wire.to_json().unwrap(), row.record, "persisted bytes");
+    assert_eq!(js_canonical(&row.record), expected, "record");
+    let compat = std::fs::read_to_string(home.path.join(format!("tasks/{id}.json"))).unwrap();
+    assert_eq!(compat, row.record, "compatibility file");
+    let reread = store.read_wire(&id).unwrap().unwrap();
+    assert_eq!(reread.to_json().unwrap(), row.record);
+}
+
+/// Row 24 on row 7 (F1): a deep splice 19,990 arrays below `/deep` in a
+/// depth-20,000 record, on a plain store with no dispatch triggers. Expected
+/// values come from actual TS `updateTask` with the same splice
+/// (`.work/reviews/task-json-t1-revision/ts-deep-edit-oracle.json`,
+/// `plain-deep-splice`): rev 2, updated_at 2000, settled_at NULL, archived 0,
+/// and a 40,122-byte canonical record equal to the text built here.
+#[test]
+fn row24_deep_splice_on_a_depth_20000_record_in_a_plain_store() {
+    isolated(
+        "row24_deep_splice_on_a_depth_20000_record_in_a_plain_store",
+        row24_deep_body,
+    );
+}
+
 fn row08_body() {
     let (id, text) = task_text(8, &format!(r#","deep":{}"#, nest(199_999, "1")));
     let (home, mut store) = import(&id, &text);
