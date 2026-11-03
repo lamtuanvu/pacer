@@ -26,7 +26,7 @@ pub(crate) enum TrayAction {
 }
 
 #[tauri::command]
-pub(crate) fn client_control(
+pub(crate) async fn client_control(
     window: WebviewWindow,
     app: AppHandle,
     action: Action,
@@ -61,11 +61,9 @@ pub(crate) fn client_control(
         Action::Tray { action } => {
             let tray = app.get_webview_window("tray").ok_or("Tray unavailable")?;
             match action {
-                TrayAction::Hide => tray.hide().map_err(|e| e.to_string())?,
+                TrayAction::Hide => super::hide_tray(&tray).await?,
                 TrayAction::Show => {
-                    super::position_tray(&tray).map_err(|e| e.to_string())?;
-                    tray.show().map_err(|e| e.to_string())?;
-                    tray.set_focus().map_err(|e| e.to_string())?;
+                    super::show_tray(&app, &tray, false).await?;
                 }
             }
         }
