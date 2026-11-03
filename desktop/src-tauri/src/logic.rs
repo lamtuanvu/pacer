@@ -664,6 +664,12 @@ pub struct Diagnosis {
     #[serde(rename = "appPort")]
     pub app_port: Option<u16>,
 }
+const SHELL_DELIVER: &str = include_str!("../../ui/shell-deliver.js");
+/// The script that hands `payload` (JSON) to the bundled shell's `function`, also
+/// when the document reports loaded before its deferred shell script has run.
+pub fn shell_delivery(function: &str, payload: &str) -> String {
+    format!("{}({}, {payload});", SHELL_DELIVER.trim_end(), serde_json::Value::from(function))
+}
 pub fn diagnosis(page: &'static str, path: Option<String>) -> Diagnosis {
     Diagnosis {
         page,
@@ -2725,6 +2731,12 @@ mod tests {
 mod startup_tests {
     use super::*;
     use std::time::{Duration, Instant};
+    #[test]
+    fn shell_delivery_waits_for_the_deferred_shell_script() {
+        let script = shell_delivery("renderShell", r#"{"page":"takeoverRestored"}"#);
+        assert!(script.starts_with(SHELL_DELIVER.trim_end()));
+        assert!(script.ends_with(r#"("renderShell", {"page":"takeoverRestored"});"#));
+    }
     #[test]
     fn stuck_threshold_survives_retries_and_resets_only_when_ready() {
         let now = Instant::now();
