@@ -10,6 +10,30 @@ use std::{
     sync::OnceLock,
     time::Duration,
 };
+/// TS `WorkBlocker.kind`; `valid_state` admits exactly these four.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockerKind {
+    Task,
+    Session,
+    Launch,
+    Operation,
+}
+impl BlockerKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Task => "task",
+            Self::Session => "session",
+            Self::Launch => "launch",
+            Self::Operation => "operation",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug)]
+pub struct Blocker<'a> {
+    pub kind: BlockerKind,
+    pub id: &'a str,
+    pub label: &'a str,
+}
 pub struct WorkLease {
     home: PathBuf,
     id: String,
@@ -128,6 +152,17 @@ impl WorkLease {
         })
     }
     pub fn begin(home: &Path, id: &str, label: &str) -> Result<Self, BrokerError> {
+        Self::begin_blocker(
+            home,
+            Blocker {
+                kind: BlockerKind::Session,
+                id,
+                label,
+            },
+        )
+    }
+    pub fn begin_blocker(home: &Path, blocker: Blocker<'_>) -> Result<Self, BrokerError> {
+        let Blocker { kind, id, label } = blocker;
         if id.is_empty() {
             return Err(BrokerError::Invalid("desktop work blocker"));
         }
@@ -142,7 +177,7 @@ impl WorkLease {
                     "Desktop update maintenance is reserved".into(),
                 ));
             }
-            s["leases"].as_array_mut().ok_or_else(denied)?.push(json!({"id":lease,"blocker":{"kind":"session","id":id,"label":label},"owner":owner,"process":null,"state":"pending"}));
+            s["leases"].as_array_mut().ok_or_else(denied)?.push(json!({"id":lease,"blocker":{"kind":kind.as_str(),"id":id,"label":label},"owner":owner,"process":null,"state":"pending"}));
             Ok(())
         })?;
         Ok(Self {

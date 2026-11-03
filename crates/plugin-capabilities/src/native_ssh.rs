@@ -1,7 +1,7 @@
 //! Concrete SSH transport. Fixed TS programs, private multiplexing, no RPC shell source.
 use crate::{
     BrokerError,
-    native_command::{self, denied},
+    native_command::{self, CommandFailure, denied},
     native_process::Image,
 };
 use serde_json::{Value, json};
@@ -170,11 +170,30 @@ impl NativeSsh {
         max_bytes: usize,
         deadline: Instant,
     ) -> Result<Value, BrokerError> {
+        self.run_tracked(name, args, nonce, input, timeout_ms, max_bytes, deadline)
+            .await
+            .map_err(Into::into)
+    }
+    /// Like `run`, but keeps whether the failure happened before the only
+    /// dispatch point (`native_command::run_tracked`'s spawn call).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_tracked(
+        &self,
+        name: &str,
+        args: &[String],
+        nonce: Option<&str>,
+        input: &[u8],
+        timeout_ms: u64,
+        max_bytes: usize,
+        deadline: Instant,
+    ) -> Result<Value, CommandFailure> {
         if timeout_ms > 300000 || max_bytes > 524288 || max_bytes == 0 {
-            return Err(denied());
+            return Err(CommandFailure::Undispatched(denied()));
         }
-        let argv = self.argv(name, args, nonce)?;
-        let out = native_command::run(
+        let argv = self
+            .argv(name, args, nonce)
+            .map_err(CommandFailure::Undispatched)?;
+        let out = native_command::run_tracked(
             &self.image,
             &argv,
             &self.env,
@@ -184,6 +203,10 @@ impl NativeSsh {
             deadline,
         )
         .await?;
+        self.settle(out, max_bytes)
+            .map_err(CommandFailure::Dispatched)
+    }
+    fn settle(&self, out: native_command::Output, max_bytes: usize) -> Result<Value, BrokerError> {
         self.check()?;
         if out.code == 255 {
             return Err(BrokerError::Effect("SSH connection failed".into()));
