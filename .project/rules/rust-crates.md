@@ -61,8 +61,9 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 1 | `pacer-bun-glob` (`crates/bun-glob`) | Bun-compatible glob scan and scope semantics | ≤ 5,000 | none |
 | 1 | `pacer-plugin-wire` (`crates/plugin-wire`) | Bounded plugin payload staging and JavaScript JSON value semantics | ≤ 5,000 | none |
 | 3 | `pacer-plugin-capabilities` (`crates/plugin-capabilities`) | Pinned byte/process resources, authority, shared error/effect contracts; Store2 only for error interop | ≤ 5,000 | none |
-| 4 | `pacer-plugin-runtime` (`crates/plugin-runtime`) | Shadow task-attempt, Orca and remote transfer owners over capability resources; no client operations | ≤ 5,000 target; Orca attempt/session versus direct/remote ownership is the next seam | none |
-| 5 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities | 3,000–4,000 | `reqwest` |
+| 4 | `pacer-plugin-execution` (`crates/plugin-execution`) | Shadow direct/remote run, Git/verified transfer, worktree and SSH transfer owners over capability resources; no Orca or client operations | ≤ 5,000 | none |
+| 5 | `pacer-plugin-runtime` (`crates/plugin-runtime`) | Shadow Orca attempt/policy/session owner over execution and capability resources; no client operations | ≤ 5,000 | none |
+| 6 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities | 3,000–4,000 | `reqwest` |
 | 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations, settings reads and JSON compatibility | ≤ 5,000 | none |
 | 5 | `pacer-engine` (`crates/engine`) | Pacing, usage broker, status | 1,500–2,000 | none |
 | 5 | `pacer-install` (`crates/install`) | Setup, onboarding, agent integrations, accounts, Orca panel installer, executor guard | 3,500–4,500 | none |

@@ -1429,6 +1429,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-execution"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "nix",
+ "pacer-foundation",
+ "pacer-plugin-capabilities",
+ "pacer-store",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "pacer-plugin-host"
 version = "0.2.0"
 dependencies = [
@@ -1520,21 +1540,17 @@ dependencies = [
 name = "pacer-plugin-runtime"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
- "libc",
  "nix",
- "pacer-foundation",
  "pacer-plugin-capabilities",
+ "pacer-plugin-execution",
  "pacer-store",
  "regex",
  "rusqlite",
  "serde",
  "serde_json",
- "sha1",
  "sha2",
  "tokio",
  "unicode-normalization",
- "url",
  "uuid",
 ]
 

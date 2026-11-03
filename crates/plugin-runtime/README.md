@@ -5,9 +5,11 @@ capability types so the registry and RPC admission API remain compatible. The
 TypeScript plugin host is authoritative; this crate registers no client operation
 and does not select executors or introduce a runtime fallback.
 
-The layer-4 runtime owns task-attempt journals, run directories and Orca/direct/remote
-execution composition. It re-exports the pinned descriptors, executable images and
-byte/process resources defined by layer-3 `pacer-plugin-capabilities`. `OrcaPolicy`, `OrcaAttemptSpec` and `RemoteIntent` are private
+The layer-5 runtime owns the private Orca attempt/policy/session unit and its
+task-attempt journals. Direct/remote runs, run directories, Git/worktree receipts
+and SSH transfer live in layer-4 `pacer-plugin-execution`; runtime re-exports those
+modules and the pinned descriptors, executable images and byte/process resources
+defined by layer-3 `pacer-plugin-capabilities`. `OrcaPolicy`, `OrcaAttemptSpec` and `RemoteIntent` are private
 host composition inputs, never plugin parameters. Orca providers receive only the
 task/attempt contract. SSH programs are fixed copies of `src/remote/scripts.ts`,
 with a Bun freshness test; arguments are quoted separately and binary input stays
@@ -38,17 +40,19 @@ forwarding smoke check from native library fixtures.
 
 ## Size boundary
 
-Candidate B separates pinned byte/process capabilities (4,213 LOC, layer 3),
+Candidate B separated pinned byte/process capabilities (4,213 LOC, layer 3),
 task attempts (this crate: 7,781 LOC, layer 4), and registry/RPC admission
 (plugin-host: 4,970 LOC, layer 5). All public runtime/host module and type paths
 remain re-exports of the same definitions. BrokerError and CapabilityEffect live
 below; the Store2 error conversion retains its exact existing denial and creates
 no lower TaskStore access. No private attempt/session/journal field is widened.
 
-The runtime is below the 8,000 warning and 12,000 hard limit, while above the
-5,000 target. If growth requires another split, use Orca attempt/session ownership
-versus direct/remote run and transfer ownership. Four actual matched build timings
-accompany this graph change; they do not establish a shared-host speedup.
+The 2026-11-03 split moved direct/remote run and transfer ownership into
+`pacer-plugin-execution` (3,765 LOC, layer 4). This crate (4,534 LOC) moves to
+layer 5 and host (4,972 LOC) to layer 6; all are below the 5,000 target. Execution
+modules keep their bytes and `src/`-relative paths, and existing runtime/host paths
+re-export the same items. Tests stay at these facades. Matched build timings
+accompany each graph change; they do not establish a shared-host speedup.
 
 ## Native composition and delivery
 
