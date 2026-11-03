@@ -360,6 +360,7 @@ fn policy_with_source(
                 t.put("/brief/worktreeBase", WireReply::new(json!("head")))?;
                 t.put("/group", WireReply::new(json!("batch")))?;
                 t.put("/interactionMode", WireReply::new(json!("conversation")))?;
+                t.put("/interactive", WireReply::new(json!(true)))?;
             }
             Ok(())
         })

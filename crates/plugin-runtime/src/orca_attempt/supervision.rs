@@ -511,8 +511,7 @@ impl OrcaAttempt {
             .as_ref()
             .is_some_and(|w| w["kind"] == "settled" && w["state"] == "needs_input")
             && (self.reattach
-                || (task["interactionMode"] == "conversation"
-                    && task["live"]["worker"] == dispatch));
+                || (task["interactive"] != false && task["live"]["worker"] == dispatch));
         let keep = params["keepAlive"] == true && self.phase == Phase::Started && allowed;
         // Resolve reattached lane ownership before removing its live record.
         let lane = if !keep && self.reattach {
