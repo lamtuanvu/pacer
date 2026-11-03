@@ -1,6 +1,6 @@
 # pacer context index
 
-Updated: 2026-10-24. The entry point for agents and contributors. Load this file and [constitution.md](constitution.md), then only the rules and reviewers that match the paths your change touches.
+Updated: 2026-11-02. The entry point for agents and contributors. Load this file and [constitution.md](constitution.md), then only the rules and reviewers that match the paths your change touches.
 
 ## Purpose
 
@@ -44,6 +44,13 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/read-model` | `pacer-read-model`: snapshot composition, task/message/discovery reads, v2 compatibility, status/context caches and SSE replay semantics; library only until native cutover |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
+| `crates/plugin-host` | `pacer-plugin-host` (layer 6): shadow registry, RPC and capability admission; TS remains authoritative until cutover. |
+| `crates/js-json` | `pacer-js-json`: JavaScript number/string semantics and lossless UTF-16 JSON for native state and wire boundaries. |
+| `crates/bun-glob` | `pacer-bun-glob`: Bun-compatible scan/scope glob semantics; filesystem-independent. |
+| `crates/plugin-wire` | `pacer-plugin-wire`: bounded byte payloads and re-exported lossless UTF-16 JSON delivery; library-only, re-exported by the runtime. |
+| `crates/plugin-capabilities` | `pacer-plugin-capabilities` (layer 3): pinned filesystem/process/byte authority, shared error/effect and lease resources; Store2 edge only for error conversion. |
+| `crates/plugin-execution` | `pacer-plugin-execution` (layer 4): shadow direct/remote run, Git/verified transfer, worktree and SSH transfer owners; no Orca or client operations. |
+| `crates/plugin-runtime` | `pacer-plugin-runtime` (layer 5): shadow Orca attempt/policy/session owner; re-exports execution and capability paths; no client operations registered. |
 | `crates/plugin-ops` | `pacer-plugin-ops`: native plugin list/diagnostic/UI-list/settings reads and JSON compatibility; layer 5, target ≤ 5,000 LOC ([ADR 0020](../docs/decisions/0020-native-plugin-read-operations-crate.md)) |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |

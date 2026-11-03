@@ -1,4 +1,5 @@
 //! Disposable cross-runtime adapter driver; never accepts an unmarked home.
+use pacer_js_json::WireReply;
 use pacer_store::{StoreError, TaskFilter, TaskStore};
 use serde_json::{Value, json};
 use std::{env, error::Error, path::PathBuf};
@@ -12,9 +13,20 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     let mut store = TaskStore::open(home)?;
     let value: Value = match command.as_str() {
-        "read" => store
-            .read(&args.next().ok_or("task id required")?)?
-            .unwrap_or(Value::Null),
+        "read" => {
+            let value = match store.read_wire(&args.next().ok_or("task id required")?)? {
+                Some(mut value) => {
+                    if value.preview().get("rev").is_none_or(Value::is_null) {
+                        value.put("/rev", WireReply::new(json!(1)))?;
+                    }
+                    value
+                }
+                None => WireReply::new(Value::Null),
+            };
+            return emit_wire(value);
+        }
+        // These pre-existing list commands still deliver scalar previews.
+        // They are not exact sources for subsequent task edits.
         "list" => json!(store.list(&TaskFilter::default())?),
         "list-live" => json!(store.list_live()?),
         "list-recent" => {
@@ -31,18 +43,18 @@ fn run() -> Result<(), Box<dyn Error>> {
             for _ in 0..20 {
                 let current = store.read(&id)?.ok_or("unknown task")?;
                 let rev = current["rev"].as_i64().ok_or("missing revision")?;
-                match store.update(
+                match store.edit(
                     &id,
                     rev,
                     current["createdAt"].as_f64().ok_or("missing time")?,
-                    |v| {
-                        let count = v["title"]
+                    |edit| {
+                        let count = edit.preview()["title"]
                             .as_str()
                             .unwrap_or("0")
                             .parse::<i64>()
                             .unwrap_or(0)
                             + 1;
-                        v["title"] = json!(count.to_string());
+                        edit.put("/title", WireReply::new(json!(count.to_string())))
                     },
                 ) {
                     Ok(value) => {
@@ -53,7 +65,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                     Err(error) => return Err(error.into()),
                 }
             }
-            updated.ok_or("too many revision conflicts")?
+            return emit_wire(updated.ok_or("too many revision conflicts")?);
         }
         "prune" => {
             let now = args.next().ok_or("time required")?.parse::<f64>()?;
@@ -80,11 +92,15 @@ fn run() -> Result<(), Box<dyn Error>> {
         "restore" => {
             let id = args.next().ok_or("task id required")?;
             let now = args.next().ok_or("time required")?.parse::<f64>()?;
-            store.restore(&id, now)?
+            return emit_wire(store.restore(&id, now)?);
         }
         _ => return Err("unknown command".into()),
     };
     println!("{}", serde_json::to_string(&value)?);
+    Ok(())
+}
+fn emit_wire(value: WireReply) -> Result<(), Box<dyn Error>> {
+    println!("{}", value.to_json()?);
     Ok(())
 }
 fn main() {

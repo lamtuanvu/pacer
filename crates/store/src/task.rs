@@ -1,9 +1,11 @@
+use crate::TaskEdit;
 use pacer_foundation::{
     Ctx,
     lock::{LockError, LockOptions, with_lock},
 };
+use pacer_js_json::{Utf16String, WireReply};
 use rusqlite::{
-    Connection, OptionalExtension, TransactionBehavior, params, params_from_iter,
+    Connection, OptionalExtension, Transaction, TransactionBehavior, params, params_from_iter,
     types::Value as SqlValue,
 };
 use serde_json::{Value, json};
@@ -22,6 +24,8 @@ pub enum StoreError {
     Sql(#[from] rusqlite::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Edit(#[from] pacer_js_json::EditError),
     #[error(transparent)]
     Lock(#[from] LockError),
     #[error("task read requires the TypeScript compatibility path")]
@@ -97,6 +101,8 @@ pub(crate) fn truthy(value: Option<&Value>) -> bool {
         Some(Value::Bool(true) | Value::Array(_) | Value::Object(_)) => true,
     }
 }
+/// Indexed or identity fields; a lossy preview would diverge from the row.
+const PROTECTED_TEXT: [&str; 4] = ["/id", "/state", "/rev", "/brief/repo"];
 fn valid(task: &Value, id: &str) -> bool {
     field(task, "id") == Some(id)
         && is_task_id(id)
@@ -181,7 +187,7 @@ fn row_values(task: &Value, now: f64) -> Result<[SqlValue; 9]> {
     ])
 }
 fn parse_record(text: &str) -> Result<Value> {
-    let mut value: Value = serde_json::from_str(text)?;
+    let mut value = WireReply::parse(text)?.preview().clone();
     if value.get("rev").is_none_or(Value::is_null) {
         value["rev"] = json!(1);
     }
@@ -225,7 +231,7 @@ fn private_file(path: &Path) -> io::Result<File> {
     }
     Ok(f)
 }
-fn write_json(home: &Path, task: &Value) -> Result<f64> {
+fn write_json(home: &Path, task: &Value, encoded: Option<&str>) -> Result<f64> {
     let id = field(task, "id").ok_or(StoreError::InvalidRecord)?;
     let dir = if truthy(task.get("archived")) {
         let month = archive_month(number(task.get("createdAt")).ok_or(StoreError::InvalidRecord)?)?;
@@ -253,7 +259,12 @@ fn write_json(home: &Path, task: &Value) -> Result<f64> {
             o.mode(0o600);
         }
         let mut f = o.open(&temp)?;
-        f.write_all(serde_json::to_string(task)?.as_bytes())?;
+        f.write_all(
+            encoded
+                .map(str::to_owned)
+                .unwrap_or(serde_json::to_string(task)?)
+                .as_bytes(),
+        )?;
         drop(f);
         fs::rename(&temp, &target)?;
         mtime_ms(&target)
@@ -402,9 +413,10 @@ impl TaskStore {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
                 Err(e) => return Err(e.into()),
             };
-            let Ok(mut task) = serde_json::from_slice::<Value>(&bytes) else {
+            let Ok(original) = WireReply::parse(&String::from_utf8_lossy(&bytes)) else {
                 continue;
             };
+            let mut task = original.preview().clone();
             if task.get("rev").is_none_or(Value::is_null) {
                 task["rev"] = json!(1);
             }
@@ -414,7 +426,8 @@ impl TaskStore {
             import_numbers(&mut task);
             // JSON.parse represents integral decimal and exponent forms as integers.
             task["rev"] = json!(revision(&task).ok_or(StoreError::InvalidRecord)?);
-            let values = row_values(&task, activity_at(&task))?;
+            let mut values = row_values(&task, activity_at(&task))?;
+            values[7] = SqlValue::Text(original.preserving(task.clone()).to_json()?);
             tx.execute("INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived,json_mtime) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET rev=excluded.rev,state=excluded.state,created_at=excluded.created_at,updated_at=excluded.updated_at,settled_at=excluded.settled_at,repo=excluded.repo,record=excluded.record,archived=excluded.archived,json_mtime=excluded.json_mtime WHERE excluded.rev>tasks.rev OR (excluded.rev=tasks.rev AND (tasks.json_mtime IS NULL OR excluded.json_mtime>tasks.json_mtime))", params_from_iter(values.into_iter().chain([SqlValue::Real(mtime)])))?;
             if let Some(at) = number(task.get("settledAt")) {
                 tx.execute(
@@ -450,6 +463,21 @@ impl TaskStore {
             })
             .optional()?
             .map(|s| parse_record(&s))
+            .transpose()
+    }
+    /// Lossless JSON delivery. read() is a scalar metadata preview; callers
+    /// publishing record strings use this method rather than serialize a preview.
+    pub fn read_wire(&mut self, id: &str) -> Result<Option<WireReply>> {
+        if !is_task_id(id) {
+            return Ok(None);
+        }
+        self.refresh()?;
+        self.db
+            .query_row("SELECT record FROM tasks WHERE id=?", [id], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()?
+            .map(|text| WireReply::parse(&text).map_err(StoreError::from))
             .transpose()
     }
     pub fn list(&mut self, filter: &TaskFilter<'_>) -> Result<Vec<Value>> {
@@ -533,7 +561,7 @@ impl TaskStore {
         let values = row_values(task, now)?;
         if tx.execute("INSERT OR IGNORE INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived) VALUES(?,?,?,?,?,?,?,?,?)", params_from_iter(values))? == 0 { return Err(StoreError::Collision); }
         admit(&tx)?;
-        let mtime = write_json(&self.home, task)?;
+        let mtime = write_json(&self.home, task, None)?;
         tx.execute(
             "UPDATE tasks SET json_mtime=? WHERE id=?",
             params![mtime, id],
@@ -541,13 +569,18 @@ impl TaskStore {
         tx.commit()?;
         Ok(())
     }
-    pub fn update(
+    /// Apply explicit, lossless edits under the shared task lock and an
+    /// IMMEDIATE transaction. A revision conflict skips the callback; callback
+    /// errors and invalid final records publish neither SQLite nor JSON changes.
+    /// Identity and revision are finalized by the store, along with settlement.
+    /// The returned reply retains exact strings; `preview()` is read-only metadata.
+    pub fn edit(
         &mut self,
         id: &str,
         expected_rev: i64,
         now: f64,
-        mutate: impl FnOnce(&mut Value),
-    ) -> Result<Value> {
+        mutate: impl FnOnce(&mut TaskEdit) -> Result<()>,
+    ) -> Result<WireReply> {
         if !is_task_id(id) {
             return Err(StoreError::InvalidRecord);
         }
@@ -558,17 +591,27 @@ impl TaskStore {
             now,
         );
         with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
-            self.update_locked(id, expected_rev, now, mutate)
+            self.edit_locked(id, expected_rev, now, mutate)
         })?
     }
-    /// Update current state under the shared task lock, without a caller CAS.
-    /// Lifecycle metadata maintenance must not use revisions from a prior list.
-    pub fn update_current(
+    pub(crate) fn edit_locked(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&mut TaskEdit) -> Result<()>,
+    ) -> Result<WireReply> {
+        self.edit_transaction_locked(id, Some(expected_rev), now, |_, edit| mutate(edit), &[])
+    }
+    /// Edit the latest task under the shared task lock and writer transaction,
+    /// without a revision captured by an earlier list/read. Errors such as
+    /// `Unchanged` abort the edit without publishing a revision.
+    pub fn edit_current(
         &mut self,
         id: &str,
         now: f64,
-        mutate: impl FnOnce(&mut Value) -> Result<()>,
-    ) -> Result<Value> {
+        mutate: impl FnOnce(&mut TaskEdit) -> Result<()>,
+    ) -> Result<WireReply> {
         let ctx = Ctx::with(
             self.home.clone(),
             self.home.clone(),
@@ -576,34 +619,19 @@ impl TaskStore {
             now,
         );
         with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
-            let current = self
-                .read(id)?
-                .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
-            let rev = revision(&current).ok_or(StoreError::InvalidRecord)?;
-            self.update_admitted_locked(id, rev, now, |_, task| mutate(task))
+            self.edit_transaction_locked(id, None, now, |_, edit| mutate(edit), &[])
         })?
     }
-    pub(crate) fn update_locked(
+    /// Recheck domain admission and edit exact task values in the same
+    /// IMMEDIATE transaction. CAS precedes the callback, and its database
+    /// changes roll back if admission, edits or final validation fail.
+    pub fn edit_admitted(
         &mut self,
         id: &str,
         expected_rev: i64,
         now: f64,
-        mutate: impl FnOnce(&mut Value),
-    ) -> Result<Value> {
-        self.update_admitted_locked(id, expected_rev, now, |_, task| {
-            mutate(task);
-            Ok(())
-        })
-    }
-    /// Recheck domain admission and mutate while holding the same SQLite writer
-    /// reservation. The caller holds any required cross-runtime operation lock.
-    pub fn update_admitted(
-        &mut self,
-        id: &str,
-        expected_rev: i64,
-        now: f64,
-        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
-    ) -> Result<Value> {
+        mutate: impl FnOnce(&Connection, &mut TaskEdit) -> Result<()>,
+    ) -> Result<WireReply> {
         let ctx = Ctx::with(
             self.home.clone(),
             self.home.clone(),
@@ -611,20 +639,55 @@ impl TaskStore {
             now,
         );
         with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
-            self.update_admitted_locked(id, expected_rev, now, mutate)
+            self.edit_transaction_locked(id, Some(expected_rev), now, mutate, &[])
         })?
     }
-    fn update_admitted_locked(
+    /// Apply exact edits with explicit UTF-16 string overrides. Overrides apply
+    /// after identity/revision/settlement finalization, require string slots,
+    /// and cannot target identity, state, revision or repo. The callback may
+    /// deliberately create string placeholders. Existing array text is retained.
+    pub fn edit_with_strings(
         &mut self,
         id: &str,
         expected_rev: i64,
         now: f64,
-        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
-    ) -> Result<Value> {
+        mutate: impl FnOnce(&mut TaskEdit) -> Result<()>,
+        strings: &[(String, Utf16String)],
+    ) -> Result<WireReply> {
         if !is_task_id(id) {
             return Err(StoreError::InvalidRecord);
         }
-        let home = self.home.clone();
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            self.edit_transaction_locked(
+                id,
+                Some(expected_rev),
+                now,
+                |_, edit| mutate(edit),
+                strings,
+            )
+        })?
+    }
+    fn edit_transaction_locked(
+        &mut self,
+        id: &str,
+        expected_rev: Option<i64>,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut TaskEdit) -> Result<()>,
+        strings: &[(String, Utf16String)],
+    ) -> Result<WireReply> {
+        if !is_task_id(id) {
+            return Err(if expected_rev.is_some() {
+                StoreError::InvalidRecord
+            } else {
+                StoreError::UnknownTask(id.into())
+            });
+        }
         self.refresh()?;
         let tx = self
             .db
@@ -633,49 +696,33 @@ impl TaskStore {
             .query_row("SELECT record FROM tasks WHERE id=?", [id], |r| r.get(0))
             .optional()?
             .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
-        let mut task: Value = serde_json::from_str(&text)?;
-        let rev = revision(&task).unwrap_or(1);
-        if rev != expected_rev {
+        let mut edit = TaskEdit::new(WireReply::parse(&text)?);
+        let rev = match expected_rev {
+            Some(_) => revision(edit.preview()).unwrap_or(1),
+            None if edit.preview().get("rev").is_none_or(Value::is_null) => 1,
+            None => revision(edit.preview()).ok_or(StoreError::InvalidRecord)?,
+        };
+        if expected_rev.is_some_and(|expected| rev != expected) {
             return Err(StoreError::Conflict);
         }
-        let prior = field(&task, "state").unwrap_or("").to_owned();
-        mutate(&tx, &mut task)?;
-        let terminal = TERMINAL.contains(&field(&task, "state").ok_or(StoreError::InvalidRecord)?);
+        let prior = field(edit.preview(), "state").unwrap_or("").to_owned();
+        mutate(&tx, &mut edit)?;
+        let terminal =
+            TERMINAL.contains(&field(edit.preview(), "state").ok_or(StoreError::InvalidRecord)?);
         if terminal && !TERMINAL.contains(&prior.as_str()) {
-            task["settledAt"] = json!(now);
+            edit.put("/settledAt", WireReply::new(json!(now)))?;
         }
-        if !terminal {
-            task.as_object_mut()
-                .ok_or(StoreError::InvalidRecord)?
-                .remove("settledAt");
+        if !terminal && edit.preview().get("settledAt").is_some() {
+            edit.remove("/settledAt")?;
         }
-        task["id"] = json!(id);
-        task["rev"] = json!(rev + 1);
-        if !valid(&task, id) {
+        edit.put("/id", WireReply::new(json!(id)))?;
+        edit.put("/rev", WireReply::new(json!(rev + 1)))?;
+        if !valid(edit.preview(), id) {
             return Err(StoreError::InvalidRecord);
         }
-        let mtime = write_json(&home, &task)?;
-        if let Some(at) = number(task.get("settledAt")) {
-            tx.execute(
-                "INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)",
-                params![id, at],
-            )?;
-        }
-        let values = row_values(
-            &task,
-            if now.is_finite() {
-                now
-            } else {
-                current_seconds()
-            },
-        )?;
-        let changed = tx.execute("UPDATE tasks SET rev=?,state=?,created_at=?,updated_at=?,settled_at=?,repo=?,record=?,archived=?,json_mtime=? WHERE id=? AND rev=?",
-                params_from_iter(values.into_iter().skip(1).chain([SqlValue::Real(mtime), SqlValue::Text(id.into()), SqlValue::Integer(rev)])))?;
-        if changed != 1 {
-            return Err(StoreError::Conflict);
-        }
-        tx.commit()?;
-        Ok(task)
+        let mut wire = edit.into_wire();
+        apply_string_overrides(&mut wire, strings)?;
+        persist_update(tx, &self.home, id, rev, now, wire)
     }
     pub fn home_path(&self) -> &Path {
         &self.home
@@ -683,6 +730,54 @@ impl TaskStore {
     pub(crate) fn home(&self) -> &Path {
         &self.home
     }
+}
+fn apply_string_overrides(wire: &mut WireReply, strings: &[(String, Utf16String)]) -> Result<()> {
+    for (path, text) in strings {
+        if PROTECTED_TEXT.contains(&path.as_str())
+            || !wire.preview().pointer(path).is_some_and(Value::is_string)
+        {
+            return Err(StoreError::InvalidRecord);
+        }
+        wire.set_string(path, text.clone())
+            .map_err(|_| StoreError::InvalidRecord)?;
+    }
+    Ok(())
+}
+/// Task edits publish the same exact encoding to the compatibility file and
+/// SQLite record; indexed values still follow the established scalar preview.
+fn persist_update(
+    tx: Transaction<'_>,
+    home: &Path,
+    id: &str,
+    rev: i64,
+    now: f64,
+    wire: WireReply,
+) -> Result<WireReply> {
+    let task = wire.preview();
+    let mut values = row_values(
+        task,
+        if now.is_finite() {
+            now
+        } else {
+            current_seconds()
+        },
+    )?;
+    let encoded = wire.to_json()?;
+    let mtime = write_json(home, task, Some(&encoded))?;
+    if let Some(at) = number(task.get("settledAt")) {
+        tx.execute(
+            "INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)",
+            params![id, at],
+        )?;
+    }
+    values[7] = SqlValue::Text(encoded);
+    let changed = tx.execute("UPDATE tasks SET rev=?,state=?,created_at=?,updated_at=?,settled_at=?,repo=?,record=?,archived=?,json_mtime=? WHERE id=? AND rev=?",
+        params_from_iter(values.into_iter().skip(1).chain([SqlValue::Real(mtime), SqlValue::Text(id.into()), SqlValue::Integer(rev)])))?;
+    if changed != 1 {
+        return Err(StoreError::Conflict);
+    }
+    tx.commit()?;
+    Ok(wire)
 }
 fn current_seconds() -> f64 {
     std::time::SystemTime::now()

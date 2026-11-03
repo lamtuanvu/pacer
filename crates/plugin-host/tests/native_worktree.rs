@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used)]
+#[path = "support/exact_task.rs"]
+mod exact_task;
 use pacer_plugin_host::NativeWorktree;
 use pacer_store::TaskStore;
 use serde_json::json;
@@ -50,6 +52,7 @@ async fn creates_journaled_task_owned_worktree_and_refuses_owner_races() {
     let id = "t-20261102-125719-c5fb";
     let mut store = TaskStore::open(&home).unwrap();
     store.insert(&json!({"id":id,"rev":1,"createdAt":1,"state":"running","executorProvider":"fx-executor","attempts":[],"brief":{"repo":repo}}),1.0).unwrap();
+    exact_task::seed(&home, id);
     let mut native = NativeWorktree::issue(
         &home,
         id,
@@ -104,8 +107,11 @@ async fn creates_journaled_task_owned_worktree_and_refuses_owner_races() {
             .unwrap();
     let task = store.read(id).unwrap().unwrap();
     store
-        .update(id, task["rev"].as_i64().unwrap(), 2.0, |v| {
-            v["stopPending"] = json!(true)
+        .edit(id, task["rev"].as_i64().unwrap(), 2.0, |v| {
+            v.put(
+                "/stopPending",
+                pacer_plugin_host::WireReply::new(json!(true)),
+            )
         })
         .unwrap();
     assert!(
@@ -118,5 +124,6 @@ async fn creates_journaled_task_owned_worktree_and_refuses_owner_races() {
             .await
             .is_err()
     );
+    exact_task::assert_preserved(&home, id);
     fs::remove_dir_all(root).unwrap();
 }

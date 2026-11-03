@@ -76,8 +76,20 @@ layer = 2
 layer = 3
 [crates.pacer-sessions]
 layer = 3
-[crates.pacer-plugin-host]
+[crates.pacer-js-json]
+layer = 0
+[crates.pacer-bun-glob]
+layer = 1
+[crates.pacer-plugin-wire]
+layer = 1
+[crates.pacer-plugin-capabilities]
+layer = 3
+[crates.pacer-plugin-execution]
 layer = 4
+[crates.pacer-plugin-runtime]
+layer = 5
+[crates.pacer-plugin-host]
+layer = 6
 heavy = ["reqwest"]
 [crates.pacer-sqlite-proof]
 layer = 2
