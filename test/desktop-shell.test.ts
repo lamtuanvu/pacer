@@ -132,6 +132,7 @@ test("takeover actions are buttons that navigate only with the injected single-u
   expect(html).toMatch(/<button type="button" id="takeover-confirm" class="button primary" tabindex="0">Use the app's service<\/button>/);
   expect(html).toMatch(/<button type="button" id="takeover-dismiss" class="button" tabindex="0">Not now<\/button>/);
   expect(html).toMatch(/<button type="button" id="takeover-continue" class="button primary" tabindex="0"[^>]*>Continue current service<\/button>/);
+  expect(html).toMatch(/<button type="button" id="takeover-retry" class="button" tabindex="0"[^>]*>Review service replacement<\/button>/);
   expect(html).not.toMatch(/action\/takeover-/);
   const page = shell("?state=takeover");
   const before = page.location.href;
@@ -252,6 +253,21 @@ test("takeover outcomes explain reasons in plain copy and never show codes or up
   expect(html).toContain("Continuing hides this offer for this build of the current service.");
   restored.element("#takeover-continue").dispatch("click");
   expect(restored.location.href).toBe(`tauri://localhost/action/takeover-dismiss?token=${PAGE_NONCE}`);
+  // Review carries the same single-use token, to the action that keeps the offer.
+  expect(html).toContain("Review service replacement opens it again; nothing changes until you confirm it.");
+  const retry = shell("?state=takeoverRestored");
+  retry.render({ page: "takeoverRestored", error: "stop-original:identity" });
+  const untouched = retry.location.href;
+  retry.element("#takeover-retry").dispatch("click");
+  expect(retry.location.href).toBe(untouched);
+  retry.takeover({ inspection: null, progress: null, token: PAGE_NONCE });
+  retry.element("#takeover-retry").dispatch("click");
+  expect(retry.location.href).toBe(`tauri://localhost/action/takeover-retry?token=${PAGE_NONCE}`);
+  // The token is used once: a second click does nothing.
+  retry.location.href = untouched;
+  retry.element("#takeover-retry").dispatch("click");
+  retry.element("#takeover-continue").dispatch("click");
+  expect(retry.location.href).toBe(untouched);
 
   const failed = shell("?state=takeoverFailed");
   failed.render({ page: "takeoverFailed", error: "restore-registration:identity" });

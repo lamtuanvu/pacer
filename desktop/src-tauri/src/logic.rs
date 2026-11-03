@@ -386,6 +386,8 @@ pub enum ShellAction {
     Download,
     ContinueOldService,
     TakeoverDismiss,
+    /// From the restored outcome: acknowledge it and review the offer again.
+    TakeoverRetry,
     TakeoverConfirm { relink: bool },
 }
 
@@ -404,7 +406,8 @@ pub fn takeover_token(url: &Url) -> Option<String> {
 pub enum TakeoverPage {
     /// The offer: confirm or dismiss.
     Offer,
-    /// The restored outcome: continue with the current service only.
+    /// The restored outcome: continue with the current service, or review
+    /// the offer again.
     Restored,
 }
 
@@ -517,6 +520,7 @@ impl MainPage {
         let permitted = match action {
             ShellAction::TakeoverConfirm { .. } => issued.page == TakeoverPage::Offer,
             ShellAction::TakeoverDismiss => true,
+            ShellAction::TakeoverRetry => issued.page == TakeoverPage::Restored,
             _ => false,
         };
         permitted
@@ -547,7 +551,7 @@ pub fn shell_action_url(url: &Url) -> Option<ShellAction> {
             _ => None,
         };
     }
-    if matches!(url.path(), "/action/takeover-confirm" | "/action/takeover-dismiss") {
+    if matches!(url.path(), "/action/takeover-confirm" | "/action/takeover-dismiss" | "/action/takeover-retry") {
         let query = url.query()?;
         let (rest, token) = query.rsplit_once("token=")?;
         if !valid_takeover_token(token) {
@@ -557,6 +561,7 @@ pub fn shell_action_url(url: &Url) -> Option<ShellAction> {
             ("/action/takeover-confirm", "relink=0&") => Some(ShellAction::TakeoverConfirm { relink: false }),
             ("/action/takeover-confirm", "relink=1&") => Some(ShellAction::TakeoverConfirm { relink: true }),
             ("/action/takeover-dismiss", "") => Some(ShellAction::TakeoverDismiss),
+            ("/action/takeover-retry", "") => Some(ShellAction::TakeoverRetry),
             _ => None,
         };
     }
@@ -1798,13 +1803,21 @@ mod tests {
     }
 
     #[test]
-    fn restored_page_token_permits_only_continuing() {
+    fn restored_page_token_permits_continuing_or_trying_again_but_never_confirms() {
+        let retry = |token: &str| url(&format!("tauri://localhost/action/takeover-retry?token={token}"));
         let mut page = MainPage::default();
         page.finished(url("tauri://localhost/index.html?state=takeoverRestored"));
         page.issue_takeover_token(SEEN, TOKEN.into());
         assert!(!page.authorize_takeover(&confirm(TOKEN), CONFIRM, SEEN));
         page.issue_takeover_token(SEEN, TOKEN.into());
         assert!(page.authorize_takeover(&dismiss(TOKEN), ShellAction::TakeoverDismiss, SEEN));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(page.authorize_takeover(&retry(TOKEN), ShellAction::TakeoverRetry, SEEN));
+        assert!(!page.authorize_takeover(&retry(TOKEN), ShellAction::TakeoverRetry, SEEN));
+        // The offer's token cannot try again: only the restored outcome offers it.
+        page.finished(url("tauri://localhost/index.html?state=takeover"));
+        page.issue_takeover_token(SEEN, TOKEN.into());
+        assert!(!page.authorize_takeover(&retry(TOKEN), ShellAction::TakeoverRetry, SEEN));
     }
 
     #[test]
@@ -1855,6 +1868,7 @@ mod tests {
             ("download", Download),
             ("continue-old-service", ContinueOldService),
             (&*format!("takeover-dismiss?token={TOKEN}"), TakeoverDismiss),
+            (&*format!("takeover-retry?token={TOKEN}"), TakeoverRetry),
             (&*format!("takeover-confirm?relink=0&token={TOKEN}"), TakeoverConfirm { relink: false }),
             (&*format!("takeover-confirm?relink=1&token={TOKEN}"), TakeoverConfirm { relink: true }),
         ] {
@@ -1877,6 +1891,8 @@ mod tests {
             "tauri://localhost/action/takeover-confirm?relink=2",
             "tauri://localhost/action/takeover-confirm?relink=1&extra=1",
             "tauri://localhost/action/takeover-dismiss",
+            "tauri://localhost/action/takeover-retry",
+            "tauri://localhost/action/takeover-retry?relink=1&token=0000000000000000000000000000000000000000000000000000000000000000",
             "tauri://localhost/action/takeover-open",
             "tauri://localhost/action/takeover-dismiss?token=abc",
             "tauri://localhost/action/takeover-dismiss?token=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",

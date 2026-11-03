@@ -815,14 +815,17 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             let dismissed = logic::takeover_dismissed(&config, &view.candidate.identity);
             *app.state::<Shell>().takeover.lock().unwrap() = Some(view);
             // An offer the user is reviewing stays until they choose, even after a
-            // dismissal, for example when it was opened from Settings.
-            let reviewing = app.state::<Shell>().diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == "takeover");
+            // dismissal, for example when it was opened from Settings or the restored outcome.
+            let retry = app.state::<Shell>().takeover_retry.swap(false, Ordering::SeqCst);
+            let reviewing = retry || app.state::<Shell>().diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == "takeover");
             if reviewing || logic::launch_gate(true, dismissed) == logic::LaunchGate::Takeover {
                 crate::recovery(app, "takeover");
                 return Err("takeover".into());
             }
         } else {
             *app.state::<Shell>().takeover.lock().unwrap() = None;
+            // Nothing to replace any more: a pending review request ends here.
+            app.state::<Shell>().takeover_retry.store(false, Ordering::SeqCst);
         }
     }
     let accepted = app.state::<Shell>().old_service_ack.lock().unwrap().clone();
@@ -1435,6 +1438,21 @@ impl FirstRun {
                     if let Err(error) = result { self.fail(error); }
                     else {
                         *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                        crate::recovery(app, "starting");
+                    }
+                }
+                logic::ShellAction::TakeoverRetry => {
+                    // From the restored outcome ("Review service replacement"): record that the user saw the
+                    // outcome, without hiding the offer, and review the offer again. Only
+                    // the offer's own confirmation changes the service.
+                    let restored = pacer_desktop::ota::takeover::journal::status(&pacer_home()).latest
+                        .filter(|latest| latest.state == pacer_desktop::ota::takeover::journal::TakeoverState::Restored
+                            && !logic::takeover_acknowledged(&config, &latest.transaction_id));
+                    let result = restored.map_or(Ok(()), |latest| logic::acknowledge_takeover(&config, &latest.transaction_id));
+                    if let Err(error) = result { self.fail(error); }
+                    else {
+                        *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                        app.state::<Shell>().takeover_retry.store(true, Ordering::SeqCst);
                         crate::recovery(app, "starting");
                     }
                 }

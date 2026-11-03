@@ -18,6 +18,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Offer **Review service replacement** on the desktop's **Kept your current service** page, so a service replacement that was rolled back can be reviewed and tried again without hiding the offer. The service changes only after you confirm the offer.
 - Preserve unrelated notification settings containing malformed UTF-8 in native reads and writes, and match TypeScript number formatting in saved strategy YAML.
 - Keep task-history backfills and retention off the service request thread, retry temporary backfill writer contention, and avoid unnecessary SQLite writer locks when opening or scanning existing task stores. Desktop sign-in no longer waits for historical maintenance.
 
