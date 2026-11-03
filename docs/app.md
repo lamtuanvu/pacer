@@ -7,6 +7,11 @@ pacer clients. Protocol [3.0](protocol.md) is current; `/v2` remains available f
 
 ## Workspace reads
 
+Task-owned session tabs use the full task title, compact title or goal, with the
+executor name as fallback. Additional agent tabs combine the owning task title
+with the executor and session ordinal. Open tabs update as task data arrives;
+tooltips and close controls use the same name.
+
 Workspace's Overview, Changes and Notes tabs stay visible while task details
 scroll. On phones they sit below the current header height and above the bottom
 navigation. The stacked task list and session share the remaining phone height,

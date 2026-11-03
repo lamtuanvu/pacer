@@ -177,3 +177,36 @@ browserTest("panel auto-creates once, reuses on reopen, and stays empty after ki
     expect(await tabs.count()).toBe(1);
   } finally { await browser.close(); }
 }, 30_000);
+
+browserTest("terminal long tab keeps its leading shell icon outside text ellipsis",async()=>{
+  const {buildApp}=await import('../app/build');
+  const css=(await buildApp()).find(file=>file.path==='app.css')!.text;
+  const build=await Bun.build({entrypoints:['test/fixtures/terminal-browser.tsx'],target:'browser',plugins:[{name:'stub-pty',setup(builder){
+    builder.onResolve({filter:/term\/LazyTerminal$/},()=>({path:'stub',namespace:'terminal-stub'}));
+    builder.onLoad({filter:/.*/,namespace:'terminal-stub'},()=>({contents:'export const LazyTerminal = () => null;',loader:'js'}));
+  }}]});
+  expect(build.success).toBe(true);
+  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
+  try{for(const width of [1440])for(const theme of ['light','dark'] as const){
+    const page=await browser.newPage({viewport:{width,height:900},colorScheme:theme});page.setDefaultTimeout(3000);
+    await page.setContent('<div id="root"></div>');await page.addStyleTag({content:css});
+    await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);
+    await page.evaluate(async code=>{const url=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));await import(url);URL.revokeObjectURL(url);},await build.outputs[0]!.text());
+    await page.getByRole('button',{name:'New terminal',exact:true}).click();
+    await page.getByRole('tab',{name:'Shell',exact:true}).dblclick();
+    const title='A long shell name that must keep its terminal icon and close button visible';
+    await page.getByRole('textbox',{name:'Terminal name'}).fill(title);
+    await page.getByRole('textbox',{name:'Terminal name'}).press('Enter');
+    const tab=page.getByRole('tab',{name:title,exact:true});await tab.waitFor();
+    expect(await tab.getAttribute('title')).toContain(title);
+    const metrics=await tab.evaluate(node=>{
+      const text=node.querySelector('.pc-terminal-tab-text')!, icon=node.querySelector('svg')!, item=node.parentElement!, close=item.querySelector('.pc-terminal-tab-kill')!;
+      const t=text.getBoundingClientRect(),i=icon.getBoundingClientRect(),c=close.getBoundingClientRect();
+      return {nested:text.contains(icon),iconWidth:i.width,gap:t.left-i.right,requiredGap:parseFloat(getComputedStyle(node).gap),right:t.right,closeLeft:c.left,overflow:text.scrollWidth>text.clientWidth,width:item.getBoundingClientRect().width,cap:parseFloat(getComputedStyle(item).maxWidth),ellipsis:getComputedStyle(text).textOverflow,closeHit:close.contains(document.elementFromPoint(c.x+c.width/2,c.y+c.height/2))};
+    });
+    expect(metrics.nested).toBe(false);expect(metrics.iconWidth).toBeGreaterThan(0);expect(metrics.gap).toBeGreaterThanOrEqual(metrics.requiredGap);expect(metrics.right).toBeLessThan(metrics.closeLeft);expect(metrics.overflow).toBe(true);expect(metrics.width).toBeLessThanOrEqual(metrics.cap);expect(metrics.ellipsis).toBe('ellipsis');expect(metrics.closeHit).toBe(true);
+    await tab.focus();await page.keyboard.press('Tab');expect(await page.getByRole('button',{name:`Kill ${title}`,exact:true}).evaluate(n=>n===document.activeElement)).toBe(true);
+    if(process.env.PACER_TABS_EVIDENCE)await page.screenshot({path:`${process.env.PACER_TABS_EVIDENCE}/terminal-${width}-${theme}.png`});
+    await page.close();
+  }}finally{await browser.close();}
+},30000);
