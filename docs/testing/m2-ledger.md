@@ -107,9 +107,10 @@ in this slice, so native-operation CT-11 evidence belongs to the later cutover.
 ## P4b shadow capability effects
 
 `pacer-plugin-host` retains registry/RPC admission and re-exports the capability
-runtime from `pacer-plugin-runtime` (layer 4). Pinned byte/process resources and
+runtime from `pacer-plugin-runtime` (layer 5), which re-exports direct/remote run
+and transfer owners from `pacer-plugin-execution` (layer 4). Pinned byte/process resources and
 shared error/effect contracts live in `pacer-plugin-capabilities` (layer 3); host
-registry/RPC admission remains layer 5. Store2 is used below only for the existing
+registry/RPC admission is layer 6. Store2 is used below only for the existing
 error conversion, with no TaskStore access. Facade imports retain type identity.
 The runtime includes concrete Orca attempt
 execution, fixed SSH transport, Git bundle inspection and task-owned transfer
@@ -118,7 +119,7 @@ task/attempt requests. This is a library-only slice: it adds no native operation
 changes no TypeScript runtime handler, and leaves the operation routes above
 unchanged.
 
-Run `cargo test -p pacer-plugin-capabilities -p pacer-plugin-host -p pacer-plugin-runtime -p pacer-plugin-wire -p pacer-js-json -p pacer-bun-glob -p pacer-store --locked` for native
+Run `cargo test -p pacer-plugin-capabilities -p pacer-plugin-execution -p pacer-plugin-host -p pacer-plugin-runtime -p pacer-plugin-wire -p pacer-js-json -p pacer-bun-glob -p pacer-store --locked` for native
 effects and adversarial fixtures. The script freshness check is
 `bun run test test/plugins-native-fixed-scripts.test.ts`. The earlier pre-P4c
 front-door status and plugin-list smoke check exercised the authoritative
@@ -139,18 +140,19 @@ state format. Concrete tests cover clipped questions through settlement, SQLite
 reopening and JSON write-through. The existing native `task.log` can read those
 records; its live harness evidence is separate from unregistered shadow effects.
 
-## Current M2 runtime ownership follow-up
+## M2 runtime ownership split
 
 The Orca text-parity correction keeps the runner/account resolver, wait text,
 parameter validation and exact default-folder record with their private attempt
 owner. That checkpoint measured `pacer-plugin-runtime` at 8,043 LOC; integrating
 direct-task exact edits and lease validation measured 8,136. The subsequent Orca
 task-write migration measured 8,231. With the journal transaction correction,
-the integrated runtime measures **8,290 LOC**, above the CRATE-1 warning.
-Schedule the **Orca attempt/session ownership versus direct/remote
-run and transfer ownership** split within M2; the 12,000-line hard limit is
-unchanged. The integrated host count is 4,972 and capabilities count is 4,298;
-the filesystem read-path fix adds no runtime lines.
+the integrated runtime measured **8,290 LOC**, above the CRATE-1 warning.
+The scheduled **Orca attempt/session ownership versus direct/remote run and
+transfer ownership** split is done: `pacer-plugin-execution` measures 3,765 LOC
+(layer 4), runtime 4,534 (layer 5), host 4,972 (layer 6) and capabilities 4,298.
+Moved files keep their bytes; tests stay at the runtime/host facades. The
+12,000-line hard limit is unchanged.
 See [ADR 0019](../decisions/0019-native-plugin-runtime-ownership.md).
 
 These shadow paths remain unserved. Native client validation stays UNVERIFIED

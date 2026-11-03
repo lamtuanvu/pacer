@@ -1,17 +1,15 @@
-//! Task-attempt owners over pinned capability resources; no registry or RPC admission.
+//! Orca task-attempt, policy and session owners over execution and capability resources; no registry or RPC admission.
 pub use pacer_plugin_capabilities::*;
+pub use pacer_plugin_execution::{
+    native_git, native_remote, native_run, native_worktree, remote_transport,
+};
 pub mod orca_attempt;
 pub mod orca_policy;
 mod orca_prompt;
 pub use orca_attempt::{
     OrcaAttempt, OrcaAttemptSpec, OrcaLiveOwner, OrcaPlacement, checked_worktree,
 };
-pub mod native_git;
 pub mod native_orca;
-pub mod native_remote;
-pub mod native_run;
-pub mod native_worktree;
-pub mod remote_transport;
 pub use native_git::{NativeGit, VerifiedBundle, remote_preflight};
 pub use native_orca::{
     NativeOrca, NativeOrcaLive, NativeOrcaStatus, OrcaLiveControl, OrcaSessionOwner,

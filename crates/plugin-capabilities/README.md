@@ -3,8 +3,8 @@
 This unpublished layer-3 shadow library owns pinned filesystem/executable
 resources, authority and host-issued grants, byte/process stages, host leases
 and desktop work leases. It registers no operation and changes no TS behavior.
-The layer-4 `pacer-plugin-runtime` owns task attempts and re-exports these modules;
-layer-5 `pacer-plugin-host` retains its existing runtime facade and RPC admission.
+The layer-4 `pacer-plugin-execution` and layer-5 `pacer-plugin-runtime` re-export
+these modules; layer-6 `pacer-plugin-host` retains its existing runtime facade and RPC admission.
 
 BrokerError and CapabilityEffect have one identity across all three paths.
 The direct Store2 dependency exists only for the private, unchanged
