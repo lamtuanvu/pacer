@@ -51,8 +51,8 @@ export function SettingsBoard({id,title,caption,actions,children,aside}:{id:stri
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  const budget = budgetResourceRevision(op, invalidations);
  if (budget !== undefined) return budget;
- // update.check itself publishes an update event; reacting to it creates a request loop.
- return JSON.stringify(Object.entries(invalidations).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
+ // update.check itself publishes an update event; reacting to it creates a request loop. Message threads have their own counters.
+ return JSON.stringify(Object.entries(invalidations).filter(([area]) => !area.startsWith("msg:")).filter(([area]) => op.startsWith("plugin.") ? area === "plugin" || area === "plugins" : area !== "plugin" && (op !== "update.check" || area !== "update")));
 }
 export function useResource<T>(op:string,params:unknown={},initial?:T) {
  useSettingsStyles();
@@ -97,14 +97,14 @@ export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean
   },op,params);setResult(r);if(shouldNotifySuccess(r, options.notifySuccess !== false))notifications?.notify({key:`settings:${op}`,tone:"success",title:r.message==="Saved."?"Changes saved":r.message});await done?.(r.data);if(!r.jobId)onDone?.();return r;}
   catch(e){setError(new Error(settingsText(e instanceof Error ? e.message : String(e))));}finally{pending.current=false;setBusy(false);}
  }
- return {busy:busy||job?.state==='running',error,result,job,run,clear:()=>{setError(undefined);setResult(undefined);}};
+ return {unavailable:runner?.unavailable?.(),busy:busy||job?.state==='running',error,result,job,run,clear:()=>{setError(undefined);setResult(undefined);}};
 }
 export function JobProgress({job}:{job:Job}) {
  return <div className="u3-progress" role="status" aria-live="polite"><TextRow label="Check progress" value={jobKindCopy(job.kind)} meta={jobStateCopy(job.state)} /><ul>{job.steps.map((step,i)=><li key={i}><span className={`u3-status u3-status--${step.state}`}>{jobStateCopy(step.state)}</span> {settingsText(step.name)}{step.detail&&<span className="u3-muted"> · {settingsText(step.detail)}</span>}</li>)}</ul>{job.error&&<Alert tone="error" title={settingsText(job.error.message)} announce={false}>{job.error.hint ? settingsText(job.error.hint) : undefined}</Alert>}</div>;
 }
 export function Feedback({action}:{action:ReturnType<typeof useOperation>}) {
  const notifications=useNotifications();
- return <div className="u3-feedback"><ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&!action.result.warning&&<span>{settingsText(action.result.message)}</span>}{action.result.warning&&<Alert tone="warning" title={settingsText(action.result.warning)}/>}{action.result.hint&&<p>{settingsText(action.result.hint)}</p>}{action.result.command&&<Button size="sm" onClick={() => void navigator.clipboard.writeText(action.result!.command!)}>Copy terminal instructions</Button>}{action.result.path&&<p>Path: <code>{displayPath(action.result.path)}</code></p>}{action.result.undo&&<p>You can disconnect this integration from Settings.</p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
+ return <div className="u3-feedback">{action.unavailable&&<p className="muted">{action.unavailable}</p>}<ErrorMessage error={action.error}/>{action.result&&<>{!notifications&&!action.job&&!action.result.warning&&<span>{settingsText(action.result.message)}</span>}{action.result.warning&&<Alert tone="warning" title={settingsText(action.result.warning)}/>}{action.result.hint&&<p>{settingsText(action.result.hint)}</p>}{action.result.command&&<Button size="sm" onClick={() => void navigator.clipboard.writeText(action.result!.command!)}>Copy terminal instructions</Button>}{action.result.path&&<p>Path: <code>{displayPath(action.result.path)}</code></p>}{action.result.undo&&<p>You can disconnect this integration from Settings.</p>}</>}{action.job&&<JobProgress job={action.job}/>}</div>;
 }
 export function Segment(props:{variant?:"board";label:string;value:string;options:{value:string;label:string}[];onChange:(value:string)=>void;disabled?:boolean}) {return <SegmentedControl {...props}/>;}
 export const words=(value:string)=>value.replaceAll('_',' ');

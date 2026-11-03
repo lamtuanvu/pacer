@@ -1,5 +1,6 @@
+import { useUniqueId as useId } from './useUniqueId';
 import { forwardRef } from 'preact/compat';
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Button } from './Button';
 import { AgentMark } from './AgentMark';
 import { Icon } from './icons';

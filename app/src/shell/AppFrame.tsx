@@ -64,7 +64,7 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
   const work = <div className="pc-work">
     {narrow && top}
     {narrow && <div aria-live="polite" role="status" className="pc-live-region">{live}</div>}
-    <main id="main-content" tabIndex={-1} className={mainClass}><fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{main}</fieldset></main>
+    <main id="main-content" tabIndex={-1} className={mainClass}><div className="pc-offline-controls">{main}</div></main>
   </div>;
   return <div ref={frame} className={`pc-app${narrow ? " pc-app--narrow" : ""}${status ? " pc-app--with-status" : ""}${docked ? " pc-app--with-dock" : ""}${live ? " pc-app--offline" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>
@@ -74,7 +74,7 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
     <div className="pc-body">
       {!narrow && activity}
       {left}
-      {<div className="pc-work-wrap">{work}{docked && <div className="pc-dock"><fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{dock}</fieldset></div>}{overlay && <fieldset className="pc-offline-controls" disabled={!!live} title={live ? "pacer is offline" : undefined} aria-label={live ? "pacer is offline" : undefined}>{overlay}</fieldset>}</div>}
+      {<div className="pc-work-wrap">{work}{docked && <div className="pc-dock"><div className="pc-offline-controls">{dock}</div></div>}{overlay && <div className="pc-offline-controls">{overlay}</div>}</div>}
       {!narrow && right}
     </div>
     {status}

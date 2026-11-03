@@ -13,6 +13,7 @@ Delegation is a one-shot handoff. Follow-ups (send-back, answer, retry) start a 
 3. Three protocol invariants cannot be configured: the sender identity is derived from the credential, grant or role env; sends are idempotent by `(sender, request_id)`; message bodies reach agents only as argument-vector or stdin data (SEC-5).
 4. A message to an agent pacer launched runs a new turn through the existing runner, so admission, budget, slots and token accounting apply. Every continuation turn (message, answer, send-back) first passes fresh project policy admission, as a new attempt does ([ADR 0015](0015-policy-admission-and-task-mutation-locks.md)). The turn resumes the stored native session in the same worktree while policy admits that executor.
 5. Refusals reuse the existing error codes and carry `data.reason`. No new `CoreErrorCode` is added.
+6. A human-started delegated task is full managed work by default when `messaging.grants.user_started_tasks` is `on`. `grant: false` or `pacer delegate --no-grant` opts out for that task. Conversations and planner-origin delegates are excluded. Managed roots use strict enforcement and therefore default to headless launches; they may create children through their attempt grant and review those children through `dispatch.review`. Their message turns still use managed restart, grant revocation and reissue, and the attempt budget.
 
 ## Identity sources and accepted exceptions
 
@@ -27,10 +28,20 @@ Delegation is a one-shot handoff. Follow-ups (send-back, answer, retry) start a 
 - `msg.close` is authorized separately from sends: only the node's parent, the tree's origin or the human may close it.
 - The claude-code headless resume argv keeps the model and permission flags but not every flag `launchFor` adds for a fresh launch. It is to be compared against `launchFor` with live evidence.
 
+## Planner hook trust
+
+`SessionStart` records a native planner session identity, while `Stop` and `UserPromptSubmit` surface unread messages for that session. The hook may block a planner's Stop, which is deliberately configurable through `messaging.hooks.stop` (`block`, `inject_only` or `off`). The default block releases after the same message set has blocked twice, then the broker escalates to the human. The hooks fail open and skip executor sessions. Planner-kind inbox messages are also shown because MCP calls do not carry the session environment. Hook output is context for the planner, not an authority to send, mark read, or bypass the service guardrail; the planner must answer or mark messages read.
+
+## Project policy and live delivery
+
+Project messaging rules have their own `project-messaging.json`, revision and lock. They sit between tree and global rules. They cannot share `project-strategies.json`: its v1 schema is strict, old readers fail closed on new fields, and writes replace whole entries. An invalid messaging file is surfaced by policy inspection while sending falls back to global and default rules. Revision checks protect concurrent edits.
+
+Live delivery waits until the agent is between turns and no viewer holds terminal control. It never injects into a takeover run. Pacer takes control, sends one bracketed paste and one Return, then releases control. Bodies above 32 KiB are stored in a private run-directory file and only a short read-file prompt is pasted. Socket or control failures release messages back to pending; a later turn-ended report completes the turn. These rules keep a human's terminal input and an active agent turn from being interrupted.
+
 ## Proposed amendment (API-5)
 
 API-5 bounds what an executor may *create* to its grant subtree. This amendment adds the following: messaging routes are user-configured guardrails evaluated by the service, and they may allow messages outside a subtree, for example between top-level sessions. A message never grants the power to create work or to run free-form shell text. Identity derivation and argument-vector delivery stay fixed.
 
 ## Consequences
 
-Planners and executors can hold multi-turn conversations with full context. Every turn is metered. Per-session planner identity (two planner sessions on one machine) arrives with the SessionStart hook work in plan 2. Until then, external planners share one identity per planner kind.
+Planners and executors can hold multi-turn conversations with full context. Every turn is metered. Per-session planner identity distinguishes planner sessions on one machine; messages addressed to the generic planner-kind inbox remain visible to each session. Human-started managed work can coordinate sub-agents, but strict enforcement requires an eligible certified executor and a headless default. The opt-out preserves an unmanaged task when that coordination is unnecessary.

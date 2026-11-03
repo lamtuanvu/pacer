@@ -1,14 +1,15 @@
 import { editStrategy, type StrategyDoc } from "../config/edit";
-import { EMPTY_PLUGINS, MissingStrategyError, type PluginGrant, type PluginsCfg, loadStrategy, strategyPath } from "../config/strategy";
+import { EMPTY_PLUGINS, MissingStrategyError, type PluginGrant, type PluginsCfg, strategyPath } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { withLock } from "../core/lock";
 import type { Ctx } from "../types";
+import { cachedStrategy } from "./host-drift";
 
 export { EMPTY_PLUGINS, type PluginGrant, type PluginsCfg } from "../config/strategy";
 
 /** No strategy file means no plugin configuration; other strategy errors still surface. */
 export function pluginsConfig(ctx: Ctx): PluginsCfg {
-  try { return loadStrategy(ctx).plugins ?? EMPTY_PLUGINS; }
+  try { return cachedStrategy(ctx).plugins ?? EMPTY_PLUGINS; }
   catch (e) { if (e instanceof MissingStrategyError) return EMPTY_PLUGINS; throw e; }
 }
 
@@ -30,7 +31,7 @@ export function setPluginDisabled(ctx: Ctx, id: string, disabled: boolean): Prom
 
 export function setPluginGrant(ctx: Ctx, id: string, grant: PluginGrant | null): Promise<void> {
   return edit(ctx, (doc, current) => {
-    if (grant) doc.setIn(["plugins", "installed", id], { version: grant.version, capabilities: grant.capabilities, ...(grant.surfaces?.length ? { surfaces: grant.surfaces } : {}), ...(grant.policy ? { policy: true } : {}) });
+    if (grant) doc.setIn(["plugins", "installed", id], { version: grant.version, capabilities: grant.capabilities, ...(grant.surfaces?.length ? { surfaces: grant.surfaces } : {}), ...(grant.policy !== undefined ? { policy: grant.policy } : {}) });
     else if (Object.hasOwn(current.installed, id)) doc.deleteIn(["plugins", "installed", id]);
   });
 }

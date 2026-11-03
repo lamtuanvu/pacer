@@ -42,7 +42,10 @@ e2e("compiled production Core loads for version, help and JSON-RPC hello", async
 async function sandbox() {
   const home = tmpDir();
   const pacerHome = join(home, ".pacer"), bin = join(home, "bin"), repo = join(home, "repo"), codexHome = join(home, ".codex");
-  for (const dir of [pacerHome, bin, repo, codexHome]) mkdirSync(dir, { recursive: true });
+  // The owned executor broker requires the Pacer home to be private before it
+  // claims a run directory. Match the installed app's home permissions.
+  mkdirSync(pacerHome, { recursive: true, mode: 0o700 });
+  for (const dir of [bin, repo, codexHome]) mkdirSync(dir, { recursive: true });
   // Routing checks for a login indicator even for the fake executor. This empty
   // marker contains no credentials and stays isolated from the host Codex home.
   writeFileSync(join(codexHome, "auth.json"), "{}");

@@ -5,13 +5,13 @@ import { fakeCtx } from "./helpers";
 const MAX=4*1024*1024, CHUNK=256*1024;
 const ask=()=>protocol.EXTENSION_METHODS["classifier.ask"]!;
 const cap=(name:string)=>protocol.CAPABILITY_METHODS[name]!;
-test("1.2 adds classifier without losing existing extension methods",()=>{
- expect(protocol.PLUGIN_PROTOCOL_VERSION).toBe("1.6.0");
+test("1.6 adds classifier without losing existing extension methods",()=>{
+ expect(protocol.PLUGIN_PROTOCOL_VERSION).toBe("1.10.0");
  for(const point of ["diagnostic","agentSession","usage","classifier"])expect(protocol.EXTENSION_POINTS as readonly string[]).toContain(point);
  for(const name of ["usage.read", "diagnostic.ping"])expect(protocol.EXTENSION_METHODS[name]).toBeDefined();
  expect(protocol.EXTENSION_METHODS["classifier.adapters"]?.deadlineMs).toBe(2000);
- const manifest={id:"private-classifier",version:"0.2.0",publisher:"fixture",host:"^1.6",contributes:{classifier:{adapters:["rules"]}}};
- expect(protocol.helloParams.safeParse({protocol:"1.2.0",pacer:"fixture",manifest,features:["httpBodyChunks"],config:{},grants:[]}).success).toBe(true);
+ const manifest={id:"private-classifier",version:"0.2.0",publisher:"fixture",host:">=1.6.0",contributes:{classifier:{adapters:["rules"]}}};
+ expect(protocol.helloParams.safeParse({protocol:"1.6.0",pacer:"fixture",manifest,features:["httpBodyChunks"],config:{},grants:[]}).success).toBe(true);
 });
 test("question and rich answers preserve false zero string and optional fields",()=>{
  expect(ask()).toBeDefined();
@@ -42,10 +42,17 @@ test("HTTP methods explicitly map net.http and bounded canonical chunks",()=>{
  for(const base64 of ["AB==","AAB=","AA=","!!!!",Buffer.alloc(CHUNK+1).toString("base64")])expect(stage.params.safeParse({handle:"h",offset:0,base64}).success).toBe(false);
  const read=cap("capability.net.http.body.readChunk");for(const change of [{offset:-1},{offset:Infinity},{offset:Number.MAX_SAFE_INTEGER+1},{length:CHUNK+1}])expect(read.params.safeParse({handle:"h",offset:0,length:CHUNK,...change}).success).toBe(false);
 });
-test("presence schema returns only boolean and valid references",()=>{
- const method=cap("capability.secrets.check");expect(method).toBeDefined();for(const ref of ["env:KEY","secrets:KEY_A","endpoint:account.name"])expect(method.params.safeParse({ref}).success).toBe(true);
- for(const ref of ["file:/etc/x","env:","env:KEY/path"])expect(method.params.safeParse({ref}).success).toBe(false);
- expect(method.result.parse({present:false,value:"hidden"})).toEqual({present:false});expect(protocol.capabilityOf("capability.secrets.check")).toBe("secrets.resolve");
+test("presence check returns only boolean and the assistant resolve retains its earlier reference contract",()=>{
+  const check=cap("capability.secrets.check"); expect(check).toBeDefined();
+  for(const ref of ["env:KEY","secrets:KEY_A","endpoint:account.name"])
+    expect(check.params.safeParse({ref}).success).toBe(true);
+  for(const ref of ["file:/etc/x","env:","env:KEY/path"])
+    expect(check.params.safeParse({ref}).success).toBe(false);
+  expect(check.result.parse({present:false,value:"hidden"})).toEqual({present:false});
+  expect(protocol.capabilityOf("capability.secrets.check")).toBe("secrets.resolve");
+  const resolve=cap("capability.secrets.resolve");
+  expect(resolve.params.safeParse({ref:"endpoint/account"}).success).toBe(true);
+  expect(resolve.result.safeParse({value:null}).success).toBe(true);
 });
 test("new transfer feature is additive and legacy hello stays valid",()=>{
  expect(protocol.HTTP_BODY_CHUNK_FEATURE).toBe("httpBodyChunks");const old={protocol:"1.0.0",id:"legacy",version:"1.0.0",contributes:["diagnostic"]};expect(protocol.helloResult.parse(old)).toEqual(old);

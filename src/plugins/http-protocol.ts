@@ -9,7 +9,7 @@ const bodyBytes = bytes.max(HTTP_BODY_MAX_BYTES);
 const handle = z.string().min(1).max(256);
 export const secretReference = z
   .string()
-  .regex(/^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$/);
+  .regex(/^(?:(?:env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*|endpoint\/[a-z0-9][a-z0-9-]*)$/);
 export const httpBodyText = z
   .string()
   .refine(

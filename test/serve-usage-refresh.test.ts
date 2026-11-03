@@ -18,6 +18,14 @@ test("manual usage refresh rebuilds status after an older status build finishes"
   let calls = 0;
   const first = new Promise<Computed>(resolve => { finishFirst = resolve; });
   const compute = spyOn(status, "computeStatus").mockImplementation(async () => ++calls === 1 ? first : computed);
+  let releaseAutomatic!: () => void;
+  const automaticHeld = new Promise<void>(resolve => { releaseAutomatic = resolve; });
+  let markAutomaticStarted!: () => void;
+  const automaticStarted = new Promise<void>(resolve => { markAutomaticStarted = resolve; });
+  const refresh = spyOn(usageRefresh, "refreshAllUsage").mockImplementation(async (_ctx, automatic) => {
+    if (automatic) { markAutomaticStarted(); await automaticHeld; }
+    return [];
+  });
   const server = startServer(() => ctx, { port: 0, pumpMs: 0 });
   try {
     for (let n = 0; n < 100 && !calls; n++) await Bun.sleep(5);
@@ -26,13 +34,21 @@ test("manual usage refresh rebuilds status after an older status build finishes"
       method: "POST", headers: { Authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: "{}",
       signal: AbortSignal.timeout(5_000),
     });
-    await Bun.sleep(20);
+    // Wait for the scheduled automatic call, even under a loaded test runner.
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(Error("automatic refresh did not start")), 5_000);
+      automaticStarted.then(() => { clearTimeout(timer); resolve(); });
+    });
     expect(calls).toBe(1);
     finishFirst(computed);
     const response = await request;
     expect(response.status).toBe(200);
     expect(calls).toBe(2);
-  } finally { finishFirst(computed); compute.mockRestore(); await server.stop(); }
+  } finally {
+    finishFirst(computed);
+    try { await server.stop(); }
+    finally { releaseAutomatic(); refresh.mockRestore(); compute.mockRestore(); }
+  }
 }, 10_000);
 
 test("the running service refreshes configured usage while executors are idle", async () => {

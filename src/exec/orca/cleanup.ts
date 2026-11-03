@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
+import { pidAlive } from "../../link/pid";
 import { worktreeDirty } from "../../supervisor/worktree";
 import { releaseOrcaTerminalWorkSync } from "../../update/desktop/admission";
 import { listTasksWhere, updateTask } from "../../tasks/store";
 import type { TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import type { HostClean, HostCleanOpts } from "../cleanup";
-import { OrcaClient, type TerminalRow } from "./client";
+import { OrcaClient, START_TIMEOUT_MS, type TerminalRow } from "./client";
 import { laneWorktreeName } from "./names";
 import { realpathSafe } from "./setup";
 import { loadOrcaState, type StrandedWorktree, type StrayRisk, type UncertainStart, updateOrcaState, withLock } from "./state";
@@ -13,6 +14,8 @@ import { loadOrcaState, type StrandedWorktree, type StrayRisk, type UncertainSta
 export interface OwnedWorktree { id: string; path: string; name: string }
 export interface CleanupDeps { sleep: (ms: number) => Promise<void>; polls: number }
 const SETTLED = ["succeeded", "failed", "stopped"];
+/** Longer than worker-start's own timeout, so a live runner always records its own start outcome first. */
+export const START_INTENT_STALE_S = Math.ceil(START_TIMEOUT_MS / 1000) + 60;
 const DEFAULTS: CleanupDeps = { sleep: (ms) => Bun.sleep(ms), polls: 20 };
 
 /** Close only the exact handle, accepting only a receipt naming it with ptyKilled. Never throws. */
@@ -241,7 +244,7 @@ async function sweepStrays(ctx: Ctx, c: OrcaClient, w: StrayRisk): Promise<boole
     return p === real || p.startsWith(real + "/");
   })) return false;
   const s = loadOrcaState(ctx);
-  const agents = [...Object.values(s.workers).map(x => x.terminal), ...Object.keys(s.uncertain), ...Object.keys(s.unclosed)].filter((x): x is string => !!x);
+  const agents = [...Object.values(s.workers).map(x => x.terminal), ...Object.keys(s.uncertain), ...Object.keys(s.unclosed), ...Object.keys(s.starting)].filter((x): x is string => !!x);
   const listed = await worktreeTerminals(c, w.id, agents);
   if (!listed) return false;
   let all = true;
@@ -263,6 +266,16 @@ export async function reconcileOrcaWork(ctx: Ctx): Promise<void> {
   for (const u of Object.values(loadOrcaState(ctx).unclosed)) {
     if (await closedOrGone(u.terminal, u.worktreeId)) await withLock(ctx, "coordinator", async () => { updateOrcaState(ctx, s => { delete s.unclosed[u.terminal]; }); });
   }
+  // A start intent outlives its runner only when the runner died mid-start: reconcile it as an uncertain start.
+  await withLock(ctx, "coordinator", async () => {
+    updateOrcaState(ctx, s => {
+      for (const [terminal, intent] of Object.entries(s.starting)) {
+        if (ctx.now - intent.at < START_INTENT_STALE_S || (intent.pid !== undefined && pidAlive(intent.pid))) continue;
+        s.uncertain[terminal] ??= { taskId: intent.taskId, attempt: intent.attempt, terminal, run: intent.run, worktree: intent.worktree, at: intent.at };
+        delete s.starting[terminal];
+      }
+    });
+  });
   for (const u of Object.values(loadOrcaState(ctx).uncertain)) {
     const found = await lookupWorker(c, u.run, u.terminal);
     if (found.kind === "unknown" || (found.kind === "found" && !SETTLED.includes(found.state))) continue;

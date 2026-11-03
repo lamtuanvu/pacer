@@ -12,7 +12,7 @@ afterEach(cleanupUsageFixtures);
 
 function syntheticCodex(ctx: ReturnType<typeof pluginFixtureCtx>, usedPercent: number) {
   const executable = join(ctx.home, "codex-live-fixture"), receipt = join(ctx.home, "codex-live-request.json");
-  writeFileSync(executable, `#!${process.execPath}\nlet input="";process.stdin.on("data",part=>{input+=part;if(input.includes("account/rateLimits/read")){process.stdout.write(JSON.stringify({id:2,result:{rateLimits:{primary:{usedPercent:${usedPercent},windowDurationMins:300,resetsAt:1800003600},secondary:{usedPercent:62,windowDurationMins:10080,resetsAt:1800086400}}}})+"\\n")}});process.stdin.on("end",()=>{require("node:fs").writeFileSync(${JSON.stringify(receipt)},JSON.stringify({home:process.env.CODEX_HOME,input}));process.exit(0)});\n`);
+  writeFileSync(executable, `#!${process.execPath}\nlet input="";process.stdin.on("data",part=>{input+=part;if(input.includes("account/rateLimits/read")){process.stdout.write(JSON.stringify({id:2,result:{rateLimits:{primary:{usedPercent:${usedPercent},windowDurationMins:300,resetsAt:1800003600},secondary:{usedPercent:62,windowDurationMins:10080,resetsAt:1800086400}}}})+"\\n")}});process.stdin.on("end",()=>{require("node:fs").writeFileSync(${JSON.stringify(receipt)},JSON.stringify({home:process.env.CODEX_HOME,input,proxy:process.env.HTTPS_PROXY,noProxy:process.env.NO_PROXY,ca:process.env.SSL_CERT_FILE,private:process.env.PRIVATE_TOKEN}));process.exit(0)});\n`);
   chmodSync(executable, 0o700);
   const previous = ctx.which;
   ctx.which = name => name === "codex" ? executable : previous(name);
@@ -21,6 +21,7 @@ function syntheticCodex(ctx: ReturnType<typeof pluginFixtureCtx>, usedPercent: n
 
 test("idle Codex refresh reads account limits through its CLI without a turn", async () => {
   const ctx = pluginFixtureCtx({ now: 1_800_000_000, run: async () => { throw Error("host run bypass"); } });
+  ctx.env.HTTPS_PROXY="http://proxy";ctx.env.NO_PROXY="localhost";ctx.env.SSL_CERT_FILE="/tmp/ca";ctx.env.PRIVATE_TOKEN="hidden";
   const receipt = syntheticCodex(ctx, 24);
   const home = join(ctx.home, "work-codex");
   const strategy = validateStrategy({ planner: "claude-code", accounts: { "claude-code": { kind: "claude" }, work: { kind: "codex", home } }, routing: [{ default: ["codex#work"] }] }, "/strategy");
@@ -30,6 +31,8 @@ test("idle Codex refresh reads account limits through its CLI without a turn", a
   const request = JSON.parse(readFileSync(receipt, "utf8"));
   expect(request.input).toContain("account/rateLimits/read");
   expect(request.home).toBe(home);
+  expect(request).toMatchObject({proxy:"http://proxy",noProxy:"localhost",ca:"/tmp/ca"});
+  expect(request.private).toBeUndefined();
   expect(usageRefreshCapability(strategy.accounts.work)).toBe("provider-command");
 });
 

@@ -94,14 +94,20 @@ export function launchArgvFor(cfg: ProviderCfg, worktree: string, runDir: string
   throw Error(`no Orca terminal launcher for provider "${cfg.id}"`);
 }
 
+/** Leave room for the launch instruction within the plugin argv limit. */
+export const EXECUTOR_ARGV_BYTES = 4096;
+export const INTERACTIVE_PROMPT_BYTES = EXECUTOR_ARGV_BYTES - 512;
+export const promptFileInstruction = (promptFile: string) =>
+  `Read the complete task instructions in ${JSON.stringify(promptFile)} and carry them out.`;
+
 export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDir: string, taskId: string, sessionId?: string, trustRoot = repo): Launch {
   const model = cfg.model;
   if (cfg.session === "interactive") {
-    if (Buffer.byteLength(prompt, "utf8") > 32 * 1024) {
+    if (Buffer.byteLength(prompt, "utf8") > INTERACTIVE_PROMPT_BYTES) {
       mkdirSync(taskDir, {recursive: true, mode: 0o700});
       const promptFile = join(taskDir, "prompt.md");
       writeFileSync(promptFile, prompt, {mode: 0o600});
-      prompt = `Read the complete task instructions in ${JSON.stringify(promptFile)} and carry them out.`;
+      prompt = promptFileInstruction(promptFile);
     }
     const agent = parseRunnerId(cfg.id)?.agent ?? cfg.id;
     const models = model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", model] : [];

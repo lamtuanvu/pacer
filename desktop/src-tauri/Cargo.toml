@@ -1,6 +1,6 @@
 [package]
 name = "pacer-desktop"
-version = "0.12.0"
+version = "0.14.0"
 edition = "2021"
 license = "Apache-2.0"
 default-run = "pacer"
@@ -19,6 +19,8 @@ name = "pacer-update-helper"
 path = "src/bin/pacer-update-helper.rs"
 
 [features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
 ota-production = []
 ota-fixture = []
 
@@ -40,6 +42,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-window-state = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 png = "0.18.1"
@@ -53,8 +56,9 @@ flate2 = "1"
 tar = "0.4"
 tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "cookies"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "sync", "net"] }
 futures-util = "0.3"
+tokio-tungstenite = "0.29"
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

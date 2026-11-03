@@ -363,7 +363,11 @@ test("consent detection preview and incompatible installs have no recovery butto
 test("older live service explains missing screens and keeps current work reachable", () => {
   const page = shell("?state=outdatedService&installed=0.9.0&version=0.10.0");
   expect(page.element("h1").textContent).toBe("Your service needs an update");
-  expect(page.element("#message").textContent).toContain("new Dispatcher controls are unavailable");
+  // Persistent workbench design §9 keeps an actionable version warning and
+  // Continue current work; the bundled page gates individual features on hello.ops.
+  // docs/specs/2026-10-31-persistent-workbench-design.md
+  expect(page.element("#message").textContent).toContain("The running service is older than this app");
+  expect(page.element("#message").textContent).toContain("Update it for the current controls");
   expect(page.element("#live-service-version").textContent).toBe("0.9.0");
   expect(page.element("#desktop-release-version").textContent).toBe("0.10.0");
   expect(page.element("#outdated-service").hidden).toBe(false);
@@ -565,7 +569,16 @@ test("fixture shell excludes the production global singleton socket before regis
 
 test("fixture shell isolates webview storage and excludes global OS integrations",()=>{
  const source=readFileSync(new URL("../desktop/src-tauri/src/main.rs",import.meta.url),"utf8");
- expect((source.match(/\.incognito\(cfg!\(feature\s*=\s*"ota-fixture"\)\)/g)??[])).toHaveLength(3);
+ // Persistent workbench design §5: main and tray each load a bundled page;
+ // the former service-page builder is gone. Check isolation on every builder.
+ // docs/specs/2026-10-31-persistent-workbench-design.md
+ const builders = [...source.matchAll(/tauri::WebviewWindowBuilder::new\(app, "(main|tray)",([\s\S]*?)\.build\(\)/g)];
+ expect(builders.map(match => match[1]).sort()).toEqual(["main", "tray"]);
+ expect(source.match(/tauri::WebviewWindowBuilder::new\(/g)).toHaveLength(builders.length);
+ for (const [, , builder] of builders) {
+   expect(builder).toMatch(/WebviewUrl::App\(/);
+   expect(builder).toMatch(/\.incognito\(cfg!\(feature\s*=\s*"ota-fixture"\)\)/);
+ }
  expect(source).toMatch(/#\[cfg\(not\(feature\s*=\s*"ota-fixture"\)\)\]\s*let app = app\s*\.plugin\(tauri_plugin_deep_link/);
  expect(source).toContain('fn launch_at_login(_app: &AppHandle, _enabled: bool)');
  expect(source).toContain('Launch at login is unavailable in isolated fixtures');

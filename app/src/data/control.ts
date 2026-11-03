@@ -1,3 +1,4 @@
+import { platform } from '../platform';
 import { startPolling, type SchedulePoll } from './poll';
 import type { ClientAction } from '../../../src/clients/control';
 import type { BrowserApi } from './api';
@@ -21,7 +22,7 @@ export async function applyClientAction(action: ClientAction, host: ControlHost)
 
 /** One sequential poll per mounted page, credentials stay in this closure. */
 export function startClientControl(api: BrowserApi, windowLabel: 'main' | 'tray', navigate: ControlHost['navigate'], schedule?: SchedulePoll): () => void {
-  const native = (globalThis as typeof globalThis & {__TAURI__?: {core?: {invoke(command:string,args:Record<string,unknown>):Promise<unknown>}}}).__TAURI__?.core?.invoke;
+  const native = platform.windowControls.desktop ? platform.clientControl : undefined;
   const host: ControlHost = {
     getTheme: () => savedTheme(),
     setTheme: value => {
@@ -30,7 +31,7 @@ export function startClientControl(api: BrowserApi, windowLabel: 'main' | 'tray'
       window.dispatchEvent(new StorageEvent('storage', {key: THEME_KEY, newValue: value}));
     },
     navigate,
-    ...(native ? {native: (action: ClientAction) => native('client_control', {action})} : {}),
+    ...(native ? {native: (action: ClientAction) => native(action)} : {}),
   };
   let stopped = false;
   let enrollment: {client_id:string;worker_token:string} | undefined;

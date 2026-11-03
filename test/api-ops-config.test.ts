@@ -9,6 +9,7 @@ import { emptySnapshot, parseOutboxEvent, reduce } from "../src/link/envelope";
 import * as config from "../src/core/config";
 import * as setup from "../src/core/setup";
 import { fakeCtx } from "./helpers";
+import { setMachineReaders } from "../src/engine/machine";
 
 async function configured() {
   const ctx = fakeCtx();
@@ -172,25 +173,30 @@ test("machine parallel tasks defaults to unlimited, validates whole numbers, pre
   expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_max_tasks": {value: "unlimited", source: path}}});
 });
 
-test("machine guard settings: memory pressure limit and load limit get, set and validate", async () => {
-  const ctx = await configured(), path = join(ctx.pacerHome, "strategy.yaml");
-  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {
-    "execution.local_memory_pressure_limit": {value: "critical", source: "default"},
-    "execution.local_load_limit": {value: "off", source: "default"},
-  }});
-  expect(await callOp(ctx, "config.set", {key: "execution.local_memory_pressure_limit", value: "warning"})).toMatchObject({value: "warning", previous: "critical", undo: "pacer config set execution.local_memory_pressure_limit critical"});
-  expect(await callOp(ctx, "config.set", {key: "execution.local_memory_pressure_limit", value: "off"})).toMatchObject({value: "off"});
-  expect(await callOp(ctx, "config.set", {key: "execution.local_load_limit", value: 3})).toMatchObject({value: 3, previous: "off", undo: "pacer config set execution.local_load_limit off"});
-  expect(await callOp(ctx, "config.set", {key: "execution.local_load_limit", value: "1.5"})).toMatchObject({value: 1.5, previous: 3});
-  expect(Bun.YAML.parse(readFileSync(path, "utf8"))).toMatchObject({execution: {local_memory_pressure_limit: "off", local_load_limit: 1.5}});
-  const before = readFileSync(path, "utf8");
-  for (const value of ["high", "Critical", "", 2]) expect((await error(callOp(ctx, "config.set", {key: "execution.local_memory_pressure_limit", value}))).code).toBe("invalid_input");
-  for (const value of [0, "0", -1, "-2", "fast", ""]) expect((await error(callOp(ctx, "config.set", {key: "execution.local_load_limit", value}))).code).toBe("invalid_input");
-  expect(readFileSync(path, "utf8")).toBe(before);
-  await callOp(ctx, "config.set", {key: "execution.local_load_limit", value: "off"});
-  expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_load_limit": {value: "off", source: path}, "execution.local_memory_pressure_limit": {value: "off", source: path}}});
-  // config.get also reports what the guard sees now, for Settings to re-read while open.
-  expect(await callOp(ctx, "config.get", {})).toMatchObject({machine: {used: 0, memoryPressure: "normal", memoryPressureLimit: "off", loadLimit: null, open: true}});
+test.each([{level: 2, pressure: "warning"}, {level: 4, pressure: "critical"}])("machine guard settings get, set and validate under $pressure pressure", async ({level, pressure}) => {
+  setMachineReaders({pressure: () => level, load: () => ({avg1: 0, cores: 1})});
+  try {
+    const ctx = await configured(), path = join(ctx.pacerHome, "strategy.yaml");
+    expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {
+      "execution.local_memory_pressure_limit": {value: "critical", source: "default"},
+      "execution.local_load_limit": {value: "off", source: "default"},
+    }});
+    expect(await callOp(ctx, "config.set", {key: "execution.local_memory_pressure_limit", value: "warning"})).toMatchObject({value: "warning", previous: "critical", undo: "pacer config set execution.local_memory_pressure_limit critical"});
+    expect(await callOp(ctx, "config.set", {key: "execution.local_memory_pressure_limit", value: "off"})).toMatchObject({value: "off"});
+    expect(await callOp(ctx, "config.set", {key: "execution.local_load_limit", value: 3})).toMatchObject({value: 3, previous: "off", undo: "pacer config set execution.local_load_limit off"});
+    expect(await callOp(ctx, "config.set", {key: "execution.local_load_limit", value: "1.5"})).toMatchObject({value: 1.5, previous: 3});
+    expect(Bun.YAML.parse(readFileSync(path, "utf8"))).toMatchObject({execution: {local_memory_pressure_limit: "off", local_load_limit: 1.5}});
+    const before = readFileSync(path, "utf8");
+    for (const value of ["high", "Critical", "", 2]) expect((await error(callOp(ctx, "config.set", {key: "execution.local_memory_pressure_limit", value}))).code).toBe("invalid_input");
+    for (const value of [0, "0", -1, "-2", "fast", ""]) expect((await error(callOp(ctx, "config.set", {key: "execution.local_load_limit", value}))).code).toBe("invalid_input");
+    expect(readFileSync(path, "utf8")).toBe(before);
+    await callOp(ctx, "config.set", {key: "execution.local_load_limit", value: "off"});
+    expect(await callOp(ctx, "config.get", {})).toMatchObject({keys: {"execution.local_load_limit": {value: "off", source: path}, "execution.local_memory_pressure_limit": {value: "off", source: path}}});
+    // Disabled limits keep the guard open while Settings still reports the sampled pressure.
+    expect(await callOp(ctx, "config.get", {})).toMatchObject({machine: {used: 0, memoryPressure: pressure, memoryPressureLimit: "off", loadLimit: null, open: true}});
+  } finally {
+    setMachineReaders({pressure: () => 1, load: () => ({avg1: 0, cores: 1})});
+  }
 });
 
 test("delegated task launch mode defaults to interactive and validates its values", async () => {
@@ -295,5 +301,14 @@ test("config.get only offers detected terminals alongside Automatic", async () =
   else for (const choice of result.terminalChoices.slice(1)) {
     const app = ({"ghostty":"Ghostty","iterm":"iTerm","terminal-app":"Terminal"} as Record<string,string>)[choice.value];
     expect(["/Applications", join(ctx.home,"Applications"), "/System/Applications/Utilities"].some(root => existsSync(join(root, `${app}.app`)))).toBe(true);
+  }
+});
+
+test("pacing order shared input fixtures", async () => {
+  const cases = await Bun.file(join(import.meta.dir, "fixtures/config-settings/order.json")).json() as {input: string; expected: string[] | null}[];
+  for (const {input, expected} of cases) {
+    const ctx = await configured();
+    if (expected === null) expect((await error(config.set(ctx, "pacing.order", input))).code).toBe("invalid_input");
+    else expect((await config.set(ctx, "pacing.order", input)).value).toEqual(expected);
   }
 });

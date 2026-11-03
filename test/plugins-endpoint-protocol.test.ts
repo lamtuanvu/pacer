@@ -24,8 +24,8 @@ test('endpoint test has its own fixed budget and structured state without changi
   expect(method!.result.safeParse({state:'made-up'}).success).toBe(false);
 });
 import {PLUGIN_PROTOCOL_VERSION,EXTENSION_METHODS,EXTENSION_POINTS,CAPABILITY_METHODS,capabilityOf,CAPABILITIES} from '../src/plugins/protocol';
-test('protocol 1.6.0 registers endpoint methods and write authority without changing the transport line cap',()=>{
- expect(MAX_LINE_BYTES).toBe(1048576);expect(PLUGIN_PROTOCOL_VERSION).toBe('1.6.0');expect(EXTENSION_POINTS).toContain('endpoint');expect(CAPABILITIES).toContain('fs.write');
+test('protocol 1.4 registers endpoint methods and write authority without changing the transport line cap',()=>{
+ expect(MAX_LINE_BYTES).toBe(1048576);expect(PLUGIN_PROTOCOL_VERSION).toBe('1.10.0');expect(EXTENSION_POINTS).toContain('endpoint');expect(CAPABILITIES).toContain('fs.write');
  expect(EXTENSION_METHODS['endpoint.models']).toBe(ENDPOINT_METHODS['endpoint.models']);
  for(const name of ['write','mkdir','remove','beginWrite','writeChunk','commitWrite','releaseWrite']){
   expect(CAPABILITY_METHODS[`capability.fs.${name}`]).toBeDefined();expect(capabilityOf(`capability.fs.${name}`)).toBe('fs.write');
@@ -35,5 +35,5 @@ test('spawn wire supports only host-matched cwd and literal or reference environ
  const {SCOPED_CAPABILITY_METHODS}=await import('../src/plugins/capability-protocol');const method=SCOPED_CAPABILITY_METHODS['capability.process.spawn']!;
  expect(method.params.safeParse({argv:['opencode','run'],timeoutMs:120000,cwd:'/owned/test',env:{PATH:'/owned/bin',PACER_KEY_SELECTED:{secretRef:'endpoint:selected'}}}).success).toBe(true);
  for(const env of [{KEY:{secretRef:'raw-key'}},{KEY:{secretRef:'endpoint:selected',extra:true}},{KEY:12}])expect(method.params.safeParse({argv:['opencode'],timeoutMs:1000,env}).success).toBe(false);
- expect(method.deadlineMs).toBe(130000);
+ expect(method.deadlineMs).toBe(0);
 });

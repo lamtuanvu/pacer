@@ -1,6 +1,6 @@
 import { repoFor } from "../src/core/repos";
 import { expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendActivity, readActivity, rotateActivity } from "../src/activity/log";
 import * as tasks from "../src/core/tasks";
@@ -15,6 +15,12 @@ import type { Status } from "../src/engine/status";
 import { fakeCtx } from "./helpers";
 
 const file = (ctx: ReturnType<typeof fakeCtx>) => join(ctx.pacerHome, "state", "activity.jsonl");
+test("activity truncation keeps whole astral characters", () => {
+  const ctx = fakeCtx();
+  const entry = appendActivity(ctx, { kind: "message", level: "info", text: "x".repeat(499) + "😀" });
+  expect(entry.text).toBe("x".repeat(499));
+  expect(readFileSync(file(ctx), "utf8")).not.toContain("\\ud83d");
+});
 async function configured() {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, { recursive: true });
@@ -149,6 +155,36 @@ test("retry, stop, dismiss and rejected reviews log their successful actions", a
   expect(readActivity(ctx, { kinds: ["verdict"] }).entries.map(e => e.text)).toEqual(["Dismissed “Fix parser”", "Rejected “Fix parser”"]);
 });
 
+test("provider stop intent does not emit task_settled before verified exit", async () => {
+  const ctx = await configured();
+  const task = await tasks.delegate(ctx, { brief: { goal: "Stop fixture", repo: ctx.home },
+    executor: "codex" }, () => 1);
+  updateTask(ctx, task.id, current => {
+    current.state = "running";
+    current.executor = "codex";
+    current.executorProvider = "pacer-exec-direct";
+  });
+  expect(tasks.stop(ctx, task.id).state).toBe("running");
+  expect(readActivity(ctx, { kinds: ["task_settled"] }).entries).toHaveLength(0);
+});
+
+test("pump records a provider-owned stop only after its exact exit receipt", async () => {
+  const ctx = await configured();
+  const task = await tasks.delegate(ctx, { brief: { goal: "Stop fixture", repo: ctx.home }, executor: "codex" }, () => 1);
+  const deps: PumpDeps = { status: async c => status(c.now), tasks: () => [tasks.get(ctx, task.id)], publish };
+  await pumpOnce(ctx, deps);
+  updateTask(ctx, task.id, current => {
+    current.state = "stopped";
+    current.executor = "codex";
+    current.executorProvider = "pacer-exec-direct";
+    current.executorExitReceipt = { attempt: 1, providerId: "pacer-exec-direct",
+      dir: "/fixture/run", startedAt: ctx.now, exitCode: 143 };
+  });
+  await pumpOnce({ ...ctx, now: ctx.now + 1 }, deps);
+  expect(readActivity(ctx, { kinds: ["task_settled"] }).entries.map(entry => entry.text))
+    .toEqual(["Stopped “Stop fixture”"]);
+});
+
 test("config writes record one entry without values or secrets", async () => {
   const ctx = await configured();
   await callOp(ctx, "config.set", { key: "pacing.planner_reserve", value: 15 });
@@ -183,6 +219,31 @@ test("rotation removes entries older than 30 days even below the line cap", () =
   appendActivity(ctx, { kind: "config", level: "info", text: "today" });
   rotateActivity(ctx);
   expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["today", "boundary"]);
+});
+
+test("rotation ignores a stale PID temp file and preserves it", () => {
+  const ctx = fakeCtx();
+  const stale = `${file(ctx)}.${process.pid}.tmp`;
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });
+  writeFileSync(stale, "stale", { mode: 0o600 });
+  appendActivity(ctx, { kind: "config", level: "info", text: "keep" });
+  rotateActivity(ctx);
+  expect(readActivity(ctx, {}).entries.map(e => e.text)).toEqual(["keep"]);
+  expect(readFileSync(stale, "utf8")).toBe("stale");
+});
+
+test("activity publication tightens existing modes and rotation stays private", () => {
+  const ctx = fakeCtx(), dir = join(ctx.pacerHome, "state"), path = file(ctx);
+  mkdirSync(dir, { recursive: true });
+  chmodSync(dir, 0o777);
+  writeFileSync(path, "", { mode: 0o666 });
+  chmodSync(path, 0o666);
+  appendActivity(ctx, { kind: "message", level: "info", text: "private" });
+  expect(statSync(dir).mode & 0o777).toBe(0o700);
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  rotateActivity(ctx);
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  expect(statSync(join(dir, "activity-rotation.json")).mode & 0o777).toBe(0o600);
 });
 
 test("activity text redacts credential patterns and account emails before persistence and callback", () => {

@@ -1,12 +1,20 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
+import { existsSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { defaultRun } from "../src/ctx";
 import { SCRIPTS } from "../src/remote/scripts";
-import { controlDir, payload, payloadStream, runRemote, sshArgv } from "../src/remote/ssh";
+import { controlDir, sshArgv } from "../src/remote/ssh";
+import type { Ctx } from "../src/types";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
 
 const host = { alias: "box", ssh: "box-ssh", repos: {}, maxTasks: 2, accounts: {} };
+
+/** Run the pinned argv against the fake SSH host; production spawns it only through pacer-ssh. */
+async function runPinned(ctx: Ctx, script: string, args: string[]) {
+  const result = await realRun(sshArgv(ctx, host, script, args), 60_000, { env: { ...process.env, ...ctx.env } });
+  const at = result.stdout.search(/^__PACER_BEGIN__\n/m);
+  return { ...result, stdout: at >= 0 ? result.stdout.slice(at + "__PACER_BEGIN__\n".length) : "" };
+}
 
 test("sshArgv is fixed: options, alias, bash -lc and quoted args", () => {
   const ctx = fakeCtx();
@@ -23,21 +31,10 @@ test("sshArgv is fixed: options, alias, bash -lc and quoted args", () => {
   expect(() => sshArgv(ctx, host, "rm -rf ~", [])).toThrow();
 });
 
-test("hostile text only travels on stdin", async () => {
-  const ctx = { ...fakeCtx({ run: realRun }) }, hostHome = tmpDir(), log = join(tmpDir(), "ssh.log");
-  ctx.env = fakeSshEnv(hostHome, log);
-  const evil = `x'; touch "$HOME/pwned"; echo $(id) \`id\`\nline2`;
-  const r = await runRemote({ ...ctx, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...process.env, ...ctx.env } }) }, host, SCRIPTS.ECHO_STDIN, [], { stdin: evil });
-  expect(r.code).toBe(0);
-  expect(r.stdout).toBe(evil);
-  expect(readFileSync(log, "utf8")).not.toContain("pwned");
-  expect(existsSync(join(hostHome, "pwned"))).toBe(false);
-});
-
 test("PROBE reports tools from the host's login shell", async () => {
   const hostHome = tmpDir(), log = join(tmpDir(), "ssh.log"), ctx = fakeCtx({ run: realRun });
   ctx.env = fakeSshEnv(hostHome, log);
-  const r = await runRemote({ ...ctx, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...process.env, ...ctx.env } }) }, host, SCRIPTS.PROBE, []);
+  const r = await runPinned(ctx, SCRIPTS.PROBE, []);
   expect(r.stdout).toMatch(/^git=git version /m);
   expect(r.stdout).toContain(`home=${hostHome}`);
   for (const tool of ["codex", "claude", "setsid"]) expect(r.stdout).toMatch(new RegExp(`^${tool}=.*$`, "m"));
@@ -82,7 +79,7 @@ test("defaultRun carries stdin and env to a real process", async () => {
 test("quoted arguments cannot execute shell substitutions", async () => {
   const hostHome = tmpDir(), log = join(tmpDir(), "ssh.log"), ctx = fakeCtx({ run: realRun });
   ctx.env = fakeSshEnv(hostHome, log);
-  const result = await runRemote({ ...ctx, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...process.env, ...ctx.env } }) }, host, SCRIPTS.PROBE,
+  const result = await runPinned(ctx, SCRIPTS.PROBE,
     ["it's", '$(touch "$HOME/pwned")', '`touch "$HOME/pwned"`', "line1\nline2"]);
   expect(result.code).toBe(0);
   expect(existsSync(join(hostHome, "pwned"))).toBe(false);
@@ -91,30 +88,7 @@ test("quoted arguments cannot execute shell substitutions", async () => {
 test("an unreachable fake host returns SSH's connection refusal", async () => {
   const ctx = fakeCtx({ run: realRun });
   ctx.env = fakeSshEnv(tmpDir(), join(tmpDir(), "ssh.log"), "other box-ssh");
-  const result = await runRemote({ ...ctx, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...process.env, ...ctx.env } }) }, host, SCRIPTS.PROBE, []);
+  const result = await runPinned(ctx, SCRIPTS.PROBE, []);
   expect(result.code).toBe(255);
   expect(result.stderr).toContain("ssh: connect to host box-ssh port 22: Connection refused");
-});
-
-test("runRemote defaults to 60 seconds and forwards an explicit timeout", async () => {
-  const timeouts: number[] = [];
-  const ctx = fakeCtx({ run: async (_argv, ms) => { timeouts.push(ms); return { code: 0, stdout: "", stderr: "" }; } });
-  await runRemote(ctx, host, SCRIPTS.PROBE, []);
-  await runRemote(ctx, host, SCRIPTS.PROBE, [], { timeoutMs: 1234 });
-  expect(timeouts).toEqual([60_000, 1234]);
-});
-
-test("payload framing ignores partial and inline markers and preserves binary bytes", async () => {
-  const chatter = "inline __PACER_BEGIN__\nhello from profile\n";
-  expect(payload(`${chatter}__PACER_BEGIN__\nresult`)).toBe("result");
-  const bytes = Buffer.from([0, 255, 128, 10]);
-  const framed = Buffer.concat([Buffer.from(`${chatter}__PACER_BEGIN__\n`), bytes]);
-  for (let split = 0; split <= framed.length; split++) {
-    const stream = new ReadableStream<Uint8Array>({ start(c) {
-      c.enqueue(framed.subarray(0, split)); c.enqueue(framed.subarray(split)); c.close();
-    } });
-    const chunks = [];
-    for await (const chunk of payloadStream(stream)) chunks.push(chunk);
-    expect(Buffer.concat(chunks)).toEqual(bytes);
-  }
 });

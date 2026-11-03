@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { CoreError } from "../core/errors";
 import type { CallAuthority } from "./authority";
 
-const CHUNK = 262144, RESERVE = 8 * 1024 * 1024;
+const CHUNK = 262144, RESERVE = 8 * 1024 * 1024, MAX_RESULT = 16 * 1024 * 1024;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 type Identity = { device: number; inode: number };
 const identity = (stat: Stats): Identity => ({ device: stat.dev, inode: stat.ino });
@@ -106,7 +106,7 @@ export class ResultStaging {
       if (!Number.isSafeInteger(offset) || offset < 0 || offset !== this.bytes) invalid("result chunk offset must be contiguous");
       if (typeof base64 !== "string" || !base64 || base64.length > 349528 || !BASE64.test(base64)) invalid("invalid result chunk encoding");
       const bytes = Buffer.from(base64, "base64");
-      if (!bytes.length || bytes.length > CHUNK || !Number.isSafeInteger(this.bytes + bytes.length)) invalid("invalid result chunk size");
+      if (!bytes.length || bytes.length > CHUNK || this.bytes + bytes.length > MAX_RESULT) invalid("result exceeds 16 MiB limit");
       await this.validate();
       const space = await statfs(this.directory!);
       this.authority.assertActive();

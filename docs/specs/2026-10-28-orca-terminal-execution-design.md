@@ -26,6 +26,8 @@ A spike against Orca 1.4.241 (2026-10-28) established:
 
 ### 2. Orca attempt (`src/exec/orca/backend.ts`, `client.ts`)
 
+Since SP10 (plugin protocol 1.10.0), the bundled `pacer-exec-orca` provider sequences this attempt and the host performs each step as a task-owned `capability.orca.*` effect: `src/plugins/orca-attempt.ts` and `src/plugins/orca-host.ts` hold the steps below, and `src/plugins/executor-orca.ts` keeps the route, fallback and closure authority (ADR 0018).
+
 `runOrcaAttempt` keeps its existing structure (prepare, admission, supervision via `waitForWorker`, fingerprinting, reports, fallback rules) with these changes:
 
 1. **Placement.** For `new-child`, create the worktree first with `orca worktree create --name pacer-<task>-<executor> --repo id:<repoId> --base-branch <base> --setup skip --json` and read its worktree id. `existing` placement resolves the worktree id with `orca worktree show --worktree path:<realpath> --json`. Both yield the `id:<repo>::<path>` selector used below.

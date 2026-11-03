@@ -1,5 +1,6 @@
 /** Navigation, selection and overlays for the TUI. Pure: keys become a new state and, at most, one effect. */
 import type { Action } from "../attention/types";
+import type { ManagedStep } from "../view-model/managed-root";
 
 export type ScreenId = "home" | "review" | "sessions" | "settings" | "setup";
 export const SCREEN_LABELS: Record<ScreenId, string> = { home: "Home", review: "Needs you", sessions: "Tasks", settings: "Settings", setup: "Setup" };
@@ -8,7 +9,8 @@ export const SCREEN_KEYS: Record<string, ScreenId> = { "1": "home", "2": "review
 /** What an action does. The controller executes effects; screens only describe them. */
 export type Effect =
   | { type: "history-more" }
-  | { type: "action"; action: Action }
+  /** `fallback`: managed dispatch.* steps run when the service refuses the action for managed work (view-model/managed-root). */
+  | { type: "action"; action: Action; fallback?: ManagedStep[] }
   | { type: "navigate"; screen: ScreenId; id?: string; section?: string }
   | { type: "attach"; id: string; target: "here" | "terminal" | "tmux" }
   | { type: "prompt"; prompt: PromptSpec }

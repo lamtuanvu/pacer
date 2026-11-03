@@ -1,5 +1,6 @@
 import { autoCleanSweep } from "../core/tasks";
-import { backfillFirstSettled } from "../insights/summary";
+import { pluginNativeRoute } from "./plugin-native";
+import { startTaskHistory } from "../tasks/history";
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant } from "../dispatch/work";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
@@ -10,9 +11,7 @@ import { resetCaptureBroker } from "../desktop/capture-broker";
 import { configuredNativeServices } from "../update/desktop/native-provider";
 import type { PairedNativeBootstrap } from "../update/desktop/native-paired-bootstrap";
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
-import { backfillAttemptUsage } from "../tokens/store";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
-import { retentionScheduler } from "../tasks/retention";
 import { superviseTasks } from "../tasks/api";
 import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
@@ -38,6 +37,7 @@ import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from
 import { refreshAllUsage } from "../usage/refresh";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 import { tick as certificationTick } from "../dispatch/certification-schedule";
+import { brokerTick } from "../messaging/broker";
 
 import { DEFAULT_PORT } from "./constants";
 export { DEFAULT_PORT } from "./constants";
@@ -68,9 +68,6 @@ export function startServer(
   reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),
     async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary));
-  // History gets its token index in the background; it reads logs and writes only attempt_usage.
-  try { backfillFirstSettled(initialCtx); } catch (error) { console.error(`pacer: first-settle backfill skipped: ${error instanceof Error ? error.message : String(error)}`); }
-  void backfillAttemptUsage(initialCtx).catch(error => console.error(`pacer: token usage backfill skipped: ${error instanceof Error ? error.message : String(error)}`));
   // Serving diagnostics must not wait on account configuration writes. New local
   // launches serialize with this job through the shared installation lock.
   void Promise.resolve().then(() => refreshConnectedIntegrations(initialCtx)).then(results => {
@@ -165,10 +162,24 @@ export function startServer(
         }
         // The front door's heartbeat: an answer proves this event loop is responsive.
         if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid });
+        if (pathname === "/_internal/plugins") return pluginNativeRoute(getCtx(), req);
         if (pathname === "/_internal/app-page") {
           const params = new URL(req.url).searchParams;
           const status = Number(params.get("status") ?? 200);
           return appPage(params.get("message") ?? "", Number.isInteger(status) && status >= 200 && status <= 599 ? status : 500);
+        }
+        if (pathname === "/_internal/native-config-finish" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", {status: 403});
+          try {
+            const {finishNativeConfigEdit} = await import("../core/accounts");
+            const body = await req.json();
+            await finishNativeConfigEdit(getCtx(), body?.op);
+            return Response.json({result: null});
+          } catch (error) {
+            const {toApiError, httpStatus} = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({error: body}, {status: httpStatus(body.code)});
+          }
         }
         // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
         if (pathname === "/_internal/discovery/config" && req.method === "POST") {
@@ -237,7 +248,12 @@ export function startServer(
         return upgradeTerminal(req, server, getCtx(), terminalRoute[1]!);
       }
       if (/^\/v[23]\//.test(pathname)) {
-        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant}, tailMs, status, snapshot: () => readCache.get() });
+        // The local TUI holds the bearer token and proves the human with an app session it exchanged for
+        // (X-Pacer-Session). A bearer alone stays the non-privileged `external:local`, and only identity changes:
+        // terminals and settings keep bearer behavior.
+        const session = req.headers.get("x-pacer-session") ?? "";
+        const humanSession = bearer && !workGrant && !enforcementToken && /^[0-9a-f]{64}$/.test(session) && checkSession(getCtx(), session);
+        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant, ...(humanSession ? {participant: "human"} : {})}, tailMs, status, snapshot: () => readCache.get() });
         if (response.ok && req.method === "POST" && /^\/v[23]\/ops\/mode\.(hold|release)$/.test(pathname)) {
           await readCache.refreshAfterPending();
         }
@@ -270,6 +286,7 @@ export function startServer(
     throw error;
   }
   void desktopUpdates.start().catch(() => { console.error("pacer: desktop update startup requires recovery"); });
+  const history = startTaskHistory(initialCtx);
   const unregisterJobs = registerJobDaemon(initialCtx);
   refreshSnapshot();
   let busy = false;
@@ -303,12 +320,6 @@ export function startServer(
   };
   const cleanStart = setTimeout(sweep, 0);
   const cleanTimer = setInterval(sweep, 60 * 60_000);
-  const retention = retentionScheduler();
-  const prune = () => {
-    if (!stopped) void retention.tick(getCtx()).catch(error => console.warn(`pacer: task retention failed: ${String(error)}`));
-  };
-  const retentionStart = setTimeout(prune, 0);
-  const retentionTimer = setInterval(prune, 60_000);
   let supervising = false;
   const supervise = () => {
     if (stopped || supervising) return;
@@ -327,6 +338,16 @@ export function startServer(
       .finally(() => { certifying = false; });
   };
   const certificationTimer = setInterval(certify, 10 * 60_000);
+  let brokering = false;
+  const broker = () => {
+    if (stopped || brokering) return;
+    brokering = true;
+    void brokerTick(getCtx(), { spawnRunner: opts.opDeps?.spawnRunner, mode: async () => {
+      try { return (await status()).mode; } catch { return undefined; }
+    } }).catch(error => { if (!stopped) console.error(`pacer: messaging broker failed: ${String(error)}`); })
+      .finally(() => { brokering = false; });
+  };
+  const brokerTimer = setInterval(broker, 15_000);
   const refreshUsage = () => {
     if (stopped) return;
     void refreshAllUsage({ ...getCtx(), now: Date.now() / 1000 }, true)
@@ -350,10 +371,9 @@ export function startServer(
     stopped = true;
     clearTimeout(cleanStart);
     clearInterval(cleanTimer);
-    clearTimeout(retentionStart);
-    clearInterval(retentionTimer);
     clearInterval(supervisorTimer);
     clearInterval(certificationTimer);
+    clearInterval(brokerTimer);
     clearTimeout(usageStart);
     clearInterval(usageTimer);
     clearInterval(pumpTimer);
@@ -364,6 +384,6 @@ export function startServer(
     clearTimeout(scheduled);
     for (const watcher of watchers) watcher.close();
     server.stop(true);
-    return shutdownPlugins(initialCtx);
+    return Promise.all([history.stop(), shutdownPlugins(initialCtx)]).then(() => {});
   } };
 }

@@ -18,6 +18,9 @@ import { plannerCommandIntent } from "./planner-protocol";
 export interface PlannerSelection {
   purpose: "install" | "reconcile" | "uninstall" | "preview";
   binaries: readonly string[];
+  pacerArgv?: readonly string[];
+  /** Trusted host-only extension for an exact integration command. */
+  commandApproval?: (argv: readonly string[]) => boolean;
   cwd: string;
   env?: Record<string, string>;
   roots?: readonly string[];
@@ -42,6 +45,20 @@ const same = (a: Stats, b: Stats) =>
   a.mtimeMs === b.mtimeMs &&
   a.mode === b.mode;
 
+/** Only host-owned Claude MCP registration may invoke a planner binary. */
+function allowedPlannerCommand(scope: string, argv: readonly string[], pacerArgv: readonly string[] = []): boolean {
+  if (scope !== "claude") return false;
+  const args = argv.slice(1);
+  if (JSON.stringify(args) === JSON.stringify(["mcp", "get", "pacer"])) return true;
+  if (JSON.stringify(args) === JSON.stringify(["mcp", "remove", "-s", "user", "pacer"])) return true;
+  return JSON.stringify(args) === JSON.stringify(["mcp", "add", "-s", "user", "pacer", "--", ...pacerArgv, "mcp"]);
+}
+
+function plannerEnvironment(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+  const allowed = ["HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "OPENCODE_CONFIG_DIR"];
+  return Object.fromEntries(allowed.flatMap(key => typeof env[key] === "string" ? [[key, env[key]]] : []));
+}
+
 /** Host-only owner. Peer admission never revokes the retained compensation pins. */
 export class PlannerResources {
   private readonly context: Ctx;
@@ -50,6 +67,7 @@ export class PlannerResources {
   private readonly cleanupBudget: number;
   private reservedUndoMs = 0;
   private readonly selection: PlannerSelection;
+  private readonly commandApproval?: PlannerSelection["commandApproval"];
   private readonly binaries = new Map<string, Binary>();
   private readonly observedDirectories = new Map<
     string,
@@ -77,7 +95,8 @@ export class PlannerResources {
   private rollbackWork?: Promise<void>;
   constructor(ctx: Ctx, selection: PlannerSelection) {
     const admittedAt = Date.now();
-    this.selection = structuredClone(selection);
+    this.commandApproval = selection.commandApproval;
+    this.selection = structuredClone({...selection, commandApproval: undefined});
     this.settlementDeadline = selection.deadlineMs ?? admittedAt + 600000;
     if (
       !Number.isFinite(this.settlementDeadline) ||
@@ -375,6 +394,7 @@ export class PlannerResources {
         ([name, binary]) => argv[0] === name || argv[0] === binary.selected,
       )?.[0] ?? deny("planner executable is outside host selection");
     if (!scopes.includes(scope)) deny("planner executable was not declared");
+    if (!allowedPlannerCommand(scope, argv, this.selection.pacerArgv) && !this.commandApproval?.(argv)) deny("planner command is not an allowed integration operation");
     const binary = this.binaries.get(scope)!;
     if (binary.selected) {
       try {
@@ -393,11 +413,7 @@ export class PlannerResources {
       argv: [scope, ...argv.slice(1)],
       timeoutMs,
       cwd: this.selection.cwd,
-      env: Object.fromEntries(
-        Object.entries(this.context.env).filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string",
-        ),
-      ),
+      env: plannerEnvironment(this.context.env),
     };
     const owner = createCallAuthority(
       this.context,

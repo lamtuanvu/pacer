@@ -1,5 +1,6 @@
 /** Protocol 1.6 contracts used by the negotiated TypeScript observation runtime. */
 export const POLICY_OBSERVATIONS_FEATURE = "policyObservations";
+export const POLICY_REDACTION_METADATA_FEATURE = "policyRedactionMetadata";
 export type PolicyDecision = "delegate" | "route" | "review";
 export type PolicyVerdict =
   | { verdict: "allow" | "veto"; reason?: string }
@@ -74,6 +75,9 @@ export type PolicyBeforeParams =
       input: {
         goal: string;
         repo: string;
+        goalLength?: number;
+        goalHash?: string;
+        repoKey?: string;
         kind: string | null;
         requestedExecutor: string | null;
         placement: "current" | "new" | "auto";
@@ -88,6 +92,8 @@ export type PolicyBeforeParams =
         state: PolicyTaskState;
         verdict: "accept" | "reject" | "send_back" | "retry";
         note?: string;
+        noteLength?: number;
+        noteHash?: string;
         kind?: string | null;
         executor?: string;
       };

@@ -4,9 +4,8 @@ import { CoreError } from "../core/errors";
 import { secret } from "../classify/secrets";
 import { resolveBoundCredential } from "./credential-bindings";
 import type { Ctx } from "../types";
+import { secretReference } from "./http-protocol";
 
-// Matches the reviewed canonical StageA secretReference schema exactly.
-const REFERENCE = /^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 type HttpResources = CallResources & { http?: { hosts: readonly string[]; origins?: readonly string[] } };
 interface Prepared {
   scopes: readonly string[];
@@ -165,7 +164,7 @@ export function authorizedHttpUrl(
   return admitted.url;
 }
 function parseReference(input: unknown): string {
-  if (typeof input !== "string" || !REFERENCE.test(input))
+  if (typeof input !== "string" || !secretReference.safeParse(input).success)
     throw new CoreError("invalid_input", "invalid secret reference");
   return input;
 }
@@ -192,7 +191,8 @@ export function resolveConfiguredSecret(
   input: string,
   aliases?: Readonly<Record<string, string>>,
 ): string | null {
-  const ref = parseReference(input);
+  const parsed = parseReference(input);
+  const ref = parsed.startsWith("endpoint/") ? `endpoint:${parsed.slice(9)}` : parsed;
   const colon = ref.indexOf(":"),
     kind = ref.slice(0, colon),
     refName = ref.slice(colon + 1);

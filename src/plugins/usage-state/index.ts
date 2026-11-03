@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CoreError } from "../../core/errors";
 import type { CallAuthority } from "../authority";
 import { readCursorFile } from "./json";
-import { CHUNK, readStateFile, guardStorePath, allowedCursorPath, cursorParts, privateDirectory, replaceCursor, reserve, within, writeParts } from "./storage";
+import { CHUNK, USAGE_STATE_MAX_BYTES, readStateFile, guardStorePath, allowedCursorPath, cursorParts, privateDirectory, replaceCursor, reserve, within, writeParts } from "./storage";
 
 import { issuedStatePath, validateStateAuthority, validateStateCleanup } from "./issuance";
 export { prepareStateAuthority } from "./issuance";
@@ -117,6 +117,7 @@ async function begin(authority: CallAuthority, params: Record<string, unknown>) 
       }
       await validateStateAuthority(authority);
       lease.bytes = (await stat(snapshot)).size;
+      if (lease.bytes > USAGE_STATE_MAX_BYTES) throw new CoreError("too_large", "usage state exceeds 16 MiB limit");
       return { lease: lease.id, bytes: lease.bytes, ...(store.kind === "cursors" ? { version: 4, dirty: cursorStates.get(store.path)!.dirty } : {}) };
     };
     lease.pending = initialize(); return await lease.pending;
@@ -125,6 +126,7 @@ async function begin(authority: CallAuthority, params: Record<string, unknown>) 
 async function commit(lease: Lease, dirty: boolean) {
   const { authority, store } = lease; const staged = join(lease.directory, "staged");
   if (!lease.staged) invalid("usage state commit has no staged JSON");
+  if (lease.staged > USAGE_STATE_MAX_BYTES) invalid("usage state exceeds 16 MiB limit");
   if (store.kind === "cache") {
     let value: unknown;
     try { value = JSON.parse(await readFile(staged, "utf8")); } catch { invalid("invalid provider cache JSON"); }
@@ -195,7 +197,7 @@ export async function answerUsageState(authority: CallAuthority, operation: Oper
     if (operation === "stageChunk") {
       if (typeof params.base64 !== "string" || params.base64.length > Math.ceil(CHUNK / 3) * 4) invalid("invalid state chunk encoding");
       const bytes = Buffer.from(params.base64, "base64");
-      if (bytes.length > CHUNK || bytes.toString("base64") !== params.base64 || !bytes.length || offset !== lease.staged) invalid("invalid or noncontiguous state chunk");
+      if (bytes.length > CHUNK || bytes.toString("base64") !== params.base64 || !bytes.length || offset !== lease.staged || lease.staged + bytes.length > USAGE_STATE_MAX_BYTES) invalid("invalid or noncontiguous state chunk");
       await reserve(lease.directory, bytes.length);
       await validateStateAuthority(authority); authority.assertActive();
       const file = await open(join(lease.directory, "staged"), lease.staged ? "a" : "wx", 0o600);

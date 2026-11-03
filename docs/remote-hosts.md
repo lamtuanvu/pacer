@@ -72,7 +72,12 @@ pacer host check box --repo ~/src/project
 ```
 
 `setup` offers the exact clone command when the mapped checkout is missing.
-Cloning requires confirmation. It separately asks before setting the checkout's
+Its checkout preview uses the bundled SSH host runner; if that plugin is
+unavailable, setup stops before offering a clone and does not retry direct SSH.
+An approved clone also uses the bundled runner's fixed command. If the
+connection ends without a completion receipt, setup stops without retrying;
+check the host before requesting setup again. Cloning requires confirmation.
+It separately asks before setting the checkout's
 repo-local `user.name` and `user.email` to your local repository's effective
 identity, then runs the checks. Configure that local identity first. Setup is
 interactive with y/N prompts; non-TTY runs decline changes.
@@ -80,6 +85,10 @@ interactive with y/N prompts; non-TTY runs decline changes.
 `check` tests SSH, git, `setsid`, the agent CLIs used on the host, declared account
 folders, checkout origins and repo-local identity. Without `--repo`, it checks
 all mapped checkouts against the identity of your current local repository.
+Its read-only SSH, tool, account-folder and checkout/identity checks run through
+the bundled SSH host runner plugin. If that plugin is disabled or unavailable,
+the check reports the affected checks as failed without a direct SSH retry.
+A paused host can still be checked without making it eligible for work.
 It prints one line per check, such as `ok  ssh` or `FAIL git: git 2.25 < 2.30`,
 and exits 1 when checks fail. When SSH fails, remaining checks say `skipped`.
 `list` and `check` support `--json`.
@@ -103,7 +112,46 @@ Completion waits until the recording mode is known, so a fast exit during native
 session startup does not skip copying the recording back to the local task.
 pacer polls every five seconds and mirrors output locally, so the normal task
 logs and progress views work. Restarting pacer resumes the recorded remote run.
+For hosts using full sessions, pacer reads recording metadata and file ranges
+through the bundled SSH plugin in bounded pages. If files rotate during a read
+or the provider becomes unavailable, that poll waits for a consistent snapshot;
+it does not retry over direct SSH. A partially published local recording is
+restored on the next observation after an interruption.
+An attached read-only PTY viewer reads at most 256 KiB at a time through the
+same bundled SSH provider. After consecutive empty reads it backs off from 200 ms to 2 s before
+checking again, in addition to SSH round-trip time. Detaching cancels the
+pending read; reconnecting resumes from the committed recording cursor. A
+disabled or failing provider does not trigger a direct SSH tail.
+For an interactive full-session viewer, pacer connects the local viewer socket
+through the bundled SSH plugin's host-issued stream. Each viewer has its own
+grant for the persisted run; output and input move in bounded acknowledged
+chunks. Detaching or losing the provider closes that viewer connection, and
+reconnecting opens a fresh stream. An idle viewer stays connected through
+short empty polls. No direct SSH forwarding or exec fallback follows a plugin
+refusal. A run accepts at most two attached viewers, and at most four viewers
+stream at once across all runs; web clients receive an HTTP refusal before
+upgrade, and CLI attach prints the reason. Viewer streams never use the plugin call slots that reachability,
+usage and run polling need.
 The agent is instructed to commit on its task branch and leave a clean worktree.
+After a nonzero agent exit, pacer checks for committed work through the bundled
+SSH host runner before attempting a result transfer. A refused or timed-out
+check does not trigger a direct SSH retry or a transfer decision based on
+unverified output.
+
+If the selected agent needs a local runtime binary, pacer uploads it through the
+bundled SSH host runner's fixed command. The upload is limited to 128 MiB and
+verified against its SHA-256 hash on the host. A disabled provider, changed task
+or missing completion receipt stops the attempt without retrying direct SSH;
+inspect the host before retrying an uncertain upload.
+The preceding platform probe also uses that bundled runner for the exact
+persisted task run. If the provider cannot report the host platform, binary
+setup stops without retrying the probe through direct SSH.
+
+Remote launch uses the bundled SSH runner's fixed START command and a one-use
+grant for the persisted task run. The wrapper and prompt travel over a private
+stdin channel, capped at 50 MiB, and are absent from plugin JSON. If a start
+times out or its completion receipt is missing, pacer leaves that launch
+uncertain and does not try direct SSH or start it again automatically.
 
 Before returning results, pacer requires:
 
@@ -134,14 +182,21 @@ remote Claude usage measurement is not available yet.
 
 An unreachable host is excluded from routing with `host box unreachable`, and
 routing can fall through to the next runner. Reachability is cached for 60
-seconds. Missing repository mappings, current placement and `max_tasks` also
+seconds. The bundled remote caller probes the configured alias through the
+fixed SSH provider; if either plugin is disabled or unavailable, the host is
+reported with the specific plugin reason until that plugin is restored. There
+is no direct SSH retry for routing reachability. Missing repository mappings,
+current placement and `max_tasks` also
 exclude remote runners with a reason.
 
 A dropped connection during a run leaves the agent running while pacer keeps
 polling. After ten minutes of continuous unreachability the attempt ends `lost`
 with a reason. Reconnect and inspect the host run before retrying work that may
 still be running there. `pacer stop <task-id>` stops a reachable remote process
-group through the normal task interface.
+group through the normal task interface and the bundled SSH host runner. A
+missing completion receipt leaves that stop operation unsettled. A later stop
+may confirm its own result but cannot confirm the earlier attempt; inspect the
+remote run before retrying work.
 
 Transfer refusals produce `partial` with the reason, keeping the remote branch
 and worktree for recovery. Fix identity with `pacer host setup` when appropriate;
@@ -159,7 +214,10 @@ Cleanup reports removed and kept task IDs. It deletes a remote task branch only
 when the corresponding local branch exists, preserving branches whose results
 have not returned. Cleanup removes the host worktree and run files, so recover
 uncommitted files or needed logs before cleaning. `pacer clean` also handles
-remote resources for eligible tasks.
+remote resources for eligible tasks. Cleanup uses the bundled SSH host runner's
+fixed command for each task. A disabled provider or missing completion receipt
+keeps the task in the report without retrying direct SSH; check the host before
+requesting cleanup again.
 
 ## Security
 

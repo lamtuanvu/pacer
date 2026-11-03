@@ -1,3 +1,4 @@
+import { platform } from "../platform";
 /** Browser-only session v1 frame client. No terminal dependency in the app bundle. */
 export interface SessionSocket {
  readyState:number; binaryType:string;
@@ -9,6 +10,7 @@ export interface TerminalSnapshot { outputOffset:number; cols:number; rows:numbe
 export interface SessionState { status:'connecting'|'live'|'reconnecting'|'resyncing'|'exited'|'error'; you:boolean; controller:string|null; cols:number; rows:number; viewers:number; code?:number; signal?:string; message?:string }
 export interface SessionClientOptions {
  url:string; label:string; cols:number; rows:number; control:boolean; autoControl?:boolean;
+ from?:number;
  socket?:(url:string)=>SessionSocket;
  schedule?:(fn:()=>void,ms:number)=>(()=>void);
  onSnapshot?:(snapshot:TerminalSnapshot)=>void; onOutput?:(bytes:Uint8Array)=>void;
@@ -18,14 +20,14 @@ export class SessionClient {
  state:SessionState;
  private ws?:SessionSocket; private offset?:number; private stopped=false; private ended=false; private attempt=0; private cancel?:()=>void;
  private autoControlAllowed:boolean; private autoControlAttempted=false;
- constructor(private options:SessionClientOptions){this.autoControlAllowed=options.autoControl!==false;this.state={status:'connecting',you:false,controller:null,cols:options.cols,rows:options.rows,viewers:0};}
- private update(patch:Partial<SessionState>){this.state={...this.state,...patch};this.options.onState?.(this.state);}
+ constructor(private options:SessionClientOptions){this.offset=options.from;this.autoControlAllowed=options.autoControl!==false;this.state={status:'connecting',you:false,controller:null,cols:options.cols,rows:options.rows,viewers:0};}
+ private update(patch:Partial<SessionState>){if(Object.entries(patch).every(([key,value])=>this.state[key as keyof SessionState]===value))return;this.state={...this.state,...patch};this.options.onState?.(this.state);}
  connect(){
   if(this.stopped||this.ended)return;
   this.autoControlAttempted=false;
   this.update({status:this.attempt?'reconnecting':'connecting',you:false});
   let ws:SessionSocket;
-  try{ws=(this.options.socket??(url=>new WebSocket(url) as unknown as SessionSocket))(this.options.url);}catch{this.retry();return;}
+  try{ws=(this.options.socket??platform.attachTerminal)(this.offset===undefined?this.options.url:`${this.options.url}${this.options.url.includes('?')?'&':'?'}from=${this.offset}`);}catch{this.retry();return;}
   this.ws=ws;ws.binaryType='arraybuffer';
   ws.onopen=()=>{if(this.ws!==ws||this.stopped)return;this.send('hello',{v:1,versions:[1,1],client:'app',label:this.options.label,cols:this.state.cols,rows:this.state.rows,...(this.offset===undefined?{}:{from:this.offset})});};
   ws.onmessage=event=>{if(this.ws!==ws||this.stopped)return;try{this.receive(event.data);}catch{this.update({status:'error',you:false,message:'Could not read the session stream.'});ws.close();}};
@@ -49,7 +51,7 @@ export class SessionClient {
      break;
     }
     case 'resize':if(Number.isInteger(frame.cols)&&frame.cols>0&&Number.isInteger(frame.rows)&&frame.rows>0)this.update({cols:frame.cols,rows:frame.rows});break;
-    case 'control':this.attempt=0;this.update({...(this.offset!==undefined&&this.state.status!=='resyncing'?{status:'live' as const}:{}),controller:frame.controller,you:this.options.control&&frame.you===true,message:frame.reason==='taken'&&!frame.you?'Control was taken by another viewer.':undefined});this.tryAutoControl();break;
+    case 'control':this.attempt=0;this.update({...(this.offset!==undefined&&this.state.status!=='resyncing'?{status:'live' as const}:{}),controller:frame.controller,...(Number.isInteger(frame.viewers)?{viewers:frame.viewers}:{}),you:this.options.control&&frame.you===true,message:frame.reason==='taken'&&!frame.you?'Control was taken by another viewer.':undefined});this.tryAutoControl();break;
     case 'resync':this.offset=undefined;this.update({status:'resyncing',you:false,message:'Refreshing the terminal snapshot…'});break;
     case 'exit':this.ended=true;this.cancel?.();this.update({status:'exited',you:false,code:frame.code,signal:frame.signal,message:undefined});break;
     default:throw Error('unknown session frame');
@@ -90,5 +92,7 @@ export class SessionClient {
   const data=new TextEncoder().encode(text),bytes=new Uint8Array(5+data.length);bytes[0]=10;new DataView(bytes.buffer).setUint32(1,data.length);bytes.set(data,5);this.ws.send(bytes);return true;
  }
  resize(cols:number,rows:number){return this.state.you&&this.options.control?this.send('size',{cols,rows}):false;}
+ get outputOffset(){return this.offset;}
+ configure(control:boolean,autoControl?:boolean,metadata:Partial<Pick<SessionClientOptions,'url'|'label'>>={}){Object.assign(this.options,metadata);this.options.control=control;if(autoControl!==undefined&&!this.autoControlAttempted)this.autoControlAllowed=autoControl;if(!control&&this.state.you)this.release();}
  dispose(){this.stopped=true;this.cancel?.();if(this.ws){this.ws.onopen=this.ws.onmessage=this.ws.onclose=this.ws.onerror=null;this.ws.close();}this.ws=undefined;}
 }

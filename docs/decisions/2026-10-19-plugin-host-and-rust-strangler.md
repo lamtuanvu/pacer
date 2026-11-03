@@ -54,6 +54,10 @@ service from its adapters.
 - A plugin's failure degrades one capability and is visible through `plugin.list`,
   `plugin.doctor`, the `plugin` event and the activity log; it never stops the service.
 - Routing and strategy stay in the core so no plugin can hold the host hostage.
+- The remote Codex usage probe and Claude stream telemetry remain host-owned
+  integration paths during the migration. They are not generic fallback readers
+  for an unavailable usage plugin. Host-owned planner journal recovery likewise
+  remains available when the planner plugin is gone.
 - The release still ships one binary. npm and Homebrew paths do not change.
 
 ## Open questions

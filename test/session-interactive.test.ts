@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { readFileSync, writeFileSync, symlinkSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, symlinkSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir, fakeCtx } from "./helpers";
-import { prepareInteractive, readReport, writeReport, agentHook, transcriptReport } from "../src/session/reports";
+import { planInteractive, prepareInteractive, readReport, writeReport, agentHook, transcriptReport } from "../src/session/reports";
 import { createTask, updateTask } from "../src/tasks/store";
 import { main } from "../src/cli";
 
@@ -53,6 +53,15 @@ test("per-launch settings stay in run directory; other agents keep account envir
   expect(settings.hooks.PermissionRequest[0].hooks[0].command).toContain("report-hook.sh");
   expect(settings.hooks.Stop[0].hooks[0].command).toContain(dir);
   expect(prepareInteractive("cursor", dir, {argv: ["cursor-agent", "P"], cwd: dir}).argv).toEqual(["cursor-agent", "P"]);
+});
+
+test("interactive hook plan leaves a fresh claim directory empty until the host starts it", () => {
+  const dir = join(tmpDir(), "unclaimed", "1");
+  const planned = planInteractive("codex", dir, {argv: ["codex", "PROMPT"], cwd: dir});
+  expect(planned.launch.argv).toContain("--dangerously-bypass-hook-trust");
+  expect(planned.files).toEqual([{ name: "report-hook.sh", mode: 0o700,
+    content: expect.stringContaining("_session-hook") }]);
+  expect(existsSync(dir)).toBe(false);
 });
 
 test("pacer report accepts launch environment and rejects invalid input", async () => {

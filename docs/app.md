@@ -203,6 +203,9 @@ collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
 return to the full list; the repository filter and list position are retained.
 Attention actions in the native tray open the same task detail route.
+Task-detail file counts include both tracked changes and new, untracked files.
+Live events wake connected clients after the service persists them; polling still
+recovers changes written by another process.
 The tray planner header keeps its caption and mode visible at narrow widths; the
 pace label truncates first, with the full status available in its tooltip. Below
 340px, the four task-count columns fit their full captions with compact insets,
@@ -210,7 +213,7 @@ and footer actions use two rows so labels, shortcut hints and controls remain
 visible; the More menu stays above the footer and scrolls within short windows,
 even with a long expanded strategy list. Large count values ellipsize when space
 is tight; count links keep the exact value in their accessible name and tooltip.
-Opening a workspace watches output read-only. **Take control** is an explicit secondary action; **Hand back** releases control, and **Stop task** keeps recorded output and changes. Questions sent by the agent appear in the workspace, including while work is running or waiting to start and after an open result settles. `?tab=answer` focuses the answer box. The shared sender marks a question read only after delivery; held answers leave it open. Legacy `pacer ask` questions keep their separate task-answer flow. Execution status and quality verdict are separate:
+Opening a workspace watches output read-only. **Take control** is an explicit secondary action; **Hand back** releases control, and **Stop task** keeps recorded output and changes. Questions sent by the agent appear in the workspace, including while work is running or waiting to start and after an open result settles. `?tab=answer` focuses the answer box. The shared sender marks a question read only after delivery; held answers leave it open. Legacy `pacer ask` questions keep their separate task-answer flow. The workspace's **Messages** tab holds the task thread, with an unread badge, a composer that offers **Answer** while a question is open, and stalled or hand-back notices; `#/workspace?task=<id>&panel=messages` opens it, and the task page links there when a conversation stalls or messages are unread. A task a person started that runs as managed work keeps **Answer**, **Accept**, **Reject** and **Send back**; without a session to continue, they fall back to the matching `dispatch.*` steps. Execution status and quality verdict are separate:
 a run can be Completed with Outcome not recorded. Accepted does not mean merged;
 Pacer shows Integration not recorded unless integration is independently known.
 Existing verdicts do not identify the reviewer, so they are labelled Accepted.
@@ -304,6 +307,8 @@ prints `pacer not running · pacer serve`.
 The **Delegate** dialog starts with the active repository filter, an unfinished draft’s repository, or the last repository successfully used in the dialog. It remembers the last used repository across app restarts. Choose an optional **Kind** to guide routing; the preview updates with the goal, repository and kind and shows the next executor. Submit with **Cmd+Enter** (or **Ctrl+Enter**).
 
 Dropdowns in Start work, Delegate, Settings and retry/review use the same picker. Click or press an arrow key to open it; use arrows, Home/End and Enter to choose, or Escape to close. Longer lists offer a search box. Unavailable choices show a reason and cannot be selected. Start work aligns repository with agent/account and workspace with base branch; it defaults to a new worktree, leaving uncommitted changes in the original checkout. Attach files opens the system file picker, while paste and drop remain available.
+
+Collapsing a terminal split returns keyboard focus to the retained tab and keeps both shells open. If session changes cannot be loaded, Changes shows the existing friendly error without an empty-file count or a “No changes” success state.
 
 Task labels use an explicit delegation `title` when provided. Otherwise, pacer
 uses the first sentence or line of the goal, strips Markdown formatting, and

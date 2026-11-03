@@ -1,3 +1,6 @@
+import { useUniqueId as useId } from '../../ds/useUniqueId';
+
+import { useWorkspaceKey, useWorkspaceState, useViewActive } from '../../workspace/state';
 import { SettingsPath as PathText } from "../settings/PathText";
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
@@ -24,7 +27,7 @@ import { useFrame, useFrameHeading } from "../../shell/slots";
 import { useNavigation } from "../../navigation";
 import { hrefFor, routes } from "../../router";
 
-export type SessionPanelTab = "changes" | "details" | "work";
+export type SessionPanelTab = "changes" | "details" | "messages" | "work";
 export interface ChangedFile { path: string; added: number; removed: number; status?: "added" | "modified" | "deleted" | "renamed" }
 export interface TaskDiff { patch: string; untracked: string[]; truncated: boolean; files?: ChangedFile[]; note?: string }
 
@@ -129,11 +132,11 @@ export function SessionHeader({ task, onEnd, busy, actions }: { task: TaskDetail
 }
 
 /** Side-panel tabs preserve file views independently of Details and Changes. */
-export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0, readFile }: {
-  id: string; tab: SessionPanelTab; onTab: (tab: SessionPanelTab) => void; changes: ComponentChildren; details: ComponentChildren; work?: ComponentChildren;
-  count?: number; readFile?: (reference: string) => Promise<SessionFileResult>;
+export function SessionPanel({ id, tab, onTab, changes, details, messages, unread = 0, work, count = 0, readFile }: {
+  id: string; tab: SessionPanelTab; onTab: (tab: SessionPanelTab) => void; changes: ComponentChildren; details: ComponentChildren; messages?: ComponentChildren; unread?: number; work?: ComponentChildren;
+  count?: number | null; readFile?: (reference: string) => Promise<SessionFileResult>;
 }) {
-  const [opened, setOpened] = useState<string[]>([]), [selected, setSelected] = useState<string>();
+  const [opened, setOpened] = useWorkspaceState<string[]>(useWorkspaceKey(id), "openedFiles", []), [selected, setSelected] = useWorkspaceState<string | undefined>(useWorkspaceKey(id), "selectedFile", undefined);
   const [Viewer, setViewer] = useState<typeof import("./FileViewer")["FileViewer"]>();
   const [file, setFile] = useState<SessionFileResult>(), [error, setError] = useState<{code:string;message:string}>(), [loading, setLoading] = useState(false);
   const request = useRef(0);
@@ -148,6 +151,7 @@ export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0
     } catch (e) { if (revision === request.current) setError({code:"read_failed",message:e instanceof Error ? e.message : "Could not read file."}); }
     finally { if (revision === request.current) setLoading(false); }
   };
+  useEffect(() => { if (selected && readFile && !file && !loading && !error) void open(selected); }, [selected, !!readFile]);
   const close = (path: string) => {
     setOpened(paths => paths.filter(item => item !== path));
     if (selected === path) {
@@ -155,8 +159,8 @@ export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0
       requestAnimationFrame(() => document.getElementById(`session-${id}-panel-${tab === "work" && !work ? "details" : tab}-tab`)?.focus());
     }
   };
-  const base = `session-${id}-panel`, current = selected ?? (tab === "work" ? "details" : tab);
-  const tabs = [{ id: "details", label: "Details" }, { id: "changes", label: `Changes ${count}` }, ...opened.map(path => ({id:path,label:path.split("/").pop()!}))];
+  const base = useId(), current = selected ?? ((tab === "work" || tab === "messages" && !messages) ? "details" : tab);
+  const tabs = [{ id: "details", label: "Details" }, { id: "changes", label: count == null ? "Changes" : `Changes ${count}` }, ...(messages ? [{ id: "messages", label: unread ? `Messages ${unread}` : "Messages" }] : []), ...opened.map(path => ({id:path,label:path.split("/").pop()!}))];
   return <div className={`pc-session-panel pc-session-panel--board${selected ? " pc-session-panel--file" : ""}`} onClick={event => {
     const path = (event.target as HTMLElement).closest<HTMLElement>("[data-session-file]")?.dataset.sessionFile;
     if (path && readFile) void open(path);
@@ -164,13 +168,15 @@ export function SessionPanel({ id, tab, onTab, changes, details, work, count = 0
     <div className="pc-panel-tabs"><Tabs id={base} label="Session details" className="pc-session-tabs" value={current}
       onChange={value => { if (opened.includes(value)) void open(value); else { request.current++; setSelected(undefined); onTab(value as SessionPanelTab); } }}
       options={tabs.map(item => ({ value: item.id, label: item.label, trailing: opened.includes(item.id) ? <IconButton size="sm" variant="quiet" aria-label={`Close ${item.id}`} onClick={() => { close(item.id); requestAnimationFrame(() => document.getElementById(`${base}-details-tab`)?.focus()); }}>×</IconButton> : undefined }))} /></div>
-    <div role="tabpanel" id={`${base}-${current}-panel`} aria-labelledby={`${base}-${current}-tab`} tabIndex={0} className="pc-session-panel__body">
-      {selected ? <>{Viewer ? <Viewer sidePanel file={file} reference={selected} loading={loading} error={error} onClose={() => close(selected)} onRefresh={() => void open(selected)} onOpenFile={path => void open(path)}/> : <p role={error ? "alert" : "status"}>{error?.message ?? "Loading file…"}</p>}</> : current === "changes" ? changes : <div className="pc-stack pc-stack--section">{details}{work}</div>}
+    <div role="tabpanel" id={`${base}-${current}-panel`} aria-labelledby={`${base}-${current}-tab`} tabIndex={0} data-scroll-id="pc-session-panel__body" className="pc-session-panel__body">
+      {selected ? <>{Viewer ? <Viewer sidePanel file={file} reference={selected} loading={loading} error={error} onClose={() => close(selected)} onRefresh={() => void open(selected)} onOpenFile={path => void open(path)}/> : <p role={error ? "alert" : "status"}>{error?.message ?? "Loading file…"}</p>}</> : current === "changes" ? changes : current === "messages" ? messages : <div className="pc-stack pc-stack--section">{details}{work}</div>}
     </div>
   </div>;
 }
 
 export function SessionFiles({ id, diff, onOpen }: { id: string; diff?: TaskDiff | null; onOpen?: boolean }) {
+  if (!diff) return null;
+  if (diff.note) return <p className="muted">{diff.note}</p>;
   const files: ChangedFile[] = diff ? [...(diff.files ?? parseDiff(diff.patch)), ...diff.untracked.map(path => ({path,added:0,removed:0,status:"added" as const}))] : [];
   return <section><div className="pc-session-files__heading"><SectionHeading as="h3">Changes · {files.length} files</SectionHeading>{files.length > 0 && <a className="pc-text-action" href={`#/tasks/${encodeURIComponent(id)}/review`}>Open diff</a>}</div>
     <ul className="pc-changed-files">{files.map(file => <li className="pc-changed-files__row" key={file.path}>

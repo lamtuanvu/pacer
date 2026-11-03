@@ -1,3 +1,4 @@
+import { platform } from "../../platform";
 import { ImmediateSave } from "../../ds/ImmediateSave";
 import { ImmediateSetting } from "./ImmediateSetting";
 import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
@@ -11,7 +12,7 @@ import { useDialogs } from "../../ds/useDialogs";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import type { ConfigData } from "../../model/strategy";
 import { DesktopUpdateConnection } from "./DesktopUpdateConnection";
-import { desktopHost, readDesktopVersion, readDesktopUpdateConnection, type DesktopUpdateConnection as Connection } from "../../data/desktop";
+import { readDesktopVersion, readDesktopUpdateConnection, type DesktopUpdateConnection as Connection } from "../../data/desktop";
 import { updateModel } from "../../model/settings";
 import { desktopUpdateModel } from "../../../../src/view-model/updates";
 import { SettingRow } from "../../ds/SettingRow";
@@ -120,7 +121,7 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
   const dialogs = useDialogs();
   const query = useResource('update.check', {}, initialData);
   const action = useOperation(query.reload);
-  const [native] = useState(() => !!desktopHost().__TAURI__);
+  const [native] = useState(() => platform.desktop);
   const [desktop, setDesktop] = useState<{version:string|null;loading:boolean}>({version:null,loading:true});
   useEffect(() => {
     if (!native) return;
@@ -160,9 +161,9 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
           if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {
             void action.run('update.apply', {});
           }
-        }}>Install {query.data.latest}</Button>}
+        }} disabled={!!action.unavailable}>Install {query.data.latest}</Button>}
         <TextAction size="caption" href={`https://github.com/lamtuanvu/pacer/releases/${query.data.latest && /^\d+\.\d+\.\d+$/.test(query.data.latest) ? `tag/v${query.data.latest}` : "latest"}`}>Release notes</TextAction>
-        <Button size="sm" busy={action.busy} onClick={() => void action.run('update.check', {force:true})}>Check now</Button>
+        <Button size="sm" busy={action.busy} onClick={() => void action.run('update.check', {force:true})} disabled={!!action.unavailable}>Check now</Button>
       </div>
     </SettingRow>}</ResourceState>
     <RunningWork/>

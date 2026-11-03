@@ -6,6 +6,19 @@ OTA event traces remain in the report's evidence details. They do not assert a
 behavior verdict; the driver's outcome checks provide that verdict. Required
 behavior notes without a verdict still count as UNVERIFIED.
 
+## Native operation routing
+
+Release builds include the native operations listed in the M2 ledger. In development and
+future native-enabled builds, `PACER_FORWARD_OPS` is a comma-separated list of
+operation names, or `*`, that forces native operations back through the TypeScript
+core. It cannot enable an operation. The setting is read at startup and logged once
+to stderr. `/v2` always forwards; stdio dispatches natively only after an accepted
+protocol 3 `hello`. Work-grant requests remain forwarded to the core for scoped
+authorization. For a diagnostic run, `PACER_DEBUG_NATIVE=1` writes `native <op> <id>`
+to stderr for stdio requests with an ID, and `native <op>` for HTTP requests
+and notifications, when the Rust handler executes. The test-only `test-ops` build exposes
+`test.echo` and `_debug.native` for strict native evidence; release builds do not.
+
 ## Start and inspect a sandbox
 
 From the checkout root:
@@ -63,6 +76,25 @@ bun run live up --id my-change --real-keychain
 ### M1 runtime and artifact layout
 
 To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority. Bundled plugin children retain the configured front-door or wrapper route; the source host supplies a fixed selector for its own Bun runtime and CLI module. Installed plugins do not receive that selector.
+
+For native operation routing evidence, add `--native-test-ops` with `--front-door rust`.
+The harness builds the test-only native operations into the sandbox front door and
+records this choice in `session.json`; release builds do not include these operations.
+Use the guarded public proxy for HTTP checks. To check the forward override in
+a separate sandbox, add `--native-forward-echo`; it fixes
+`PACER_FORWARD_OPS=test.echo` for that sandbox. Record the native trace from
+`logs/serve.log` and the forwarding result as behavior notes in each report.
+The D3 guard refuses generic stdio calls. For a native test-ops sandbox without
+`--native-forward-echo`, run `bun run live native-stdio --id <id>`. This fixed
+fixture starts the sandbox's Rust front door with the sandbox home and Keychain
+stub. The native test binary is pinned inside the sandbox at `up`, so later Cargo
+builds cannot change the exercised bytes. The fixture sends protocol-3 `hello`,
+`test.echo`, then protocol-2 `hello`, and records
+the exact replies and native execution trace. It then sends fixed v3/v2 `hello`
+requests with `PACER_FORWARD_OPS=*` and checks both replies without a native trace.
+It accepts no operation, path or
+environment override. The normal guarded `live pacer -- api --stdio` remains
+refused. Report native stdio as PASS only when this fixture passes.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 
@@ -167,6 +199,28 @@ Combine rows for changes spanning areas. Remote live tests still require separat
 
 ## Drive the surfaces
 
+### Sandbox SSH stream faults
+
+For a disposable full-session SSH task, the harness can arm one live-only
+`pacer-ssh` stream transport fault before opening its viewer:
+
+```sh
+bun run live stream-fault arm --id my-change --mode lost-input-ack
+# or: --mode read-response-timeout
+```
+
+The first persisted `SESSION_PIPE` stream in that sandbox claims the fault.
+`lost-input-ack` drops one input acknowledgement only after the host broker
+accepted that frame's exact stdin bytes; the viewer must close without replay.
+`read-response-timeout` drops one broker read response so the provider's
+finite call deadline must close the viewer. The live guard proxies only the
+bundled `pacer-ssh` child, passes all other frames unchanged, and does not
+log session bytes. Its private `faults/<id>.consumed.json` contains only
+fault mode, task ID, stream ID and time. Exercise one fault per dedicated
+sandbox, verify the consumed proof and task outcome, then record a separate
+CT-11 verdict. Other plugin children and ordinary guarded CLI commands keep
+their existing launch path.
+
 ### CLI and API
 
 ```sh
@@ -255,7 +309,9 @@ bun run live report --id my-change
 bun run live down --id my-change --keep
 ```
 
-`down` stops the sandbox proxy, inner service and tmux session, and in a `--real-keychain` sandbox deletes the sandbox's machine identity Keychain items. `--keep` preserves the sandbox and evidence for review; without it, the entire sandbox is removed. A retained sandbox can be removed later with `down` without `--keep`. The service PID is checked against inner `/health` and the proxy PID against public `/__live/health` before signaling each; a live but unverified PID causes teardown to refuse rather than kill an unrelated process. If startup fails, inspect the retained logs and process state before deleting its directory.
+`down` stops the sandbox proxy and inner service's dedicated process groups, waits for descendants in those same groups to stop, then closes the tmux session and deletes sandbox machine identity Keychain items when `--real-keychain` was used. Before signaling a group, it verifies the stored leader's birth/boot identity and that its process-group ID equals its PID. A changed identity, a missing leader with live descendants, an unavailable process observation or a group that does not stop within three seconds preserves the sandbox for inspection. Children that detach into another process group, including detached activity or plugin effects, are outside this group ledger. Independently running executors must be stopped separately.
+
+`--keep` preserves the stopped sandbox and evidence; a later `down` without `--keep` removes it without signaling stopped groups again. Sessions created before process-group ownership was recorded cannot be torn down automatically: missing ownership metadata causes a refusal, not an inferred group kill. Inspect their process state and retained logs before arranging explicit cleanup. If startup fails, inspect the retained logs and process state before deleting its directory.
 
 ## Disposable desktop OTA fixtures
 
@@ -471,6 +527,56 @@ detected with CFEqual and mark the observation truncated. Native action failures
 report `not_delivered` only before a platform mutation is attempted; later errors
 report `unknown` and must not be retried implicitly. This classification does not
 prove that the intended effect completed.
+
+## Fixed TypeScript publication fixture
+
+For the three TypeScript publication boundaries, start a UI-seeded sandbox and run
+`bun run live publication --id <seeded-id>`. The fixed command creates a fresh
+`publication-fixture/` under the owned sandbox home after the same canonical
+ownership and health checks as the settings fixture. It publishes an alert with
+astral text across the title and body cutoffs, reads the persisted outbox and
+latest snapshot plus API snapshot and event, reads a valid strategy whose first
+comment crosses the description cutoff, and invokes the real `account.test`
+handler with a fixed failing endpoint transport. It checks returned and
+persisted error detail. No agent command, credential or external endpoint is
+used. Stale temp files are planted before a 1002-event publication to force
+outbox rotation and verify that both stale files survive. The fixture accepts
+no values, paths or command overrides and leaves
+ordinary D8 refusals in place. Run `live report`, then `live down --keep`.
+
+## Fixed native config-write fixture
+
+Start `bun run live up --id config-writes --seed ui --front-door rust --native-test-ops`,
+then run `bun run live native-config --id config-writes`. The fixed fixture exercises
+`strategy.use/save/remove`, `routing.set`, `runner.set/reorder/remove`, and
+`notifications.get/set` over protocol-3 stdio and authenticated public HTTP on
+fresh, owned fixture services. It seeds malformed UTF-8 in an unrelated notification
+setting and a legacy off preference to verify environment-dependent migration and
+replacement decoding during writes. The service receives `PACER_AGENT=alice`; saved
+headers must retain that author. Block-routing cases exercise CRLF preservation,
+trailing mapping-key spaces, middle-rule deletion errors and CRLF error excerpts.
+It also saves a
+`0.000001` planner reserve to check YAML number bytes. It compares each result and
+persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
+delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private
+route refusal and public SSE replay of configuration and strategy-switch events.
+It then exercises every native operation with the ordinary guarded CLI through
+the sandbox's public proxy, recording results and persisted strategy state in
+`native-config-fixture/cli-results.json`.
+
+Only fixed synthetic strategy/account declarations are used. Fixture homes and
+agent configuration locations are private and disposable; no agent runs, native
+credentials, installed service or service-manager action is involved. The command
+accepts only a sandbox ID and refuses existing fixture roots, unseeded sessions,
+real Keychain mode and non-Rust/non-test builds. Ordinary D3/D8 guards remain in
+force. Files and logs remain under `native-config-fixture/` for inspection. Run
+`live report`, then `live down --keep`. The fixture records each desktop operation
+as UNVERIFIED under the scoped desktop exception in `.project/decisions.md`.
+Separately exercise web and browser tray controls, and TUI
+settings actions. For operations without a direct UI control (for example TUI
+strategy save/remove), verify the resulting list or detail after a guarded CLI
+write and state that distinction in the evidence. API fixture success alone does
+not verify client rendering.
 
 ## Fixed settings save fixture
 

@@ -4,6 +4,7 @@ import * as core from "../core";
 import type { Status } from "../engine/status";
 import type { Ctx } from "../types";
 import { eventsSince, liveSnapshot, liveV2Snapshot } from "./events";
+import { subscribeOutbox } from "../link/store";
 import { isExecutorSession } from "../install/role";
 import { callOp, type OpDeps } from "./ops";
 import { helloBody, httpStatus, toApiError, type ApiErrorBody } from "./protocol";
@@ -12,20 +13,29 @@ const errorResponse = (error: ApiErrorBody["error"], status = httpStatus(error.c
   Response.json({ error }, { status });
 
 /** Poll immediately, then until cancelled or the source reports completion. */
-function sse(tailMs: number, poll: (send: (frame: string) => void) => boolean): Response {
+function sse(tailMs: number, poll: (send: (frame: string) => void) => boolean, subscribe?: (wake: () => void) => () => void): Response {
   const enc = new TextEncoder();
   let timer: ReturnType<typeof setInterval> | undefined;
   let keepalive: ReturnType<typeof setInterval> | undefined;
-  const clear = () => { clearInterval(timer); clearInterval(keepalive); };
+  let unsubscribe: (() => void) | undefined;
+  let closed = false, scheduled = false;
+  const clear = () => { closed = true; clearInterval(timer); clearInterval(keepalive); unsubscribe?.(); };
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const send = (frame: string) => controller.enqueue(enc.encode(frame));
       const tick = () => {
+        if (closed) return true;
         try {
           if (poll(send)) { clear(); controller.close(); return true; }
         } catch (e) { clear(); controller.error(e); return true; }
         return false;
       };
+      // Never reenter a reader from a write; several persisted writes share one replay.
+      unsubscribe = subscribe?.(() => {
+        if (closed || scheduled) return;
+        scheduled = true;
+        queueMicrotask(() => { scheduled = false; tick(); });
+      });
       send(": connected\n\n");
       if (tick()) return;
       timer = setInterval(tick, tailMs);
@@ -38,7 +48,7 @@ function sse(tailMs: number, poll: (send: (frame: string) => void) => boolean): 
   return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
 }
 
-/** Auth is enforced by startServer before dispatching any v2 route. */
+/** Auth is enforced by startServer before dispatching either versioned route family. */
 export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?: OpDeps; tailMs?: number; status?: () => Promise<Status>; snapshot?: () => ReturnType<typeof liveSnapshot> }): Promise<Response> {
   const url = new URL(req.url);
   const version=url.pathname.startsWith("/v3/")?3:2;
@@ -102,7 +112,7 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
         for (const e of batch.events) send(`id: ${e.seq}\nevent: ${e.type}\ndata: ${JSON.stringify(e.data)}\n\n`);
         last = batch.last;
         return false;
-      });
+      }, wake => subscribeOutbox(deps.getCtx(), wake));
     }
     const streamRoute = pathname.match(/^\/v2\/assistant\/turns\/([A-Za-z0-9_-]{1,128})\/stream$/);
     if (streamRoute) {
@@ -110,7 +120,8 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       if (isExecutorSession(deps.getCtx())) return errorResponse({ code: "not_allowed", message: "PACER_ROLE=executor: executors cannot use the assistant." });
       return (await import("../assistant/stream")).assistantStream(streamRoute[1]!);
     }
-    const logRoute = pathname.match(/^\/v2\/tasks\/([^/]+)\/log$/);
+    // Log follow is public in both majors and keeps the same frames and pre-stream errors.
+    const logRoute = url.pathname.match(/^\/v[23]\/tasks\/([^/]+)\/log$/);
     if (logRoute && url.searchParams.get("follow") === "1") {
       const id = logRoute[1]!;
       // Resolve errors before sending SSE headers, so unknown tasks retain their HTTP code.

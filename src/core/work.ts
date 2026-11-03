@@ -12,6 +12,8 @@ import { CoreError } from "./errors";
 import { delegate as delegateTask, stop as stopTask, review as reviewTask, wait as waitTask } from "./tasks";
 import { launchTaskRunner, spawnRunner, type DelegateInput, type SpawnRunner } from "../tasks/api";
 import { readTask, listTasksWhere, updateTask } from "../tasks/store";
+import type { TaskRecord } from "../tasks/types";
+import { withoutPlannerSession } from "../exec/process";
 import { TERMINAL_STATES } from "../tasks/types";
 import { loadStrategy, MissingStrategyError, KINDS } from "../config/strategy";
 import { SLOT_STATES, slotBlock, slotUse } from "../engine/slots";
@@ -242,6 +244,35 @@ async function restartWork(ctx:Ctx,id:string,input:RetryWorkInput|AnswerWorkInpu
   return updated;
  });}finally{finishUnlaunchedWorkSync(ctx,lease);}
 }
+/** Restart a settled managed root for a policy-admitted message turn. */
+export function restartWorkForTurn(ctx: Ctx, id: string, turn: NonNullable<TaskRecord["pendingTurn"]>, spawn: SpawnRunner, o: {expectRev: number; onReset?: () => void}): TaskRecord {
+ return withLockSync(ctx, `work-retry-${id}`, () => {
+  const own = {...ctx, env: {...withoutPlannerSession(ctx.env), PACER_WORK_GRANT: undefined, PACER_ROLE: undefined}};
+  const db = dispatchDatabase(ctx);
+  const current = readTask(ctx, id), work = getWork(ctx, id);
+   if (!current || !work) throw new CoreError("unknown_task", "Unknown managed work");
+   if (current.rev !== o.expectRev) throw new CoreError("conflict", "Work revision changed; reload before continuing");
+   if (current.archived || !["done", "failed", "partial", "limit", "needs_input"].includes(current.state) || current.review?.accepted) throw new CoreError("conflict", "Work is not eligible for a message turn");
+   if (current.attempts.length >= (work.options.maxAttempts ?? 3)) throw new CoreError("not_allowed", "Managed work attempt limit reached");
+   if (work.options.expiresAt !== undefined && work.options.expiresAt <= ctx.now) throw new CoreError("not_allowed", "Work deadline has expired");
+   if (pendingDependencies(ctx, id).length) throw new CoreError("conflict", "Required dependencies have not been reviewed");
+   if (current.worktree && !existsSync(current.worktree)) throw new CoreError("conflict", "Task worktree is unavailable; restore it before continuing");
+   if (current.runnerPid && pidAlive(current.runnerPid) || current.childPid && pidAlive(current.childPid)) throw new CoreError("conflict", "Previous executor is still active");
+   db.query("UPDATE work_grants SET revoked=1 WHERE task_id=?").run(id);
+   db.query("DELETE FROM work_reservations WHERE task_id=?").run(id);
+   const next = updateTask(ctx, id, t => {
+    t.pendingTurn = turn; t.requestedExecutor = turn.executor;
+    t.worktree = t.worktree ?? t.result?.worktree;
+    t.state = "queued"; t.queue = {reason:"waiting_retry",detail:"Message turn requested",since:ctx.now,position:1,nextAt:ctx.now};
+    delete t.settledAt; delete t.result; delete t.review; delete t.resolved; delete t.resolutionCheckedAt; delete t.reviewRequest;
+    delete t.run; delete t.runnerPid; delete t.childPid; delete t.pendingAttempt; delete t.attemptStartedAt; delete t.progress; delete t.executor; delete t.backend;
+   });
+   appendWorkEvent(ctx,id,"work.turn_requested",{turn:turn.id,attempt:current.attempts.length+1});
+   o.onReset?.();
+  try { launchTaskRunner(own, id, spawn); } catch (error) { appendWorkEvent(ctx,id,"work.launch_deferred",{reason:error instanceof Error?error.message:"Launch failed"}); }
+  return next;
+ });
+}
 export async function retryWork(ctx:Ctx,id:string,input:RetryWorkInput,spawn:SpawnRunner=spawnRunner){return restartWork(ctx,id,input,"retry",spawn);}
 export async function answerWork(ctx:Ctx,id:string,input:AnswerWorkInput,spawn:SpawnRunner=spawnRunner){return restartWork(ctx,id,input,"answer",spawn);}
 export function stopWork(ctx:Ctx,id:string,expectRev?:number){
@@ -266,7 +297,7 @@ export function authorizeWorkOperation(ctx:Ctx,name:string,params:unknown):void{
  }
  if(name==="dispatch.enforcement.denied")throw new CoreError("not_allowed","An enforcement identity is required");
  const token=ctx.env.PACER_WORK_GRANT;if(!token){if(ctx.env.PACER_ROLE==="executor"&&name.startsWith("dispatch."))throw new CoreError("not_allowed","A scoped work grant is required");return;}
- if(["msg.send","msg.inbox","msg.wait","msg.log","msg.read","msg.close","msg.policy","tree.status"].includes(name)){authorizeWorkGrant(ctx,token);return;}
+ if(["msg.send","msg.inbox","msg.wait","msg.log","msg.read","msg.close","msg.policy","tree.status","liveness.status"].includes(name)){authorizeWorkGrant(ctx,token);return;}
  const caller=authorizeWorkGrant(ctx,token);
  const allowed=["dispatch.child","dispatch.tree","dispatch.events","dispatch.wait","dispatch.review","dispatch.retry","dispatch.answer","dispatch.stop","task.get","task.wait","task.log","task.diff"];
  if(!allowed.includes(name))throw new CoreError("not_allowed","Operation is not allowed by this work grant");

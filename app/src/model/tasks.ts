@@ -32,8 +32,9 @@ export function tasksModel(tasks: TaskSummary[], liveOrSnapshot: TaskData[] | Li
   }).filter(task => !task.dismissed && (tab === "running" ? activeTask(task.state) : tab === "review" ? inReview(task) : !activeTask(task.state) && !inReview(task)));
 }
 export function nextTaskLimit(limit: number): number | null { return limit >= 200 ? null : Math.min(200, limit + 20); }
-export interface DelegateDraft { goal: string; repo: string; base: string; acceptance: string; executor: string; kind: string }
-export const blankDelegate: DelegateDraft = { goal: "", repo: "", base: "", acceptance: "", executor: "", kind: "" };
+/** `grant: "off"` opts a task out of coordinating sub-agents; empty follows the service default. Drafts store strings. */
+export interface DelegateDraft { goal: string; repo: string; base: string; acceptance: string; executor: string; kind: string; grant?: string }
+export const blankDelegate: DelegateDraft = { goal: "", repo: "", base: "", acceptance: "", executor: "", kind: "", grant: "" };
 /** Resolve defaults once on open so the user can still change the repository. */
 export const initialDelegateDraft = (saved: DelegateDraft, filterRepo: string | null, lastRepo = ""): DelegateDraft => {
   const repo = filterRepo || saved.repo || lastRepo;
@@ -50,7 +51,10 @@ export function delegateRoutingParams(draft: DelegateDraft, current: boolean, go
  * Quick delegate from the UI. A 2.1+ service (it lists repo.list) takes a repo key, a base branch, the source and an
  * idempotency id, so a double click or two windows never delegate twice; an older one needs an absolute path.
  */
-export function delegateParams(draft: DelegateDraft, ops: ReadonlySet<string>, requestId: string, knownRepos: string[]) {
+/** Whether the service registers user-started tasks as managed work (`messaging.grants.user_started_tasks`). */
+export const userStartedGrants = (policy: unknown): boolean =>
+  (policy as { config?: { grants?: { user_started_tasks?: string } } } | undefined)?.config?.grants?.user_started_tasks === "on";
+export function delegateParams(draft: DelegateDraft, ops: ReadonlySet<string>, requestId: string, knownRepos: string[], userGrants = false) {
   const goal = draft.goal.trim(), repo = draft.repo.trim(), current = ops.has("repo.list");
   if (!goal) throw new Error("Goal is required.");
   if (!repo.startsWith("/") && !(current && knownRepos.includes(repo))) throw new Error("Choose a repository.");
@@ -61,6 +65,7 @@ export function delegateParams(draft: DelegateDraft, ops: ReadonlySet<string>, r
     ...(draft.executor ? { executor: draft.executor } : {}),
     ...(draft.kind ? { kind: draft.kind } : {}),
     ...(current ? { source: "ui" as const, request_id: requestId } : {}),
+    ...(userGrants && draft.grant === "off" ? { grant: false } : {}),
   };
 }
 

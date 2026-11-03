@@ -1,8 +1,12 @@
+import { useUniqueId as useId } from '../ds/useUniqueId';
+
+import { useWorkspaceKey, useWorkspaceState, useViewActive } from '../workspace/state';
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { answerSteps, sendBackSteps, userStartedRoot, withManagedFallback } from "../../../src/view-model/managed-root";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
-import { answerDeliveryWords, executorLabel, messageRefusalWords, taskOutcome, taskStatus } from "../../../src/view-model/words";
+import { COORDINATES, answerDeliveryWords, executorLabel, managedSkipWords, taskOutcome, taskStatus } from "../../../src/view-model/words";
 import { scopedTaskTree, taskTree, workTasks, type WorkRow } from "../../../src/view-model/task-tree";
 import { clock } from "../../../src/view-model/time";
 import { Button } from "../ds/Button";
@@ -22,8 +26,9 @@ import { Diff } from "./review/Diff";
 import type { Verdict } from "./review/model";
 import { Page, PageTitle, Stack } from "../ds/Page";
 import { LazyWork } from "./work/LazyWork";
-import { ApiError } from "../data/api";
 import { answerDelivered, answerParams, legacyQuestionPending, messageQuestion } from "../model/task-answer";
+import type { ThreadMessage } from "../model/thread";
+import { PendingSendFeedback, usePendingSend } from "./session/pending-send";
 export { legacyQuestionPending } from "../model/task-answer";
 
 export function resultSummary(task: TaskDetail): string {
@@ -40,7 +45,10 @@ export function TaskResultView({ task, verdict, changes, question, onChanges, em
   const problem = task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state);
   const openReview = !!task.reviewRequest && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
   const results = <>
-      <section className="pc-section"><SectionHeading>Result</SectionHeading><p>{resultSummary(task)}</p><p className="muted">{taskOutcome(task).label}</p></section>
+      <section className="pc-section"><SectionHeading>Result</SectionHeading><p>{resultSummary(task)}</p><p className="muted">{taskOutcome(task).label}</p>
+        {task.work?.allowDelegation && task.work.parentId === null && <p className="muted">{COORDINATES}</p>}
+        {task.managedSkip && <p className="muted">{managedSkipWords(task.managedSkip.reason)}</p>}
+      </section>
       <section className="pc-section"><SectionHeading>Checks &amp; changes</SectionHeading>
         <p className={task.acceptance.state === "failed" ? "pc-warn-text" : "muted"}>{task.acceptance.state === "failed" ? "Checks failed" : task.acceptance.state === "passed" ? "Checks passed" : task.acceptance.state === "none" ? "No acceptance checks recorded" : "Checks have no final result"}{task.acceptance.summary ? ` · ${task.acceptance.summary}` : ""}</p>
       <Stack space="compact">
@@ -54,7 +62,7 @@ export function TaskResultView({ task, verdict, changes, question, onChanges, em
   </>;
   const next = <>
       <section className="pc-action-panel"><SectionHeading>Next step</SectionHeading>
-        {question ?? (task.work ? <p>Use the Work tab for decisions and history.</p> : openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : task.state === "partial" ? "Inspect the incomplete work before continuing." : "Inspect the failure and retry when ready.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
+        {question ?? (task.work && !userStartedRoot(task) ? <p>Use the Work tab for decisions and history.</p> : openReview || problem ? <><p>{task.reviewRequest?.note ?? (task.acceptance.state === "failed" ? "Inspect the failed checks before continuing." : task.state === "partial" ? "Inspect the incomplete work before continuing." : "Inspect the failure and retry when ready.")}</p>{verdict}</> : <><p className="muted">{task.acceptance.state === "failed" ? "Inspect the failed checks before deciding how to continue." : task.state === "partial" ? "Inspect the incomplete work before continuing." : task.review ? "This result has a recorded verdict." : "No acknowledgment required."}</p>{verdict && <Disclosure className="pc-disclosure" summary="Optional verdict">{verdict}</Disclosure>}</>)}
       </section>
   </>;
   if (compact) return <div className="pc-session-detail-group">{next}{results}
@@ -82,31 +90,32 @@ export function ResultChanges({patch,untracked,truncated,note}:{patch:string;unt
 
 /** Answers a question the task sent the human with msg.send, then marks it read once the answer reaches the task. */
 export function MessageAnswer({ task, question, focus = false, onSent }: { task: TaskDetail; question: { id: string; text: string }; focus?: boolean; onSent: (message: string) => void }) {
-  const { api } = useTaskContext(), runner = useActions();
-  const [answer,setAnswer] = useState(""), [pending,setPending] = useState(false), [refused,setRefused] = useState("");
-  const inFlight = useRef(false), input = useRef<HTMLTextAreaElement>(null), requestId = useRef("");
+  const { api, state } = useTaskContext();
+  const answerId = useId();
+  const [answer,setAnswer] = useWorkspaceState(useWorkspaceKey(task.id), "draft:answer", ""), [sentAnswer,setSentAnswer] = useState("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  const pending = usePendingSend(api, (result, params) => {
+    setSentAnswer(params.body); input.current?.focus();
+    if (answerDelivered(result.delivery) && params.reply_to) void api.call("msg.read", { ids: [params.reply_to] }).catch(() => undefined);
+    onSent(result.delivery === "pending" ? "Answer recorded; delivery is not confirmed yet. The question stays open." : answerDeliveryWords(result.delivery, result.hold));
+    // Message events update the question and invalidate this task’s messages.
+  });
+  const log = useQuery<{ messages: ThreadMessage[] }>("msg.log", { task: task.id }, "", false, !!pending.item);
+  useEffect(() => { if (log.data) pending.reconcile(log.data.messages); }, [pending, log.data]);
   useEffect(() => { if (focus) input.current?.focus(); }, [focus]);
-  async function send() {
-    if (inFlight.current || !answer.trim()) return;
-    inFlight.current = true;setPending(true);setRefused("");
-    requestId.current ||= crypto.randomUUID();
-    try {
-      const result = await api.call<{ delivery?: string; hold?: { reason?: string } }>("msg.send", answerParams(task.id, question.id, answer, requestId.current));
-      // A held or undelivered answer leaves the question unread, so it stays here to answer or confirm.
-      if (answerDelivered(result?.delivery)) await api.call("msg.read", { ids: [question.id] }).catch(() => undefined);
-      requestId.current = "";setAnswer("");
-      onSent(answerDeliveryWords(result?.delivery, result?.hold));
-      // The service publishes the cleared question too; refetching keeps this session right if that event is late.
-      void runner?.refetch();
-    } catch (error) {
-      setRefused(messageRefusalWords(error instanceof ApiError ? (error.data as { reason?: unknown } | undefined)?.reason : undefined));
-      input.current?.focus();
-    } finally { inFlight.current = false;setPending(false); }
+  useEffect(() => { if (state.connected && pending.item?.status === "uncertain") void pending.check(); }, [pending, state.connected, state.connectionRevision]);
+  function send() {
+    if (!state.connected || pending.item || !answer.trim()) return;
+    const text = answer; setAnswer(""); setSentAnswer("");
+    void pending.start(answerParams(task.id, question.id, text, crypto.randomUUID()), text);
   }
   return <>
     <p>{question.text}</p>
-    <Field label="Your answer" error={refused || undefined}><TextArea ref={input} value={answer} rows={4} onInput={e => setAnswer(e.currentTarget.value)} /></Field>
-    <Button variant="primary" busy={pending} disabled={!answer.trim()} onClick={() => void send()}>Send answer</Button>
+    <PendingSendFeedback item={pending.item} sent={sentAnswer} offline={!state.connected} onRetry={() => { if (state.connected) void pending.retry(); }} onCheck={() => void pending.check()}
+      onDiscard={() => { const text = pending.discard(); if (text !== undefined) { setAnswer(current => current ? `${current}\n${text}` : text); input.current?.focus(); } }}/>
+    {!state.connected && <p id={`${answerId}-reason`} className="muted">Reconnecting… Send when pacer reconnects.</p>}
+    <Field label="Your answer"><TextArea id={answerId} data-focus-id={`message-answer:${task.id}`} ref={input} value={answer} rows={4} onInput={e => setAnswer(e.currentTarget.value)} /></Field>
+    <Button variant="primary" busy={!!pending.item} disabled={!state.connected || !answer.trim()} aria-describedby={!state.connected ? `${answerId}-reason` : undefined} onClick={send}>Send answer</Button>
   </>;
 }
 
@@ -132,7 +141,8 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
   const [changes,setChanges] = useState<{patch:string;untracked:string[];truncated:boolean;note?:string}>();
   const [changesError,setChangesError] = useState(""), [loadingChanges,setLoadingChanges] = useState(false);
   const inFlight = useRef(false), noteRef = useRef<HTMLTextAreaElement>(null);
-  const [answer,setAnswer] = useState("");
+  const answerId=useId();
+  const [answer,setAnswer] = useWorkspaceState(useWorkspaceKey(task.id), "draft:answer", "");
   async function loadChanges() {
     if (changes || loadingChanges) return;
     setLoadingChanges(true);setChangesError("");
@@ -145,6 +155,11 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
     if ((verdict === "send_back" || verdict === "reject") && !note.trim()) { setMessage("Add a note before confirming.");noteRef.current?.focus();return; }
     inFlight.current = true;setPending(true);setMessage("");
     try {
+      if (userStartedRoot(task) && verdict === "send_back") {
+        await withManagedFallback((op, params) => api.call(op, params),
+          { op: "task.review", params: { id: task.id, verdict, expect_rev: task.rev, note: note.trim(), ...(kind ? { kind } : {}) } }, sendBackSteps(task, note.trim()));
+        setMessage("Sent back."); reload(); return;
+      }
       const key = `result:${task.id}:verdict`;
       const result = await runner.run(key,{label:"Record verdict",op:"task.review",params:{id:task.id,verdict,expect_rev:task.rev,...(note.trim()?{note:note.trim()}:{}),...(kind?{kind}:{}),...(verdict==="retry"?{executor}:{})}});
       if (result.status === "error" || result.status === "handled") setMessage(result.message);
@@ -154,21 +169,32 @@ function TaskResultLoaded({ task, reload, compact = false, focusAnswer = false, 
         if (response?.retry?.id) location.hash = `#/tasks/${encodeURIComponent(response.retry.id)}`;
       }
       reload();
-    } finally { inFlight.current=false;setPending(false); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not record the verdict."); }
+    finally { inFlight.current=false;setPending(false); }
   }
   const canReview = legacyReviewAvailable(task,state.features.ops.has("task.review"));
   const panel = canReview ? <VerdictPanel recovery={task.acceptance.state === "failed" || ["partial","failed","limit"].includes(task.state)} task={task} note={note} kind={kind} executor={executor} noteFor={noteFor} pending={pending} noteRef={noteRef}
     onNote={setNote} onKind={setKind} onExecutor={setExecutor} onOpenNote={v=>{setNoteFor(v);queueMicrotask(()=>noteRef.current?.focus());}} onCancel={()=>setNoteFor(null)} onSubmit={v=>void submit(v)} /> : undefined;
   const isQuestion = legacyQuestionPending(task), asked = messageQuestion(task);
-  const question = isQuestion ? <><p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!answer.trim()} onClick={async()=>{
+  const question = isQuestion ? <>{!state.connected&&<p id={`${answerId}-reason`} className="muted">Reconnecting… Send when pacer reconnects.</p>}<p>{task.question!.text}</p><Field label="Your answer"><TextArea value={answer} rows={4} onInput={e=>setAnswer(e.currentTarget.value)} /></Field><Button variant="primary" busy={pending} disabled={!state.connected || !answer.trim()} aria-describedby={!state.connected ? `${answerId}-reason` : undefined} title={!state.connected ? "Reconnecting… Send when pacer reconnects." : undefined} onClick={async()=>{
     if(inFlight.current)return;inFlight.current=true;setPending(true);
-    try { const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});setMessage(result.status==="error"||result.status==="handled"?result.message:"Answer sent.");reload(); }
+    try {
+      if (userStartedRoot(task)) {
+        await withManagedFallback((op, params) => api.call(op, params), { op: "task.answer", params: { id: task.id, text: answer, expect_rev: task.rev } }, answerSteps(task.id, task.rev, answer));
+        setMessage("Answer sent.");
+      } else {
+        const result=await runner.run(`answer:${task.id}`,{label:"Answer",op:"task.answer",params:{id:task.id,text:answer,expect_rev:task.rev}});
+        if(result.status==="error"||result.status==="handled"){setMessage(result.message);return;}
+        setMessage("Answer sent.");
+      }
+      setAnswer(""); reload();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not send the answer."); }
     finally {inFlight.current=false;setPending(false);}
   }}>Send answer</Button></> : asked ? <MessageAnswer task={task} question={asked} focus={focusAnswer} onSent={onAnswered}/> : undefined;
   return <><TaskResultView embedded compact={compact} task={task} verdict={panel} question={question} onChanges={()=>void loadChanges()} changes={loadingChanges && !changes ? <Skeleton layout="rows" label="Loading changes…"/> : changesError ? <p role="status">{changesError}</p> : changes ? <ResultChanges {...changes}/> : undefined}/><p role="status" aria-live="polite">{message}</p></>;
 }
 export function legacyReviewAvailable(task: TaskDetail, supportsReview: boolean): boolean {
-  return !task.work && !["queued", "running"].includes(task.state) && supportsReview && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
+  return (!task.work || userStartedRoot(task)) && !["queued", "running"].includes(task.state) && supportsReview && !task.review && !task.resolved && !task.dismissed && !task.retriedBy;
 }
 export function TaskHeading({ task }: { task: TaskDetail }) {
   const title = task.title?.trim() || task.fullTitle?.trim() || task.goal;
@@ -178,7 +204,8 @@ export function TaskHeading({ task }: { task: TaskDetail }) {
 
 /** A task's screen: the Tasks list on the left, the session in the centre and its details in the right panel. */
 export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
-  const { state } = useTaskContext(), frame = useFrame();
+  const { state } = useTaskContext(), frame = useFrame(), visible=useViewActive();
+  const routeHash=useRef(visible?location.hash:''); if(visible)routeHash.current=location.hash;
   const task = useQuery<TaskDetail>("task.get", {id});
   const history = useQuery<{tasks:ApiTask[]}>("task.list",{all:true,limit:20,...(query.repo?{repo:query.repo}:{})});
   const work = useQuery<{tasks:WorkRow[];next:string|null}>("dispatch.list",{relation:"all",limit:100,...(query.repo?{repo:query.repo}:{})});
@@ -193,10 +220,10 @@ export function TaskRoute({ id, query }: { id: string; query: RouteQuery }) {
   const now=Date.now()/1000;
   const nodes=state.snapshot?scopedTaskTree(state.snapshot,{repo:query.repo||null},{now,extra,pinned:id}):taskTree({tasks:extra.filter(item=>!query.repo||item.repo?.key===query.repo||item.id===id)},{now});
   // A deep link (`?tab=changes`) opens the details panel on that tab.
-  const requested = new URLSearchParams(location.hash.split("?")[1]).get("tab") ?? (location.hash.split("?")[0]?.endsWith("/review") ? task.data.work ? "work" : "brief" : null);
-  const panelTab = ({ changes: "changes", brief: "details", work: "work", answer: "details" } as const)[requested as "changes"];
+  const requested = new URLSearchParams(routeHash.current.split("?")[1]).get("tab") ?? (routeHash.current.split("?")[0]?.endsWith("/review") ? task.data.work ? "work" : "brief" : null);
+  const panelTab = ({ changes: "changes", brief: "details", messages: "messages", work: "work", answer: "details" } as const)[requested as "changes"];
   // "Answer" in Needs you lands on the composer for the task's question.
-  const focusAnswer = requested === "answer";
+  const focusAnswer = visible && requested === "answer";
   const active = ["queued", "running"].includes(task.data.state);
   return <FrameContext.Provider value={slots}><div className="pc-task-workspace">
     <FrameSlot name="left"><TaskNavigator selectedId={id} nodes={nodes} query={withQuery('',query)}/></FrameSlot>

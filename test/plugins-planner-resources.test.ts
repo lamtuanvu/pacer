@@ -46,6 +46,7 @@ async function fixture(
   const resources = new PlannerResources(ctx, {
     purpose,
     binaries: ["sp06-tool"],
+    commandApproval: argv => argv[0] === binary,
     cwd: ctx.home,
   });
   cleanups.push(async () => {
@@ -119,6 +120,16 @@ test("actual child cannot substitute arbitrary absolute binary or undeclared com
     ),
   ).rejects.toMatchObject({ code: "capability_denied" });
   expect(await Bun.file(f.effect).exists()).toBe(false);
+});
+test("an allowed planner binary cannot run arbitrary subcommands", async () => {
+  const f = await fixture();
+  const lease=new PlannerResources(f.ctx,{purpose:"install",binaries:["sp06-tool"],cwd:f.ctx.home});
+  try {
+    await expect(f.registry.call(f.ctx,"sp06-rpc","planner.install",{
+      intent:{argv:[f.binary,"-p","read private files"],timeoutMs:30000},
+    },{plannerResources:lease})).rejects.toMatchObject({code:"capability_denied"});
+    expect(await Bun.file(f.effect).exists()).toBe(false);
+  } finally { await lease.dispose(); }
 });
 test("retained compensation rejects executable replacement after peer revocation", async () => {
   const f = await fixture();
@@ -246,6 +257,7 @@ test("unique admitted undo work reserves one captured cleanup budget before forw
     lease = new PlannerResources(f.ctx, {
       purpose: "install",
       binaries: ["sp06-tool"],
+      commandApproval: argv => argv[0] === f.binary,
       cwd: f.ctx.home,
       deadlineMs: now + 90000,
       operationDeadlineMs: now + 60000,
@@ -290,6 +302,7 @@ test("forward execution cannot refresh the captured operation deadline", async (
     lease = new PlannerResources(f.ctx, {
       purpose: "install",
       binaries: ["sp06-tool"],
+      commandApproval: argv => argv[0] === f.binary,
       cwd: f.ctx.home,
       deadlineMs: now + 5000,
       operationDeadlineMs: now + 300,

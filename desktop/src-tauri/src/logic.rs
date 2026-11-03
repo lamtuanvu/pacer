@@ -347,7 +347,7 @@ pub fn bundled_shell(current: Option<&Url>) -> bool {
             && url.username().is_empty()
             && url.password().is_none()
             && url.port().is_none()
-            && matches!(url.path(), "/" | "/index.html")
+            && matches!(url.path(), "" | "/" | "/index.html")
     })
 }
 
@@ -429,6 +429,7 @@ pub fn takeover_page(current: Option<&Url>) -> Option<TakeoverPage> {
 pub struct MainPage {
     current: Option<Url>,
     takeover: Option<TakeoverToken>,
+    shell_state: Option<String>,
 }
 struct TakeoverToken {
     token: String,
@@ -436,6 +437,30 @@ struct TakeoverToken {
     candidate: Option<String>,
 }
 impl MainPage {
+    /// A shell state is not a document navigation. Tokens still follow that state.
+    pub fn shell_state(&mut self, state: &str) {
+        if self.shell_state.as_deref()!=Some(state) { self.takeover=None; }
+        self.shell_state=Some(state.into());
+    }
+    pub fn allows_shell_action(&self, action: ShellAction) -> bool {
+        matches!((self.shell_state.as_deref(),action),
+            (Some("welcome"),ShellAction::Begin)
+            | (Some("consent"),ShellAction::Consent{..})
+            | (Some("existing"),ShellAction::UseApp | ShellAction::KeepMine)
+            | (Some("relink"),ShellAction::Relink)
+            | (Some("incomplete"),ShellAction::Download)
+            | (Some("outdatedService" | "unverifiedService"),ShellAction::ContinueOldService))
+    }
+    pub fn in_shell_state(&self, state: &str) -> bool { self.shell_state.as_deref()==Some(state) }
+    pub fn takeover_page(&self) -> Option<TakeoverPage> {
+        if !bundled_shell(self.current.as_ref()) { return None; }
+        match self.shell_state.as_deref() {
+            Some("takeover")=>Some(TakeoverPage::Offer),
+            Some("takeoverRestored")=>Some(TakeoverPage::Restored),
+            Some(_)=>None,
+            None=>takeover_page(self.current.as_ref()),
+        }
+    }
     pub fn current(&self) -> Option<&Url> {
         self.current.as_ref()
     }
@@ -467,7 +492,7 @@ impl MainPage {
     /// The token to inject into the current bundled takeover page showing
     /// `candidate`: the unused token already issued for it, or `fresh`.
     pub fn issue_takeover_token(&mut self, candidate: Option<&str>, fresh: String) -> Option<String> {
-        let Some(page) = takeover_page(self.current.as_ref()) else {
+        let Some(page) = self.takeover_page() else {
             self.takeover = None;
             return None;
         };
@@ -495,7 +520,7 @@ impl MainPage {
             _ => false,
         };
         permitted
-            && takeover_page(self.current.as_ref()) == Some(issued.page)
+            && self.takeover_page() == Some(issued.page)
             && issued.candidate.as_deref() == candidate
             && takeover_token(url).is_some_and(|presented| presented == issued.token)
     }
@@ -700,15 +725,15 @@ pub fn startup_error(error: &str) -> &str {
 }
 
 /// Additive v2/v3 snapshot field `service.waiting { kind: "volume" | "folder", path, since }`:
-/// a repo filesystem call has been outstanding for a second or more, usually behind a macOS
-/// privacy prompt. Both kinds suppress restarts; unknown kinds are ignored.
+/// A repo filesystem call has been outstanding for ten seconds or more. Only volume waits
+/// trigger the permission page; folder waits remain visible in the app.
 pub fn volume_waiting(snapshot: &Value) -> Option<String> {
     let service = snapshot
         .get("snapshot")
         .unwrap_or(snapshot)
         .get("service")?;
     let waiting = service.get("waiting")?;
-    matches!(waiting["kind"].as_str(), Some("volume" | "folder"))
+    matches!(waiting["kind"].as_str(), Some("volume"))
         .then(|| waiting["path"].as_str().unwrap_or("").to_owned())
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -797,6 +822,15 @@ impl Lifecycle {
     }
     pub fn ready(&mut self) {
         *self = Self::default();
+    }
+}
+/// A gateway outage is a disconnect once this desktop has used the service.
+/// Before first connection, preserve the startup diagnosis of an unexpected responder.
+pub fn health_response_for_connection(status: u16, value: &Value, previously_connected: bool) -> HealthProbe {
+    if previously_connected && (500..600).contains(&status) {
+        HealthProbe::NoAnswer
+    } else {
+        health_response(status, value)
     }
 }
 pub fn health_response(status: u16, value: &Value) -> HealthProbe {
@@ -1064,6 +1098,13 @@ pub fn session_error(status: Option<u16>) -> &'static str {
         "stopped"
     }
 }
+pub fn recovery_status(state: &str) -> &'static str {
+    if matches!(state, "oldService" | "outdatedService" | "unverifiedService" | "oldApp" | "protocol") {
+        "incompatible"
+    } else {
+        "reconnecting"
+    }
+}
 pub fn recovery_page(error: &str) -> &'static str {
     match error {
         "outdatedService" => "outdatedService",
@@ -1071,7 +1112,7 @@ pub fn recovery_page(error: &str) -> &'static str {
         "oldService" => "oldService",
         "oldApp" => "oldApp",
         "protocol" => "protocol",
-        "sessionExpired" => "starting",
+        "sessionExpired" => "sessionExpired",
         _ => "starting",
     }
 }
@@ -1107,11 +1148,34 @@ pub enum Navigation {
 
 /// Decide from the navigation target and the last completed page load. The
 /// current page may be absent during startup; service sign-in must still work.
+pub fn bundled_document(url: &Url, tray: bool) -> bool {
+    url.scheme()=="tauri" && url.host_str()==Some("localhost")
+        && url.username().is_empty() && url.password().is_none() && url.port().is_none()
+        && if tray {url.path()=="/tray.html"} else {matches!(url.path(),"" | "/" | "/index.html")}
+}
+pub fn bundled_navigation(url: &Url, current: Option<&Url>, tray: bool) -> Navigation {
+    let same = current.is_none_or(|current| {
+        let mut a=current.clone();let mut b=url.clone();a.set_fragment(None);b.set_fragment(None);a==b
+    });
+    if bundled_document(url,tray) && same && (url.query().is_none() || (tray && url.query()==Some("compact=1"))) { Navigation::Allow }
+    else if current.is_some_and(|u|bundled_document(u,tray)) && url.scheme()=="https"
+        && url.host_str().is_some_and(|host| {
+            let host=host.trim_end_matches('.');
+            host!="localhost" && !host.ends_with(".localhost")
+                && host.trim_matches(['[',']']).parse::<std::net::IpAddr>().map_or(true,|ip|match ip {
+                    std::net::IpAddr::V4(ip)=>!ip.is_loopback(),
+                    std::net::IpAddr::V6(ip)=>!ip.is_loopback() && !ip.to_ipv4_mapped().is_some_and(|ip|ip.is_loopback()),
+                })
+        }) {
+        Navigation::OpenExternal
+    } else { Navigation::Block }
+}
+
 pub fn main_navigation(url: &Url, current: Option<&Url>, origin: Option<&str>) -> Navigation {
     let shell_page = |url: &Url| {
         url.scheme() == "tauri"
             && url.host_str() == Some("localhost")
-            && matches!(url.path(), "/" | "/index.html")
+            && matches!(url.path(), "" | "/" | "/index.html")
     };
     if shell_page(url) || service_navigation(url, origin) {
         Navigation::Allow
@@ -1369,6 +1433,17 @@ impl Sse {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bundled_shell_state_keeps_document_and_binds_takeover_token() {
+        let url=Url::parse("tauri://localhost/index.html").unwrap();
+        let mut page=MainPage::default(); page.finished(url.clone());
+        page.shell_state("takeover");
+        let token="a".repeat(64);
+        assert_eq!(page.issue_takeover_token(Some("candidate"),token.clone()),Some(token));
+        assert_eq!(page.current(),Some(&url));
+        page.shell_state("starting");
+        assert!(page.issue_takeover_token(Some("candidate"),"b".repeat(64)).is_none());
+    }
     #[test]
     fn tray_route_contract() {
         let cases: serde_json::Value = serde_json::from_str(include_str!("../../../test/fixtures/tray-routes.json")).unwrap();
@@ -2053,7 +2128,7 @@ mod tests {
     #[test]
     fn expired_session_reenters_sign_in_and_unreachable_service_uses_shell_page() {
         assert_eq!(session_error(Some(401)), "sessionExpired");
-        assert_eq!(recovery_page(session_error(Some(401))), "starting");
+        assert_eq!(recovery_page(session_error(Some(401))), "sessionExpired");
         assert_eq!(recovery_page(session_error(None)), "starting");
         assert_eq!(recovery_page(session_error(Some(503))), "starting");
         assert_eq!(recovery_page("oldApp"), "oldApp");
@@ -2393,11 +2468,35 @@ mod tests {
                     "future": true
                 }
             });
-            assert_eq!(volume_waiting(&snapshot).as_deref(), Some("/tmp/repo"));
+            assert_eq!(volume_waiting(&snapshot).as_deref(), (kind == "volume").then_some("/tmp/repo"));
             assert_eq!(snapshot_seq(900, &snapshot, true), 1000000000003);
             assert_eq!(snapshot_seq(1000000000002, &snapshot, false), 1000000000002);
         }
         assert!(volume_waiting(&json!({"protocol":"3.0.0","snapshot":{"service":{}}})).is_none());
+    }
+    #[test]
+    fn gateway_health_failure_after_connection_is_reconnecting() {
+        for status in [500, 502, 503, 504] {
+            for body in ["<html>Bad Gateway</html>", "", r#"{"error":"gateway"}"#] {
+                let value = serde_json::from_str(body).unwrap_or(Value::Null);
+                let probe = health_response_for_connection(status, &value, true);
+                assert_eq!(probe, HealthProbe::NoAnswer);
+                let action = Lifecycle::default().step(0, probe, JobState::Unknown, false);
+                assert_eq!(action, RecoveryAction::Wait);
+                let page = shell_page(false, action, probe, JobState::Unknown, true, true);
+                assert_eq!(recovery_status(page), "reconnecting");
+            }
+        }
+    }
+    #[test]
+    fn gateway_health_before_first_connection_keeps_startup_classification() {
+        assert_eq!(health_response_for_connection(502, &Value::Null, false), HealthProbe::Invalid);
+        assert_eq!(Lifecycle::default().step(0, HealthProbe::Invalid, JobState::Unknown, false), RecoveryAction::Protocol);
+        assert_eq!(health_response_for_connection(503, &Value::Null, false), HealthProbe::NoAnswer);
+        assert_eq!(health_response_for_connection(200, &Value::Null, true), HealthProbe::Invalid);
+        for reason in ["protocol", "oldApp", "oldService", "unverifiedService"] {
+            assert_eq!(recovery_status(reason), "incompatible");
+        }
     }
     #[test]
     fn protocol_major_only() {
@@ -2443,7 +2542,7 @@ mod tests {
     }
 
     #[test]
-    fn waiting_on_a_volume_or_a_folder_both_ask_for_os_approval() {
+    fn only_volume_waiting_asks_for_os_approval() {
         let volume = serde_json::json!({"snapshot":{"service":{"waiting":{"kind":"volume","path":"/Volumes/External","since":1}}}});
         let folder = serde_json::json!({"service":{"waiting":{"kind":"folder","path":"/Users/me/Projects/app","since":1}}});
         let other =
@@ -2452,10 +2551,7 @@ mod tests {
             volume_waiting(&volume).as_deref(),
             Some("/Volumes/External")
         );
-        assert_eq!(
-            volume_waiting(&folder).as_deref(),
-            Some("/Users/me/Projects/app")
-        );
+        assert_eq!(volume_waiting(&folder), None);
         assert_eq!(volume_waiting(&other), None);
         assert_eq!(volume_waiting(&serde_json::json!({"service":{}})), None);
     }
@@ -2905,5 +3001,37 @@ mod desktop_connection_tests {
         std::fs::remove_file(dir.path().join("takeover-dismissed.json")).unwrap();
         std::fs::create_dir(dir.path().join("takeover-dismissed.json")).unwrap();
         assert!(!takeover_dismissed(dir.path(), &identity));
+    }
+}
+
+#[cfg(test)]
+mod bundled_navigation_tests {
+    use super::*;
+    #[test]
+    fn bundle_navigation_is_three_way_and_document_locked() {
+        let main=Url::parse("tauri://localhost/").unwrap();
+        let tray=Url::parse("tauri://localhost/tray.html?compact=1").unwrap();
+        for (current,is_tray) in [(&main,false),(&tray,true)] {
+            assert_eq!(bundled_navigation(current,None,is_tray),Navigation::Allow);
+            let mut hash=current.clone();hash.set_fragment(Some("/tasks"));
+            assert_eq!(bundled_navigation(&hash,Some(current),is_tray),Navigation::Allow);
+            for raw in ["file:///tmp/test.app","smb://host/share","custom://launch","http://127.0.0.1:1234/","https://localhost/","https://127.0.0.1/","https://[::1]/","https://localhost./","https://[::ffff:127.0.0.1]/","tauri://localhost/other","tauri://user@localhost/","tauri://localhost/?reload=1"] {
+                assert_eq!(bundled_navigation(&Url::parse(raw).unwrap(),Some(current),is_tray),Navigation::Block,"{raw}");
+            }
+            assert_eq!(bundled_navigation(&Url::parse("https://example.com/docs").unwrap(),Some(current),is_tray),Navigation::OpenExternal);
+        }
+        assert_eq!(bundled_navigation(&main,Some(&tray),true),Navigation::Block);
+        assert_eq!(bundled_navigation(&tray,Some(&main),false),Navigation::Block);
+    }
+    #[test]
+    fn shell_actions_require_the_offering_overlay() {
+        let mut page=MainPage::default();page.finished(Url::parse("tauri://localhost/").unwrap());
+        for (state,action) in [("welcome",ShellAction::Begin),("consent",ShellAction::Consent{path:true}),("existing",ShellAction::UseApp),("existing",ShellAction::KeepMine),("relink",ShellAction::Relink),("incomplete",ShellAction::Download),("outdatedService",ShellAction::ContinueOldService)] {
+            for other in ["connected","welcome","consent","existing","install","permission","starting"] {
+                page.shell_state(other);
+                assert_eq!(page.allows_shell_action(action),other==state,"{other}: {action:?}");
+            }
+            page.shell_state(state);assert!(page.allows_shell_action(action));
+        }
     }
 }

@@ -78,6 +78,9 @@ test("managed results direct review to Work instead of legacy verdict actions", 
  const html=renderToString(<TaskResultView task={managed} verdict={<button>Accept</button>}/>);
  expect(html).toContain("Use the Work tab for decisions and history.");
  expect(html).not.toContain("<button>Accept</button>");
+ expect(html).not.toContain("coordinate sub-agents");
+ const coordinating=renderToString(<TaskResultView compact task={{...managed,work:{rootId:"t",parentId:null,depth:0,allowDelegation:true}}}/>);
+ expect(coordinating).toContain("This task can coordinate sub-agents.");
 });
 
 test("active task summaries never claim that execution ended", () => {
@@ -87,4 +90,11 @@ test("active task summaries never claim that execution ended", () => {
   expect(html).not.toContain("Execution finished");
   expect(html).toContain(state === "running" ? "Execution is in progress" : "Waiting to start");
  }
+});
+
+test("a task a person started that runs unmanaged says why it cannot coordinate sub-agents", () => {
+ const html=renderToString(<TaskResultView compact task={{...task,managedSkip:{reason:"unsupported"}}}/>);
+ expect(html).toContain("Can't coordinate sub-agents here: its executors cannot have their own sub-agents blocked yet.");
+ expect(html).not.toContain("unsupported");
+ expect(renderToString(<TaskResultView compact task={task}/>)).not.toContain("coordinate sub-agents here");
 });

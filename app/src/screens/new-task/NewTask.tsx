@@ -121,6 +121,7 @@ export function NewTask({ query }: { query: RouteQuery }) {
   const pending = uploads.items.some(item => item.status !== "ready");
   const failed = !!failure;
   const submit = submitState({ draft, repoLabel: repo?.label, busy: action.busy, failed, pendingUploads: pending });
+  if (action.unavailable) { submit.disabled = true; submit.note = action.unavailable; }
   const apple = isApplePlatform();
 
   const delegate = () => {

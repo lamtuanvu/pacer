@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { CallAdmission } from "../src/plugins/admission";
+import { CoreError } from "../src/core/errors";
 
 test("eight active calls and thirty-two queued calls reject overflow without executing it", async () => {
   const admission = new CallAdmission();
@@ -35,6 +36,22 @@ test("active cancellation awaits task cleanup and never returns its late value",
   expect(clean).toBe(true);
 });
 
+test("parent timeout keeps its reason through active and pre-dispatch cancellation", async () => {
+  const timeout = new CoreError("plugin_timeout", "host fetch expired");
+  const before = new AbortController(); before.abort(timeout);
+  await expect(new CallAdmission().run(Date.now() + 2000, async () => "wrong", before.signal))
+    .rejects.toMatchObject({ code: "plugin_timeout", message: "host fetch expired" });
+
+  const active = new AbortController();
+  let clean = false;
+  const pending = new CallAdmission().run(Date.now() + 2000, signal => new Promise(resolve => {
+    signal.addEventListener("abort", () => { clean = true; resolve("late value"); }, { once: true });
+  }), active.signal);
+  await Promise.resolve(); active.abort(timeout);
+  await expect(pending).rejects.toMatchObject({ code: "plugin_timeout", message: "host fetch expired" });
+  expect(clean).toBe(true);
+});
+
 test("cancellation before task dispatch does not invoke a newly admitted task", async () => {
   const admission = new CallAdmission(), controller = new AbortController();
   let ran = false;
@@ -67,4 +84,15 @@ test("serial queue removes repeated canceled waiters instead of retaining promis
   expect((queue as any).queued).toHaveLength(0);
   release(); await first;
   expect(ran).toBe(0);
+});
+
+test("a pool with no queue refuses at once when full and names itself", async () => {
+  const admission = new CallAdmission(2, 0, "session viewer stream");
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const held = [admission.run(Infinity, () => gate), admission.run(Infinity, () => gate)];
+  await expect(admission.run(Infinity, async () => 1))
+    .rejects.toMatchObject({ code: "plugin_unavailable", message: "session viewer stream capacity exhausted" });
+  release(); await Promise.all(held);
+  expect(await admission.run(Infinity, async () => 1)).toBe(1);
 });

@@ -21,6 +21,7 @@ const calls:string[]=[];(window as any).workspaceCalls=calls;
 const task={...fixture,question:null as {text:string;at:number;answer?:string}|null,id:'workspace-task',title:'Inspect workspace session',goal:'Inspect workspace session',state:'running',executor:'codex',updatedAt:Date.now()/1000,progress:{phase:'working'},review:null,reviewRequest:null,worktree:'/tmp/disposable-worktree'};
 if(mode==='queued')Object.assign(task,{state:'queued',executor:null,attempts:[],worktree:null,startedAt:null,queue:{reason:'paused'},derived:{files:'ready'}});
 if(mode==='stopped')Object.assign(task,{state:'stopped',attempts:[],summary:null,acceptance:{state:'none'},derived:{files:'unavailable'}});
+if(mode==='unavailablechanges')Object.assign(task,{state:'done',files:[],derived:{files:'unavailable'}});
 if(mode==='failedretry')Object.assign(task,{state:'failed',review:null,acceptance:{state:'failed',cmd:'bun test',tail:'Check failed'}});
 if(mode==='managedquestion')Object.assign(task,{state:'needs_input',work:{rootId:'workspace-task',parentId:null,depth:0},question:{text:'Which repository branch should I use?',at:1}});
 if(mode==='question')Object.assign(task,{state:'needs_input',question:{text:'Which repository branch should I use?',at:1}});
@@ -31,7 +32,7 @@ if(mode==='counts')task.attempts=[{executor:'codex',startedAt:Date.now()/1000-60
 const info={host:'builtin',live:true,driving:mode==='driving',takeover:{available:mode==='starting'},attempt:1,cols:80,rows:24,controller:null,viewers:0,capabilities:{control:true,resize:true},attach:{ws:'/session'}};
 if(mode==='accepted')info.live=false;
 if(mode==='ended') { task.state='done'; info.live=false; task.branch='' ; }
-if(mode==='headless') {info.host='none';info.live=false;info.takeover.available=true;}
+if(mode==='headless'||mode==='takeover') {info.host='none';info.live=false;info.takeover.available=true;}
 let failSession=mode==='loaderror';
 (window as any).workspaceRecover=()=>{failSession=false;};
 const tasks=Array.from({length:mode==='counts'?20:1},(_,i)=>({...task,id:i?`workspace-task-${i}`:task.id,title:i?`Workspace task ${i}`:task.title}));
@@ -50,26 +51,9 @@ function agentCall(op:string,params:any) {
   return {...s};
  }
 }
-const state={...initialState(),connected:true,snapshot:{tasks,attention:[],repos:[]},features:{...initialState().features,ops:new Set(['task.get','task.session','terminal.list','dispatch.list','task.review'])}} as any;
-const api={call:async(op:string,params:any)=>{
- calls.push(op);paramsLog.push({op,params});
- if(op.startsWith('session.agent.'))return agentCall(op,params);
- if(op==='session.prepare')return {executors:[{id:'codex',agent:'codex',available:true}]};
- if(op==='task.get')return {...task,...tasks.find(t=>t.id===params.id)};
- if(op==='task.list')return {tasks};
- if(op==='dispatch.list')return {tasks:['childfile','childstates'].includes(mode??'')?tasks.map((t,n)=>({id:t.id,parentId:n?task.id:null,rootId:task.id,depth:n,title:t.title,state:t.state,executor:t.executor,rev:1})):[]};
- if(op==='dispatch.tree')return {nodes:[],totals:{}};
- if(op==='terminal.list')return [{id:'shell-fixture',cwd:task.worktree,title:'Fixture',live:true,cols:80,rows:24,attach:{ws:'/shell'}}];
- if(op==='task.session'){if(failSession)throw Error(`Session unavailable. Reconnect and try again. (attempt ${calls.filter(op=>op==='task.session').length})`);return info;}
- if(op==='session.file.read')return {path:'src/a.ts',kind:'code',text:'export const a = 1;',size:19,modified:'2026-10-30',line:2};
- if(op==='task.log')return {stdout:'Latest output',stderr:''};
- if(op==='task.answer'){Object.assign(tasks[0]!,{question:{...tasks[0]!.question,answer:params.text},retriedBy:'answer-retry',rev:50});return {task:tasks[0],retry:{id:'answer-retry',state:'queued'}};}
- if(op==='dispatch.answer'){Object.assign(tasks[0]!,{state:'queued',rev:50,question:{...tasks[0]!.question,answer:params.text}});return {task_id:params.id,state:'queued'};}
- if(op==='task.retry_options')return [{id:'codex#other',state:'ready',reason:'available'}];
- if(op==='task.review'){if(mode==='failedretry')return {retry:{id:'retried-task'}};Object.assign(tasks.find(t=>t.id===params.id)!,{review:{accepted:true},rev:200});return {};}
- if(op==='task.takeover')throw Error('Duplicate takeover');
- return {};
-}} as any;
+const state={...initialState(),connected:true,snapshot:{tasks,attention:[],repos:[]},features:{...initialState().features,ops:new Set(['task.get','task.session','terminal.list','dispatch.list','task.review','session.agent.list','session.prepare'])}} as any;
+const api={call:async(op:string,params:any)=>{calls.push(op);paramsLog.push({op,params});if(op.startsWith('session.agent.'))return agentCall(op,params);if(op==='session.prepare')return {executors:[{id:'codex',agent:'codex',available:true}]};if(op==='task.get')return {...task,...tasks.find(t=>t.id===params.id)};if(op==='task.list')return {tasks};if(op==='dispatch.list')return {tasks:['childfile','childstates'].includes(mode??'')?tasks.map((t,n)=>({id:t.id,parentId:n?task.id:null,rootId:task.id,depth:n,title:t.title,state:t.state,executor:t.executor,rev:1})):[]};if(op==='dispatch.tree')return {nodes:[],totals:{}};if(op==='terminal.list')return [{id:'shell-fixture',cwd:task.worktree,title:'Fixture',live:true,cols:80,rows:24,attach:{ws:'/shell'}}];if(op==='task.session'){if(failSession)throw Error(`Session unavailable. Reconnect and try again. (attempt ${calls.filter(op=>op==='task.session').length})`);return info;}if(op==='session.file.read')return {path:'src/a.ts',kind:'code',text:'export const a = 1;',size:19,modified:'2026-10-30',line:2};if(op==='task.log')return {stdout:'Latest output',stderr:''};if(op==='task.answer'){Object.assign(tasks[0]!,{question:{...tasks[0]!.question,answer:params.text},retriedBy:'answer-retry',rev:50});return {task:tasks[0],retry:{id:'answer-retry',state:'queued'}};}if(op==='dispatch.answer'){Object.assign(tasks[0]!,{state:'queued',rev:50,question:{...tasks[0]!.question,answer:params.text}});return {task_id:params.id,state:'queued'};}if(op==='task.retry_options')return [{id:'codex#other',state:'ready',reason:'available'}];if(op==='task.review'){if(mode==='failedretry')return {retry:{id:'retried-task'}};Object.assign(tasks.find(t=>t.id===params.id)!,{review:{accepted:true},rev:200});return {};}if(op==='task.takeover'){if(mode==='takeover'){Object.assign(info,{host:'builtin',live:true});return {state:'starting'};}throw Error('Duplicate takeover');}return {};}} as any;
+
 const runner=createActionRunner({call:api.call,waitFor:async()=>true,refetch:()=>{},navigate:href=>{location.hash=href;}});
 function App(){
  const narrow=useMedia(NARROW_MEDIA),panels=useMedia(PANEL_MEDIA)&&!narrow;

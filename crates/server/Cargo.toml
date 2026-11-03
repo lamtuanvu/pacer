@@ -6,10 +6,19 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+test-ops = []
+
 [dependencies]
 tokio.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+ryu-js = "1"
 pacer-foundation = { path = "../foundation" }
+pacer-plugin-ops = { path = "../plugin-ops" }
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+pacer-config = { path = "../config" }
+pacer-store = { path = "../store" }
 pacer-mdns = { path = "../mdns" }
 
 axum = { version = "0.8", features = ["ws"] }
@@ -18,10 +27,16 @@ hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 http-body-util = "0.1"
 tokio-tungstenite = "0.29"
 futures-util = "0.3"
+form_urlencoded = "1"
 subtle = "2"
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.9"
+base64 = "0.22"
+icu_collator = { version = "=2.4.0", features = ["unstable"] }
+
+[build-dependencies]
+serde_json.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "0.31", features = ["socket", "uio", "fs", "user", "signal", "process"] }

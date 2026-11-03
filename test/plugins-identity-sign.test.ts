@@ -18,7 +18,7 @@ const plugin = (scopes?: string[]) => ({ id: "demo", manifest: manifestSchema.pa
 }) });
 const b64 = (s: string | Uint8Array) => Buffer.from(s).toString("base64");
 
-test("identity.sign arrived in 1.4.0; later minors keep it", () => expect(PLUGIN_PROTOCOL_VERSION).toBe("1.6.0"));
+test("identity.sign arrived in 1.4.0; later minors keep it", () => expect(PLUGIN_PROTOCOL_VERSION).toBe("1.10.0"));
 
 test("signs only declared purposes and the signature verifies under the domain format", async () => {
   const ctx = fakeCtx();

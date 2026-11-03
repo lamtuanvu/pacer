@@ -44,7 +44,7 @@ export async function taskDiff(ctx: Ctx, task: TaskRecord, o: DiffOptions = {}):
       const output = o.path === undefined ? stored.patch : sections[stored.files.findIndex(f => f.path === o.path)] ?? "";
       const patch = o.summaryOnly ? "" : capPatch(output, o.path === undefined ? 1 : 4);
       return { ...stored, patch, diff: patch, truncated: !o.summaryOnly && patch !== output,
-        untracked: o.summaryOnly ? [] : stored.untracked.filter(p => o.path === undefined || p === o.path) };
+        untracked: stored.untracked.filter(p => o.path === undefined || p === o.path) };
     }
   }
   const git = async (args: string[]) => {
@@ -55,9 +55,10 @@ export async function taskDiff(ctx: Ctx, task: TaskRecord, o: DiffOptions = {}):
   };
   const args = ["diff", ...(base ? ["--merge-base"] : []), "--no-ext-diff", "--no-textconv", "-M"];
   const against = ["--end-of-options", base ?? "HEAD", "--"];
-  const [nameOutput, statOutput] = await Promise.all([
+  const [nameOutput, statOutput, untrackedOutput] = await Promise.all([
     git([...args, "--name-status", "-z", ...against]),
     git([...args, "--numstat", "-z", ...against]),
+    git(["ls-files", "--others", "--exclude-standard", "-z", ...(o.path === undefined ? [] : ["--", o.path])]),
   ]);
   const names = nameOutput.split("\0");
   const statuses = new Map<string, DiffFile["status"]>();
@@ -82,10 +83,10 @@ export async function taskDiff(ctx: Ctx, task: TaskRecord, o: DiffOptions = {}):
     if (!path) { i++; path = stats[i++]; } // -z encodes a rename as old NUL new NUL.
     files.push({ path, status: statuses.get(path) ?? "modified", added: added === "-" ? 0 : Number(added), removed: removed === "-" ? 0 : Number(removed), binary: added === "-" || removed === "-" });
   }
-  if (o.summaryOnly) return { base, worktree, files, patch: "", diff: "", untracked: [], truncated: false };
+  const untracked = untrackedOutput.split("\0").filter(Boolean);
+  if (o.summaryOnly) return { base, worktree, files, patch: "", diff: "", untracked, truncated: false };
   const paths = o.path === undefined ? [] : [...new Set([renamedFrom.get(o.path), o.path].filter((p): p is string => p !== undefined))];
   const output = await git([...args, ...against, ...paths]);
-  const untracked = (await git(["ls-files", "--others", "--exclude-standard", "-z", ...(o.path === undefined ? [] : ["--", o.path])])).split("\0").filter(Boolean);
   const patch = o.snapshot ? output : capPatch(output, o.path === undefined ? 1 : 4);
   return { base, worktree, files, patch, diff: patch, untracked, truncated: patch !== output };
 }

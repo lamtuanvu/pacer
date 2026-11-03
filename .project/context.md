@@ -41,11 +41,15 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/task-protocol` | `pacer-task-protocol`: generated task operation types (`task.*` ops), split from the client schema under CRATE-3 |
 | `crates/assistant-protocol` | `pacer-assistant-protocol`: generated assistant operation types, split from the client schema under CRATE-3 |
 | `crates/mdns` | `pacer-mdns`: the LAN discovery radio's mDNS responder and browser for `_pacer._udp.local.`, IPv4 on one interface, on-link traffic only (SEC-11) |
+| `crates/read-model` | `pacer-read-model`: snapshot composition, task/message/discovery reads, v2 compatibility, status/context caches and SSE replay semantics; library only until native cutover |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
+| `crates/plugin-ops` | `pacer-plugin-ops`: native plugin list/diagnostic/UI-list/settings reads and JSON compatibility; layer 5, target ≤ 5,000 LOC ([ADR 0020](../docs/decisions/0020-native-plugin-read-operations-crate.md)) |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |
+| `crates/plugin-hosts-protocol` | `pacer-plugin-hosts-protocol`: generated `hostRunner.*` and `capability.hosts.*` plugin types, CRATE-3 area split ([ADR 0016](../docs/decisions/0016-plugin-hosts-protocol-area.md)) |
+| `crates/plugin-exec-protocol` | `pacer-plugin-exec-protocol`: generated `executor.*` and `capability.process.*` plugin types, CRATE-3 area split ([ADR 0017](../docs/decisions/0017-plugin-exec-protocol-area.md)) |
 
 Dependency direction: clients → `src/api` → core → adapters. Source: [ADR clients-over-local-service](../docs/decisions/2026-10-16-clients-over-local-service.md).
 

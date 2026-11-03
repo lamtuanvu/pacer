@@ -227,7 +227,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
         {needs.length > 0 && <p>{needs.map(e => `${executorLabel(e.id)}: ${readiness(e).reason}`).join(" · ")}</p>}
       </div><div className="pc-readiness-marks">{executors.map(e => <span key={e.id} className="pc-readiness-mark" title={`${executorLabel(e.id)} · ${readiness(e).label} · ${readiness(e).tooltip}`}><AgentMark agent={markAgent(e.id,e.account)} size={28}/><StatusDot tone={readiness(e).tone} label={`${executorLabel(e.id)}: ${readiness(e).label}`} paired="glyph"/></span>)}</div>
     </div></Card>}
-    {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy" onKeyDown={c.tooltip ? containTooltipEscape : undefined}>{c.tooltip ? <Tooltip text={c.tooltip}><strong tabIndex={0}>{c.title}</strong></Tooltip> : <strong>{c.title}</strong>}{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span>{c.account ? <Button size="sm" busy={refreshUsage.busy} onClick={() => void refreshUsage.run("limits.refresh", {account:c.account})}>{c.link}</Button> : <TextAction href={href(c.page)}>{c.link}</TextAction>}</div>)}</div></section>}
+    {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy" onKeyDown={c.tooltip ? containTooltipEscape : undefined}>{c.tooltip ? <Tooltip text={c.tooltip}><strong tabIndex={0}>{c.title}</strong></Tooltip> : <strong>{c.title}</strong>}{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span>{c.account ? <Button size="sm" busy={refreshUsage.busy} onClick={() => void refreshUsage.run("limits.refresh", {account:c.account})} disabled={!!refreshUsage.unavailable}>{c.link}</Button> : <TextAction href={href(c.page)}>{c.link}</TextAction>}</div>)}</div></section>}
     <Feedback action={refreshUsage}/>
     {tiles.length > 0 && <section className="pc-settings-board__section" aria-labelledby="setup-h"><h2 id="setup-h" className="pc-settings-board__label">Current setup</h2><div className="pc-settings-tiles">{tiles.map(t => <a key={t.label} className="pc-inline-link pc-settings-tile" href={href(t.page)}><span className="pc-settings-board__label">{t.label}</span><strong>{t.value}</strong>{t.note && <span className="pc-settings-board__caption">{t.note}</span>}</a>)}</div></section>}
   </div>;
@@ -409,7 +409,7 @@ function PlannerConsent({
                   Change only
                 </Button>
                 <Button
-                  disabled={action.busy||saving}
+                  disabled={!!action.unavailable || (action.busy||saving)}
                   onClick={() =>
                     void action.run(
                       "agent.connect",

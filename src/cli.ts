@@ -16,6 +16,7 @@ import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
 import { registeredRepo, resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
+import { readTask } from "./tasks/store";
 import { connectClient } from "./api/client";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
@@ -305,7 +306,7 @@ function renderTask(t: TaskRecord): string {
 }
 
 async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
-  const { opts } = parseFlags(args, ["wait", "json", "force", "interactive", "acceptance-pipefail"]);
+  const { opts } = parseFlags(args, ["wait", "json", "force", "interactive", "acceptance-pipefail", "no-grant"]);
   try {
     if(isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
     if(opts["brief-file"]===true)throw new DelegateError("--brief-file needs a path or -");
@@ -321,6 +322,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(str(opts["worktree-base"])!==undefined)raw.worktree_base=str(opts["worktree-base"]);
     if(str(opts["worktree-reason"])!==undefined)raw.worktree_reason=str(opts["worktree-reason"]);
     if(opts.interactive===true)raw.interactive=true;
+    if(opts["no-grant"]===true)raw.grant=false;
     if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
@@ -503,6 +505,12 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         }
         if(cmd==="retry") {
           if(isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
+          const own=readTask(ctx,pos[0]);
+          if(own&&core.tasks.userStartedRoot(ctx,own)){
+            // A work root a person started restarts as managed work in place (dispatch.retry semantics).
+            const r=await callOp(ctx,"task.retry",{id:pos[0],...(str(opts.executor)?{executor:str(opts.executor)}:{})},{spawnRunner:cliDeps.spawnRunner}) as {retry:ReturnType<typeof summarizeTask>};
+            return {code:0,out:opts.json?JSON.stringify(r.retry,null,1):`${pos[0]} queued (managed retry)`,err:""};
+          }
           const r=await core.tasks.retry(ctx,pos[0],{executor:str(opts.executor)},{delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner)});
           return {code:0,out:opts.json?JSON.stringify(summarizeTask(r.retry),null,1):`${r.retry.id} queued (retry of ${r.of.id})`,err:""};
         }
@@ -582,7 +590,11 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         remainder += decoder.end();
         if (remainder) yield remainder;
       }
-      await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: cliDeps });
+      // Only Root's private post-edit hook holds this key; descendants must not inherit it.
+      const nativeConfigKey = ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+      delete ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+      delete process.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+      await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: cliDeps, nativeConfigKey });
       await shutdownPlugins(ctx);
       return { code: 0, out: "", err: "", keepAlive: true };
     }
@@ -623,6 +635,23 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         return { code: 0, out: `pacer serve listening on http://127.0.0.1:${s.port} (token: ${ctx.pacerHome}/token)`, err: "", keepAlive: true };
       } catch (e) {
         return { code: 2, out: "", err: explain(e) };
+      }
+    }
+    case "_task-history": {
+      if (rest.length) return { code: 2, out: "", err: "usage: pacer _task-history" };
+      const parentClosed = () => process.exit(0);
+      if (ctx.env.PACER_HISTORY_PARENT_PIPE === "1") {
+        process.stdin.once("end", parentClosed);
+        process.stdin.resume();
+      }
+      try {
+        await (await import("./tasks/history")).maintainTaskHistory(ctx);
+        return { code: 0, out: "", err: "" };
+      } catch (error) {
+        return { code: 1, out: "", err: `pacer: task history maintenance failed: ${explain(error)}` };
+      } finally {
+        process.stdin.removeListener("end", parentClosed);
+        process.stdin.pause();
       }
     }
     case "report": return reportCommand(rest, ctx);

@@ -1,0 +1,60 @@
+[
+  {
+    "mode": "held",
+    "delivery": "held",
+    "hold": {
+      "reason": "repository frozen",
+      "plugin": "fx-policy"
+    },
+    "launches": 0,
+    "state": "done",
+    "priorResult": "first report",
+    "pending": {
+      "executor": null,
+      "session": null,
+      "replay": false
+    },
+    "unread": [
+      "follow up"
+    ],
+    "decisions": [
+      "delegate"
+    ],
+    "prompt": {
+      "original": false,
+      "message": false
+    },
+    "replayThread": {
+      "prior": false,
+      "current": false,
+      "unavailable": false
+    }
+  },
+  {
+    "mode": "replay",
+    "delivery": "turn_started",
+    "hold": null,
+    "launches": 1,
+    "state": "queued",
+    "priorResult": null,
+    "pending": {
+      "executor": "cursor",
+      "session": null,
+      "replay": true
+    },
+    "unread": [],
+    "decisions": [
+      "delegate",
+      "route"
+    ],
+    "prompt": {
+      "original": false,
+      "message": true
+    },
+    "replayThread": {
+      "prior": true,
+      "current": false,
+      "unavailable": true
+    }
+  }
+]

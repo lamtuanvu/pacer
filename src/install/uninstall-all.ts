@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises";
 import type { Ctx } from "../types";
 import type { Result } from "../commands/types";
 import { PLUGIN_RECORD } from "../link/paths";
-import { pidAlive } from "../link/store";
+import { pidAlive } from "../link/pid";
 import { listTasks } from "../tasks/store";
 import type { TaskState } from "../tasks/types";
 import { pluginDir, uninstallPlugin } from "../plugin/install";

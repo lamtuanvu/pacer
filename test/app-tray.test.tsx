@@ -492,7 +492,16 @@ test("login item IPC reads and writes native state and propagates failures", asy
   await expect(broken.loginItem(true)).rejects.toThrow("Denied");
   const source = await Bun.file("desktop/src-tauri/src/main.rs").text();
   expect(source).toMatch(/fn tray_login_item[\s\S]*?authorized_tray\(&window, &app\)\?/);
-  expect(source).toContain('.permission("allow-tray-login-item")');
+  // Persistent workbench design §5.2 replaces runtime service-origin grants
+  // with static capabilities scoped to each bundled window.
+  // docs/specs/2026-10-31-persistent-workbench-design.md
+  const capability = await Bun.file("desktop/src-tauri/capabilities/tray.json").json();
+  expect(capability.local).toBe(true);
+  expect(capability.windows).toEqual(["tray"]);
+  expect(capability.permissions).toContain("allow-tray-login-item");
+  expect(capability.remote).toBeUndefined();
+  const mainCapability = await Bun.file("desktop/src-tauri/capabilities/main.json").json();
+  expect(mainCapability.permissions).not.toContain("allow-tray-login-item");
   expect(source).toContain("launch_at_login(&app, enabled)?");
   expect(source).toContain("approvals::launch_at_login_enabled()");
 });

@@ -57,12 +57,29 @@ generated = true
 [crates.pacer-assistant-protocol]
 layer = 0
 generated = true
+[crates.pacer-plugin-hosts-protocol]
+layer = 0
+generated = true
+[crates.pacer-plugin-exec-protocol]
+layer = 0
+generated = true
 [crates.pacer-plugin-protocol]
 layer = 0
 generated = true
 [crates.pacer-foundation]
 layer = 1
+[crates.pacer-store]
+layer = 2
 [crates.pacer-mdns]
+layer = 2
+[crates.pacer-config]
+layer = 3
+[crates.pacer-sessions]
+layer = 3
+[crates.pacer-plugin-host]
+layer = 4
+heavy = ["reqwest"]
+[crates.pacer-sqlite-proof]
 layer = 2
 [crates.pacer-server]
 layer = 8
@@ -80,3 +97,16 @@ layer = "sdk"
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]
+[crates.pacer-engine]
+layer = 5
+[crates.pacer-read-model]
+layer = 7
+[crates.pacer-lifecycle]
+layer = 6
+
+[crates.pacer-tui]
+layer = 8
+heavy = ["ratatui"]
+
+[crates.pacer-plugin-ops]
+layer = 5

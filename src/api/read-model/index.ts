@@ -64,7 +64,7 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifier:notifier?{client_id:notifier.client_id,kind:notifier.kind}:null,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
 }
 
-/** A repo-path call stuck for a second or more, e.g. behind a macOS removable-volume prompt. */
+/** A repo-path call stuck for ten seconds or more, e.g. behind a macOS removable-volume prompt. */
 /** The machine row's cap fields. max stays numeric for 3.0 clients; without a cap it is MAX_SAFE_INTEGER. */
 export function machineCap(hardCap:number|null){return {max:hardCap ?? Number.MAX_SAFE_INTEGER,hardCap,unlimited:hardCap===null};}
 function waitingField(){const waiting=waitingIO();return waiting?{waiting}:{};}

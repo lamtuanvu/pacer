@@ -1,4 +1,5 @@
 import { authorizeRoute } from "./policy-route";
+import { policySummary } from "../plugins/policy";
 import { CoreError } from "../core/errors";
 import { getWork, pendingDependencies } from "../dispatch/work";
 import { beginWorkSync, finishWorkSync, finishUnlaunchedWorkSync } from "../update/desktop/admission";
@@ -27,6 +28,7 @@ import { listTasksWhere, readTask, updateTask } from "./store";
 import { resolvePlacement } from "./types";
 
 export interface DrainDeps {
+  now?: () => number;
   hooks?: DecisionHooks;
   loadStrategy(ctx: Ctx): Strategy;
   computeStatus(ctx: Ctx, s: Strategy): Promise<Status>;
@@ -87,10 +89,15 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
     const waiting = listTasksWhere(ctx, { states: ["queued"] }).filter(t => t.queue && launches.has(t.id))
       .sort((a, b) => (getWork(ctx,b.id)?.options.priority??0)-(getWork(ctx,a.id)?.options.priority??0) || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
     if (!waiting.length) return [];
+    const budgetNow=deps.now??Date.now;
+    let policyBudget=10_000;
+    const summary=policySummary(ctx);
+    const budgeted=summary.plugins>0;
     const spawned: string[] = [], hooks = deps.hooks ?? activeHooks;
     let st: Status | undefined;
     let policyChanges = 0;
     for (let index = 0; index < waiting.length; index++) {
+      if(budgeted&&policyBudget<=0)break;
       const task = waiting[index], s = deps.loadStrategy(ctx);
       const work=getWork(ctx,task.id);
       if(work?.options.expiresAt!==undefined&&work.options.expiresAt<=Date.now()/1000){
@@ -151,6 +158,7 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         eligible.push(id);
       }
       let routeAdmission: Awaited<ReturnType<typeof authorizeRoute>>;
+      const policyStarted=budgetNow();
       try {
         routeAdmission=await authorizeRoute({...ctx,now:Date.now()/1000},task.id,eligible,{
           strategy:current=>deps.loadStrategy(current),contextFingerprint:()=>JSON.stringify({repo:snapshot.repoKey,projectRevision:snapshot.rev}),
@@ -159,6 +167,8 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
         // Route admission concerns this task only: hold it with the reason and keep draining.
         holdForPolicy(ctx, task.id, error);
         continue;
+      } finally {
+        if(budgeted)policyBudget-=Math.max(0,budgetNow()-policyStarted);
       }
       for(const [id,plugin] of Object.entries(routeAdmission.excludedBy)) ranking.excluded.push({id,reason:`excluded by plugin ${plugin}`});
       const permitted=routeAdmission.candidates;

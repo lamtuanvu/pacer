@@ -45,6 +45,9 @@ By default, pacer also runs non-force cleanup immediately after review accept or
 
 When `pacer delegate` overrides a brief’s requested `worktree: current` placement to `new`, its text output includes the override reason. The `execution.worktree` default remains `child-of-current`.
 
+For a managed retry on the same task, the bundled direct executor reuses its task worktree and current HEAD after a confirmed provider exit. If the previous process outcome is uncertain, the retry is refused before another process starts.
+Local noninteractive managed work may also permit child delegation. The selected executor child receives an attempt-scoped work grant; a disabled bundled provider stops the attempt before the host starts a built-in executor.
+
 A brief or `--worktree` flag can choose `current`, `new` or `auto`, with `--worktree-reason` explaining the choice. Concurrent activity and unsafe placement can prevent in-place execution. Inspect the returned task's placement and reported worktree before review.
 
 The executor contract asks workers to stay in scope, avoid further delegation, avoid commits/pushes and run acceptance. Set `acceptance_timeout_min` in the brief (or `--acceptance-timeout-min`) to an integer from 1 to 120 for the acceptance deadline in minutes; the default is 10, independent of the executor timeout, and retries preserve it. Timed-out acceptance results report `timedOut: true`, the deadline in the tail/summary, and a hint to raise the limit. pacer records reports, logs and any acceptance result; provider-limit detection can retry another ranked executor. Review the changes and run acceptance independently before `pacer review <id> --accept` or `--reject`.

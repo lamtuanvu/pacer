@@ -128,6 +128,9 @@ test("isPacerHook recognizes only pacer hook commands for the requested planner"
     "/old/pacer guard --planner claude-code",
     "bun /repo/src/cli.ts status --hook claude-code",
     "node /repo/cli.js session-start --planner claude-code",
+    "/old/pacer msg hook session --planner claude-code",
+    "/old/pacer msg hook stop --planner claude-code",
+    "/old/pacer msg hook prompt --planner claude-code",
   ]) expect(isPacerHook(command, "claude-code")).toBe(true);
   for (const command of [
     "/old/pacer guard --planner codex",

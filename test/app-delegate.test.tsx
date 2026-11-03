@@ -1,7 +1,8 @@
+import { workspaceKey, workspaceManager } from '../app/src/workspace/manager';
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { Delegate, DelegateRoutingPreview, handleDelegateKey } from "../app/src/screens/Delegate";
-import { blankDelegate, delegateParams, delegateRoutingParams, initialDelegateDraft } from "../app/src/model/tasks";
+import { blankDelegate, delegateParams, delegateRoutingParams, initialDelegateDraft, userStartedGrants } from "../app/src/model/tasks";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
 import { draftStorage } from "../app/src/model/draft";
@@ -36,6 +37,20 @@ test("kind and repo feed the routing preview and delegate request; automatic kin
   expect(delegateRoutingParams(blankDelegate, true, "")).toEqual({});
   expect(delegateRoutingParams(draft, false, draft.goal)).toEqual({ kind: "tests" });
 });
+test("the sub-agent toggle sends grant:false only when the service turns user-started grants on", () => {
+  const draft = { ...blankDelegate, repo: apiRepo, goal: "Write tests" }, ops = new Set(["repo.list"]);
+  expect(userStartedGrants({ config: { grants: { user_started_tasks: "on" } } })).toBe(true);
+  expect(userStartedGrants({ config: { grants: { user_started_tasks: "off" } } })).toBe(false);
+  expect(userStartedGrants({ pacer: "1.0.0" })).toBe(false);
+  expect(delegateParams(draft, ops, "req", [apiRepo], true)).not.toHaveProperty("grant");
+  expect(delegateParams({ ...draft, grant: "off" }, ops, "req", [apiRepo], true)).toMatchObject({ grant: false });
+  expect(delegateParams({ ...draft, grant: "off" }, ops, "req", [apiRepo], false)).not.toHaveProperty("grant");
+  // The choice is a known draft field, so it survives a reload.
+  const values = new Map<string, string>();
+  const storage = draftStorage("d", blankDelegate, { getItem: k => values.get(k) ?? null, setItem: (k, v) => { values.set(k, v); }, removeItem: k => { values.delete(k); } });
+  storage.write({ ...draft, grant: "off" });
+  expect(storage.read().grant).toBe("off");
+});
 test("routing preview names the next executor and reflects explicit selection and pending reads", () => {
   const routing = { ranked: [{ id: "codex", verdict: "OK", reason: "Ready" }], excluded: [] };
   const render = (executor = "", loading = false) => renderToString(<DelegateRoutingPreview routing={routing} executor={executor} loading={loading} />);
@@ -63,6 +78,8 @@ test("Cmd+Enter and Ctrl+Enter request form submission once; typing, composition
 });
 
 test("dialog renders stored defaults, optional kind and submission shortcut", () => {
+  const scope = workspaceKey("pending", undefined, "pacer.delegate.v2");
+  workspaceManager.set(scope, "draft:pacer.delegate.v2", { ...blankDelegate, goal: "Fix routing", kind: "tests" });
   const oldSession = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
   const oldLocal = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   const storage = (value: unknown) => ({ getItem: () => JSON.stringify(value), setItem() {}, removeItem() {} });
@@ -82,6 +99,7 @@ test("dialog renders stored defaults, optional kind and submission shortcut", ()
     expect(html).toContain('aria-keyshortcuts="Meta+Enter Control+Enter"');
     expect(html).toContain("Checking routing…");
   } finally {
+    workspaceManager.clearIdentity("pending");
     if (oldSession) Object.defineProperty(globalThis, "sessionStorage", oldSession); else Reflect.deleteProperty(globalThis, "sessionStorage");
     if (oldLocal) Object.defineProperty(globalThis, "localStorage", oldLocal); else Reflect.deleteProperty(globalThis, "localStorage");
   }

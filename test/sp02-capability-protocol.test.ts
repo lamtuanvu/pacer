@@ -13,13 +13,16 @@ test("bounded FS/state chunks share their explicitly declared capability", () =>
   expect(CAPABILITY_METHODS["capability.fs.list"].params.safeParse({ dir: "/fixture", glob: "**/rollout-*.jsonl", limit: 1001 }).success).toBe(false);
 });
 
-test("spawn wire accepts context for host admission but rejects stdin and malformed references", () => {
+test("spawn wire accepts bounded stdin and context but rejects malformed references", () => {
   const schema = CAPABILITY_METHODS["capability.process.spawn"]?.params;
   expect(schema).toBeDefined();
   const safe = { argv: ["arkcli", "usage", "plan", "--product", "coding-plan"], timeoutMs: 8000 };
   expect(schema.safeParse(safe).success).toBe(true);
+  expect(schema.safeParse({ ...safe, timeoutMs: 1_800_000 }).success).toBe(true);
+  expect(schema.safeParse({ ...safe, timeoutMs: 1_800_001 }).success).toBe(false);
   for (const change of [{ env: { PLAIN: "value" } }, { cwd: "/fixture/owned" }, { env: { KEY: {secretRef: "endpoint:owned"} } }]) expect(schema.safeParse({ ...safe, ...change }).success).toBe(true);
-  for (const change of [{ stdin: "no" }, { env: { KEY: {secretRef: "raw-value"} } }, { env: { KEY: {secretRef: "endpoint:owned", extra:true} } }]) expect(schema.safeParse({ ...safe, ...change }).success).toBe(false);
+  expect(schema.safeParse({ ...safe, stdin: "owned input" }).success).toBe(true);
+  for (const change of [{ stdin: "x".repeat(262145) }, { env: { KEY: {secretRef: "raw-value"} } }, { env: { KEY: {secretRef: "endpoint:owned", extra:true} } }]) expect(schema.safeParse({ ...safe, ...change }).success).toBe(false);
 });
 
 test("host-derived reader paths survive only explicit resources projection", () => {

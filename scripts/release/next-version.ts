@@ -30,7 +30,7 @@ export function applyBump(current: string, bump: Bump): string {
   return bump === "major" ? `${major + 1}.0.0` : bump === "minor" ? `${major}.${minor + 1}.0` : `${major}.${minor}.${patch + 1}`;
 }
 
-/** Unreleased must say what ships; an empty section means the CHANGELOG was not kept up. */
+/** Return authored Unreleased notes, if any. */
 export function unreleasedNotes(changelog: string): string {
   const m = /^## \[Unreleased\][ \t]*\n([\s\S]*?)(?=^## \[|(?![\s\S]))/m.exec(changelog);
   if (!m) throw new Error("CHANGELOG.md has no Unreleased section");
@@ -39,7 +39,8 @@ export function unreleasedNotes(changelog: string): string {
 
 export function nextVersion(o: { current: string; subjects: string[]; requested: (typeof BUMPS)[number]; changelog: string }): { version: string; bump: Bump } {
   if (!isVersion(o.current)) throw new Error(`package.json version ${o.current} is not a version`);
-  if (!unreleasedNotes(o.changelog)) throw new Error("CHANGELOG.md Unreleased is empty; add the changes before releasing");
+  unreleasedNotes(o.changelog);
+  if (o.subjects.length === 0) throw new Error("no commits since the current version tag; refusing to prepare empty release notes");
   const bump = o.requested === "auto" ? bumpFor(o.subjects, o.current) : o.requested;
   if (!bump) throw new Error("no feat, fix, perf, revert or breaking commits since the last release; pick a bump explicitly to release anyway");
   return { version: applyBump(o.current, bump), bump };

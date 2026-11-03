@@ -1,0 +1,198 @@
+{
+  "integerHeaderHex": "504143455254545901000000447b22636f6c73223a3132302c22726f7773223a34302c22737461727465644174223a312c2267656e65726174696f6e223a322c226f75747075744f6666736574223a397d",
+  "recordMs": [
+    {
+      "input": "-3",
+      "hex": "010000000000000000"
+    },
+    {
+      "input": "NaN",
+      "hex": "010000000000000000"
+    },
+    {
+      "input": "Infinity",
+      "hex": "01ffffffff00000000"
+    },
+    {
+      "input": "4294967296",
+      "hex": "01ffffffff00000000"
+    },
+    {
+      "input": "12.9",
+      "hex": "010000000c00000000"
+    }
+  ],
+  "overlap": {
+    "inputHex": "e4bda0e5a5bd20746f6b656e2d3132333435363738393020656e64",
+    "secrets": [
+      "token-123456789",
+      "token-1234567890",
+      "short"
+    ],
+    "expectedHex": "e4bda0e5a5bd202a2a2a2a20656e64"
+  },
+  "rotation": {
+    "artifacts": [
+      "session.ckpt",
+      "session.log",
+      "session.log.1",
+      "stdout"
+    ],
+    "checkpoint": {
+      "generation": 0,
+      "outputOffset": 6,
+      "cols": 120,
+      "rows": 40,
+      "scrollbackAnsi": "",
+      "screenAnsi": "abcdef",
+      "modes": {}
+    },
+    "old": {
+      "generation": 0,
+      "outputOffset": 0,
+      "frames": [
+        {
+          "type": 1,
+          "data": "616263"
+        },
+        {
+          "type": 1,
+          "data": "646566"
+        }
+      ]
+    },
+    "current": {
+      "generation": 1,
+      "outputOffset": 6,
+      "frames": [
+        {
+          "type": 1,
+          "data": "676869"
+        }
+      ]
+    },
+    "since2": [
+      "63",
+      "646566",
+      "676869"
+    ],
+    "readFrames": [
+      {
+        "type": 1,
+        "data": "676869"
+      }
+    ],
+    "stdout": "abcdefghi"
+  },
+  "header": {
+    "cols": 120,
+    "rows": 40,
+    "startedAt": 1234.25,
+    "generation": 2,
+    "outputOffset": 9
+  },
+  "logHex": "5041434552545459010000004a7b22636f6c73223a3132302c22726f7773223a34302c22737461727465644174223a313233342e32352c2267656e65726174696f6e223a322c226f75747075744f6666736574223a397d010000000c0000000568656c6c6f020000000d0000000400500018010000",
+  "decoded": {
+    "header": {
+      "cols": 120,
+      "rows": 40,
+      "startedAt": 1234.25,
+      "generation": 2,
+      "outputOffset": 9
+    },
+    "validBytes": 114,
+    "frames": [
+      {
+        "type": 1,
+        "ms": 12,
+        "data": "68656c6c6f"
+      },
+      {
+        "type": 2,
+        "ms": 13,
+        "data": "00500018"
+      }
+    ]
+  },
+  "wireHex": "030000000568656c6c6f",
+  "wireParts": [
+    0,
+    [
+      {
+        "type": 3,
+        "data": "68656c6c6f"
+      }
+    ]
+  ],
+  "masked": [
+    "",
+    "before ****",
+    " after"
+  ],
+  "live": {
+    "artifacts": [
+      "session.ckpt",
+      "session.log",
+      "stdout"
+    ],
+    "checkpoint": {
+      "generation": 0,
+      "outputOffset": 0,
+      "cols": 120,
+      "rows": 40,
+      "scrollbackAnsi": "",
+      "screenAnsi": "",
+      "modes": {}
+    },
+    "stdout": "one\ntwo\n",
+    "frames": [
+      {
+        "type": 1,
+        "data": "6f6e650d0a74776f0a"
+      },
+      {
+        "type": 2,
+        "data": "00500018"
+      },
+      {
+        "type": 3,
+        "data": "7b226576656e74223a2274616b65222c226c6162656c223a226f776e6572227d"
+      }
+    ],
+    "readFrames": [
+      {
+        "type": 1,
+        "data": "6f6e650d0a74776f0a"
+      },
+      {
+        "type": 2,
+        "data": "00500018"
+      },
+      {
+        "type": 3,
+        "data": "7b226576656e74223a2274616b65222c226c6162656c223a226f776e6572227d"
+      }
+    ]
+  },
+  "version": {
+    "pacer": "<current>",
+    "versions": [
+      1,
+      1
+    ],
+    "identity": {
+      "pid": 42,
+      "bootId": "boot",
+      "birth": "birth"
+    }
+  },
+  "screenCheckpoint": {
+    "generation": 0,
+    "outputOffset": 4,
+    "cols": 120,
+    "rows": 40,
+    "scrollbackAnsi": "",
+    "screenAnsi": "hi\u001b[1B\u001b[2D",
+    "modes": {}
+  }
+}

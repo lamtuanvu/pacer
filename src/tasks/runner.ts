@@ -38,9 +38,9 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { gitInfo, realpathSafe } from "../core/git";
-import { worktreeUnchanged } from "../supervisor/worktree";
+import { removeTaskWorktree, taskWorktreePath, worktreeUnchanged } from "../supervisor/worktree";
 import { withLock } from "../core/lock";
-import { pidAlive } from "../link/store";
+import { pidAlive } from "../link/pid";
 import { readBlocked } from "../executors/blocked";
 import { activeHooks } from "../classify/active";
 import type { DecisionHooks } from "../classify/hooks";
@@ -52,6 +52,8 @@ import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/b
 import { directBackend, selectBackend } from "../exec/backend";
 import { type AttemptOutcome, resumeAttempt } from "../exec/direct";
 import { killTree } from "../exec/process";
+import { resumeOwnedDirect, runOwnedDirectCurrent, runOwnedDirectNew,
+  runOwnedDirectRemote } from "../plugins/executor-production";
 import { exhaustUntil } from "../exec/limits";
 import { verifyRepo } from "../exec/verify";
 import type { Ctx } from "../types";
@@ -103,6 +105,20 @@ export function needsDirectBackend(task: TaskRecord, strict: boolean): boolean {
 function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
   if (getWork(ctx,id) && result.status === "done" && pendingChildren(ctx,id).length) result = {...result,status:"needs_input",report:result.report+"\nRequired child work needs review before this task can complete."};
   const finished = updateTask(ctx, id, (t) => {
+    if (t.executorProvider && t.stopPending) {
+      const receipt = t.executorExitReceipt, run = t.run, pending = t.stopPending;
+      if (!run || !receipt || receipt.attempt !== pending.attempt ||
+        receipt.providerId !== pending.providerId || receipt.dir !== run.dir ||
+        receipt.startedAt !== run.startedAt) {
+        delete t.runnerPid;
+        return;
+      }
+      const deadline = pending.reason === "deadline";
+      result = { ...result, status: deadline ? "failed" : "stopped",
+        report: deadline ? "Executor deadline reached; wrapper exit verified" :
+          result.report || "Executor exited after stop was requested" };
+      delete t.stopPending;
+    }
     if(t.placement?.mode && !t.run?.host) {
       const p=t.placement;
       const line=p.mode==="new"?`ran in new worktree ${t.worktree??result.worktree??"(unknown)"} (${p.why})`:`ran in current worktree (${p.why})`;
@@ -174,6 +190,29 @@ export async function runTask(ctx: Ctx, id: string, deps: RunnerDeps = DEFAULTS)
   }
 }
 
+/** A human-managed root with no strict-ready route can run unmanaged before any child exists. */
+async function unmanageUnreachableRoot(ctx: Ctx, strategy: Strategy, task: TaskRecord, routable: string[]): Promise<boolean> {
+  const work = getWork(ctx, task.id);
+  if (!work || work.parentId || work.options.delegationEnforcement !== "strict" || task.origin !== "human" || task.interactionMode === "conversation" || !routable.length) return false;
+  const db = dispatchDatabase(ctx);
+  const hasChildren = () => !!db.query<{n:number},[string]>("SELECT 1 AS n FROM work_nodes WHERE parent_id=? LIMIT 1").get(task.id);
+  if (hasChildren()) return false;
+  const repo = task.repo?.path ?? task.brief.repo, reasons: string[] = [];
+  for (const runner of new Set(routable)) {
+    const reason = await enforcementExclusion({...ctx, now: Date.now()/1000}, strategy, runner, repo);
+    if (!reason) return false;
+    reasons.push(`${runner}: ${reason}`);
+  }
+  const removed = db.transaction(() => {
+    if (hasChildren()) return false;
+    for (const table of ["work_reservations", "work_decisions", "work_waits", "work_grants", "enforcement_tokens", "work_nodes"]) db.query(`DELETE FROM ${table} WHERE task_id=?`).run(task.id);
+    db.query("DELETE FROM work_events WHERE root_id=?").run(task.id);
+    return true;
+  }).immediate();
+  if (removed) updateTask(ctx, task.id, t => { t.managedSkip = {reason:"refused",detail:reasons.join("; "),at:Date.now()/1000}; });
+  return removed;
+}
+
 async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{claimed:boolean}): Promise<TaskRecord> {
   let started = false;
   const initial=readTask(ctx,id);
@@ -188,7 +227,13 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       const current=readTask(ctx,id);
       if(!current) throw new Error(`unknown task ${id}`);
       const resumable = (current.state === "running" || (current.state === "stopped" && current.handover?.state === "handed-over")) && !!current.run && current.run.attempt > current.attempts.length && !(!!current.runnerPid && pidAlive(current.runnerPid));
-      const dispatched = current.state === "running" && !current.attemptStartedAt && !current.run && (!current.runnerPid || current.runnerPid === process.pid || !pidAlive(current.runnerPid));
+      const prepared = current.state === "running" && current.executorProvider === "pacer-exec-direct" &&
+        !current.run && !current.stopPending &&
+        (!!current.worktreeIntent || !!current.runClaim || !!current.baseFetchIntent?.sha ||
+          !!current.remotePrepareIntent);
+      const dispatched = current.state === "running" && !current.run &&
+        (!current.runnerPid || current.runnerPid === process.pid || !pidAlive(current.runnerPid)) &&
+        (!current.attemptStartedAt || prepared);
       if(current.state!=="queued" && !resumable && !dispatched) return current;
       if(current.state === "queued" && current.runnerPid && pidAlive(current.runnerPid) && !current.queue) return current;
       if(!current.force && current.state==="queued") duplicate=listTasksWhere(ctx,{states:["queued","running"]}).find(other=>other.id!==id&&(other.state==="running"||(other.state==="queued"&&!other.queue))&&!!other.runnerPid&&pidAlive(other.runnerPid)&&key(other)===key(current))?.id;
@@ -235,6 +280,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
     }
     for (let i = 0; i < attemptBudget; i++) {
       const resuming = i === 0 && task.run && task.run.attempt > task.attempts.length ? task.run : null;
+      if (resuming && task.executorProvider && task.stopPending)
+        return updateTask(ctx, id, current => { if (current.runnerPid === process.pid) delete current.runnerPid; });
+      if (resuming && task.executorProvider && task.executorProvider !== "pacer-exec-direct")
+        return updateTask(ctx, id, current => { if (current.runnerPid === process.pid) delete current.runnerPid; });
       // The first attempt is a start, even when the drain reserved it; retries keep running.
       const freshStart = i === 0 && !resuming;
       let selection: ProjectSelection | undefined;
@@ -247,6 +296,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       let decision: DispatchPreview | undefined;
       let dispatchCandidates: Candidate[] = [];
       let routeAdmission: Awaited<ReturnType<typeof authorizeRoute>> | undefined;
+      let routableCandidates: string[] = [];
       const work = getWork(ctx,id);
       let byId: Record<string, Status["providers"][number]> = {};
       if (resuming) {
@@ -287,6 +337,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const ranking = rankExecutors(kind, s, byId, selection && {executors: selection.executors, order: "configured"},
           {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
         if (task.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind, s, byId, task.requestedExecutor);
+        routableCandidates = ranking.ranked.map(e => e.id);
         if (work) {
           decision = await resolveTaskDispatch({...ctx,now},task,s,st,triedCandidates,new Set(policyExcluded.keys()));
           if (decision.proposal?.state === "ranked") {
@@ -344,7 +395,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         // with the cumulative runner exclusions before reserving anything.
         // Every repeat removes at least one current candidate; no policy-count cap.
         if(work&&Object.keys(routeAdmission.excludedBy).length) {i--;continue;}
-        let policyChanged = false;
+        let policyChanged = false, unmanaged = false;
         await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
           routeAdmission!.revalidate();
           requirePolicyIdentity(ctx, repo);
@@ -396,6 +447,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           const machineHeld = freshStart && [...full].some(e => !tried.has(e) && !!localMachineGuard(s, e));
           if (work && !pick && !paused && !machineHeld) {
             const expired=work.options.expiresAt!==undefined&&work.options.expiresAt<=now;
+            if(!expired && await unmanageUnreachableRoot(ctx,s,task,routableCandidates)){unmanaged=true;return;}
             const exclusion=decision?.excluded.find(e=>e.id===task.requestedExecutor)
               ??decision?.excluded.find(e=>e.reason.includes("Native subagent control")&&e.reason!==STRICT_INTERACTIVE_REASON)
               ??decision?.excluded.find(e=>e.reason.includes("Native subagent control"))
@@ -432,6 +484,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           });
           if(pick) routeAdmission!.checkpoint(task);
         }));
+        if (unmanaged) { task = readTask(ctx, id)!; i--; continue; }
         if (policyChanged) {
           if (++policyChanges > 20) throw new Error("Project policy keeps changing; retry once editing is complete");
           i--; continue;
@@ -462,8 +515,15 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
 
       const selectedModel = work ? selectedDispatchModel(ctx,id) : undefined;
       const cfg = selectedModel === undefined ? s.providers[pick] : {...s.providers[pick],model:selectedModel};
+      if (!resuming && task.executorProvider && task.executor && task.executor !== pick)
+        return updateTask(ctx, id, current => {
+          if (current.runnerPid === process.pid) delete current.runnerPid;
+        });
       attemptedExecutor = pick;
       if (resuming && !cfg) {
+        if (task.executorProvider) return updateTask(ctx, id, current => {
+          if (current.runnerPid === process.pid) delete current.runnerPid;
+        });
         return finish(ctx, id, { status: "failed", executor: pick, model: null, files: "", report: `cannot resume: executor ${pick} is no longer configured`, backend: "direct" });
       }
       attemptedModel = cfg.model ?? null;
@@ -482,6 +542,36 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       }
       const backend = resuming || deps.runAttempt ? null : needsDirectBackend(task, work?.options.delegationEnforcement === "strict") ? directBackend : await selectBackend(ctx, s, undefined, pick);
       attemptedBackend = backend?.id ?? "direct";
+      const localOwnerCandidate = !resuming && !deps.runAttempt && backend?.id === "direct" &&
+        ctx.env.PACER_BACKEND !== "orca" && task.interactionMode !== "conversation" &&
+        !resolveRunner(s, pick)?.host &&
+        (!task.worktree || !!task.retryOf || task.attempts.length > 0) &&
+        // A task whose earlier attempt ran on the built-in owner continues there: its receipts predate the provider.
+        (task.attempts.length === 0 || !!task.retryOf ||
+          task.executorExitReceipt?.providerId === "pacer-exec-direct" &&
+            task.executorExitReceipt.attempt === task.attempts.length);
+      const localGit = localOwnerCandidate ? await gitInfo(ctx.run, task.brief.repo).catch(() => ({ error: "git unavailable" })) : null;
+      const localTop = localGit && !("error" in localGit) ? realpathSafe(localGit.top) : realpathSafe(task.brief.repo);
+      const localBusy = localOwnerCandidate && listTasksWhere(ctx, { states: ["running"] }).some(other => {
+        const path = realpathSafe(other.worktree ?? other.result?.worktree ?? other.brief.repo);
+        return other.id !== task.id && !!other.runnerPid && pidAlive(other.runnerPid) &&
+          other.placement?.mode === "current" && (path === localTop || path.startsWith(`${localTop}/`));
+      });
+      const localPlacement = localOwnerCandidate && task.worktree ?
+        { mode: "new" as const, why: "reuse task worktree" } : localOwnerCandidate ? resolvePlacement(task,
+        validateExecution(s.execution).worktree, !!localBusy,
+        !!localGit && !("error" in localGit) && localGit.dirty) : null;
+      const ownedCurrent = localOwnerCandidate && localPlacement?.mode === "current";
+      const ownedNew = localOwnerCandidate && localPlacement?.mode === "new" &&
+        !!localGit && !("error" in localGit);
+      const remoteRunner = resolveRunner(s, pick);
+      const ownedRemote = !deps.runAttempt && !work && task.interactionMode !== "conversation" &&
+        ctx.env.PACER_BACKEND !== "orca" && !!remoteRunner?.host &&
+        !!s.hosts[remoteRunner.host] && s.hosts[remoteRunner.host]!.session !== "full" &&
+        validateExecution(s.execution).session !== "pty" && cfg.session !== "interactive" &&
+        (!resuming || !!resuming.host);
+      const ownedResume = !!resuming && task.executorProvider === "pacer-exec-direct";
+      const owned = ownedCurrent || ownedNew || ownedRemote || ownedResume;
       const account = resolveRunner(s, pick)?.account ?? pick;
       const usage = (st: Status | undefined): AttemptUsage => {
         const reading = st?.accounts?.find(a => a.name === account);
@@ -573,6 +663,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           updateTask(ctx,id,t=>{delete t.pendingAttempt;delete t.attemptStartedAt;delete t.executor;});
           return finish(ctx,id,{status:"failed",executor:pick,model:null,files:"",report:`${pick}: ${reason}`,backend:"direct"});
         }
+        if(reason && await unmanageUnreachableRoot(ctx,s,task,routableCandidates)){
+          task=updateTask(ctx,id,t=>{delete t.pendingAttempt;delete t.attemptStartedAt;delete t.executor;});
+          i--;continue;
+        }
         if(reason){
           releaseDispatch(ctx,id);
           task=updateTask(ctx,id,t=>{t.state="queued";t.queue={reason:"waiting_retry",detail:`Native subagent control unverified for ${pick}: ${reason}`,since:t.queue?.since??Date.now()/1000,position:1,nextAt:Date.now()/1000+30};delete t.runnerPid;delete t.executor;delete t.attemptStartedAt;delete t.run;});
@@ -602,8 +696,67 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
 
       let out: AttemptOutcome;
       try {
-        out = resuming ? await resumeAttempt(executionCtx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(executionCtx, cfg, task, onSpawn);
+        if (owned) {
+          if (!ownedResume) task = updateTask(ctx, id, current => {
+            current.executorProvider = "pacer-exec-direct";
+            if (localPlacement) current.placement = { requested: current.placement?.requested ?? "auto",
+              ...current.placement, mode: localPlacement.mode, why: localPlacement.why };
+          });
+          out = await (ownedRemote ? runOwnedDirectRemote(executionCtx, cfg, task)
+            : ownedResume ? resumeOwnedDirect(executionCtx, cfg, task)
+              : ownedNew ? runOwnedDirectNew(executionCtx, cfg, task)
+              : runOwnedDirectCurrent(executionCtx, cfg, task));
+          // The routing reason (for example, why Orca was not used) belongs in the attempt log whichever direct owner ran.
+          if (backend?.note && out.attempt.log) try { appendFileSync(out.attempt.log, `direct backend: ${backend.note}\n`); }
+          catch { /* the attempt result stands */ }
+        } else out = resuming ? await resumeAttempt(executionCtx, cfg, task) : await (deps.runAttempt ?? backend!.runAttempt)(executionCtx, cfg, task, onSpawn);
       } catch (error) {
+        // The runner's own log is the only place this failure is recorded before the task is lost.
+        console.error(`pacer: ${id} attempt failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+        const latest = readTask(ctx, id);
+        if (owned && latest && TERMINAL_STATES.includes(latest.state)) return latest;
+        if (owned && latest?.executorProvider === "pacer-exec-direct" &&
+          !latest.startIntent && !latest.remotePrepareIntent && !latest.baseFetchIntent &&
+          error instanceof CoreError &&
+          (error.code === "capability_denied" || error.code === "invalid_input")) {
+          const intent = latest.worktreeIntent;
+          if (intent) {
+            const info = await gitInfo(ctx.run, intent.workdir);
+            const branch = await ctx.run(["git", "-C", intent.path, "symbolic-ref", "--quiet", "--short", "HEAD"], 10_000);
+            if (intent.providerId !== "pacer-exec-direct" || intent.attempt !== latest.attempts.length + 1 ||
+              intent.path !== taskWorktreePath(ctx, intent.repoTop, id) || "error" in info ||
+              realpathSafe(info.top) !== realpathSafe(intent.path) || realpathSafe(info.main) !== realpathSafe(intent.repoMain) ||
+              branch.code !== 0 || branch.stdout.trim() !== intent.branch || intent.branch !== `pacer/${id}` ||
+              await worktreeUnchanged(ctx, intent.path, intent.baseSha) !== true) throw error;
+            const removed = await removeTaskWorktree(ctx, intent.repoTop, intent.path);
+            if ("error" in removed) throw new Error(removed.error);
+          }
+          const message = error.message, endedAt = Date.now() / 1000;
+          updateTask(ctx, id, current => {
+            if (current.state !== "running" || current.startIntent || current.stopPending)
+              throw new CoreError("conflict", "executor state changed before refusal settlement");
+            current.attempts.push({ executor: cfg.id, model: cfg.model ?? null, startedAt: task.attemptStartedAt!,
+              endedAt, exitCode: 1, timedOut: false, limitHit: false, log: "" });
+            delete current.runClaim; delete current.pendingAttempt; delete current.worktreeIntent;
+          });
+          releaseDispatch(ctx, id);
+          return finish(ctx, id, { status: "failed", executor: pick, model: cfg.model,
+            files: "", report: message, backend: "direct" });
+        }
+        if (owned && latest?.executorProvider === "pacer-exec-direct" &&
+          (latest.run || latest.runClaim || latest.worktreeIntent || latest.baseFetchIntent ||
+            latest.remotePrepareIntent || latest.startIntent)) {
+          return updateTask(ctx, id, current => {
+            if (error instanceof CoreError && error.code === "plugin_timeout" &&
+              current.run && current.startIntent && !current.stopPending)
+              current.stopPending = { attempt: current.run.attempt, requestedAt: Date.now() / 1000,
+                providerId: "pacer-exec-direct", graceMs: 5000, reason: "deadline" };
+            if (current.runnerPid === process.pid) delete current.runnerPid;
+            current.progress = { lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0,
+              logBytes: 0, host: current.run?.host ?? current.remotePrepareIntent?.alias ?? "local",
+              ...current.progress, phase: "lost-contact", updatedAt: Date.now() / 1000 };
+          });
+        }
         if (!/ENOENT|EACCES|command not found/.test(String(error))) throw error;
         const code = /EACCES/.test(String(error)) ? 126 : 127;
         out = {
@@ -611,6 +764,20 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           exec: { code, stdout: "", stderr: String(error), timedOut: false },
           attempt: { executor: pick, model: cfg.model, startedAt: task.attemptStartedAt!, endedAt: Date.now()/1000, exitCode: code, timedOut: false, limitHit: false, log: "" },
         };
+      }
+      if (owned) {
+        const latest = readTask(ctx, id);
+        if (latest && TERMINAL_STATES.includes(latest.state)) return latest;
+      }
+      if (owned && readTask(ctx, id)?.stopPending) {
+        const deadline = readTask(ctx, id)?.stopPending?.reason === "deadline";
+        task = updateTask(ctx, id, current => {
+          current.attempts.push(out.attempt);
+          delete current.pendingAttempt;
+          delete current.childPid;
+        });
+        return finish(ctx, id, { status: deadline ? "failed" : "stopped", executor: pick, model: cfg.model,
+          files: "", report: out.report, backend: "direct" });
       }
       const failureMarker=executionCtx.env.PACER_GUARD_FAILURE_MARKER;
       if(work?.options.delegationEnforcement==="strict"&&failureMarker&&existsSync(failureMarker)){
@@ -699,6 +866,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         markBroken({ ...ctx, now: Date.now()/1000 }, pick, out.attempt.brokenReason);
         lastBroken = { brokenExecutor: pick, brokenReason: out.attempt.brokenReason };
         if (pick === task.requestedExecutor) requestedUnavailable = `broken: ${out.attempt.brokenReason}`;
+        if (owned) return finish(ctx, id, { status: "failed", executor: pick,
+          model: cfg.model, files: "", report: `executor not working: ${out.attempt.brokenReason}`,
+          backend: attemptedBackend, ...lastBroken });
         continue;
       }
       lastBroken = undefined;
@@ -706,12 +876,17 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         lastLimitReport = out.report;
         markExhausted({ ...ctx, now: out.attempt.endedAt }, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`), { scope: outcomeScope });
         if (pick === task.requestedExecutor) requestedUnavailable = "limit";
+        if (owned) task = updateTask(ctx, id, current => {
+          delete current.run; delete current.executorProvider; delete current.executor;
+          delete current.attemptStartedAt;
+        });
         continue;
       }
       if (!out.partial) task = updateTask(ctx, id, t => {
         const now = Date.now() / 1000;
         t.progress = {
-          lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0, logBytes: 0, host: "local",
+          lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0, logBytes: 0,
+          host: task.run?.host ?? "local",
           ...t.progress, phase: "testing", updatedAt: now,
         };
       });

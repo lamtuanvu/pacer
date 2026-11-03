@@ -63,6 +63,7 @@ test("caller cancellation while an admitted command runs drains it and compensat
         pluginId: "sp06-install",
         roots: [f.folder],
         binaries: ["fixture-tool"],
+        commandApproval: argv => argv[0] === join(f.ctx.home, "fixture-tool"),
         registry: f.registry,
         signal: controller.signal,
       },
@@ -100,6 +101,7 @@ test("child loss after actual command reply and before final plan still compensa
           pluginId: "sp06-install",
           roots: [f.folder],
           binaries: ["fixture-tool"],
+          commandApproval: argv => argv[0] === join(f.ctx.home, "fixture-tool"),
           registry: f.registry,
         },
       ),
@@ -155,6 +157,7 @@ test("config generation retirement rejects old pending admission while parent co
         pluginId: "sp06-install",
         roots: [f.folder],
         binaries: ["fixture-tool"],
+        commandApproval: argv => argv[0] === join(f.ctx.home, "fixture-tool"),
         registry: f.registry,
       },
     ).then(

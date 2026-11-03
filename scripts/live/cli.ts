@@ -1,4 +1,6 @@
+import {exerciseNativeConfig} from "./native-config";
 import { exerciseSettings } from './settings';
+import { exercisePublication } from './publication';
 import { exerciseIntegrations } from "./integrations";
 import { copyFileSync, chmodSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
@@ -9,11 +11,13 @@ import { desktop, tui } from "./surfaces";
 import { executorRefusal } from "./guard";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
+import { exerciseNativeStdio } from "./native-stdio";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
+import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--real-keychain]
+  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--native-test-ops] [--native-forward-echo] [--real-keychain]
                                   start isolated service and disposable repo; ui seeds sample data;
                                   plugin-remove adds one inert removable plugin;
                                   --real-keychain uses the login Keychain instead of a security stub
@@ -29,11 +33,16 @@ const usage = `usage: bun run live <command> [--id <id>]
   doctor --surface desktop --request-accessibility
                                   ask macOS to show Accessibility approval
   settings --id <id>              exercise fixed file-only settings save/reject/restore (seeded sandbox)
+  publication --id <id>           exercise fixed TypeScript publication boundaries (seeded sandbox)
   integrations --id <id>          exercise fixed private integration refresh fixtures
   updater --id <id>               exercise fixed disposable CLI updater fixtures (ui-seeded sandbox)
   repair --id <id>                exercise fixed disposable core self-repair fixtures (ui-seeded sandbox)
+  native-config --id <id>         exercise fixed native/forwarded config writes over stdio and HTTP
+  native-stdio --id <id>          exercise fixed protocol-3 stdio exchange in a native test-ops sandbox
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
+  stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
+                                  arm one scoped pacer-ssh RPC fault in this sandbox
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
   login [--screen <screen>]        print fresh single-use app login URL
@@ -57,13 +66,13 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal"]);
+  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal", "--mode"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
       if (!before[i + 1] || before[i + 1].startsWith("--")) throw Error(`${arg} requires a value`);
       options.set(arg, before[++i]);
-    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages", "--real-keychain"].includes(arg)) flags.add(arg);
+    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages", "--real-keychain", "--native-test-ops", "--native-forward-echo"].includes(arg)) flags.add(arg);
     else if (arg.startsWith("--")) throw Error(`Unknown option: ${arg}`);
     else positionals.push(arg);
   }
@@ -74,13 +83,29 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (options.has("--seed") && command !== "up") throw Error("--seed is only valid for up");
   if (options.has("--front-door") && command !== "up") throw Error("--front-door is only valid for up");
   if (flags.has("--real-keychain") && command !== "up") throw Error("--real-keychain is only valid for up");
+  if (flags.has("--native-test-ops") && command !== "up") throw Error("--native-test-ops is only valid for up");
+  if (flags.has("--native-forward-echo") && command !== "up") throw Error("--native-forward-echo is only valid for up");
   if (command === "up") {
-    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain")), null, 2));
+    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain"), flags.has("--native-test-ops"), flags.has("--native-forward-echo")), null, 2));
     return 0;
   }
   if (command === "status") {
     const rows = id ? [loadSession(id)] : sessions();
     console.log(JSON.stringify(await Promise.all(rows.map(async session => ({ ...session, running: await healthy(session) }))), null, 2));
+    return 0;
+  }
+  if (command === "stream-fault") {
+    if (!id || positionals.length !== 1 || positionals[0] !== "arm" || forwarded.length ||
+      flags.size || [...options.keys()].some(key => key !== "--id" && key !== "--mode"))
+      throw Error("usage: live stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout");
+    const session = loadSession(id);
+    if (!await healthy(session)) throw Error("session stream fault requires a running sandbox");
+    const mode = options.get("--mode");
+    if (mode !== "lost-input-ack" && mode !== "read-response-timeout")
+      throw Error("unsupported session stream fault mode");
+    const armed = armSessionStreamFault(session.root, mode as StreamFaultMode);
+    record(session, { kind: "note", text: `Armed one-use pacer-ssh stream fault ${armed.mode} (${armed.id})` });
+    console.log(JSON.stringify(armed));
     return 0;
   }
   if (command === "ota") {
@@ -148,6 +173,16 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
 
     return 0;
   }
+  if (command === "native-config") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live native-config --id <id>");
+    await exerciseNativeConfig(loadSession(id));
+    return 0;
+  }
+  if (command === "native-stdio") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live native-stdio --id <id>");
+    await exerciseNativeStdio(loadSession(id));
+    return 0;
+  }
   if (command === "updater") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live updater --id <id>");
     await exerciseUpdater(loadSession(id));
@@ -156,6 +191,11 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (command === "settings") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live settings --id <id>");
     await exerciseSettings(loadSession(id));
+    return 0;
+  }
+  if (command === "publication") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live publication --id <id>");
+    await exercisePublication(loadSession(id));
     return 0;
   }
   // The guarded shim only sees the scrubbed sandbox environment, so check the outer session here.
@@ -212,5 +252,5 @@ if (import.meta.main) {
   catch (error) { console.error(`live: ${(error as Error).message}`); process.exitCode = 1; }
   // An OTA driver's event subscription and Desktop reference must not keep a finished
   // (or failed) exercise alive; the lease, not the driver, retires native participants.
-  if (process.argv[2] === "ota") process.exit(process.exitCode);
+  if (process.argv[2] === "ota" || process.argv[2] === "publication") process.exit(process.exitCode);
 }

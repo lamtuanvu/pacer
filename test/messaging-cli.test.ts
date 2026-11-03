@@ -51,7 +51,7 @@ test("pacer msg is the human only from an interactive terminal outside executor 
   expect(await withTTY(true, inbox)).toBe("human");
   expect(await withTTY(false, inbox)).toBe("external:local");
   const planner = cliSetup({ CODEX_THREAD_ID: "th" });
-  expect(await withTTY(true, async () => JSON.parse((await main(["msg", "inbox", "--json"], planner)).out).participant)).toBe("external:codex");
+  expect(await withTTY(true, async () => JSON.parse((await main(["msg", "inbox", "--json"], planner)).out).participant)).toBe("external:codex:th");
   const local = await withTTY(false, () => main(["msg", "confirm", "m-1"], ctx));
   expect(local.code).toBe(2);
   expect(local.err).toContain("Only the human confirms held messages");
@@ -74,7 +74,7 @@ test("pacer delegate records the same origin as pacer msg", async () => {
   const original = cliDeps.spawnRunner;
   cliDeps.spawnRunner = () => 1;
   try {
-    for (const [env, tty, want] of [[{}, true, "human"], [{}, false, "external:local"], [{ CLAUDECODE: "1" }, true, "external:claude-code"]] as const) {
+    for (const [env, tty, want] of [[{}, true, "human"], [{}, false, "external:local"], [{ CLAUDECODE: "1" }, true, "external:claude-code"], [{ PACER_PLANNER_SESSION: "claude-code:abc" }, false, "external:claude-code:abc"]] as const) {
       const ctx = cliSetup({ ...env });
       const r = await withTTY(tty, () => main(["delegate", "--goal", "g", "--repo", ctx.home, "--json"], ctx));
       expect(r.code).toBe(0);

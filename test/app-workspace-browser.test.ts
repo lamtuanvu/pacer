@@ -109,6 +109,7 @@ for (const width of [1440, 375]) for (const theme of ['light', 'dark'] as const)
   } finally {await browser.close();}
  },20000);
 }
+
 browserTest('workspace resumes pending takeover and can control existing interactive sessions without a duplicate takeover',async()=>{
  const result=await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[{name:'terminal-fixture',setup(builder){builder.onResolve({filter:/term\/LazyTerminal$/},()=>({path:'stub',namespace:'terminal-fixture'}));builder.onLoad({filter:/.*/,namespace:'terminal-fixture'},()=>({loader:'tsx',contents:`import {h} from 'preact';import {useEffect,useState} from 'preact/hooks';export function LazyTerminal(p){const [you,setYou]=useState(false);useEffect(()=>{if(p.takeRequested){setYou(true);p.onTakeSent?.();}},[p.takeRequested]);useEffect(()=>{if(p.control&&p.autoControl!==false&&!['following','childfile'].includes(new URLSearchParams(location.search).get('mode')))setYou(true);},[]);useEffect(()=>{p.onControlChange?.(you);p.onActions?.({release:()=>setYou(false),find(){},clear(){},reader(){}});},[you]);return h("div",{"aria-label":"Terminal fixture"},[you?"Driving":"Following",h("button",{onClick:()=>p.onOpenFile?.('src/a.ts')},"Open terminal file")]);}`}));}}]});
  expect(result.success).toBe(true);
@@ -449,7 +450,8 @@ browserTest('workspace long identity and status stay inside their context in bot
     const c=getComputedStyle(pill);
     const luminance=(color:string)=>color.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i]!,0);
     const a=luminance(c.color),b=luminance(c.backgroundColor);
-    return {context:box(node.parentElement!),identity:box(node),children:[...node.children].map(box),title:box(title),pill:box(pill),fullTitle:title.getAttribute('title'),text:title.textContent,metadata:meta.getAttribute('title'),metaText:meta.textContent,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),status:pill.textContent};
+    let parent=node.parentElement!;while(getComputedStyle(parent).display==='contents')parent=parent.parentElement!;
+    return {context:box(parent),identity:box(node),children:[...node.children].map(box),title:box(title),pill:box(pill),fullTitle:title.getAttribute('title'),text:title.textContent,metadata:meta.getAttribute('title'),metaText:meta.textContent,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),status:pill.textContent};
    });
    expect(fit.contrast).toBeGreaterThanOrEqual(4.5);
    expect(fit.identity.left).toBeGreaterThanOrEqual(fit.context.left);
@@ -633,3 +635,26 @@ browserTest('real 30-second idle workspace stays within five reads with zero and
   await page.close();
  }));}finally{await browser.close();}
 },45000);
+
+
+browserTest('workspace unavailable Changes never claims a successful empty file count', async () => {
+ const result = await Bun.build({entrypoints:['test/fixtures/workspace-browser.tsx'],target:'browser',format:'esm',tsconfig:'app/tsconfig.json',plugins:[countedTerminal]});
+ expect(result.success).toBe(true);
+ const css = (await buildApp()).find(f=>f.path==='app.css')!.text;
+ const browser = await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try {
+  const page = await browser.newPage({viewport:{width:1440,height:900}});
+  page.setDefaultTimeout(3000);
+  await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><div id="app"></div>'}));
+  await page.goto('http://pacer.test/?mode=unavailablechanges#/workspace?task=workspace-task&panel=changes');
+  await page.addStyleTag({content:css});
+  await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
+  const panel = page.getByRole('complementary',{name:'Task',exact:true});
+  await panel.getByRole('tab',{name:'Changes',exact:true}).click();
+  await panel.getByText('Changes unavailable. The worktree could not be read.',{exact:true}).waitFor();
+  expect(await panel.getByRole('tab',{name:'Changes',exact:true}).getAttribute('aria-selected')).toBe('true');
+  expect(await panel.innerText()).not.toMatch(/0 files|No changed files recorded|No changes so far/);
+  await panel.getByRole('tab',{name:'Overview',exact:true}).click();
+  expect(await panel.innerText()).not.toMatch(/0 files|\+0|−0/);
+ } finally {await browser.close();}
+},15000);

@@ -105,42 +105,39 @@ export function agentHook(dir: string, input: unknown): void {
   if (typeof event === "string") appendFileSync(join(dir, "events.jsonl"), JSON.stringify({event, status: readReport(dir)?.status, at: Date.now() / 1000}) + "\n", {mode: 0o600});
 }
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
-/**
- * Claude settings for this launch: `attended` (the user drives the session) keeps Claude's native project MCP
- * prompt; an unattended task approves project MCP servers except the ones the user rejected (`mcp`).
- * `sessionHooks: false` leaves out pacer's PTY session hooks, for a terminal another host supervises (Orca).
- */
+/** Launch settings stay local to the run and preserve attended MCP choices. */
 export type InteractiveOptions = {attended?: boolean; mcp?: McpChoices; sessionHooks?: boolean};
-export function prepareInteractive(agent: string, dir: string, launch: Launch, options: InteractiveOptions = {}): Launch {
-  if (!["claude-code", "codex"].includes(agent)) return launch;
-  if (options.sessionHooks === false && agent === "codex") return launch;
-  mkdirSync(dir, {recursive: true, mode: 0o700});
-  if (options.sessionHooks === false) return withClaudeSettings(dir, launch, options, undefined);
-  const cli = /(^|\/)bun(?:\.exe)?$/.test(process.execPath) ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : [process.execPath];
-  const script = join(dir, "report-hook.sh");
-  writeFileSync(script, `#!/bin/sh\nexec ${[...cli, "_session-hook", dir].map(quote).join(" ")}\n`, {mode: 0o700});
-  const command = `/bin/sh ${quote(script)}`;
-  const hooks: Record<string, {matcher?: string; hooks: {type: string; command: string}[]}[]> = Object.fromEntries(["PermissionRequest", "Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"].map(event => [event, [{hooks: [{type: "command", command}]}]]));
-  if (agent === "codex") {
-    const overrides = Object.entries(hooks).flatMap(([event]) => ["-c", `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)}}]}]`]);
-    return {...launch, argv: [launch.argv[0], "--dangerously-bypass-hook-trust", ...overrides, ...launch.argv.slice(1)]};
+export function planInteractive(agent: string, dir: string, launch: Launch, options: InteractiveOptions = {}): {
+  launch: Launch; files: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[]
+} {
+  if (!["claude-code", "codex"].includes(agent) || (options.sessionHooks === false && agent === "codex")) return {launch, files: []};
+  const files: { name: "report-hook.sh" | "claude-settings.json"; content: string; mode: number }[] = [];
+  let hooks: Record<string, unknown> | undefined;
+  if (options.sessionHooks !== false) {
+    const cli = /(^|\/)bun(?:\.exe)?$/.test(process.execPath) ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url))] : [process.execPath];
+    const script = join(dir, "report-hook.sh");
+    files.push({name: "report-hook.sh", content: `#!/bin/sh\nexec ${[...cli, "_session-hook", dir].map(quote).join(" ")}\n`, mode: 0o700});
+    const command = `/bin/sh ${quote(script)}`;
+    hooks = Object.fromEntries(["PermissionRequest", "Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"].map(event => [event, [{hooks: [{type: "command", command}]}]]));
+    if (agent === "codex") {
+      const overrides = Object.keys(hooks).flatMap(event => ["-c", `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)}}]}]`]);
+      return {launch: {...launch, argv: [launch.argv[0], "--dangerously-bypass-hook-trust", ...overrides, ...launch.argv.slice(1)]}, files};
+    }
+    hooks.Elicitation = [{hooks: [{type: "command", command}]}];
+    hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];
+    hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
   }
-  hooks.Elicitation = [{hooks: [{type: "command", command}]}];
-  hooks.ElicitationResult = [{hooks: [{type: "command", command}]}];
-  hooks.Notification = [{matcher: "permission_prompt|idle_prompt|elicitation_dialog", hooks: [{type: "command", command}]}];
-  return withClaudeSettings(dir, launch, options, hooks);
-}
-function withClaudeSettings(dir: string, launch: Launch, options: InteractiveOptions, hooks: Record<string, unknown> | undefined): Launch {
-  const settings = join(dir, "claude-settings.json");
-  // Per launch, so the account's settings.json stays untouched: no bypass-permissions acknowledgement dialog and, for
-  // unattended task-worktree runs given the source checkout's answers, no project MCP approval prompt. The answers
-  // travel along because its untracked settings.local.json is not in a task worktree; Claude rejects
-  // disabledMcpjsonServers before enabling all. Without them (in-place runs, unreadable answers) Claude keeps its prompt.
   const mcp = options.attended || !options.mcp ? {} : {enableAllProjectMcpServers: true,
-    ...(options.mcp?.disabled.length ? {disabledMcpjsonServers: options.mcp.disabled} : {}),
-    ...(options.mcp?.enabled.length ? {enabledMcpjsonServers: options.mcp.enabled} : {})};
-  writeFileSync(settings, JSON.stringify({skipDangerousModePermissionPrompt: true, ...mcp, ...(hooks ? {hooks} : {})}), {mode: 0o600});
-  return {...launch, argv: [launch.argv[0], "--settings", settings, ...launch.argv.slice(1)]};
+    ...(options.mcp.disabled.length ? {disabledMcpjsonServers: options.mcp.disabled} : {}),
+    ...(options.mcp.enabled.length ? {enabledMcpjsonServers: options.mcp.enabled} : {})};
+  files.push({name: "claude-settings.json", content: JSON.stringify({skipDangerousModePermissionPrompt: true, ...mcp, ...(hooks ? {hooks} : {})}), mode: 0o600});
+  return {launch: {...launch, argv: [launch.argv[0], "--settings", join(dir, "claude-settings.json"), ...launch.argv.slice(1)]}, files};
+}
+export function prepareInteractive(agent: string, dir: string, launch: Launch, options: InteractiveOptions = {}): Launch {
+  const planned = planInteractive(agent, dir, launch, options);
+  if (planned.files.length) mkdirSync(dir, {recursive: true, mode: 0o700});
+  for (const file of planned.files) writeFileSync(join(dir, file.name), file.content, {mode: file.mode});
+  return planned.launch;
 }
 /** Resolve a canonical runs/<task-id>/<positive attempt> without escaped layout components. */
 function reportRun(path: string): {dir: string; home: string; id: string; attempt: string} {

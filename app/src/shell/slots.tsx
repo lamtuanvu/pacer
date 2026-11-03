@@ -1,3 +1,4 @@
+import { useViewActive, WorkspaceScope } from '../workspace/state';
 import { createContext, type ComponentChildren } from "preact";
 import { createPortal } from "preact/compat";
 import { useContext, useEffect, useRef } from "preact/hooks";
@@ -27,25 +28,26 @@ export const useFrame = () => useContext(FrameContext);
 
 /** Renders children into a frame region. Outside the frame, or while the region is closed, nothing renders. */
 export function FrameSlot({ name, children }: { name: "title" | "actions" | "left" | "right"; children: ComponentChildren }) {
-  const target = useFrame()?.[name];
+  const target = useFrame()?.[name], active = useViewActive(), scope = useContext(WorkspaceScope);
   const group = useRef<HTMLSpanElement>(null), within = useRef(false);
   useEffect(() => {
-    if (name === "actions" && within.current && document.activeElement === document.body) {
+    if (active && name === "actions" && within.current && document.activeElement === document.body) {
       const bar = target?.closest(".pc-topbar");
       (bar?.querySelector<HTMLElement>(".pc-layout-toggles button") ?? bar?.querySelector<HTMLElement>("button"))?.focus();
       within.current = false;
     }
   });
-  return target ? createPortal(name === "actions" ? <span ref={group} className="pc-frame-actions"
+  return target ? createPortal(<div className="pc-view-slot" data-workspace-root={scope ?? undefined} hidden={!active} inert={!active ? true : undefined}>{name === "actions" ? <span ref={group} className="pc-frame-actions"
     onFocusIn={() => { within.current = true; }}
-    onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>{children}</span> : <>{children}</>, target) : null;
+    onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>{children}</span> : <>{children}</>}</div>, target) : null;
 }
 
 /** The top bar shows the screen's own title (and agent) instead of the route name while the screen is mounted. */
 export function useFrameHeading(value: FrameHeading | null) {
-  const frame = useFrame();
+  const frame = useFrame(), active = useViewActive();
   useEffect(() => {
+    if (!active) return;
     frame?.heading(value);
     return () => frame?.heading(null);
-  }, [frame?.heading, value?.title, value?.agent]);
+  }, [frame?.heading, value?.title, value?.agent, active]);
 }

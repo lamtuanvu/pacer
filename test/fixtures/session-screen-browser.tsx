@@ -41,7 +41,10 @@ const api = { async call(op: string, params: unknown) {
   calls.push({ op, params });
   if (op === "task.get") { await new Promise(resolve => setTimeout(resolve, 150)); return { ...task(), id: (params as { id: string }).id }; }
   if (op === "task.session") return session;
-  if (op === "task.diff") return diff;
+  if (op === "task.diff") {
+    if ((window as any).DIFF_ERROR) throw new Error((window as any).DIFF_ERROR);
+    return diff;
+  }
   // window.DELIVERY sets msg.send's delivery; like the service, only a delivered answer reads the question.
   if (op === "msg.send") { const delivery = (window as any).DELIVERY ?? "turn_started"; if (delivery !== "held") question = undefined; return { delivery }; }
   if (op === "msg.read") { question = undefined; return { read: 1 }; }

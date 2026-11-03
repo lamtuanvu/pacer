@@ -1,0 +1,48 @@
+{
+  "hello.MDOWN:1:2": {
+    "error": {
+      "message": "expect(received).toBe(expected)\n\nExpected: true\nReceived: false\n"
+    }
+  },
+  "page.HTM": {
+    "error": {
+      "message": "expect(received).toBe(expected)\n\nExpected: true\nReceived: false\n"
+    }
+  },
+  "binary": {
+    "error": {
+      "code": "invalid_input",
+      "message": "Binary files cannot be previewed"
+    }
+  },
+  "invalid": {
+    "error": {
+      "code": "invalid_input",
+      "message": "File is not UTF-8 text"
+    }
+  },
+  "large": {
+    "error": {
+      "code": "too_large",
+      "message": "File is too large to preview"
+    }
+  },
+  "gone": {
+    "error": {
+      "code": "not_found",
+      "message": "File no longer exists in this session workspace"
+    }
+  },
+  "../secret": {
+    "error": {
+      "code": "not_allowed",
+      "message": "File is outside the session workspace"
+    }
+  },
+  "private/tasks/$TASK.json": {
+    "error": {
+      "code": "not_allowed",
+      "message": "Private Pacer state cannot be previewed"
+    }
+  }
+}

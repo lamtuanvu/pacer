@@ -6,11 +6,11 @@ import { join, resolve } from "node:path";
 function select(paths: string[]) {
   const run = Bun.spawnSync(["python3", "scripts/ci/changes.py", "--paths-json", JSON.stringify(paths)]);
   expect(run.exitCode).toBe(0);
-  return JSON.parse(run.stdout.toString()) as Record<string, boolean>;
+  return JSON.parse(run.stdout.toString()) as Record<string, boolean> & { focused_tests: string[] };
 }
 
 test("docs and portable skills avoid compiler/browser jobs", () => {
-  expect(select(["AGENTS.md", ".project/rules/ui.md", ".agents/skills/project-review/SKILL.md", "docs/accounts.md"]))
+  expect(select([".project/rules/ui.md", ".agents/skills/project-review/SKILL.md", "docs/accounts.md"]))
     .toMatchObject({ bun: false, rust: false, e2e: false, ui: false, codeql: false });
 });
 
@@ -30,8 +30,48 @@ test("core integration changes run both languages and e2e", () => {
 });
 
 test("shared inputs, CI and unknown paths select full validation", () => {
-  for (const path of ["bun.lock", "package.json", ".github/workflows/ci.yml", "scripts/ci/changes.py", "new-runtime/file.xyz"]) {
+  for (const path of ["bun.lock", "package.json", "new-runtime/file.xyz"]) {
     expect(select([path])).toMatchObject({ bun: true, rust: true, e2e: true, ui: true, codeql: true });
+  }
+});
+
+
+test("mapped workflow changes use focused tests; mixed and unknown changes fail closed", () => {
+  expect(select([".github/workflows/ci.yml"])).toMatchObject({ bun: true, rust: false, e2e: false, full: false });
+  expect(select([".github/workflows/ci.yml", "new-runtime/file.xyz"])).toMatchObject({ full: true, rust: true, e2e: true });
+  expect(select([".github/workflows/new.yml"])).toMatchObject({ full: true, rust: true });
+});
+
+test("audited source mapping includes direct and transitive tests and keeps integration checks", () => {
+  const path = "src/classify/metrics.ts";
+  expect(select([path])).toMatchObject({ bun: true, rust: true, e2e: true, codeql: true,
+    full: false, focused_tests: ["test/bench-metrics.test.ts", "test/bench.test.ts"] });
+  for (const other of ["src/classify/bench.ts", "src/classify/types.ts", "test/bench.test.ts",
+    "src/unknown.ts", "docs/protocol.md", "docs/testing/ci-selection.md", ".github/workflows/ci.yml"]) {
+    expect(select([path, other])).toMatchObject({ full: true });
+  }
+  expect(select(["src/classify/types.ts"])).toMatchObject({ full: true });
+});
+
+test("audited leaf mappings select every direct test and union multiple changes", () => {
+  const mappings: Record<string, string[]> = {
+    "src/console/cli.ts": ["test/autoconsole-worker.test.ts", "test/console-cli.test.ts"],
+    "src/console/console.ts": ["test/api-cmd.test.ts", "test/console-settings.test.ts"],
+    "src/usage/cache.ts": ["test/cache.test.ts", "test/plugins-usage-readers.test.ts"],
+  };
+  for (const [path, tests] of Object.entries(mappings)) {
+    expect(select([path])).toMatchObject({ full: false, bun: true, rust: true, e2e: true, codeql: true, focused_tests: tests });
+    expect(select([path, "src/usage/plugin-readers.ts"])).toMatchObject({ full: true });
+  }
+  expect(select(Object.keys(mappings)).focused_tests).toEqual(Object.values(mappings).flat().sort());
+});
+
+test("uncovered CI implementations and workflows select full validation", () => {
+  for (const path of ["scripts/ci/service-survival.ts", ".github/workflows/codeql.yml",
+    ".github/workflows/pr-title.yml", ".github/workflows/scorecard.yml", ".github/workflows/desktop.yml",
+    "AGENTS.md", "new-area/unknown.md"]) {
+    expect(select([path])).toMatchObject({ bun: true, rust: true, e2e: true, ui: true, codeql: true, full: true });
+    expect(select([".github/workflows/ci.yml", path])).toMatchObject({ full: true, rust: true, e2e: true });
   }
 });
 
@@ -55,7 +95,8 @@ test("gate rejects missing classification and missing/failed required evidence",
   for (const changes of ["failure", "cancelled", "skipped"]) expect(run(changes, "false", "skipped")).not.toBe(0);
   for (const evidence of ["failure", "cancelled", "skipped"]) expect(run("success", "true", evidence)).not.toBe(0);
   expect(run("success", "false", "skipped", "failure")).not.toBe(0);
-  for (const step of jobs.test.steps.slice(0, -1)) expect(step.if).toContain("needs.changes.outputs.bun == 'true'");
+  expect(jobs.test.env.RUN_CHECKS).toContain("needs.changes.outputs.bun == 'true'");
+  for (const step of jobs.test.steps.slice(0, -1)) expect(step.if).toContain("env.RUN_CHECKS == 'true'");
   expect(jobs.rust.if).toContain("outputs.rust");
   expect(jobs.e2e.if).toContain("outputs.e2e");
   expect(jobs["ui-evidence"].if).toContain("outputs.ui");
@@ -93,12 +134,46 @@ test("real git ranges cover renames, deletions, metadata refresh and missing-his
     const pr = { action: "edited", pull_request: { base: { sha: base }, head: { sha: head } } };
     // A body edit must not replace failed checks for this SHA with untested success.
     expect(invoke("pull_request", pr)).toMatchObject({ bun: "true", ui: "true", timings: "false" });
+    // A workflow-only diff gets the focused release and CI suite.
+    command("git", "checkout", "-qb", "workflow", base);
+    command("mkdir", "-p", ".github/workflows");
+    writeFileSync(join(directory, ".github/workflows/ci.yml"), "name: CI\n");
+    command("git", "add", ".github/workflows/ci.yml"); command("git", "commit", "-qm", "workflow");
+    const workflowHead = command("git", "rev-parse", "HEAD");
+    const focused = invoke("push", { before: base, after: workflowHead });
+    expect(focused).toMatchObject({ bun: "true", rust: "false", full: "false" });
+    expect(JSON.parse(focused.focused_tests)).toContain("test/release-workflow.test.ts");
+    command("git", "checkout", "-qb", "source", base);
+    command("mkdir", "-p", "src/classify");
+    writeFileSync(join(directory, "src/classify/metrics.ts"), "original");
+    command("git", "add", "src/classify/metrics.ts"); command("git", "commit", "-qm", "source base");
+    const sourceBase = command("git", "rev-parse", "HEAD");
+    writeFileSync(join(directory, "src/classify/metrics.ts"), "modified");
+    command("git", "commit", "-qam", "modify source");
+    const sourceHead = command("git", "rev-parse", "HEAD");
+    const sourcePr = (head: string) => invoke("pull_request", { pull_request: { base: { sha: sourceBase }, head: { sha: head } } });
+    expect(sourcePr(sourceHead)).toMatchObject({ full: "false", rust: "true", e2e: "true" });
+    expect(invoke("push", { before: sourceBase, after: sourceHead })).toMatchObject({ full: "true" });
+    command("git", "mv", "src/classify/metrics.ts", "src/classify/renamed.ts");
+    command("git", "commit", "-qam", "rename source");
+    expect(sourcePr(command("git", "rev-parse", "HEAD"))).toMatchObject({ full: "true" });
+    command("git", "checkout", "-q", "--detach", sourceHead);
+    command("git", "rm", "src/classify/metrics.ts"); command("git", "commit", "-qm", "delete source");
+    expect(sourcePr(command("git", "rev-parse", "HEAD"))).toMatchObject({ full: "true" });
+    command("git", "checkout", "-q", "--detach", sourceBase);
+    command("git", "rm", "src/classify/metrics.ts"); command("git", "commit", "-qm", "remove before addition");
+    const absentBase = command("git", "rev-parse", "HEAD");
+    command("mkdir", "-p", "src/classify");
+    writeFileSync(join(directory, "src/classify/metrics.ts"), "added");
+    command("git", "add", "src/classify/metrics.ts"); command("git", "commit", "-qm", "add mapped source");
+    expect(invoke("pull_request", { pull_request: { base: { sha: absentBase }, head: { sha: command("git", "rev-parse", "HEAD") } } })).toMatchObject({ full: "true" });
+    command("git", "checkout", "-q", head);
     command("git", "rm", "runtime.xyz"); command("git", "commit", "-qm", "delete");
     expect(invoke("push", { before: head, after: command("git", "rev-parse", "HEAD") })).toMatchObject({ rust: "true" });
     expect(invoke("push", { before: "0".repeat(40), after: head })).toMatchObject({ bun: "true", rust: "true", ui: "true" });
     expect(invoke("pull_request", { pull_request: { base: { sha: "a".repeat(40) }, head: { sha: head } } })).toMatchObject({ e2e: "true" });
-    expect(invoke("schedule", {})).toMatchObject({ codeql: "true" });
-    expect(invoke("workflow_dispatch", {})).toMatchObject({ codeql: "true" });
+    expect(invoke("schedule", {})).toMatchObject({ codeql: "true", full: "true" });
+    expect(invoke("workflow_dispatch", {})).toMatchObject({ codeql: "true", full: "true" });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -125,6 +200,14 @@ test("workflow selection retains full-history detection and full scheduled CodeQ
   expect(codeql.jobs.analyze.if).toContain("needs.changes.result != 'success'");
   const ci = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
   expect(ci.jobs.test["runs-on"]).toContain("|| 'ubuntu-latest'");
+  // PRs run only Linux logic tests; required Test names stay, macOS work moves to main/schedule/dispatch.
+  const prLinuxOnly = "github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'";
+  expect(ci.jobs.test.strategy.matrix.os).toEqual(["ubuntu-latest", "macos-latest"]);
+  expect(ci.jobs.test["runs-on"]).toContain(prLinuxOnly);
+  expect(ci.jobs.test.env.RUN_CHECKS).toContain(prLinuxOnly);
+  expect(ci.jobs.rust.strategy.matrix.os).toContain("github.event_name == 'pull_request' && '[\"ubuntu-latest\"]'");
+  expect(ci.jobs.rust.strategy.matrix.os).toContain("macos-latest");
+  for (const job of ["e2e", "linux-service-survival"]) expect(ci.jobs[job].if).toContain("github.event_name != 'pull_request'");
   for (const step of ci.jobs.rust.steps.filter((step: any) => /timings/i.test(step.name))) {
     expect(step.if).toContain("outputs.timings == 'true'");
   }

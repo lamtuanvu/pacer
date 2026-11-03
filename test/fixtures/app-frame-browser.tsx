@@ -3,7 +3,7 @@ import { ActionContext } from "../../app/src/data/action-context";
 import { createActionRunner } from "../../app/src/data/actions";
 import taskDetail from "./ui/task-get.json";
 import { Sessions } from "../../app/src/screens/session/controller";
-import { resetDesktopPageScroll } from "../../app/src/shell/page-scroll";
+import { resetDesktopPageScroll } from "./ui/page-scroll";
 import { render } from "preact";
 import { useLayoutEffect, useEffect, useState } from "preact/hooks";
 import fixture from "./ui/snapshot.json";

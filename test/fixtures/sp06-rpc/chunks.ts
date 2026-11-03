@@ -1,13 +1,13 @@
 import { createInterface } from "node:readline";
 let request: any, mode: string;
-const send = (m: any) =>
-  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\n");
+const encode = (m: any) => JSON.stringify({ jsonrpc: "2.0", ...m }) + "\n";
+const send = (m: any) => process.stdout.write(encode(m));
 createInterface({ input: process.stdin }).on("line", (line) => {
   const m = JSON.parse(line);
   if (m.method === "planner.install" || m.method === "planner.uninstall") {
     request = m;
     mode = m.params.mode;
-    send({
+    const first = encode({
       id: "chunk",
       method: "$/resultChunk",
       params: {
@@ -17,13 +17,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       },
       _meta: m._meta,
     });
-    if (mode === "overlap")
-      send({
-        id: "overlap",
-        method: "$/resultChunk",
-        params: { request: m.id, offset: 0, base64: "e30=" },
-        _meta: m._meta,
-      });
+    // One write delivers the overlap while the first chunk is still staging; separate
+    // writes can arrive after it finished and fail contiguity instead of conflict.
+    process.stdout.write(mode === "overlap" ? first + encode({
+      id: "overlap",
+      method: "$/resultChunk",
+      params: { request: m.id, offset: 0, base64: "e30=" },
+      _meta: m._meta,
+    }) : first);
   } else if (m.id === "chunk" && m.error)
     send({ id: request.id, error: m.error });
   else if (m.id === "chunk" && !m.error && mode !== "overlap")

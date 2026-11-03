@@ -1,3 +1,4 @@
+import { useWorkspaceKey, useWorkspaceState, useViewActive } from '../../workspace/state';
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { TaskDetail } from '../../../../src/core/task-detail';
@@ -20,12 +21,16 @@ import { SectionHeading } from "../../ds/SectionHeading";
 import { parseDiff } from "../../model/diff";
 import { changeConversation } from "../../model/conversation";
 import type { Action } from './types';
+import { LazyThread } from "./LazyThread";
+import { livenessNotice, type LivenessInput } from "../../model/thread";
 import { messageQuestion } from '../../model/task-answer';
 
 /** A task's session: the terminal in the page, its facts and End session in the title bar, Changes and Details in the right panel. */
 export function SessionRoute({id, result, work, tab}:{id:string; result?:ComponentChildren; work?:ComponentChildren; tab?:SessionPanelTab}) {
  const {state,api}=useTaskContext(),runner=useActions(),frame=useFrame();
- const [panelTab,setPanelTab]=useState<SessionPanelTab>(tab??'details');
+ const [panelTab,setPanelTab]=useWorkspaceState<SessionPanelTab>(useWorkspaceKey(id),'rightTab',tab??'details');
+ const visible=useViewActive();
+ useEffect(()=>{if(visible&&tab)setPanelTab(tab);},[visible,tab]);
  const dialogs=useDialogs();
  const [shortcutError,setShortcutError]=useState('');
  const [endBusy,setEndBusy]=useState(false);
@@ -45,13 +50,14 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
   finally{if(!abort.signal.aborted){setTakeoverBusy(false);setTakeoverStarting(false);takeoverAbort.current=undefined;}}
  };
  useEffect(()=>{
+  if(!visible)return;
   const pending=new URLSearchParams(location.hash.split('?')[1]).get('takeover');
   if(pending==='starting'||pending==='driving'){
    history.replaceState(null,'',location.href.replace(/([?&])takeover=(starting|driving)(&?)/,(_,before,_state,after)=>after?before:''));
    void takeOver(pending);
   }
   return ()=>{takeoverAbort.current?.abort();};
- },[id]);
+ },[id,visible]);
  const invoke=async(action:Action)=>{
   const confirmation=runner.needsConfirm(action);
   if(confirmation&&!await dialogs.confirm(confirmation,action.label,action.label))return;
@@ -75,7 +81,7 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
  retryOptions:task.data.retryOptions.map(option=>({id:option.id,agent:markAgent(option.id),label:option.id,available:option.state==='ready',reason:reasonCopy(option.reason),action:actions.find(a=>a.op==='task.retry'&&a.params.executor===option.id)??{label:active?'Stop and retry':'Retry',op:'task.retry',params:{id,executor:option.id,expect_rev:task.data!.rev},confirm:active?`Stop and retry on ${option.id}?`:undefined}})),
  changes:{data:diff.data?sessionChangeText(diff.data):undefined,loading:diff.loading,error:message(diff.error)}}:undefined;
  const handler=useRef(()=>{});handler.current=()=>{if(stop)void invoke(stop).catch(error=>setShortcutError(message(error)??'Action failed'));};
- useEffect(()=>stop?keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}):undefined,[!!stop]);
+ useEffect(()=>visible&&stop?keys.register({keys:'s',label:'Stop session',scope:'sessions',run:()=>handler.current()}):undefined,[!!stop,visible]);
  const openPanel=(tab:SessionPanelTab)=>{setPanelTab(tab);if(frame?.details&&!frame.details.open)frame.details.toggle();};
  const t=task.data,unsettled=!!t&&!active&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy;
  // One next step per state, in the panel that holds it; a closed panel must not hide it (UI-13, UI-14).
@@ -85,11 +91,12 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
   :t.reviewRequest||t.acceptance.state==='failed'||['partial','failed','limit'].includes(t.state)?{label:'Review result',tab:'details'}:undefined;
  const slots:SessionSlots|undefined=task.data&&{
   title:actions=>actions,
-  panel:(details,files,access)=><SessionPanel key={id} id={id} tab={panelTab} onTab={setPanelTab} work={work}
-   count={diff.data ? (diff.data.files ?? parseDiff(diff.data.patch)).length + diff.data.untracked.length : 0}
+  panel:(details,files,access)=><SessionPanel key={id} id={id} tab={panelTab} onTab={setPanelTab} work={work} unread={task.data?.messages?.unreadForHuman}
+   messages={<LazyThread id={id} closed={!!task.data?.review||!!task.data?.dismissed||task.data?.state==='stopped'} notice={livenessNotice(task.data as LivenessInput)}/>}
+   count={!diff.error && diff.data && !diff.data.note ? (diff.data.files ?? parseDiff(diff.data.patch)).length + diff.data.untracked.length : null}
    readFile={session.data?.attempt != null ? reference=>api.call('session.file.read',{id,attempt:session.data!.attempt!,reference}) : undefined}
-   changes={<><SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>{diff.error && <p role="alert">Could not load changes. The worktree may have been removed.</p>}{files}</>}
-   details={<div className="pc-session-details"><SessionWorkspace task={task.data!}/><SessionInsights task={task.data!} executor={state.snapshot?.accounts?.find(row=>row.executors.includes(task.data!.executor ?? ""))}/><SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>
+   changes={<>{diff.error ? <p role="alert">Could not load changes. The worktree may have been removed.</p> : <SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>}{files}</>}
+   details={<div className="pc-session-details"><SessionWorkspace task={task.data!}/><SessionInsights task={task.data!} executor={state.snapshot?.accounts?.find(row=>row.executors.includes(task.data!.executor ?? ""))}/>{diff.error ? <p role="alert">Could not load changes. The worktree may have been removed.</p> : <SessionFiles id={id} diff={diff.data} onOpen={session.data?.attempt != null}/>}
     <section><SectionHeading as="h3">Acceptance</SectionHeading>{task.data!.acceptance.cmd ? <><code className="pc-session-acceptance">{task.data!.acceptance.cmd}</code><p className="muted">{task.data!.acceptance.state === 'pending' ? 'Runs when the session ends' : task.data!.acceptance.state === 'none' ? 'No checks recorded' : task.data!.acceptance.state === 'passed' ? 'Checks passed' : task.data!.acceptance.state === 'failed' ? 'Checks failed' : 'Checks running'}</p></> : <p className="muted">No acceptance command.</p>}</section>
     {/* A running task's result slot holds only its question composer, so an answer link lands on it (UI-13). */}
     <div className="pc-session-detail-group">{result}{!active && details}</div>{access}</div>}/>,

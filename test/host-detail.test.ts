@@ -76,7 +76,8 @@ test("host state follows paused, down, checking, needs_setup, ready priority", a
     expect((await hosts.detail(ctx, "devbox")).state).toBe("ready");
     const job = await startJob(ctx, "host.check", "devbox", [], async () => { await new Promise<void>(r => { release = r; }); });
     expect((await hosts.detail(ctx, "devbox")).state).toBe("checking");
-    writeJsonAtomic(join(ctx.pacerHome, "cache/hosts.json"), { devbox: { target: createHash("sha256").update("dev-ssh").digest("hex"), at: ctx.now - 1, reachable: false, failures: 2 } });
+    const host = loadStrategy(ctx).hosts.devbox;
+    writeJsonAtomic(join(ctx.pacerHome, "cache/hosts.json"), { devbox: { target: createHash("sha256").update(JSON.stringify([host.alias, host.ssh])).digest("hex"), at: ctx.now - 1, reachable: false, failures: 2 } });
     expect(await hosts.detail(ctx, "devbox")).toMatchObject({ state: "down", reachableAt: ctx.now - 1 });
     await callOp(ctx, "host.set", { alias: "devbox", paused: true });
     expect((await hosts.detail(ctx, "devbox")).state).toBe("paused");
