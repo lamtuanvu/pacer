@@ -3,8 +3,16 @@ use crate::{AuthorityError, BrokerError, CapabilityEffect, ProviderSnapshot};
 use serde_json::{Value, json};
 use std::{collections::HashMap, future::Future};
 pub trait HostProvider {
-    /// Settle an open whose future was cancelled before a session was returned.
-    /// A provider must retain any external in-flight ownership until this settles.
+    /// Settle an admitted open that never transferred a valid session to the host.
+    /// This covers three cases: the open future was dropped, `invoke` returned an
+    /// error, or `invoke` returned a result the host rejected. Return `Ok` only when
+    /// the provider's own state proves no open effect is still outstanding: the open
+    /// was never dispatched, it failed definitely without creating a handle, or its
+    /// exact handle was closed. Never return `Ok` just because `invoke` returned an
+    /// error, a timeout elapsed, a future was dropped or a process disappeared. This
+    /// may be called again after an earlier settlement future was dropped. The
+    /// default refuses to certify cleanup. An `Err` is retained as the effect's
+    /// sticky cleanup failure and is not retried.
     fn retire_pending(&mut self) -> impl Future<Output = Result<(), BrokerError>> {
         async {
             Err(BrokerError::Effect(
@@ -53,7 +61,7 @@ impl<P: HostProvider> NativeHosts<P> {
                 )
                 .await;
             if let Err(error) = result {
-                self.cleanup_failure = Some(error.clone());
+                self.cleanup_failure.get_or_insert(error.clone());
                 return Err(error);
             }
             self.sessions.remove(handle);
@@ -73,32 +81,30 @@ impl<P: HostProvider> NativeHosts<P> {
     pub fn claim_fetch(&mut self) -> Result<crate::BundleTicket, BrokerError> {
         self.fetched.take().ok_or_else(denied)
     }
+    /// Retire everything this effect owns. Callers must invoke this (directly, or through
+    /// `CapabilityBroker::revoke_owned`) when the call ends and surface its error; an ordinary
+    /// failed operation does not retire. Returns the first retained cleanup cause, if any.
     pub async fn revoke(&mut self) -> Result<(), BrokerError> {
-        if let Some(error) = &self.cleanup_failure {
-            return Err(error.clone());
+        if let Some(ticket) = self.fetched.take()
+            && let Err(error) = ticket.dispose()
+        {
+            self.cleanup_failure.get_or_insert(error);
         }
-        let pending = if self.opening {
-            self.provider.retire_pending().await.err()
-        } else {
-            None
-        };
-        self.opening = false;
-        let mut failure = self
-            .fetched
-            .take()
-            .and_then(|ticket| ticket.dispose().err());
-        failure = failure.or(pending);
-        let handles = self.sessions.keys().cloned().collect::<Vec<_>>();
-        for handle in handles {
-            if let Err(error) = self.retire_session(&handle).await {
-                failure = Some(error);
+        if self.opening {
+            // Dropped here: `opening` stays set and a later revoke re-enters settlement.
+            let settled = self.provider.retire_pending().await;
+            self.opening = false;
+            if let Err(error) = settled {
+                self.cleanup_failure.get_or_insert(error);
             }
         }
-        if let Some(error) = failure {
-            self.cleanup_failure = Some(error.clone());
-            return Err(error);
+        let handles = self.sessions.keys().cloned().collect::<Vec<_>>();
+        for handle in handles {
+            // A returned close error does not stop the sweep. Cancellation retains the
+            // exact handle for a later revoke.
+            self.retire_session(&handle).await.ok();
         }
-        Ok(())
+        self.cleanup_failure.clone().map_or(Ok(()), Err)
     }
 }
 impl<P: HostProvider> CapabilityEffect for NativeHosts<P> {
@@ -131,21 +137,36 @@ impl<P: HostProvider> CapabilityEffect for NativeHosts<P> {
                 return Err(denied());
             }
             self.opening = true;
-            let result = self
+            // No await may sit between receiving a valid handle and storing it.
+            let opened = self
                 .provider
                 .invoke("hostRunner.open", json!({"alias":alias}))
-                .await?;
-            let provider_session = result["session"]
-                .as_str()
-                .filter(|s| {
-                    s.len() >= 16
-                        && s.len() <= 128
-                        && s.bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-                })
-                .ok_or_else(denied)?
-                .to_owned();
-            self.opening = false;
+                .await
+                .and_then(|result| {
+                    result["session"]
+                        .as_str()
+                        .filter(|s| {
+                            s.len() >= 16
+                                && s.len() <= 128
+                                && s.bytes()
+                                    .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+                        })
+                        .map(str::to_owned)
+                        .ok_or_else(denied)
+                });
+            let provider_session = match opened {
+                Ok(session) => session,
+                Err(error) => {
+                    // No valid handle reached host ownership; only the provider can settle it.
+                    // Dropped here: `opening` stays set for revoke's re-entry.
+                    let settled = self.provider.retire_pending().await;
+                    self.opening = false;
+                    if let Err(cleanup) = settled {
+                        self.cleanup_failure.get_or_insert(cleanup);
+                    }
+                    return Err(error);
+                }
+            };
             self.sessions.insert(
                 broker.into(),
                 Session {
@@ -153,6 +174,7 @@ impl<P: HostProvider> CapabilityEffect for NativeHosts<P> {
                     provider_session,
                 },
             );
+            self.opening = false;
             if self.provider.snapshot(alias).as_ref() != Some(&snapshot) {
                 self.retire_session(broker).await?;
                 return Err(denied());

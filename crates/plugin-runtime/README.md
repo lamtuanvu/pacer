@@ -81,9 +81,11 @@ Orca fixture verifies the 1,000-unit JS clip through settlement and reopening,
 then asks Bun to check its length and final UTF-16 code unit.
 
 Host-provider adapters retain pending external effects across future cancellation.
-`retire_pending` must settle those effects before retirement can succeed; its
-default returns cleanup uncertainty. A cancelled close retains its exact session
-so retirement can retry it. Cleanup failures remain sticky.
+`retire_pending` settles every admitted open that returned no valid session,
+whether cancelled, rejected or invalid; its default returns cleanup uncertainty.
+A failed open returns its original error. A cancelled close retains its exact
+session so retirement can retry it. Retirement is explicit and best effort over
+every owned session and ticket. The first cleanup failure is sticky.
 
 Issued Codex log roots permit only rollout JSONL descendants and metadata-only
 root stat. Reads walk pinned, no-follow ancestry and revalidate the original root
