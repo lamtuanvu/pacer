@@ -47,11 +47,22 @@ const lifecycleWatches=new Map<string,LifecycleWatch>();
  * replacement fails closed and no candidate watch survives a failed validation.
  * Like the store itself, this assumes the state directory is not adversarially
  * retargeted while in use; it is not a hostile-filesystem isolation boundary. */
+const SNAPSHOT_CONFLICT = 'Session reservations changed during acquisition; retry before changing workspaces';
+/** Reads are pure, so a write that lands mid-read is retried a few times; each attempt is verified afresh. */
 function withSessionSnapshot<T>(ctx: Ctx, read: (db: ReadOnlyStore, identity: string) => T): T {
+ for (let attempt = 1; ; attempt++) {
+  try {return sessionSnapshotOnce(ctx, read);}
+  catch (error) {
+   if (attempt < 4 && error instanceof CoreError && error.code === 'conflict' && error.message === SNAPSHOT_CONFLICT) continue;
+   throw error;
+  }
+ }
+}
+function sessionSnapshotOnce<T>(ctx: Ctx, read: (db: ReadOnlyStore, identity: string) => T): T {
  const path = join(ctx.pacerHome, 'state', 'tasks.db');
  let fd: number | undefined;
  let db: ReadOnlyStore | undefined;
- const conflict = () => new CoreError('conflict', 'Session reservations changed during acquisition; retry before changing workspaces');
+ const conflict = () => new CoreError('conflict', SNAPSHOT_CONFLICT);
  try {
   try {fd = openSync(path, 'r');}
   catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw conflict();}
