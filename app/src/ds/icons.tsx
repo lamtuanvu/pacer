@@ -94,6 +94,6 @@ export function Icon({ name }: { name: IconName }) {
     {paths[name] && <path d={paths[name]} />}
     {name === "executors" && <><rect x="4" y="4" width="16" height="6" rx="1" /><rect x="4" y="14" width="16" height="6" rx="1" /></>}
     {name === "hosts" && <><rect x="3" y="5" width="18" height="12" rx="2" /><path d="M8 21h8" /></>}
-    {name === "settings" && <circle cx="12" cy="12" r="3" />}
+    {name === "settings" && <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="7" /></>}
   </svg>;
 }
