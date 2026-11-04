@@ -24,6 +24,7 @@ beforeAll(async()=>{
   if(!path.startsWith('/ops/'))return new Response(`<meta charset="utf-8"><div id="root"></div><style>${styles}</style><script type="module">${script}</script>`,{headers:{'Content-Type':'text/html'}});
   const op=path.slice(5),params=await req.json();calls.push({op,params});
   if(op==='doctor.run'){
+   if(mode==='long')return Response.json({checkedAt:1,checks:Array.from({length:100},(_,i)=>({name:`CLI agent-${i}`,level:i<2?'fail':i<10?'warn':i===10?'info':'ok',evidence:i===10?'unverified':undefined,detail:i<10?'agent help is missing launch flags: --json':'Launch options supported'}))});
    reads++;
    if(mode==='recheck-error'&&reads>1)return Response.json({code:'internal',message:'Recheck unavailable'},{status:500});
    return Response.json(report(reads>1));
@@ -51,7 +52,7 @@ browserTest('repair previews before consent, cancels without writes, prevents du
   await page.getByRole('button',{name:'Run all checks',exact:true}).click();
   await page.getByRole('button',{name:/^Repair/}).click();
   await page.getByRole('region',{name:'Repair preview'}).waitFor();
-  expect(calls.map(c=>c.op)).toEqual(['doctor.run','agent.preview']);
+  expect(calls.filter(c=>c.op!=='plugin.list').map(c=>c.op)).toEqual(['doctor.run','agent.preview']);
   expect(await page.getByText('Changes saved',{exact:true}).count()).toBe(0);
   await page.getByRole('button',{name:'Cancel',exact:true}).click();
   expect(calls.some(c=>c.op==='agent.connect')).toBe(false);
@@ -67,7 +68,7 @@ browserTest('repair previews before consent, cancels without writes, prevents du
   expect(calls.filter(c=>c.op==='agent.connect')).toEqual([{op:'agent.connect',params:{agent:'codex',consent:true,preview_revision:'reviewed-account'}}]);
   expect(reads).toBe(2);
   expect(await page.getByRole('button',{name:/^Repair/}).count()).toBe(0);
-  expect(await page.locator('details[open]').count()).toBe(0);
+  expect(await page.locator('.pc-diagnostic-row details[open]').count()).toBe(0);
  }finally{release();await page.close();}
 },15000);
 
@@ -85,7 +86,7 @@ for(const failure of ['preview-error','connect-error','recheck-error'])browserTe
   expect(reads).toBe(failure==='recheck-error'?2:1);
   mode='success';
   await page.getByRole('button',{name:'Run all checks',exact:true}).click();
-  await page.locator('.pc-diagnostic-list').first().waitFor();
+  await page.getByText('Showing', {exact:false}).waitFor();
  }finally{await page.close();}
 },15000);
 
@@ -110,7 +111,7 @@ browserTest('board rows retain keyboard disclosures, clipboard backing and respo
   await summary.focus();await page.keyboard.press('Enter');
   expect(await page.locator('.pc-diagnostic-row details').first().getAttribute('open')).not.toBeNull();
   expect(await page.locator('summary button,summary a').count()).toBe(0);
-  expect(await page.locator('.pc-page').evaluate(node=>{const style=getComputedStyle(node);return {width:style.width,padding:style.padding};})).toEqual({width:'1440px',padding:'24px 32px 40px'});
+  expect(await page.locator('.pc-page').evaluate(node=>getComputedStyle(node).padding)).toBe('24px 32px 40px');
   expect(await page.locator('#diagnostics h1').evaluate(node=>{const style=getComputedStyle(node);return {size:style.fontSize,line:style.lineHeight,weight:style.fontWeight};})).toEqual({size:'28px',line:'34px',weight:'650'});
   const geometry=await page.locator('.pc-diagnostic-totals').evaluate(node=>{
    const totals=getComputedStyle(node),glyph=getComputedStyle(node.querySelector('.pc-diagnostic-glyph')!);
@@ -122,4 +123,43 @@ browserTest('board rows retain keyboard disclosures, clipboard backing and respo
   const titleBox=await page.locator('#diagnostics h1').boundingBox(),runBox=await page.getByRole('button',{name:'Run all checks',exact:true}).boundingBox();
   expect(runBox!.y).toBeGreaterThan(titleBox!.y+titleBox!.height);
  }finally{await page.close();}
+},15000);
+
+
+browserTest('long results scroll inside the workbench and filters, search and categories remain usable', async () => {
+ calls=[]; reads=0; mode='long';
+ const page=await browser.newPage({viewport:{width:1440,height:900}});
+ try {
+  await page.goto(String(server.url));
+  await page.getByRole('button',{name:'Run all checks',exact:true}).click();
+  await page.getByText('Showing 10 of 100 checks needing attention.',{exact:true}).waitFor();
+  expect(await page.locator('.pc-diagnostic-row').count()).toBe(10);
+  expect(await page.locator('.pc-diagnostic-row__next').first().isVisible()).toBe(true);
+  expect(await page.locator('.pc-diagnostic-row pre').first().isVisible()).toBe(false);
+  await page.getByRole('button',{name:'All',exact:true}).click();
+  expect(await page.locator('.pc-diagnostic-row').count()).toBe(100);
+  const work=page.locator('.pc-work');
+  const panelY=(await page.locator('.pc-settings-nav').boundingBox())!.y;
+  await work.hover(); await page.mouse.wheel(0,2400);
+  await page.waitForFunction(()=>document.querySelector('.pc-work')!.scrollTop>0);
+  expect((await page.locator('.pc-settings-nav').boundingBox())!.y).toBe(panelY);
+  await work.evaluate(node=>node.scrollTop=node.scrollHeight);
+  expect(await page.getByText('Compatibility · agent-99',{exact:true}).isVisible()).toBe(true);
+  await work.evaluate(node=>node.scrollTop=0);
+  await page.getByRole('searchbox',{name:'Search checks'}).fill('agent-99');
+  expect(await page.locator('.pc-diagnostic-row').count()).toBe(1);
+  await page.getByRole('button',{name:'Failed',exact:true}).click();
+  await page.getByText('No checks match this search and status.',{exact:false}).waitFor();
+  await page.getByRole('searchbox',{name:'Search checks'}).fill('');
+  expect(await page.locator('.pc-diagnostic-row').count()).toBe(2);
+  const group=page.locator('.pc-diagnostic-group > details > summary').first();
+  await group.focus(); await page.keyboard.press('Enter');
+  expect(await page.locator('.pc-diagnostic-row').first().isVisible()).toBe(false);
+  await page.keyboard.press('Enter');
+  expect(await page.locator('.pc-diagnostic-row').first().isVisible()).toBe(true);
+  await page.getByRole('button',{name:'Not checked',exact:true}).click();
+  expect(await page.locator('.pc-diagnostic-row').count()).toBe(1);
+  await page.setViewportSize({width:375,height:900});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ } finally { await page.close(); }
 },15000);

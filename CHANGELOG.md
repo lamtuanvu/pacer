@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Make Diagnostics attention-first with status filters, search and collapsible categories. Keep specific causes and recovery steps visible, preserve original technical evidence, and remove empty progress spacing and unmeasured timing placeholders.
+
 - Identify workspace session tabs by task title and additional agent tabs by owning task, executor and session ordinal; refresh existing tab labels when task data arrives.
 
 - Keep delegated tasks interactive by default without implicit headless fallbacks; preserve answerable terminals and timeout accounting across input waits and supervisor reattachment. Built-in PTYs accept live sends and answers, and Orca retains unanswered workers.
