@@ -35,7 +35,7 @@ pub use spawn_spec::{SpawnCapture, SpawnMode};
 use std::future::Future;
 use thiserror::Error;
 pub use transfers::{TransferError, TransferKind, Transfers};
-pub use work_lease::WorkLease;
+pub use work_lease::{Blocker, BlockerKind, WorkLease, begin_blocker};
 #[derive(Clone, Debug, Error)]
 pub enum BrokerError {
     #[error("Policy hash key cannot be accessed safely")]

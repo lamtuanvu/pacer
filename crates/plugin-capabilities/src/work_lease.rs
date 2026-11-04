@@ -10,6 +10,36 @@ use std::{
     sync::OnceLock,
     time::Duration,
 };
+
+/// Blocker kind matching the TS admission schema exactly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockerKind {
+    Task,
+    Session,
+    Launch,
+    Operation,
+}
+
+impl BlockerKind {
+    /// Returns the exact string representation matching TS enum values.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BlockerKind::Task => "task",
+            BlockerKind::Session => "session",
+            BlockerKind::Launch => "launch",
+            BlockerKind::Operation => "operation",
+        }
+    }
+}
+
+/// Blocker input for admission, matching TS {kind, id, label} shape.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Blocker {
+    pub kind: BlockerKind,
+    pub id: String,
+    pub label: String,
+}
+
 pub struct WorkLease {
     home: PathBuf,
     id: String,
@@ -127,30 +157,7 @@ impl WorkLease {
             Ok(())
         })
     }
-    pub fn begin(home: &Path, id: &str, label: &str) -> Result<Self, BrokerError> {
-        if id.is_empty() {
-            return Err(BrokerError::Invalid("desktop work blocker"));
-        }
-        static OWNER: OnceLock<String> = OnceLock::new();
-        let owner = OWNER
-            .get_or_init(|| uuid::Uuid::new_v4().to_string())
-            .clone();
-        let lease = uuid::Uuid::new_v4().to_string();
-        mutate(home, |s| {
-            if !s["reservation"].is_null() {
-                return Err(BrokerError::Effect(
-                    "Desktop update maintenance is reserved".into(),
-                ));
-            }
-            s["leases"].as_array_mut().ok_or_else(denied)?.push(json!({"id":lease,"blocker":{"kind":"session","id":id,"label":label},"owner":owner,"process":null,"state":"pending"}));
-            Ok(())
-        })?;
-        Ok(Self {
-            home: home.into(),
-            id: lease,
-            owner,
-        })
-    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -220,6 +227,65 @@ impl WorkLease {
             Ok(valid)
         })
     }
+
+    pub fn begin(home: &Path, id: &str, label: &str) -> Result<Self, BrokerError> {
+        begin_blocker(
+            home,
+            Blocker {
+                kind: BlockerKind::Session,
+                id: id.into(),
+                label: label.into(),
+            },
+        )
+    }
+}
+
+/// Begins a new desktop work lease with an explicit blocker.
+/// This is the core admission entry point; `begin` delegates to this with `BlockerKind::Session`.
+pub fn begin_blocker(home: &Path, blocker: Blocker) -> Result<WorkLease, BrokerError> {
+    if blocker.id.is_empty() {
+        return Err(BrokerError::Invalid("desktop work blocker"));
+    }
+    static OWNER: OnceLock<String> = OnceLock::new();
+    let owner = OWNER
+        .get_or_init(|| uuid::Uuid::new_v4().to_string())
+        .clone();
+    let lease = uuid::Uuid::new_v4().to_string();
+    mutate(home, |s| {
+        if !s["reservation"].is_null() {
+            return Err(BrokerError::Effect(
+                "Desktop update maintenance is reserved".into(),
+            ));
+        }
+        s["leases"].as_array_mut().ok_or_else(denied)?.push(json!({
+            "id": lease,
+            "blocker": {
+                "kind": blocker.kind.as_str(),
+                "id": blocker.id,
+                "label": blocker.label,
+            },
+            "owner": owner,
+            "process": null,
+            "state": "pending",
+        }));
+        Ok(())
+    })?;
+    Ok(WorkLease {
+        home: home.into(),
+        id: lease,
+        owner,
+    })
+}
+
+pub fn begin(home: &Path, id: &str, label: &str) -> Result<WorkLease, BrokerError> {
+    begin_blocker(
+        home,
+        Blocker {
+            kind: BlockerKind::Session,
+            id: id.into(),
+            label: label.into(),
+        },
+    )
 }
 
 fn closure_proof(close: Option<&Value>, terminal: &Value) -> bool {
