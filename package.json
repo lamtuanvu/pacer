@@ -22,7 +22,7 @@
   },
   "scripts": {
     "test": "TZ=Asia/Ho_Chi_Minh bun test --timeout 30000",
-    "test:sharded": "TZ=Asia/Ho_Chi_Minh python3 scripts/ci/shard-tests.py | python3 -c \"import sys, json; print(' '.join(json.load(sys.stdin)))\" | xargs bun test --timeout 30000 --jobs=4",
+    "test:sharded": "python3 scripts/ci/shard-tests.py | python3 -c \"import sys, json; print(' '.join(json.load(sys.stdin)))\" | TZ=Asia/Ho_Chi_Minh xargs bun test --timeout 30000 --jobs=4",
     "live": "bun scripts/live/cli.ts",
     "ui:check": "bun scripts/ui-check.ts",
     "ui:ready": "bun scripts/ui-ready.ts",
