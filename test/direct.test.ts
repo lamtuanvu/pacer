@@ -245,7 +245,8 @@ test("a fake claude launched by pacer sees none of the planner's session variabl
   expect(names).toContain("PACER_TASK_ID");
 });
 
-test.skipIf(!canInspectProcesses)("a fake interactive run that asked a question and ended its turn is stopped, not left idle", async () => {
+// #643: an interactive run keeps its answerable terminal across an input wait.
+test.skipIf(!canInspectProcesses)("a fake interactive run that asked a question and ended its turn stays up for the answer", async () => {
   const { resumeAttempt } = await import("../src/exec/direct");
   const { startRun } = await import("../src/supervisor/run");
   const { ctx, task } = await setup("codex", "exit 0");
@@ -256,11 +257,14 @@ test.skipIf(!canInspectProcesses)("a fake interactive run that asked a question 
   writeFileSync(join(dir, "report.json"), JSON.stringify({ status: "turn-ended", summary: "Agent finished its turn", source: "agent", at: startedAt + 1 }));
   const run = { dir, attempt: 1, executor: "codex", startedAt, mode: "current" as const, workdir: task.brief.repo, logFile: join(dir, "log") };
   updateTask(ctx, task.id, t => { t.state = "running"; t.run = run; t.attemptStartedAt = startedAt; t.question = { text: "Which table?", at: startedAt + 0.5 }; });
-  const t0 = Date.now();
-  const out = await resumeAttempt(ctx, s.providers.codex, readTask(ctx, task.id)!);
-  expect(Date.now() - t0).toBeLessThan(15_000);
-  expect(out.exec.timedOut).toBe(false);
-  expect(out.report).toContain("Which table?");
+  const attempt = resumeAttempt(ctx, s.providers.codex, readTask(ctx, task.id)!);
+  const settled = await Promise.race([attempt.then(() => "settled"), Bun.sleep(3000).then(() => "supervising")]);
   const { readRun } = await import("../src/supervisor/run");
+  expect(settled).toBe("supervising");
+  expect(readRun(dir).alive).toBe(true);
+  // Ending the agent settles the attempt; nothing waited out a timeout.
+  process.kill((started as { pid: number }).pid, "SIGTERM");
+  const out = await attempt;
+  expect(out.exec.timedOut).toBe(false);
   expect(readRun(dir).alive).toBe(false);
 }, 30_000);

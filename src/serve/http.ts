@@ -332,7 +332,9 @@ export function startServer(
   const supervisorTimer = setInterval(supervise, 5000);
   let worker: Worker | undefined;
   const startSupervisionWorker = () => {
-    if (worker || stopped) return;
+    // The worker builds its own context and spawns real runners; an injected runner
+    // (tests, embedding) is honoured only by the in-process supervisor above.
+    if (worker || stopped || opts.opDeps?.spawnRunner) return;
     try {
       // A compiled binary gives every module the bundle root's import.meta.url
       // (/$bunfs/root/...), where the worker entrypoint sits at ./tasks/.

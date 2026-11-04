@@ -82,7 +82,8 @@ export function compileCommand(o: CompileOptions): string[] {
     ...(isHost ? [`--compile-executable-path=${bun}`] : []),
     join(o.root, "src", "cli.ts"),
     // Worker scripts must be compile entrypoints, or `new Worker(url)` fails in the binary.
-    ...COMPILED_WORKERS.map(path => join(o.root, ...path.split("/"))),
+    // Minimal source roots (tests, archives) may not contain them; the repo is guarded by test.
+    ...COMPILED_WORKERS.map(path => join(o.root, ...path.split("/"))).filter(path => existsSync(path)),
     "--outfile", o.outfile,
   ];
 }

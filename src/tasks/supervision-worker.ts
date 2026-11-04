@@ -19,6 +19,13 @@ async function runSupervisionLoop(): Promise<void> {
   if (!ctx || !spawnRunner) return;
 
   while (!stopped) {
+    // 10s + jitter(0-2000ms). Sleep first: like the service's own supervisor, never
+    // sweep while the service is still starting and serving its first snapshots.
+    const baseMs = 10_000;
+    const jitter = Math.floor(Math.random() * 2000);
+    await Bun.sleep(baseMs + jitter);
+    if (stopped) break;
+
     try {
       await superviseTasks(ctx, spawnRunner, stoppedFn);
     } catch (error) {
@@ -26,13 +33,6 @@ async function runSupervisionLoop(): Promise<void> {
         console.error(`pacer: worker supervision failed: ${String(error)}`);
       }
     }
-
-    if (stopped) break;
-
-    // 10s + jitter(0-2000ms)
-    const baseMs = 10_000;
-    const jitter = Math.floor(Math.random() * 2000);
-    await Bun.sleep(baseMs + jitter);
   }
 }
 
