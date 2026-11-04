@@ -2436,7 +2436,7 @@ mod tests {
         std::fs::create_dir_all(&local).unwrap();
         std::fs::create_dir(&brew).unwrap();
         let mut gui = b"gui ".to_vec();
-        gui.extend_from_slice(pacer_desktop::packaging::DESKTOP_EXECUTABLE_MARKER);
+        gui.extend_from_slice(&pacer_desktop::packaging::DESKTOP_EXECUTABLE_MARKER);
         std::fs::write(local.join("pacer"), gui).unwrap();
         std::fs::write(brew.join("pacer"), "cli").unwrap();
         for path in [local.join("pacer"), brew.join("pacer")] {

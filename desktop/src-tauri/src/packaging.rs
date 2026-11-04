@@ -162,7 +162,7 @@ mod tests {
         assert!(!is_desktop_executable(&f.0.join("missing")));
         let split = (1 << 20) - DESKTOP_EXECUTABLE_MARKER.len() / 2;
         let mut bytes = vec![b'x'; split];
-        bytes.extend_from_slice(DESKTOP_EXECUTABLE_MARKER);
+        bytes.extend_from_slice(&DESKTOP_EXECUTABLE_MARKER);
         bytes.extend(vec![b'y'; 1 << 20]);
         let desktop = f.0.join("desktop");
         std::fs::write(&desktop, bytes).unwrap();
