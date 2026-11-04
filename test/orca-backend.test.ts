@@ -1000,7 +1000,7 @@ test("Orca agent receives the task's pacer home and port", async () => {
   expect(command).toContain(`PACER_TRANSCRIPT_REPORT=${x.ctx.pacerHome}/runs/${x.task.id}/1-orca/transcript-report.md`);
 });
 
-test("a second question and answer reattach to the same worker again, and pacer send reaches it after an answer", async () => {
+test("a second question and answer reattach to the same worker again; pacer send waits for the answer", async () => {
   const x = setup([
     [O("orchestration", "worker-show"), envelope({worker: {state: "running"}})], agentInForeground,
     [O("orchestration", "check"), [envelope({messages: [{id: "q1", type: "question", from_handle: terminal, subject: "q", body: "Should I also update the README?", payload: JSON.stringify({dispatchId: "ctx_live"})}], deliveryId: "d1"}), envelope({messages: [{id: "m1", type: "worker_done", subject: "done", body: "ok", payload: JSON.stringify({dispatchId: "ctx_live", outcome: "succeeded"})}], deliveryId: "d2"})]],
@@ -1015,10 +1015,10 @@ test("a second question and answer reattach to the same worker again, and pacer 
   expect(readTask(x.ctx, second.id)?.live).toMatchObject({worker: "ctx_live", terminal});
   expect(loadOrcaState(x.ctx).workers.ctx_live?.taskId).toBe(second.id);
   expect(closes(x.f.calls)).toHaveLength(0);
-  // pacer send finds the worker under the attempt that now owns it while that attempt runs.
+  // #643: a lane waiting on its question is answered, not sent to; the answer reaches the same worker below.
   const {send} = await import("../src/session/send");
-  await send(x.ctx, second.id, "also keep the old flag", {by: "planner"});
-  expect(sendsOf(x.f.calls, "also keep the old flag")).toHaveLength(1);
+  await expect(send(x.ctx, second.id, "also keep the old flag", {by: "planner"})).rejects.toMatchObject({code: "conflict"});
+  expect(sendsOf(x.f.calls, "also keep the old flag")).toHaveLength(0);
   updateTask(x.ctx, second.id, t => { t.state = "needs_input"; });
   // Round three: answering the second question reattaches to the same worker; no new worker or worktree.
   const third = answerOf(x, readTask(x.ctx, second.id)!, "yes, update it");
