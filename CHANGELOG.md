@@ -24,6 +24,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Stop the desktop app from stealing focus and restarting in a loop when its executable is run as the `pacer` command. A bare command now forwards to the bundle's CLI or fails with guidance, instead of starting another GUI. CLI discovery skips desktop executables on PATH. The automatic relaunch after the app bundle is replaced stays in the background. The desktop README names `Contents/Resources/pacer` as the CLI. [ADR 0021](docs/decisions/0021-single-installation-owner.md) records the ownership model.
 - Offer **Review service replacement** on the desktop's **Kept your current service** page, so a service replacement that was rolled back can be reviewed and tried again without hiding the offer. The service changes only after you confirm the offer.
 - Preserve unrelated notification settings containing malformed UTF-8 in native reads and writes, and match TypeScript number formatting in saved strategy YAML.
 - Keep task-history backfills and retention off the service request thread, retry temporary backfill writer contention, and avoid unnecessary SQLite writer locks when opening or scanning existing task stores. Desktop sign-in no longer waits for historical maintenance.
