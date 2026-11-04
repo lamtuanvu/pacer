@@ -75,7 +75,7 @@ test("restores the newest pre-app backup over the desktop's link and records the
   expect(result.out).toContain("ownership released to this CLI");
 });
 
-test("preserves a symlink backup exactly instead of flattening it, and records its real target", async () => {
+test("preserves a symlink backup exactly and records the command's own path, not its target", async () => {
   const { ctx, service, path } = fixture();
   const { link } = bundledLink(ctx);
   const external = join(ctx.home, "brew-cellar/pacer");
@@ -90,8 +90,9 @@ test("preserves a symlink backup exactly instead of flattening it, and records i
   expect(lstatSync(link).isSymbolicLink()).toBe(true); // never flattened into a hard link
   expect(readlinkSync(link)).toBe(external);
   expect(existsSync(backup)).toBe(false);
-  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: external });
-  expect(readFileSync(path, "utf8")).toBe(plist(ctx, [external]));
+  // The link path survives a Homebrew upgrade that removes the resolved Cellar target.
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: link });
+  expect(readFileSync(path, "utf8")).toBe(plist(ctx, [link]));
 });
 
 test("without a backup, refuses rather than recording an executable inside the app bundle", async () => {

@@ -48,23 +48,7 @@ function newestPreAppBackup(binDir: string): string | null {
   return best?.path ?? null;
 }
 
-/** The real path this backup resolves to if it exists, the path itself otherwise. */
-function realOrSelf(path: string): string {
-  try { return realpathSync(path); } catch { return path; }
-}
 
-/**
- * What `link` will identify as once `backup` is renamed into its place, computed WITHOUT
- * mutating anything: a symlink backup keeps pointing at the same real target regardless of
- * which name holds it, so that target is stable before and after the rename. A regular-file
- * backup instead becomes the file living at `link` itself once renamed there (it is not a
- * symlink, so there is nothing further to resolve, and its old backup name will no longer
- * exist to resolve through).
- */
-function identityAfterRestore(link: string, backup: string): string {
-  try { if (lstatSync(backup).isSymbolicLink()) return realpathSync(backup); } catch { /* fall through */ }
-  return link;
-}
 
 /**
  * Atomic: a plain `rename(2)` replaces `link`'s directory entry with `backup`'s, keeping
@@ -88,23 +72,22 @@ interface HandbackPlan {
 /**
  * Decide what this handback would do, without touching the filesystem: whether a backup
  * would be restored over the desktop's link, and which executable the service/owner record
- * should name afterward. Fix for "the handback re-registers from the app bundle": the
- * result is never a path inside a `.app` bundle. With a restorable backup, its own
- * post-restore identity (see `identityAfterRestore`); otherwise the current link's real
- * target, or (rarely) this process's own resolved executable, as long as neither is inside
- * the app bundle; otherwise a refusal, because there would be nothing outside the bundle to
- * record.
+ * should name afterward: the command's own path (`~/.local/bin/pacer`), never a resolved
+ * target and never a path inside a `.app` bundle; or, rarely, this process's own CLI when the
+ * command is missing. With nothing outside the bundle to hand back to, it refuses.
  */
 function planHandback(ctx: Ctx): HandbackPlan | { refusal: string } {
   const link = appLinkPath(ctx.home);
   const backup = newestPreAppBackup(join(ctx.home, ".local/bin"));
   if (backup && isDesktopLink(link)) {
-    return { executable: identityAfterRestore(link, backup), restore: { link, backup }, note: `restored the terminal command from ${backup}` };
+    // The command's own path, never a resolved target: a symlink backup (e.g. Homebrew) keeps
+    // working across upgrades, and the desktop matches candidates by their unresolved path.
+    return { executable: link, restore: { link, backup }, note: `restored the terminal command from ${backup}` };
   }
   if (backup) {
-    return { executable: realOrSelf(link), restore: null, note: `found a backup at ${backup}, but ~/.local/bin/pacer is not the app's link; left it in place` };
+    return { executable: link, restore: null, note: `found a backup at ${backup}, but ~/.local/bin/pacer is not the app's link; left it in place` };
   }
-  const candidates = [realOrSelf(link), pacerArgv(ctx.env)[0]];
+  const candidates = [link, pacerArgv(ctx.env)[0]];
   const outside = candidates.find(path => existsSync(path) && !isInsideAppBundle(path));
   if (outside) return { executable: outside, restore: null, note: "no pacer.pre-app backup found; left the terminal command as is" };
   return { refusal: "no pacer.pre-app backup exists, and the only pacer command found is inside the app bundle; there is nothing outside it to hand back to. Install a standalone CLI (install.sh, npm or Homebrew) first." };
@@ -172,10 +155,17 @@ export async function releaseOwnership(ctx: Ctx, deps: ReleaseOwnershipDeps = {}
       installNotes = await serviceBackend(ctx, { ...deps.service, argv: [plan.executable] }).install({ replace: true });
     } catch (error) {
       if (plan.restore && appLink !== null) {
-        renameSync(plan.restore.link, plan.restore.backup);
-        symlinkSync(appLink, plan.restore.link);
+        try {
+          renameSync(plan.restore.link, plan.restore.backup);
+          // Recreate the app link under a temp name and rename it in, so the command is never missing.
+          const temporary = `${plan.restore.link}.${process.pid}.restore`;
+          symlinkSync(appLink, temporary);
+          renameSync(temporary, plan.restore.link);
+        } catch (rollback) {
+          throw new Error(`${message(error)}; restoring the app's command also failed (${message(rollback)}): ~/.local/bin/pacer may need the backup ${plan.restore.backup} renamed back`);
+        }
       }
-      throw error;
+      throw new Error(`${message(error)}; the terminal command is unchanged, but the service may be unloaded until you reopen the pacer app`);
     }
     notes.push("re-registered the login service from this CLI", ...installNotes);
     writeOwner(ctx, { owner: "cli", executable: plan.executable, at: ctx.now });
