@@ -116,9 +116,12 @@ fn validate_bundle(contents: &Path) -> Result<PathBuf, String> {
         .map_err(|_| error())
 }
 
-/// Embedded in every desktop executable (CLI discovery references it), never in the CLI.
-/// A desktop executable copied onto PATH boots the GUI for every `pacer <command>`.
-pub const DESKTOP_EXECUTABLE_MARKER: &[u8] = b"pacer-desktop-executable-marker/v1";
+/// Embedded in every desktop executable, never in the CLI. A desktop executable
+/// copied onto PATH boots the GUI for every `pacer <command>`. A `const` needle is
+/// lowered to immediates in optimized builds, so the bytes live in a retained static
+/// that the scan reads through `black_box`; release staging checks it is present.
+#[used]
+pub static DESKTOP_EXECUTABLE_MARKER: [u8; 34] = *b"pacer-desktop-executable-marker/v1";
 
 /// Whether the file at `path` is a pacer desktop executable rather than a CLI.
 /// Streams the file so a large CLI is never loaded whole.
@@ -127,13 +130,15 @@ pub fn is_desktop_executable(path: &Path) -> bool {
     let Ok(mut file) = std::fs::File::open(path) else {
         return false;
     };
-    let marker = DESKTOP_EXECUTABLE_MARKER;
+    let marker: &[u8] = std::hint::black_box(&DESKTOP_EXECUTABLE_MARKER);
     let mut buffer = vec![0u8; 1 << 20];
     let mut carry = 0;
     loop {
         let read = match file.read(&mut buffer[carry..]) {
-            Ok(0) | Err(_) => return false,
+            Ok(0) => return false,
             Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return false,
         };
         let filled = carry + read;
         if buffer[..filled].windows(marker.len()).any(|window| window == marker) {

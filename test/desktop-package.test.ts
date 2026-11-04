@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { stageDesktopPackage } from "../scripts/release/desktop";
+import { DESKTOP_MARKER, stageDesktopPackage } from "../scripts/release/desktop";
 import { tmpDir } from "./helpers";
 
 function fixture() {
@@ -14,7 +14,7 @@ function fixture() {
   const binary = Buffer.alloc(64);
   binary.writeUInt32LE(0xfeedfacf, 0); binary.writeUInt32LE(0x0100000c, 4); binary.writeUInt32LE(2, 12);
   for (const file of [join(dir, "pacer-darwin-arm64"), join(dir, "pacer-update-helper"), join(macos, "pacer")]) {
-    writeFileSync(file, binary); chmodSync(file, 0o755);
+    writeFileSync(file, file.endsWith("MacOS/pacer") ? Buffer.concat([binary, DESKTOP_MARKER]) : binary); chmodSync(file, 0o755);
   }
   writeFileSync(join(app, "Contents/Info.plist"), '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>dev.pacer.desktop</string><key>CFBundleExecutable</key><string>pacer</string><key>CFBundleVersion</key><string>1.2.3</string><key>CFBundleShortVersionString</key><string>1.2.3</string></dict></plist>');
   const hash = createHash("sha256").update(binary).digest("hex");
@@ -26,6 +26,15 @@ function fixture() {
   const run = async (argv: string[]) => { calls.push(argv); if (argv[0] === "/usr/bin/xcrun") { const library = Buffer.from(binary); library.writeUInt32LE(6, 12); writeFileSync(argv[argv.indexOf("-o") + 1], library, { mode: 0o755 }); return ""; } return argv[0].endsWith("pacer-darwin-arm64") ? "pacer 1.2.3\n" : "1.2.3\n"; };
   return { root, dir, app, run, calls };
 }
+
+test("staging requires the desktop marker in the shell and refuses it anywhere else", async () => {
+  const unmarked = fixture(), shell = join(unmarked.app, "Contents/MacOS/pacer");
+  writeFileSync(shell, readFileSync(shell).subarray(0, 64));
+  await expect(stageDesktopPackage(unmarked.root, unmarked.dir, "aarch64", { run: unmarked.run })).rejects.toThrow("Desktop executable lacks the desktop marker");
+  const marked = fixture(), helper = join(marked.dir, "pacer-update-helper");
+  writeFileSync(helper, Buffer.concat([readFileSync(helper), DESKTOP_MARKER]));
+  await expect(stageDesktopPackage(marked.root, marked.dir, "aarch64", { run: marked.run })).rejects.toThrow("A CLI or helper carries the desktop marker");
+});
 
 test("staging creates a separate complete app with matching release metadata and all executables", async () => {
   const f = fixture();

@@ -12,6 +12,15 @@ export type StageBundleId = "dev.pacer.desktop" | "dev.pacer.desktop.fixture";
 type Arch = "aarch64" | "x86_64";
 type Run = (argv: string[]) => Promise<string>;
 
+/** `DESKTOP_EXECUTABLE_MARKER` in desktop/src-tauri/src/packaging.rs, split so this source never carries it. */
+export const DESKTOP_MARKER = Buffer.from("pacer-desktop-" + "executable-marker/v1");
+
+/** Desktop CLI discovery skips executables carrying the marker, so only the shell may carry it. */
+export function verifyDesktopMarker(shell: Buffer, others: Buffer[]): void {
+  if (!shell.includes(DESKTOP_MARKER)) throw new Error("Desktop executable lacks the desktop marker");
+  if (others.some(bytes => bytes.includes(DESKTOP_MARKER))) throw new Error("A CLI or helper carries the desktop marker");
+}
+
 /** Require thin, native Mach-O executables. Universal packages have a separate release contract. */
 export function verifyDesktopExecutable(bytes: Buffer, arch: Arch): void {
   verifyMachO(bytes, arch, 2);
@@ -93,6 +102,7 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
   }
   const shell = join(app, "Contents/MacOS/pacer");
   for (const binary of [cli, helper, shell]) verifyDesktopExecutable(regular(binary), arch);
+  verifyDesktopMarker(regular(shell), [cliBytes, ...(core ? [regular(core)] : []), regular(helper)]);
   const permissionHelper = join(app, "Contents/MacOS/pacer-permission-setup");
   if (existsSync(permissionHelper)) verifyDesktopExecutable(regular(permissionHelper), arch);
   const info = parsePlistDictionary(readFileSync(join(app, "Contents/Info.plist"), "utf8"));
