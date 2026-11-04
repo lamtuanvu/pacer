@@ -61,7 +61,7 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
-  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
+  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; supervisionWorker?: boolean; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
 ): { port: number; token: string; stop: () => Promise<void> } {
   const initialCtx = getCtx();
   resetCaptureBroker(initialCtx.pacerHome);
@@ -345,9 +345,9 @@ export function startServer(
   const supervisorTimer = setInterval(supervise, 5000);
   let worker: Worker | undefined;
   const startSupervisionWorker = () => {
-    // The worker builds its own context and spawns real runners; an injected runner
-    // (tests, embedding) is honoured only by the in-process supervisor above.
-    if (worker || stopped || opts.opDeps?.spawnRunner) return;
+    // Only the pacer serve command opts in: the worker builds its own context and
+    // spawns real runners, so tests and embeddings keep the in-process supervisor.
+    if (worker || stopped || !opts.supervisionWorker || opts.opDeps?.spawnRunner) return;
     try {
       // A compiled binary gives every module the bundle root's import.meta.url
       // (/$bunfs/root/...), where the worker entrypoint sits at ./tasks/.
