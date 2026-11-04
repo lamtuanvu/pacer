@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { claimCliOwnership, isRecordedOwnerExecutable, MANAGED_BY_DESKTOP_MESSAGE, ownerPath, ownerRefusal, readOwner, writeOwner } from "../src/install/owner";
 import { fakeCtx, tmpDir } from "./helpers";
 
@@ -64,6 +64,18 @@ test("the bundled CLI exemption: the desktop's own recorded executable is never 
   writeFileSync(foreign, "other"); chmodSync(foreign, 0o755);
   const other = fakeCtx({ home, env: { PACER_BIN: foreign } });
   expect(ownerRefusal(other, "update")).not.toBeNull();
+});
+
+test("the exemption covers the core running beside the recorded front door", () => {
+  // Inside the app the front door forwards to Resources/pacer-core, so the running process is
+  // not the recorded executable itself but lives in the same directory.
+  const home = tmpDir();
+  const beside = join(realpathSync(dirname(process.execPath)), "pacer");
+  const ctx = fakeCtx({ home, env: {} });
+  writeOwner(ctx, { owner: "desktop", executable: beside, at: 1 });
+  expect(ownerRefusal(ctx, "update")).toBeNull();
+  writeOwner(ctx, { owner: "desktop", executable: join(home, "elsewhere/pacer"), at: 1 });
+  expect(ownerRefusal(ctx, "update")).not.toBeNull();
 });
 
 test("the exemption follows a symlinked executable to its real target", () => {

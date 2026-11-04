@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
@@ -52,20 +52,17 @@ function canonical(path: string): string {
 }
 
 /**
- * Bundled-CLI exemption: the desktop must be able to run its own managed CLI (for example
- * `pacer open --print`, run from `Cli::run` in desktop/src-tauri/src/client.rs) without
- * tripping its own deference guard. We detect "this process is the desktop's own recorded
- * CLI" by resolved-executable identity rather than a one-off environment flag: `pacerArgv`
- * already resolves to `PACER_BIN` first when it is set, which is exactly the environment
- * variable the desktop sets when it spawns its managed CLI (see `Cli::run`'s
- * `command.env("PACER_BIN", binary)`), and otherwise resolves to this process's own argv/
- * execPath — i.e. the path of the binary that IS running. Comparing that resolved path
- * against the executable recorded in owner.json is therefore the same check whether the
- * desktop set PACER_BIN or the bundled CLI was simply exec'd directly: a foreign CLI cannot
- * forge this without also being the exact file the desktop recorded as its own.
+ * Bundled-CLI exemption: the desktop must run its own managed CLI (for example `pacer open
+ * --print` from `Cli::run` in desktop/src-tauri/src/client.rs) without tripping its own
+ * deference guard. A process qualifies when the CLI it resolves to (`PACER_BIN` first, which
+ * the desktop sets for its managed CLI) is the recorded executable, or when it runs from the
+ * recorded executable's own directory (the bundle's Resources, where the front door forwards
+ * to `pacer-core`). This prevents accidental cross-owner changes; it is not an authorization
+ * boundary, since anyone can set PACER_BIN.
  */
 export function isRecordedOwnerExecutable(ctx: Ctx, owner: OwnerRecord): boolean {
-  return canonical(pacerArgv(ctx.env)[0]) === canonical(owner.executable);
+  const recorded = canonical(owner.executable);
+  return canonical(pacerArgv(ctx.env)[0]) === recorded || canonical(dirname(process.execPath)) === dirname(recorded);
 }
 
 export const MANAGED_BY_DESKTOP_MESSAGE =

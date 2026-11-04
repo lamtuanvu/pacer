@@ -1637,14 +1637,8 @@ impl FirstRun {
                 crate::diagnostic_recovery(app, self.error.as_ref().unwrap());
                 return OnboardingGate::Wait;
             }
-            // Same ADR 0021 consent as `setup_files`; only a bundled CLI gives an executable to record.
-            if let Some(bundled) = bundled.as_deref() {
-                if let Err(error) = crate::owner::claim_desktop_ownership(&pacer_home(), bundled, std::time::SystemTime::now()) {
-                    self.fail(error);
-                    crate::diagnostic_recovery(app, self.error.as_ref().unwrap());
-                    return OnboardingGate::Wait;
-                }
-            }
+            // ADR 0021: attaching to a healthy service the user did not hand over is not consent
+            // to own it, so no owner record is written here; only Welcome and takeover claim it.
             *app.state::<Shell>().onboarding_page.lock().unwrap() = None;
         }
         let decision = self.page(
