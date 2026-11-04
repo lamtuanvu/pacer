@@ -47,6 +47,37 @@ test("assertNotRealInstall resolves a symlink that points into the real install 
   expect(() => assertNotRealInstall(join(harmless, "pacer"), "write", home)).not.toThrow();
 });
 
+test("assertNotRealInstall follows a dangling symlink into each real path (existsSync is false for these, so a naive realpath walk would miss them)", () => {
+  const home = tmpDir(), outside = tmpDir();
+  const real = realInstallPaths(home);
+  for (const [name, path] of Object.entries(real)) {
+    const link = join(outside, `dangling-${name}`);
+    symlinkSync(path, link); // the target does not exist: pacer is not actually installed here
+    expect(() => assertNotRealInstall(link, "write", home)).toThrow(/refusing to write/);
+    expect(() => assertNotRealInstall(join(link, "nested/file"), "write", home)).toThrow(/refusing to write/);
+  }
+});
+test("assertNotRealInstall follows a chain of dangling symlinks, and bounds a symlink loop", () => {
+  const home = tmpDir(), outside = tmpDir();
+  const first = join(outside, "first"), second = join(outside, "second");
+  symlinkSync(join(home, ".local/bin/pacer"), second); // dangling: home/.local/bin was never created
+  symlinkSync(second, first);
+  expect(() => assertNotRealInstall(first, "write", home)).toThrow(/refusing to write/);
+  const loopA = join(outside, "loop-a"), loopB = join(outside, "loop-b");
+  symlinkSync(loopB, loopA);
+  symlinkSync(loopA, loopB);
+  expect(() => assertNotRealInstall(loopA, "write", home)).toThrow(/too many levels of symbolic links/);
+});
+test("assertNotRealInstall is case-insensitive for a not-yet-created tail (APFS is case-insensitive by default)", () => {
+  const home = tmpDir();
+  if (process.platform === "darwin") {
+    expect(() => assertNotRealInstall("/Applications/Pacer.app", "write", home)).toThrow(/refusing to write/);
+    expect(() => assertNotRealInstall(join(home, ".LOCAL/BIN/PACER"), "write", home)).toThrow(/refusing to write/);
+  } else {
+    // Elsewhere the filesystem is case-sensitive, so a differently-cased path is simply a different, harmless path.
+    expect(() => assertNotRealInstall("/Applications/Pacer.app", "write", home)).not.toThrow();
+  }
+});
 test("assertNotRealInstall collapses .. before comparing, even against a not-yet-created target", () => {
   const home = tmpDir();
   const viaDotDot = join(home, ".local/bin/../bin/pacer");
@@ -93,43 +124,64 @@ test.skipIf(process.platform !== "darwin")("live desktop --app refuses to launch
 });
 
 /**
- * Every dev/test write site that mentions the real app bundle or the real CLI link path must
- * either go through this guard or be in this short, justified allowlist. Keep the list small:
- * each entry here is read-only evidence capture or builds a path under a fixture's own
- * isolated home, never the real one.
+ * Every dev/test/build file that mentions a real-install surface must either call the guard
+ * itself or be in this short, justified allowlist. Keep the list small: each entry here is
+ * read-only evidence capture, a fully mocked service manager, a stub written under a fixture's
+ * own isolated home, or a disposable mktemp smoke-test home — never the real install.
  */
 const ALLOWLIST = new Map<string, string>([
-  ["live/ota-real-app.ts", "read-only snapshot of the real app/CLI link, for before/after evidence comparison; never writes"],
-  ["live/ota.ts", "builds state.pacerHome (the fixture's own isolated home) for comparison, not the real home"],
-  ["live/ota-native.ts", "builds the fixture's own .local/bin/pacer symlink under state.pacerHome, the fixture's isolated home"],
+  ["scripts/live/ota-real-app.ts", "read-only snapshot of the real app/CLI link/service plist, for before/after evidence comparison; never writes"],
+  ["scripts/live/ota.ts", "reads the real service plist digest read-only for before/after comparison, and builds state.pacerHome (the fixture's own isolated home) for the .local/bin/pacer comparison"],
+  ["scripts/live/ota-native.ts", "builds the fixture's own .local/bin/pacer symlink under state.pacerHome, the fixture's isolated home"],
+  ["scripts/live/seed.ts", "writes a placeholder plist under the fixture's own isolated sandbox home (never ~/Library/LaunchAgents); the stub refuses every real manager mutation"],
+  ["scripts/live/repair-integrations.ts", "ctx.run is replaced by a mock that only asserts the argv a real launchctl/systemctl would see; it never spawns the real binary"],
+  ["desktop/scripts/build-linux-bundles.sh", "PACER_HOME is $smoke_home/.pacer, a disposable mktemp smoke-test home"],
+  ["desktop/scripts/repack-appimage.sh", "PACER_HOME is $work/home/.pacer, a disposable mktemp smoke-test home"],
 ]);
-function tsFiles(dir: string): string[] {
+/** A `.local`/`bin` path built from separate join() arguments instead of one literal, e.g. `join(home, ".local", "bin")`. */
+const SPLIT_JOIN_LOCAL_BIN = /["'`]\.local["'`]\s*,\s*["'`]bin["'`]/;
+function hasRealInstallLiteral(text: string): boolean {
+  return text.includes("/Applications/pacer.app") || text.includes(".local/bin/pacer") || text.includes("com.pacer.serve")
+    || text.includes("LaunchAgents") || text.includes("/.pacer") || SPLIT_JOIN_LOCAL_BIN.test(text);
+}
+function filesIn(dir: string, ext: string, recursive: boolean): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const path = join(dir, name), stat = lstatSync(path);
-    if (stat.isDirectory()) out.push(...tsFiles(path));
-    else if (stat.isFile() && name.endsWith(".ts") && !name.endsWith(".test.ts")) out.push(path);
+    if (stat.isDirectory()) { if (recursive) out.push(...filesIn(path, ext, recursive)); continue; }
+    if (stat.isFile() && name.endsWith(ext) && !name.endsWith(`.test${ext}`)) out.push(path);
   }
   return out;
 }
-test("every real-install literal under scripts/live and scripts/release goes through the guard or is allowlisted", () => {
+function scannedFiles(): string[] {
   const scriptsRoot = join(checkout, "scripts");
+  return [
+    ...filesIn(join(scriptsRoot, "live"), ".ts", true),
+    ...filesIn(join(scriptsRoot, "release"), ".ts", true),
+    ...filesIn(scriptsRoot, ".ts", false), // top-level scripts/*.ts only; scripts/lib defines the guard itself
+    ...filesIn(join(checkout, "desktop/scripts"), ".sh", false),
+  ];
+}
+test("every real-install literal under scripts/ and desktop/scripts/ actually calls the guard, or is allowlisted", () => {
   const offenders: string[] = [];
-  for (const base of ["live", "release"]) {
-    for (const file of tsFiles(join(scriptsRoot, base))) {
-      const text = readFileSync(file, "utf8");
-      if (!text.includes("/Applications/pacer.app") && !text.includes(".local/bin/pacer")) continue;
-      const key = relative(scriptsRoot, file);
-      if (text.includes("real-install-guard") || ALLOWLIST.has(key)) continue;
-      offenders.push(key);
-    }
+  for (const file of scannedFiles()) {
+    const text = readFileSync(file, "utf8");
+    if (!hasRealInstallLiteral(text)) continue;
+    const key = relative(checkout, file);
+    // A mention or a bare import is not enough: require an actual call. Shell scripts can only be allowlisted.
+    const calls = file.endsWith(".ts") && (text.includes("assertNotRealInstall(") || text.includes("assertNotRealServiceLabel("));
+    if (calls || ALLOWLIST.has(key)) continue;
+    offenders.push(key);
   }
   expect(offenders).toEqual([]);
 });
 test("the allowlist names only files that actually contain a real-install literal", () => {
-  const scriptsRoot = join(checkout, "scripts");
   for (const key of ALLOWLIST.keys()) {
-    const text = readFileSync(resolve(scriptsRoot, key), "utf8");
-    expect(text.includes("/Applications/pacer.app") || text.includes(".local/bin/pacer")).toBe(true);
+    expect(hasRealInstallLiteral(readFileSync(resolve(checkout, key), "utf8"))).toBe(true);
   }
+});
+test("the split-argument join(home, \".local\", \"bin\") style is detected like the single-literal form", () => {
+  expect(hasRealInstallLiteral('const bin = join(home, ".local", "bin", "pacer");')).toBe(true);
+  expect(hasRealInstallLiteral('const bin = join(home, ".local/bin/pacer");')).toBe(true);
+  expect(hasRealInstallLiteral('const other = join(home, ".config", "pacer");')).toBe(false);
 });
