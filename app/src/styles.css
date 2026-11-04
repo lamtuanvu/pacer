@@ -681,7 +681,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-work-wrap:has(.pc-dock__panel--maximized)>.pc-work{display:none}
 
 /* Needs you and Answer boards. */
-.pc-needs-board{display:flex;flex-direction:column;gap:var(--space-4);padding:var(--space-6) var(--space-8) var(--space-10);width:100%;max-width:none}
+.pc-needs-board{display:flex;flex-direction:column;gap:var(--space-4);padding:0 var(--space-8) var(--space-10);width:100%;max-width:none}
 .ny-header{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3)}
 .ny-heading{display:flex;flex-direction:column;gap:var(--space-half);min-width:0}
 .ny-header>.ny-heading,.ny-warning-copy{flex-grow:1}

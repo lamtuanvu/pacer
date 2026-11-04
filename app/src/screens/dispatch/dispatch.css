@@ -1,6 +1,6 @@
 /* Main board geometry. All selectors stay inside Dispatch; Needs you owns its page. */
 .pc-page.pc-dispatch{container-type:inline-size;max-width:none;gap:var(--space-5)}
-@media(min-width:560px){.pc-page.pc-dispatch{padding:var(--space-6) var(--space-8) var(--space-10)}}
+@media(min-width:560px){.pc-page.pc-dispatch{padding:0 var(--space-8) var(--space-10)}}
 .pc-dispatch .pc-dispatch-split{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--size-320)),1fr))}
 .pc-dispatch .pc-dispatch__pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--size-420)),1fr));gap:var(--space-5);align-items:start}
 .pc-dispatch .pc-dispatch-spread{padding:calc(var(--space-5) - var(--space-half)) var(--space-5);gap:var(--space-3\.5)}
