@@ -7,7 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-default = []
+default = ["dep:tokio"]
 async = ["dep:tokio"]
 
 [dev-dependencies]

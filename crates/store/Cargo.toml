@@ -1,0 +1,33 @@
+[package]
+name = "pacer-store"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+async = ["dep:tokio"]
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+serial_test = "3"
+serde_json = { workspace = true }
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, optional = true }
+rusqlite = { version = "0.32", features = ["bundled", "modern_sqlite", "serde_json", "chrono", "extra_check", "functions"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+regex = "1"
+dirs = "5"
+pacer-foundation = { path = "../foundation", features = ["async"] }
+pacer-client-protocol = { path = "../client-protocol" }
+
+[lints]
+workspace = true
