@@ -9,6 +9,10 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 use tokio::process::Command;
+#[cfg(feature = "native-socket")]
+use pacer_desktop::ota::control::NativeConnection;
+#[cfg(feature = "native-socket")]
+use std::sync::Arc;
 
 fn pacer_home() -> PathBuf {
     std::env::var_os("PACER_HOME")
@@ -432,6 +436,8 @@ pub struct Session {
     owner_identity: String,
     pub cookies: std::sync::Arc<reqwest::cookie::Jar>,
     pub ops: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    #[cfg(feature = "native-socket")]
+    native: Option<Arc<NativeConnection>>,
 }
 async fn count_active_tasks(session: &Session) -> Option<usize> {
     let mut count = 0usize;
@@ -452,13 +458,47 @@ impl Session {
     pub fn service_version(&self) -> Option<&str> { self.service_version.as_deref() }
     #[cfg(test)]
     pub(crate) fn for_capture_test(client: Client, origin: String) -> Self {
-        Self { client, origin, service_version: None, cookies: Default::default(), ops: Default::default(), hello_identity: Default::default(), owner_identity: String::new() }
+        Self { client, origin, service_version: None, cookies: Default::default(), ops: Default::default(), hello_identity: Default::default(), owner_identity: String::new(), #[cfg(feature = "native-socket")] native: None }
     }
     pub async fn connect(cli: &Cli, auth: &Url) -> Result<Self, String> {
         // Use exactly the home passed to CLI discovery, including PACER_HOME overrides.
         let token = std::fs::read_to_string(cli.pacer_home.join("token"))
             .map_err(|_| "Unable to read service token")?;
+        #[cfg(feature = "native-socket")]
+        {
+            if let Ok(native_session) = Self::connect_native(cli, auth, &token).await {
+                return Ok(native_session);
+            }
+            // Fall back to HTTP if native connection fails
+            desktop_log!("pacer lifecycle: native socket unavailable, falling back to HTTP");
+        }
         Self::exchange(auth, token).await
+    }
+    #[cfg(feature = "native-socket")]
+    async fn connect_native(cli: &Cli, auth: &Url, token: &str) -> Result<Self, String> {
+        let trust = pacer_desktop::ota::trust::ReleaseTrust::configured().ok_or("Release trust unavailable")?;
+        let user_home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME not set")?);
+        let home = cli.pacer_home.clone();
+        let port = service_port();
+        let registered = pacer_desktop::ota::control::inspect_registered_service(
+            &user_home, &home, port, &trust,
+        ).map_err(|e| e.to_string())?;
+        let endpoint = registered.endpoint();
+        let native = NativeConnection::connect(&endpoint, &trust, None, Arc::new(|_| {})).map_err(|e| e.to_string())?;
+        // Authenticate via HTTP first to get session cookies and hello
+        let http_session = Self::exchange(auth, token.to_string()).await?;
+        // Subscribe to events on native socket
+        native.subscribe_events().map_err(|e| e.to_string())?;
+        Ok(Self {
+            client: http_session.client,
+            origin: http_session.origin,
+            service_version: http_session.service_version,
+            hello_identity: http_session.hello_identity,
+            owner_identity: http_session.owner_identity,
+            cookies: http_session.cookies,
+            ops: http_session.ops,
+            native: Some(native),
+        })
     }
     async fn exchange(auth: &Url, token: String) -> Result<Self, String> {
         let origin = logic::local_origin(auth).ok_or("Invalid origin")?;
@@ -482,6 +522,8 @@ impl Session {
             owner_identity,
             cookies,
             ops: Default::default(),
+            #[cfg(feature = "native-socket")]
+            native: None,
         };
         if token.trim().is_empty() {
             return Err("Missing service token".into());
@@ -530,6 +572,12 @@ impl Session {
         {
             return Err("Invalid operation".into());
         }
+        #[cfg(feature = "native-socket")]
+        if let Some(native) = &self.native {
+            if native.alive() {
+                return native.send_op(op, params.clone()).map_err(|e| e.to_string());
+            }
+        }
         self.client
             .post(format!("{}/v3/ops/{op}", self.origin))
             .header("Origin", &self.origin)
@@ -565,6 +613,38 @@ impl Session {
                     "stopped"
                 }.into()
             })
+    }
+    #[cfg(feature = "native-socket")]
+    pub async fn subscribe_events_native(&self) -> Result<impl futures_util::Stream<Item = Result<(String, Value), String>>, String> {
+        use futures_util::stream::unfold;
+        let native = self.native.as_ref().ok_or("No native connection")?.clone();
+        if !native.alive() {
+            return Err("Native connection not alive".into());
+        }
+        // The subscription was already done in connect_native; we just read events
+        let stream = unfold(native, move |native| async move {
+            if !native.alive() {
+                return None;
+            }
+            match native.read_app_frame() {
+                Ok(frame) => Some((Ok((frame.event, frame.data)), native)),
+                Err(e) => Some((Err(e.to_string()), native)),
+            }
+        });
+        Ok(stream)
+    }
+    #[cfg(feature = "native-socket")]
+    pub fn send_heartbeat(&self) -> Result<(), String> {
+        if let Some(native) = &self.native {
+            if native.alive() {
+                return native.send_heartbeat().map_err(|e| e.to_string());
+            }
+        }
+        Err("No native connection".into())
+    }
+    #[cfg(feature = "native-socket")]
+    pub fn is_native(&self) -> bool {
+        self.native.as_ref().is_some_and(|n| n.alive())
     }
 }
 

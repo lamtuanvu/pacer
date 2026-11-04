@@ -23,6 +23,7 @@ default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 ota-production = []
 ota-fixture = []
+native-socket = []
 
 [build-dependencies]
 sha2 = "0.10"

@@ -141,6 +141,9 @@ const requestBase = {
 };
 const requestSchema = z.discriminatedUnion("kind", [
   z.object({ ...requestBase, kind: z.literal("heartbeat") }).strict(),
+  z.object({ ...requestBase, kind: z.literal("op"), op: z.string().min(1), params: z.unknown() }).strict(),
+  z.object({ ...requestBase, kind: z.literal("snapshot") }).strict(),
+  z.object({ ...requestBase, kind: z.literal("subscribe-events") }).strict(),
   ...(
     [
       "adoption-context",
@@ -286,6 +289,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
     string,
     { connection: Connection; confirmExit: boolean; resolve: () => void; reject: () => void }
   >();
+  private eventSubscriptions = new Map<string, Connection>();
   private service: ProcessIdentity;
   private serviceExecutable: string;
   private shutdown?: () => void;
@@ -318,6 +322,22 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       (peer) => this.accept(peer),
       this.options.paired?.listener,
     );
+    // Subscribe to outbox notifications to push events over native socket
+    import("../../link/store").then(({ subscribeOutbox }) => {
+      subscribeOutbox(this.getCtx(), () => {
+        this.pushOutboxEvents();
+      });
+    });
+  }
+  private pushOutboxEvents(): void {
+    import("../../link/store").then(({ readOutboxSince, readLatest }) => {
+      const ctx = this.getCtx();
+      const snapshot = readLatest(ctx);
+      const entries = readOutboxSince(ctx, snapshot.seq);
+      for (const entry of entries) {
+        this.broadcastEvent(entry.envelope.type, entry.envelope.data);
+      }
+    });
   }
   sessions(): readonly VerifiedNativeSession[] {
     return [...this.sessionsByConnection.values()].filter((session) =>
@@ -350,6 +370,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
         connection.dead = true;
         this.connections.delete(connection);
         this.sessionsByConnection.delete(connection);
+        this.eventSubscriptions.delete(connection.sessionId);
         for (const [id, effect] of this.pendingEffects) {
           if (effect.connection === connection) {
             effect.reject();
@@ -859,6 +880,42 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       await connection.peer.send({
         schema: 1,
         kind: "alive",
+        sequence: frame.sequence,
+      });
+      return;
+    }
+    if (frame.kind === "op") {
+      if (connection.identity.role !== "desktop") throw denied();
+      if (!connection.ready) throw denied();
+      const { op, params } = frame;
+      const result = await this.dispatchOp(connection, op, params);
+      await connection.peer.send({
+        schema: 1,
+        kind: "op-result",
+        sequence: frame.sequence,
+        result,
+      });
+      return;
+    }
+    if (frame.kind === "snapshot") {
+      if (connection.identity.role !== "desktop") throw denied();
+      if (!connection.ready) throw denied();
+      const snap = await this.getSnapshot(connection);
+      await connection.peer.send({
+        schema: 1,
+        kind: "snapshot",
+        sequence: frame.sequence,
+        snapshot: snap,
+      });
+      return;
+    }
+    if (frame.kind === "subscribe-events") {
+      if (connection.identity.role !== "desktop") throw denied();
+      if (!connection.ready) throw denied();
+      this.eventSubscriptions.set(connection.sessionId, connection);
+      await connection.peer.send({
+        schema: 1,
+        kind: "subscribed",
         sequence: frame.sequence,
       });
       return;
@@ -1512,6 +1569,31 @@ export class NativeControlBridge implements NativeAuthorityProvider {
     } finally {
       clearTimeout(timeout);
       this.pendingEffects.delete(effectId);
+    }
+  }
+  private async dispatchOp(connection: Connection, op: string, params: unknown): Promise<unknown> {
+    const ctx = this.getCtx();
+    const { callOp } = await import("../../api/ops");
+    return callOp(ctx, op, params, { desktopUpdates: this as any });
+  }
+  private async getSnapshot(connection: Connection): Promise<unknown> {
+    const ctx = this.getCtx();
+    const { liveSnapshot } = await import("../../api/events");
+    return liveSnapshot(ctx);
+  }
+  /** Push an event to all subscribed desktop connections over native frames. */
+  async broadcastEvent(eventType: string, data: unknown): Promise<void> {
+    let seq = 0;
+    for (const [, conn] of this.eventSubscriptions) {
+      if (conn.dead || !conn.ready) continue;
+      seq++;
+      await conn.peer.send({
+        schema: 1,
+        kind: "event",
+        event: eventType,
+        data,
+        id: seq,
+      });
     }
   }
 }
