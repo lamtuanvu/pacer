@@ -1255,10 +1255,14 @@ pub fn candidates(path: &str, home: &Path) -> Vec<PathBuf> {
     unique
 }
 
-/// Launches pass only `--pacer-*`/system flags or a `pacer://` link; a bare word
-/// (`pacer statusline`) means the desktop executable was run as the CLI.
+/// Launches pass only `--pacer-*` flags, macOS system flags (`-psn_*`, `-NS*`,
+/// `-Apple*`) or a `pacer://` link. Anything else (`pacer statusline`,
+/// `pacer --help`) means the desktop executable was run as the CLI.
 pub fn cli_invocation(first: &str) -> bool {
-    !first.is_empty() && !first.starts_with('-') && !first.starts_with("pacer://")
+    !(first.is_empty()
+        || first.starts_with("--pacer-")
+        || ["-psn_", "-NS", "-Apple"].iter().any(|flag| first.starts_with(flag))
+        || first.starts_with("pacer://"))
 }
 
 pub fn auth_url(raw: &str) -> Result<Url, String> {
@@ -1451,13 +1455,15 @@ impl Sse {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn cli_invocation_is_a_bare_command_never_a_launch_flag_or_link() {
-        for command in ["statusline", "open", "serve", "route"] {
+    fn cli_invocation_is_anything_but_a_launch_flag_or_link() {
+        for command in ["statusline", "open", "serve", "route", "--help", "-h", "--json"] {
             assert!(cli_invocation(command), "{command}");
         }
         for launch in [
             "",
             "-psn_0_12345",
+            "-NSDocumentRevisionsDebugMode",
+            "-AppleLanguages",
             "--pacer-relaunch-hidden",
             "--pacer-relaunch-route=#/",
             "--pacer-maintenance-launch",
