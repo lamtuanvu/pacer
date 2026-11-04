@@ -13,8 +13,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Include commit SHA for PR events to prevent duplicate-run cancellation race.
+  # Each (PR, commit) pair gets its own group; cancel-in-progress only for push to main.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && github.sha || '' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   changes:
