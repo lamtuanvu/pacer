@@ -1,47 +1,59 @@
 import { expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readOwner, writeOwner } from "../src/install/owner";
 import { releaseOwnership } from "../src/install/ownership-handback";
 import { plist, servicePath, type ServiceDeps } from "../src/service";
 import { createTask, updateTask } from "../src/tasks/store";
+import { DESKTOP_IDENTIFIERS } from "../src/update/desktop/bundle-identity";
 import { fakeCtx, tmpDir } from "./helpers";
 
 const goodFetch = (async () => Response.json({ ok: true, pid: 456 }, { headers: { "X-Pacer": "1" } })) as NonNullable<ServiceDeps["fetch"]>;
 
-function fixture() {
+function fixture(opts: { fail?: boolean } = {}) {
   const calls: string[][] = [];
-  const ctx = fakeCtx({ env: { PATH: "/bin:/usr/bin", PACER_BIN: "/opt/pacer" }, which: () => null,
+  // Pre-resolved so every path built from ctx.home already matches what realpathSync returns
+  // later (macOS's tmp dir itself is a symlink: /var/folders/... -> /private/var/folders/...).
+  const ctx = fakeCtx({ home: realpathSync(tmpDir()), env: { PATH: "/bin:/usr/bin", PACER_BIN: "/opt/pacer" }, which: () => null,
     run: async argv => {
       calls.push(argv);
+      if (argv[1] === "--version") return { code: 0, stdout: "pacer 9.9.9\n", stderr: "" };
+      if (argv[1] === "bootstrap" && opts.fail) return { code: 5, stdout: "", stderr: "bad plist" };
       if (argv[1] === "print") return { code: 0, stdout: "service = {\n state = running\n pid = 456\n last exit code = 0\n}\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     } });
-  const service: ServiceDeps = { platform: "darwin", uid: 501, argv: ["/opt/pacer"], fetch: goodFetch, waitMs: 0 };
+  const service: ServiceDeps = { platform: "darwin", uid: 501, fetch: goodFetch, waitMs: 0 };
   return { ctx, calls, service, path: servicePath(ctx, "darwin") };
 }
 
 function put(path: string, text: string) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); }
 
-function bundledLink(home: string): string {
-  const bundled = join(home, "pacer.app/Contents/Resources/pacer");
+/** `~/.local/bin/pacer` as the desktop's symlink into a fake app bundle; also used as PACER_BIN,
+ * matching the real front door's own canonicalize-and-forward behavior when invoked through it. */
+function bundledLink(ctx: ReturnType<typeof fixture>["ctx"]): { link: string; bundled: string } {
+  const bundled = join(ctx.home, "pacer.app/Contents/Resources/pacer");
   mkdirSync(dirname(bundled), { recursive: true });
   writeFileSync(bundled, "bundled cli");
-  const link = join(home, ".local/bin/pacer");
+  const link = join(ctx.home, ".local/bin/pacer");
   mkdirSync(dirname(link), { recursive: true });
   symlinkSync(bundled, link);
-  return link;
+  ctx.env.PACER_BIN = bundled;
+  return { link, bundled };
 }
 
-test("restores the newest pre-app backup over the desktop's link, reinstalls the service, and records cli ownership", async () => {
+function desktopConfig(home: string): string {
+  return join(home, "Library/Application Support", DESKTOP_IDENTIFIERS.desktop);
+}
+
+test("restores the newest pre-app backup over the desktop's link and records the restored link path, never the app bundle", async () => {
   const { ctx, service, path } = fixture();
-  const link = bundledLink(ctx.home);
+  const { link } = bundledLink(ctx);
   const binDir = dirname(link);
   put(join(binDir, "pacer.pre-app-20260101T000000Z"), "older backup");
   put(join(binDir, "pacer.pre-app-20260102T000000Z"), "newer backup");
-  // Make mtime order explicit and independent of write order.
-  utimesSync(join(binDir, "pacer.pre-app-20260101T000000Z"), new Date(1000_000), new Date(1000_000));
-  utimesSync(join(binDir, "pacer.pre-app-20260102T000000Z"), new Date(2000_000), new Date(2000_000));
+  // Filenames pick the winner, not mtime: give the OLDER name the NEWER mtime.
+  utimesSync(join(binDir, "pacer.pre-app-20260101T000000Z"), new Date(5_000_000), new Date(5_000_000));
+  utimesSync(join(binDir, "pacer.pre-app-20260102T000000Z"), new Date(1_000_000), new Date(1_000_000));
   writeOwner(ctx, { owner: "desktop", executable: join(ctx.home, "pacer.app/Contents/Resources/pacer"), at: 1 });
 
   const result = await releaseOwnership(ctx, { service });
@@ -51,26 +63,59 @@ test("restores the newest pre-app backup over the desktop's link, reinstalls the
   expect(readFileSync(link, "utf8")).toBe("newer backup");
   expect(existsSync(join(binDir, "pacer.pre-app-20260102T000000Z"))).toBe(false);
   expect(existsSync(join(binDir, "pacer.pre-app-20260101T000000Z"))).toBe(true); // only the newest backup is consumed
-  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/opt/pacer" });
-  expect(readFileSync(path, "utf8")).toBe(plist(ctx, ["/opt/pacer"]));
+  // Never the PACER_BIN/app-bundle path: the restored link itself, a regular file.
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: link });
+  expect(readFileSync(path, "utf8")).toBe(plist(ctx, [link]));
   expect(result.out).toContain("restored the terminal command");
   expect(result.out).toContain("ownership released to this CLI");
 });
 
-test("no backup: leaves the terminal command alone and says so, but still hands ownership back", async () => {
-  const { ctx, service } = fixture();
-  const link = bundledLink(ctx.home);
+test("preserves a symlink backup exactly instead of flattening it, and records its real target", async () => {
+  const { ctx, service, path } = fixture();
+  const { link } = bundledLink(ctx);
+  const external = join(ctx.home, "brew-cellar/pacer");
+  put(external, "external build");
+  const backup = join(dirname(link), "pacer.pre-app-20260101T000000Z");
+  symlinkSync(external, backup);
+  writeOwner(ctx, { owner: "desktop", executable: join(ctx.home, "pacer.app/Contents/Resources/pacer"), at: 1 });
+
+  const result = await releaseOwnership(ctx, { service });
+
+  expect(result.code).toBe(0);
+  expect(lstatSync(link).isSymbolicLink()).toBe(true); // never flattened into a hard link
+  expect(readlinkSync(link)).toBe(external);
+  expect(existsSync(backup)).toBe(false);
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: external });
+  expect(readFileSync(path, "utf8")).toBe(plist(ctx, [external]));
+});
+
+test("without a backup, refuses rather than recording an executable inside the app bundle", async () => {
+  const { ctx, service, path } = fixture();
+  bundledLink(ctx); // the only pacer command on this machine lives inside the bundle
+  writeOwner(ctx, { owner: "desktop", executable: join(ctx.home, "pacer.app/Contents/Resources/pacer"), at: 1 });
+
+  const result = await releaseOwnership(ctx, { service });
+
+  expect(result).toEqual({ code: 2, out: "", err: expect.stringContaining("nothing outside it to hand back to") });
+  expect(readOwner(ctx)).toMatchObject({ owner: "desktop" }); // unchanged
+  expect(existsSync(path)).toBe(false); // the service was never touched
+});
+
+test("without a backup, hands back using the link when it is already a standalone CLI outside the bundle", async () => {
+  const { ctx, service, path } = fixture();
+  const link = join(ctx.home, ".local/bin/pacer");
+  put(link, "#!/bin/sh\necho standalone\n");
   writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
 
   const result = await releaseOwnership(ctx, { service });
 
   expect(result.code).toBe(0);
   expect(result.out).toContain("no pacer.pre-app backup found");
-  expect(lstatSync(link).isSymbolicLink()).toBe(true); // untouched
-  expect(readOwner(ctx)).toMatchObject({ owner: "cli" });
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: link });
+  expect(readFileSync(path, "utf8")).toBe(plist(ctx, [link]));
 });
 
-test("a backup exists but the link is not the app's: left in place, noted, ownership still released", async () => {
+test("a backup exists but the link is not the app's: left in place, noted, ownership still released with the link's own identity", async () => {
   const { ctx, service } = fixture();
   const link = join(ctx.home, ".local/bin/pacer");
   put(link, "some other regular file");
@@ -82,11 +127,13 @@ test("a backup exists but the link is not the app's: left in place, noted, owner
   expect(result.out).toContain("is not the app's link");
   expect(readFileSync(link, "utf8")).toBe("some other regular file");
   expect(existsSync(join(dirname(link), "pacer.pre-app-20260101T000000Z"))).toBe(true);
-  expect(readOwner(ctx)).toMatchObject({ owner: "cli" });
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: link });
 });
 
 test("refuses while tasks or sessions are running unless --force", async () => {
   const { ctx, service } = fixture();
+  const link = join(ctx.home, ".local/bin/pacer");
+  put(link, "standalone");
   const task = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });
   updateTask(ctx, task.id, t => { t.state = "running"; t.attemptStartedAt = ctx.now; });
 
@@ -97,4 +144,51 @@ test("refuses while tasks or sessions are running unless --force", async () => {
   const forced = await releaseOwnership(ctx, { service, force: true });
   expect(forced.code).toBe(0);
   expect(readOwner(ctx)).toMatchObject({ owner: "cli" });
+});
+
+test("a failed service re-registration leaves the backup, the link and the owner record untouched", async () => {
+  const { ctx, service, calls, path } = fixture({ fail: true });
+  const { link } = bundledLink(ctx);
+  const backup = join(dirname(link), "pacer.pre-app-20260101T000000Z");
+  put(backup, "original command");
+  writeOwner(ctx, { owner: "desktop", executable: join(ctx.home, "pacer.app/Contents/Resources/pacer"), at: 1 });
+
+  const result = await releaseOwnership(ctx, { service });
+
+  expect(result.code).toBe(1);
+  expect(result.err).toContain("bad plist");
+  expect(calls.some(c => c[1] === "bootstrap")).toBe(true); // the risky step really ran
+  // Nothing committed: the backup is still there, the link is still the desktop's, ownership unchanged.
+  expect(existsSync(backup)).toBe(true);
+  expect(lstatSync(link).isSymbolicLink()).toBe(true);
+  expect(readOwner(ctx)).toMatchObject({ owner: "desktop" });
+  expect(existsSync(path)).toBe(false);
+});
+
+test("records Keep-mine for a running desktop so it stays attached instead of re-offering, mirroring consent.json and cli-choice.json", async () => {
+  const { ctx, service } = fixture();
+  const link = join(ctx.home, ".local/bin/pacer");
+  put(link, "standalone");
+  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
+
+  const result = await releaseOwnership(ctx, { service });
+  expect(result.code).toBe(0);
+  expect(result.out).toContain("Keep-mine");
+
+  const config = desktopConfig(ctx.home);
+  const consent = JSON.parse(readFileSync(join(config, "consent.json"), "utf8"));
+  expect(consent).toEqual({ at: expect.any(String), path: false, keep: true });
+  const choice = JSON.parse(readFileSync(join(config, "cli-choice.json"), "utf8"));
+  expect(choice).toEqual({ path: link, version: "pacer 9.9.9" });
+});
+
+test("never writes Keep-mine bookkeeping when the CLI already owned the installation", async () => {
+  const { ctx, service } = fixture();
+  const link = join(ctx.home, ".local/bin/pacer");
+  put(link, "standalone");
+  writeOwner(ctx, { owner: "cli", executable: link, at: 1 });
+
+  const result = await releaseOwnership(ctx, { service });
+  expect(result.code).toBe(0);
+  expect(existsSync(desktopConfig(ctx.home))).toBe(false);
 });

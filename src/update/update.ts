@@ -59,6 +59,8 @@ export function parseUpdateArgs(args: string[]): UpdateOptions | string {
   }
   if (o.json && !o.check) return `pacer update: --json requires --check\n${UPDATE_USAGE}`;
   if (o.to !== undefined && !isVersion(o.to)) return `pacer update: invalid version "${o.to}" (expected MAJOR.MINOR.PATCH)`;
+  // --check is read-only reporting; --release-ownership always mutates, so the two refuse to combine.
+  if (o.releaseOwnership && o.check) return `pacer update: --check and --release-ownership cannot be combined\n${UPDATE_USAGE}`;
   return o;
 }
 

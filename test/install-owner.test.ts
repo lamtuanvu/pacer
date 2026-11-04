@@ -1,8 +1,16 @@
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { claimCliOwnership, isRecordedOwnerExecutable, MANAGED_BY_DESKTOP_MESSAGE, ownerPath, ownerRefusal, readOwner, writeOwner } from "../src/install/owner";
+import { claimCliOwnership, isInsideAppBundle, isRecordedOwnerExecutable, MANAGED_BY_DESKTOP_MESSAGE, ownerPath, ownerRefusal, readOwner, writeOwner } from "../src/install/owner";
 import { fakeCtx, tmpDir } from "./helpers";
+
+/**
+ * A canonical owner.json, byte for byte. desktop/src-tauri/src/owner.rs's
+ * `cross_language_fixture_matching_the_typescript_side_parses` test parses this exact same
+ * literal string, so a record either side writes is provably readable by the other: `at`
+ * especially must stay a plain integer token (no decimal point), since Rust declares it `u64`.
+ */
+const CROSS_LANGUAGE_OWNER_FIXTURE = '{\n  "schema": 1,\n  "owner": "cli",\n  "executable": "/usr/local/bin/pacer",\n  "at": 1700000000\n}\n';
 
 test("readOwner returns null for a missing or malformed record, never throws", () => {
   const ctx = fakeCtx();
@@ -25,6 +33,22 @@ test("writeOwner is atomic, mode 0600, and round-trips through readOwner", () =>
   expect(statSync(path).mode & 0o777).toBe(0o600);
 });
 
+test("writeOwner floors a fractional `at` so the Rust side (which declares it u64) can parse it", () => {
+  const ctx = fakeCtx();
+  writeOwner(ctx, { owner: "cli", executable: "/usr/local/bin/pacer", at: 1700000000.789 });
+  expect(readOwner(ctx)).toMatchObject({ at: 1700000000 });
+  const text = readFileSync(ownerPath(ctx), "utf8");
+  expect(text).toContain('"at": 1700000000');
+  expect(text).not.toMatch(/"at":\s*\d+\.\d/);
+});
+
+test("a canonical owner.json also readable by the Rust side round-trips through readOwner", () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(ownerPath(ctx), CROSS_LANGUAGE_OWNER_FIXTURE);
+  expect(readOwner(ctx)).toEqual({ schema: 1, owner: "cli", executable: "/usr/local/bin/pacer", at: 1700000000 });
+});
+
 test("claimCliOwnership only writes cli when unclaimed or already cli; never overrides desktop", () => {
   const ctx = fakeCtx();
   claimCliOwnership(ctx, "/usr/local/bin/pacer", 100);
@@ -35,6 +59,22 @@ test("claimCliOwnership only writes cli when unclaimed or already cli; never ove
   writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 300 });
   claimCliOwnership(ctx, "/usr/local/bin/pacer", 400);
   expect(readOwner(ctx)).toEqual({ schema: 1, owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 300 });
+});
+
+test("isInsideAppBundle recognizes Contents/Resources and Contents/MacOS paths only", () => {
+  expect(isInsideAppBundle("/Applications/pacer.app/Contents/Resources/pacer")).toBe(true);
+  expect(isInsideAppBundle("/Applications/pacer.app/Contents/MacOS/pacer")).toBe(true);
+  expect(isInsideAppBundle("/usr/local/bin/pacer")).toBe(false);
+  expect(isInsideAppBundle(join(tmpDir(), "pacer.app-backup/pacer"))).toBe(false);
+});
+
+test("claimCliOwnership never claims an executable inside the app bundle, even over an absent or existing cli record", () => {
+  const ctx = fakeCtx();
+  claimCliOwnership(ctx, "/Applications/pacer.app/Contents/Resources/pacer", 100);
+  expect(readOwner(ctx)).toBeNull(); // this happens when the desktop's own bundled CLI runs `service install`
+  writeOwner(ctx, { owner: "cli", executable: "/usr/local/bin/pacer", at: 50 });
+  claimCliOwnership(ctx, "/Applications/pacer.app/Contents/Resources/pacer", 200);
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/usr/local/bin/pacer", at: 50 }); // unchanged
 });
 
 test("ownerRefusal is null without a desktop owner, and refuses a foreign CLI once desktop owns it", () => {

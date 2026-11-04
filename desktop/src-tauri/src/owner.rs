@@ -123,6 +123,22 @@ mod tests {
         assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
     }
 
+    /// A canonical owner.json, byte for byte. test/install-owner.test.ts's
+    /// "a canonical owner.json also readable by the Rust side round-trips through readOwner"
+    /// parses this exact same literal string, so a record either side writes is provably
+    /// readable by the other: `at` especially must stay a plain integer token (no decimal
+    /// point), since this struct declares it `u64`.
+    const CROSS_LANGUAGE_OWNER_FIXTURE: &str =
+        "{\n  \"schema\": 1,\n  \"owner\": \"cli\",\n  \"executable\": \"/usr/local/bin/pacer\",\n  \"at\": 1700000000\n}\n";
+
+    #[test]
+    fn cross_language_fixture_matching_the_typescript_side_parses() {
+        let dir = TempDir::new();
+        fs::write(owner_path(&dir.0), CROSS_LANGUAGE_OWNER_FIXTURE).unwrap();
+        let record = read_owner(&dir.0).unwrap();
+        assert_eq!(record, OwnerRecord { schema: 1, owner: "cli".into(), executable: "/usr/local/bin/pacer".into(), at: 1_700_000_000 });
+    }
+
     #[test]
     fn claim_desktop_ownership_writes_an_unconditional_desktop_record() {
         let dir = TempDir::new();

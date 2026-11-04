@@ -20,11 +20,12 @@ export const COMMANDS: Command[] = [
     run: async (args, ctx) => {
       const o = parseUpdateArgs(args);
       if (typeof o === "string") return { code: 2, out: "", err: o };
+      // A guard against accidental self-upgrade from a delegated task, not an authorization boundary.
+      // Checked before --release-ownership too, exactly like `service install` does.
+      if (!o.check && isExecutorSession(ctx)) return { code: 2, out: "", err: `pacer update: ${UPGRADE_CLI_REFUSAL}` };
       // --release-ownership performs the handback itself; it must run instead of the deference guard below.
       if (o.releaseOwnership) return releaseOwnership(ctx, { force: !!o.force });
       if (o.check && !o.to) return checkUpdateReport(ctx, o.json, { base: o.base });
-      // A guard against accidental self-upgrade from a delegated task, not an authorization boundary.
-      if (!o.check && isExecutorSession(ctx)) return { code: 2, out: "", err: `pacer update: ${UPGRADE_CLI_REFUSAL}` };
       if (!o.check) { const refusal = ownerRefusal(ctx, "update"); if (refusal) return refusal; }
       return runUpdate(o, defaultUpdateDeps(ctx));
     },

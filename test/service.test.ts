@@ -294,12 +294,25 @@ test("the bundled CLI (PACER_BIN matching the recorded desktop executable) is ne
   expect(readOwner(ctx)).toMatchObject({ owner: "desktop", executable: "/opt/pacer" });
 });
 
+test("the desktop's own bundled CLI running `service install` never claims a cli record pointing into the app bundle", async () => {
+  const { ctx, d } = fixture();
+  ctx.env.PACER_BIN = "/Applications/pacer.app/Contents/Resources/pacer";
+  expect(readOwner(ctx)).toBeNull(); // no record at all yet: the bug this guards against has no existing desktop record to defer to
+  const result = await serviceCli(["install"], ctx, { ...d, argv: [ctx.env.PACER_BIN] });
+  expect(result.code).toBe(0);
+  expect(readOwner(ctx)).toBeNull();
+});
+
 test("--release-ownership hands a desktop-owned installation back to this CLI instead of deferring", async () => {
   const { ctx, d } = fixture();
+  // No pre-app backup here: the handback falls back to the already-standalone command at the
+  // conventional link path (never to the PACER_BIN/app-bundle path; see ownership-handback.ts).
+  put(join(ctx.home, ".local/bin/pacer"), "standalone");
   writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
   const result = await serviceCli(["install", "--release-ownership"], ctx, d);
   expect(result.code).toBe(0);
-  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/opt/pacer" });
+  expect(readOwner(ctx)?.owner).toBe("cli");
+  expect(readOwner(ctx)?.executable).toMatch(/\.local\/bin\/pacer$/);
   expect(result.out).toContain("ownership released to this CLI");
 });
 

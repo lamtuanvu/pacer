@@ -28,10 +28,24 @@ export function readOwner(ctx: Pick<Ctx, "pacerHome">): OwnerRecord | null {
   } catch { return null; }
 }
 
-/** Atomic: mode 0600, temp file + rename, same pattern as other pacer state writes. */
+/**
+ * Atomic: mode 0600, temp file + rename, same pattern as other pacer state writes.
+ * `at` is floored to whole unix seconds: the Rust reader declares it `u64`, and serde_json
+ * refuses a JSON number with a decimal point there (a float silently makes the record
+ * unreadable by the desktop, which must still interoperate with it).
+ */
 export function writeOwner(ctx: Pick<Ctx, "pacerHome">, record: Omit<OwnerRecord, "schema">): void {
-  const full: OwnerRecord = { schema: 1, ...record };
+  const full: OwnerRecord = { schema: 1, ...record, at: Math.floor(record.at) };
   writeInstallFile(ownerPath(ctx), JSON.stringify(full, null, 2) + "\n", 0o600);
+}
+
+function canonical(path: string): string {
+  try { return realpathSync(path); } catch { return resolve(path); }
+}
+
+/** True when `path` resolves into some `*.app/Contents/...` bundle. */
+export function isInsideAppBundle(path: string): boolean {
+  return /\.app\/Contents\//.test(canonical(path));
 }
 
 /**
@@ -40,15 +54,18 @@ export function writeOwner(ctx: Pick<Ctx, "pacerHome">, record: Omit<OwnerRecord
  * it: an absent record, or one that already says "cli". A desktop-owned record is never
  * overwritten here; that would silently take back an installation the user's own consent
  * handed to the app. Use `--release-ownership` for that.
+ *
+ * Never claims an executable inside a `.app` bundle: that happens when the desktop's own
+ * bundled CLI runs `service install` on its own behalf (its front door sets `PACER_BIN` to
+ * its own canonical, in-bundle path), or when the user runs the command through the app's
+ * `~/.local/bin/pacer` link. A "cli" record pointing into the app bundle is never correct;
+ * the app is the real owner in that case, whatever the current record says.
  */
 export function claimCliOwnership(ctx: Pick<Ctx, "pacerHome">, executable: string, at: number): void {
+  if (isInsideAppBundle(executable)) return;
   const current = readOwner(ctx);
   if (current && current.owner !== "cli") return;
   writeOwner(ctx, { owner: "cli", executable, at });
-}
-
-function canonical(path: string): string {
-  try { return realpathSync(path); } catch { return resolve(path); }
 }
 
 /**
