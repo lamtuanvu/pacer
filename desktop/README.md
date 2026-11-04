@@ -62,11 +62,18 @@ Stage the CLI before either Cargo tests or a Tauri build. With no argument,
 an executable, run `./scripts/stage-cli.sh /path/to/pacer`. It copies the CLI
 with mode 0755 to `src-tauri/binaries/pacer-<Rust host triple>`; cross builds
 must supply a binary for their target and set `TAURI_TARGET_TRIPLE` accordingly.
-Tauri places it at `pacer.app/Contents/MacOS/pacer` without the triple suffix.
-Check the packaged CLI without opening the app:
+
+`pacer.app/Contents/MacOS/pacer` is the **desktop executable**, not the CLI.
+Never copy or link it as the `pacer` command: it has no CLI mode, so it only
+forwards a command to its bundle's CLI, or fails if it has none. Release staging
+(`scripts/release/desktop.ts`) places the verified CLI at
+`pacer.app/Contents/Resources/pacer`, with `pacer-core` beside it. That is the
+only file the `~/.local/bin/pacer` link may point to. Check a staged app without
+opening it. The CLI prints `pacer <version>`; the desktop executable prints the
+bare version:
 
 ```sh
-src-tauri/target/release/bundle/macos/pacer.app/Contents/MacOS/pacer --version
+pacer.app/Contents/Resources/pacer --version
 ```
 
 If local Bun is older, use `npx -y bun@1.4.2` for Bun commands. The staging
@@ -89,7 +96,8 @@ desktop versions show **Not checked** rather than claiming they are current.
 Replace the installed `pacer.app` bundle with the new build at the same path.
 The running app checks every 30 seconds for a missing executable or a change to
 its executable modification time or `CFBundleVersion`. It requests a graceful
-Tauri exit and schedules an `open -n <bundle>` helper from the exit event. The helper waits for the old process to exit before launching
+Tauri exit and schedules an `open -n -g <bundle>` helper from the exit event, so
+the relaunch never takes focus. The helper waits for the old process to exit before launching
 the replacement bundle.
 The main window keeps its visibility and route; the tray reconnects to the
 service and restores its current status. Replacing or updating the app also replaces its bundled CLI.

@@ -41,9 +41,33 @@ pub(crate) fn bundled_binary() -> Option<PathBuf> {
     }
 }
 
+/// Discovery runs on every onboarding pass; scan each executable only when it changes.
+fn desktop_executable(path: &Path) -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    type Seen = HashMap<PathBuf, (u64, Option<std::time::SystemTime>, bool)>;
+    static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
+    let Ok(metadata) = path.metadata() else {
+        return false;
+    };
+    let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let stamp = (metadata.len(), metadata.modified().ok());
+    let seen = SEEN.get_or_init(Default::default);
+    if let Some(&(len, modified, desktop)) = seen.lock().unwrap().get(&key) {
+        if (len, modified) == stamp {
+            return desktop;
+        }
+    }
+    let desktop = pacer_desktop::packaging::is_desktop_executable(&key);
+    seen.lock().unwrap().insert(key, (stamp.0, stamp.1, desktop));
+    desktop
+}
+
 fn external_binary(path: &str, home: &Path, bundled: Option<&Path>) -> Option<PathBuf> {
     logic::candidates(path, home).into_iter().find(|candidate| {
         executable(candidate)
+            // A desktop executable on PATH is never a CLI: running it boots another GUI.
+            && !desktop_executable(candidate)
             && bundled.is_none_or(|bundled| {
                 !same_path(candidate, bundled)
                     && !(candidate == &link::link_path(home)
@@ -2401,6 +2425,25 @@ mod tests {
         assert_eq!(previous["keep"], true);
         assert_eq!(current["keep"], false);
         assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn external_discovery_skips_a_desktop_executable_copied_onto_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let local = dir.0.join(".local/bin");
+        let brew = dir.0.join("brew");
+        std::fs::create_dir_all(&local).unwrap();
+        std::fs::create_dir(&brew).unwrap();
+        let mut gui = b"gui ".to_vec();
+        gui.extend_from_slice(&pacer_desktop::packaging::DESKTOP_EXECUTABLE_MARKER);
+        std::fs::write(local.join("pacer"), gui).unwrap();
+        std::fs::write(brew.join("pacer"), "cli").unwrap();
+        for path in [local.join("pacer"), brew.join("pacer")] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let path = format!("{}:{}", local.display(), brew.display());
+        assert_eq!(external_binary(&path, &dir.0, None), Some(brew.join("pacer")));
     }
 
     #[test]

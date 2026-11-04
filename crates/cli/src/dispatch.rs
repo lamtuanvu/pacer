@@ -122,6 +122,7 @@ fn component_descriptor(version: &str) -> serde_json::Value {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod component_descriptor_tests {
     #[test]
     fn descriptor_has_independent_build_identity_and_no_hashes() {
