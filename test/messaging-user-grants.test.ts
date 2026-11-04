@@ -20,7 +20,8 @@ import type { TaskRecord } from "../src/tasks/types";
 function setup(extra = "", git = false) {
   const ctx = fakeCtx({ now: Date.now() / 1000, ...(git ? { run: realRun } : {}) });
   mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n${extra}`);
+  // Strict control is certified only for headless launches (#643 made interactive the default).
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `${/^execution:/m.test(extra) ? "" : "execution: {launch_mode: headless}\n"}planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n${extra}`);
   return { ctx, repo: git ? gitRepo() : tmpDir() };
 }
 
