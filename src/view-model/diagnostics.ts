@@ -92,6 +92,12 @@ export function diagnosticSummary(check: Pick<Check, 'name' | 'detail' | 'level'
   if (/^(Install|Skill) /.test(name)) return level === 'ok'
     ? 'Managed integration files are intact. This does not verify a live agent session.'
     : 'Managed integration files are missing or changed.';
+  // Freshness details are usually plain sentences; only a raw state dump needs a summary.
+  if (name.startsWith('Integration freshness ') && /installed: (true|false)/.test(detail)) return level === 'ok'
+    ? 'Installed integration files match this version of Pacer.'
+    : /installed: false/.test(detail)
+      ? 'The integration is not installed.'
+      : 'The installed integration files are out of date or changed.';
   if (name === 'Claude config folder' && /Selected account settings:/.test(detail)) return level === 'warn'
     ? 'The service’s account folder differs from the selected planner account.'
     : 'The selected account folder was found. A planner session may use different settings.';

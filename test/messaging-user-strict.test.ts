@@ -19,7 +19,8 @@ import type { TaskRecord } from "../src/tasks/types";
 function setup(strategy = "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n", git = false) {
   const ctx = fakeCtx({ now: Date.now() / 1000, ...(git ? { run: realRun } : {}) });
   mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), strategy);
+  // Strict control is certified only for headless launches (#643 made interactive the default).
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), /^execution:/m.test(strategy) ? strategy : `execution: {launch_mode: headless}\n${strategy}`);
   return { ctx, repo: git ? gitRepo() : tmpDir() };
 }
 /** Installs a fake claude binary; `certified` also stores a passing native-control certificate for `repo`. */

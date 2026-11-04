@@ -12,7 +12,8 @@ import * as store from "../src/messaging/store";
 function finished() {
   const ctx = fakeCtx({ env: { CLAUDECODE: "1" } });
   mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\n");
+  // Message turns follow the launch mode (#643); resume turns are headless.
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "execution: {launch_mode: headless}\nplanner: claude-code\nproviders: {claude-code: {}, codex: {}}\n");
   const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   updateTask(ctx, t.id, x => {
     x.origin = "external:claude-code"; x.state = "done";

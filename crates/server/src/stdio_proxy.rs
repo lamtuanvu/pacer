@@ -12,9 +12,61 @@ use tokio::{
 };
 
 /// Generated from the TypeScript hello bodies; the parity test catches drift.
-fn hello_body(version: u8) -> io::Result<Value> {
+/// The v3 body's `coreBuild` describes the running core, so it is never in the
+/// generated file: it comes from the core itself, once per connection.
+fn hello_body(version: u8, core_build: Option<&Value>) -> io::Result<Value> {
     let bodies: Value = serde_json::from_str(include_str!("stdio_hello.json"))?;
-    Ok(bodies[if version == 3 { "v3" } else { "v2" }].clone())
+    let mut body = bodies[if version == 3 { "v3" } else { "v2" }].clone();
+    if version == 3
+        && let (Some(build), Value::Object(fields)) = (core_build, &mut body)
+    {
+        let mut ordered = serde_json::Map::new();
+        ordered.insert("coreBuild".into(), build.clone());
+        ordered.extend(std::mem::take(fields));
+        *fields = ordered;
+    }
+    Ok(body)
+}
+
+/// The core's build descriptor, read with `--pacer-component-descriptor` on first use.
+struct CoreBuild<'a> {
+    /// The core answers hello itself (scoped work or a forwarding override).
+    forward_hello: bool,
+    program: &'a str,
+    prefix: &'a [String],
+    env: &'a HashMap<String, String>,
+    value: tokio::sync::OnceCell<Option<Value>>,
+}
+impl CoreBuild<'_> {
+    async fn get(&self) -> Option<&Value> {
+        self.value
+            .get_or_init(|| async {
+                // A hung core must not hold hello and every request behind it.
+                let output = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    Command::new(self.program)
+                        .args(self.prefix)
+                        .arg("--pacer-component-descriptor")
+                        .envs(self.env)
+                        .stdin(Stdio::null())
+                        .stderr(Stdio::inherit())
+                        .kill_on_drop(true)
+                        .output(),
+                )
+                .await;
+                match output {
+                    Ok(Ok(output)) if output.status.success() => {
+                        serde_json::from_slice::<Value>(&output.stdout).ok()
+                    }
+                    _ => {
+                        eprintln!("pacer: core build descriptor unavailable");
+                        None
+                    }
+                }
+            })
+            .await
+            .as_ref()
+    }
 }
 
 fn hello_version(params: Option<&Value>) -> Result<u8, &'static str> {
@@ -48,8 +100,8 @@ async fn forward_input<
     out: &Mutex<O>,
     ctx: &Ctx,
     registry: &Registry<'_>,
-    forward_hello: bool,
     sync: (&str, &str, &mut tokio::sync::mpsc::UnboundedReceiver<Value>),
+    core_build: &CoreBuild<'_>,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -72,7 +124,7 @@ async fn forward_input<
             && valid
             && let Some(request) = request.as_ref()
         {
-            if forward_hello {
+            if core_build.forward_hello {
                 if let Ok(version) = hello_version(request.get("params")) {
                     protocol = version;
                 }
@@ -94,8 +146,13 @@ async fn forward_input<
                         if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                             eprintln!("native hello {id}");
                         }
+                        let build = if version == 3 {
+                            core_build.get().await
+                        } else {
+                            None
+                        };
                         let response =
-                            json!({"jsonrpc":"2.0", "id":id, "result":hello_body(version)?});
+                            json!({"jsonrpc":"2.0", "id":id, "result":hello_body(version, build)?});
                         let mut bytes = serde_json::to_vec(&response)?;
                         bytes.push(b'\n');
                         write_line(out, &bytes).await?;
@@ -220,10 +277,17 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     let sync_id = hex::encode(rand::random::<[u8; 32]>());
     let sync_key = hex::encode(rand::random::<[u8; 32]>());
     let (sync_tx, mut sync_rx) = tokio::sync::mpsc::unbounded_channel();
+    let core_build = CoreBuild {
+        forward_hello,
+        program,
+        prefix,
+        env: &env,
+        value: tokio::sync::OnceCell::new(),
+    };
     let mut child = Command::new(program)
         .args(prefix)
         .args(["api", "--stdio"])
-        .envs(env)
+        .envs(&env)
         .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -246,8 +310,8 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         &out,
         &ctx,
         &registry,
-        forward_hello,
         (&sync_id, &sync_key, &mut sync_rx),
+        &core_build,
     );
     let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx);
     tokio::pin!(incoming, outgoing);
