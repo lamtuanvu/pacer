@@ -1,8 +1,10 @@
-import { Page } from '../../app/src/ds/Page';
+import { AppFrame } from '../../app/src/shell/AppFrame';
+import { SettingsGeneral } from '../../app/src/screens/settings/General';
+import { SettingsPanel } from '../../app/src/shell/SettingsPanel';
+import { TopBar } from '../../app/src/shell/TopBar';
 import { DensityContext } from '../../app/src/ds/Density';
 import { NotificationProvider } from '../../app/src/data/notification-context';
 import { render } from 'preact';
-import { DiagnosticsSection } from '../../app/src/screens/settings/Diagnostics';
 import { TaskContext } from '../../app/src/screens/task-shared';
 import { ActionContext } from '../../app/src/data/action-context';
 import { createActionRunner } from '../../app/src/data/actions';
@@ -17,4 +19,4 @@ const call: BrowserApi['call'] = async <T,>(op: string, params: unknown) => {
 };
 const api = {call} as BrowserApi;
 const runner = createActionRunner({call,waitFor:async()=>true,refetch:()=>{},navigate:hash=>{location.hash=hash;}});
-render(<TaskContext.Provider value={{state:initialState(),api}}><ActionContext.Provider value={runner}><NotificationProvider><DensityContext.Provider value="settings"><Page width="full" className="u3-settings"><DiagnosticsSection/></Page></DensityContext.Provider></NotificationProvider></ActionContext.Provider></TaskContext.Provider>, document.getElementById('root')!);
+render(<TaskContext.Provider value={{state:initialState(),api}}><ActionContext.Provider value={runner}><NotificationProvider><DensityContext.Provider value="settings"><AppFrame narrow={false} mainClass="pc-main pc-main--canvas" top={<TopBar title="Diagnostics" pageTitle={false} connected planner={null} mode="" lastUpdate={null} onDelegate={()=>{}}/>} left={<SettingsPanel route={{name:'settings',section:'diagnostics',query:{repo:null,scope:null}} as any} counts={null}/>} main={<SettingsGeneral section="diagnostics"/>}/></DensityContext.Provider></NotificationProvider></ActionContext.Provider></TaskContext.Provider>, document.getElementById('root')!);

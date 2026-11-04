@@ -124,7 +124,7 @@ No paid icon package, remote fonts, analytics, email capture, demo application, 
 | Dispatch / Needs you | TaskCard rows with Take over and Stop beside the title, shared rows for items without a task, StackedShareBar, UsageMeter, empty states, filters and canonical links | Screen section placement, the at-a-glance grid, counts, scope selection, API actions and the `src/view-model/dispatch.ts` descriptors. |
 | Review/detail | Selectable queue/file rows, ApprovalCard, Field/input/ChoicePicker/disclosure, asynchronous state | Bulk selection and verdict workflows, semantic definition lists, specialized Diff renderer and horizontal code scrolling. |
 | Sessions/detail | ListRow, canonical replay target, Tabs, controls, loading/empty states | Controller/resource fetching, session/PTY lifecycle, timeline, terminal/diff rendering and command copy. Unsupported attach targets are omitted; refused takeover retains visible service reason. |
-| Settings/hosts/Add Executor/Diagnostics | Canonical form controls/Field, switch, range, SegmentedControl, ChoiceCard, pc-card, TextRow | Settings grid, semantic tables (including mobile data labels), wizard progress and API-bound operations. Host and executor domain decisions remain local. Diagnostics binds doctor.run to canonical Button, Pill and Disclosure; idle/running/error states are announced, reruns wait for completion, and technical evidence/repair guidance stays collapsed. |
+| Settings/hosts/Add Executor/Diagnostics | Canonical form controls/Field, switch, range, SegmentedControl, ChoiceCard, pc-card, TextRow | Settings grid, semantic tables (including mobile data labels), wizard progress and API-bound operations. Host and executor domain decisions remain local. Diagnostics binds doctor.run to canonical Button, Pill and Disclosure; idle/running/error states are announced, reruns wait for completion, and technical evidence stays collapsed while attention guidance is visible. |
 | Setup/delegate/dialogs | Button/ButtonLink/TextAction, Field/ChoicePicker/native text controls, Dialog and Disclosure | Consent, setup checklist, draft/validation and delegation data. |
 | Shell | Canonical actions/links and DS density, loading status; TrafficLights native controls | Desktop: a 44px top bar (card background; 10px right and 8px left padding, 84px left in the native shell, which reserves the window controls' room, so the in-flow traffic-light placeholder is hidden there) holding the pacer mark (home link), a visually hidden page `h1` (UI-9), a centre slot for the command search (empty until it ships, 420px max 40vw), the 28px planner chip (agent mark, name, mode `Pill`; no budget figure), a "Layout" group of 32px toggle buttons between dividers (left panel, terminal panel, right panel; each rendered only where it has something to toggle, `aria-pressed` shows its state) and a secondary compact Delegate; a sticky 52px activity bar (8px/0 padding, 4px gap) with 40px links, a 2×20 `--ink` indicator at -6px on the current item, 16px `--bad-fill` count badges (10px/700 text) named in words ("Needs you, 3 items"), and a divider before Settings whose 8px attention dot (2px card border) names its count ("Settings, 2 agents need attention"). `--frame-top` and `--frame-status` hold the bar heights for sticky offsets. Native controls appear only in Tauri; title and empty header space support native dragging. Narrow screens retain the touch header and bottom navigation; coarse pointers retain touch targets. Settings keeps secondary navigation in a collapsible left `SidePanel`; `AppFrame` owns the regions, including the optional terminal dock. Landmarks, current-route labels, tooltips, skip-link route focus and keyboard focus remain available. |
 
@@ -368,19 +368,25 @@ badge's 700 and radius-full (999px) for 99px pills (both fully round).
 
 ### Diagnostics board
 
-`DiagnosticRow({title, caption, glyph, tone, status, action, open, children})` composes
-the canonical native Disclosure with a 20px status glyph and report detail.
-Tones are good, warn, bad and neutral; warn/bad rows use the corresponding tint.
-Actions are siblings of the disclosure, so keyboard users can toggle the row
-and activate repair/setup independently. Native Enter/Space disclosure semantics
-and DS focus rings remain; failures initially open. Its output uses mono text.
-The Diagnostics consumer owns report state and all operations; DS receives props
-only. The four-cell totals use 26px glyphs, 18/22px numbers and 12/16px captions.
-The bounded Diagnostics canvas uses 28/40/48px padding, an 18px gap and a
-1080px maximum width (three size-360 tokens). Narrow layouts use 16px gutters,
-two totals columns and actions below the disclosure. Weight 650 substitutes for
-the board's 700; radius-full substitutes for 99px circles. This is original code
-with no upstream adaptation. Native validation retains its existing controls.
+`DiagnosticRow({title, caption, glyph, tone, status, action, nextStep, open, children})`
+keeps the cause and optional next step visible. A labelled, initially collapsed
+**Technical details** disclosure contains original service output and exact recovery
+instructions in horizontally scrollable mono text. Actions remain siblings of the
+row body, with no interactive targets inside a summary. Status labels accompany
+the glyphs; no per-check duration is invented when the service supplies none.
+
+Diagnostics composes existing SegmentedControl, SearchInput and DisclosurePanel
+controls. It starts with warnings and failures; All, Failed, Passed, Not checked
+and Information filters retain distinct evidence states. Search matches titles,
+categories, summaries and original evidence. Categories show matching counts and
+can collapse independently; failures precede warnings. An empty match explains
+how to change the filter. Full report copying includes the original evidence.
+The four-cell summary and responsive rows use existing tokens and settings density.
+The shared Page owns padding and AppFrame's work area owns scrolling, keeping
+Settings navigation outside that scroll area. Native window controls and the
+shared titlebar retain their drag region. The empty progress announcement remains
+accessible without allocating an extra visible gap. Original code; no new upstream
+adaptation or dependency. Native validation retains its existing controls.
 
 ### Overview and App preferences boards
 
