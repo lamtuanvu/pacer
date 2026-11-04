@@ -146,7 +146,8 @@ async fn forward_input<
                         } else {
                             None
                         };
-                        let response = json!({"jsonrpc":"2.0", "id":id, "result":hello_body(version, build)?});
+                        let response =
+                            json!({"jsonrpc":"2.0", "id":id, "result":hello_body(version, build)?});
                         let mut bytes = serde_json::to_vec(&response)?;
                         bytes.push(b'\n');
                         write_line(out, &bytes).await?;
