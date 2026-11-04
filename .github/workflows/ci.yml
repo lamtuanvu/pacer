@@ -89,13 +89,22 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lockb') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Check UI review evidence
         run: bun run ui:check --evidence-only
 
   test:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.os }}, shard ${{ matrix.shard }})
     needs: [changes, ui-evidence, release-readiness]
     # Run code validation even when manual review evidence is incomplete.
     if: ${{ always() }}
@@ -108,6 +117,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        shard: [0, 1, 2, 3]
     steps:
       - name: Check out repository
         if: ${{ env.RUN_CHECKS == 'true' }}
@@ -122,13 +132,23 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      - name: Cache Bun dependencies
+        if: ${{ env.RUN_CHECKS == 'true' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lockb') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
       # The conformance suite builds the Rust fixture plugin.
       - name: Set up Rust
-        if: ${{ env.RUN_CHECKS == 'true' }}
+        if: ${{ env.RUN_CHECKS == 'true' && (needs.changes.outputs.rust == 'true' || needs.changes.outputs.full == 'true') }}
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: 1.99.0
-      - name: Cache
+      - name: Cache Rust
         if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install dependencies
@@ -138,7 +158,7 @@ jobs:
         if: ${{ env.RUN_CHECKS == 'true' }}
         run: bun run ui:check --source-only
       - name: Typecheck
-        if: ${{ env.RUN_CHECKS == 'true' }}
+        if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}
         run: bun run typecheck
       - name: Build the Rust fixture plugin
         if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}
@@ -169,21 +189,23 @@ jobs:
           echo "$RUNNER_TEMP/pacer-cross/bin" >> "$GITHUB_PATH"
       # The frozen playwright-core dependency pins the matching Chromium revision.
       - name: Install locked Chromium test browser
-        if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}
+        if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.e2e == 'true' }}
         run: |
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
-      - name: Test
+      - name: Test (full suite, sharded)
         if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}
         env:
           PACER_SQLITE_PROOF_BIN: ${{ github.workspace }}/target/debug/pacer-sqlite-proof
           PACER_STORE_PROBE_BIN: ${{ github.workspace }}/target/debug/task_store_probe
-        run: bun run test
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_COUNT: 4
+        run: bun run test:sharded
       - name: Focused tests
-        if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'false' }}
+        if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'false' && matrix.shard == 0 && matrix.os == 'ubuntu-latest' }}
         env:
           FOCUSED_TESTS: ${{ needs.changes.outputs.focused_tests }}
-        run: python3 -c 'import json, os, subprocess; subprocess.run(["bun", "run", "test", *json.loads(os.environ["FOCUSED_TESTS"])], check=True)'
+        run: python3 -c 'import json, os, subprocess; subprocess.run(["bun", "run", "test", "--jobs=4", *json.loads(os.environ["FOCUSED_TESTS"])], check=True)'
       - name: Build
         if: ${{ env.RUN_CHECKS == 'true' }}
         run: bun run build
@@ -226,6 +248,15 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lockb') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Install browsers
@@ -256,6 +287,15 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lockb') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Build CLI
@@ -314,13 +354,22 @@ jobs:
         with:
           toolchain: 1.99.0
           components: rustfmt, clippy
-      - name: Cache
+      - name: Cache Rust
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Integration tests run the TypeScript core behind the Rust front door.
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lockb') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Format
