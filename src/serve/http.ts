@@ -13,6 +13,7 @@ import type { PairedNativeBootstrap } from "../update/desktop/native-paired-boot
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
 import { superviseTasks } from "../tasks/api";
+import type { SpawnRunner } from "../tasks/api";
 import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
@@ -329,6 +330,28 @@ export function startServer(
       .finally(() => { supervising = false; });
   };
   const supervisorTimer = setInterval(supervise, 5000);
+  let worker: Worker | undefined;
+  const startSupervisionWorker = () => {
+    if (worker || stopped) return;
+    try {
+      worker = new Worker(new URL("../tasks/supervision-worker.ts", import.meta.url), { type: "module" });
+      worker.postMessage({
+        type: "init",
+        pacerHome: initialCtx.pacerHome,
+        env: initialCtx.env,
+      });
+      worker.onerror = (err) => {
+        if (!stopped) console.error(`pacer: supervision worker error: ${err.message}`);
+      };
+      worker.onmessageerror = (err) => {
+        if (!stopped) console.error(`pacer: supervision worker message error: ${String(err)}`);
+      };
+    } catch (error) {
+      if (!stopped) console.error(`pacer: failed to start supervision worker: ${String(error)}`);
+      worker = undefined;
+    }
+  };
+  startSupervisionWorker();
   let certifying = false;
   const certify = () => {
     if (stopped || certifying) return;
@@ -382,6 +405,7 @@ export function startServer(
     clearInterval(observationTimer);
     clearInterval(terminalTimer);
     clearTimeout(scheduled);
+    worker?.terminate();
     for (const watcher of watchers) watcher.close();
     server.stop(true);
     return Promise.all([history.stop(), shutdownPlugins(initialCtx)]).then(() => {});

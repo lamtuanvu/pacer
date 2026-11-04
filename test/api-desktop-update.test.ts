@@ -30,6 +30,7 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
   const native: NativeAuthorityProvider = { sessions:()=>visible?[session]:[], subscribe:()=>()=>{}, reverify:async()=>{if(!alive)throw Error("gone");},
     authorizeInstall:async()=>options.authorize ? options.authorize : true,
     verifyOutcome:async(_s,_r,outcome)=>({ installation:{ ...installation, version:outcome==="committed"?candidate.version:installation.version }, attempted:options.attempted??true }),
+    broadcastEvent: async () => {},
   };
   const factory: VerifiedPipeFactory = { capabilities:new Set(["check","download","install","recover"]), async open() {
     let out!:ReadableStreamDefaultController<Uint8Array>, command:AdapterCommand, seq=0;
@@ -492,7 +493,7 @@ test("old installation request replays its committed adoption after service rest
  const request={installationId:"desktop",requestId:"original-adopt",expectRevision:readUpdate(f.ctx,"desktop").revision};
  const source={target:f.session.installation,nativeSessionId:f.session.sessionId,desktopClientId:f.session.desktopClientId,bootId:f.session.bootId,desktop:f.session.desktop,service:f.session.service,serviceVersion:"1.0.0",oldServiceExecutable:"/opt/pacer",newServiceExecutable:f.session.installation.appPath+"/Contents/Resources/pacer"};
  let value=beginAdoption(f.ctx,request,source);value=transitionAdoption(f.ctx,"desktop",value.revision,"reserved");value=transitionAdoption(f.ctx,"desktop",value.revision,"verifying");transitionAdoption(f.ctx,"desktop",value.revision,"committed",{resultingInstallationId:"managed-installation"});f.unbind();
- const runtime=createDesktopUpdateRuntime(()=>f.ctx,{native:{sessions:()=>[],subscribe:()=>()=>{},reverify:async()=>{throw Error("no old native authority");}},schedule:()=>()=>{},publish:async()=>{}});const unbind=bindDesktopUpdateRuntime(f.ctx,runtime);cleanups.push(unbind,runtime.stop);await runtime.start();
+ const runtime=createDesktopUpdateRuntime(()=>f.ctx,{native:{sessions:()=>[],subscribe:()=>()=>{},reverify:async()=>{throw Error("no old native authority");},broadcastEvent:async()=>{}},schedule:()=>()=>{},publish:async()=>{}});const unbind=bindDesktopUpdateRuntime(f.ctx,runtime);cleanups.push(unbind,runtime.stop);await runtime.start();
  const result=await callOp(f.ctx,"desktop.update.adopt",request) as ReturnType<typeof runtime.status>;expect(result.adoption).toMatchObject({phase:"committed",previousInstallationId:"desktop",resultingInstallationId:"managed-installation"});expect(runtime.listStatuses()).toHaveLength(1);
  await expect(callOp(f.ctx,"desktop.update.adopt",{...request,requestId:"new-permission"})).rejects.toMatchObject({code:"not_allowed"});
 });

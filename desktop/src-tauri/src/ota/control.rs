@@ -897,6 +897,80 @@ pub struct ControlSession {
     pub service_version: String,
     pub installation: Option<super::wire::Installation>,
 }
+/// App protocol frames for native socket (feature = "native-socket")
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppOpRequest {
+    pub schema: u32,
+    pub kind: String, // "op"
+    pub session_id: String,
+    pub sequence: u64,
+    pub op: String,
+    pub params: serde_json::Value,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppOpResult {
+    pub schema: u32,
+    pub kind: String, // "op-result"
+    pub sequence: u64,
+    pub result: serde_json::Value,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppSnapshotRequest {
+    pub schema: u32,
+    pub kind: String, // "snapshot"
+    pub session_id: String,
+    pub sequence: u64,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppSnapshotResponse {
+    pub schema: u32,
+    pub kind: String, // "snapshot"
+    pub sequence: u64,
+    pub snapshot: serde_json::Value,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppSubscribeEventsRequest {
+    pub schema: u32,
+    pub kind: String, // "subscribe-events"
+    pub session_id: String,
+    pub sequence: u64,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppSubscribedResponse {
+    pub schema: u32,
+    pub kind: String, // "subscribed"
+    pub sequence: u64,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppHeartbeatRequest {
+    pub schema: u32,
+    pub kind: String, // "heartbeat"
+    pub session_id: String,
+    pub sequence: u64,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppAliveResponse {
+    pub schema: u32,
+    pub kind: String, // "alive"
+    pub sequence: u64,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppEventFrame {
+    pub schema: u32,
+    pub kind: String, // "event"
+    pub event: String,
+    pub data: serde_json::Value,
+    pub id: u64,
+}
 /// Canonical executable is independently obtained from the verified registration,
 /// never chosen by a wire peer or inferred from the port/health response.
 pub struct ServiceEndpoint<'a> {
@@ -1497,7 +1571,7 @@ impl NativeConnection {
                             effect(exit_receipt.as_ref().unwrap().1);
                             return Ok(());
                         }
-                        Some("alive" | "ready") => {
+                        Some("alive" | "ready" | "op-result" | "snapshot" | "subscribed") => {
                             let sequence = value
                                 .get("sequence")
                                 .and_then(serde_json::Value::as_u64)
@@ -1514,6 +1588,9 @@ impl NativeConnection {
                             {
                                 return Err(OtaError::Identity);
                             }
+                        }
+                        Some("event") => {
+                            // Event frames are delivered via read_app_frame; ignore here.
                         }
                         Some("adoption-reconnect") => {
                             #[derive(Deserialize)]
@@ -1756,6 +1833,105 @@ impl NativeConnection {
         if let Ok(writer) = self.writer.lock() {
             let _ = writer.stream.shutdown(std::net::Shutdown::Both);
         }
+    }
+    /// Send an op request and wait for the result.
+    pub fn send_op(&self, op: &str, params: serde_json::Value) -> Result<serde_json::Value, OtaError> {
+        if !self.alive() {
+            return Err(OtaError::Unavailable);
+        }
+        let mut writer = self.writer.lock().map_err(|_| OtaError::Invalid)?;
+        writer.sequence = writer.sequence.checked_add(1).ok_or(OtaError::Invalid)?;
+        let sequence = writer.sequence;
+        let request = AppOpRequest {
+            schema: 1,
+            kind: "op".into(),
+            session_id: self.session.session_id.clone(),
+            sequence,
+            op: op.into(),
+            params,
+        };
+        write_frame(&mut writer.stream, &request)?;
+        // Read response
+        let response: AppOpResult = read_frame(&mut writer.stream)?;
+        if response.schema != 1 || response.kind != "op-result" || response.sequence != sequence {
+            return Err(OtaError::Identity);
+        }
+        Ok(response.result)
+    }
+    /// Send a snapshot request and wait for the snapshot.
+    pub fn send_snapshot(&self) -> Result<serde_json::Value, OtaError> {
+        if !self.alive() {
+            return Err(OtaError::Unavailable);
+        }
+        let mut writer = self.writer.lock().map_err(|_| OtaError::Invalid)?;
+        writer.sequence = writer.sequence.checked_add(1).ok_or(OtaError::Invalid)?;
+        let sequence = writer.sequence;
+        let request = AppSnapshotRequest {
+            schema: 1,
+            kind: "snapshot".into(),
+            session_id: self.session.session_id.clone(),
+            sequence,
+        };
+        write_frame(&mut writer.stream, &request)?;
+        let response: AppSnapshotResponse = read_frame(&mut writer.stream)?;
+        if response.schema != 1 || response.kind != "snapshot" || response.sequence != sequence {
+            return Err(OtaError::Identity);
+        }
+        Ok(response.snapshot)
+    }
+    /// Subscribe to event push.
+    pub fn subscribe_events(&self) -> Result<(), OtaError> {
+        if !self.alive() {
+            return Err(OtaError::Unavailable);
+        }
+        let mut writer = self.writer.lock().map_err(|_| OtaError::Invalid)?;
+        writer.sequence = writer.sequence.checked_add(1).ok_or(OtaError::Invalid)?;
+        let sequence = writer.sequence;
+        let request = AppSubscribeEventsRequest {
+            schema: 1,
+            kind: "subscribe-events".into(),
+            session_id: self.session.session_id.clone(),
+            sequence,
+        };
+        write_frame(&mut writer.stream, &request)?;
+        let response: AppSubscribedResponse = read_frame(&mut writer.stream)?;
+        if response.schema != 1 || response.kind != "subscribed" || response.sequence != sequence {
+            return Err(OtaError::Identity);
+        }
+        Ok(())
+    }
+    /// Send a heartbeat and wait for alive response.
+    pub fn send_heartbeat(&self) -> Result<(), OtaError> {
+        if !self.alive() {
+            return Err(OtaError::Unavailable);
+        }
+        let mut writer = self.writer.lock().map_err(|_| OtaError::Invalid)?;
+        writer.sequence = writer.sequence.checked_add(1).ok_or(OtaError::Invalid)?;
+        let sequence = writer.sequence;
+        let request = AppHeartbeatRequest {
+            schema: 1,
+            kind: "heartbeat".into(),
+            session_id: self.session.session_id.clone(),
+            sequence,
+        };
+        write_frame(&mut writer.stream, &request)?;
+        let response: AppAliveResponse = read_frame(&mut writer.stream)?;
+        if response.schema != 1 || response.kind != "alive" || response.sequence != sequence {
+            return Err(OtaError::Identity);
+        }
+        Ok(())
+    }
+    /// Read the next app frame (for event stream).
+    pub fn read_app_frame(&self) -> Result<AppEventFrame, OtaError> {
+        if !self.alive() {
+            return Err(OtaError::Unavailable);
+        }
+        let mut writer = self.writer.lock().map_err(|_| OtaError::Invalid)?;
+        let frame: AppEventFrame = read_frame(&mut writer.stream)?;
+        if frame.schema != 1 || frame.kind != "event" {
+            return Err(OtaError::Identity);
+        }
+        Ok(frame)
     }
 }
 

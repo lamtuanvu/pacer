@@ -34,6 +34,8 @@ export interface NativeAuthorityProvider extends AdoptionNative {
   authorizeInstall?(session: VerifiedNativeSession, prepared: PreparedFrame): Promise<boolean>;
   /** Positive authenticated readiness/rollback proof; a helper's outcome alone is insufficient. */
   verifyOutcome?(session: VerifiedNativeSession, record: UpdateRecord, outcome: "committed" | "restored" | "recovery-failed"): Promise<{ installation: Installation; attempted: boolean }>;
+  /** Push an event to all subscribed desktop connections over native frames. */
+  broadcastEvent(eventType: string, data: unknown): Promise<void>;
 }
 export interface DesktopUpdateDeps {
   native?: NativeAuthorityProvider;
@@ -64,7 +66,7 @@ export interface DesktopUpdateRuntime {
 const unavailable = () => new CoreError("not_allowed", "Verified desktop update connection is unavailable", "Open a supported desktop connected to this service. Native update registration is required.");
 const conflict = () => new CoreError("conflict", "Desktop update state changed", "Read the current status and retry with a new request ID.");
 const superseded = (error: unknown) => error instanceof CoreError && (error.code === "conflict" || error.code === "not_allowed");
-const unavailableNative: NativeAuthorityProvider = { sessions: () => [], subscribe: () => () => {}, reverify: async () => { throw unavailable(); } };
+const unavailableNative: NativeAuthorityProvider = { sessions: () => [], subscribe: () => () => {}, reverify: async () => { throw unavailable(); }, broadcastEvent: async () => {} };
 const runtimes = new Map<string, DesktopUpdateRuntime>();
 /** Service composition-root hook only. Public operations cannot install a runtime or native provider. */
 export function bindDesktopUpdateRuntime(ctx: Ctx, runtime: DesktopUpdateRuntime): () => void {
