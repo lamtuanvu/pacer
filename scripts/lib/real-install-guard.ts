@@ -66,10 +66,9 @@ function canonicalize(path: string): string {
   return current;
 }
 /**
- * Case-insensitive on darwin, where APFS is case-insensitive by default: an existing component
- * is already case-normalized by canonicalize()'s lstat walk, but a not-yet-created tail (e.g.
- * `/Applications/Pacer.app` before it's created) is still compared lexically, and the real
- * filesystem would treat it as the same entry as the real, differently-cased path regardless.
+ * Case-insensitive on darwin, where APFS is case-insensitive by default: the lstat walk keeps
+ * each component's spelling as given, so `/Applications/Pacer.app` must compare equal to the
+ * real path whether or not it exists yet.
  */
 function isUnderOrEqual(target: string, real: string): boolean {
   if (process.platform === "darwin") { target = target.toLowerCase(); real = real.toLowerCase(); }
