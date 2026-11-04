@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, readlinkSync, realpathSync, renameSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Result } from "../commands/types";
 import { serviceBackend, type ServiceDeps } from "../service";
@@ -85,6 +85,7 @@ function planHandback(ctx: Ctx): HandbackPlan | { refusal: string } {
     return { executable: link, restore: { link, backup }, note: `restored the terminal command from ${backup}` };
   }
   if (backup) {
+    if (!existsSync(link)) return { refusal: `~/.local/bin/pacer is missing; restore it from ${backup} or reinstall the CLI first` };
     return { executable: link, restore: null, note: `found a backup at ${backup}, but ~/.local/bin/pacer is not the app's link; left it in place` };
   }
   const candidates = [link, pacerArgv(ctx.env)[0]];
@@ -157,8 +158,10 @@ export async function releaseOwnership(ctx: Ctx, deps: ReleaseOwnershipDeps = {}
       if (plan.restore && appLink !== null) {
         try {
           renameSync(plan.restore.link, plan.restore.backup);
-          // Recreate the app link under a temp name and rename it in, so the command is never missing.
+          // Recreate the app link under a temp name and rename it in; the command is absent only
+          // between the two renames.
           const temporary = `${plan.restore.link}.${process.pid}.restore`;
+          rmSync(temporary, { force: true });
           symlinkSync(appLink, temporary);
           renameSync(temporary, plan.restore.link);
         } catch (rollback) {
