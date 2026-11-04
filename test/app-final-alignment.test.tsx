@@ -47,6 +47,7 @@ test('diagnostics render plain labels without raw identities, paths, commands or
  const checks=[{name:'Integration freshness codex#personal',level:'fail',detail:'installed: true; healthy: false',fix:'pacer uninstall codex#personal'},{name:'CLI codex#personal',level:'fail',detail:'codex --help failed: fixture'},{name:'Service latency',level:'ok',detail:'/v2/snapshot max 1.7 ms'}] as any;
  const html=renderToString(<DiagnosticResults report={{checkedAt:1,checks}}/>);
  expect(html).toContain('Codex · personal');
+ expect(html).toContain('The installed integration files are out of date or changed.');
  // Raw output is kept only inside the collapsed technical evidence (#652); every visible label is plain.
  const visible=html.replace(/<div class="pc-diagnostic-row__output">[\s\S]*?<\/div>/g,'');
  expect(visible).not.toMatch(/codex#|--help|pacer uninstall|\/v2|installed: true/);

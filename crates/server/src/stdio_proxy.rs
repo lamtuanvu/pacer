@@ -41,17 +41,21 @@ impl CoreBuild<'_> {
     async fn get(&self) -> Option<&Value> {
         self.value
             .get_or_init(|| async {
-                let output = Command::new(self.program)
-                    .args(self.prefix)
-                    .arg("--pacer-component-descriptor")
-                    .envs(self.env)
-                    .stdin(Stdio::null())
-                    .stderr(Stdio::inherit())
-                    .kill_on_drop(true)
-                    .output()
-                    .await;
+                // A hung core must not hold hello and every request behind it.
+                let output = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    Command::new(self.program)
+                        .args(self.prefix)
+                        .arg("--pacer-component-descriptor")
+                        .envs(self.env)
+                        .stdin(Stdio::null())
+                        .stderr(Stdio::inherit())
+                        .kill_on_drop(true)
+                        .output(),
+                )
+                .await;
                 match output {
-                    Ok(output) if output.status.success() => {
+                    Ok(Ok(output)) if output.status.success() => {
                         serde_json::from_slice::<Value>(&output.stdout).ok()
                     }
                     _ => {

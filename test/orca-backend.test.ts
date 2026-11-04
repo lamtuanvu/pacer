@@ -1019,6 +1019,12 @@ test("a second question and answer reattach to the same worker again; pacer send
   const {send} = await import("../src/session/send");
   await expect(send(x.ctx, second.id, "also keep the old flag", {by: "planner"})).rejects.toMatchObject({code: "conflict"});
   expect(sendsOf(x.f.calls, "also keep the old flag")).toHaveLength(0);
+  // Once its question is answered, a running lane accepts pacer send into the same worker.
+  const asked = readTask(x.ctx, second.id)!.question!;
+  updateTask(x.ctx, second.id, t => { t.question = {...asked, answer: "keep it"}; });
+  await send(x.ctx, second.id, "also keep the old flag", {by: "planner"});
+  expect(sendsOf(x.f.calls, "also keep the old flag")).toHaveLength(1);
+  updateTask(x.ctx, second.id, t => { t.question = asked; });
   updateTask(x.ctx, second.id, t => { t.state = "needs_input"; });
   // Round three: answering the second question reattaches to the same worker; no new worker or worktree.
   const third = answerOf(x, readTask(x.ctx, second.id)!, "yes, update it");

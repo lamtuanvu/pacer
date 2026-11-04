@@ -75,6 +75,19 @@ test("remote attempt fixture cleanup reaps its bundled SSH child", async () => {
   }
 });
 
+test("a remote runner on the default launch mode is refused, never silently made headless", async () => {
+  const f = await setup();
+  const path = join(f.ctx.pacerHome, "strategy.yaml");
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  delete raw.execution;
+  writeFileSync(path, JSON.stringify(raw));
+  const { loadStrategy } = await import("../src/config/strategy");
+  const cfg = loadStrategy(f.ctx).providers[f.cfg.id]!;
+  await expect(runAttempt(f.ctx, cfg, f.task)).rejects.toThrow("Remote runners require explicitly configured headless execution");
+  // Refused before any remote contact.
+  expect(existsSync(f.sshLog) ? readFileSync(f.sshLog, "utf8") : "").not.toContain("PREPARE");
+});
+
 test("the prompt reaches the host agent unchanged", async () => {
   const f = await setup();
   const result = await runAttempt(f.ctx, f.cfg, f.task);

@@ -267,4 +267,7 @@ test.skipIf(!canInspectProcesses)("a fake interactive run that asked a question 
   const out = await attempt;
   expect(out.exec.timedOut).toBe(false);
   expect(readRun(dir).alive).toBe(false);
+  // The question the executor asked is still waiting for its answer.
+  expect(readTask(ctx, task.id)?.question).toMatchObject({ text: "Which table?" });
+  expect(readTask(ctx, task.id)?.question?.answer).toBeUndefined();
 }, 30_000);

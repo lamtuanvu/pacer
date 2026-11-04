@@ -322,8 +322,11 @@ export function startServer(
   const cleanStart = setTimeout(sweep, 0);
   const cleanTimer = setInterval(sweep, 60 * 60_000);
   let supervising = false;
+  // One supervisor at a time: while the worker owns supervision this loop stands by,
+  // and it resumes if the worker fails (its guards are per isolate, not shared).
+  let workerSupervises = false;
   const supervise = () => {
-    if (stopped || supervising) return;
+    if (stopped || supervising || workerSupervises) return;
     supervising = true;
     void superviseTasks(getCtx(), opts.opDeps?.spawnRunner, () => stopped)
       .catch(error => { if (!stopped) console.error(`pacer: task supervision failed: ${String(error)}`); })
@@ -345,8 +348,12 @@ export function startServer(
         pacerHome: initialCtx.pacerHome,
         env: initialCtx.env,
       });
+      workerSupervises = true;
       worker.onerror = (err) => {
-        if (!stopped) console.error(`pacer: supervision worker error: ${err.message}`);
+        if (!stopped) console.error(`pacer: supervision worker error: ${err.message}; supervising in process`);
+        workerSupervises = false;
+        worker?.terminate();
+        worker = undefined;
       };
       worker.onmessageerror = (err) => {
         if (!stopped) console.error(`pacer: supervision worker message error: ${String(err)}`);

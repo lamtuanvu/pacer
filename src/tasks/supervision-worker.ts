@@ -8,7 +8,8 @@ interface WorkerMessage {
 }
 
 let stopped = false;
-let ctx: ReturnType<typeof makeCtx> | null = null;
+// Init options only: a context captures `now` once, so each sweep builds a fresh one.
+let init: { env: Record<string, string>; pacerHome: string } | null = null;
 let spawnRunner: ((ctx: ReturnType<typeof makeCtx>, taskId: string) => number | undefined) | null = null;
 
 function stoppedFn(): boolean {
@@ -16,7 +17,7 @@ function stoppedFn(): boolean {
 }
 
 async function runSupervisionLoop(): Promise<void> {
-  if (!ctx || !spawnRunner) return;
+  if (!init || !spawnRunner) return;
 
   while (!stopped) {
     // 10s + jitter(0-2000ms). Sleep first: like the service's own supervisor, never
@@ -27,7 +28,7 @@ async function runSupervisionLoop(): Promise<void> {
     if (stopped) break;
 
     try {
-      await superviseTasks(ctx, spawnRunner, stoppedFn);
+      await superviseTasks(makeCtx(init), spawnRunner, stoppedFn);
     } catch (error) {
       if (!stopped) {
         console.error(`pacer: worker supervision failed: ${String(error)}`);
@@ -39,7 +40,7 @@ async function runSupervisionLoop(): Promise<void> {
 self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const msg = event.data;
   if (msg.type === "init") {
-    ctx = makeCtx({ env: msg.env, pacerHome: msg.pacerHome });
+    init = { env: msg.env, pacerHome: msg.pacerHome };
     const { spawnRunner: defaultSpawn } = await import("./api");
     spawnRunner = defaultSpawn;
     await runSupervisionLoop();
