@@ -14,7 +14,7 @@ test("CI keeps production and test-enabled front doors separate for native dispa
   const build = steps.find(step => step.name === "Build production and native dispatch test front doors");
   expect(build).toBeDefined();
   expect(build!.if).toBe("${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}");
-  expect(steps.indexOf(build!)).toBeLessThan(steps.findIndex(step => step.name === "Test"));
+  expect(steps.indexOf(build!)).toBeLessThan(steps.findIndex(step => step.name === "Test (full suite, sharded)"));
   const lines = build!.run!.trim().split("\n").map(line => line.trim());
   expect(lines.filter(line => line.startsWith("cargo build --locked -p pacer"))).toEqual([
     "cargo build --locked -p pacer",
