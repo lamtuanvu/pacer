@@ -55,8 +55,13 @@ test("restores the newest pre-app backup over the desktop's link and records the
   utimesSync(join(binDir, "pacer.pre-app-20260101T000000Z"), new Date(5_000_000), new Date(5_000_000));
   utimesSync(join(binDir, "pacer.pre-app-20260102T000000Z"), new Date(1_000_000), new Date(1_000_000));
   writeOwner(ctx, { owner: "desktop", executable: join(ctx.home, "pacer.app/Contents/Resources/pacer"), at: 1 });
+  // The service must start the restored command, not the app's: the link is already restored at bootstrap.
+  let atBootstrap = "";
+  const run = ctx.run;
+  ctx.run = async (argv, timeoutMs) => { if (argv[1] === "bootstrap") atBootstrap = readFileSync(link, "utf8"); return run(argv, timeoutMs); };
 
   const result = await releaseOwnership(ctx, { service });
+  expect(atBootstrap).toBe("newer backup");
 
   expect(result.code).toBe(0);
   expect(lstatSync(link).isSymbolicLink()).toBe(false);
@@ -146,7 +151,7 @@ test("refuses while tasks or sessions are running unless --force", async () => {
   expect(readOwner(ctx)).toMatchObject({ owner: "cli" });
 });
 
-test("a failed service re-registration leaves the backup, the link and the owner record untouched", async () => {
+test("a failed service re-registration rolls back the restore and leaves the owner record untouched", async () => {
   const { ctx, service, calls, path } = fixture({ fail: true });
   const { link } = bundledLink(ctx);
   const backup = join(dirname(link), "pacer.pre-app-20260101T000000Z");
@@ -159,8 +164,9 @@ test("a failed service re-registration leaves the backup, the link and the owner
   expect(result.err).toContain("bad plist");
   expect(calls.some(c => c[1] === "bootstrap")).toBe(true); // the risky step really ran
   // Nothing committed: the backup is still there, the link is still the desktop's, ownership unchanged.
-  expect(existsSync(backup)).toBe(true);
+  expect(readFileSync(backup, "utf8")).toBe("original command");
   expect(lstatSync(link).isSymbolicLink()).toBe(true);
+  expect(readlinkSync(link)).toBe(join(ctx.home, "pacer.app/Contents/Resources/pacer"));
   expect(readOwner(ctx)).toMatchObject({ owner: "desktop" });
   expect(existsSync(path)).toBe(false);
 });

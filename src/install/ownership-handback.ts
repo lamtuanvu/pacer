@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, realpathSync, renameSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readlinkSync, realpathSync, renameSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Result } from "../commands/types";
 import { serviceBackend, type ServiceDeps } from "../service";
@@ -145,12 +145,10 @@ async function recordKeepMine(ctx: Ctx, executable: string, notes: string[]): Pr
 export interface ReleaseOwnershipDeps { force?: boolean; service?: ServiceDeps }
 
 /**
- * `--release-ownership`: hands the installation back to this CLI. Ordered so a failed
- * service re-registration leaves the installation exactly as it was: nothing is mutated
- * until after that step succeeds (fix for "the handback is not transactional" — the backup
- * is consumed, and the owner record written, only once the service install has actually
- * succeeded; the owner record is written last of all). Refuses while tasks or terminal
- * sessions are running unless given `--force`.
+ * `--release-ownership`: hands the installation back to this CLI. The command is restored
+ * first so the re-registered service runs it; a failed re-registration rolls that back, and
+ * the owner record is written last. Refuses while tasks or terminal sessions are running
+ * unless given `--force`.
  */
 export async function releaseOwnership(ctx: Ctx, deps: ReleaseOwnershipDeps = {}): Promise<Result> {
   try {
@@ -163,11 +161,23 @@ export async function releaseOwnership(ctx: Ctx, deps: ReleaseOwnershipDeps = {}
     const plan = planHandback(ctx);
     if ("refusal" in plan) return { code: 2, out: "", err: `pacer: ${plan.refusal}` };
     const notes: string[] = [plan.note];
-    // The risky step runs first, against nothing yet mutated: a thrown error here leaves
-    // the backup untouched and the owner record unwritten.
-    const installNotes = await serviceBackend(ctx, { ...deps.service, argv: [plan.executable] }).install({ replace: true });
-    notes.push("re-registered the login service from this CLI", ...installNotes);
+    // Restore the command before re-registering, so the restarted service runs the restored
+    // CLI rather than the app's (the link still points into the bundle until the rename).
+    // A failed install rolls the restore back, leaving the installation exactly as it was;
+    // the owner record is written last, only once both steps succeeded.
+    const appLink = plan.restore ? readlinkSync(plan.restore.link) : null;
     if (plan.restore) restoreBackupOverLink(plan.restore.link, plan.restore.backup);
+    let installNotes: string[];
+    try {
+      installNotes = await serviceBackend(ctx, { ...deps.service, argv: [plan.executable] }).install({ replace: true });
+    } catch (error) {
+      if (plan.restore && appLink !== null) {
+        renameSync(plan.restore.link, plan.restore.backup);
+        symlinkSync(appLink, plan.restore.link);
+      }
+      throw error;
+    }
+    notes.push("re-registered the login service from this CLI", ...installNotes);
     writeOwner(ctx, { owner: "cli", executable: plan.executable, at: ctx.now });
     notes.push(`ownership released to this CLI (${plan.executable})`);
     if (previousOwner?.owner === "desktop") await recordKeepMine(ctx, plan.executable, notes);
