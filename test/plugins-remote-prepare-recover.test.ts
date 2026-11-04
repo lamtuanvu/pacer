@@ -50,7 +50,7 @@ async function fixture() {
   mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
   const host = { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/repo",
     "example.invalid/o/s": "~/other" }, accounts: {}, max_tasks: 1 };
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ accounts: { codex: { kind: "codex" } },
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: { launch_mode: "headless" }, accounts: { codex: { kind: "codex" } },
     planner: "codex", hosts: { box: host }, routing: [{ default: ["codex@box"] }] }));
   const parsedHost = loadStrategy(ctx).hosts.box;
   const task = createTask(ctx, { brief: { goal: "fixture", repo, base: "main" },
@@ -125,7 +125,7 @@ test("owned remote recovery refuses a changed provider, host mapping or base", a
     .rejects.toMatchObject({ code: "capability_denied" });
   await expect(admitOwnedRemotePrepare(f.ctx, f.task.id, "pacer-exec-direct", "codex@box", "box", "HEAD", f.baseSha))
     .rejects.toMatchObject({ code: "capability_denied" });
-  writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+  writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: { launch_mode: "headless" },
     accounts: { codex: { kind: "codex" } }, planner: "codex",
     hosts: { box: { ...f.host, repos: { "example.invalid/o/r": "~/other" } } },
     routing: [{ default: ["codex@box"] }],
@@ -462,7 +462,7 @@ test("failed remote exit with no commits requires host-recorded no-work prefligh
 
 test("task runner selects provider-owned remote pipe without built-in SSH fallback", async () => {
   const f = await fixture();
-  writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+  writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: { launch_mode: "headless" },
     accounts: { codex: { kind: "codex" }, "claude-code": { kind: "claude" } },
     planner: "claude-code", hosts: { box: f.host }, routing: [{ default: ["codex@box"] }] }));
   writeFileSync(join(f.bin, "codex"), "#!/bin/sh\ncat >/dev/null\necho routed > ROUTED.txt\n" +

@@ -51,7 +51,7 @@ async function setup(agent = "codex", account = "") {
   registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
   const id = `${agent}${account ? `#${account}` : ""}@box`;
-  const raw = { accounts: { claude: { kind: "claude" }, codex: { kind: "codex" }, team: { kind: agent === "codex" ? "codex" : "claude", home: "~/local-team" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" }, accounts: { team: { home: "~/host-team" } } } }, routing: [{ default: [id] }] };
+  const raw = { execution: { launch_mode: "headless" }, accounts: { claude: { kind: "claude" }, codex: { kind: "codex" }, team: { kind: agent === "codex" ? "codex" : "claude", home: "~/local-team" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" }, accounts: { team: { home: "~/host-team" } } } }, routing: [{ default: [id] }] };
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(raw));
   const { loadStrategy } = await import("../src/config/strategy");
   const cfg = loadStrategy(ctx).providers[id];
@@ -79,7 +79,8 @@ test("the prompt reaches the host agent unchanged", async () => {
   const f = await setup();
   const result = await runAttempt(f.ctx, f.cfg, f.task);
   expect(result.exec.code).toBe(0);
-  expect(readFileSync(result.attempt.log, "utf8")).toContain("launch mode: headless (remote runners run headless)");
+  // Remote runners are explicitly headless (#643): no implicit fallback note.
+  expect(readFileSync(result.attempt.log, "utf8")).not.toContain("launch mode: headless (");
   expect(result.exec.stdout.split("\n").filter(l => /^(CODEX_HOME|CLAUDE_CONFIG_DIR|PACER_ROLE)=/.test(l))).toEqual(["PACER_ROLE=executor"]);
   const task = readTask(f.ctx, f.task.id)!;
   const prompt = readFileSync(join(task.run!.remoteWorktree!, "PROMPT.txt"), "utf8");
@@ -314,7 +315,7 @@ test("PTY strategy records remote attempts with the configured local recording c
   const f=await setup();
   const strategyFile=join(f.ctx.pacerHome,"strategy.yaml");
   const strategy=JSON.parse(readFileSync(strategyFile,"utf8"));
-  strategy.execution={session:"pty",session_log_mb:1};
+  strategy.execution={...strategy.execution,session:"pty",session_log_mb:1};
   writeFileSync(strategyFile,JSON.stringify(strategy));
   // Portable recording stand-in; the real util-linux PTY contract is gated in remote-run-io.
   writeFileSync(join(f.hostHome,"bin","script"),`#!/bin/sh
