@@ -589,7 +589,13 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
 export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner, stopped: () => boolean = () => false): Promise<void> {
   const active = listTasksWhere(ctx, { states: ["queued", "running"] });
   const gaps = listTasksWhere(ctx, { states: ["stopped"], updatedSince: ctx.now - 86400 }).filter(t => t.handover?.state === "handed-over");
-  for (const task of [...active, ...gaps]) {
+  const needsSupervision = [...active, ...gaps].filter(t => {
+    if (t.run?.host) return false;                    // remote
+    if (t.runnerPid && alive(t.runnerPid)) return false; // healthy local
+    if (t.state === 'queued' && !t.worktreeIntent && !t.runClaim && !t.baseFetchIntent?.sha && !t.remotePrepareIntent) return false;
+    return true;
+  });
+  for (const task of needsSupervision) {
     await Bun.sleep(0);
     if (stopped()) return;
     await superviseTaskRecord(ctx, task, spawn, stopped);

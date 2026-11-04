@@ -16,6 +16,7 @@ import { validateExecution } from "../config/execution";
 import { fileURLToPath } from "node:url";
 import { pruneSessions } from "../session/retention";
 import type { InteractionMode } from "../tasks/types";
+import { stat } from "node:fs/promises";
 
 export interface RunSpec { interactionMode?: InteractionMode; takeover?: boolean; dir: string; argv: string[]; cwd: string; env: Record<string, string | undefined>; stdin?: string; session?: "pty" | "pipe" | "interactive"; sessionLogMb?: number;
   /** The login shell's umask for the agent only (validated octal); absent keeps the service's. */
@@ -27,6 +28,23 @@ export interface RunState { lastInputAt?: number | null; controller?: string | n
 const num = (file: string): number | null => {
   try { const v = Number(readFileSync(file, "utf8").trim()); return Number.isFinite(v) && readFileSync(file, "utf8").trim() !== "" ? v : null; } catch { return null; }
 };
+
+const livenessCache = new Map<string, { alive: boolean; exit: number | null; timestamp: number }>();
+const LIVENESS_TTL_MS = 5000;
+
+function getCachedLiveness(dir: string): { alive: boolean; exit: number | null } | null {
+  const cached = livenessCache.get(dir);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > LIVENESS_TTL_MS) {
+    livenessCache.delete(dir);
+    return null;
+  }
+  return { alive: cached.alive, exit: cached.exit };
+}
+
+function setCachedLiveness(dir: string, alive: boolean, exit: number | null): void {
+  livenessCache.set(dir, { alive, exit, timestamp: Date.now() });
+}
 
 /** Starts the wrapper detached (own session). The pid file is written here too, so readers never race the wrapper. */
 export function startRun(spec: RunSpec): { pid: number } | { error: string } {
@@ -211,27 +229,84 @@ export function localRunIO(dir: string): RunIO {
   return { read: async () => readRun(dir), stop: (o) => stopRun(dir, o) };
 }
 
+/** Async version of readRun using fs.promises + Promise.all for parallel stat calls. */
+export async function readRunAsync(dir: string): Promise<RunState> {
+  const [pid, exit, stdoutStat, stderrStat, activityStat, sessionState, interactiveExists] = await Promise.all([
+    readNumber(join(dir, "pid")),
+    readNumber(join(dir, "exit")),
+    stat(join(dir, "stdout")).catch(() => null),
+    stat(join(dir, "stderr")).catch(() => null),
+    stat(join(dir, "session.activity")).catch(() => null),
+    readFile(join(dir, "session.state"), "utf8").catch(() => null),
+    existsSync(join(dir, "interactive.json")),
+  ]);
+
+  const stdoutBytes = stdoutStat?.size ?? 0;
+  const stderrBytes = stderrStat?.size ?? 0;
+  const activityMtime = activityStat?.mtimeMs;
+  const times = [
+    stdoutBytes ? stdoutStat!.mtimeMs / 1000 : null,
+    stderrBytes ? stderrStat!.mtimeMs / 1000 : null,
+    activityMtime !== undefined ? activityMtime / 1000 : null,
+  ].filter((t): t is number => t !== null);
+
+  let controller: string | null = null;
+  if (sessionState) {
+    try { const state = JSON.parse(sessionState); if (typeof state.controller === "string") controller = state.controller; } catch { /* optional session state */ }
+  }
+
+  const interactive = interactiveExists;
+  const alive = exit === null && pid !== null && wrapperAlive(pid, dir);
+
+  const inputStat = await stat(join(dir, "session.input")).catch(() => null);
+  const lastInputAt = inputStat?.mtimeMs !== undefined ? inputStat.mtimeMs / 1000 : null;
+
+  return {
+    ...(interactive && controller ? { controller } : {}),
+    ...(interactive ? { interactive: true, report: readReport(dir) } : {}),
+    lastInputAt,
+    pid, startedAt: await readNumber(join(dir, "started")), exit, stdoutBytes, stderrBytes,
+    lastOutputAt: times.length ? Math.max(...times) : null,
+    alive,
+  };
+}
+
+async function readNumber(file: string): Promise<number | null> {
+  try {
+    const text = (await readFile(file, "utf8")).trim();
+    const value = Number(text);
+    return text && Number.isFinite(value) ? value : null;
+  } catch { return null; }
+}
+
 /** The liveness subset of readRun, using asynchronous filesystem and ps probes. */
 export async function readRunLiveness(dir: string): Promise<{alive: boolean; exit: number | null}> {
-  const number = async (name: string): Promise<number | null> => {
-    try {
-      const text = (await readFile(join(dir, name), "utf8")).trim();
-      const value = Number(text);
-      return text && Number.isFinite(value) ? value : null;
-    } catch { return null; }
-  };
-  const [pid, exit] = await Promise.all([number("pid"), number("exit")]);
-  if (exit !== null || pid === null) return {alive: false, exit};
+  // Check cache first
+  const cached = getCachedLiveness(dir);
+  if (cached) return cached;
+
+  const [pid, exit] = await Promise.all([readNumber(join(dir, "pid")), readNumber(join(dir, "exit"))]);
+  if (exit !== null || pid === null) {
+    const result = { alive: false, exit };
+    setCachedLiveness(dir, result.alive, result.exit);
+    return result;
+  }
   try { process.kill(pid, 0); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EPERM") return {alive: false, exit};
+    if ((error as NodeJS.ErrnoException).code !== "EPERM") {
+      const result = { alive: false, exit };
+      setCachedLiveness(dir, result.alive, result.exit);
+      return result;
+    }
   }
   const alive = await new Promise<boolean>(resolve => {
     try {
-      execFile("ps", ["-o", "command=", "-p", String(pid)], {timeout: 2000}, (error, stdout) => {
+      execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 2000 }, (error, stdout) => {
         const command = stdout.trim();
         resolve(!error && (command.includes(join(dir, "run.sh")) || command.endsWith(`_session ${dir}`)));
       });
     } catch { resolve(false); }
   });
-  return {alive, exit};
+  const result = { alive, exit };
+  setCachedLiveness(dir, result.alive, result.exit);
+  return result;
 }
