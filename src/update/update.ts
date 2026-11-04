@@ -12,9 +12,9 @@ import { type Platform, hostPlatform, latestUrl, parseLatest, parseManifest, par
 import { type SmokeFn, replaceBinary, replacePair, runVersion } from "./replace";
 import { compareVersions, currentVersion, isVersion } from "./version";
 
-export const UPDATE_USAGE = "usage: pacer update [--check [--json]] [--to <version>] [--base <url>] [--no-restart] [--no-reinstall]";
+export const UPDATE_USAGE = "usage: pacer update [--check [--json]] [--to <version>] [--base <url>] [--no-restart] [--no-reinstall] [--release-ownership [--force]]";
 
-export interface UpdateOptions { check: boolean; json?: boolean; noRestart?: boolean; noReinstall?: boolean; to?: string; base?: string }
+export interface UpdateOptions { check: boolean; json?: boolean; noRestart?: boolean; noReinstall?: boolean; to?: string; base?: string; releaseOwnership?: boolean; force?: boolean }
 
 export interface UpdateDeps {
   progress?: (name: "Download" | "Verify" | "Replace" | "Refresh integrations" | "Restart", state: "running" | "passed" | "skipped", detail?: string) => void;
@@ -32,6 +32,8 @@ export interface UpdateDeps {
 
 export function parseUpdateArgs(args: string[]): UpdateOptions | string {
   const o: UpdateOptions = { check: false };
+  // --force is only meaningful alongside --release-ownership; standalone it stays an unknown argument.
+  const releaseOwnership = args.includes("--release-ownership");
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--json") { o.json = true;
@@ -41,6 +43,10 @@ export function parseUpdateArgs(args: string[]): UpdateOptions | string {
       o.noRestart = true;
     } else if (a === "--no-reinstall") {
       o.noReinstall = true;
+    } else if (a === "--release-ownership") {
+      o.releaseOwnership = true;
+    } else if (a === "--force" && releaseOwnership) {
+      o.force = true;
     } else if (a === "--to" || a === "--base") {
       const v = args[i + 1];
       if (v === undefined || v.startsWith("--")) return `pacer update: ${a} needs a value\n${UPDATE_USAGE}`;

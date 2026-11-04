@@ -6,6 +6,7 @@ import { readManifest } from "../src/install/manifest";
 import { runDoctor } from "../src/install/doctor";
 import { health, binaryInFile, parseLaunchd, parseSystemd, plist, restartAfterUpdate, serviceBackend, serviceInstalled, servicePath, servicePATH, unit, type ServiceDeps } from "../src/service";
 import { serviceCli } from "../src/service/cli";
+import { MANAGED_BY_DESKTOP_MESSAGE, readOwner, writeOwner } from "../src/install/owner";
 import { fakeCtx } from "./helpers";
 const goodFetch = (async () => Response.json({ ok: true, pid:456 }, { headers: { "X-Pacer": "1" } })) as NonNullable<ServiceDeps["fetch"]>;
 const deps: ServiceDeps = { platform: "darwin", uid: 501, argv: ["/opt/pacer"], fetch: goodFetch, waitMs: 0 };
@@ -263,4 +264,46 @@ test("launchd owner ignores inherited, default and nested environment blocks", a
 test("service install CLI reports a foreign owner with a failing exit code", async () => {
   const f = fixture(); ownerProbe(f, ownedJob("darwin", "/foreign"));
   expect(await serviceCli(["install"], f.ctx, f.d)).toMatchObject({ code: 1, err: expect.stringContaining("Another pacer") });
+});
+
+test("a successful service install claims cli ownership only when unclaimed or already cli", async () => {
+  const { ctx, d } = fixture();
+  expect(readOwner(ctx)).toBeNull();
+  expect((await serviceCli(["install"], ctx, d)).code).toBe(0);
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/opt/pacer" });
+  // A later successful install from the same CLI keeps (re-records) cli ownership.
+  expect((await serviceCli(["install"], ctx, d)).code).toBe(0);
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/opt/pacer" });
+});
+
+test("service install and uninstall defer to a desktop owner with exit code 2", async () => {
+  const { ctx, d } = fixture();
+  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
+  expect(await serviceCli(["install"], ctx, d)).toEqual({ code: 2, out: "", err: `pacer service: ${MANAGED_BY_DESKTOP_MESSAGE}` });
+  expect(await serviceCli(["uninstall"], ctx, d)).toEqual({ code: 2, out: "", err: `pacer service: ${MANAGED_BY_DESKTOP_MESSAGE}` });
+  // Read-only commands stay unaffected.
+  expect((await serviceCli(["status"], ctx, d)).code).toBe(0);
+});
+
+test("the bundled CLI (PACER_BIN matching the recorded desktop executable) is never blocked, and never overrides desktop ownership", async () => {
+  const { ctx, d } = fixture();
+  writeOwner(ctx, { owner: "desktop", executable: "/opt/pacer", at: 1 });
+  const result = await serviceCli(["install"], ctx, d);
+  expect(result.code).toBe(0);
+  // Its own install succeeded, but ownership stays with the desktop: claimCliOwnership defers.
+  expect(readOwner(ctx)).toMatchObject({ owner: "desktop", executable: "/opt/pacer" });
+});
+
+test("--release-ownership hands a desktop-owned installation back to this CLI instead of deferring", async () => {
+  const { ctx, d } = fixture();
+  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
+  const result = await serviceCli(["install", "--release-ownership"], ctx, d);
+  expect(result.code).toBe(0);
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/opt/pacer" });
+  expect(result.out).toContain("ownership released to this CLI");
+});
+
+test("service install rejects --release-ownership combined with an unknown flag", async () => {
+  const { ctx, d } = fixture();
+  expect((await serviceCli(["install", "--release-ownership", "--bogus"], ctx, d)).code).toBe(2);
 });
