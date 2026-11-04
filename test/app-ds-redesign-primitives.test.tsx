@@ -120,7 +120,9 @@ test('identicon_differs_for_different_seeds', () => {
 test('settings_icon_is_gear', () => {
   const html = renderToString(<Icon name="settings" />);
   expect(html).toContain('M19.4 15a1.7');
-  expect(html).toContain('<circle cx="12" cy="12" r="3"');
+  expect(html).toContain('<circle cx="12" cy="12" r="9"');
+  expect(html).toContain('<circle cx="12" cy="12" r="7"');
+  expect(html).not.toContain('<circle cx="12" cy="12" r="3"');
   expect(html).not.toContain('M9 3h6l1 3');
 });
 
