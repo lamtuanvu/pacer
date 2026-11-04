@@ -388,7 +388,8 @@ impl ReadModel {
             .count();
         let cap = strategy["execution"]["local_max_tasks"].clone();
         let mut machine = object();
-        for k in ["os", "arch"] {
+        // The agent-session revision is computed by the core from live session probes.
+        for k in ["agentSessionsRevision", "os", "arch"] {
             if let Some(v) = p.machine.get(k) {
                 machine[k] = v.clone();
             }
