@@ -8,7 +8,8 @@ interface WorkerMessage {
 }
 
 let stopped = false;
-let ctx: ReturnType<typeof makeCtx> | null = null;
+// Init options only: a context captures `now` once, so each sweep builds a fresh one.
+let init: { env: Record<string, string>; pacerHome: string } | null = null;
 let spawnRunner: ((ctx: ReturnType<typeof makeCtx>, taskId: string) => number | undefined) | null = null;
 
 function stoppedFn(): boolean {
@@ -16,32 +17,40 @@ function stoppedFn(): boolean {
 }
 
 async function runSupervisionLoop(): Promise<void> {
-  if (!ctx || !spawnRunner) return;
+  if (!init || !spawnRunner) return;
 
   while (!stopped) {
+    // 10s + jitter(0-2000ms). Sleep first: like the service's own supervisor, never
+    // sweep while the service is still starting and serving its first snapshots.
+    const baseMs = 10_000;
+    const jitter = Math.floor(Math.random() * 2000);
+    await Bun.sleep(baseMs + jitter);
+    if (stopped) break;
+
     try {
-      await superviseTasks(ctx, spawnRunner, stoppedFn);
+      await superviseTasks(makeCtx(init), spawnRunner, stoppedFn);
     } catch (error) {
       if (!stopped) {
         console.error(`pacer: worker supervision failed: ${String(error)}`);
       }
     }
-
-    if (stopped) break;
-
-    // 10s + jitter(0-2000ms)
-    const baseMs = 10_000;
-    const jitter = Math.floor(Math.random() * 2000);
-    await Bun.sleep(baseMs + jitter);
+    // The service takes supervision back when these stop arriving.
+    self.postMessage({ type: "heartbeat" });
   }
 }
 
 self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const msg = event.data;
   if (msg.type === "init") {
-    ctx = makeCtx({ env: msg.env, pacerHome: msg.pacerHome });
-    const { spawnRunner: defaultSpawn } = await import("./api");
-    spawnRunner = defaultSpawn;
+    try {
+      init = { env: msg.env, pacerHome: msg.pacerHome };
+      const { spawnRunner: defaultSpawn } = await import("./api");
+      spawnRunner = defaultSpawn;
+    } catch (error) {
+      self.postMessage({ type: "failed", reason: String(error) });
+      return;
+    }
+    self.postMessage({ type: "heartbeat" });
     await runSupervisionLoop();
   }
 };

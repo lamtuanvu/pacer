@@ -122,7 +122,7 @@ async function setup(wait = false, autoClean = true) {
       name === "git" ? "/usr/bin/git" : Bun.which(name) });
   registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: {auto_clean: autoClean}, accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ execution: {auto_clean: autoClean, launch_mode: "headless"}, accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
   const deps: RunnerDeps = {
     loadStrategy,
     // These cases characterize the compatibility route; provider-owned routing has separate tests.

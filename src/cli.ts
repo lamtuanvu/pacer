@@ -620,7 +620,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           delete process.env.PACER_INTERNAL_TOKEN;
           delete ctx.env.PACER_INTERNAL_TOKEN;
           const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
-          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, ...(pairedNative ? {pairedNative} : {}) });
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, supervisionWorker: true, ...(pairedNative ? {pairedNative} : {}) });
           void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
           process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
           if (ctx.env.PACER_INTERNAL_PARENT_PIPE === "1") {
@@ -633,7 +633,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           }
           return { code: 0, out: "", err: "", keepAlive: true };
         }
-        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT) });
+        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true });
         ctx.env.PACER_PORT=String(s.port);
         // Routing's installed check reads the cached login PATH and never waits on a shell, so read it now.
         void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);

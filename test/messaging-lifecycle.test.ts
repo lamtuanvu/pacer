@@ -17,7 +17,7 @@ const PARENT = "external:claude-code";
 function finished(executor = "codex", edit: (t: TaskRecord) => void = () => {}) {
   const ctx = fakeCtx({ env: { CLAUDECODE: "1" } });
   mkdirSync(ctx.pacerHome, { recursive: true });
-  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}, codex: {}, agy: {}}\n");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "execution: {launch_mode: headless}\nplanner: claude-code\nproviders: {claude-code: {}, codex: {}, agy: {}}\n");
   const t = createTask(ctx, { brief: { goal: "the original brief", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   updateTask(ctx, t.id, x => {
     x.origin = PARENT; x.state = "done";
@@ -45,7 +45,8 @@ function fakeBin(name: string, script: string) {
   return bin;
 }
 const CODEX = (bin: string) => `cat > "${bin}/stdin"\nout=""; while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; *) shift;; esac; done\necho "TURN REPORT" > "$out"`;
-const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {}, agy: {} } }, "/x");
+// Message turns follow the launch mode (#643); these cover the headless resume and replay paths.
+const s = validateStrategy({ execution: { launch_mode: "headless" }, planner: "claude-code", providers: { "claude-code": {}, codex: {}, agy: {} } }, "/x");
 
 test("the turn captures the session at start, so a cleared run still resumes it", async () => {
   const bin = fakeBin("codex", "");
@@ -57,7 +58,7 @@ test("the turn captures the session at start, so a cleared run still resumes it"
   expect(readTask(ctx, id)!.pendingTurn?.session).toEqual({ id: "sid-1", source: "header" });
   // The runner deletes run when the attempt starts.
   updateTask(ctx, id, t => { delete t.run; t.state = "running"; });
-  // A modern codex would launch interactive by default; a message turn runs headless regardless.
+  // A modern codex launches interactive by default; with headless configured the turn resumes the session.
   ctx.run = async () => ({ code: 0, stdout: "codex-cli 0.164.0", stderr: "" });
   const out = await runAttempt(ctx, s.providers.codex!, readTask(ctx, id)!);
   const argv = readFileSync(join(bin, "argv"), "utf8");

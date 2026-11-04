@@ -61,7 +61,7 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
-  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
+  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; supervisionWorker?: boolean; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
 ): { port: number; token: string; stop: () => Promise<void> } {
   const initialCtx = getCtx();
   resetCaptureBroker(initialCtx.pacerHome);
@@ -322,8 +322,21 @@ export function startServer(
   const cleanStart = setTimeout(sweep, 0);
   const cleanTimer = setInterval(sweep, 60 * 60_000);
   let supervising = false;
+  // One supervisor at a time: while the worker owns supervision this loop stands by,
+  // and it resumes if the worker fails (its guards are per isolate, not shared).
+  let workerSupervises = false, workerHeartbeat = 0;
+  const WORKER_SILENCE_MS = 60_000;
+  const resumeInProcess = (reason: string) => {
+    if (!workerSupervises) return;
+    if (!stopped) console.error(`pacer: supervision worker ${reason}; supervising in process`);
+    workerSupervises = false;
+    worker?.terminate();
+    worker = undefined;
+  };
   const supervise = () => {
-    if (stopped || supervising) return;
+    // A worker that exits or idles without an error event must not stop supervision.
+    if (workerSupervises && Date.now() - workerHeartbeat > WORKER_SILENCE_MS) resumeInProcess("went silent");
+    if (stopped || supervising || workerSupervises) return;
     supervising = true;
     void superviseTasks(getCtx(), opts.opDeps?.spawnRunner, () => stopped)
       .catch(error => { if (!stopped) console.error(`pacer: task supervision failed: ${String(error)}`); })
@@ -332,20 +345,28 @@ export function startServer(
   const supervisorTimer = setInterval(supervise, 5000);
   let worker: Worker | undefined;
   const startSupervisionWorker = () => {
-    if (worker || stopped) return;
+    // Only the pacer serve command opts in: the worker builds its own context and
+    // spawns real runners, so tests and embeddings keep the in-process supervisor.
+    if (worker || stopped || !opts.supervisionWorker || opts.opDeps?.spawnRunner) return;
     try {
-      worker = new Worker(new URL("../tasks/supervision-worker.ts", import.meta.url), { type: "module" });
+      // A compiled binary gives every module the bundle root's import.meta.url
+      // (/$bunfs/root/...), where the worker entrypoint sits at ./tasks/.
+      const compiled = import.meta.url.includes("/$bunfs/");
+      worker = new Worker(compiled ? new URL("./tasks/supervision-worker.ts", import.meta.url) : new URL("../tasks/supervision-worker.ts", import.meta.url), { type: "module" });
       worker.postMessage({
         type: "init",
         pacerHome: initialCtx.pacerHome,
         env: initialCtx.env,
       });
-      worker.onerror = (err) => {
-        if (!stopped) console.error(`pacer: supervision worker error: ${err.message}`);
+      workerSupervises = true;
+      workerHeartbeat = Date.now();
+      worker.onmessage = (event: MessageEvent<{ type?: string; reason?: string }>) => {
+        if (event.data?.type === "heartbeat") workerHeartbeat = Date.now();
+        else if (event.data?.type === "failed") resumeInProcess(`failed to start: ${event.data.reason}`);
       };
-      worker.onmessageerror = (err) => {
-        if (!stopped) console.error(`pacer: supervision worker message error: ${String(err)}`);
-      };
+      worker.onerror = (err) => resumeInProcess(`error: ${err.message}`);
+      worker.onmessageerror = (err) => resumeInProcess(`message error: ${String(err)}`);
+      worker.addEventListener("close", () => resumeInProcess("exited"));
     } catch (error) {
       if (!stopped) console.error(`pacer: failed to start supervision worker: ${String(error)}`);
       worker = undefined;

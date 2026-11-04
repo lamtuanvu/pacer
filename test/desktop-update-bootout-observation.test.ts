@@ -28,8 +28,13 @@ impl Observer {
     self.calls.set(self.calls.get() + 1);
     self.fresh.clone()
   }
+  // Production observes with the exact program check since #640.
+  fn observe_after_bootout(&self, trust: &(), _program: &()) -> Result<Option<Job>, OtaError> {
+    self.observe(trust)
+  }
   fn completion(&self, change: JobChange, after: Option<Job>) -> Result<(), OtaError> {
     let trust = &();
+    let program = &();
 ${tail}
   }
 }

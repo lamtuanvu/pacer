@@ -233,7 +233,8 @@ test("git fingerprints change when HEAD moves", () => {
   expect(gitFingerprint("", "", "a")).not.toBe(gitFingerprint("", "", "b"));
 });
 
-test("a delegated interactive run ends once the executor asked a question and its turn ended", async () => {
+// #643: an interactive run keeps its answerable terminal across an input wait.
+test("a delegated interactive run stays up after the executor asked a question and its turn ended", async () => {
   const ctx = fakeCtx();
   const task = createTask(ctx, {brief: {goal: "Ask", repo: ctx.home}, kind: null, requestedExecutor: null, timeoutS: 10000});
   const run: RunRef = {dir: ctx.home, attempt: 1, executor: "codex", startedAt: 1000, mode: "current", workdir: ctx.home, logFile: "unused"};
@@ -243,7 +244,7 @@ test("a delegated interactive run ends once the executor asked a question and it
   expect(await poll(state)).toBe("continue");
   const {updateTask} = await import("../src/tasks/store");
   updateTask(ctx, task.id, t => { t.question = {text: "Which table?", at: now - 1}; });
-  expect(await poll(state)).toBe("asked");
+  expect(await poll(state)).toBe("continue");
   // Someone attached and drives the session: it stays up.
   expect(await poll({...state, controller: "human"})).toBe("continue");
   // A conversation is never ended for a question.

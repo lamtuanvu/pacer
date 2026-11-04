@@ -4,6 +4,7 @@ import { taskDatabase } from "../src/tasks/store";
 import { join, resolve, relative } from "node:path";
 import { readModelContext } from "../src/api/read-model";
 import { machineGuardState } from "../src/engine/machine";
+import { agentSessionsRevision } from "../src/session/agents-state";
 import { loadStrategy } from "../src/config/strategy";
 import { validateExecution } from "../src/config/execution";
 import { policySummary } from "../src/plugins/policy";
@@ -86,7 +87,7 @@ export async function rustSnapshot(ctx: Ctx, expected: unknown, options: { statu
   try { execution = loadStrategy(ctx).execution; } catch { execution = {}; }
   let status: Status | undefined, statusError: string | undefined;
   if (options.status) try { status = await options.status(ctx); } catch (e) { statusError = (e as Error).message; }
-  const actual = await rustRequest(ctx, { op: "snapshot", protocol, setup, policy: policySummary(ctx), machine: { os: "PLATFORM", arch: "ARCH", ...machineGuardState(validateExecution(execution)) }, service: { version: pkg.version, protocol: "3.0.0", pid: 0, startedAt: 0, notifier: null }, desktopUpdates: [], serviceInstalled: false, status, statusError, useCache: !options.status, maxBudgetAgeS: options.maxBudgetAgeS }, expected);
+  const actual = await rustRequest(ctx, { op: "snapshot", protocol, setup, policy: policySummary(ctx), machine: { agentSessionsRevision: agentSessionsRevision(ctx), os: "PLATFORM", arch: "ARCH", ...machineGuardState(validateExecution(execution)) }, service: { version: pkg.version, protocol: "3.0.0", pid: 0, startedAt: 0, notifier: null }, desktopUpdates: [], serviceInstalled: false, status, statusError, useCache: !options.status, maxBudgetAgeS: options.maxBudgetAgeS }, expected);
   // Caller normalizes only nondeterministic home/id/platform values. Byte comparison
   // keeps key order, omitted fields, arrays and every other wire byte significant.
   return actual;
