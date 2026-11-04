@@ -33,9 +33,11 @@ import { WorkspaceIdentity, WorkspaceScope } from "./workspace/state";
 import { resolveWorkspaceIdentity } from "./workspace/identity";
 import { reconcileIdentity, workspaceManager } from "./workspace/manager";
 import { NoticeStack } from "./ds/NoticeCard";
-void readRoundedWindowSupport().then(supported => {
-  if (supported) document.documentElement.dataset.pacerDesktop = "";
-});
+if (isDesktop()) document.documentElement.dataset.pacerDesktop = "";
+// The desktop attribute gates the shared .pc-work scroll-container height chain.
+// Rounded-window support only influences cosmetic border radius and must not
+// gate the layout, or no screen scrolls when the native check fails.
+void readRoundedWindowSupport().then(() => {});
 void readNativeTitlebarSupport().then(supported => {
   if (supported) document.documentElement.dataset.pacerNativeTitlebar = "";
 });
