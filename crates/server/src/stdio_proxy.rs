@@ -30,6 +30,8 @@ fn hello_body(version: u8, core_build: Option<&Value>) -> io::Result<Value> {
 
 /// The core's build descriptor, read with `--pacer-component-descriptor` on first use.
 struct CoreBuild<'a> {
+    /// The core answers hello itself (scoped work or a forwarding override).
+    forward_hello: bool,
     program: &'a str,
     prefix: &'a [String],
     env: &'a HashMap<String, String>,
@@ -94,7 +96,6 @@ async fn forward_input<
     out: &Mutex<O>,
     ctx: &Ctx,
     registry: &Registry<'_>,
-    forward_hello: bool,
     sync: (&str, &str, &mut tokio::sync::mpsc::UnboundedReceiver<Value>),
     core_build: &CoreBuild<'_>,
 ) -> io::Result<()> {
@@ -119,7 +120,7 @@ async fn forward_input<
             && valid
             && let Some(request) = request.as_ref()
         {
-            if forward_hello {
+            if core_build.forward_hello {
                 if let Ok(version) = hello_version(request.get("params")) {
                     protocol = version;
                 }
@@ -273,6 +274,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     let sync_key = hex::encode(rand::random::<[u8; 32]>());
     let (sync_tx, mut sync_rx) = tokio::sync::mpsc::unbounded_channel();
     let core_build = CoreBuild {
+        forward_hello,
         program,
         prefix,
         env: &env,
@@ -304,7 +306,6 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         &out,
         &ctx,
         &registry,
-        forward_hello,
         (&sync_id, &sync_key, &mut sync_rx),
         &core_build,
     );
