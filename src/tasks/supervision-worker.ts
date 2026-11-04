@@ -34,15 +34,23 @@ async function runSupervisionLoop(): Promise<void> {
         console.error(`pacer: worker supervision failed: ${String(error)}`);
       }
     }
+    // The service takes supervision back when these stop arriving.
+    self.postMessage({ type: "heartbeat" });
   }
 }
 
 self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const msg = event.data;
   if (msg.type === "init") {
-    init = { env: msg.env, pacerHome: msg.pacerHome };
-    const { spawnRunner: defaultSpawn } = await import("./api");
-    spawnRunner = defaultSpawn;
+    try {
+      init = { env: msg.env, pacerHome: msg.pacerHome };
+      const { spawnRunner: defaultSpawn } = await import("./api");
+      spawnRunner = defaultSpawn;
+    } catch (error) {
+      self.postMessage({ type: "failed", reason: String(error) });
+      return;
+    }
+    self.postMessage({ type: "heartbeat" });
     await runSupervisionLoop();
   }
 };
