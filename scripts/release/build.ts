@@ -59,6 +59,9 @@ type CompileOptions = { root: string; target: Target; version: string; outfile: 
 function validateDesktopTrust(trust?: SignerPins): void {
   if (trust && !validSignerPins(trust)) throw Error("Invalid desktop signer pins (Apple Team ID and/or signing certificate SHA-1)");
 }
+/** Files the service starts with `new Worker(new URL(..., import.meta.url))`. */
+export const COMPILED_WORKERS = ["src/tasks/supervision-worker.ts"];
+
 export function compileCommand(o: CompileOptions): string[] {
   validateDesktopTrust(o.desktopTrust);
   if (o.desktopTrust && o.target.os !== "darwin") throw Error("Desktop trust requires a macOS target");
@@ -78,6 +81,8 @@ export function compileCommand(o: CompileOptions): string[] {
     "--no-compile-autoload-bunfig",
     ...(isHost ? [`--compile-executable-path=${bun}`] : []),
     join(o.root, "src", "cli.ts"),
+    // Worker scripts must be compile entrypoints, or `new Worker(url)` fails in the binary.
+    ...COMPILED_WORKERS.map(path => join(o.root, ...path.split("/"))),
     "--outfile", o.outfile,
   ];
 }

@@ -334,7 +334,10 @@ export function startServer(
   const startSupervisionWorker = () => {
     if (worker || stopped) return;
     try {
-      worker = new Worker(new URL("../tasks/supervision-worker.ts", import.meta.url), { type: "module" });
+      // A compiled binary gives every module the bundle root's import.meta.url
+      // (/$bunfs/root/...), where the worker entrypoint sits at ./tasks/.
+      const compiled = import.meta.url.includes("/$bunfs/");
+      worker = new Worker(compiled ? new URL("./tasks/supervision-worker.ts", import.meta.url) : new URL("../tasks/supervision-worker.ts", import.meta.url), { type: "module" });
       worker.postMessage({
         type: "init",
         pacerHome: initialCtx.pacerHome,
