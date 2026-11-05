@@ -151,6 +151,48 @@ test("service refuses source argv before any files or commands are changed", asy
   expect(existsSync(path)).toBe(false);expect(calls).toHaveLength(0);
  }
 });
+test("a dev (source) invocation refuses install, uninstall and restart against the real launchd label", async () => {
+  const { ctx, d, calls, path } = fixture(); delete ctx.env.PACER_BIN;
+  put(path, '<key>Label</key>\n<string>com.pacer.serve</string>');
+  const argv = ["/bin/bun", "/repo/src/cli.ts"];
+  for (const op of ["install", "uninstall", "restart"] as const) {
+    await expect(serviceBackend(ctx, { ...d, argv })[op]()).rejects.toThrow("refusing to manage the login service from a source (dev) invocation");
+    expect(calls).toHaveLength(0);
+  }
+  expect(existsSync(path)).toBe(true); // uninstall never reached rmSync
+});
+test("PACER_ALLOW_REAL_INSTALL=1 is the only way past the dev-invocation refusal", async () => {
+  const { ctx, d, calls, path } = fixture(); delete ctx.env.PACER_BIN;
+  put(path, '<key>Label</key>\n<string>com.pacer.serve</string>');
+  const argv = ["/bin/bun", "/repo/src/cli.ts"];
+  process.env.PACER_ALLOW_REAL_INSTALL = "1";
+  try {
+    await serviceBackend(ctx, { ...d, argv }).restart();
+    expect(calls.some(c => c[0] === "launchctl" && c[1] === "kickstart")).toBe(true);
+  } finally { delete process.env.PACER_ALLOW_REAL_INSTALL; }
+  calls.length = 0;
+  await expect(serviceBackend(ctx, { ...d, argv }).restart()).rejects.toThrow("refusing to manage the login service from a source (dev) invocation");
+  expect(calls).toHaveLength(0);
+});
+test("an installed or compiled binary (single-element argv) is unaffected by the dev-invocation refusal", async () => {
+  const { ctx, d, calls, path } = fixture(); delete ctx.env.PACER_BIN;
+  put(path, '<key>Label</key>\n<string>com.pacer.serve</string>');
+  // A real compiled pacer's own argv, from either a release binary or an explicit PACER_BIN, is a single element.
+  await serviceBackend(ctx, { ...d, argv: ["/opt/pacer"] }).restart();
+  expect(calls.some(c => c[0] === "launchctl" && c[1] === "kickstart")).toBe(true);
+  calls.length = 0;
+  await serviceBackend(ctx, { ...d, argv: ["/opt/pacer"] }).uninstall();
+  expect(calls.some(c => c[0] === "launchctl" && c[1] === "bootout")).toBe(true);
+  expect(existsSync(path)).toBe(false);
+});
+test("a fixture (compiled sandbox) service label is unaffected by the dev-invocation refusal even with dev argv", async () => {
+  const { ctx, d, calls, path } = fixture();
+  delete ctx.env.PACER_BIN;
+  const fixtureLabel = "com.pacer.live.0123456789abcdef0123456789abcdef.service";
+  put(path, `<key>Label</key>\n<string>${fixtureLabel}</string>`);
+  await serviceBackend(ctx, { ...d, argv: ["/bin/bun", "/repo/src/cli.ts"], label: fixtureLabel }).restart();
+  expect(calls.some(c => c[0] === "launchctl" && c[1] === "kickstart" && c[3] === `gui/501/${fixtureLabel}`)).toBe(true);
+});
 for(const location of ["orca","git-worktree","dot-worktrees","symlink"] as const)test("service refuses a compiled binary in development workspace: "+location,async()=>{
  const {ctx,d,calls,path}=fixture();delete ctx.env.PACER_BIN;
  const root=location==="orca"?join(ctx.home,"orca/workspaces/repo"):location==="dot-worktrees"?join(ctx.home,"repo/.worktrees/w"):join(ctx.home,"checkout");

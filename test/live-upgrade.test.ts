@@ -65,7 +65,7 @@ test("the fixture policy and plist use the fixture label, never the real one", (
   expect(text).toContain("<key>PACER_RELEASE_BASE</key>");
   expect(text).toContain(`<key>PACER_HOME</key><string>${policy.home}</string>`);
   expect(text).not.toContain(`<string>${LABEL}</string>`);
-  expect(() => fixturePlist({ ...policy, serviceLabel: LABEL }, "/fixture/bin/pacer")).toThrow("non-fixture service label");
+  expect(() => fixturePlist({ ...policy, serviceLabel: LABEL }, "/fixture/bin/pacer")).toThrow("service label");
 });
 
 test("fixture plist generation still refuses the real pacer home and descendants", () => {

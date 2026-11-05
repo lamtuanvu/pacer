@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { processIdentitySync } from "./control/lease";
 import { basename, join, resolve } from "node:path";
 import { atomicWrite, checkout, launch, record, run, SANDBOX_PASSTHROUGH, sandboxEnv, saveSession, shellQuote, type Session } from "./core";
+import { assertNotRealInstall } from "../lib/real-install-guard";
 
 export async function tui(session: Session, action: string, keys: string[], out?: string): Promise<string> {
   if (!Bun.which("tmux")) throw Error("tmux is required for the TUI; record this surface as UNVERIFIED if unavailable");
@@ -65,6 +66,8 @@ export function desktopExecutable(app: string): string {
 export function desktop(session: Session, requested?: string): string {
   if (process.platform !== "darwin") throw Error("Desktop launch requires macOS; record desktop as UNVERIFIED");
   let app = requested ? resolve(requested) : undefined;
+  // --app is operator-supplied; refuse the user's real install so this never relaunches or steals focus from it.
+  if (app) assertNotRealInstall(app, "live desktop --app");
   if (!app) {
     const bundles = join(checkout, "desktop/src-tauri/target/release/bundle/macos");
     app = existsSync(bundles) ? readdirSync(bundles).filter(name => name.endsWith(".app")).map(name => join(bundles, name))[0] : undefined;
