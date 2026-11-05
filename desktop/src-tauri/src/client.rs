@@ -594,6 +594,11 @@ impl Session {
         *self.ops.lock().unwrap() = hello["ops"].as_array().map(|ops|ops.iter().filter_map(|v|v.as_str().map(str::to_owned)).collect()).unwrap_or_default();
     }
     pub async fn op(&self, op: &str, params: &Value) -> Result<Value, String> {
+        self.op_timeout(op, params, Duration::from_secs(10)).await
+    }
+    /// Same as `op`, with a caller-chosen request timeout. The heartbeat uses this to give
+    /// itself more headroom than a user-triggered op should ever need to wait.
+    pub async fn op_timeout(&self, op: &str, params: &Value, timeout: Duration) -> Result<Value, String> {
         if crate::actions::dispatch(&serde_json::json!({"op":op,"params":params})).is_none()
             || op == "ui.open"
         {
@@ -611,7 +616,7 @@ impl Session {
             // Cookie writes must say exactly "app" (the service's CSRF check); reads keep the desktop label.
             .header("X-Pacer-Client", "app")
             .json(params)
-            .timeout(Duration::from_secs(10))
+            .timeout(timeout)
             .send()
             .await
             .map_err(|_| "Operation failed")?
@@ -1103,10 +1108,18 @@ async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> 
         }
     }
 }
+/// Longer than the shared `op()` timeout: the core's own event loop can block for a couple of
+/// seconds under load (background timers), and a heartbeat should outlast that before it even
+/// counts as a miss, independent of the retry tolerance below.
+const HEARTBEAT_OP_TIMEOUT: Duration = Duration::from_secs(20);
 async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Result<(), String> {
     let mut missing_reported = false;
     let mut interval = tokio::time::interval(Duration::from_secs(30));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // One slow or failed heartbeat must not tear down the whole session: a core stall can miss
+    // a single 30s beat without the connection actually being down. A `sessionExpired` (401)
+    // still ends it immediately.
+    let mut strikes = logic::SessionOpStrikes::default();
     loop {
         interval.tick().await;
         if !missing_reported {
@@ -1121,12 +1134,20 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
             }
         }
 
-        session
-            .op(
+        let result = session
+            .op_timeout(
                 "client.heartbeat",
                 &serde_json::json!({"client_id":client_id}),
+                HEARTBEAT_OP_TIMEOUT,
             )
-            .await?;
+            .await;
+        let outcome = result.as_ref().map(|_| ()).map_err(Clone::clone);
+        if strikes.observe(&outcome) {
+            if let Err(message) = &outcome {
+                desktop_log!("pacer lifecycle: heartbeat ending the session after repeated failures: {message}");
+            }
+            return outcome;
+        }
     }
 }
 fn native_headers(origin: &str) -> Result<reqwest::header::HeaderMap,String> {
@@ -1171,23 +1192,46 @@ async fn listen(
         session.replace_ops(&hello);
         let snapshot=wait_for_snapshot(app,session).await?;
         let mut seq=reconcile_cursor(app,session,home,&snapshot).await?;
-        let response = tokio::time::timeout(
-            Duration::from_secs(15),
-            session
-                .client
-                .get(format!("{}/v3/events?since={seq}", session.origin))
-                .headers(match app.state::<crate::ipc_transport::Bridge>().instance() {
-                    Some(instance)=>crate::ipc_transport::app_headers(&session.origin,&instance)?,
-                    None=>native_headers(&session.origin)?,
-                })
-                .header("Accept", "text/event-stream")
-                .send(),
-        )
-        .await
-        .map_err(|_| "stopped")?
-        .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?
-        .error_for_status()
-        .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?;
+        // Opening the event stream can race the same core stalls as the heartbeat. A single
+        // slow or failed attempt reconnects the stream, not the whole session (which would
+        // force a full re-sign-in); only a sustained failure -- or an expired session, which
+        // ends it at once -- gives up and propagates out of listen().
+        let mut open_strikes = logic::SessionOpStrikes::default();
+        let response = loop {
+            // Header construction is a local, deterministic failure (never a stall): build it
+            // outside the retried attempt so it still ends the session at once, as before.
+            let headers = match app.state::<crate::ipc_transport::Bridge>().instance() {
+                Some(instance)=>crate::ipc_transport::app_headers(&session.origin,&instance)?,
+                None=>native_headers(&session.origin)?,
+            };
+            let attempt: Result<reqwest::Response, String> = async {
+                tokio::time::timeout(
+                    Duration::from_secs(15),
+                    session
+                        .client
+                        .get(format!("{}/v3/events?since={seq}", session.origin))
+                        .headers(headers)
+                        .header("Accept", "text/event-stream")
+                        .send(),
+                )
+                .await
+                .map_err(|_| "stopped".to_string())?
+                .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())).to_string())?
+                .error_for_status()
+                .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())).to_string())
+            }
+            .await;
+            match attempt {
+                Ok(response) => break response,
+                Err(message) => {
+                    let outcome: Result<(), String> = Err(message.clone());
+                    if open_strikes.observe(&outcome) {
+                        return Err(message);
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        };
         if !response
             .headers()
             .get("content-type")
