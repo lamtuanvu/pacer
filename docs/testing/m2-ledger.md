@@ -57,19 +57,32 @@ files are left intact. Oversized aggregate prepare snapshots also forward before
 any diagnostic call; successful diagnostic payloads are discarded because TS
 ignores them. No operation is replayed after a diagnostic RPC. The bound is not a public JSON/schema rejection.
 
-## P4d path scaffolding (X1 / X1b / X1c)
+## P4d path scaffolding (X1 / X1b / X1c / P4d-1)
 
 `pacer-plugin-runtime` names the process-owner gate and the private
 `PACER_HOST_SOCKET` / `$PACER_HOME/run/host.sock` contract. X1b lets a native
 test-token `ProcessOwner` spawn/track live `PluginProcess` children and mirror
 `Registry` shadow states in library form. X1c adds a dark Unix reverse-bridge
 accept loop (0700/0600, peer-uid auth, stub `_host.plugin.call` /
-`_host.plugin.find`) behind explicit `PACER_HOST_BRIDGE=1` for Core env export;
-default serve still omits the env and does not start the listener. Production
-serve still leaves children with TypeScript (`/_internal/plugins`). Serve-side
-native ownership, mutation registration and CT-11 cutover remain P4d. X3 restores
-unserved mutation library parity (see `.work/reviews/m2-x3-plugin-mutations-2026-11-05.md`).
-See also the X1 / X1b / X1c inventories under `.work/reviews/`.
+`_host.plugin.find`). **P4d-1** wires serve so an explicit flag
+(`PACER_NATIVE_PLUGIN_HOST=1` and/or `PACER_HOST_BRIDGE=1`) claims a native
+`ProcessOwner`, starts the reverse bridge, and sets `PACER_HOST_SOCKET` on the
+Core child; shutdown unlinks the socket. **Default serve (flags unset) stays
+TypeScript-owned** via `/_internal/plugins` — safe rollback. Bridge RPC stubs
+and the four native HTTP reads still use the TS process snapshot path; mutation
+registration, stub replacement, `/_internal/plugins` retirement and CT-11
+cutover remain later P4d slices. X3 restores unserved mutation library parity
+(see `.work/reviews/m2-x3-plugin-mutations-2026-11-05.md`). See also the X1 /
+X1b / X1c / P4d-1 inventories under `.work/reviews/`.
+
+### Per-scope plugin process owner (P4d-1)
+
+| Scope | Owner today | Notes |
+| --- | --- | --- |
+| Service (`pacer serve`) | TypeScript Core (default); optional Rust `NativeHostSession` when flag on | Flag-on claims supervision + bridge only; children still TS until later P4d |
+| Stdio (`pacer-core api --stdio`) | TypeScript | Unchanged (P8) |
+| CLI one-shots | TypeScript | Unchanged |
+| `_run` runners | TypeScript | Unchanged (P6b) |
 
 ## X3 mutation library (pre-P4d) and remaining deferred work
 
@@ -81,9 +94,13 @@ See also the X1 / X1b / X1c inventories under `.work/reviews/`.
   `plugin.install` refusal. Fixtures:
   `plugin-strategy-byte-parity.json`, `plugin-public-parity.json`,
   `plugin-operation-number-parity.json`.
-- **Blocked on P4d (do not register yet):** serve-owned `ProcessOwner`, reverse
-  bridge replacing stubs, expanding `/_internal/plugins` (or deleting it) for
-  stop/reset/changed/call beyond `diagnostic.ping`, and CT-11 live evidence.
+- **P4d-1 landed (flag-gated):** serve can claim `ProcessOwner` + reverse bridge
+  + `PACER_HOST_SOCKET`. Default remains TS. Not yet: real `_host.plugin.*`
+  against live children, mutation registration, deleting `/_internal/plugins`,
+  or CT-11 live cutover.
+- **Blocked on later P4d:** reverse bridge replacing stubs with live owner RPC,
+  expanding `/_internal/plugins` (or deleting it) for stop/reset/changed/call
+  beyond `diagnostic.ping`, mutation op registration, and CT-11 live evidence.
 - **Still deferred (not in X3):** Rust signed archive inspection/extraction and
   publisher trust (crypto dependency tree). TypeScript archive/publisher remain.
 

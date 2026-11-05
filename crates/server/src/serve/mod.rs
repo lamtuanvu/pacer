@@ -25,6 +25,7 @@ pub mod native_context;
 mod native_helper;
 #[cfg(target_os = "macos")]
 mod native_helper_diagnostics;
+pub mod native_host;
 #[cfg(target_os = "macos")]
 pub mod native_listener;
 #[cfg(target_os = "macos")]
@@ -312,6 +313,9 @@ pub async fn run_serve(
     // The internal HTTP listener binds independently. Its desktop integration
     // still needs the actual public port, including explicit/ephemeral binds.
     env.insert("PACER_PORT".into(), port.to_string());
+    // Flag-on P4d-1 path: claim ProcessOwner + reverse bridge before Core spawn
+    // so the child inherits PACER_HOST_SOCKET. Default (flags unset) is a no-op.
+    let native_host = native_host::maybe_start(&ctx.pacer_home, &mut env)?;
     // Native operations and the core must observe the same configuration environment.
     ctx.env = env.clone();
     // Runtime environment cannot turn a generic front door into a native owner.
@@ -378,6 +382,9 @@ pub async fn run_serve(
     // Withdraw the advert with goodbye packets before the core stops.
     radio.stop().await;
     state.core.shutdown().await;
+    if let Some(native_host) = native_host {
+        native_host.shutdown().await;
+    }
     Ok(())
 }
 pub fn run_serve_blocking(
