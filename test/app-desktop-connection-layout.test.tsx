@@ -20,9 +20,3 @@ test("desktop ancestors of the work area clip instead of scrolling", () => {
   expect(css).toContain("html[data-pacer-desktop],html[data-pacer-desktop] body,html[data-pacer-desktop] #app,html[data-pacer-desktop] .pc-desktop-connection,html[data-pacer-desktop] .pc-app,html[data-pacer-desktop] .pc-body{overflow:clip}");
   expect(css).not.toContain("html[data-pacer-desktop] .pc-body{overflow:hidden}");
 });
-
-test("page headers stay static while the page scrolls", () => {
-  expect(read("../app/src/screens/session/TasksPage.tsx")).toContain('<div className="pc-page-sticky">');
-  const ds = read("../app/src/ds/components.css");
-  expect(ds).toMatch(/\.pc-page>:is\(\.pc-page-sticky,\.pc-page-header,\.pc-dispatch__header,\.pc-insights__header\):first-child,[^{]+\{position:sticky;top:0;/);
-});

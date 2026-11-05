@@ -351,10 +351,6 @@ a.pc-btn{text-decoration:none}
 .pc-page--standard{max-width:none}
 .pc-page--wide{max-width:none}
 .pc-page--full{max-width:none}
-/* Page headers stay put while the page scrolls under them inside .pc-work. The first-child
-   header pulls up over the page's top padding so it keeps that padding when stuck. */
-.pc-page>:is(.pc-page-sticky,.pc-page-header,.pc-dispatch__header,.pc-insights__header):first-child,.pc-page>.pc-stack:first-child>:is(.pc-page-header,.pc-insights__header):first-child{position:sticky;top:0;z-index:var(--layer-sticky);background:var(--surface-page);margin-top:calc(-1 * var(--space-6));padding-top:var(--space-6)}
-.pc-page-sticky{display:flex;flex-direction:column;gap:var(--space-3);padding-bottom:var(--space-2)}
 .pc-page-body,.pc-stack{display:flex;flex-direction:column;min-width:0}.pc-page-body{gap:var(--space-6)}
 .pc-stack--compact{gap:var(--space-2)}.pc-stack--normal{gap:var(--space-3)}.pc-stack--section{gap:var(--space-6)}
 /* SortableList: drag handle plus Move up/down/Remove as the keyboard path. */
