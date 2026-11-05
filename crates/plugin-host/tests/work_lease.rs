@@ -145,3 +145,35 @@ fn finish_preserves_unrelated_and_foreign_leases() {
         .unwrap();
     assert_eq!(home.state()["leases"].as_array().unwrap().len(), 2);
 }
+
+#[test]
+fn typed_projection_strips_unknown_members_and_preserves_lone_surrogates_exactly() {
+    let home = Home::new();
+    // Initialize the admission DB, then overwrite the row with unknown members
+    // and a lone surrogate (\u{d800}) in the label. A successful native write
+    // must strip the unknown members but preserve the exact lone-surrogate units.
+    let _init = WorkLease::begin(&home.0, "init", "init").unwrap();
+    let lease_id = uuid::Uuid::new_v4().to_string();
+    let seed = format!(
+        r#"{{"schema":1,"reservation":null,"__unk_root":42,"leases":[
+            {{"id":"{lease_id}","blocker":{{"kind":"session","id":"x","label":"\ud800","__unk_b":true}},"owner":"{lease_id}","process":null,"state":"pending","__unk_lease":7}}
+        ]}}"#
+    );
+    let db = rusqlite::Connection::open(home.0.join("desktop-updates/admission.sqlite")).unwrap();
+    db.execute("UPDATE admission SET state=?", [seed]).unwrap();
+    // A no-op normalizing write (absent nonce) rewrites the row (§7.3).
+    let absent = "ffffffff-ffff-ffff-ffff-ffffffffffff".to_string();
+    WorkLease::complete_remote(&home.0, &absent, "a", "/r")
+        .unwrap_or_else(|e| panic!("complete_remote err: {e:?}"));
+    let raw: String = db
+        .query_row("SELECT state FROM admission", [], |r| r.get(0))
+        .unwrap();
+    // Unknown members are stripped (checked as raw text — the row carries a lone
+    // surrogate Rust serde cannot re-parse, per A4 D-BYTES-1 byte equality).
+    assert!(!raw.contains("__unk_root"));
+    assert!(!raw.contains("__unk_lease"));
+    assert!(!raw.contains("__unk_b"));
+    // The lone surrogate is preserved exactly as the \ud800 escape.
+    assert!(raw.contains("\\ud800"));
+    assert!(raw.contains("\"state\":\"pending\""));
+}
