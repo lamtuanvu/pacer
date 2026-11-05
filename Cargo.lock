@@ -1493,6 +1493,7 @@ dependencies = [
 name = "pacer-plugin-runtime"
 version = "0.0.0"
 dependencies = [
+ "nix",
  "pacer-plugin-host",
  "serde_json",
  "tempfile",
