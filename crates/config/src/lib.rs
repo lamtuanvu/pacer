@@ -2,6 +2,8 @@
 
 pub mod config_writes;
 pub mod doc;
+pub mod executor_settings;
+pub mod host;
 mod js_semantics;
 mod notification_json;
 pub mod notifications;

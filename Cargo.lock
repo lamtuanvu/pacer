@@ -1236,12 +1236,14 @@ dependencies = [
 name = "pacer-config"
 version = "0.0.0"
 dependencies = [
+ "hex",
  "indexmap",
  "pacer-foundation",
  "ryu-js",
  "saphyr-parser",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "url",
