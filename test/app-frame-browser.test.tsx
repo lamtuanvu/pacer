@@ -657,13 +657,33 @@ browserTest("the page head stays fixed above a scrolling main, and is empty and 
     // Workspace owns its own fixed strip and never fills the header slot, so the region collapses.
     await page.evaluate(() => { location.hash = "#/workspace"; });
     await page.waitForFunction(() => location.hash.startsWith("#/workspace"));
-    await page.waitForFunction(() => document.querySelector(".pc-page-head")!.textContent === "");
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".pc-page-head")!).display === "none");
     const empty = await page.evaluate(() => {
       const head = document.querySelector(".pc-page-head")!;
       return { text: head.textContent, display: getComputedStyle(head).display };
     });
-    expect(empty.text).toBe("");
     expect(empty.display).toBe("none");
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("a hosted Trace header slot does not leave a blank page-head band on Workspace", async () => {
+  const built = await allPagesFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openAllPages(page, built, "#/tasks/t-0412");
+    await page.waitForFunction(() => document.querySelector<HTMLElement>(".pc-page-head .pc-view-slot:not([hidden]) h1")?.textContent?.includes("Fix flaky"));
+    await page.evaluate(() => { location.hash = "#/workspace?task=t-0412"; });
+    await page.waitForFunction(() => location.hash.startsWith("#/workspace"));
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".pc-page-head")!).display === "none");
+    const geometry = await page.evaluate(() => {
+      const head = document.querySelector(".pc-page-head")!;
+      const box = head.getBoundingClientRect();
+      return { display: getComputedStyle(head).display, height: box.height, hiddenSlots: head.querySelectorAll(".pc-view-slot[hidden]").length };
+    });
+    expect(geometry.display).toBe("none");
+    expect(geometry.height).toBe(0);
+    expect(geometry.hiddenSlots).toBeGreaterThan(0);
   } finally { await browser.close(); }
 }, 20_000);
 

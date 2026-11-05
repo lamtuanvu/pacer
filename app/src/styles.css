@@ -152,7 +152,8 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-work{position:relative;flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
 /* Empty and takes no space when no screen fills it (FrameSlot name="header"). Lives inside `main` so it is not a second banner. */
 .pc-page-head{flex:none;display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4) var(--space-8) var(--space-3);background:var(--surface-page);border-bottom:1px solid var(--line)}
-.pc-page-head:empty{display:none}
+/* Collapse when nothing fills it — including a hosted Trace/session slot that stays mounted with `hidden`. */
+.pc-page-head:empty,.pc-page-head:not(:has(.pc-view-slot:not([hidden]))){display:none}
 /* SSR / bare-mount stand-in for the shell header slot: same rhythm as `.pc-page-head` so canvas pages keep their inset. */
 .pc-page-head-fallback{display:flex;flex-direction:column;gap:var(--space-3);min-width:0;padding:var(--space-4) var(--space-8) var(--space-3);background:var(--surface-page);border-bottom:1px solid var(--line)}
 @media(max-width:767px){.pc-page-head-fallback{padding:var(--space-3) max(var(--space-4),env(safe-area-inset-right)) var(--space-2) max(var(--space-4),env(safe-area-inset-left))}}
