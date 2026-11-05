@@ -81,6 +81,14 @@ static OPS: &[NativeOp] = &[
         name: "task.log",
         call: task_reads::task_log,
     },
+    NativeOp {
+        name: "task.prune",
+        call: task_reads::task_prune,
+    },
+    NativeOp {
+        name: "task.restore",
+        call: task_reads::task_restore,
+    },
     #[cfg(feature = "test-ops")]
     NativeOp {
         name: "test.echo",
@@ -182,11 +190,17 @@ mod tests {
         assert!(registry("").get("plugin.install").is_none());
         assert!(registry("plugin.install").get("plugin.install").is_none());
         assert!(registry("").get("task.log").is_some());
+        assert!(registry("").get("task.prune").is_some());
+        assert!(registry("").get("task.restore").is_some());
         assert!(registry("activity.list").get("activity.list").is_none());
         assert!(registry("activity.list").get("task.log").is_some());
+        assert!(registry("task.prune").get("task.prune").is_none());
+        assert!(registry("task.prune").get("task.restore").is_some());
         assert!(registry("*").names().is_empty());
         assert!(registry("").get("task.dismiss").is_none());
         assert!(registry("").get("task.diff").is_none());
+        assert!(registry("").get("task.get").is_none());
+        assert!(registry("").get("task.list").is_none());
     }
 
     #[test]

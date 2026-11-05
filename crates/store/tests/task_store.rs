@@ -462,14 +462,18 @@ fn retention_lock_contention_is_a_conflict() {
     let mut store = TaskStore::open(dir.path()).unwrap();
     fs::create_dir_all(dir.path().join("orca")).unwrap();
     fs::write(dir.path().join("orca/task-retention.lock"), b"").unwrap();
-    assert!(matches!(
-        store.prune(1, false, 100_000.0),
-        Err(StoreError::Conflict)
-    ));
-    assert!(matches!(
-        store.restore(ID, 100_000.0),
-        Err(StoreError::Conflict)
-    ));
+    match store.prune(1, false, 100_000.0) {
+        Err(StoreError::Admission(message)) => {
+            assert_eq!(message, "task retention is already running");
+        }
+        other => panic!("expected retention busy, got {other:?}"),
+    }
+    match store.restore(ID, 100_000.0) {
+        Err(StoreError::Admission(message)) => {
+            assert_eq!(message, "task retention is already running");
+        }
+        other => panic!("expected retention busy, got {other:?}"),
+    }
 }
 
 #[test]

@@ -1,9 +1,10 @@
 #![allow(clippy::result_large_err)] // NativeOp and CoreError use this public API by value.
+use pacer_config::strategy::{StrategyError, load_strategy};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
-use pacer_store::TaskStore;
+use pacer_store::{StoreError, TaskStore};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -428,6 +429,197 @@ pub(super) fn task_log(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         Ok(
             json!({"stdout":stdout,"stderr":stderr,"next":{"stdout":stdout_next,"stderr":stderr_next},"done":done,"source":source}),
         )
+    })
+}
+
+fn optional_bool(
+    params: &serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<Option<bool>, CoreError> {
+    match params.get(name) {
+        None => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(other) => Err(invalid(format!(
+            "{name}: Invalid input: expected boolean, received {}",
+            type_name(other)
+        ))),
+    }
+}
+
+fn retention_days(ctx: &Ctx) -> Result<i64, CoreError> {
+    match load_strategy(&ctx.pacer_home) {
+        Ok(strategy) => Ok(strategy
+            .get("taskRetentionDays")
+            .and_then(Value::as_i64)
+            .or_else(|| {
+                strategy
+                    .get("taskRetentionDays")
+                    .and_then(Value::as_f64)
+                    .map(|n| n as i64)
+            })
+            .unwrap_or(14)),
+        Err(StrategyError::Missing(_)) => Ok(14),
+        Err(error) => Err(CoreError::new(Code::InvalidInput, error.to_string())),
+    }
+}
+
+fn store_error(error: StoreError) -> CoreError {
+    match error {
+        StoreError::UnknownTask(id) => {
+            CoreError::new(Code::UnknownTask, format!("unknown task {id}"))
+        }
+        StoreError::Admission(message) if message == "task retention is already running" => {
+            CoreError::new(Code::Conflict, message)
+                .hint("wait for the active archive or restore operation")
+        }
+        StoreError::Conflict | StoreError::Admission(_) => {
+            CoreError::new(Code::Conflict, error.to_string())
+        }
+        StoreError::InvalidRecord => {
+            CoreError::new(Code::InvalidInput, "retention days must be non-negative")
+        }
+        other => CoreError::new(Code::Internal, other.to_string()),
+    }
+}
+
+fn clip_goal(goal: &str) -> String {
+    pacer_read_model::js::clip(goal, 200)
+}
+
+fn clip_title(title: &str) -> String {
+    let points: Vec<char> = title.chars().collect();
+    if points.len() <= 60 {
+        return title.into();
+    }
+    let prefix: String = points[..59].iter().collect();
+    let cut = prefix.rfind(' ').filter(|i| *i > 0).unwrap_or(prefix.len());
+    let trimmed = prefix[..cut].trim_end_matches(|c: char| c.is_whitespace());
+    format!("{}…", if trimmed.is_empty() { "Task" } else { trimmed })
+}
+
+fn visible_state(task: &Value) -> Value {
+    let state = task.get("state").cloned().unwrap_or(Value::Null);
+    if state.as_str() == Some("running")
+        && task
+            .get("question")
+            .is_some_and(|q| q.is_object() && q.get("answer").is_none())
+    {
+        json!("needs_input")
+    } else {
+        state
+    }
+}
+
+fn summarize_task(task: &Value) -> Value {
+    let goal = task
+        .pointer("/brief/goal")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let title = match task
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(_) => clip_title(&pacer_read_model::tasks::full_title(task)),
+        None => clip_title(&pacer_read_model::tasks::goal_title(goal, true)),
+    };
+    let mut out = json!({
+        "task_id": task.get("id").cloned().unwrap_or(Value::Null),
+        "title": title,
+        "goal": clip_goal(goal),
+        "state": visible_state(task),
+        "kind": task.get("kind").cloned().unwrap_or(Value::Null),
+        "requested_executor": task.get("requestedExecutor").cloned().unwrap_or(Value::Null),
+        "placement": task.get("placement").cloned().unwrap_or(Value::Null),
+        "queue": task.get("queue").cloned().unwrap_or(Value::Null),
+        "attempts": task.get("attempts").and_then(Value::as_array).map(|attempts| {
+            attempts.iter().map(|a| json!({
+                "executor": a.get("executor").cloned().unwrap_or(Value::Null),
+                "exit_code": a.get("exitCode").cloned().unwrap_or(Value::Null),
+                "limit_hit": a.get("limitHit").cloned().unwrap_or(Value::Null),
+                "timed_out": a.get("timedOut").cloned().unwrap_or(Value::Null),
+                "log": a.get("log").cloned().unwrap_or(Value::Null),
+            })).collect::<Vec<_>>()
+        }).unwrap_or_default(),
+        "result": task.get("result").cloned().unwrap_or(Value::Null),
+        "review": task.get("review").cloned().unwrap_or(Value::Null),
+        "resolved": task.get("resolved").cloned().unwrap_or(Value::Null),
+    });
+    if task.get("archived").and_then(Value::as_bool) == Some(true) {
+        out["archived"] = json!(true);
+        if let Some(path) = task.get("archivePath") {
+            out["archive_path"] = path.clone();
+        }
+    }
+    for (src, dest) in [
+        ("executorFallback", "executor_fallback"),
+        ("stopPending", "stop_pending"),
+        ("question", "question"),
+        ("reviewRequest", "reviewRequest"),
+    ] {
+        if let Some(value) = task.get(src)
+            && !value.is_null()
+        {
+            out[dest] = value.clone();
+        }
+    }
+    out
+}
+
+fn prune_result_json(result: pacer_store::PruneResult) -> Value {
+    json!({
+        "dryRun": result.dry_run,
+        "bytesSaved": result.bytes_saved,
+        "workingSetBytes": result.working_set_bytes,
+        "tasks": result.tasks.into_iter().map(|task| json!({
+            "id": task.id,
+            "archivePath": task.archive_path,
+            "files": task.files,
+            "bytes": task.bytes,
+            "bytesSaved": task.bytes_saved,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+pub(super) fn task_prune(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        let params = if params.is_null() { json!({}) } else { params };
+        let p = object(&params)?;
+        let mut issues = Vec::new();
+        let dry_run = checked(optional_bool(p, "dry_run"), &mut issues).flatten();
+        if !issues.is_empty() {
+            return Err(invalid(issues.join("; ")));
+        }
+        let days = retention_days(ctx)?;
+        let mut store = TaskStore::open(&ctx.pacer_home).map_err(store_error)?;
+        let result = store
+            .prune(days, dry_run.unwrap_or(false), ctx.now)
+            .map_err(store_error)?;
+        Ok(prune_result_json(result))
+    })
+}
+
+pub(super) fn task_restore(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        let params = if params.is_null() { json!({}) } else { params };
+        let p = object(&params)?;
+        let mut issues = Vec::new();
+        let id = checked(optional_string(p, "id", Some(128)), &mut issues).flatten();
+        if id.is_none() && !p.contains_key("id") {
+            issues.push("id: Invalid input: expected string, received undefined".into());
+        }
+        if !issues.is_empty() {
+            return Err(invalid(issues.join("; ")));
+        }
+        let Some(id) = id else {
+            return Err(invalid(
+                "id: Invalid input: expected string, received undefined",
+            ));
+        };
+        let mut store = TaskStore::open(&ctx.pacer_home).map_err(store_error)?;
+        let task = store.restore(id, ctx.now).map_err(store_error)?;
+        Ok(summarize_task(&task))
     })
 }
 
