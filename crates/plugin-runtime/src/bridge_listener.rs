@@ -1,10 +1,11 @@
-//! Dark reverse-bridge Unix listener (X1c).
+//! Dark reverse-bridge Unix listener (X1c / P4d-1).
 //!
 //! Binds `$PACER_HOME/run/host.sock` (dir 0700, socket 0600), accepts line
 //! JSON-RPC for `_host.plugin.call` / `_host.plugin.find`, and authorizes peers
-//! by Unix credentials. Production serve must not call [`ReverseBridge::bind`]
-//! or export [`crate::HOST_SOCKET_ENV`] unless dark wiring is explicitly enabled
-//! via [`crate::HOST_BRIDGE_ENABLE_ENV`]. This module never binds TCP.
+//! by Unix credentials. Default serve must not call [`ReverseBridge::bind`] or
+//! export [`crate::HOST_SOCKET_ENV`] unless flag wiring is explicitly enabled
+//! (`PACER_NATIVE_PLUGIN_HOST` and/or [`crate::HOST_BRIDGE_ENABLE_ENV`]). This
+//! module never binds TCP.
 
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND,

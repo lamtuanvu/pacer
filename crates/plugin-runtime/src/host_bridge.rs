@@ -13,10 +13,11 @@ use std::{
 /// Environment variable the TypeScript core reads for the reverse bridge.
 pub const HOST_SOCKET_ENV: &str = "PACER_HOST_SOCKET";
 
-/// Explicit opt-in for dark bridge wiring (library tests / future serve).
+/// Explicit opt-in for reverse-bridge wiring (library tests / P4d-1 serve).
 ///
-/// Production serve must leave this unset so it neither binds `host.sock` nor
-/// exports [`HOST_SOCKET_ENV`].
+/// Together with [`crate::NATIVE_PLUGIN_HOST_ENABLE_ENV`], enables the flag-on
+/// serve path that binds `host.sock` and exports [`HOST_SOCKET_ENV`]. Default
+/// serve leaves both unset.
 pub const HOST_BRIDGE_ENABLE_ENV: &str = "PACER_HOST_BRIDGE";
 
 /// Socket file name under `$PACER_HOME/run/`.

@@ -1545,6 +1545,7 @@ dependencies = [
  "pacer-foundation",
  "pacer-mdns",
  "pacer-plugin-ops",
+ "pacer-plugin-runtime",
  "pacer-read-model",
  "pacer-store",
  "rand 0.9.5",

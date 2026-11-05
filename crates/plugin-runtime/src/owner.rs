@@ -1,8 +1,9 @@
 //! Process-owner gate and live child map.
 //!
-//! Production serve must keep [`Ownership::TypeScript`] until P4d. The native
-//! test token can hold [`PluginProcess`] children in library form without
-//! flipping serve or setting `PACER_HOST_SOCKET`.
+//! Production serve keeps [`Ownership::TypeScript`] unless the P4d-1 flag path
+//! constructs [`ProcessOwner::native_for_serve`]. The native test token can hold
+//! [`PluginProcess`] children in library form without claiming serve supervision
+//! or setting `PACER_HOST_SOCKET`.
 
 use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, SpawnSpec};
 use std::collections::HashMap;
@@ -33,9 +34,11 @@ impl From<ProcessError> for OwnerError {
 pub enum Ownership {
     /// Production default: TypeScript registry via generation-private IPC.
     TypeScript,
-    /// Reserved for the P4d single-owner cutover. Not constructible from serve.
-    #[allow(dead_code)]
-    Native { _private: () },
+    /// Native owner. `supervision` is true only on the flagged serve path.
+    Native {
+        /// Serve claimed supervision (`ProcessOwner::native_for_serve`).
+        supervision: bool,
+    },
 }
 
 impl Ownership {
@@ -45,17 +48,26 @@ impl Ownership {
 
     /// Test-only native token. Production serve must not call this.
     pub fn native_for_tests() -> Self {
-        Self::Native { _private: () }
+        Self::Native { supervision: false }
+    }
+
+    /// Flag-on serve constructor: supervision may be claimed.
+    pub fn native_for_serve() -> Self {
+        Self::Native { supervision: true }
     }
 
     pub fn is_native(&self) -> bool {
         matches!(self, Self::Native { .. })
     }
+
+    pub fn supervision_claimed(&self) -> bool {
+        matches!(self, Self::Native { supervision: true })
+    }
 }
 
-/// Holds live plugin children after the library path is exercised under the
-/// native test token. Serve still constructs only [`ProcessOwner::typescript`]
-/// and must not call [`Self::spawn`].
+/// Holds live plugin children. Default serve constructs
+/// [`ProcessOwner::typescript`]; the P4d-1 flag path uses
+/// [`ProcessOwner::native_for_serve`].
 pub struct ProcessOwner {
     ownership: Ownership,
     children: HashMap<String, PluginProcess>,
@@ -82,16 +94,26 @@ impl ProcessOwner {
         }
     }
 
+    /// Flag-on serve path: native ownership with supervision claimable.
+    pub fn native_for_serve() -> Self {
+        Self {
+            ownership: Ownership::native_for_serve(),
+            children: HashMap::new(),
+            shadow: HashMap::new(),
+        }
+    }
+
     pub fn ownership(&self) -> &Ownership {
         &self.ownership
     }
 
-    /// Claiming native supervision for serve fails until P4d, even under the
-    /// library test token.
+    /// Succeeds only for [`Self::native_for_serve`]. TypeScript and the library
+    /// test token still refuse.
     pub fn claim_native_supervision(&self) -> Result<(), OwnerError> {
         match self.ownership {
             Ownership::TypeScript => Err(OwnerError::TypeScriptOwnsHost),
-            Ownership::Native { .. } => Err(OwnerError::NativeNotActivated),
+            Ownership::Native { supervision: false } => Err(OwnerError::NativeNotActivated),
+            Ownership::Native { supervision: true } => Ok(()),
         }
     }
 

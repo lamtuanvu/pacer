@@ -55,6 +55,8 @@ fn default_serve_stays_dark() {
         native.claim_native_supervision(),
         Err(OwnerError::NativeNotActivated)
     );
+    let serve = ProcessOwner::native_for_serve();
+    assert_eq!(serve.claim_native_supervision(), Ok(()));
 }
 
 #[test]
