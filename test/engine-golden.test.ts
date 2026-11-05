@@ -25,3 +25,19 @@ test("pace goldens cover fractional offsets, calendar boundaries, and DST in eve
   expect(kolkata?.output.pacePct).toBe(50);
   expect(kolkata?.output.activeHoursLeft).toBe(0.5);
 });
+
+test("eligibility goldens cover spending, conflicts, unavailable and unmetered contracts", () => {
+  const names = engineGoldens().eligibility.map(item => item.name);
+  for (const name of ["unavailable", "conflict", "spending-observed", "spending-clear", "reactive", "unmetered", "budget-not-required"]) {
+    expect(names).toContain(name);
+  }
+});
+
+test("rank goldens cover kind routing, exclusions, planner include and conversation fallback", () => {
+  const names = engineGoldens().rank.map(item => item.name);
+  for (const name of ["kind-review", "exclusions", "planner-excluded", "planner-included", "expiring"]) {
+    expect(names).toContain(name);
+  }
+  expect(engineGoldens().conversation.map(item => item.name)).toEqual(["append-planner", "already-ranked"]);
+  expect(engineGoldens().mode).toHaveLength(8);
+});

@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use pacer_engine::{
-    active_hours_left, binding_window, evaluate_eligibility, evaluate_window, machine_guard,
-    pace_pct, rank_executors,
+    active_hours_left, binding_window, conversation_fallback, evaluate_eligibility,
+    evaluate_window, machine_guard, pace_pct, planner_mode, rank_executors,
 };
 use serde_json::Value;
 
@@ -75,6 +75,19 @@ fn typescript_parity() {
             case["name"].as_str().unwrap(),
         );
     }
+    for case in fixture["conversation"].as_array().unwrap() {
+        let mut ranking = case["input"]["ranking"].clone();
+        conversation_fallback(&mut ranking, &case["input"]);
+        near(&ranking, &case["output"], case["name"].as_str().unwrap());
+    }
+    for case in fixture["mode"].as_array().unwrap() {
+        assert_eq!(
+            planner_mode(case["input"]["verdict"].as_str().unwrap()),
+            case["output"].as_str().unwrap(),
+            "{}",
+            case["name"].as_str().unwrap()
+        );
+    }
     near(
         &binding_window(fixture["binding"]["input"].as_array().unwrap()),
         &fixture["binding"]["output"],
@@ -97,4 +110,19 @@ fn priority_alias_parity() {
         &case["output"],
         "priority-alias",
     );
+}
+
+#[test]
+fn conversation_fallback_parity() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../test/fixtures/engine/goldens.json")).unwrap();
+    let case = fixture["conversation"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| case["name"] == "append-planner")
+        .unwrap();
+    let mut ranking = case["input"]["ranking"].clone();
+    conversation_fallback(&mut ranking, &case["input"]);
+    near(&ranking, &case["output"], "append-planner");
 }
