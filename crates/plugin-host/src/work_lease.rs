@@ -3,9 +3,14 @@
 //! coordinator; ambiguous detached work remains pending. This shadows the TS
 //! `begin*WorkSync` family until the P4d cutover, so TypeScript remains the
 //! executor owner for now.
+mod state;
 use crate::BrokerError;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{
+    Connection, OptionalExtension,
+    types::{ValueRef, FromSqlError},
+};
 use serde_json::{Value, json};
+use state::{AdmissionState, Lease, Orca, Remote, Units, same};
 use std::{
     fs::{self, OpenOptions},
     os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
@@ -66,7 +71,7 @@ fn private(path: &Path, directory: bool) -> Result<fs::Metadata, BrokerError> {
 /// same file-permission, inode and sidecar checks as the TS coordinator.
 fn mutate<T>(
     home: &Path,
-    action: impl FnOnce(&mut Value) -> Result<T, BrokerError>,
+    action: impl FnOnce(&mut AdmissionState) -> Result<T, BrokerError>,
 ) -> Result<T, BrokerError> {
     let dir = home.join("desktop-updates");
     match fs::DirBuilder::new().mode(0o700).create(&dir) {
@@ -127,22 +132,27 @@ fn mutate<T>(
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(|_| denied())?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS admission (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL)").map_err(|_|denied())?;
-    let text: Option<String> = tx
-        .query_row("SELECT state FROM admission WHERE id=1", [], |r| r.get(0))
+    // Row bytes are decoded like Bun (maximal-subpart U+FFFD for invalid
+    // UTF-8); non-TEXT rows reject like TS (plan §3.2).
+    let value: Option<ValueRef> = tx
+        .query_row("SELECT state FROM admission WHERE id=1", [], |r| r.get_ref(0))
         .optional()
         .map_err(|_| denied())?;
-    let mut state = if let Some(text) = text {
-        serde_json::from_str::<Value>(&text).map_err(|_| denied())?
-    } else {
-        json!({"schema":1,"reservation":null,"leases":[]})
+    let mut state = match value {
+        Some(ValueRef::Text(text)) => {
+            AdmissionState::decode(&String::from_utf8_lossy(text)).ok_or_else(denied)?
+        }
+        Some(ValueRef::Blob(_))
+        | Some(ValueRef::Null)
+        | Some(ValueRef::Integer(_))
+        | Some(ValueRef::Real(_)) => return Err(denied()),
+        None => AdmissionState::empty(),
     };
-    if !valid_state(&state) {
-        return Err(denied());
-    }
     let result = action(&mut state)?;
+    let rendered = state.render().map_err(|_| denied())?;
     tx.execute(
         "INSERT INTO admission(id,state) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
-        [state.to_string()],
+        [rendered],
     )
     .map_err(|_| denied())?;
     let current = private(&path, false)?;
@@ -154,12 +164,8 @@ fn mutate<T>(
 }
 
 impl Blocker {
-    fn into_json(self) -> Value {
-        json!( {
-            "kind": self.kind.as_str(),
-            "id": self.id,
-            "label": self.label,
-        })
+    fn into_units(self) -> (super::BlockerKind, Units, Units) {
+        (self.kind, self.id.encode_utf16().collect(), self.label.encode_utf16().collect())
     }
 }
 
@@ -175,18 +181,24 @@ pub fn begin_blocker(home: &Path, blocker: Blocker) -> Result<WorkLease, BrokerE
         .clone();
     let lease = uuid::Uuid::new_v4().to_string();
     mutate(home, |s| {
-        if !s["reservation"].is_null() {
+        if s.reservation.is_some() {
             return Err(BrokerError::Effect(
                 "Desktop update maintenance is reserved".into(),
             ));
         }
-        s["leases"].as_array_mut().ok_or_else(denied)?.push(json!({
-            "id": lease,
-            "blocker": blocker.clone().into_json(),
-            "owner": owner,
-            "process": null,
-            "state": "pending",
-        }));
+        let (kind, id, label) = blocker.clone().into_units();
+        s.leases.push(Lease {
+            id: lease.clone(),
+            blocker: state::Blocker { kind, id, label },
+            owner: owner.clone(),
+            process: None,
+            state: state::Phase::Pending,
+            run_dir: None,
+            remote: None,
+            launched: None,
+            orca: None,
+            appended: Vec::new(),
+        });
         Ok(())
     })?;
     Ok(WorkLease {
