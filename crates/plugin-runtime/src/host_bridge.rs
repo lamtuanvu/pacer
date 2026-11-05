@@ -13,11 +13,12 @@ use std::{
 /// Environment variable the TypeScript core reads for the reverse bridge.
 pub const HOST_SOCKET_ENV: &str = "PACER_HOST_SOCKET";
 
-/// Explicit opt-in for reverse-bridge wiring (library tests / P4d-1 serve).
+/// Companion / legacy enable flag for reverse-bridge wiring.
 ///
-/// Together with [`crate::NATIVE_PLUGIN_HOST_ENABLE_ENV`], enables the flag-on
-/// serve path that binds `host.sock` and exports [`HOST_SOCKET_ENV`]. Default
-/// serve leaves both unset.
+/// Together with [`crate::NATIVE_PLUGIN_HOST_ENABLE_ENV`], truthy values enable
+/// the native serve path that binds `host.sock` and exports [`HOST_SOCKET_ENV`].
+/// Falsy values (`0` / `false` / `no`) are the escape hatch once
+/// [`crate::serve_starts_reverse_bridge_by_default`] flips on (P4d-5).
 pub const HOST_BRIDGE_ENABLE_ENV: &str = "PACER_HOST_BRIDGE";
 
 /// Socket file name under `$PACER_HOME/run/`.
@@ -40,9 +41,17 @@ pub fn host_socket_path(pacer_home: &Path) -> PathBuf {
     pacer_home.join("run").join(HOST_SOCKET_NAME)
 }
 
-/// True when dark reverse-bridge wiring may export [`HOST_SOCKET_ENV`].
+/// True when an env value is an explicit truthy opt-in.
 pub fn dark_bridge_enabled(value: Option<&str>) -> bool {
     matches!(value, Some("1") | Some("true") | Some("TRUE") | Some("yes"))
+}
+
+/// True when an env value is an explicit disable (`PACER_NATIVE_PLUGIN_HOST=0`).
+pub fn dark_bridge_disabled(value: Option<&str>) -> bool {
+    matches!(
+        value,
+        Some("0") | Some("false") | Some("FALSE") | Some("no")
+    )
 }
 
 /// Ensure `$PACER_HOME/run` exists as a real directory with mode 0700.
