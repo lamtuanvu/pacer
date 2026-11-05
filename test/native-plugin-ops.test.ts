@@ -163,8 +163,8 @@ test.skipIf(!front)("native reads and mutations match forced TypeScript fallback
           "plugin.list", "plugin.doctor", "plugin.ui.list", "plugin.settings.get",
           "plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.render",
           "plugin.ui.action", "plugin.ui.visibility", "plugin.settings.set",
+          "plugin.install",
         ]) expect(log).toContain(`native ${op}`);
-        expect(log).not.toContain("native plugin.install");
       } else if (forward) expect(log).not.toMatch(/^native plugin\./m);
     }
   }

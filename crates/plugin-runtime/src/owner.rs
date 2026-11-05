@@ -72,6 +72,8 @@ impl Ownership {
 pub struct ProcessOwner {
     ownership: Ownership,
     children: HashMap<String, PluginProcess>,
+    /// Plugins that completed `plugin.hello` under this owner.
+    ready: HashMap<String, ()>,
     /// Optional mirror of [`Registry`] state ids without owning children.
     shadow: HashMap<String, PluginState>,
 }
@@ -82,6 +84,7 @@ impl ProcessOwner {
         Self {
             ownership: Ownership::typescript(),
             children: HashMap::new(),
+            ready: HashMap::new(),
             shadow: HashMap::new(),
         }
     }
@@ -91,6 +94,7 @@ impl ProcessOwner {
         Self {
             ownership: Ownership::native_for_tests(),
             children: HashMap::new(),
+            ready: HashMap::new(),
             shadow: HashMap::new(),
         }
     }
@@ -100,6 +104,7 @@ impl ProcessOwner {
         Self {
             ownership: Ownership::native_for_serve(),
             children: HashMap::new(),
+            ready: HashMap::new(),
             shadow: HashMap::new(),
         }
     }
@@ -165,8 +170,20 @@ impl ProcessOwner {
             return Err(OwnerError::AlreadyTracked(id));
         }
         let child = PluginProcess::spawn(spec)?;
+        self.ready.remove(&id);
         self.children.insert(id, child);
         Ok(())
+    }
+
+    /// Spawn when absent; no-op when already tracked. Refuses TypeScript ownership.
+    pub fn ensure(&mut self, id: impl Into<String>, spec: &SpawnSpec) -> Result<bool, OwnerError> {
+        let id = id.into();
+        self.ensure_native_library()?;
+        if self.children.contains_key(&id) {
+            return Ok(false);
+        }
+        self.spawn(id, spec)?;
+        Ok(true)
     }
 
     /// Adopt an already-spawned child. Refused while TypeScript owns the host.
@@ -176,6 +193,7 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
+        self.ready.remove(&id);
         self.children.insert(id, child);
         Ok(())
     }
@@ -183,12 +201,25 @@ impl ProcessOwner {
     /// Terminate and drop a tracked child.
     pub async fn terminate(&mut self, id: &str) -> Result<(), OwnerError> {
         self.ensure_native_library()?;
+        self.ready.remove(id);
         let child = self
             .children
             .remove(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
         child.terminate().await?;
         Ok(())
+    }
+
+    pub fn is_ready(&self, id: &str) -> bool {
+        self.ready.contains_key(id)
+    }
+
+    pub fn mark_ready(&mut self, id: impl Into<String>) {
+        self.ready.insert(id.into(), ());
+    }
+
+    pub fn clear_ready(&mut self, id: &str) {
+        self.ready.remove(id);
     }
 
     /// Pid of a tracked child, if still alive to the OS.

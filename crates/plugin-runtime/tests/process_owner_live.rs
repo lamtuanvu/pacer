@@ -86,9 +86,14 @@ async fn native_test_token_spawns_tracks_and_terminates_fixture() {
         owner.spawn("fx-owner", &peer(script)),
         Err(OwnerError::AlreadyTracked("fx-owner".into()))
     );
+    assert!(!owner.ensure("fx-owner", &peer(script)).unwrap());
+    assert!(!owner.is_ready("fx-owner"));
+    owner.mark_ready("fx-owner");
+    assert!(owner.is_ready("fx-owner"));
 
     owner.terminate("fx-owner").await.unwrap();
     assert!(owner.is_empty());
+    assert!(!owner.is_ready("fx-owner"));
     assert_eq!(
         owner.terminate("fx-owner").await.unwrap_err(),
         OwnerError::UnknownPlugin("fx-owner".into())

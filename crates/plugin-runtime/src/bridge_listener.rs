@@ -7,17 +7,19 @@
 //! (`PACER_NATIVE_PLUGIN_HOST` and/or [`crate::HOST_BRIDGE_ENABLE_ENV`]). This
 //! module never binds TCP.
 //!
-//! Without a live [`SharedOwner`], call/find stay dark stubs. Flag-on serve
-//! attaches the owner so handlers reach tracked [`crate::PluginProcess`]
-//! children (P4d-2).
+//! Without a live [`SharedOwner`], call/find/spawn/stop stay dark stubs.
+//! Flag-on serve attaches the owner so handlers reach tracked
+//! [`crate::PluginProcess`] children (P4d-2 / P4d-4).
 
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND,
-    dark_bridge_enabled, prepare_host_run_dir,
+    METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, dark_bridge_enabled, prepare_host_run_dir,
 };
 use crate::owner::ProcessOwner;
+use pacer_plugin_host::SpawnSpec;
 use serde_json::{Value, json};
 use std::{
+    collections::HashMap,
     fs, io,
     os::unix::{
         fs::{FileTypeExt, MetadataExt},
@@ -365,6 +367,8 @@ async fn response_for_line(line: &[u8], dispatch: &BridgeDispatch) -> Value {
     match method {
         METHOD_PLUGIN_CALL => dispatch_call(id, params, dispatch).await,
         METHOD_PLUGIN_FIND => dispatch_find(id, params, dispatch).await,
+        METHOD_PLUGIN_SPAWN => dispatch_spawn(id, params, dispatch).await,
+        METHOD_PLUGIN_STOP => dispatch_stop(id, params, dispatch).await,
         _ => json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -439,6 +443,102 @@ async fn dispatch_find(id: Value, params: Value, dispatch: &BridgeDispatch) -> V
     }
 }
 
+async fn dispatch_spawn(id: Value, params: Value, dispatch: &BridgeDispatch) -> Value {
+    match dispatch {
+        BridgeDispatch::Stub => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "activated": false,
+                "reason": "native-plugin-ownership-not-activated"
+            }
+        }),
+        BridgeDispatch::Live(owner) => {
+            let Some(plugin_id) = params.get("id").and_then(Value::as_str) else {
+                return rpc_error(id, INVALID_PARAMS, "missing plugin id");
+            };
+            let Some(argv) = params.get("argv").and_then(Value::as_array).map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            }) else {
+                return rpc_error(id, INVALID_PARAMS, "missing argv");
+            };
+            if argv.is_empty() {
+                return rpc_error(id, INVALID_PARAMS, "empty argv");
+            }
+            let Some(cwd) = params.get("cwd").and_then(Value::as_str) else {
+                return rpc_error(id, INVALID_PARAMS, "missing cwd");
+            };
+            let mut env = HashMap::new();
+            if let Some(object) = params.get("env").and_then(Value::as_object) {
+                for (key, value) in object {
+                    if let Some(text) = value.as_str() {
+                        env.insert(key.clone(), text.to_owned());
+                    }
+                }
+            }
+            let spec = SpawnSpec {
+                argv,
+                cwd: cwd.into(),
+                env,
+            };
+            let mut guard = owner.lock().await;
+            match guard.ensure(plugin_id, &spec) {
+                Ok(created) => {
+                    let pid = guard.find_plugin(plugin_id);
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "id": plugin_id,
+                            "created": created,
+                            "pid": pid,
+                        }
+                    })
+                }
+                Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
+            }
+        }
+    }
+}
+
+async fn dispatch_stop(id: Value, params: Value, dispatch: &BridgeDispatch) -> Value {
+    match dispatch {
+        BridgeDispatch::Stub => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "activated": false,
+                "reason": "native-plugin-ownership-not-activated"
+            }
+        }),
+        BridgeDispatch::Live(owner) => {
+            let Some(plugin_id) = params.get("id").and_then(Value::as_str) else {
+                return rpc_error(id, INVALID_PARAMS, "missing plugin id");
+            };
+            let mut guard = owner.lock().await;
+            if guard.find_plugin(plugin_id).is_none() {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {"id": plugin_id, "stopped": false}
+                });
+            }
+            match guard.terminate(plugin_id).await {
+                Ok(()) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {"id": plugin_id, "stopped": true}
+                }),
+                Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
+            }
+        }
+    }
+}
+
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -474,6 +574,10 @@ pub const fn serve_starts_reverse_bridge_by_default() -> bool {
 /// Public client/TCP surfaces must never advertise private bridge methods.
 pub fn bridge_methods_are_private(ops: &[&str]) -> bool {
     !ops.iter().any(|name| {
-        name.starts_with("_host.") || *name == METHOD_PLUGIN_CALL || *name == METHOD_PLUGIN_FIND
+        name.starts_with("_host.")
+            || *name == METHOD_PLUGIN_CALL
+            || *name == METHOD_PLUGIN_FIND
+            || *name == METHOD_PLUGIN_SPAWN
+            || *name == METHOD_PLUGIN_STOP
     })
 }
