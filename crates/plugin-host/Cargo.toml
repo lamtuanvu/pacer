@@ -28,6 +28,7 @@ sha1 = "0.10"
 rusqlite = { version = "0.41", features = ["bundled"] }
 pacer-store = { path = "../store" }
 pacer-foundation = { path = "../foundation" }
+pacer-js-json = { path = "../js-json" }
 
 [lints]
 workspace = true
