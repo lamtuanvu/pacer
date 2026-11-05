@@ -9,6 +9,8 @@ mod config_writes;
 pub mod plugins;
 mod task_reads;
 
+pub(crate) use config_writes::config_set_stays_forwarded;
+
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
     Box::pin(async move {
@@ -29,6 +31,14 @@ fn debug(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
 }
 
 static OPS: &[NativeOp] = &[
+    NativeOp {
+        name: "strategy.list",
+        call: config_writes::strategy_list,
+    },
+    NativeOp {
+        name: "strategy.show",
+        call: config_writes::strategy_show,
+    },
     NativeOp {
         name: "strategy.use",
         call: config_writes::strategy_use,
@@ -66,12 +76,24 @@ static OPS: &[NativeOp] = &[
         call: config_writes::notifications_set,
     },
     NativeOp {
+        name: "config.set",
+        call: config_writes::config_set,
+    },
+    NativeOp {
         name: "activity.list",
         call: task_reads::activity_list,
     },
     NativeOp {
         name: "task.log",
         call: task_reads::task_log,
+    },
+    NativeOp {
+        name: "task.prune",
+        call: task_reads::task_prune,
+    },
+    NativeOp {
+        name: "task.restore",
+        call: task_reads::task_restore,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -155,6 +177,8 @@ mod tests {
     #[test]
     fn forward_override_removes_only_selected_native_ops() {
         for name in [
+            "strategy.list",
+            "strategy.show",
             "strategy.use",
             "strategy.save",
             "strategy.remove",
@@ -164,19 +188,27 @@ mod tests {
             "runner.remove",
             "notifications.get",
             "notifications.set",
+            "config.set",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
         }
+        assert!(registry("").get("config.get").is_none());
         assert!(registry("").get("activity.list").is_some());
         assert!(registry("").get("plugin.install").is_none());
         assert!(registry("plugin.install").get("plugin.install").is_none());
         assert!(registry("").get("task.log").is_some());
+        assert!(registry("").get("task.prune").is_some());
+        assert!(registry("").get("task.restore").is_some());
         assert!(registry("activity.list").get("activity.list").is_none());
         assert!(registry("activity.list").get("task.log").is_some());
+        assert!(registry("task.prune").get("task.prune").is_none());
+        assert!(registry("task.prune").get("task.restore").is_some());
         assert!(registry("*").names().is_empty());
         assert!(registry("").get("task.dismiss").is_none());
         assert!(registry("").get("task.diff").is_none());
+        assert!(registry("").get("task.get").is_none());
+        assert!(registry("").get("task.list").is_none());
     }
 
     #[test]
@@ -187,6 +219,8 @@ mod tests {
             assert!(registry("").get(name).is_none(), "stdio {name}");
         }
         for name in [
+            "strategy.list",
+            "strategy.show",
             "strategy.use",
             "strategy.save",
             "strategy.remove",
@@ -196,10 +230,12 @@ mod tests {
             "runner.remove",
             "notifications.get",
             "notifications.set",
+            "config.set",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
         }
+        assert!(super::service_registry("").get("config.get").is_none());
         for name in [
             "plugin.install",
             "plugin.enable",

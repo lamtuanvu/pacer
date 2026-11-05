@@ -1,8 +1,9 @@
-//! P2-C operation effects. The transport retains the TS endpoint-plugin bridge;
+//! P2-C/P2-E operation effects. The transport retains the TS endpoint-plugin bridge;
 //! final publication is performed only after that bridge has settled.
 use pacer_config::{
     config_writes, notifications,
-    strategy::{StrategyError, load_strategy},
+    settings::{self, SettingsError},
+    strategy::{StrategyError, list_strategy_reads, load_strategy, show_strategy, strategy_path},
     strategy_write,
 };
 use pacer_foundation::{
@@ -10,6 +11,14 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
 };
 use serde_json::{Value, json};
+
+/// Planner install and backend readiness stay on the TypeScript `config.set` path.
+pub(crate) fn config_set_stays_forwarded(params: &Value) -> bool {
+    matches!(
+        params.get("key").and_then(Value::as_str),
+        Some("planner" | "execution.backend")
+    )
+}
 
 const STRATEGY_HINT: &str =
     "Use strategy.list to choose a strategy and strategy.preview to validate a draft.";
@@ -24,7 +33,8 @@ fn error(op: &str, error: StrategyError) -> CoreError {
         Code::InvalidInput
     };
     let mut error = CoreError::new(code, &message);
-    if op.starts_with("strategy.") {
+    // strategy.list maps through toCoreError without the strategyAction hint.
+    if op.starts_with("strategy.") && op != "strategy.list" {
         error = error.hint(STRATEGY_HINT);
     } else if op == "runner.remove" {
         error = error.hint("Check the runner id, account and host configuration.");
@@ -39,12 +49,25 @@ fn error(op: &str, error: StrategyError) -> CoreError {
     error
 }
 
+fn settings_error(error: SettingsError) -> CoreError {
+    let code = match error.code {
+        "conflict" => Code::Conflict,
+        "unavailable" => Code::Unavailable,
+        _ => Code::InvalidInput,
+    };
+    let mut out = CoreError::new(code, error.message);
+    if let Some(hint) = error.hint {
+        out = out.hint(hint);
+    }
+    out
+}
+
 pub(super) fn area(op: &str) -> Option<&'static str> {
     match op {
         "strategy.use" | "strategy.save" | "strategy.remove" => Some("strategy"),
         "runner.set" | "runner.reorder" | "runner.remove" => Some("runners"),
         "routing.set" => Some("routing"),
-        "notifications.set" => Some("config"),
+        "notifications.set" | "config.set" => Some("config"),
         _ => None,
     }
 }
@@ -114,6 +137,8 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
             load_strategy(home).map_err(|e| CoreError::new(Code::Internal, e.to_string()))?;
         }
         let result = match op {
+            "strategy.list" => list_strategy_reads(home),
+            "strategy.show" => show_strategy(home, name),
             "strategy.use" => strategy_write::use_strategy(home, name),
             "strategy.save" => {
                 let millis = (ctx.now * 1000.0).trunc() as i64;
@@ -217,6 +242,28 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
                 return notifications::set_level(home, p["level"].as_str().unwrap_or(""))
                     .map_err(|e| CoreError::new(Code::InvalidInput, e.to_string()));
             }
+            "config.set" => {
+                let key = p["key"].as_str().unwrap_or("");
+                if config_set_stays_forwarded(&p) {
+                    return Err(CoreError::new(
+                        Code::Unavailable,
+                        format!("{key} requires the forwarded config.set operation"),
+                    ));
+                }
+                let (path, name) = strategy_path(home).map_err(|e| error(op, e))?;
+                let presets_only = ctx
+                    .env
+                    .get("PACER_TERMINAL_PRESETS_ONLY")
+                    .is_some_and(|v| v == "1");
+                let mut result =
+                    settings::set_setting(&path, &name, key, &p["value"], presets_only)
+                        .map_err(settings_error)?;
+                // Match the TypeScript op handler: notes stay internal.
+                if let Some(obj) = result.as_object_mut() {
+                    obj.remove("notes");
+                }
+                return Ok(result);
+            }
             _ => return Err(CoreError::new(Code::UnknownOp, op)),
         };
         result.map_err(|e| error(op, e))
@@ -225,7 +272,7 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
 macro_rules! handler {
     ($($name:ident => $op:literal),* $(,)?) => {$(pub(super) fn $name(ctx: &Ctx, params: Value) -> OpFuture<'_> { run(ctx,$op,params) })*};
 }
-handler! { strategy_use => "strategy.use", strategy_save => "strategy.save", strategy_remove => "strategy.remove", routing_set => "routing.set", runner_set => "runner.set", runner_reorder => "runner.reorder", runner_remove => "runner.remove", notifications_get => "notifications.get", notifications_set => "notifications.set" }
+handler! { strategy_list => "strategy.list", strategy_show => "strategy.show", strategy_use => "strategy.use", strategy_save => "strategy.save", strategy_remove => "strategy.remove", routing_set => "routing.set", runner_set => "runner.set", runner_reorder => "runner.reorder", runner_remove => "runner.remove", notifications_get => "notifications.get", notifications_set => "notifications.set", config_set => "config.set" }
 
 #[cfg(test)]
 mod tests;

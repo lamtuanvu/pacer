@@ -1,6 +1,8 @@
 //! Line-oriented test adapter. Never installed or registered as a native op.
 use pacer_foundation::Ctx;
-use pacer_read_model::{Probes, ReadModel, SnapshotInput, StatusInput, events, js::*};
+use pacer_read_model::{
+    ActiveSession, Probes, ReadModel, SessionProbe, SnapshotInput, StatusInput, events, js::*,
+};
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,9 +25,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .any(|p| p.as_i64() == Some(pid))
         };
         let result = match text(&input["op"]) {
-            "capacity" => stringify(
-                &json!({"executors":pacer_read_model::capacity::executors(&ctx,&input["status"],&input["strategy"],array(&input["tasks"])),"accounts":pacer_read_model::capacity::accounts_in_home(&ctx,&input["status"],&input["strategy"]),"planner":pacer_read_model::capacity::planner(&input["status"],zone)}),
-            ),
+            "capacity" => {
+                let sessions = if input.get("sessions").is_some() {
+                    array(&input["sessions"]["active"])
+                        .iter()
+                        .map(|s| ActiveSession {
+                            task_id: text(&s["task_id"]).to_string(),
+                            executor: text(&s["executor"]).to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+                let active = pacer_read_model::ActiveCounts::from_sessions(&sessions);
+                stringify(
+                    &json!({"executors":pacer_read_model::capacity::executors(&ctx,&active,&input["status"],&input["strategy"],array(&input["tasks"])),"accounts":pacer_read_model::capacity::accounts_in_home(&ctx,&input["status"],&input["strategy"]),"planner":pacer_read_model::capacity::planner(&input["status"],zone)}),
+                )
+            }
             "events" => events::events_document(
                 &ctx,
                 num(&input["since"]),
@@ -63,6 +79,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     desktop_updates: array(&input["desktopUpdates"]).to_vec(),
                     service_installed: truth(&input["serviceInstalled"]),
                     can_pair: truth(&input["canPair"]),
+                    // Only a MISSING sessions field selects Default. An explicitly
+                    // supplied revision is passed through verbatim, even if empty.
+                    sessions: if input.get("sessions").is_some() {
+                        SessionProbe {
+                            revision: text(&input["sessions"]["revision"]).to_string(),
+                            active: array(&input["sessions"]["active"])
+                                .iter()
+                                .map(|s| ActiveSession {
+                                    task_id: text(&s["task_id"]).to_string(),
+                                    executor: text(&s["executor"]).to_string(),
+                                })
+                                .collect(),
+                        }
+                    } else {
+                        SessionProbe::default()
+                    },
                 };
                 let status = if input["useCache"] == true {
                     StatusInput::Cached

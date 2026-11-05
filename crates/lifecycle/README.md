@@ -6,8 +6,12 @@ admission, queue drain and revision-checked mutation) alongside P6e attention,
 client, job, host, notification and runner-check decisions.
 
 Admission uses `pacer-store` and `pacer-foundation` for transactional task state,
-publication and mutation locks. Its disposable `task_admission_probe` binary
-exercises the shared Bun/Rust admission boundaries in tests.
+publication and mutation locks. Capacity characterization covers `slot_use`,
+strategy-derived `slot_limit` / `queue_capacity_for` (TS `slotLimit` /
+`queueCapacity`) and precomputed `queue_capacity` goldens. Machine-signal
+collection stays outside this crate; callers pass an evaluated guard snapshot.
+Its disposable `task_admission_probe` binary exercises the shared Bun/Rust
+admission boundaries in tests.
 
 The P6e modules import no runner, supervisor, transport, plugin implementation,
 filesystem, process, clock or timer code. They write no state, so their SEC-7

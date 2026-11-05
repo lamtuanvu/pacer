@@ -451,7 +451,8 @@ impl TaskStore {
 
 fn retention_lock_error(error: LockError) -> StoreError {
     match error {
-        LockError::Timeout(_) => StoreError::Conflict,
+        // Match the TypeScript CoreError message/hint contract for an active retention lock.
+        LockError::Timeout(_) => StoreError::Admission("task retention is already running".into()),
         other => StoreError::Lock(other),
     }
 }

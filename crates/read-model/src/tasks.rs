@@ -1,5 +1,6 @@
 //! Task selection and message/liveness enrichment. SQLite is authoritative; the
 //! shared store imports old-release JSON using the existing revision protocol.
+use crate::snapshot::ActiveCounts;
 use crate::{Error, js::*, read};
 use pacer_foundation::Ctx;
 use pacer_store::TaskStore;
@@ -413,6 +414,7 @@ fn has_table(db: &Connection, name: &str) -> Result<bool, Error> {
 }
 pub fn api_tasks(
     ctx: &Ctx,
+    active: &ActiveCounts,
     records: &[Value],
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
@@ -443,6 +445,10 @@ pub fn api_tasks(
     }
     records.iter().zip(repos).map(|(t,repo)|{
  let mut row=task_data(t,alive);
+ let n = active.task(text(&t["id"]));
+ if n > 0 {
+     row["activeAgentSessions"]=json!(n);
+ }
 for key in ["archived","archivePath"]{
 if truth(&t["archived"])&& let Some(v)=t.get(key){
 row[key]=v.clone();
@@ -499,6 +505,7 @@ row["messages"]=msg;
 }
 pub fn snapshot_tasks(
     ctx: &Ctx,
+    active: &ActiveCounts,
     records: &[Value],
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
@@ -508,9 +515,12 @@ pub fn snapshot_tasks(
         .filter(|t| !truth(&t["archived"]))
         .cloned()
         .collect();
-    let mut rows = api_tasks(ctx, &selected, store, alive)?;
+    let mut rows = api_tasks(ctx, active, &selected, store, alive)?;
     rows.retain(|t| {
-        ["queued", "running"].contains(&text(&t["state"]))
+        // Missing map entry reads as 0. A session-holding task stays in the
+        // window even if stale (>24h) or dismissed, mirroring `!!t.activeAgentSessions`.
+        active.task(text(&t["id"])) > 0
+            || ["queued", "running"].contains(&text(&t["state"]))
             || (!truth(&t["dismissed"]) && num(&t["updatedAt"]) >= ctx.now - 86400.0)
     });
     rows.sort_by(|a, b| num(&b["updatedAt"]).total_cmp(&num(&a["updatedAt"])));
@@ -559,7 +569,7 @@ pub fn snapshot_document(
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
 ) -> Result<crate::wire::Document, Error> {
-    let rows = snapshot_tasks(ctx, records, store, alive)?;
+    let rows = snapshot_tasks(ctx, &ActiveCounts::default(), records, store, alive)?;
     let questions = crate::wire::questions(store)?;
     let mut doc = crate::wire::Document::new(serde_json::json!(rows));
     crate::wire::task_strings(&mut doc, &rows, "", &questions);

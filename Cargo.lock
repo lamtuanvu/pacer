@@ -1306,6 +1306,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-js-json"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "pacer-lifecycle"
 version = "0.1.0"
 dependencies = [
@@ -1399,9 +1408,11 @@ dependencies = [
  "libc",
  "nix",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-plugin-protocol",
  "pacer-store",
  "reqwest",
+ "rusqlite",
  "ryu-js",
  "semver",
  "serde",
@@ -1515,6 +1526,7 @@ dependencies = [
  "pacer-foundation",
  "pacer-mdns",
  "pacer-plugin-ops",
+ "pacer-read-model",
  "pacer-store",
  "rand 0.9.5",
  "ryu-js",

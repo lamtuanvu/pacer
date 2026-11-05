@@ -150,6 +150,14 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             }
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
+        // Planner install and backend readiness remain on the TypeScript path.
+        if op.name == "config.set" && crate::native::config_set_stays_forwarded(&params) {
+            let Some(target) = state.core.target().await else {
+                return proxy::unavailable(false);
+            };
+            return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
+                .await;
+        }
         let result = if op.name.starts_with("plugin.") && op.name != "plugin.install" {
             if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                 eprintln!("native {}", op.name);
@@ -167,11 +175,17 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(e) => Err(CoreError::new(Code::Internal, e.to_string())),
             }
         } else {
+            let mut request_ctx = ctx.clone();
+            if op.name == "config.set" && auth == auth::AuthKind::Cookie {
+                request_ctx
+                    .env
+                    .insert("PACER_TERMINAL_PRESETS_ONLY".into(), "1".into());
+            }
             let endpoint_sync = state.core.target().await.map(|target| {
                 Box::pin(crate::native::config_sync::http(Some(target), op.name))
                     as pacer_foundation::api::OpFuture<'_>
             });
-            call_native(&ctx, op, params, None, endpoint_sync).await
+            call_native(&request_ctx, op, params, None, endpoint_sync).await
         };
         if plugin
             && result.as_ref().is_err_and(|error| {

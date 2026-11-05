@@ -36,14 +36,12 @@ describe("vt100 spike comparator negative controls", () => {
   });
 });
 
-test("source preservation and checkpoint parity are separate comparisons", async () => {
+test("source preservation and checkpoint parity both retain origin cursor", async () => {
   const sample = {id:"origin-oracle",tags:["origin"],data:"\x1b[3;20r\x1b[?6h\x1b[Hinside\r\nrow",chunkSizes:[1,2,3]};
   const source = await reference(sample);
   const restored = await reference({...sample,data:source.replay});
-  // A checkpoint compared with itself must pass checkpoint parity even when
-  // the existing serializer fails to reproduce the source cursor.
   expect((await compareReplay(restored,source.replay)).differences).toEqual([]);
-  expect((await compareReplay(source,source.replay)).differences).toContain("cursorY");
+  expect((await compareReplay(source,source.replay)).differences).toEqual([]);
 });
 
 test("state comparison detects a lost hidden cursor without browser evidence", async () => {
@@ -51,17 +49,18 @@ test("state comparison detects a lost hidden cursor without browser evidence", a
   const source = await reference(sample);
   expect((await compareReplay(source, "hello")).differences).toContain("cursorVisible");
   expect((await compareReplay(source, sample.data)).differences).toEqual([]);
+  // Production Screen.snapshot now appends DECTCEM; checkpoint must round-trip.
+  expect((await compareReplay(source, source.replay)).differences).toEqual([]);
 });
 
-test("prospective reference export restores origin cursor and hidden cursor while retaining actual defects", async () => {
+test("production checkpoint matches prospective export for prior DECTCEM/DECOM defects", async () => {
   const corpus = await loadCorpus();
   for (const id of ["scroll-region-origin", "alternate-active", "full-screen-redraw"]) {
     const source = await reference(corpus.streams.find(stream => stream.id === id)!);
-    expect((await compareReplay(source, source.replay)).differences.length).toBeGreaterThan(0);
+    expect((await compareReplay(source, source.replay)).differences).toEqual([]);
     expect((await compareReplay(source, source.prospectiveReplay)).differences).toEqual([]);
   }
 });
-
 
 test("prospective reference retains source state across the full synthetic corpus", async () => {
   const corpus = await loadCorpus();
