@@ -321,7 +321,8 @@ function parseFile(path: string, name: string): Strategy {
   if (stamp === null) throw new MissingStrategyError(path);
   const cacheKey = `${path}\0${name}`;
   const cached = parsedFileCache.get(cacheKey);
-  if (cached && cached.stamp === stamp) return cached.strategy;
+  // A copy, so a caller that edits its strategy can never change what the next read returns.
+  if (cached && cached.stamp === stamp) return structuredClone(cached.strategy);
   let raw: unknown;
   try {
     raw = Bun.YAML.parse(readFileSync(path, "utf8"));
@@ -329,7 +330,7 @@ function parseFile(path: string, name: string): Strategy {
     throw new StrategyError(path, [`YAML syntax error: ${(e as Error).message}`]);
   }
   const strategy = validateStrategy(raw, path, name);
-  parsedFileCache.set(cacheKey, { stamp, strategy });
+  parsedFileCache.set(cacheKey, { stamp, strategy: structuredClone(strategy) });
   return strategy;
 }
 

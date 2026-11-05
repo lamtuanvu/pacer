@@ -33,8 +33,10 @@ function stampedRead<T>(path: string, cache: Map<string, { stamp: string; value:
 }
 const registryCache = new Map<string, { stamp: string; value: Registry }>();
 const aliasesCache = new Map<string, { stamp: string; value: Record<string, string> }>();
-const registry = (ctx: Ctx): Registry => stampedRead(file(ctx), registryCache, {});
-const aliases = (ctx: Ctx): Record<string, string> => stampedRead(aliasesFile(ctx), aliasesCache, {});
+// Callers (addRepo, removeRepo) edit the result before writing it, so hand out a copy:
+// a failed write must never leave unsaved edits in the cache.
+const registry = (ctx: Ctx): Registry => ({ ...stampedRead(file(ctx), registryCache, {}) });
+const aliases = (ctx: Ctx): Record<string, string> => ({ ...stampedRead(aliasesFile(ctx), aliasesCache, {}) });
 const cachedCanonical = (path: string): string => {
  const result=cachedPath(path).real;
  schedulePathRefresh(path);
