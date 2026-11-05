@@ -174,27 +174,31 @@ async fn forward_input<
             && let Some(op) = method.and_then(|name| registry.get(name))
             && let Some(request) = request.as_ref()
         {
-            let request_ctx = ctx.at_now();
-            let result = call_native(
-                &request_ctx,
-                op,
-                request.get("params").cloned().unwrap_or_else(|| json!({})),
-                request.get("id"),
-                Some(Box::pin(crate::native::config_sync::stdio(
-                    &mut core, sync.0, sync.1, op.name, sync.2,
-                ))),
-            )
-            .await;
-            if let Some(id) = request.get("id") {
-                let response = match result {
-                    Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
-                    Err(error) => json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()}),
-                };
-                let mut bytes = serde_json::to_vec(&response)?;
-                bytes.push(b'\n');
-                write_line(out, &bytes).await?;
+            let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
+            // Planner install and backend readiness remain on the TypeScript path.
+            if !(op.name == "config.set" && crate::native::config_set_stays_forwarded(&params)) {
+                let request_ctx = ctx.at_now();
+                let result = call_native(
+                    &request_ctx,
+                    op,
+                    params,
+                    request.get("id"),
+                    Some(Box::pin(crate::native::config_sync::stdio(
+                        &mut core, sync.0, sync.1, op.name, sync.2,
+                    ))),
+                )
+                .await;
+                if let Some(id) = request.get("id") {
+                    let response = match result {
+                        Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
+                        Err(error) => json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()}),
+                    };
+                    let mut bytes = serde_json::to_vec(&response)?;
+                    bytes.push(b'\n');
+                    write_line(out, &bytes).await?;
+                }
+                continue;
             }
-            continue;
         }
         core.write_all(&line).await?;
         core.flush().await?;

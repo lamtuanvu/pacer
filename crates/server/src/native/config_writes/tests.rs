@@ -141,3 +141,89 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
     );
     assert!(!home.join("link/outbox.jsonl").exists());
 }
+
+#[test]
+fn planner_and_backend_keys_stay_on_the_forward_path() {
+    assert!(super::config_set_stays_forwarded(
+        &json!({"key":"planner","value":"codex"})
+    ));
+    assert!(super::config_set_stays_forwarded(
+        &json!({"key":"execution.backend","value":"orca"})
+    ));
+    assert!(!super::config_set_stays_forwarded(
+        &json!({"key":"update_check","value":false})
+    ));
+}
+
+#[tokio::test]
+async fn pure_config_set_writes_publishes_and_strips_notes() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../../test/fixtures/config-writes-goldens.json"
+    ))
+    .unwrap();
+    std::fs::write(
+        dir.path().join("strategy.yaml"),
+        fixture["initial"].as_str().unwrap(),
+    )
+    .unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        Default::default(),
+        1_700_000_000.0,
+    );
+    let registry = crate::native::registry("");
+    let result = crate::native::call_native(
+        &ctx,
+        registry.get("config.set").unwrap(),
+        json!({"key":"update_check","value":false}),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["key"], "update_check");
+    assert_eq!(result["value"], false);
+    assert!(result.get("notes").is_none());
+    assert!(dir.path().join("link/outbox.jsonl").exists());
+    let error = crate::native::call_native(
+        &ctx,
+        registry.get("config.set").unwrap(),
+        json!({"key":"planner","value":"codex","integrations":"skip"}),
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, Code::Unavailable);
+}
+
+#[tokio::test]
+async fn cookie_presets_flag_rejects_custom_terminal_open_templates() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../../test/fixtures/config-writes-goldens.json"
+    ))
+    .unwrap();
+    std::fs::write(
+        dir.path().join("strategy.yaml"),
+        fixture["initial"].as_str().unwrap(),
+    )
+    .unwrap();
+    let mut env = std::collections::HashMap::new();
+    env.insert("PACER_TERMINAL_PRESETS_ONLY".into(), "1".into());
+    let ctx = Ctx::with(dir.path().into(), dir.path().into(), env, 0.0);
+    let registry = crate::native::registry("");
+    let error = crate::native::call_native(
+        &ctx,
+        registry.get("config.set").unwrap(),
+        json!({"key":"terminal.open","value":"custom-{cmd}"}),
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, Code::InvalidInput);
+    assert!(error.message.contains("preset"));
+}
