@@ -1,11 +1,18 @@
+use crate::strategy::resolve_runner;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlotLimits {
     pub executor: usize,
     pub host: Option<usize>,
     pub local: Option<usize>,
+}
+
+/// Whether a task occupies an executor slot. Matches `holdsSlot` in `src/engine/slots.ts`.
+pub fn holds_slot(task: &Value) -> bool {
+    task["state"] == "running"
+        || (task["state"] == "needs_input" && truthy(&task["live"]) && !truthy(&task["retriedBy"]))
 }
 
 /// A live `needs_input` worker retains its slot until a retry takes it over.
@@ -14,11 +21,7 @@ pub fn slot_use(tasks: &[Value]) -> Value {
     let mut by_host: HashMap<String, usize> = HashMap::new();
     let mut local = 0;
     for task in tasks {
-        let holds = task["state"] == "running"
-            || (task["state"] == "needs_input"
-                && truthy(&task["live"])
-                && !truthy(&task["retriedBy"]));
-        if !holds {
+        if !holds_slot(task) {
             continue;
         }
         let executor = task
@@ -81,6 +84,37 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
+/// Derive hard caps from a validated strategy snapshot. Matches `slotLimit`.
+///
+/// Expects the TypeScript `Strategy` snapshot shape: camelCase runner/host
+/// `maxTasks`, and snake_case `execution.local_max_tasks` (pass-through from
+/// `validateStrategy`).
+pub fn slot_limit(strategy: &Value, runner_id: &str) -> SlotLimits {
+    let runner = resolve_runner(strategy, runner_id);
+    let host_limit = runner
+        .and_then(|r| r.get("host").and_then(Value::as_str))
+        .and_then(|host| strategy["hosts"][host]["maxTasks"].as_u64())
+        .map(|n| n as usize);
+    let executor = runner
+        .and_then(|r| r.get("maxTasks").and_then(Value::as_u64))
+        .map(|n| n as usize)
+        .or(host_limit)
+        .unwrap_or(1);
+    let local = if host_limit.is_none() {
+        // Strategy keeps the raw execution mapping; validateExecution reads this key.
+        strategy["execution"]["local_max_tasks"]
+            .as_u64()
+            .map(|n| n as usize)
+    } else {
+        None
+    };
+    SlotLimits {
+        executor,
+        host: host_limit,
+        local,
+    }
+}
+
 /// Capacity precedence matches `slotBlock`: executor, host, then local machine.
 pub fn queue_capacity(
     executor: &str,
@@ -111,5 +145,33 @@ pub fn queue_capacity(
             );
         }
     }
-    machine_guard.map(|guard| json!({"reason":guard["reason"],"limit":"machine","detail":guard["detail"],"machine":guard["machine"]}))
+    machine_guard.map(|guard| {
+        json!({"reason":guard["reason"],"limit":"machine","detail":guard["detail"],"machine":guard["machine"]})
+    })
+}
+
+/// Strategy-aware capacity check matching `queueCapacity` in `src/tasks/capacity.ts`.
+///
+/// Looks up usage under the resolved runner id (aliases resolve first). Machine
+/// guards apply only to local runners; remote hosts keep hard caps only. Callers
+/// supply an already-evaluated guard snapshot — signal collection stays with the
+/// effectful owner (engine machine readers / P6b).
+pub fn queue_capacity_for(
+    strategy: &Value,
+    executor: &str,
+    use_: &Value,
+    machine_guard: Option<Value>,
+) -> Option<Value> {
+    let runner = resolve_runner(strategy, executor);
+    let limits = slot_limit(strategy, executor);
+    let id = runner
+        .and_then(|r| r.get("id").and_then(Value::as_str))
+        .unwrap_or(executor);
+    let host = runner.and_then(|r| r.get("host").and_then(Value::as_str));
+    let guard = if host.is_none() {
+        machine_guard
+    } else {
+        None
+    };
+    queue_capacity(id, host, limits, use_, guard)
 }
