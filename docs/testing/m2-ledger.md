@@ -103,3 +103,58 @@ bytes, plus the existing shared ECMAScript whitespace/order corpus. The number
 formatter uses `ryu-js` to preserve ECMAScript number spelling and IEEE-754 rounding;
 terminal limits count UTF-16 code units. No public surface switches to these helpers
 in this slice, so native-operation CT-11 evidence belongs to the later cutover.
+
+## Unregistered public ops (Forwarded by default)
+
+Pinned against `stdio_hello.json` v3 (`224` ops). The Rust registry lists
+`15` native names above; every other public op remains TypeScript-owned
+until a cutover PR registers it and updates this ledger. Rows already named in
+the table above are omitted here. Owner streams follow
+`docs/specs/2026-10-20-rust-host-migration-design.md` §2 and the 2026-11-01
+reconcile plans. Counts are op prefixes, not reviewable PR slices.
+
+| Prefix | Count | Owner stream | Notes |
+| --- | ---: | --- | --- |
+| `dispatch.*` | 23 | P5/P6 | e.g. `dispatch.analytics`, `dispatch.answer`, `dispatch.child` (+20 more) |
+| `desktop.*` | 17 | P8/P9 | e.g. `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.register` (+14 more) |
+| `session.*` | 14 | P7 | e.g. `session.agent.create`, `session.agent.end`, `session.agent.get` (+11 more) |
+| `task.*` | 14 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+11 more) |
+| `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
+| `host.*` | 11 | P2 | e.g. `host.add`, `host.check`, `host.clean` (+8 more) |
+| `account.*` | 9 | P7/P9 | e.g. `account.add`, `account.adopt`, `account.edit` (+6 more) |
+| `client.*` | 9 | P6 | e.g. `client.control.claim`, `client.control.complete`, `client.control.enroll` (+6 more) |
+| `msg.*` | 8 | P6 | e.g. `msg.close`, `msg.confirm`, `msg.inbox` (+5 more) |
+| `project.*` | 7 | P2 | e.g. `project.messaging.get`, `project.messaging.remove`, `project.messaging.set` (+4 more) |
+| `runner.*` | 7 | P2 | e.g. `runner.add`, `runner.block`, `runner.check` (+4 more) |
+| `discovery.*` | 5 | P8 | e.g. `discovery.list`, `discovery.network.get`, `discovery.network.set` (+2 more) |
+| `agent.*` | 4 | P9 | e.g. `agent.connect`, `agent.detect`, `agent.disconnect` (+1 more) |
+| `service.*` | 4 | P9 | e.g. `service.handover`, `service.install`, `service.status` (+1 more) |
+| `strategy.*` | 4 | P2 | e.g. `strategy.build`, `strategy.list`, `strategy.preview` (+1 more) |
+| `terminal.*` | 4 | P7 | e.g. `terminal.close`, `terminal.create`, `terminal.list` (+1 more) |
+| `executor.*` | 3 | P6 | e.g. `executor.setup.candidates`, `executor.setup.connect`, `executor.setup.models` |
+| `job.*` | 3 | P6 | e.g. `job.cancel`, `job.get`, `job.list` |
+| `limits.*` | 3 | P5 | e.g. `limits.check`, `limits.refresh`, `limits.report` |
+| `machine.*` | 3 | P8 | e.g. `machine.get`, `machine.rotate`, `machine.set` |
+| `repo.*` | 3 | P2 | e.g. `repo.add`, `repo.list`, `repo.remove` |
+| `routing.*` | 3 | P2 | e.g. `routing.get`, `routing.route`, `routing.status` |
+| `api.*` | 2 | P8 | e.g. `api.describe`, `api.list` |
+| `attention.*` | 2 | P6 | e.g. `attention.dismiss`, `attention.snooze` |
+| `delegation.*` | 2 | P5 | e.g. `delegation.pause`, `delegation.resume` |
+| `issue.*` | 2 | P8 | e.g. `issue.import`, `issue.search` |
+| `mode.*` | 2 | P5 | e.g. `mode.hold`, `mode.release` |
+| `onboarding.*` | 2 | P9 | e.g. `onboarding.skip`, `onboarding.try` |
+| `setup.*` | 2 | P9 | e.g. `setup.check`, `setup.init` |
+| `update.*` | 2 | P9 | e.g. `update.apply`, `update.check` |
+| `doctor.*` | 1 | P9 | e.g. `doctor.run` |
+| `files.*` | 1 | P8 | e.g. `files.search` |
+| `insights.*` | 1 | P5 | e.g. `insights.summary` |
+| `snapshot.*` | 1 | P8 | e.g. `snapshot.get` |
+| `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
+| `version.*` | 1 | P9 | e.g. `version.get` |
+
+Total unregistered (not in the detailed table): **192**.
+Total still not native (v3 − native set): **209**.
+
+When a prefix cutover lands, move those ops into the detailed table as Native
+or keep an explicit Forwarded row with the residual reason. Do not delete a
+prefix row until every op under it is accounted for.
