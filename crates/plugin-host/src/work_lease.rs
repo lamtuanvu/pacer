@@ -5,11 +5,8 @@
 //! executor owner for now.
 mod state;
 use crate::BrokerError;
-use rusqlite::{
-    Connection, OptionalExtension,
-    types::{ValueRef, FromSqlError},
-};
-use serde_json::{Value, json};
+use rusqlite::{Connection, OptionalExtension, types::ValueRef};
+use serde_json::Value;
 use state::{AdmissionState, Lease, Orca, Remote, Units, same};
 use std::{
     fs::{self, OpenOptions},
@@ -133,19 +130,22 @@ fn mutate<T>(
         .map_err(|_| denied())?;
     tx.execute_batch("CREATE TABLE IF NOT EXISTS admission (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL)").map_err(|_|denied())?;
     // Row bytes are decoded like Bun (maximal-subpart U+FFFD for invalid
-    // UTF-8); non-TEXT rows reject like TS (plan §3.2).
-    let value: Option<ValueRef> = tx
-        .query_row("SELECT state FROM admission WHERE id=1", [], |r| r.get_ref(0))
+    // UTF-8); non-TEXT rows reject like TS (plan §3.2). The row classification
+    // and text are owned here so no `ValueRef` borrow escapes the closure.
+    let value: Option<Option<String>> = tx
+        .query_row("SELECT state FROM admission WHERE id=1", [], |r| {
+            match r.get_ref(0)? {
+                ValueRef::Text(bytes) => Ok(Some(String::from_utf8_lossy(bytes).into_owned())),
+                ValueRef::Blob(_) | ValueRef::Null | ValueRef::Integer(_) | ValueRef::Real(_) => {
+                    Ok(None)
+                }
+            }
+        })
         .optional()
         .map_err(|_| denied())?;
     let mut state = match value {
-        Some(ValueRef::Text(text)) => {
-            AdmissionState::decode(&String::from_utf8_lossy(text)).ok_or_else(denied)?
-        }
-        Some(ValueRef::Blob(_))
-        | Some(ValueRef::Null)
-        | Some(ValueRef::Integer(_))
-        | Some(ValueRef::Real(_)) => return Err(denied()),
+        Some(Some(text)) => AdmissionState::decode(&text).ok_or_else(denied)?,
+        Some(None) => return Err(denied()),
         None => AdmissionState::empty(),
     };
     let result = action(&mut state)?;
@@ -165,7 +165,11 @@ fn mutate<T>(
 
 impl Blocker {
     fn into_units(self) -> (super::BlockerKind, Units, Units) {
-        (self.kind, self.id.encode_utf16().collect(), self.label.encode_utf16().collect())
+        (
+            self.kind,
+            self.id.encode_utf16().collect(),
+            self.label.encode_utf16().collect(),
+        )
     }
 }
 
@@ -241,13 +245,16 @@ impl WorkLease {
         remote: &str,
     ) -> Result<(), BrokerError> {
         mutate(home, |s| {
-            let leases = s["leases"].as_array_mut().ok_or_else(denied)?;
+            let leases = &mut s.leases;
             if leases.iter().any(|l| {
-                l["id"] == nonce && (l["remote"]["host"] != alias || l["remote"]["dir"] != remote)
+                l.id == nonce
+                    && l.remote
+                        .as_ref()
+                        .is_none_or(|r| !same(&r.host, alias) || !same(&r.dir, remote))
             }) {
                 return Err(denied());
             }
-            leases.retain(|l| l["id"] != nonce);
+            leases.retain(|l| l.id != nonce);
             Ok(())
         })
     }
@@ -259,71 +266,75 @@ impl WorkLease {
         incarnation: Option<&str>,
     ) -> Result<(), BrokerError> {
         mutate(&self.home, |s| {
-            let lease = s["leases"]
-                .as_array_mut()
-                .ok_or_else(denied)?
+            let lease = s
+                .leases
                 .iter_mut()
-                .find(|l| l["id"] == self.id && l["owner"] == self.owner)
+                .find(|l| l.id == self.id && l.owner == self.owner)
                 .ok_or_else(denied)?;
-            lease["orca"] = json!({"dispatchId": dispatch, "terminal": terminal});
-            if let Some(i) = incarnation {
-                lease["orca"]["incarnationId"] = json!(i);
-            }
+            lease.set_orca(Orca {
+                dispatch_id: dispatch.encode_utf16().collect(),
+                terminal: terminal.map(|t| t.encode_utf16().collect()),
+                incarnation_id: incarnation.map(|i| i.encode_utf16().collect()),
+            });
             Ok(())
         })
     }
 
     pub fn attach_remote(&self, local: &str, alias: &str, remote: &str) -> Result<(), BrokerError> {
         mutate(&self.home, |s| {
-            let lease = s["leases"]
-                .as_array_mut()
-                .ok_or_else(denied)?
+            let lease = s
+                .leases
                 .iter_mut()
-                .find(|l| l["id"] == self.id && l["owner"] == self.owner)
+                .find(|l| l.id == self.id && l.owner == self.owner)
                 .ok_or_else(denied)?;
-            lease["runDir"] = json!(local);
-            lease["remote"] = json!({"host": alias, "dir": remote});
+            lease.set_run_dir(local.encode_utf16().collect());
+            lease.set_remote(Remote {
+                host: alias.encode_utf16().collect(),
+                dir: remote.encode_utf16().collect(),
+            });
             Ok(())
         })
     }
 
     pub fn finish(&self) -> Result<(), BrokerError> {
         mutate(&self.home, |s| {
-            let leases = s["leases"].as_array_mut().ok_or_else(denied)?;
+            let leases = &mut s.leases;
             if leases
                 .iter()
-                .any(|l| l["id"] == self.id && l["owner"] != self.owner)
+                .any(|l| l.id == self.id && l.owner != self.owner)
             {
                 return Err(denied());
             }
-            leases.retain(|l| l["id"] != self.id);
+            leases.retain(|l| l.id != self.id);
             Ok(())
         })
     }
 
     pub fn finish_orca(&self, reply: &Value) -> Result<bool, BrokerError> {
         mutate(&self.home, |s| {
-            let leases = s["leases"].as_array_mut().ok_or_else(denied)?;
-            let Some(lease) = leases.iter().find(|l| l["id"] == self.id) else {
+            let leases = &mut s.leases;
+            let Some(position) = leases.iter().position(|l| l.id == self.id) else {
                 return Ok(false);
             };
-            let binding = &lease["orca"];
-            let r = &reply["result"];
-            let valid = binding.is_object()
-                && reply["ok"] == true
-                && r["dispatchId"] == binding["dispatchId"]
-                && matches!(r["state"].as_str(), Some("stopped" | "released"))
-                && r["processAction"] == "closed_agent_terminal"
-                && closure_proof(r.get("close"), &binding["terminal"]);
+            let valid = leases[position].orca.as_ref().is_some_and(|orca| {
+                let r = &reply["result"];
+                reply["ok"] == true
+                    && r["dispatchId"]
+                        .as_str()
+                        .is_some_and(|d| same(&orca.dispatch_id, d))
+                    && matches!(r["state"].as_str(), Some("stopped" | "released"))
+                    && r["processAction"] == "closed_agent_terminal"
+                    && closure_proof(r.get("close"), orca.terminal.as_deref())
+            });
             if valid {
-                leases.retain(|l| l["id"] != self.id);
+                leases.retain(|l| l.id != self.id);
             }
             Ok(valid)
         })
     }
 }
 
-fn closure_proof(close: Option<&Value>, terminal: &Value) -> bool {
+fn closure_proof(close: Option<&Value>, terminal: Option<&[u16]>) -> bool {
     let Some(close) = close else { return true };
     let falsy = match close {
         Value::Null => true,
@@ -333,64 +344,12 @@ fn closure_proof(close: Option<&Value>, terminal: &Value) -> bool {
         Value::Array(_) | Value::Object(_) => false,
     };
     falsy
-        || (close.get("handle").is_some_and(|handle| handle == terminal)
+        || (close
+            .get("handle")
+            .is_some_and(|handle| match (handle, terminal) {
+                (Value::Null, None) => true,
+                (Value::String(h), Some(t)) => same(t, h),
+                _ => false,
+            })
             && close["ptyKilled"] == true)
-}
-
-fn valid_uuid(v: &Value) -> bool {
-    v.as_str().is_some_and(|s| {
-        s.len() == 36
-            && [8, 13, 18, 23].iter().all(|i| s.as_bytes()[*i] == b'-')
-            && uuid::Uuid::parse_str(s).is_ok()
-            && (s == "00000000-0000-0000-0000-000000000000"
-                || s == "ffffffff-ffff-ffff-ffff-ffffffffffff"
-                || (matches!(s.as_bytes()[14], b'1'..=b'8')
-                    && matches!(
-                        s.as_bytes()[19].to_ascii_lowercase(),
-                        b'8' | b'9' | b'a' | b'b'
-                    )))
-    })
-}
-
-fn nonempty(v: &Value) -> bool {
-    v.as_str().is_some_and(|s| !s.is_empty())
-}
-
-fn valid_state(s: &Value) -> bool {
-    if s["schema"].as_f64() != Some(1.0)
-        || s.get("reservation")
-            .is_none_or(|r| !r.is_null() && !r.is_string())
-    {
-        return false;
-    }
-    s["leases"].as_array().is_some_and(|leases| {
-        leases.iter().all(|l| {
-            valid_uuid(&l["id"])
-                && valid_uuid(&l["owner"])
-                && matches!(
-                    l["blocker"]["kind"].as_str(),
-                    Some("task" | "session" | "launch" | "operation")
-                )
-                && nonempty(&l["blocker"]["id"])
-                && l["blocker"]["label"].is_string()
-                && matches!(l["state"].as_str(), Some("pending" | "active"))
-                && l.get("process").is_some_and(|p| {
-                    p.is_null()
-                        || (p.is_object()
-                            && crate::js_semantics::safe_u64(&p["pid"]).is_some_and(|n| n > 0)
-                            && nonempty(&p["bootId"])
-                            && nonempty(&p["birth"]))
-                })
-                && l.get("runDir").is_none_or(Value::is_string)
-                && l.get("launched").is_none_or(Value::is_boolean)
-                && l.get("remote")
-                    .is_none_or(|r| r["host"].is_string() && r["dir"].is_string())
-                && l.get("orca").is_none_or(|o| {
-                    o["dispatchId"].is_string()
-                        && o.get("terminal")
-                            .is_some_and(|t| t.is_null() || t.is_string())
-                        && o.get("incarnationId").is_none_or(Value::is_string)
-                })
-        })
-    })
 }

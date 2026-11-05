@@ -11,7 +11,6 @@
 //! or `serde_json::Value` of the document is built on this path.
 use pacer_js_json::{Utf16String, WireReply, js_semantics};
 use serde_json::Value;
-use std::fmt::Write;
 
 pub(super) type Units = Vec<u16>;
 
@@ -147,7 +146,10 @@ impl AdmissionState {
             drop(snap);
             leases.push(lease);
         }
-        Some(Self { reservation, leases })
+        Some(Self {
+            reservation,
+            leases,
+        })
     }
 
     /// Reconstruct the row the way TypeScript's `JSON.stringify` does.
@@ -180,10 +182,26 @@ fn project_lease(snap: &WireReply) -> Option<Lease> {
         "pending" => Phase::Pending,
         _ => Phase::Active,
     };
-    let run_dir = opt_str(snap, "/runDir");
-    let remote = opt_remote(snap);
-    let launched = opt_bool(snap, "/launched");
-    let orca = opt_orca(snap);
+    let run_dir = match opt_str(snap, "/runDir") {
+        Some(None) => None,
+        Some(Some(v)) => Some(v),
+        None => return None,
+    };
+    let remote = match opt_remote(snap) {
+        Some(None) => None,
+        Some(Some(v)) => Some(v),
+        None => return None,
+    };
+    let launched = match opt_bool(snap, "/launched") {
+        Some(None) => None,
+        Some(Some(v)) => Some(v),
+        None => return None,
+    };
+    let orca = match opt_orca(snap) {
+        Some(None) => None,
+        Some(Some(v)) => Some(v),
+        None => return None,
+    };
     Some(Lease {
         id,
         blocker,
@@ -255,7 +273,11 @@ fn opt_orca(snap: &WireReply) -> Option<Option<Orca>> {
         Some(Value::Object(_)) => {
             let dispatch_id = str_at(snap, "/orca/dispatchId")?;
             let terminal = required_nullable_str(snap, "/orca/terminal")?;
-            let incarnation_id = opt_str(snap, "/orca/incarnationId");
+            let incarnation_id = match opt_str(snap, "/orca/incarnationId") {
+                Some(None) => None,
+                Some(Some(v)) => Some(v),
+                None => return None,
+            };
             Some(Some(Orca {
                 dispatch_id,
                 terminal,
@@ -269,7 +291,6 @@ fn opt_orca(snap: &WireReply) -> Option<Option<Orca>> {
 }
 
 /// Exact lookups on an `E` snapshot (plan §2.1). Returns `None` on reject.
-
 /// The value at `p` is an exact string of ≥ 1 UTF-16 units.
 fn str_nonempty(snap: &WireReply, p: &str) -> Option<Units> {
     let units = str_at(snap, p)?;
@@ -309,8 +330,7 @@ fn opt_bool(snap: &WireReply, p: &str) -> Option<Option<bool>> {
 /// Exact `null` and not Overflow. Overflow also previews as null, so it is
 /// separated via `number_at`.
 fn exact_null(snap: &WireReply, p: &str) -> bool {
-    matches!(snap.preview().pointer(p), Some(Value::Null))
-        && snap.number_at(p).is_none()
+    matches!(snap.preview().pointer(p), Some(Value::Null)) && snap.number_at(p).is_none()
 }
 
 /// A finite number (safe integer rule applied by the caller) or Overflow.
@@ -322,17 +342,30 @@ fn number_at(snap: &WireReply, p: &str) -> Option<f64> {
 fn uuid_str(snap: &WireReply, p: &str) -> Option<String> {
     let units = str_at(snap, p)?;
     let text = String::from_utf16(&units).ok()?;
-    super::valid_uuid(&Value::String(text.clone())).then_some(text)
+    valid_uuid(&Value::String(text.clone())).then_some(text)
+}
+
+/// The exact A5 UUID predicate, kept unchanged from the retired `valid_state`.
+fn valid_uuid(v: &Value) -> bool {
+    v.as_str().is_some_and(|s| {
+        s.len() == 36
+            && [8, 13, 18, 23].iter().all(|i| s.as_bytes()[*i] == b'-')
+            && uuid::Uuid::parse_str(s).is_ok()
+            && (s == "00000000-0000-0000-0000-000000000000"
+                || s == "ffffffff-ffff-ffff-ffff-ffffffffffff"
+                || (matches!(s.as_bytes()[14], b'1'..=b'8')
+                    && matches!(
+                        s.as_bytes()[19].to_ascii_lowercase(),
+                        b'8' | b'9' | b'a' | b'b'
+                    )))
+    })
 }
 
 /// Exact member whose units equal one of `choices`. Overflow, null and
 /// non-scalar objects never match.
 fn enum_at<'a>(snap: &WireReply, p: &str, choices: &'a [&str]) -> Option<&'a str> {
     let units = str_at(snap, p)?;
-    choices
-        .iter()
-        .copied()
-        .find(|c| same(&units, c))
+    choices.iter().copied().find(|c| same(&units, c))
 }
 
 /// The only stored-string comparator: exact UTF-16 units against `&str`.
@@ -377,8 +410,10 @@ fn render_lease(out: &mut String, lease: &Lease) -> Result<(), serde_json::Error
         out.push_str(",\"runDir\":");
         write_units(out, lease.run_dir.as_deref().unwrap_or_default())?;
     }
-    if lease.remote.is_some() && !lease.appended.contains(&Late::Remote) {
-        render_remote(out, lease.remote.as_ref().unwrap())?;
+    if let Some(remote) = &lease.remote
+        && !lease.appended.contains(&Late::Remote)
+    {
+        render_remote(out, remote)?;
     }
     if let Some(launched) = lease.launched
         && !lease.appended.contains(&Late::Launched)
@@ -397,12 +432,24 @@ fn render_lease(out: &mut String, lease: &Lease) -> Result<(), serde_json::Error
                 out.push_str(",\"runDir\":");
                 write_units(out, lease.run_dir.as_deref().unwrap_or_default())?;
             }
-            Late::Remote => render_remote(out, lease.remote.as_ref().unwrap())?,
+            Late::Remote => {
+                if let Some(remote) = &lease.remote {
+                    render_remote(out, remote)?;
+                }
+            }
             Late::Launched => {
                 out.push_str(",\"launched\":");
-                out.push_str(if lease.launched == Some(true) { "true" } else { "false" });
+                out.push_str(if lease.launched == Some(true) {
+                    "true"
+                } else {
+                    "false"
+                });
             }
-            Late::Orca => render_orca(out, lease.orca.as_ref().unwrap())?,
+            Late::Orca => {
+                if let Some(orca) = &lease.orca {
+                    render_orca(out, orca)?;
+                }
+            }
         }
     }
     out.push('}');
