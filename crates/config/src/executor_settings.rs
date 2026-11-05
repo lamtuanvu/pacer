@@ -1,5 +1,6 @@
 //! `runner.settings.get` / `runner.settings.save` document effects.
-//! Caller owns the cross-process lock, endpoint sync and config publication.
+//! Caller owns the cross-process lock (`executor-settings`) and config publication
+//! (`runners` area). Endpoint-plugin sync is not part of these ops.
 
 use crate::{
     config_writes::{ensure_migrated, ordered_executor_ids, resolve},
