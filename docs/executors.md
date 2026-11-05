@@ -109,7 +109,7 @@ Before a new attempt, Pacer refreshes sources that support a current provider co
 
 Credits, credit balances and measured paid consumption are separate from the configured `allow_paid` permission. Current exhaustion with `allow_paid: false` remains unavailable even if credits exist. An uncertain fallback is not permission to change `allow_paid`; its paid-spend risk remains unknown when the source cannot establish it. Reactive and unmetered executors use their declared measurement contracts instead of fabricated quota windows.
 
-Successful execution confirms availability only. Authentication/subscription failures constrain availability; a quota failure constrains budget. Timeouts and unrelated task failures do not establish either. Later applicable evidence can clear an older observed failure; explicit user blocks remain effective until removed or expired.
+Successful execution confirms availability only. Authentication/subscription failures constrain availability; a quota failure constrains budget. Timeouts and unrelated task failures do not establish either. Later applicable evidence can clear an older observed failure; explicit user blocks remain effective until removed or expired. Reactive cooldown marks (`report-limit` or a detected provider limit) constrain budget only until their cooldown end (`resetsAt` / `validUntil`). After that end time, status and usage refresh drop the expired execution `limit` mark — including equal-authority duplicates that disagreed only on the cooldown end time — so a reactive executor does not stay **Skipped** waiting for a quota reading it cannot provide. Other expired quota windows remain historical.
 
 ## Launch mode
 

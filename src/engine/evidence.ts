@@ -17,7 +17,11 @@ export function observationValid(fact: Evidence<unknown>, now: number): boolean 
 }
 export function evidenceDeadline(fact: Evidence<UsageWindow>): number | null {
   if (fact.observedAt === null) return null;
-  if (fact.source === "configuration") return fact.validUntil ?? fact.value.resetsAt;
+  // Configuration and execution cooldown marks bind until their stated end, not the
+  // short-window freshness cap used for measured quota observations.
+  if (fact.source === "configuration" || (fact.source === "execution" && fact.value.name === "limit")) {
+    return fact.validUntil ?? fact.value.resetsAt;
+  }
   const age = fact.value.lengthS <= 6 * 3600 ? 7200 : 86400;
   return Math.min(fact.observedAt + age, fact.validUntil ?? Infinity, fact.value.resetsAt ?? Infinity);
 }
@@ -99,7 +103,17 @@ export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEv
     facts.budget = facts.budget.filter(f => f.source !== "execution" || f.value.name !== "limit"
       || !measured.every(sample => sample.observedAt! > (f.observedAt ?? Infinity) && appliesTo(sample, f.scope)));
   }
-  return { facts, conflicts: conflicts.filter(id => [...facts.availability, ...facts.budget, ...facts.spending].some(f => f.id === id)).sort() };
+  // Cooldown marks (execution limit windows) stop constraining once their cooldown ends.
+  // Use resetsAt/validUntil, not the short-window freshness cap: a six-hour mark must still
+  // bind after two hours. Expired peers otherwise leave equal-authority conflicts that
+  // reactive usage checks cannot overwrite, so refresh/status would never clear Skipped.
+  facts.budget = facts.budget.filter(f => {
+    if (f.source !== "execution" || f.value.name !== "limit") return true;
+    const until = f.validUntil ?? f.value.resetsAt;
+    return observationValid(f, now) && (until === null || until > now);
+  });
+  const retained = [...facts.availability, ...facts.budget, ...facts.spending];
+  return { facts, conflicts: conflicts.filter(id => retained.some(f => f.id === id)).sort() };
 }
 
 /** Adapter facts are normalized without deciding whether a launch is allowed. */

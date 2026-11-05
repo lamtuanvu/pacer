@@ -24,7 +24,9 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityDecisio
   const liveBudget = budget.filter(f => currentEvidence(f, now, evidenceDeadline(f)) && !f.value.stale);
   const liveSpending = spending.filter(f => currentEvidence(f, now));
   const all = [...availability, ...budget, ...spending];
-  const conflict = all.filter(f => input.evidence.conflicts.includes(f.id));
+  // Only current peers can disagree about launching now; expired conflicts are history.
+  const conflict = [...liveAvailability, ...liveBudget, ...liveSpending]
+    .filter(f => input.evidence.conflicts.includes(f.id));
   const unavailable = liveAvailability.filter(f => f.value === "unavailable");
   const exhausted = liveBudget.filter(f => f.value.usedPct !== null && f.value.usedPct >= EXHAUSTED_PCT);
   const noBudgetRequired = input.budgetRequired === false || usage === "reactive" || usage === "unmetered";
@@ -45,7 +47,7 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityDecisio
   if (exhausted.length && !allowPaid) decision.reasons.push({ code: "budget_exhausted", evidenceIds: exhausted.map(f => f.id) });
   if (decision.reasons.length) decision.state = "ineligible";
   else {
-    if (conflict.length) decision.reasons.push({ code: "evidence_conflicting", evidenceIds: conflict.map(f => f.id) });
+    if (conflict.length > 1) decision.reasons.push({ code: "evidence_conflicting", evidenceIds: conflict.map(f => f.id) });
     if (decision.availability === "unknown") decision.reasons.push({ code: "availability_unknown", evidenceIds: availability.map(f => f.id) });
     if (unknownBudget) decision.reasons.push({ code: budget.length ? "budget_expired_or_unknown" : "budget_missing", evidenceIds: budget.map(f => f.id) });
     if (decision.reasons.length) decision.state = "uncertain";
