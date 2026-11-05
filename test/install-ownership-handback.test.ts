@@ -41,8 +41,11 @@ function bundledLink(ctx: ReturnType<typeof fixture>["ctx"]): { link: string; bu
   return { link, bundled };
 }
 
+/** The desktop's per-OS config dir, as the handback resolves it (macOS and Linux). */
 function desktopConfig(home: string): string {
-  return join(home, "Library/Application Support", DESKTOP_IDENTIFIERS.desktop);
+  return process.platform === "darwin"
+    ? join(home, "Library/Application Support", DESKTOP_IDENTIFIERS.desktop)
+    : join(home, ".config", DESKTOP_IDENTIFIERS.desktop); // the fixture ctx sets no XDG_CONFIG_HOME
 }
 
 test("restores the newest pre-app backup over the desktop's link and records the restored link path, never the app bundle", async () => {
