@@ -79,6 +79,8 @@ pub(super) fn area(op: &str) -> Option<&'static str> {
         }
         "routing.set" => Some("routing"),
         "notifications.set" | "config.set" => Some("config"),
+        "delegation.pause" | "delegation.resume" => Some("delegation"),
+        "mode.hold" | "mode.release" => Some("mode"),
         _ => None,
     }
 }

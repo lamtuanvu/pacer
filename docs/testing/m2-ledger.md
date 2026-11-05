@@ -25,6 +25,13 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.dismiss` | Forwarded | Needs linked activity publication, task event and `autoCleanTask` side effects. |
 | `task.diff` | Forwarded | Needs the full git argv, snapshot fallback and file tree parity fixture. |
 | `task.get`, `task.list` | Forwarded | Library now has `api_task_page` / `select_task_list` / `task_list_page` (per-task labels, visible `needs_input`, ActiveCounts). Native registration still waits on a SessionProbe/alive bridge for list and full `taskDetail` (git summary, cost, retry options, timeline, tokens, work/managedSkip) for get. |
+| `delegation.pause`, `delegation.resume` | Native (P5) | `pacer-engine::pause` writes `state/pause.json`, publishes the `pause` event, appends activity, then publishes the `delegation` config area. No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `mode.release` | Native (P5) | Clears `state/mode-hold.json` via `pacer-engine::mode_hold` and publishes the `mode` config area. |
+| `mode.hold` | Native (P5, selective) | Explicit `until` is native. Omitting `until` selectively forwards to TypeScript so `computeStatus` can default to the planner reset window (P5b). |
+| `limits.report` | Native (P5) | Resolves the runner through `pacer-config`, marks `exhausted.json` + evidence via `pacer-engine::exhausted` (manual). No publish. |
+| `limits.check`, `limits.refresh` | Forwarded (P5b) | Need the usage broker / plugin readings and status composition. |
+| `routing.status`, `routing.route` | Forwarded (P5b) | Need `computeStatus`, ranking over live readings, remote eligibility and optional classifier. Pure rank/eligibility/pace remain in `pacer-engine` (P5a). |
+| `routing.get` | Forwarded (P2) | Strategy routing document read; not part of the safe engine-ops batch. |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
@@ -178,15 +185,11 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `terminal.*` | 4 | P7 | e.g. `terminal.close`, `terminal.create`, `terminal.list` (+1 more) |
 | `executor.*` | 3 | P6 | e.g. `executor.setup.candidates`, `executor.setup.connect`, `executor.setup.models` |
 | `job.*` | 3 | P6 | e.g. `job.cancel`, `job.get`, `job.list` |
-| `limits.*` | 3 | P5 | e.g. `limits.check`, `limits.refresh`, `limits.report` |
 | `machine.*` | 3 | P8 | e.g. `machine.get`, `machine.rotate`, `machine.set` |
 | `repo.*` | 3 | P2 | Registry/git probe remain Forwarded; URL `repo_key` in `pacer-config::host` |
-| `routing.*` | 3 | P2 | e.g. `routing.get`, `routing.route`, `routing.status` |
 | `api.*` | 2 | P8 | e.g. `api.describe`, `api.list` |
 | `attention.*` | 2 | P6 | e.g. `attention.dismiss`, `attention.snooze` |
-| `delegation.*` | 2 | P5 | e.g. `delegation.pause`, `delegation.resume` |
 | `issue.*` | 2 | P8 | e.g. `issue.import`, `issue.search` |
-| `mode.*` | 2 | P5 | e.g. `mode.hold`, `mode.release` |
 | `onboarding.*` | 2 | P9 | e.g. `onboarding.skip`, `onboarding.try` |
 | `setup.*` | 2 | P9 | e.g. `setup.check`, `setup.init` |
 | `update.*` | 2 | P9 | e.g. `update.apply`, `update.check` |
@@ -197,8 +200,8 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 | `version.*` | 1 | P9 | e.g. `version.get` |
 
-Total unregistered (not in the detailed table): **192**.
-Total still not native (v3 − native set): **202**.
+Total unregistered (not in the detailed table): **182**.
+Total still not native (v3 − native set): **197**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

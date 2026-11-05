@@ -1281,8 +1281,10 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "pacer-foundation",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1542,6 +1544,7 @@ dependencies = [
  "libproc",
  "nix",
  "pacer-config",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-mdns",
  "pacer-plugin-ops",

@@ -152,7 +152,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
         // Planner install and backend readiness remain on the TypeScript path.
-        if op.name == "config.set" && crate::native::config_set_stays_forwarded(&params) {
+        // mode.hold without until needs computeStatus for the planner reset window.
+        if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
+            || (op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
+        {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);
             };
