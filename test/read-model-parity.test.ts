@@ -7,9 +7,10 @@ import { publish } from "../src/link/publish";
 import { appendOutbox } from "../src/link/store";
 import { latestPath } from "../src/link/paths";
 import { consolePath, outboxPath } from "../src/link/paths";
-import { createTask, updateTask } from "../src/tasks/store";
+import { createTask, updateTask, taskDatabase } from "../src/tasks/store";
 import { insertMessage } from "../src/messaging/store";
 import { updateState } from "../src/discovery/state";
+import { listAgentSessions, type StoredAgentSession } from "../src/session/agents";
 import { writeJsonAtomic } from "../src/fsutil";
 import { taskData } from "../src/link/pump";
 import { toBudget } from "../src/link/budget";
@@ -17,6 +18,8 @@ import { OUTBOX_KEEP, OUTBOX_MAX_BYTES } from "../src/link/store";
 import { capacityFixture, record } from "./read-model-helpers";
 import { snapshotTasks } from "../src/api/read-model/tasks";
 import { buildRustProbe, rustSnapshot, rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
+import { buildExecutors } from "../src/api/read-model/capacity";
+import { loadStrategy } from "../src/config/strategy";
 import type { Ctx } from "../src/types";
 import { toV2Event, v3OnlyEvent, V3_CURSOR_BASE } from "../src/api/v2-compat";
 
@@ -310,4 +313,183 @@ test("TS full read-model and event/cursor golden over isolated fixture homes", a
     if (previousTz === undefined) delete process.env.TZ;
     else process.env.TZ = previousTz;
   }
+}, 120_000);
+
+// --- Corrected session-probe parity matrix (coordinator-corrections supersede
+// --- review on capacity: used/busy/full are ALL augmented by active sessions).
+// Each scenario is an independent test() so a failure in one never prevents
+// S4/S5 from running to completion.
+const sessionStatus = () => ({ generatedAt: 1, strategy: "default", planner: "claude-code", mode: "normal", disabled: false,
+  calendarPace: false, providers: [], executors: { ranked: [{ id: "codex", score: 1, verdict: "BEHIND", reason: "" }], excluded: [] } }) as never;
+
+// A session fixture whose home owns deterministic tasks and SQLite rows.
+// Pass `tasks` to (re)define per-scenario task row state so the owner's
+// retention window and task snapshot are exercised; sessions are appended
+// with explicit exit-file control (ended ones present exit evidence).
+const sessionSetup = () => {
+  const ctx = fakeCtx({ which: () => null });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
+  listAgentSessions(ctx); // install session registry and durable generation triggers
+  const db = taskDatabase(ctx);
+  const insert = (session: { id: string; task_id: string; executor: string; state: StoredAgentSession["state"]; exited?: boolean }) => {
+    const dir = join(ctx.pacerHome, "agent-sessions", session.id, "1");
+    mkdirSync(dir, { recursive: true });
+    // Only sessions with exit evidence retire; 'starting' stays active. No
+    // ambient process is launched (pid file left absent).
+    if (session.exited) writeFileSync(join(dir, "exit"), "0");
+    const record: StoredAgentSession = { id: session.id, task_id: session.task_id, ordinal: 1, executor: session.executor, request: "Probe", cwd: ctx.home, createdAt: ctx.now, rev: 1, attempt: 1, state: session.state, attempts: [{ number: 1, state: session.state }] };
+    db.query("INSERT INTO agent_sessions(id,task,request_id,payload,record) VALUES(?,?,?,?,?)").run(session.id, session.task_id, session.id, "{}", JSON.stringify(record));
+  };
+  // A task the fixture can shape (state/dismissed) before any snapshot runs.
+  const makeTask = (opts: { state?: string; dismissed?: boolean; requestedExecutor?: string | null }) => {
+    const task = createTask(ctx, { brief: { goal: "Probe sessions", repo: ctx.home }, kind: null, requestedExecutor: opts.requestedExecutor ?? null, timeoutS: 60 });
+    updateTask(ctx, task.id, row => { if (opts.state) (row as { state: string }).state = opts.state; if (opts.dismissed) (row as { dismissed: boolean }).dismissed = true; });
+    return task;
+  };
+  const assert = async (includeSessions: boolean, protocol: 2 | 3, asm: (expected: any, actual: any) => void) => {
+    const expected = protocol === 2 ? await tsV2Snapshot(ctx, { status: sessionStatus }) : await tsSnapshot(ctx, { status: sessionStatus });
+    const actual = await rustSnapshot(ctx, expected, { status: sessionStatus, includeSessions }, protocol);
+    if (asm) asm(expected, actual);
+    expect(JSON.stringify(normalize(actual, ctx.home, []))).toBe(JSON.stringify(normalize(expected, ctx.home, [])));
+  };
+  // Exercised on BOTH wire protocols so v2 (shared JSON transport) and v3
+  // (streaming) observe identical serialized parity for explicit sessions.
+  const both = [2, 3] as const;
+  return { ctx, insert, makeTask, assert, both };
+};
+
+test("S1 legacy-absent sessions node reproduces the owner byte-for-byte", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Ho_Chi_Minh";
+  try {
+    const { assert, both } = sessionSetup();
+    for (const protocol of both) await assert(false, protocol, (e, a) => { expect(a.snapshot.machine.used).toBe(e.snapshot.machine.used); });
+  } finally { if (previousTz === undefined) delete process.env.TZ; else process.env.TZ = previousTz; }
+}, 120_000);
+
+test("S2 explicit empty session table reproduces the owner byte-for-byte", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Ho_Chi_Minh";
+  try {
+    const { assert, both } = sessionSetup();
+    for (const protocol of both) await assert(true, protocol, (e, a) => { expect(a.snapshot.machine.used).toBe(e.snapshot.machine.used); });
+  } finally { if (previousTz === undefined) delete process.env.TZ; else process.env.TZ = previousTz; }
+}, 120_000);
+
+test("S3 one starting session on a running task: used, per-task session, capacity and today all fold", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Ho_Chi_Minh";
+  try {
+    const { insert, makeTask, assert, both } = sessionSetup();
+    const task = makeTask({ state: "running", requestedExecutor: "codex" });
+    insert({ id: "ses-s3", task_id: task.id, executor: "codex", state: "starting" });
+    for (const protocol of both) await assert(true, protocol, (e, a) => {
+      expect(a.snapshot.machine.used).toBe(e.snapshot.machine.used);
+      // capacity executors: one codex slot used by the active session
+      expect(a.snapshot.capacity?.executors?.["codex"]?.used).toBe(e.snapshot.capacity?.executors?.["codex"]?.used);
+    });
+  } finally { if (previousTz === undefined) delete process.env.TZ; else process.env.TZ = previousTz; }
+}, 120_000);
+
+test("S4 two sessions on T1 + two on T2 (two share task+executor): per-task and per-executor fold, full from augmented", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Ho_Chi_Minh";
+  try {
+    const { insert, makeTask, assert, both } = sessionSetup();
+    const t1 = makeTask({ state: "running", requestedExecutor: "codex" });
+    const t2 = makeTask({ state: "queued", requestedExecutor: "codex" });
+    insert({ id: "ses-s4-a", task_id: t1.id, executor: "codex", state: "starting" });
+    insert({ id: "ses-s4-b", task_id: t1.id, executor: "codex", state: "starting" });
+    insert({ id: "ses-s4-c", task_id: t2.id, executor: "codex", state: "starting" });
+    insert({ id: "ses-s4-d", task_id: t2.id, executor: "codex", state: "starting" });
+    for (const protocol of both) await assert(true, protocol, (e, a) => {
+      expect(a.snapshot.machine.used).toBe(e.snapshot.machine.used);
+      // Every active session must be counted; per-task overlay aligns by id.
+      const tasks = Object.entries(a.snapshot.tasks ?? {});
+      const withSessions = tasks.filter(([, t]) => (t as any).activeAgentSessions);
+      expect(withSessions.length).toBe(Object.entries(e.snapshot.tasks ?? {}).filter(([, t]) => (t as any).activeAgentSessions).length);
+    });
+  } finally { if (previousTz === undefined) delete process.env.TZ; else process.env.TZ = previousTz; }
+}, 120_000);
+
+test("S5 ended + retained old dismissed task with an active session: used from active only", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Ho_Chi_Minh";
+  try {
+    const { insert, makeTask, assert, both } = sessionSetup();
+    const old = makeTask({ state: "done", dismissed: true }); // terminal, outside retention window
+    const running = makeTask({ state: "running", requestedExecutor: "codex" });
+    insert({ id: "ses-s5-old", task_id: old.id, executor: "codex", state: "starting" }); // retained via session
+    insert({ id: "ses-s5-done", task_id: running.id, executor: "codex", state: "ended", exited: true }); // excluded from active
+    for (const protocol of both) await assert(true, protocol, (e, a) => {
+      expect(a.snapshot.machine.used).toBe(e.snapshot.machine.used);
+      expect(e.snapshot.machine.used).toBe(2); // 1 running local task + retained active session
+    });
+  } finally { if (previousTz === undefined) delete process.env.TZ; else process.env.TZ = previousTz; }
+}, 120_000);
+
+test("S6 running locals + ended locally + active on remote: used = running_local + active, folding only local", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Ho_Chi_Minh";
+  try {
+    const { insert, makeTask, assert, both } = sessionSetup();
+    const local = makeTask({ state: "running", requestedExecutor: "codex" });
+    const remote = makeTask({ state: "running", requestedExecutor: "codex" });
+    insert({ id: "ses-s6-local-ended", task_id: local.id, executor: "codex", state: "ended", exited: true }); // ended locally
+    insert({ id: "ses-s6-remote", task_id: remote.id, executor: "codex", state: "starting" }); // active on remote
+    for (const protocol of both) await assert(true, protocol, (e, a) => {
+      expect(a.snapshot.machine.used).toBe(e.snapshot.machine.used);
+      // Two running locals + one active remote session.
+      expect(e.snapshot.machine.used).toBe(3);
+    });
+  } finally { if (previousTz === undefined) delete process.env.TZ; else process.env.TZ = previousTz; }
+}, 120_000);
+
+test("S7 zero-omission: active sessions on tasks absent from the window still count everywhere", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Ho_Chi_Minh";
+  try {
+    const { insert, makeTask, assert, both } = sessionSetup();
+    const outside = makeTask({ state: "done" }); // old terminal, excluded from window but has a live session
+    const running = makeTask({ state: "running", requestedExecutor: "codex" });
+    insert({ id: "ses-s7-outside", task_id: outside.id, executor: "codex", state: "starting" });
+    insert({ id: "ses-s7-running", task_id: running.id, executor: "codex", state: "starting" });
+    for (const protocol of both) await assert(true, protocol, (e, a) => {
+      expect(a.snapshot.machine.used).toBe(e.snapshot.machine.used);
+      expect(e.snapshot.machine.used).toBe(3); // 1 running local + 2 active sessions, none omitted
+    });
+  } finally { if (previousTz === undefined) delete process.env.TZ; else process.env.TZ = previousTz; }
+}, 120_000);
+
+test("S8 capacity op drives real TS buildExecutors vs Rust probe (status/strategy order enforced)", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "Asia/Ho_Chi_Minh";
+  try {
+    const { ctx, insert, makeTask } = sessionSetup();
+    // status.planner is the string "claude-code" while strategy.planner is the
+    // object {agent,account}. Under the old swapped call the probe passed
+    // strategy as the status and status as the strategy: `executors` then read
+    // planner from the wrong object, changed the runner filter and emitted a
+    // different executors list. Both sides here see identical inputs, so the
+    // only way the lists diverge is the argument ordering at the call site.
+    const task = makeTask({ state: "running", requestedExecutor: "codex" });
+    insert({ id: "ses-cap-1", task_id: task.id, executor: "codex", state: "starting" });
+    const st = sessionStatus();
+    const strategy = loadStrategy(ctx);
+    const tasks = snapshotTasks(ctx, [record("running", ctx.now - 10, { executor: "codex" })]);
+    const expected = buildExecutors(st, strategy, tasks, ctx.now, ctx);
+    const active = [{ task_id: task.id, executor: "codex" }];
+    // No expected argument: rustRequest only captures a snapshot corpus entry
+    // when one is supplied, so this stays a live comparison and the 25-case
+    // snapshot corpus on future export remains untouched.
+    const actual = (await rustRequest(ctx, {
+      op: "capacity",
+      status: JSON.parse(JSON.stringify(st)),
+      strategy: JSON.parse(JSON.stringify(strategy)),
+      sessions: { revision: "cap-probe", active },
+      tasks,
+    })) as { executors: unknown };
+    expect(JSON.stringify(actual.executors)).toBe(JSON.stringify(expected));
+  } finally { if (previousTz === undefined) delete process.env.TZ; else process.env.TZ = previousTz; }
 }, 120_000);
