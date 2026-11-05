@@ -1,15 +1,16 @@
 //! Process-owner and reverse-bridge shell for the P4d serve cutover.
 //!
-//! Production `serve` still leaves plugin children with TypeScript
+//! Default `serve` leaves plugin children with TypeScript
 //! (`/_internal/plugins`). Library callers may hold live [`PluginProcess`]
-//! children under [`ProcessOwner::native_for_tests`] and may bind a dark
-//! [`ReverseBridge`] without setting `PACER_HOST_SOCKET` unless
-//! [`HOST_BRIDGE_ENABLE_ENV`] is explicitly enabled. Default serve must not
-//! start the bridge or flip [`ProcessOwner::claim_native_supervision`].
+//! children under [`ProcessOwner::native_for_tests`]. When
+//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] or [`HOST_BRIDGE_ENABLE_ENV`] is set,
+//! serve may start a [`NativeHostSession`] that claims supervision, binds the
+//! reverse bridge, and exports [`HOST_SOCKET_ENV`] for the Core child.
 
 mod bridge_listener;
 mod host_bridge;
 mod owner;
+mod serve_host;
 
 pub use bridge_listener::{
     BRIDGE_MAX_LINE_BYTES, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,
@@ -21,3 +22,7 @@ pub use host_bridge::{
 };
 pub use owner::{OwnerError, Ownership, ProcessOwner};
 pub use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, SpawnSpec};
+pub use serve_host::{
+    NATIVE_PLUGIN_HOST_ENABLE_ENV, NativeHostError, NativeHostSession, native_plugin_host_enabled,
+    native_plugin_host_enabled_from_env,
+};
