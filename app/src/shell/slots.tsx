@@ -32,6 +32,11 @@ export const useFrame = () => useContext(FrameContext);
 export function FrameSlot({ name, children }: { name: "title" | "actions" | "header" | "left" | "right"; children: ComponentChildren }) {
   const target = useFrame()?.[name], active = useViewActive(), scope = useContext(WorkspaceScope);
   const group = useRef<HTMLSpanElement>(null), within = useRef(false);
+  const node = useRef<HTMLDivElement | null>(null);
+  // A plain ref callback, not an object ref: it only ever records a real, attached element. React/Preact call a
+  // ref callback with null as part of unmounting, before this component's own effect cleanups run; capturing the
+  // node this way instead keeps a usable reference through that window for the defensive cleanup below.
+  const setNode = (element: HTMLDivElement | null) => { if (element) node.current = element; };
   useEffect(() => {
     if (active && name === "actions" && within.current && document.activeElement === document.body) {
       const bar = target?.closest(".pc-topbar");
@@ -39,7 +44,12 @@ export function FrameSlot({ name, children }: { name: "title" | "actions" | "hea
       within.current = false;
     }
   });
-  return target ? createPortal(<div className="pc-view-slot" data-workspace-root={scope ?? undefined} hidden={!active} inert={!active ? true : undefined}>{name === "actions" ? <span ref={group} className="pc-frame-actions"
+  // Defensive cleanup: when a whole route's view is torn down at once (switching between two routes that both
+  // fill the same frame region, outside the session views that stay mounted and merely hide), the portal host's
+  // own unmount can run after the real target already has a new screen's content. Remove this node directly so
+  // a destroyed screen never leaves stale content sitting alongside — or on top of — what fills the slot next.
+  useEffect(() => () => { if (node.current?.parentNode) node.current.parentNode.removeChild(node.current); }, []);
+  return target ? createPortal(<div ref={setNode} className="pc-view-slot" data-workspace-root={scope ?? undefined} hidden={!active} inert={!active ? true : undefined}>{name === "actions" ? <span ref={group} className="pc-frame-actions"
     onFocusIn={() => { within.current = true; }}
     onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>{children}</span> : <>{children}</>}</div>, target) : null;
 }

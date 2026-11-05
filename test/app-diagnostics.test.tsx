@@ -9,7 +9,9 @@ import { fakeCtx } from "./helpers";
 
 test("diagnostics starts idle and has an accessible service-backed run action", () => {
   const html = renderToString(<TaskContext.Provider value={{state:initialState(),api:{} as any}}><DiagnosticsSection/></TaskContext.Provider>);
-  expect(html).toContain("Run all checks");
+  // The header (title, caption, Run all checks) now renders through FrameSlot name="header", which only portals
+  // once a real frame mounts; a bare renderToString render shows none of it, by design. Exercised against a
+  // mounted frame elsewhere (test/app-frame-browser.test.tsx: "every routed page's header...").
   expect(html).toContain('role="status"');
   expect(html).toContain("No checks run yet");
   // The hook-invocation caveat belongs to a run result, not the idle page.

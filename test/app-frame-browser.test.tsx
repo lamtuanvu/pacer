@@ -719,3 +719,45 @@ browserTest("New task's Inspector toggle actually opens and closes the panel", a
     await expect(toggle.getAttribute("aria-pressed")).resolves.toBe("true");
   } finally { await browser.close(); }
 }, 20_000);
+
+// Every routed page's own header (title, filter tabs, actions) now lives in the real router/Layout/Screen tree,
+// via FrameSlot name="header"; this fixture is the only one that walks the router instead of mounting one screen.
+async function allPagesFrame() {
+  const build = await Bun.build({ entrypoints: ["test/fixtures/ui/all-pages-browser.tsx"], target: "browser", splitting: false });
+  expect(build.success).toBe(true);
+  const source = await build.outputs[0]!.text();
+  const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/session/session.css", "app/src/screens/new-task/new-task.css", "app/src/screens/dispatch/dispatch.css", "app/src/screens/insights/insights.css", "app/src/screens/settings/settings.css", "app/src/ds/native.css"].map(path => Bun.file(path).text()))].join("\n");
+  return { source, css };
+}
+async function openAllPages(page: Page, built: { source: string; css: string }, hash: string) {
+  await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>pages</title><div id="app"></div>' }));
+  await page.goto(`http://pacer.test/${hash}`);
+  await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); }, built.css);
+  await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, built.source);
+  await page.locator("#main-content").waitFor();
+}
+const ROUTED_PAGES: [hash: string, title: string][] = [
+  ["#/", "Dispatch"], ["#/needs-you", "Needs you"], ["#/insights", "Insights"], ["#/tasks", "Tasks"], ["#/tasks/new", "New task"],
+  ["#/settings", "Overview"], ["#/settings/app", "App preferences"], ["#/settings/planner", "Budget & pacing"],
+  ["#/settings/diagnostics", "Diagnostics"], ["#/settings/plugins", "Plugins"], ["#/settings/executors", "Agents"],
+];
+browserTest("every routed page's header is non-empty, singular and stays fixed while main scrolls", async () => {
+  const built = await allPagesFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openAllPages(page, built, "#/");
+    for (const [hash, title] of ROUTED_PAGES) {
+      await page.evaluate(h => { location.hash = h; }, hash);
+      await page.waitForFunction(t => document.querySelector(".pc-page-head h1")?.textContent === t, title, { timeout: 2000 });
+      // Exactly one header: the previous page's own FrameSlot content never lingers behind the new one's.
+      expect(await page.locator(".pc-page-head .pc-view-slot").count()).toBe(1);
+      expect(await page.locator(".pc-page-head").evaluate(node => node.textContent!.trim().length > 0)).toBe(true);
+      // The page head does not move as main's own content scrolls.
+      const before = await page.locator(".pc-page-head").evaluate(node => node.getBoundingClientRect().top);
+      await page.locator("#main-content").evaluate(main => { main.scrollTop = main.scrollHeight; });
+      const after = await page.locator(".pc-page-head").evaluate(node => node.getBoundingClientRect().top);
+      expect(after).toBe(before);
+    }
+  } finally { await browser.close(); }
+}, 30_000);

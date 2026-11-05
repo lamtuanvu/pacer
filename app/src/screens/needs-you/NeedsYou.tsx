@@ -14,6 +14,7 @@ import { RepoFilter } from "../RepoFilter";
 import { ActionButton } from "../ActionButton";
 import { useTaskContext } from "../task-shared";
 import { AnswerPanel } from "./AnswerPanel";
+import { FrameSlot } from "../../shell/slots";
 
 export const answerHref = (id: string) => `#/needs-you?answer=${encodeURIComponent(id)}`;
 export function attentionDestination(item: AttentionItem): string {
@@ -32,9 +33,11 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
   const unavailable = capacity(snapshot).filter(row => row.rank !== "planner" && (["down", "blocked", "exhausted", "disabled", "failing"].includes(row.state) || row.stale || (row.eligibility ? row.eligibility.state !== "eligible" || row.eligibility.budget === "unknown" : row.usedPct === null && row.paceReason !== "unmetered")));
   const answer = new URLSearchParams(typeof location === "undefined" ? "" : location.hash.split("?")[1]).get("answer");
   const oldest = items.length ? Math.min(...items.map(item => item.raisedAt)) : null;
-  return <Page width="full" className="pc-needs-you pc-needs-board">
+  return <><FrameSlot name="header">
     <header className="ny-header"><div className="ny-heading"><h1>Needs you</h1><span className="ny-cap">{items.length ? `${items.length} ${items.length === 1 ? "task is" : "tasks are"} waiting on you` : "Nothing needs your attention"}{oldest !== null ? ` · the oldest for ${durationWords(now - oldest)}` : ""} · {unavailable.length ? "agents need attention below" : "nothing else is blocked"}</span></div><RepoFilter snapshot={snapshot} query={query} menu /></header>
     <Tabs id="needs-kind" label="Kind" value={tab} options={tabs.map(option => ({ ...option, label: <>{option.label} <span className="ny-cap">{option.value === "all" ? items.length : items.filter(item => item.kind === option.value).length}</span></> }))} onChange={setTab} />
+  </FrameSlot>
+  <Page width="full" className="pc-needs-you pc-needs-board">
     <section className="ny-list" aria-label="Waiting on you" role="tabpanel" id={`needs-kind-${tab}-panel`} aria-labelledby={`needs-kind-${tab}-tab`}>
       {shown.map(item => {
         const task = snapshot.tasks.find(task => task.id === item.taskId), question = item.kind === "question", review = item.kind === "review";
@@ -55,5 +58,5 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
     {!!unavailable.length && <Card tone="warn" aria-label="Agents needing attention"><div className="ny-warning"><span className="ny-glyph ny-glyph--warn" aria-hidden="true">◐</span><span className="ny-warning-copy"><b>{unavailable.length} {unavailable.length === 1 ? "agent can't" : "agents can't"} take work</b><span className="ny-cap">{unavailable.map(row => `${agentInfo(markAgent(row.id, row.account)).name}: ${row.reason ?? row.sub}`).join("; ")}. New work skips them until you fix them.</span></span><ButtonLink typography="board" size="sm" href="#/settings/executors">Fix in Agents</ButtonLink></div></Card>}
     <span className="ny-cap ny-footnote">Answering, retrying or accepting here resumes the task where it stopped. Everything you do is recorded in the task's dispatch trace.</span>
     {answer && <AnswerPanel key={answer} id={answer} close={() => { location.hash = withQuery("#/needs-you", query); }} />}
-  </Page>;
+  </Page></>;
 }

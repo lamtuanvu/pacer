@@ -35,6 +35,7 @@ import { modeWords, toneFor } from "../../../../src/view-model/words";
 import { StatusDot } from "../../ds/StatusDot";
 import { desktopUpdateIndicator } from "../../../../src/view-model/updates";
 import { DiagnosticsSection } from "./Diagnostics";
+import { FrameSlot } from "../../shell/slots";
 import {
   Checkbox,
   Switch,
@@ -171,8 +172,8 @@ export function SettingsGeneral({
         value={section === "planner" ? "pacing" : section ? settingsPageId(section) : null}
       >
         <SettingsQueryContext.Provider value={query}>
+        {section === "dispatcher" && <FrameSlot name="header"><h1>Dispatcher</h1></FrameSlot>}
         <Page width="full" className="u3-settings u3-settings-page">
-          {section === "dispatcher" && <h1>Dispatcher</h1>}
           <div className="u3-general-sections">{content}</div>
           {note && <p className="u3-settings-note">{note}</p>}
         </Page>
@@ -220,8 +221,8 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   if (setup) tiles.push({ label: "Dispatcher", value: `Saved setup ${setup.name}`, note: setup.summary, page: "dispatcher" });
   if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${percentage(Number(value("pacing.planner_reserve")))} planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${percentage(Number(value("pacing.fill_threshold")))}` : ""].filter(Boolean).join(" · "), page: "planner" });
   if (snapshot?.machine) tiles.push({ label: "Machines", value: machineHardCap(snapshot.machine) === null ? "No limit" : `${machineHardCap(snapshot.machine)} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
-  return <div className="pc-settings-board pc-settings-board--overview">
-    <header className="pc-settings-board__header"><h1>Overview</h1><p>What pacer needs before it can dispatch freely.</p></header>
+  return <><FrameSlot name="header"><header className="pc-settings-board__header"><h1>Overview</h1><p>What pacer needs before it can dispatch freely.</p></header></FrameSlot>
+  <div className="pc-settings-board pc-settings-board--overview">
     {executors && <Card tone="sunken"><div className="pc-readiness-summary">
       <div className="pc-readiness-summary__copy"><strong>{ready.length} of {executors.length} agents can take work. {needs.length} {needs.length === 1 ? "needs" : "need"} you.</strong>
         {needs.length > 0 && <p>{needs.map(e => `${executorLabel(e.id)}: ${readiness(e).reason}`).join(" · ")}</p>}
@@ -230,7 +231,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
     {checks.length > 0 && <section className="pc-settings-board__section" aria-labelledby="readiness-h"><h2 id="readiness-h" className="pc-settings-board__label">Readiness</h2><div className="pc-readiness-list">{checks.map((c, i) => <div key={i} className={`pc-readiness-row pc-readiness-row--${c.tone}`}><span className="pc-readiness-glyph" aria-hidden="true">{({good:"✓",bad:"✕",warn:"◐",neutral:"○"})[c.tone]}</span><span className="pc-readiness-row__copy" onKeyDown={c.tooltip ? containTooltipEscape : undefined}>{c.tooltip ? <Tooltip text={c.tooltip}><strong tabIndex={0}>{c.title}</strong></Tooltip> : <strong>{c.title}</strong>}{c.detail && <span className="pc-settings-board__caption">{c.detail}</span>}</span>{c.account ? <Button size="sm" busy={refreshUsage.busy} onClick={() => void refreshUsage.run("limits.refresh", {account:c.account})} disabled={!!refreshUsage.unavailable}>{c.link}</Button> : <TextAction href={href(c.page)}>{c.link}</TextAction>}</div>)}</div></section>}
     <Feedback action={refreshUsage}/>
     {tiles.length > 0 && <section className="pc-settings-board__section" aria-labelledby="setup-h"><h2 id="setup-h" className="pc-settings-board__label">Current setup</h2><div className="pc-settings-tiles">{tiles.map(t => <a key={t.label} className="pc-inline-link pc-settings-tile" href={href(t.page)}><span className="pc-settings-board__label">{t.label}</span><strong>{t.value}</strong>{t.note && <span className="pc-settings-board__caption">{t.note}</span>}</a>)}</div></section>}
-  </div>;
+  </div></>;
 }
 
 /** Updates, notifications and appearance share one page; their old deep links scroll to their section. */
@@ -252,14 +253,16 @@ function AppPreferences({ section, initialData }: { section: string; initialData
     return () => { stop(); clearTimeout(timer); events.forEach(name => removeEventListener(name, stop)); };
   }, [section]);
   return (
+    <>
+    <FrameSlot name="header"><header className="pc-settings-board__header"><h1>App preferences</h1><p>How the app looks and talks to you. These stay on this device and never affect routing.</p></header></FrameSlot>
     <div className="pc-settings-board pc-settings-board--app">
-      <header className="pc-settings-board__header"><h1>App preferences</h1><p>How the app looks and talks to you. These stay on this device and never affect routing.</p></header>
       <AppearanceSection />
       <NotificationsSection initialData={initialData.notifications} />
       <WorkspacePreferences initialAssistant={initialData.assistant} />
       <UpdatesSection initialData={initialData.updates} initialConfig={initialData.config} />
       <PluginsSection />
     </div>
+    </>
   );
 }
 
@@ -298,8 +301,8 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
       return { account, window, binding: matched, stale, capturedAt, note };
     });
   });
-  return <div id="pacing" className="pc-settings-board pc-settings-board--budget">
-    <header className="pc-settings-board__header"><h1>Budget &amp; pacing</h1><p>How much of each subscription pacer may use, and how fast. Changes apply to the next decision.</p></header>
+  return <><FrameSlot name="header"><header className="pc-settings-board__header"><h1>Budget &amp; pacing</h1><p>How much of each subscription pacer may use, and how fast. Changes apply to the next decision.</p></header></FrameSlot>
+  <div id="pacing" className="pc-settings-board pc-settings-board--budget">
     {planner && <Card tone="sunken"><div className="pc-budget-summary">
       <div className="pc-budget-summary__copy">
         <div className="pc-budget-identity"><AgentMark agent={agent} size={20}/><b>{name}</b><Pill tone="info">Planner</Pill>{mode && <Pill tone={mode === "relaxed" ? "good" : mode === "strict" ? "warn" : mode === "emergency" ? "bad" : "neutral"}>{modeWords(mode)} mode</Pill>}</div>
@@ -355,7 +358,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
       catch(error) {plannerSave.current?.reject(error);}
       finally {plannerSave.current=undefined;setChosen("");query.reload();}
     } : undefined}/>}
-  </div>;
+  </div></>;
 }
 
 function PlannerConsent({
