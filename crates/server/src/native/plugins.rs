@@ -3,9 +3,11 @@
 //!
 //! P4d-3 registers X3 mutation ops on HTTP via the private channel as the four
 //! reads. P4d-4 registers retired `plugin.install` (refuse parity) and, when
-//! `PACER_NATIVE_PLUGIN_HOST` is on, routes plugin RPC spawn/call/stop through
-//! the serve [`SharedOwner`] so TypeScript does not also own those children.
-//! Stdio keeps plugin ops in TypeScript (no second process owner).
+//! the native host is enabled, routes plugin RPC spawn/call/stop through the
+//! serve [`SharedOwner`] so TypeScript does not also own those children.
+//! Flag-on private IPC is prepare/spawn_spec/ready/stop/changed/publish/log —
+//! `call` stays flag-off only (P4d-5 shrink). Stdio keeps plugin ops in
+//! TypeScript (no second process owner).
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use crate::serve::core_child::CoreChild;
 use axum::{body::Body, http::Request};
@@ -77,7 +79,8 @@ pub struct Service {
     reads: PublicOperations,
     epochs: tokio::sync::Mutex<Epochs>,
     actions: Arc<Mutex<HashSet<String>>>,
-    /// Flag-on serve ProcessOwner. Absent under default TypeScript ownership.
+    /// Serve ProcessOwner when the native host is enabled. Absent under the
+    /// default TypeScript ownership path (P4d-5 keeps that default).
     native_owner: Option<SharedOwner>,
 }
 
@@ -377,6 +380,7 @@ impl Owner {
         method: &str,
         params: Value,
     ) -> Result<Value, CoreError> {
+        // Flag-off only: private `call` is retired once ProcessOwner owns RPC.
         let Some(owner) = self.native_owner.clone() else {
             return self
                 .request(json!({"kind":"call", "id":id, "method":method, "params":params}))

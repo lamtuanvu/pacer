@@ -12,6 +12,14 @@ const operation = z.enum([
   "plugin.ui.list", "plugin.ui.render", "plugin.ui.action", "plugin.ui.visibility",
   "plugin.settings.get", "plugin.settings.set",
 ]);
+
+/**
+ * Private `/_internal/plugins` kinds.
+ *
+ * Flag-on (`PACER_HOST_SOCKET` set): prepare, spawn_spec, ready, stop, changed,
+ * publish, log. ProcessOwner owns plugin RPC, so `call` is refused (P4d-5).
+ * Flag-off: the same surface plus `call` for diagnostic/UI plugin methods.
+ */
 const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("prepare"), op: operation, params: z.unknown() }).strict(),
   z.object({ kind: z.literal("call"), id: z.string(), method: z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]), params: z.unknown() }).strict(),
@@ -42,7 +50,12 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown) {
         break;
       case "call": {
         if (nativeOwnsChildren) {
-          throw new CoreError("plugin_unavailable", "native process owner supervises plugin children");
+          // P4d-5: private call is retired on the native-owner path; Rust must
+          // not send this kind when PACER_HOST_SOCKET is set.
+          throw new CoreError(
+            "plugin_unavailable",
+            "private call is retired when the native process owner is active",
+          );
         }
         // Doctor ignores successful ping payloads. Do not send arbitrary plugin
         // output through the native read bridge or execute a diagnostic twice.

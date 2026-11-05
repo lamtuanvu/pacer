@@ -2,8 +2,8 @@
 use pacer_plugin_runtime::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
     METHOD_PLUGIN_FIND, NATIVE_PLUGIN_HOST_ENABLE_ENV, OwnerError, Ownership, ProcessOwner,
-    dark_bridge_enabled, host_socket_path, native_plugin_host_enabled, prepare_host_run_dir,
-    serve_starts_reverse_bridge_by_default,
+    dark_bridge_disabled, dark_bridge_enabled, host_socket_path, native_plugin_host_enabled,
+    prepare_host_run_dir, serve_starts_reverse_bridge_by_default,
 };
 use std::{fs, os::unix::fs::MetadataExt, path::Path};
 
@@ -59,7 +59,11 @@ fn reverse_bridge_contract_names_match_design() {
     assert!(!serve_starts_reverse_bridge_by_default());
     assert!(!dark_bridge_enabled(None));
     assert!(dark_bridge_enabled(Some("1")));
+    assert!(dark_bridge_disabled(Some("0")));
+    assert!(!dark_bridge_disabled(None));
     assert!(!native_plugin_host_enabled(None, None));
+    assert!(!native_plugin_host_enabled(Some("0"), None));
+    assert!(!native_plugin_host_enabled(Some("1"), Some("0")));
     assert!(native_plugin_host_enabled(Some("1"), None));
     assert!(native_plugin_host_enabled(None, Some("1")));
     let home = Path::new("/tmp/pacer-home-example");
