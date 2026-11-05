@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used)]
 use pacer_plugin_runtime::{
-    HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, OwnerError,
-    Ownership, ProcessOwner, host_socket_path, prepare_host_run_dir,
+    HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
+    METHOD_PLUGIN_FIND, OwnerError, Ownership, ProcessOwner, dark_bridge_enabled, host_socket_path,
+    prepare_host_run_dir, serve_starts_reverse_bridge_by_default,
 };
 use std::{fs, os::unix::fs::MetadataExt, path::Path};
 
@@ -32,9 +33,13 @@ fn test_native_token_still_blocks_serve_activation() {
 #[test]
 fn reverse_bridge_contract_names_match_design() {
     assert_eq!(HOST_SOCKET_ENV, "PACER_HOST_SOCKET");
+    assert_eq!(HOST_BRIDGE_ENABLE_ENV, "PACER_HOST_BRIDGE");
     assert_eq!(HOST_SOCKET_NAME, "host.sock");
     assert_eq!(METHOD_PLUGIN_CALL, "_host.plugin.call");
     assert_eq!(METHOD_PLUGIN_FIND, "_host.plugin.find");
+    assert!(!serve_starts_reverse_bridge_by_default());
+    assert!(!dark_bridge_enabled(None));
+    assert!(dark_bridge_enabled(Some("1")));
     let home = Path::new("/tmp/pacer-home-example");
     assert_eq!(
         host_socket_path(home),

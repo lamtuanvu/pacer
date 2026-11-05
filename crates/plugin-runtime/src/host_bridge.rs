@@ -2,8 +2,8 @@
 //!
 //! TypeScript reaches Rust-owned plugin memory only through `$PACER_HOME/run/host.sock`
 //! (directory 0700, socket 0600), discovered via `PACER_HOST_SOCKET`. Without that
-//! env var the core keeps its own host. This module prepares the path only; it
-//! does not listen.
+//! env var the core keeps its own host. Path helpers live here; the dark accept
+//! loop is [`crate::ReverseBridge`].
 
 use std::{
     fs, io,
@@ -12,6 +12,12 @@ use std::{
 
 /// Environment variable the TypeScript core reads for the reverse bridge.
 pub const HOST_SOCKET_ENV: &str = "PACER_HOST_SOCKET";
+
+/// Explicit opt-in for dark bridge wiring (library tests / future serve).
+///
+/// Production serve must leave this unset so it neither binds `host.sock` nor
+/// exports [`HOST_SOCKET_ENV`].
+pub const HOST_BRIDGE_ENABLE_ENV: &str = "PACER_HOST_BRIDGE";
 
 /// Socket file name under `$PACER_HOME/run/`.
 pub const HOST_SOCKET_NAME: &str = "host.sock";
@@ -25,6 +31,11 @@ pub const METHOD_PLUGIN_FIND: &str = "_host.plugin.find";
 /// `$PACER_HOME/run/host.sock` — never a TCP address.
 pub fn host_socket_path(pacer_home: &Path) -> PathBuf {
     pacer_home.join("run").join(HOST_SOCKET_NAME)
+}
+
+/// True when dark reverse-bridge wiring may export [`HOST_SOCKET_ENV`].
+pub fn dark_bridge_enabled(value: Option<&str>) -> bool {
+    matches!(value, Some("1") | Some("true") | Some("TRUE") | Some("yes"))
 }
 
 /// Ensure `$PACER_HOME/run` exists as a real directory with mode 0700.
