@@ -197,6 +197,20 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
   const mac = platform === "darwin", argv = deps.argv ?? pacerArgv(ctx.env);
   const label = deps.label ?? (mac ? desktopServiceLabel(ctx) : LABEL);
   const path = servicePath(ctx, platform), target = `gui/${deps.uid ?? process.getuid?.() ?? 0}/${label}`;
+  /**
+   * A dev (source) invocation has no compiled fixture, so without this check `install`,
+   * `uninstall` and `restart` would manage the real launchd job regardless of PACER_HOME: that
+   * label is global to the login session, not scoped by home (see
+   * scripts/lib/real-install-guard.ts for the same PACER_ALLOW_REAL_INSTALL convention).
+   * Installed and compiled binaries are unaffected: their argv has a single element. Called
+   * inside each async method, never at construction, so it rejects rather than throwing
+   * synchronously out of `serviceBackend(...)` itself.
+   */
+  function refuseDevRealLabel(): void {
+    if (mac && label === LABEL && isDevArgv(argv) && process.env.PACER_ALLOW_REAL_INSTALL !== "1") {
+      throw new Error("refusing to manage the login service from a source (dev) invocation: com.pacer.serve is the real pacer service label; install a release binary or set PACER_BIN to a stable pacer executable; set PACER_ALLOW_REAL_INSTALL=1 only if you really mean to modify the user's install");
+    }
+  }
   const system = (cmd: string, ...args: string[]) => ["systemctl", "--user", cmd, ...args];
   async function run(args: string[], absent = false) {
     let r = await ctx.run(args, 10000);
@@ -208,6 +222,7 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
   const backend: ServiceBackend = {
     logsPath: () => join(ctx.pacerHome, "logs/serve.log"),
     async install(options = {}) {
+      refuseDevRealLabel();
       validateServiceArgv(ctx, argv);
       const probe = await ctx.run(mac ? ["launchctl", "print", target] : system("show", "pacer-serve.service", "--property=Environment"), 10000);
       if (probe.code === 0) {
@@ -266,6 +281,7 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
       }
     },
     async uninstall() {
+      refuseDevRealLabel();
       const text = readText(path);
       if (text !== null && !(text.includes(MARKER) || (mac && /<key>Label<\/key>\s*<string>com\.pacer\.serve<\/string>/.test(text)))) throw new Error(`refusing to remove unrecognized service file ${path}`);
       if (mac) await run(["launchctl", "bootout", target], true);
@@ -276,6 +292,7 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
       const m = readManifest(ctx); delete m.planners.service; writeManifest(ctx, m);
     },
     async restart() {
+      refuseDevRealLabel();
       if (mac) { await run(["launchctl", "kickstart", "-k", target]); return; }
       const text = readText(path);
       if (text !== null) {

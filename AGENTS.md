@@ -18,6 +18,17 @@ Do not commit anything under `.work/`. Summarize the plan in the PR description 
 Tracked files must not contain machine-specific paths (`/Users/...`, `/Volumes/...`) or personal emails.
 Test fixtures that are needed go in `test/fixtures/` and use `$HOME` or temp-dir paths.
 
+## Never touch the user's real pacer install
+
+The machine you work on runs the maintainer's own pacer. Development, tests and live validation must not change it, including with ad hoc shell commands. Never write, copy, link, sign in place, replace, launch or delete:
+
+- `/Applications/pacer.app` (or anything inside it), including backup or nested copies next to it;
+- `~/.local/bin/pacer` and `~/.local/bin/pacer-core`;
+- the default data home `~/.pacer`;
+- the `com.pacer.serve` service: its plist in `~/Library/LaunchAgents` or the launchd label. Never `launchctl bootstrap`, `bootout` or `kickstart` it, and never load your own jobs that run the real binaries against the real home.
+
+Use a temporary `PACER_HOME` and `HOME`, the fixture bundle `dev.pacer.desktop.fixture` in a temporary app directory, a separate port, and binaries under your worktree (`dist/`, `target/`). `Contents/MacOS/pacer` is the desktop executable, never the CLI; the CLI pair is `Contents/Resources/pacer` and `pacer-core` (see [ADR 0021](docs/decisions/0021-single-installation-owner.md)). Scripts enforce this with `scripts/lib/real-install-guard.ts`. Set `PACER_ALLOW_REAL_INSTALL=1` only when the maintainer asks you to change their install. Unload any launchd job and stop any process you started before you finish.
+
 ## Commits
 
 Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `test:`). PRs are squash-merged, so the PR title becomes the commit on `main`.

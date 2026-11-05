@@ -152,6 +152,8 @@ test("service attention uses short titles and counts only the latest retry",()=>
 
 test("machine snapshot capacity counts local runs across executors and excludes remote runs", () => {
  const ctx=fakeCtx(),{st,s}=capacityFixture();s.execution.local_max_tasks=5;
+ // Stub the machine readers here: relying on another test's cleanup fails when shards reorder tests.
+ setMachineReaders({pressure:()=>1,load:()=>({avg1:0,cores:1})});
  const tasks=[record('running',1,{executor:'codex'}),record('running',2,{executor:'cursor'}),record('running',3,{executor:'codex@devbox'}),record('queued',4)].map(t=>apiTask(ctx,t));
  const model=buildReadModel(ctx,{status:st,strategy:s,tasks,hosts:Object.values(s.hosts),setup:{checkedAt:ctx.now,complete:true,ready:true,items:[]}});
  expect(model.machine.arch).toBe(process.arch);
