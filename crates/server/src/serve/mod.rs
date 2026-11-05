@@ -163,8 +163,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                 eprintln!("native {}", op.name);
             }
-            // Reads use the same authoritative process generation as the Core.
-            // Mutating plugin operations are absent from this native registry.
+            // Reads and X3 mutations share Core's process generation over private IPC.
             let state = Arc::clone(&state);
             let name = op.name;
             match tokio::spawn(
@@ -189,13 +188,14 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             call_native(&request_ctx, op, params, None, endpoint_sync).await
         };
         if plugin
+            && crate::native::plugins::is_read(op.name)
             && result.as_ref().is_err_and(|error| {
                 error.code == Code::Unavailable
                     && error.message == pacer_plugin_ops::json::NESTING_FALLBACK
             })
         {
-            // All registered plugin operations are reads. Unsupported native
-            // envelopes may be replayed safely against the TS reference.
+            // Read envelopes may be replayed safely against the TS reference.
+            // Mutations must not replay after a native prepare/effect path.
             return forward_plugin_read(&state, parts, bytes, auth).await;
         }
         return match result {

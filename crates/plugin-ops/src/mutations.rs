@@ -1,8 +1,8 @@
-//! Unserved plugin mutation orchestration (X3 / pre-P4d).
+//! Plugin mutation orchestration (X3 library; P4d-3 HTTP wiring).
 //!
-//! Library + tests only: `PublicRegistry` still registers the four HTTP reads.
-//! Mutation handlers require a `MutationRuntime` with stop/reset/changed/log.
-//! Serve does not wire this module until P4d owns the process and reverse bridge.
+//! `PublicRegistry` still exposes only the four reads. HTTP serve registers these
+//! mutation ops through a `MutationRuntime` adapter over Core private IPC
+//! (`/_internal/plugins` stop/changed/call/publish/log). Stdio stays TypeScript.
 #![allow(clippy::result_large_err)]
 use crate::{
     config::{edit_config, read_config},
@@ -18,7 +18,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
-/// Mutation ops characterized here; not registered in `public::OPERATIONS`.
+/// Mutation ops characterized here; HTTP serve registers all but `plugin.install`.
 pub const MUTATION_OPERATIONS: &[&str] = &[
     "plugin.enable",
     "plugin.disable",

@@ -21,6 +21,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - P4d-2: when that flag path is on, reverse-bridge `_host.plugin.call` / `_host.plugin.find` reach live `ProcessOwner` children instead of dark stubs. Flag-off and unbound bridges keep the stub answers.
 
+- P4d-3: native HTTP handlers for `plugin.enable` / `disable` / `remove`, `plugin.settings.set`, and `plugin.ui.render` / `action` / `visibility` via the X3 mutation library and an expanded authenticated `/_internal/plugins` channel (`stop` / `changed` / `publish` / `log` and UI plugin calls). TypeScript Core remains the process owner; stdio and `plugin.install` stay forwarded. Flag-off child ownership is unchanged.
+
 - [ADR 0021](docs/decisions/0021-single-installation-owner.md) ownership record at `$PACER_HOME/owner.json`: the CLI claims ownership on a successful `pacer service install` or the standalone installer's service step (only when unclaimed or already its own), and the desktop app claims it on the Welcome/Consent screen or a committed service takeover. `pacer update`, `pacer service install|uninstall` and `pacer uninstall --all` now exit with code 2 and point at the app's Settings when the app owns the installation, except when run as the app's own bundled CLI. `pacer update --release-ownership` and `pacer service install --release-ownership` hand the installation back to the CLI, restoring a `pacer.pre-app-*` terminal-command backup if one exists and re-registering the service; both refuse while tasks or terminal sessions are running unless given `--force`.
 
 - Rust library effects for named strategy saves, routing and runner edits, and notification settings. The TypeScript runtime is unchanged.
