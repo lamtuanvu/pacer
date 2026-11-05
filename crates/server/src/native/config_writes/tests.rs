@@ -82,3 +82,62 @@ fn empty_xdg_config_home_uses_relative_orca_directory_on_linux() {
         std::path::PathBuf::from("orca/plugins-data/lamtuanvu.pacer")
     );
 }
+
+#[tokio::test]
+async fn strategy_list_and_show_read_named_files_without_publishing() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path();
+    let yaml = "# A work plan\nplanner: codex\nproviders:\n  codex: {}\n";
+    std::fs::write(home.join("strategy.yaml"), yaml).unwrap();
+    std::fs::create_dir(home.join("strategies")).unwrap();
+    std::fs::write(home.join("strategies/work.yaml"), yaml).unwrap();
+    std::fs::write(home.join("strategies/broken.yaml"), "planner: [oops\n").unwrap();
+    let ctx = Ctx::with(home.into(), home.into(), Default::default(), 0.0);
+    let registry = crate::native::registry("");
+    let list = crate::native::call_native(
+        &ctx,
+        registry.get("strategy.list").unwrap(),
+        json!({}),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(list[0]["name"], "default");
+    assert_eq!(list[0]["active"], true);
+    assert_eq!(
+        list[1],
+        json!({"name":"broken","active":false,"summary":"Invalid or missing strategy","description":""})
+    );
+    assert_eq!(list[2]["name"], "work");
+    assert_eq!(list[2]["description"], "A work plan");
+    assert_eq!(list[2]["active"], false);
+    let show = crate::native::call_native(
+        &ctx,
+        registry.get("strategy.show").unwrap(),
+        json!({"name":"work"}),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(show["yaml"], yaml);
+    assert_eq!(show["active"], false);
+    assert!(show["summary"].as_str().unwrap().contains("Codex"));
+    let missing = crate::native::call_native(
+        &ctx,
+        registry.get("strategy.show").unwrap(),
+        json!({"name":"missing"}),
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(missing.code, Code::InvalidInput);
+    assert_eq!(missing.message, "unknown strategy \"missing\"");
+    assert_eq!(
+        missing.hint.as_deref(),
+        Some("Use strategy.list to choose a strategy and strategy.preview to validate a draft.")
+    );
+    assert!(!home.join("link/outbox.jsonl").exists());
+}
