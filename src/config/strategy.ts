@@ -2,7 +2,7 @@ import { parseDispatchConfig } from "./dispatch";
 import type { DispatchConfig } from "../dispatch/types";
 import { parseMessagingConfig, type MessagingConfig } from "../messaging/types";
 import { validateTerminalOpen } from "../session/targets";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx, UsageKind } from "../types";
 import { isObj } from "../util";
@@ -303,15 +303,34 @@ export function strategyPath(ctx: Ctx): string {
   return name ? join(ctx.pacerHome, "strategies", `${name}.yaml`) : join(ctx.pacerHome, "strategy.yaml");
 }
 
+// loadStrategy/show/list reload the active strategy repeatedly within a single tick (once per
+// configured strategy name) and on every 2s snapshot refresh; parsing and validating a strategy
+// with many accounts/runners is not free, so a parse that would otherwise repeat on unchanged
+// bytes is served from this cache instead. Keyed by inode+mtimeNs+ctimeNs, the same staleness
+// stamp tasks/store.ts already uses for its JSON import, so any write (even an atomic
+// rename-into-place, which changes the inode) is a guaranteed cache miss on the next read.
+const parsedFileCache = new Map<string, { stamp: string; strategy: Strategy }>();
+function fileStamp(path: string): string | null {
+  try {
+    const stat = statSync(path, { bigint: true });
+    return `${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}:${stat.size}`;
+  } catch { return null; }
+}
 function parseFile(path: string, name: string): Strategy {
-  if (!existsSync(path)) throw new MissingStrategyError(path);
+  const stamp = fileStamp(path);
+  if (stamp === null) throw new MissingStrategyError(path);
+  const cacheKey = `${path}\0${name}`;
+  const cached = parsedFileCache.get(cacheKey);
+  if (cached && cached.stamp === stamp) return cached.strategy;
   let raw: unknown;
   try {
     raw = Bun.YAML.parse(readFileSync(path, "utf8"));
   } catch (e) {
     throw new StrategyError(path, [`YAML syntax error: ${(e as Error).message}`]);
   }
-  return validateStrategy(raw, path, name);
+  const strategy = validateStrategy(raw, path, name);
+  parsedFileCache.set(cacheKey, { stamp, strategy });
+  return strategy;
 }
 
 export function loadStrategy(ctx: Ctx): Strategy {

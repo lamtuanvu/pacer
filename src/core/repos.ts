@@ -2,6 +2,7 @@ import { CoreError } from "./errors";
 import { withLock } from "./lock";
 import { listActiveAndRecentTasks } from "../tasks/store";
 import { createHash } from "node:crypto";
+import { statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { repoKey } from "../config/hosts";
@@ -14,7 +15,26 @@ interface Entry { key: string; path: string; lastUsed: number }
 interface Registry { [path: string]: Entry }
 const file = (ctx: Ctx) => join(ctx.pacerHome,"state","repos.json");
 const aliasesFile = (ctx: Ctx) => join(ctx.pacerHome,"state","repo-paths.json");
-const registry = (ctx: Ctx): Registry => readJson<Registry>(file(ctx)) ?? {};
+// repoFor/registered re-read these two small files on every call, and apiTasks (every pump
+// tick) calls them once per task whose record has no cached `repo` -- on a large task
+// history that is hundreds of synchronous file opens per tick for files that are usually
+// unchanged. Cache each by an inode+mtimeNs+ctimeNs+size stamp (same idiom as
+// config/strategy.ts and tasks/store.ts) so an actual edit (add/remove/prune a repo) is
+// still a guaranteed cache miss on the very next read.
+function stampedRead<T>(path: string, cache: Map<string, { stamp: string; value: T }>, fallback: T): T {
+  let stamp: string | null;
+  try { const s = statSync(path, { bigint: true }); stamp = `${s.ino}:${s.mtimeNs}:${s.ctimeNs}:${s.size}`; }
+  catch { stamp = null; }
+  const cached = cache.get(path);
+  if (stamp !== null && cached && cached.stamp === stamp) return cached.value;
+  const value = stamp === null ? fallback : readJson<T>(path) ?? fallback;
+  if (stamp !== null) cache.set(path, { stamp, value }); else cache.delete(path);
+  return value;
+}
+const registryCache = new Map<string, { stamp: string; value: Registry }>();
+const aliasesCache = new Map<string, { stamp: string; value: Record<string, string> }>();
+const registry = (ctx: Ctx): Registry => stampedRead(file(ctx), registryCache, {});
+const aliases = (ctx: Ctx): Record<string, string> => stampedRead(aliasesFile(ctx), aliasesCache, {});
 const cachedCanonical = (path: string): string => {
  const result=cachedPath(path).real;
  schedulePathRefresh(path);
@@ -23,7 +43,15 @@ const cachedCanonical = (path: string): string => {
 const fallback = (path: string): RepoRef => ({key:`local:${createHash("sha256").update(path).digest("hex").slice(0,12)}`,label:basename(path),path});
 export function labelsFor(entries: {key: string; path: string}[]): Map<string,string> {
  const short=(e:{key:string;path:string})=>e.key.startsWith("local:")?basename(e.path):e.key.split("/").slice(1).join("/");
- return new Map(entries.map(e=>[e.key,entries.some(other=>other.key!==e.key && short(other)===short(e)) ? e.key.startsWith("local:")?`${short(e)} (${e.key})`:e.key : short(e)]));
+ // Collision check used to be entries.some(other => other.key !== e.key && short(other) === short(e)),
+ // which is O(n^2) string work (two `short()` calls per pair). Callers pass one entry per task
+ // (apiTasks/snapshotTasks do this on every pump tick), so this ran on thousands of entries every
+ // 15s. Group by short label once instead: a collision exists exactly when a short label is shared
+ // by more than one distinct key, which is the same condition the nested loop checked.
+ const keysByShort=new Map<string,Set<string>>();
+ const shortOf=new Map<{key:string;path:string},string>();
+ for(const e of entries){const s=short(e);shortOf.set(e,s);let keys=keysByShort.get(s);if(!keys)keysByShort.set(s,keys=new Set());keys.add(e.key);}
+ return new Map(entries.map(e=>{const s=shortOf.get(e)!;const collides=(keysByShort.get(s)?.size??0)>1;return [e.key,collides?(e.key.startsWith("local:")?`${s} (${e.key})`:e.key):s];}));
 }
 // Cleanup is throttled per registry; filtering still applies to every read.
 const lastPruned = new Map<string,number>();
@@ -47,10 +75,10 @@ export function listRepos(ctx: Ctx, snapshotRepos?: RepoRef[]): RepoRef[] {
  return entries.filter(e=>!seen.has(e.key)&&!!seen.add(e.key)).map(e=>({key:e.key,path:e.path,label:labels.get(e.key)!,...(cachedPath(e.path).unreachable?{unreachable:true as const}:{})}));
 }
 function registered(ctx: Ctx,path: string): Entry | undefined {
- const reg=registry(ctx), p=cachedCanonical(path),aliases=readJson<Record<string,string>>(aliasesFile(ctx))??{};
- const roots=[...Object.keys(reg),...Object.keys(aliases)].sort((a,b)=>b.length-a.length);
+ const reg=registry(ctx), p=cachedCanonical(path),repoAliases=aliases(ctx);
+ const roots=[...Object.keys(reg),...Object.keys(repoAliases)].sort((a,b)=>b.length-a.length);
  const root=roots.find(root=>p===root || p.startsWith(root+sep));
- return root ? reg[aliases[root]??root] : undefined;
+ return root ? reg[repoAliases[root]??root] : undefined;
 }
 export function registeredRepo(ctx: Ctx, path: string): RepoRef | undefined {
  return registered(ctx,path) ? repoFor(ctx,path) : undefined;
