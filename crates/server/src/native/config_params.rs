@@ -219,6 +219,9 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
         "runner.reorder" => object(vec![("ids", array(id()), false)]),
         "runner.remove" => object(vec![("id", RunnerId, false)]),
         "notifications.set" => object(vec![("level", Level, false)]),
+        "config.set" => {
+            return parse_config_set(params);
+        }
         _ => object(vec![]),
     };
     let params = if params.is_null() { json!({}) } else { params };
@@ -252,4 +255,69 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
     } else {
         Err(CoreError::new(Code::InvalidInput, issues.join("; ")))
     }
+}
+
+fn config_key_options() -> String {
+    pacer_config::settings::CONFIG_KEYS
+        .iter()
+        .map(|k| format!("\"{k}\""))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_config_set(mut params: Value) -> Result<Value, CoreError> {
+    pacer_config::normalize_json(&mut params);
+    // Zod's object schema treats null like a missing object body for these fields.
+    let params = if params.is_null() { json!({}) } else { params };
+    let mut issues = Vec::new();
+    if !params.is_object() {
+        issues.push(format!(
+            "params: Invalid input: expected object, received {}",
+            kind(Some(&params))
+        ));
+        return Err(CoreError::new(Code::InvalidInput, issues.join("; ")));
+    }
+    let key = params.get("key").and_then(Value::as_str);
+    if !key.is_some_and(|k| pacer_config::settings::CONFIG_KEYS.contains(&k)) {
+        // z.enum reports Invalid option for missing, wrong-type and unknown keys.
+        issues.push(format!(
+            "key: Invalid option: expected one of {}",
+            config_key_options()
+        ));
+    }
+    let value = params.get("value");
+    let value_ok = value.is_some_and(|v| {
+        v.is_string()
+            || v.is_number()
+            || v.is_boolean()
+            || v.as_array().is_some_and(|a| a.iter().all(Value::is_string))
+    });
+    if !value_ok {
+        // z.union collapses to a bare Invalid input for this field.
+        issues.push("value: Invalid input".into());
+    }
+    if let Some(integrations) = params.get("integrations")
+        && !integrations
+            .as_str()
+            .is_some_and(|v| matches!(v, "install" | "skip"))
+    {
+        issues.push("integrations: Invalid option: expected one of \"install\"|\"skip\"".into());
+    }
+    if !issues.is_empty() {
+        return Err(CoreError::new(Code::InvalidInput, issues.join("; ")));
+    }
+    let mut result = serde_json::Map::new();
+    result.insert(
+        "key".into(),
+        params.get("key").cloned().unwrap_or(Value::Null),
+    );
+    result.insert(
+        "value".into(),
+        params.get("value").cloned().unwrap_or(Value::Null),
+    );
+    if let Some(integrations) = params.get("integrations") {
+        result.insert("integrations".into(), integrations.clone());
+    }
+    Ok(Value::Object(result))
 }
