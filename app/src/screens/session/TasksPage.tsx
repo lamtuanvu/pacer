@@ -86,6 +86,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); };
   const repoLabel = repos.find(repo => repo.key === query.repo)?.label ?? "All repos";
   return <><Page width="full" aria-busy={busy || undefined} className={`pc-tasks-page${busy ? " pc-query-refreshing" : ""}`}>
+    <div className="pc-page-sticky">
     <header className="pc-tasks-page__header">
       <div className="pc-tasks-page__heading">
         <h1 className="pc-tasks-page__title">Tasks</h1>
@@ -98,6 +99,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
     </header>
     <Tabs label="Task filter" id={`${viewId}-task-filter`} value={filter} onChange={value => { setFilter(value as Filter); setShown(PAGE); }}
       options={FILTERS.map(item => ({ value: item.value, label: <>{item.dot && <span className={`pc-tasks-page__dot pc-tasks-page__dot--${item.dot}`} aria-hidden="true" />}{item.label} <span className="pc-tasks-page__count">{counts[item.value]}</span></> }))} />
+    </div>
     {error}
     <div className="pc-tasks-page__columns" role="tabpanel" id={`${viewId}-task-filter-${filter}-panel`} aria-labelledby={`${viewId}-task-filter-${filter}-tab`}>
       <section className="pc-tasks-page__tree" aria-label="Task tree">
