@@ -19,6 +19,7 @@ pacer-plugin-ops = { path = "../plugin-ops" }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 pacer-config = { path = "../config" }
 pacer-store = { path = "../store" }
+pacer-read-model = { path = "../read-model" }
 pacer-mdns = { path = "../mdns" }
 
 axum = { version = "0.8", features = ["ws"] }

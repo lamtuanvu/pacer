@@ -258,3 +258,70 @@ async fn task_log_accepts_integral_json_offsets() {
             == Code::UnknownTask
     );
 }
+
+#[tokio::test]
+async fn task_prune_and_restore_round_trip_through_shared_store() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("tasks")).unwrap();
+    fs::write(
+        dir.path().join("strategy.yaml"),
+        "planner: claude-code\nproviders:\n  codex: {}\ntask_retention_days: 14\n",
+    )
+    .unwrap();
+    let id = "t-20261001-184223-ea3b";
+    let created = 1_000.0;
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    store
+        .insert(
+            &json!({
+                "id": id,
+                "rev": 1,
+                "state": "done",
+                "createdAt": created,
+                "settledAt": created,
+                "dismissed": true,
+                "brief": {"goal": "retention parity", "repo": "/tmp/repo"},
+                "attempts": [],
+            }),
+            created,
+        )
+        .unwrap();
+    fs::write(dir.path().join(format!("tasks/{id}.log")), b"hello log").unwrap();
+    let mut c = ctx(&dir);
+    c.now = created + 30.0 * 86_400.0;
+    let dry = task_prune(&c, json!({"dry_run": true})).await.unwrap();
+    assert_eq!(dry["dryRun"], true);
+    assert_eq!(dry["tasks"][0]["id"], id);
+    assert!(dry["bytesSaved"].as_i64().is_some() || dry["bytesSaved"].as_u64().is_some());
+    assert!(dir.path().join(format!("tasks/{id}.log")).exists());
+    let pruned = task_prune(&c, json!({})).await.unwrap();
+    assert_eq!(pruned["dryRun"], false);
+    assert_eq!(pruned["tasks"][0]["id"], id);
+    assert!(!dir.path().join(format!("tasks/{id}.log")).exists());
+    let restored = task_restore(&c, json!({"id": id})).await.unwrap();
+    assert_eq!(restored["task_id"], id);
+    assert_eq!(restored["state"], "done");
+    assert!(restored.get("archived").is_none());
+    assert!(dir.path().join(format!("tasks/{id}.log")).exists());
+    assert_eq!(
+        task_prune(&c, json!({"dry_run": "yes"}))
+            .await
+            .unwrap_err()
+            .code,
+        Code::InvalidInput
+    );
+    assert_eq!(
+        task_restore(&c, json!({}))
+            .await
+            .unwrap_err()
+            .code,
+        Code::InvalidInput
+    );
+    assert_eq!(
+        task_restore(&c, json!({"id": "missing"}))
+            .await
+            .unwrap_err()
+            .code,
+        Code::UnknownTask
+    );
+}
