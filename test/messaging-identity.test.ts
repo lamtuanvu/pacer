@@ -56,3 +56,29 @@ test("SessionStart does not export an identity for a different configured planne
   expect(await sessionHook(ctx, "claude-code", { session_id: "abc" }, async () => "status")).toEqual({ out: "status" });
   expect(readFileSync(file, "utf8")).toBe("existing=1\n");
 });
+
+// The hook runs as the CLI entry module. Importing cli.ts from inside it waited on cli.ts's own
+// top-level await, so every Claude Code session start hung until the hook timeout.
+test("SessionStart from the CLI entry exits with the status hook output", async () => {
+  const dir = tmpDir();
+  const home = join(dir, "home");
+  mkdirSync(home, { recursive: true });
+  const run = async (args: string[]) => {
+    const proc = Bun.spawn([process.execPath, join(import.meta.dir, "../src/cli.ts"), ...args], {
+      cwd: dir,
+      stdin: new TextEncoder().encode(JSON.stringify({ session_id: "abc", cwd: dir })),
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { PATH: process.env.PATH ?? "", HOME: home, PACER_HOME: join(home, ".pacer"), PACER_PORT: "1", PACER_NO_UPDATE_CHECK: "1", TZ: process.env.TZ ?? "UTC" },
+    });
+    const timer = setTimeout(() => proc.kill(), 15_000);
+    const [code, out] = await Promise.all([proc.exited, new Response(proc.stdout).text()]);
+    clearTimeout(timer);
+    return { code, out, signal: proc.signalCode };
+  };
+  const status = await run(["status", "--hook", "claude-code"]);
+  const session = await run(["msg", "hook", "session", "--planner", "claude-code"]);
+  expect(session.signal).toBeNull();
+  expect(session.code).toBe(0);
+  expect(session.out).toBe(status.out);
+}, 40_000);

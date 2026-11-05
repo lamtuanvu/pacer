@@ -57,6 +57,7 @@ import { shutdownPlugins } from "./plugins";
 import { runStdio } from "./api/stdio";
 import { StringDecoder } from "node:string_decoder";
 import { renderHook } from "./render/hook";
+import { registerCliMain } from "./cli-entry";
 import { lineFields, renderLine } from "./render/line";
 import { renderText } from "./render/text";
 import { renderRoute } from "./render/accounts";
@@ -730,6 +731,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
   }
 }
 
+// Before the top-level await below: a command that re-enters main must not import this module.
+registerCliMain(main);
 if (import.meta.main) {
   const r = await main(process.argv.slice(2));
   // Any command that stopped a kept-alive lane (stop, dispatch stop, session end) finishes releasing its worker first.
