@@ -2,15 +2,23 @@ import { z } from "zod";
 import { parseOpParams } from "../api/ops";
 import { toApiError } from "../api/errors";
 import { CoreError } from "../core/errors";
+import { publishConfigChange } from "../core/events";
 import { pluginRegistry } from "../plugins";
+import { appendPluginLog } from "../plugins/host";
 import type { Ctx } from "../types";
 
 const operation = z.enum([
-  "plugin.list", "plugin.doctor", "plugin.ui.list", "plugin.settings.get",
+  "plugin.list", "plugin.enable", "plugin.disable", "plugin.remove", "plugin.doctor",
+  "plugin.ui.list", "plugin.ui.render", "plugin.ui.action", "plugin.ui.visibility",
+  "plugin.settings.get", "plugin.settings.set",
 ]);
 const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("prepare"), op: operation, params: z.unknown() }).strict(),
-  z.object({ kind: z.literal("call"), id: z.string(), method: z.literal("diagnostic.ping"), params: z.unknown() }).strict(),
+  z.object({ kind: z.literal("call"), id: z.string(), method: z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]), params: z.unknown() }).strict(),
+  z.object({ kind: z.literal("stop"), id: z.string() }).strict(),
+  z.object({ kind: z.literal("changed"), id: z.string(), reset: z.boolean(), invalidate: z.boolean() }).strict(),
+  z.object({ kind: z.literal("publish"), op: operation }).strict(),
+  z.object({ kind: z.literal("log"), id: z.string(), message: z.string().max(1000) }).strict(),
 ]);
 
 /** Called only after internal-generation authentication, never on the public API. */
@@ -22,9 +30,30 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown) {
     let value: unknown = null;
     switch (p.kind) {
       case "prepare": value = parseOpParams(ctx, p.op, p.params); break;
-      // Doctor ignores successful ping payloads. Do not send arbitrary plugin
-      // output through the native read bridge or execute a diagnostic twice.
-      case "call": await reg.call(ctx, p.id, p.method, p.params); break;
+      case "call": {
+        // Doctor ignores successful ping payloads. Do not send arbitrary plugin
+        // output through the native read bridge or execute a diagnostic twice.
+        if (p.method === "diagnostic.ping") {
+          await reg.call(ctx, p.id, p.method, p.params);
+          break;
+        }
+        const dropCache = p.method === "ui.action"
+          ? reg.nativeCacheInvalidator(ctx, p.id, (p.params as { id: string }).id) : undefined;
+        value = await reg.call(ctx, p.id, p.method, p.params);
+        if (p.method === "ui.action" && (value as { result?: string })?.result === "refresh") {
+          dropCache?.();
+        }
+        break;
+      }
+      case "stop": await reg.nativeStop(ctx, p.id); break;
+      case "changed":
+        if (p.reset) reg.nativeReset(ctx, p.id);
+        if (p.invalidate) reg.invalidatePlugin(ctx, p.id);
+        break;
+      case "publish":
+        if (["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.visibility", "plugin.settings.set"].includes(p.op)) await publishConfigChange(ctx, "plugins");
+        break;
+      case "log": appendPluginLog(ctx, p.id, "stderr", p.message); break;
     }
     return { value, entries: reg.nativeSnapshot(ctx) };
   } catch (error) {

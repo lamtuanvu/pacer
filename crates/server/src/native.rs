@@ -222,8 +222,8 @@ mod tests {
     }
 
     #[test]
-    fn service_registers_only_read_operations_with_individual_fallbacks() {
-        for name in pacer_plugin_ops::public::OPERATIONS {
+    fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
+        for name in super::plugins::registered_names() {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
             assert!(registry("").get(name).is_none(), "stdio {name}");
@@ -248,21 +248,10 @@ mod tests {
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
         }
         assert!(super::service_registry("").get("config.get").is_none());
-        for name in [
-            "plugin.install",
-            "plugin.enable",
-            "plugin.disable",
-            "plugin.remove",
-            "plugin.ui.render",
-            "plugin.ui.action",
-            "plugin.ui.visibility",
-            "plugin.settings.set",
-        ] {
-            assert!(super::service_registry("").get(name).is_none(), "{name}");
-            assert!(registry("").get(name).is_none(), "{name}");
-        }
+        // Retired install stays forwarded; stdio keeps every plugin op in TypeScript.
+        assert!(super::service_registry("").get("plugin.install").is_none());
+        assert!(registry("").get("plugin.install").is_none());
         assert!(super::service_registry("*").names().is_empty());
-        // A stdio child owns a separate TS registry, with no private service adapter.
         assert!(registry("").get("plugin.list").is_none());
     }
 }
