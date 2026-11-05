@@ -1,8 +1,9 @@
-//! Optional P4d-1 native plugin-host wiring for serve.
+//! Optional P4d-1/P4d-2 native plugin-host wiring for serve.
 //!
 //! Default serve does not start this path. When `PACER_NATIVE_PLUGIN_HOST` or
 //! `PACER_HOST_BRIDGE` is set, [`maybe_start`] claims a native ProcessOwner,
-//! binds the reverse bridge, and returns Core env pairs (`PACER_HOST_SOCKET`).
+//! binds the reverse bridge with live call/find dispatch, and returns Core env
+//! pairs (`PACER_HOST_SOCKET`).
 
 use pacer_plugin_runtime::{NativeHostSession, native_plugin_host_enabled_from_env};
 use std::{collections::HashMap, io, path::Path};

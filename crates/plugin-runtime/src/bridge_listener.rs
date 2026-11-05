@@ -1,4 +1,4 @@
-//! Dark reverse-bridge Unix listener (X1c / P4d-1).
+//! Reverse-bridge Unix listener (X1c / P4d-1 / P4d-2).
 //!
 //! Binds `$PACER_HOME/run/host.sock` (dir 0700, socket 0600), accepts line
 //! JSON-RPC for `_host.plugin.call` / `_host.plugin.find`, and authorizes peers
@@ -6,11 +6,16 @@
 //! export [`crate::HOST_SOCKET_ENV`] unless flag wiring is explicitly enabled
 //! (`PACER_NATIVE_PLUGIN_HOST` and/or [`crate::HOST_BRIDGE_ENABLE_ENV`]). This
 //! module never binds TCP.
+//!
+//! Without a live [`SharedOwner`], call/find stay dark stubs. Flag-on serve
+//! attaches the owner so handlers reach tracked [`crate::PluginProcess`]
+//! children (P4d-2).
 
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND,
     dark_bridge_enabled, prepare_host_run_dir,
 };
+use crate::owner::ProcessOwner;
 use serde_json::{Value, json};
 use std::{
     fs, io,
@@ -19,12 +24,14 @@ use std::{
         net::{UnixListener as StdUnixListener, UnixStream as StdUnixStream},
     },
     path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
 };
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
-    sync::watch,
+    sync::{Mutex, watch},
 };
 
 /// Soft cap matching the plugin process frame budget (1 MiB).
@@ -33,6 +40,22 @@ pub const BRIDGE_MAX_LINE_BYTES: usize = 1024 * 1024;
 const METHOD_NOT_FOUND: i64 = -32601;
 const UNAUTHORIZED: i64 = -32001;
 const INVALID_REQUEST: i64 = -32600;
+const INVALID_PARAMS: i64 = -32602;
+const PLUGIN_UNAVAILABLE: i64 = -32002;
+
+const DEFAULT_CALL_DEADLINE: Duration = Duration::from_secs(30);
+
+/// Shared serve-owned process map for live bridge RPC.
+pub type SharedOwner = Arc<Mutex<ProcessOwner>>;
+
+/// How `_host.plugin.*` is answered on an accepted connection.
+#[derive(Clone)]
+pub enum BridgeDispatch {
+    /// Dark stub: ownership not activated (library / pre-owner bind).
+    Stub,
+    /// Live call/find against children under the shared owner.
+    Live(SharedOwner),
+}
 
 #[derive(Debug, Error)]
 pub enum BridgeError {
@@ -89,6 +112,7 @@ pub struct ReverseBridge {
     listener: StdUnixListener,
     path: PathBuf,
     auth: PeerAuth,
+    dispatch: BridgeDispatch,
 }
 
 /// Background accept loop with graceful shutdown.
@@ -102,7 +126,8 @@ impl ReverseBridge {
     /// Bind `$PACER_HOME/run/host.sock` after ensuring the run directory is 0700.
     ///
     /// Does **not** export `PACER_HOST_SOCKET`. Callers that need Core to dial
-    /// must use [`Self::dark_core_env`] under the enable flag.
+    /// must use [`Self::dark_core_env`] under the enable flag. Starts in
+    /// [`BridgeDispatch::Stub`] until [`Self::with_live_owner`].
     pub fn bind(pacer_home: &Path) -> Result<Self, BridgeError> {
         Self::bind_with_auth(pacer_home, PeerAuth::same_uid())
     }
@@ -115,7 +140,14 @@ impl ReverseBridge {
             listener,
             path,
             auth,
+            dispatch: BridgeDispatch::Stub,
         })
+    }
+
+    /// Attach a serve-owned [`ProcessOwner`] so call/find hit live children.
+    pub fn with_live_owner(mut self, owner: SharedOwner) -> Self {
+        self.dispatch = BridgeDispatch::Live(owner);
+        self
     }
 
     pub fn path(&self) -> &Path {
@@ -124,6 +156,10 @@ impl ReverseBridge {
 
     pub fn auth(&self) -> &PeerAuth {
         &self.auth
+    }
+
+    pub fn dispatch(&self) -> &BridgeDispatch {
+        &self.dispatch
     }
 
     /// Socket file mode bits (expects 0600).
@@ -184,8 +220,9 @@ impl ReverseBridge {
                 accepted = listener.accept() => {
                     let (stream, _) = accepted?;
                     let auth = self.auth.clone();
+                    let dispatch = self.dispatch.clone();
                     tokio::spawn(async move {
-                        let _ = handle_connection(stream, auth).await;
+                        let _ = handle_connection(stream, auth, dispatch).await;
                     });
                 }
             }
@@ -259,7 +296,11 @@ fn authorize(stream: &UnixStream, auth: &PeerAuth) -> Result<(), BridgeError> {
     Ok(())
 }
 
-async fn handle_connection(stream: UnixStream, auth: PeerAuth) -> Result<(), BridgeError> {
+async fn handle_connection(
+    stream: UnixStream,
+    auth: PeerAuth,
+    dispatch: BridgeDispatch,
+) -> Result<(), BridgeError> {
     if let Err(error) = authorize(&stream, &auth) {
         let mut stream = stream;
         let _ = write_error(&mut stream, Value::Null, UNAUTHORIZED, "unauthorized").await;
@@ -283,14 +324,14 @@ async fn handle_connection(stream: UnixStream, auth: PeerAuth) -> Result<(), Bri
         if line.is_empty() {
             continue;
         }
-        let response = response_for_line(&line);
+        let response = response_for_line(&line, &dispatch).await;
         let stream = reader.get_mut();
         write_raw(stream, &response).await?;
     }
     Ok(())
 }
 
-fn response_for_line(line: &[u8]) -> Value {
+async fn response_for_line(line: &[u8], dispatch: &BridgeDispatch) -> Value {
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return json!({
             "jsonrpc": "2.0",
@@ -320,25 +361,10 @@ fn response_for_line(line: &[u8]) -> Value {
             "error": {"code": INVALID_REQUEST, "message": "invalid request"}
         });
     };
-    // Params are accepted but ignored by the dark stub; ownership is not active.
-    let _params = object.get("params").cloned().unwrap_or_else(|| json!({}));
+    let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
     match method {
-        METHOD_PLUGIN_CALL => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "activated": false,
-                "reason": "native-plugin-ownership-not-activated"
-            }
-        }),
-        METHOD_PLUGIN_FIND => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "found": false,
-                "reason": "native-plugin-ownership-not-activated"
-            }
-        }),
+        METHOD_PLUGIN_CALL => dispatch_call(id, params, dispatch).await,
+        METHOD_PLUGIN_FIND => dispatch_find(id, params, dispatch).await,
         _ => json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -347,21 +373,87 @@ fn response_for_line(line: &[u8]) -> Value {
     }
 }
 
+async fn dispatch_call(id: Value, params: Value, dispatch: &BridgeDispatch) -> Value {
+    match dispatch {
+        BridgeDispatch::Stub => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "activated": false,
+                "reason": "native-plugin-ownership-not-activated"
+            }
+        }),
+        BridgeDispatch::Live(owner) => {
+            let Some(plugin_id) = params.get("id").and_then(Value::as_str) else {
+                return rpc_error(id, INVALID_PARAMS, "missing plugin id");
+            };
+            let Some(method) = params.get("method").and_then(Value::as_str) else {
+                return rpc_error(id, INVALID_PARAMS, "missing method");
+            };
+            let call_params = params.get("params").cloned().unwrap_or_else(|| json!({}));
+            let deadline = params
+                .get("deadlineMs")
+                .and_then(Value::as_u64)
+                .map(Duration::from_millis)
+                .unwrap_or(DEFAULT_CALL_DEADLINE);
+            let mut guard = owner.lock().await;
+            match guard
+                .call_plugin(plugin_id, method, call_params, deadline)
+                .await
+            {
+                Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
+            }
+        }
+    }
+}
+
+async fn dispatch_find(id: Value, params: Value, dispatch: &BridgeDispatch) -> Value {
+    match dispatch {
+        BridgeDispatch::Stub => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "found": false,
+                "reason": "native-plugin-ownership-not-activated"
+            }
+        }),
+        BridgeDispatch::Live(owner) => {
+            let Some(plugin_id) = params.get("id").and_then(Value::as_str) else {
+                return rpc_error(id, INVALID_PARAMS, "missing plugin id");
+            };
+            let guard = owner.lock().await;
+            match guard.find_plugin(plugin_id) {
+                Some(pid) => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {"found": true, "id": plugin_id, "pid": pid}
+                }),
+                None => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {"found": false, "id": plugin_id}
+                }),
+            }
+        }
+    }
+}
+
+fn rpc_error(id: Value, code: i64, message: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {"code": code, "message": message}
+    })
+}
+
 async fn write_error(
     stream: &mut UnixStream,
     id: Value,
     code: i64,
     message: &str,
 ) -> Result<(), BridgeError> {
-    write_raw(
-        stream,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": {"code": code, "message": message}
-        }),
-    )
-    .await
+    write_raw(stream, &rpc_error(id, code, message)).await
 }
 
 async fn write_raw(stream: &mut UnixStream, value: &Value) -> Result<(), BridgeError> {
