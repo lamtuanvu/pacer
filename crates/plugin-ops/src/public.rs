@@ -34,23 +34,52 @@ pub struct Entry {
     pub restarts: usize,
 }
 impl Entry {
-    fn manifest(&self) -> &Value {
+    pub(crate) fn manifest(&self) -> &Value {
         self.manifest.as_ref().unwrap_or(&Value::Null)
     }
-    fn surfaces(&self, kind: &str) -> &[Value] {
+    pub(crate) fn surfaces(&self, kind: &str) -> &[Value] {
         self.manifest()["contributes"]["ui"][kind]
             .as_array()
             .map_or(&[], Vec::as_slice)
     }
-    fn kinds(&self) -> Vec<&str> {
+    pub(crate) fn kinds(&self) -> Vec<&str> {
         KINDS
             .iter()
             .copied()
             .filter(|k| !self.surfaces(k).is_empty())
             .collect()
     }
-    fn available(&self) -> bool {
+    pub(crate) fn available(&self) -> bool {
         ENABLED.contains(&self.state.as_str())
+    }
+    pub(crate) fn surface(&self, surface: &str, id: &str) -> Result<&Value, CoreError> {
+        let kind = if surface == "panelTab" {
+            "panelTabs"
+        } else {
+            surface
+        };
+        self.surfaces(kind)
+            .iter()
+            .find(|s| s["id"] == id)
+            .ok_or_else(|| {
+                CoreError::new(
+                    Code::NotFound,
+                    format!("plugin {} has no {surface} surface {id}", self.id),
+                )
+            })
+    }
+    pub(crate) fn unavailable(&self) -> CoreError {
+        CoreError::new(
+            Code::PluginUnavailable,
+            format!(
+                "plugin {} is {}{}",
+                self.id,
+                self.state,
+                self.error
+                    .as_ref()
+                    .map_or(String::new(), |e| format!(": {e}"))
+            ),
+        )
     }
 }
 /// All runtime effects belong to one host. No second process registry is created.
