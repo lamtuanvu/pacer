@@ -20,6 +20,10 @@ fn shadow_never_starts_a_second_host() {
         Err(RegistryError::TypeScriptOwnsHost)
     ));
     assert_eq!(registry.get("fx-good").unwrap().state, PluginState::Idle);
+    assert_eq!(
+        registry.plugin_states(),
+        vec![("fx-good".into(), PluginState::Idle)]
+    );
 }
 
 #[test]
