@@ -4,7 +4,11 @@ html[data-pacer-desktop],html[data-pacer-desktop] body{background:transparent}
 html[data-pacer-desktop] body{height:100vh;overflow:hidden}
 html[data-pacer-desktop] #app{height:100%;overflow:hidden;border-radius:var(--radius-xl);background:var(--surface-page)}
 html[data-pacer-desktop] .pc-app{height:100%;min-height:0}
-html[data-pacer-desktop] .pc-body{overflow:hidden}
+/* The connection wrapper sits between #app and the density wrapper; without a height the app grows to its content and no screen scrolls. */
+html[data-pacer-desktop] .pc-desktop-connection:not([hidden]){display:flex;flex-direction:column;height:100%;min-height:0}
+html[data-pacer-desktop] .pc-desktop-connection>.pc-density{flex:1 1 0;min-height:0}
+/* Only .pc-work scrolls. clip (unlike hidden) can't be scrolled by focus or scrollIntoView, which otherwise shifts the whole app, top bar and rail included, inside the window. */
+html[data-pacer-desktop],html[data-pacer-desktop] body,html[data-pacer-desktop] #app,html[data-pacer-desktop] .pc-desktop-connection,html[data-pacer-desktop] .pc-app,html[data-pacer-desktop] .pc-body{overflow:clip}
 html[data-pacer-desktop] .pc-work{overflow:auto;min-height:0}
 a{color:var(--link)}a:hover{color:var(--ink)}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
