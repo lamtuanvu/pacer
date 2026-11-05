@@ -29,6 +29,7 @@ mod registry;
 mod registry_policy;
 mod spawn_spec;
 mod transfers;
+mod work_lease;
 
 pub use admission::{AdmissionError, CallAdmission};
 pub use authority::{
@@ -74,3 +75,4 @@ pub use process::{
 pub use registry::{HostMode, PluginState, Registry, RegistryError};
 pub use spawn_spec::{SpawnCapture, SpawnMode};
 pub use transfers::{TransferError, TransferKind, Transfers};
+pub use work_lease::{Blocker, BlockerKind, WorkLease, begin_blocker};

@@ -1402,6 +1402,7 @@ dependencies = [
  "pacer-plugin-protocol",
  "pacer-store",
  "reqwest",
+ "rusqlite",
  "ryu-js",
  "semver",
  "serde",
