@@ -112,3 +112,57 @@ test("an adapter-declared incomplete window cannot establish available budget", 
   }] }, "quota");
   expect(decide(evidence).state).toBe("uncertain");
 });
+
+test("expired equal-authority execution limit marks stop blocking reactive executors", () => {
+  const runnerScope = { ...scope, runner: "cursor", model: "auto", host: "local" };
+  const observedAt = now - 14 * 86400;
+  const untilA = observedAt + 6 * 3600;
+  const untilB = untilA + 0.049;
+  const previous: AccountEvidence = {
+    availability: [evidenceFact(scope, "configuration", 0, null, "measurement_contract", "ready")],
+    budget: [
+      evidenceFact(runnerScope, "execution", observedAt, untilA, "quota_failure", {
+        name: "limit", usedPct: 100, resetsAt: untilA, lengthS: 21600, paced: false,
+      }),
+      evidenceFact(runnerScope, "execution", observedAt, untilB, "quota_failure", {
+        name: "limit", usedPct: 100, resetsAt: untilB, lengthS: 21600, paced: false,
+      }),
+    ],
+    spending: [],
+  };
+  // A reactive usage refresh writes no synthetic 0% limit window; reconciliation must still heal.
+  const incoming = readingEvidence(scope, {
+    windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }],
+    capturedAt: now, stale: false, source: "reactive",
+  }, "reactive");
+  const merged = reconcileEvidence(previous, incoming, now);
+  expect(merged.facts.budget).toEqual([]);
+  expect(merged.conflicts).toEqual([]);
+  const decision = evaluateEligibility({
+    now, scope: runnerScope, usage: "reactive", allowPaid: false, evidence: merged, restrictions: [],
+  });
+  expect(decision.state).toBe("eligible");
+  expect(decision.reasons.map(r => r.code)).not.toContain("evidence_conflicting");
+});
+
+test("a still-active execution limit mark continues to exhaust until its cooldown ends", () => {
+  const runnerScope = { ...scope, runner: "cursor", model: "auto", host: "local" };
+  // Past the two-hour short-window freshness cap, but still inside a six-hour cooldown.
+  // Reactive accounts have no measured quota witness, so the mark must keep binding.
+  const observedAt = now - 3 * 3600;
+  const until = observedAt + 6 * 3600;
+  const evidence: AccountEvidence = {
+    availability: [evidenceFact(scope, "configuration", 0, null, "measurement_contract", "ready")],
+    budget: [evidenceFact(runnerScope, "execution", observedAt, until, "quota_failure", {
+      name: "limit", usedPct: 100, resetsAt: until, lengthS: 21600, paced: false,
+    })],
+    spending: [],
+  };
+  const merged = reconcileEvidence(emptyEvidence(), evidence, now);
+  expect(merged.facts.budget).toHaveLength(1);
+  const decision = evaluateEligibility({
+    now, scope: runnerScope, usage: "reactive", allowPaid: false, evidence: merged, restrictions: [],
+  });
+  expect(decision.state).toBe("ineligible");
+  expect(decision.reasons.map(r => r.code)).toContain("budget_exhausted");
+});
