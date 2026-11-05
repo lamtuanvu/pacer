@@ -57,14 +57,16 @@ files are left intact. Oversized aggregate prepare snapshots also forward before
 any diagnostic call; successful diagnostic payloads are discarded because TS
 ignores them. No operation is replayed after a diagnostic RPC. The bound is not a public JSON/schema rejection.
 
-## P4d path scaffolding (X1)
+## P4d path scaffolding (X1 / X1b)
 
 `pacer-plugin-runtime` names the process-owner gate and the private
-`PACER_HOST_SOCKET` / `$PACER_HOME/run/host.sock` contract. Production serve still
-leaves children with TypeScript (`/_internal/plugins`); the runtime crate is not
-wired into the listener and does not set the reverse-bridge env. Native registry
-mode, live `PluginProcess` supervision, bridge accept loop and mutation
-registration remain later slices. See the X1 inventory under `.work/reviews/`.
+`PACER_HOST_SOCKET` / `$PACER_HOME/run/host.sock` contract. X1b lets a native
+test-token `ProcessOwner` spawn/track live `PluginProcess` children and mirror
+`Registry` shadow states in library form. Production serve still leaves children
+with TypeScript (`/_internal/plugins`); the runtime crate is not wired into the
+listener and does not set the reverse-bridge env. Serve-side native ownership,
+bridge accept loop and mutation registration remain later slices (X1c / X3 /
+P4d). See the X1 / X1b inventories under `.work/reviews/`.
 
 ## Deferred P4c mutation and distribution work
 

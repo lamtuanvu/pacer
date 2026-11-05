@@ -7,10 +7,13 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+pacer-plugin-host = { path = "../plugin-host" }
 thiserror.workspace = true
 
 [dev-dependencies]
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 tempfile = "3"
+tokio = { workspace = true }
 
 [lints]
 workspace = true

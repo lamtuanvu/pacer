@@ -3,11 +3,7 @@ use pacer_plugin_runtime::{
     HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, OwnerError,
     Ownership, ProcessOwner, host_socket_path, prepare_host_run_dir,
 };
-use std::{
-    fs,
-    os::unix::fs::MetadataExt,
-    path::Path,
-};
+use std::{fs, os::unix::fs::MetadataExt, path::Path};
 
 #[test]
 fn production_owner_refuses_native_claim() {
@@ -17,7 +13,10 @@ fn production_owner_refuses_native_claim() {
         owner.claim_native_supervision(),
         Err(OwnerError::TypeScriptOwnsHost)
     );
-    assert_eq!(ProcessOwner::default().ownership(), &Ownership::typescript());
+    assert_eq!(
+        ProcessOwner::default().ownership(),
+        &Ownership::typescript()
+    );
 }
 
 #[test]
