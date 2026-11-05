@@ -7,9 +7,9 @@ html[data-pacer-desktop] .pc-app{height:100%;min-height:0}
 /* The connection wrapper sits between #app and the density wrapper; without a height the app grows to its content and no screen scrolls. */
 html[data-pacer-desktop] .pc-desktop-connection:not([hidden]){display:flex;flex-direction:column;height:100%;min-height:0}
 html[data-pacer-desktop] .pc-desktop-connection>.pc-density{flex:1 1 0;min-height:0}
-/* Only .pc-work scrolls. clip (unlike hidden) can't be scrolled by focus or scrollIntoView, which otherwise shifts the whole app, top bar and rail included, inside the window. */
-html[data-pacer-desktop],html[data-pacer-desktop] body,html[data-pacer-desktop] #app,html[data-pacer-desktop] .pc-desktop-connection,html[data-pacer-desktop] .pc-app,html[data-pacer-desktop] .pc-body{overflow:clip}
-html[data-pacer-desktop] .pc-work{overflow:auto;min-height:0}
+/* Only .pc-main scrolls. clip (unlike hidden) can't be scrolled by focus or scrollIntoView, which otherwise shifts the whole app, top bar, rail and page head included, inside the window. */
+html[data-pacer-desktop],html[data-pacer-desktop] body,html[data-pacer-desktop] #app,html[data-pacer-desktop] .pc-desktop-connection,html[data-pacer-desktop] .pc-app,html[data-pacer-desktop] .pc-body,html[data-pacer-desktop] .pc-work{overflow:clip}
+html[data-pacer-desktop] .pc-main{overflow:auto;min-height:0}
 a{color:var(--link)}a:hover{color:var(--ink)}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
@@ -126,7 +126,7 @@ html:has(.pc-app--narrow .pc-aurora-launcher) .pc-notice-stack--narrow{bottom:ma
 .pc-app--with-status .pc-save-bar{bottom:var(--frame-status)}
 .pc-app--narrow .pc-save-bar{bottom:calc(var(--size-56) + env(safe-area-inset-bottom))}
 /* Focused fields scroll clear of an open SaveBar. */
-html:has(.pc-app--with-status .pc-save-bar:not(.pc-save-bar--clean)),.pc-work:has(.pc-save-bar:not(.pc-save-bar--clean)){scroll-padding-bottom:calc(var(--frame-status) + var(--size-120))}
+html:has(.pc-app--with-status .pc-save-bar:not(.pc-save-bar--clean)),.pc-main:has(.pc-save-bar:not(.pc-save-bar--clean)){scroll-padding-bottom:calc(var(--frame-status) + var(--size-120))}
 html:has(.pc-app--narrow .pc-save-bar:not(.pc-save-bar--clean)){scroll-padding-bottom:calc(var(--size-56) + var(--size-200) + env(safe-area-inset-bottom))}
 html[data-pacer-native-titlebar] .pc-traffic{display:none}
 html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
@@ -148,7 +148,12 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-rail__badge--info{background:var(--info-bg);color:var(--info-fg)}
 .pc-rail__dot{position:absolute;top:var(--size-3);right:var(--size-3);width:var(--size-8);height:var(--size-8);box-sizing:content-box;border:var(--size-2) solid var(--surface-card);border-radius:var(--radius-full);background:var(--bad-fill)}
 .pc-panel{flex:0 0 var(--size-240);display:flex;flex-direction:column;padding:0;background:var(--surface-card)}
-.pc-work{position:relative;flex:1;min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column}
+/* The work area is a non-scrolling flex column frame holding the page head and main; only main scrolls. */
+.pc-work{position:relative;flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+/* Empty and takes no space when no screen fills it (FrameSlot name="header"). */
+.pc-page-head{flex:none;display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4) var(--space-8) var(--space-3);background:var(--surface-page);border-bottom:1px solid var(--line)}
+.pc-page-head:empty{display:none}
+@media(max-width:767px){.pc-page-head{padding:var(--space-3) max(var(--space-4),env(safe-area-inset-right)) var(--space-2) max(var(--space-4),env(safe-area-inset-left))}}
 .pc-topbar{display:flex;align-items:center;gap:var(--space-2);min-height:var(--frame-top);height:var(--frame-top);box-sizing:border-box;padding:0 var(--size-10) 0 var(--size-84);flex-shrink:0;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface-card);z-index:var(--layer-sticky)}
 html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-topbar__brand{display:inline-flex;align-items:center;flex:none;border-radius:var(--radius-sm)}
@@ -177,7 +182,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 @media(min-width:560px) and (max-width:800px){.pc-app:not(.pc-app--narrow)>.pc-topbar .pc-planner__name{display:none}}
 @media(pointer:coarse){.pc-app:not(.pc-app--narrow)>.pc-topbar{height:auto;min-height:var(--control-touch)}.pc-rail{flex-basis:var(--size-56);width:var(--size-56);top:var(--control-touch);height:calc(100vh - var(--control-touch))}.pc-rail .pc-rail__item{width:var(--control-touch);height:var(--control-touch)}}
 @media(pointer:coarse){.pc-app--with-status .pc-rail{height:calc(100vh - var(--control-touch) - var(--frame-status))}}
-.pc-main{flex:1;min-height:min-content;padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-5);outline:none}
+.pc-main{flex:1;min-height:0;overflow:auto;padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-5);outline:none}
 .pc-notice{max-width:var(--size-560)}
 .pc-keys dl{display:grid;grid-template-columns:auto 1fr;gap:var(--space-2) var(--space-4);margin:0}
 .pc-keys dd{margin:0}
@@ -330,7 +335,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-bottom-bar>*{min-width:var(--size-44);flex:0 0 var(--size-44)}
 .pc-bottom-bar .pc-rail__item{max-width:100%;min-width:var(--size-44);min-height:var(--size-44);padding:0}
 /* The narrow header lives inside this scroller; native focus and scrollIntoView must clear it. */
-.pc-app--narrow .pc-work{width:100%;min-width:0;max-width:100%;scroll-padding-top:var(--pc-work-header-height, 0px)}
+.pc-app--narrow .pc-work{width:100%;min-width:0;max-width:100%}
 .pc-app--narrow .pc-topbar{flex-wrap:nowrap;position:sticky;min-height:var(--size-60);height:auto;padding:var(--space-2) var(--space-3);gap:var(--space-2)}
 .pc-app--narrow .pc-topbar h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--type-headline-size)}
 .pc-app--narrow .pc-topbar .pc-planner{display:inline-flex;gap:var(--space-1);flex:none}
@@ -518,7 +523,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 /* With the dock open the frame fits the viewport, like the desktop window: the work area scrolls on its own. */
 .pc-app--with-dock{height:100vh;min-height:0}
 .pc-app--with-dock .pc-body{overflow:hidden}
-.pc-app--with-dock .pc-work{overflow:auto;min-height:0}
+.pc-app--with-dock .pc-main{overflow:auto;min-height:0}
 .pc-app.pc-app--with-dock .pc-body>:is(.pc-rail,.pc-side-panel){position:static;height:auto;max-height:none;align-self:stretch}
 
 @media(max-width:767px){

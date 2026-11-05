@@ -13,10 +13,11 @@ test("the desktop connection wrapper keeps the scroll height chain", () => {
   expect(css).toContain("html[data-pacer-desktop] .pc-desktop-connection>.pc-density{flex:1 1 0;min-height:0}");
 });
 
-// Only .pc-work scrolls: hidden ancestors can still be scrolled by focus or scrollIntoView,
-// which moved the whole app (top bar and rail) out of the window.
+// Only .pc-main scrolls: hidden ancestors (including .pc-work, which only frames the page head and main)
+// can still be scrolled by focus or scrollIntoView, which moved the whole app (top bar and rail) out of the window.
 test("desktop ancestors of the work area clip instead of scrolling", () => {
   const css = read("../app/src/styles.css");
-  expect(css).toContain("html[data-pacer-desktop],html[data-pacer-desktop] body,html[data-pacer-desktop] #app,html[data-pacer-desktop] .pc-desktop-connection,html[data-pacer-desktop] .pc-app,html[data-pacer-desktop] .pc-body{overflow:clip}");
+  expect(css).toContain("html[data-pacer-desktop],html[data-pacer-desktop] body,html[data-pacer-desktop] #app,html[data-pacer-desktop] .pc-desktop-connection,html[data-pacer-desktop] .pc-app,html[data-pacer-desktop] .pc-body,html[data-pacer-desktop] .pc-work{overflow:clip}");
   expect(css).not.toContain("html[data-pacer-desktop] .pc-body{overflow:hidden}");
+  expect(css).toContain("html[data-pacer-desktop] .pc-main{overflow:auto;min-height:0}");
 });

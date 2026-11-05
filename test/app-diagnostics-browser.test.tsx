@@ -138,10 +138,10 @@ browserTest('long results scroll inside the workbench and filters, search and ca
   expect(await page.locator('.pc-diagnostic-row pre').first().isVisible()).toBe(false);
   await page.getByRole('button',{name:'All',exact:true}).click();
   expect(await page.locator('.pc-diagnostic-row').count()).toBe(100);
-  const work=page.locator('.pc-work');
+  const work=page.locator('#main-content');
   const panelY=(await page.locator('.pc-settings-nav').boundingBox())!.y;
   await work.hover(); await page.mouse.wheel(0,2400);
-  await page.waitForFunction(()=>document.querySelector('.pc-work')!.scrollTop>0);
+  await page.waitForFunction(()=>document.getElementById('main-content')!.scrollTop>0);
   expect((await page.locator('.pc-settings-nav').boundingBox())!.y).toBe(panelY);
   await work.evaluate(node=>node.scrollTop=node.scrollHeight);
   expect(await page.getByText('Compatibility · agent-99',{exact:true}).isVisible()).toBe(true);

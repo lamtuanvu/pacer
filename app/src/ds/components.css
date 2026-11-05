@@ -1303,7 +1303,8 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-btn.pc-icon-button--board{border:0}
 
 /* A workbench owns its viewport canvas, including the assistant overlay floor. */
-.pc-main--workbench,.pc-work-wrap:has(.pc-aurora-launcher) .pc-main--workbench{padding:0;gap:0;min-height:0}
+/* Workspace sizes and scrolls its own panes (.pc-task-workspace); main must not gain a second scroller. */
+.pc-main--workbench,.pc-work-wrap:has(.pc-aurora-launcher) .pc-main--workbench{padding:0;gap:0;min-height:0;overflow:hidden}
 .pc-app--narrow .pc-main--workbench{flex:none}
 /* Keep workspace identity on its own row where frame controls compete for space. */
 @media(max-width:1100px){

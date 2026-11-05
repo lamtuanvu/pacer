@@ -124,14 +124,13 @@
 .pc-tasks-page__dot{display:inline-block;flex:none;width:var(--space-2);height:var(--space-2);border-radius:var(--radius-full);background:var(--ink-muted)}
 .pc-tasks-page__dot--bad{background:var(--bad-fill)}.pc-tasks-page__dot--info{background:var(--info-fg)}.pc-tasks-page__dot--good{background:var(--good-fill)}
 .pc-tasks-page__count{font-size:var(--type-caption-size);color:var(--ink-muted)}
-.pc-tasks-page__columns{display:flex;flex-wrap:wrap;gap:var(--space-5);align-items:flex-start;min-width:0}
-.pc-tasks-page__tree{display:flex;flex:1 1 var(--size-520);flex-direction:column;gap:var(--space-1);min-width:0}
+.pc-tasks-page__tree{display:flex;flex-direction:column;gap:var(--space-1);min-width:0}
 .pc-tasks-page__group{display:flex;flex-direction:column;gap:var(--space-1)}.pc-tasks-page__group+.pc-tasks-page__group{margin-top:var(--space-4)}
 .pc-tasks-page__group-heading{display:flex;align-items:center;gap:var(--space-1\.5);padding:var(--space-1) var(--space-1)}.pc-tasks-page__group-heading .pc-tasks-page__count{font-weight:var(--type-body-weight);letter-spacing:normal}
 .pc-tasks-page__more{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-2) var(--space-1)}
 .pc-tasks-page__more .pc-tasks-page__caption{flex:1 1 auto}
-/* The board uses a 360px content box plus its two 1px borders. */
-.pc-task-aside{flex:0 1 var(--size-360);min-width:0;position:sticky;top:var(--space-4);box-sizing:content-box;border:1px solid var(--line);border-radius:var(--radius-card);background:var(--surface-card);overflow:hidden}
+/* A real shell side panel now owns the frame, border and background (components.css .pc-side-panel); the aside only lays out its own sections. */
+.pc-task-aside{min-width:0}
 .pc-task-aside__section{display:flex;flex-direction:column;gap:var(--space-1\.5);padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--line)}
 .pc-task-aside__section:last-child{border-bottom:0}
 .pc-task-aside__head{padding:var(--space-3\.5) var(--space-4)}
@@ -148,8 +147,9 @@
 .pc-task-aside__activity{display:flex;align-items:baseline;gap:var(--space-2)}
 .pc-task-aside__what{flex:1 1 auto;min-width:0;font-weight:var(--type-body-strong-weight)}
 @media(max-width:767px){.pc-tasks-page{padding:var(--space-4) var(--space-4) var(--space-6)}.pc-tasks-page__search{flex:1 1 100%;min-width:0}.pc-task-aside{display:none}}
-.pc-tasks-page .pc-tabs{flex-wrap:wrap}
-.pc-tasks-page .pc-tabs .pc-btn{min-height:var(--control-settings);padding:0 var(--space-3)}
+/* The filter tabs now render in the frame's static page-head region, above the scrolling Page. */
+.pc-page-head .pc-tabs{flex-wrap:wrap}
+.pc-page-head .pc-tabs .pc-btn{min-height:var(--control-settings);padding:0 var(--space-3)}
 
 /* Session board: caption facts yield to the title and actions in the frame. */
 .pc-session-title-repo,.pc-session-title-branch{font-family:var(--font-mono);color:var(--ink-secondary)}

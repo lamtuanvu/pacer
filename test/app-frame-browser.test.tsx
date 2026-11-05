@@ -64,45 +64,45 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
         }
       });
       const geometry = () => page.evaluate(() => {
-        const work = document.querySelector<HTMLElement>(".pc-work")!;
+        const main = document.getElementById("main-content")!;
         const bar = document.querySelector(".pc-statusbar, .pc-bottom-bar")!;
         return {
           documentHeight: document.scrollingElement!.scrollHeight,
           documentTop: document.scrollingElement!.scrollTop,
-          workHeight: work.clientHeight,
-          workScrollHeight: work.scrollHeight,
-          workTop: work.scrollTop,
+          mainHeight: main.clientHeight,
+          mainScrollHeight: main.scrollHeight,
+          mainTop: main.scrollTop,
           top: document.querySelector(".pc-topbar")!.getBoundingClientRect().y,
-          workBottom: work.getBoundingClientRect().bottom,
+          mainBottom: main.getBoundingClientRect().bottom,
           barTop: bar.getBoundingClientRect().top,
           barBottom: bar.getBoundingClientRect().bottom,
         };
       });
       const before = await geometry();
       expect(before.documentHeight).toBe(viewport.height);
-      expect(before.workScrollHeight).toBeGreaterThan(before.workHeight);
+      expect(before.mainScrollHeight).toBeGreaterThan(before.mainHeight);
       expect(before.top).toBe(0);
-      expect(before.workBottom).toBeLessThanOrEqual(before.barTop);
+      expect(before.mainBottom).toBeLessThanOrEqual(before.barTop);
       expect(before.barBottom).toBe(viewport.height);
-      await page.locator(".pc-work").hover();
+      await page.locator("#main-content").hover();
       await page.mouse.wheel(0, 500);
-      await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop > 0);
+      await page.waitForFunction(() => document.getElementById("main-content")!.scrollTop > 0);
       const after = await geometry();
       expect(after.documentHeight).toBe(viewport.height);
       expect(after.documentTop).toBe(0);
-      expect(after.workTop).toBeGreaterThan(0);
+      expect(after.mainTop).toBeGreaterThan(0);
       expect(after.top).toBe(0);
       if (viewport.width >= 768) {
         const sticky = await page.evaluate(() => ({
-          workTop: document.querySelector(".pc-work")!.getBoundingClientRect().top,
+          mainTop: document.getElementById("main-content")!.getBoundingClientRect().top,
           navigationTop: document.querySelector(".pc-detail-navigation")!.getBoundingClientRect().top,
           tabsTop: document.querySelector(".pc-session-main > .pc-tabs")!.getBoundingClientRect().top,
         }));
-        expect(sticky.navigationTop).toBe(sticky.workTop);
-        expect(sticky.tabsTop).toBe(sticky.workTop);
+        expect(sticky.navigationTop).toBe(sticky.mainTop);
+        expect(sticky.tabsTop).toBe(sticky.mainTop);
       }
-      // At the end of the work area, the final content remains above the fixed bottom bar.
-      await page.locator(".pc-work").evaluate(work => { work.scrollTop = work.scrollHeight; });
+      // At the end of main, the final content remains above the fixed bottom bar.
+      await page.locator("#main-content").evaluate(main => { main.scrollTop = main.scrollHeight; });
       const lastBottom = await page.locator("#main-content .pc-session-main > p").last().evaluate(row => row.getBoundingClientRect().bottom);
       expect(lastBottom).toBeLessThanOrEqual((await geometry()).barTop);
       await page.close();
@@ -121,13 +121,13 @@ browserTest("tasks_list_restores_work_scroll_on_back", async () => {
       // Let initial loading and route effects settle before the user scrolls.
       await page.waitForTimeout(250);
       for (const position of [200, 350]) {
-        await page.locator(".pc-work").evaluate((work, y) => { work.scrollTop = y; }, position);
-        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-work")!.scrollTop - y) <= 1, position);
+        await page.locator("#main-content").evaluate((main, y) => { main.scrollTop = y; }, position);
+        await page.waitForFunction(y => Math.abs(document.getElementById("main-content")!.scrollTop - y) <= 1, position);
         await page.waitForTimeout(50); // Deliver the scroll event that saves the list position.
         // Activate a real row link without Playwright scrolling it into view first.
         await page.locator('.pc-task-card a[href*="scroll-task-"]').first().evaluate(link => (link as HTMLElement).click());
         await page.waitForFunction(() => location.hash.startsWith("#/workspace?task="));
-        await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop === 0);
+        await page.waitForFunction(() => document.getElementById("main-content")!.scrollTop === 0);
         // Model rows whose layout becomes available after the first restoration frame.
         await page.evaluate(() => {
           const style = document.createElement("style");
@@ -138,10 +138,10 @@ browserTest("tasks_list_restores_work_scroll_on_back", async () => {
         });
         await page.goBack();
         await page.locator(".pc-task-card").first().waitFor();
-        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-work")!.scrollTop - y) <= 1, position, { timeout: 2000 });
+        await page.waitForFunction(y => Math.abs(document.getElementById("main-content")!.scrollTop - y) <= 1, position, { timeout: 2000 });
         // Restoration must survive the parent's route reset and focus effects.
         await page.waitForTimeout(250);
-        expect(await page.locator(".pc-work").evaluate(work => work.scrollTop)).toBeCloseTo(position, 0);
+        expect(await page.locator("#main-content").evaluate(main => main.scrollTop)).toBeCloseTo(position, 0);
         expect(await page.evaluate(() => window.scrollY)).toBe(0);
       }
       await page.close();
@@ -178,18 +178,18 @@ browserTest("tasks_accessible_labels_stay_inside_the_work_scrollport", async () 
         main.replaceChildren(list);
       });
       const geometry = () => page.evaluate(() => {
-        const root = document.scrollingElement!, work = document.querySelector(".pc-work")!;
-        return { documentHeight: root.scrollHeight, documentTop: root.scrollTop, workTop: work.scrollTop,
-          workHeight: work.clientHeight, workScrollHeight: work.scrollHeight };
+        const root = document.scrollingElement!, main = document.getElementById("main-content")!;
+        return { documentHeight: root.scrollHeight, documentTop: root.scrollTop, mainTop: main.scrollTop,
+          mainHeight: main.clientHeight, mainScrollHeight: main.scrollHeight };
       });
       const before = await geometry();
       expect(before.documentHeight).toBe(viewport.height);
-      expect(before.workScrollHeight).toBeGreaterThan(before.workHeight);
-      await page.locator(".pc-work").hover();
+      expect(before.mainScrollHeight).toBeGreaterThan(before.mainHeight);
+      await page.locator("#main-content").hover();
       await page.mouse.wheel(0, 500);
-      await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop > 0);
+      await page.waitForFunction(() => document.getElementById("main-content")!.scrollTop > 0);
       expect((await geometry()).documentTop).toBe(0);
-      await page.locator(".pc-work").evaluate(work => { work.scrollTop = work.scrollHeight; });
+      await page.locator("#main-content").evaluate(main => { main.scrollTop = main.scrollHeight; });
       await page.mouse.wheel(0, 500);
       // Allow scroll chaining to reach the document if any absolute descendant escaped.
       await page.waitForTimeout(150);
@@ -197,7 +197,7 @@ browserTest("tasks_accessible_labels_stay_inside_the_work_scrollport", async () 
       const after = await geometry();
       expect(after.documentHeight).toBe(viewport.height);
       expect(after.documentTop).toBe(0);
-      expect(after.workTop).toBeGreaterThan(0);
+      expect(after.mainTop).toBeGreaterThan(0);
       await page.close();
     }
   } finally { await browser.close(); }
@@ -226,7 +226,7 @@ browserTest("narrow_settings_topbar_touches_the_tab_strip", async () => {
           main.append(row);
         }
       });
-      await page.locator(".pc-work").evaluate(work => { work.scrollTop = 400; });
+      await page.locator("#main-content").evaluate(main => { main.scrollTop = 400; });
       const after = await geometry();
       expect(after.topbarTop).toBe(after.tabsBottom);
       expect(after.documentHeight).toBe(812);
@@ -633,5 +633,89 @@ browserTest("rail_tooltips_escape_stacking_context_and_fit_the_viewport", async 
     await page.mouse.move(610, 400);
     await bubble.waitFor({ state: "hidden" });
     await page.close();
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("the page head stays fixed above a scrolling main, and is empty and hidden when no screen fills it", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "?task-list#/tasks");
+    await page.getByRole("heading", { level: 1, name: "Tasks" }).waitFor();
+    const order = await page.evaluate(() => {
+      const head = document.querySelector(".pc-page-head")!, main = document.getElementById("main-content")!;
+      return { headBeforeMain: !!(head.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING), headEmpty: head.textContent === "", headText: head.textContent };
+    });
+    expect(order.headBeforeMain).toBe(true);
+    expect(order.headText).toContain("Tasks");
+    const before = await page.evaluate(() => document.querySelector(".pc-page-head")!.getBoundingClientRect().top);
+    await page.locator("#main-content").evaluate(main => { main.scrollTop = 200; });
+    await page.waitForFunction(() => document.getElementById("main-content")!.scrollTop > 0);
+    const after = await page.evaluate(() => document.querySelector(".pc-page-head")!.getBoundingClientRect().top);
+    expect(after).toBe(before); // The page head does not scroll away with main's content.
+    // A route whose screen never fills the header slot leaves it empty and collapsed.
+    await page.evaluate(() => { location.hash = "#/settings"; });
+    await page.getByRole("button", { name: "Save settings" }).waitFor();
+    const empty = await page.evaluate(() => {
+      const head = document.querySelector(".pc-page-head")!;
+      return { text: head.textContent, display: getComputedStyle(head).display };
+    });
+    expect(empty.text).toBe("");
+    expect(empty.display).toBe("none");
+  } finally { await browser.close(); }
+}, 20_000);
+
+// A dedicated fixture (not shared with other browser tests, which rely on the generic fallback page at
+// "#/tasks/new") that mounts the real Tasks board and New task screen, so the Inspector panel is real content.
+async function regionsFrame() {
+  const build = await Bun.build({ entrypoints: ["test/fixtures/ui/shell-regions-browser.tsx"], target: "browser" });
+  expect(build.success).toBe(true);
+  const source = await build.outputs[0]!.text();
+  const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/session/session.css", "app/src/screens/new-task/new-task.css"].map(path => Bun.file(path).text()))].join("\n");
+  return { source, css };
+}
+async function openRegions(page: Page, built: { source: string; css: string }, hash: string) {
+  await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>regions</title><div id="app"></div>' }));
+  await page.goto(`http://pacer.test/${hash}`);
+  await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); }, built.css);
+  await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, built.source);
+  await page.locator("#main-content").waitFor();
+}
+
+browserTest("Tasks and New task fill the right panel through the frame, not a page-local column", async () => {
+  const built = await regionsFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openRegions(page, built, "#/tasks");
+    await page.getByRole("heading", { level: 1, name: "Tasks" }).waitFor();
+    const tasksInspector = page.getByRole("complementary", { name: "Inspector" });
+    await tasksInspector.waitFor();
+    await tasksInspector.getByRole("complementary", { name: "Selected task" }).waitFor();
+    expect(await page.locator(".pc-tasks-page__columns").count()).toBe(0);
+    await page.evaluate(() => { location.hash = "#/tasks/new"; });
+    const newTaskInspector = page.getByRole("complementary", { name: "Inspector" });
+    await newTaskInspector.getByText("Will go to", { exact: true }).waitFor();
+    expect(await page.locator(".pc-new-task__cols .pc-new-task__aside").count()).toBe(0);
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("New task's Inspector toggle actually opens and closes the panel", async () => {
+  const built = await regionsFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openRegions(page, built, "#/tasks/new");
+    const toggle = page.getByRole("button", { name: "Toggle right panel", exact: true });
+    const inspector = page.getByRole("complementary", { name: "Inspector" });
+    await inspector.waitFor();
+    await expect(toggle.getAttribute("aria-pressed")).resolves.toBe("true");
+    await toggle.click();
+    await expect(inspector.count()).resolves.toBe(0);
+    await expect(toggle.getAttribute("aria-pressed")).resolves.toBe("false");
+    await toggle.click();
+    await inspector.waitFor();
+    await expect(toggle.getAttribute("aria-pressed")).resolves.toBe("true");
   } finally { await browser.close(); }
 }, 20_000);

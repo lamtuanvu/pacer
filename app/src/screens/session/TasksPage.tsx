@@ -7,7 +7,7 @@ import { Page } from "../../ds/Page";
 import { Button } from "../../ds/Button";
 import { SearchInput } from "../../ds/Controls";
 import { Icon } from "../../ds/icons";
-import { Tabs } from "../../ds/Patterns";
+import { Tabs, EmptyState } from "../../ds/Patterns";
 import { SearchPicker } from "../../ds/SearchPicker";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { TaskTree } from "../../ds/TaskTreeNode";
@@ -21,6 +21,7 @@ import { taskHeading } from "../../../../src/view-model/titles";
 import { LazyTaskAside, LazyTaskBranch } from "./LazyTaskAside";
 import { taskHref } from "./task-href";
 import { withQuery, type RouteQuery } from "../../router";
+import { FrameSlot, useFrame } from "../../shell/slots";
 
 type Filter = "all" | Exclude<TaskBucket, "other">;
 const FILTERS: { value: Filter; label: string; dot?: string }[] = [
@@ -61,6 +62,7 @@ export interface TasksPageProps {
 export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, onLoadOlder, error, hasMoreWork, loadingMoreWork, onLoadMoreWork, updating = false }: TasksPageProps) {
   const busy = useDelayedBusy(updating);
   const {state} = useTaskContext();
+  const frame = useFrame();
   const heading = (node: TaskNodeView) => state.snapshot?.tasks.find(task => task.id === node.id)?.title || taskHeading(node.title);
   const viewId=useId();
   const [filter, setFilter] = useWorkspaceState<Filter>(useWorkspaceKey(), "filter", "all");
@@ -85,22 +87,27 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
   const here = find(page, selected) ?? (page[0] ? find(page, page[0].id) : undefined);
   const go = (repo: string | null) => { location.hash = withQuery(location.hash.split("?")[0] || "#/", { ...query, repo }); };
   const repoLabel = repos.find(repo => repo.key === query.repo)?.label ?? "All repos";
-  return <><Page width="full" aria-busy={busy || undefined} className={`pc-tasks-page${busy ? " pc-query-refreshing" : ""}`}>
-    <header className="pc-tasks-page__header">
-      <div className="pc-tasks-page__heading">
-        <h1 className="pc-tasks-page__title">Tasks</h1>
-        {nodes && <span className="pc-tasks-page__caption">{summary.roots} root task{summary.roots === 1 ? "" : "s"}{summary.period ? ` ${summary.period}` : ""} · {summary.subtasks} subtask{summary.subtasks === 1 ? "" : "s"}{` · ${summary.tokens ?? "— tokens"}`}</span>}
-      </div>
-      <SearchInput label="Search tasks" className="pc-tasks-page__search" value={search} placeholder="Search goal, repo or branch" onInput={event => { setSearch(event.currentTarget.value); setShown(PAGE); }} />
-      {repos.length > 0 && <SearchPicker label={`${repoLabel} · ${repos.length}`} searchLabel="Search repositories" placeholder="Search repositories…" emptyLabel="No matching repositories."
-        value={query.repo || null} onChange={go} options={[{ value: null, label: "All repos" }, ...repos.map(repo => ({ value: repo.key, label: repo.label, searchText: `${repo.label} ${repo.key}` }))]} />}
-      <Button variant="primary" onClick={onNew}>New task</Button>
-    </header>
-    <Tabs label="Task filter" id={`${viewId}-task-filter`} value={filter} onChange={value => { setFilter(value as Filter); setShown(PAGE); }}
-      options={FILTERS.map(item => ({ value: item.value, label: <>{item.dot && <span className={`pc-tasks-page__dot pc-tasks-page__dot--${item.dot}`} aria-hidden="true" />}{item.label} <span className="pc-tasks-page__count">{counts[item.value]}</span></> }))} />
-    {error}
-    <div className="pc-tasks-page__columns" role="tabpanel" id={`${viewId}-task-filter-${filter}-panel`} aria-labelledby={`${viewId}-task-filter-${filter}-tab`}>
-      <section className="pc-tasks-page__tree" aria-label="Task tree">
+  const aside = here
+    ? <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />
+    : <EmptyState title="No task selected" description="Choose a task on the left to see its details." />;
+  return <>
+    <FrameSlot name="header">
+      <header className="pc-tasks-page__header">
+        <div className="pc-tasks-page__heading">
+          <h1 className="pc-tasks-page__title">Tasks</h1>
+          {nodes && <span className="pc-tasks-page__caption">{summary.roots} root task{summary.roots === 1 ? "" : "s"}{summary.period ? ` ${summary.period}` : ""} · {summary.subtasks} subtask{summary.subtasks === 1 ? "" : "s"}{` · ${summary.tokens ?? "— tokens"}`}</span>}
+        </div>
+        <SearchInput label="Search tasks" className="pc-tasks-page__search" value={search} placeholder="Search goal, repo or branch" onInput={event => { setSearch(event.currentTarget.value); setShown(PAGE); }} />
+        {repos.length > 0 && <SearchPicker label={`${repoLabel} · ${repos.length}`} searchLabel="Search repositories" placeholder="Search repositories…" emptyLabel="No matching repositories."
+          value={query.repo || null} onChange={go} options={[{ value: null, label: "All repos" }, ...repos.map(repo => ({ value: repo.key, label: repo.label, searchText: `${repo.label} ${repo.key}` }))]} />}
+        <Button variant="primary" onClick={onNew}>New task</Button>
+      </header>
+      <Tabs label="Task filter" id={`${viewId}-task-filter`} value={filter} onChange={value => { setFilter(value as Filter); setShown(PAGE); }}
+        options={FILTERS.map(item => ({ value: item.value, label: <>{item.dot && <span className={`pc-tasks-page__dot pc-tasks-page__dot--${item.dot}`} aria-hidden="true" />}{item.label} <span className="pc-tasks-page__count">{counts[item.value]}</span></> }))} />
+    </FrameSlot>
+    <Page width="full" aria-busy={busy || undefined} className={`pc-tasks-page${busy ? " pc-query-refreshing" : ""}`}>
+      {error}
+      <section className="pc-tasks-page__tree" role="tabpanel" id={`${viewId}-task-filter-${filter}-panel`} aria-labelledby={`${viewId}-task-filter-${filter}-tab`}>
         <ResourceView layout="list" value={nodes ? { data: page } : { loading: true }} loading="Loading tasks…" empty={needle || filter !== "all" ? "No tasks match." : "No tasks yet."}>
           {list => {
             const tree = (nodes: TaskNodeView[], label: string) => <TaskTree nodes={nodes} density="regular" href={href} viewHref={viewHref} heading={heading} renderBranch={node => node.branch ? <span className="pc-task-card__branch" title={node.branch}>{node.branch}</span> : <LazyTaskBranch id={node.id}/>} selectedId={here?.node.id} onSelect={setSelected} label={label} />;
@@ -118,7 +125,8 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
             : hasMoreWork && <Button size="sm" busy={loadingMoreWork} onClick={onLoadMoreWork}>Load more subtasks</Button>}
         </div>}
       </section>
-      {here && <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />}
-    </div>
-  </Page></>;
+    </Page>
+    <FrameSlot name="right">{aside}</FrameSlot>
+    {frame?.inline && aside}
+  </>;
 }

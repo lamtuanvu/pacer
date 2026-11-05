@@ -13,6 +13,8 @@ export interface FrameSlots {
   title: HTMLElement | null;
   /** Actions for the active panel, right of search and before the layout toggles. */
   actions?: HTMLElement | null;
+  /** The static page-head region above `main`: a screen's own header and filter strip. Never scrolls. */
+  header: HTMLElement | null;
   left: HTMLElement | null;
   right: HTMLElement | null;
   /** Side panels cannot show (narrow layouts); a screen may then provide its own in-page `right` target. */
@@ -27,7 +29,7 @@ export const FrameContext = createContext<FrameSlots | null>(null);
 export const useFrame = () => useContext(FrameContext);
 
 /** Renders children into a frame region. Outside the frame, or while the region is closed, nothing renders. */
-export function FrameSlot({ name, children }: { name: "title" | "actions" | "left" | "right"; children: ComponentChildren }) {
+export function FrameSlot({ name, children }: { name: "title" | "actions" | "header" | "left" | "right"; children: ComponentChildren }) {
   const target = useFrame()?.[name], active = useViewActive(), scope = useContext(WorkspaceScope);
   const group = useRef<HTMLSpanElement>(null), within = useRef(false);
   useEffect(() => {
