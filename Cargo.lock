@@ -1452,6 +1452,9 @@ name = "pacer-plugin-ops"
 version = "0.0.0"
 dependencies = [
  "icu_collator",
+ "libc",
+ "nix",
+ "pacer-config",
  "pacer-foundation",
  "pacer-plugin-protocol",
  "ryu-js",
@@ -1459,6 +1462,8 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]

@@ -111,6 +111,21 @@ fn encode(units: &[u16]) -> String {
     }
     out
 }
+/// Import values produced by Rust/YAML rather than this decoder. Keep all
+/// in-memory plugin strings in the same quoted representation.
+pub(crate) fn from_utf8(value: Value) -> Value {
+    match value {
+        Value::String(s) => Value::String(encode(&s.encode_utf16().collect::<Vec<_>>())),
+        Value::Array(items) => Value::Array(items.into_iter().map(from_utf8).collect()),
+        Value::Object(fields) => Value::Object(
+            fields
+                .into_iter()
+                .map(|(k, v)| (encode(&k.encode_utf16().collect::<Vec<_>>()), from_utf8(v)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
 pub fn string(s: &str) -> String {
     let mut out = String::from("\"");
     for c in char::decode_utf16(utf16(s)) {

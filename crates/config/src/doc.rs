@@ -451,11 +451,19 @@ fn parse(text: &str, unique_keys: bool) -> Result<Node> {
                         .rfind(closer)
                         .map_or(end, |p| frame.start + p + 1)
                 } else {
-                    end - text[frame.start..end]
-                        .chars()
-                        .rev()
-                        .take_while(|c| *c == ' ')
-                        .count()
+                    // Block maps/seqs end after the last value. The parser's
+                    // end often includes the next sibling's indentation.
+                    let last = match &kind {
+                        Kind::Map(items, _) => items.last().map(|(_, v)| v.core_end),
+                        Kind::Seq(items, _) => items.last().map(|v| v.core_end),
+                        _ => None,
+                    }
+                    .unwrap_or(end);
+                    if text[..last].ends_with('\n') {
+                        last
+                    } else {
+                        text[last..].find('\n').map_or(text.len(), |n| last + n + 1)
+                    }
                 };
                 let node = Node {
                     span: frame.start..end,
@@ -574,7 +582,18 @@ impl StrategyDoc {
             );
         } else {
             let indent = items.first().map_or(0, |(k, _)| self.column(k.span.start));
-            let end = span.end;
+            // The parser's block end may include the next sibling's indentation.
+            // YAML's source range ends at that line's start instead. Comments
+            // following the last value also belong outside the insertion range.
+            let last = items.last().map_or(span.end, |(_, v)| v.core_end);
+            let line_end = self.text[last..]
+                .find('\n')
+                .map_or(self.text.len(), |n| last + n + 1);
+            let end = if self.text[..last].ends_with('\n') {
+                last
+            } else {
+                line_end
+            };
             let prefix = if end > 0 && !self.text[..end].ends_with('\n') {
                 self.newline()
             } else {
