@@ -100,7 +100,8 @@ fn diff(path: &str, before: &str, after: &str) -> String {
     out.join("\n")
 }
 
-pub(crate) fn resolve<'a>(strategy: &'a Value, id: &str) -> Option<&'a Value> {
+/// Resolve a runner id or alias the same way TypeScript `resolveRunner` does.
+pub fn resolve<'a>(strategy: &'a Value, id: &str) -> Option<&'a Value> {
     if let Some(runner) = strategy["runners"].get(id) {
         return Some(runner);
     }

@@ -6,10 +6,12 @@ use serde_json::Value;
 mod config_params;
 pub(crate) mod config_sync;
 mod config_writes;
+mod engine_ops;
 pub mod plugins;
 mod task_reads;
 
 pub(crate) use config_writes::config_set_stays_forwarded;
+pub(crate) use engine_ops::mode_hold_stays_forwarded;
 
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
@@ -102,6 +104,26 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "task.restore",
         call: task_reads::task_restore,
+    },
+    NativeOp {
+        name: "delegation.pause",
+        call: engine_ops::delegation_pause,
+    },
+    NativeOp {
+        name: "delegation.resume",
+        call: engine_ops::delegation_resume,
+    },
+    NativeOp {
+        name: "mode.hold",
+        call: engine_ops::mode_hold_op,
+    },
+    NativeOp {
+        name: "mode.release",
+        call: engine_ops::mode_release,
+    },
+    NativeOp {
+        name: "limits.report",
+        call: engine_ops::limits_report,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -199,6 +221,11 @@ mod tests {
             "notifications.get",
             "notifications.set",
             "config.set",
+            "delegation.pause",
+            "delegation.resume",
+            "mode.hold",
+            "mode.release",
+            "limits.report",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -220,6 +247,10 @@ mod tests {
         assert!(registry("").get("task.diff").is_none());
         assert!(registry("").get("task.get").is_none());
         assert!(registry("").get("task.list").is_none());
+        assert!(registry("").get("routing.status").is_none());
+        assert!(registry("").get("routing.route").is_none());
+        assert!(registry("").get("limits.check").is_none());
+        assert!(registry("").get("limits.refresh").is_none());
     }
 
     #[test]
@@ -244,6 +275,11 @@ mod tests {
             "notifications.get",
             "notifications.set",
             "config.set",
+            "delegation.pause",
+            "delegation.resume",
+            "mode.hold",
+            "mode.release",
+            "limits.report",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
