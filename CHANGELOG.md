@@ -19,6 +19,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Opt-in P4d-1 native plugin-host wiring in `pacer serve`: set `PACER_NATIVE_PLUGIN_HOST=1` and/or `PACER_HOST_BRIDGE=1` to claim a Rust `ProcessOwner`, bind `$PACER_HOME/run/host.sock`, and pass `PACER_HOST_SOCKET` to the Core child. Default (flags unset) remains TypeScript-owned.
 
+- P4d-2: when that flag path is on, reverse-bridge `_host.plugin.call` / `_host.plugin.find` reach live `ProcessOwner` children instead of dark stubs. Flag-off and unbound bridges keep the stub answers.
+
 - [ADR 0021](docs/decisions/0021-single-installation-owner.md) ownership record at `$PACER_HOME/owner.json`: the CLI claims ownership on a successful `pacer service install` or the standalone installer's service step (only when unclaimed or already its own), and the desktop app claims it on the Welcome/Consent screen or a committed service takeover. `pacer update`, `pacer service install|uninstall` and `pacer uninstall --all` now exit with code 2 and point at the app's Settings when the app owns the installation, except when run as the app's own bundled CLI. `pacer update --release-ownership` and `pacer service install --release-ownership` hand the installation back to the CLI, restoring a `pacer.pre-app-*` terminal-command backup if one exists and re-registering the service; both refuse while tasks or terminal sessions are running unless given `--force`.
 
 - Rust library effects for named strategy saves, routing and runner edits, and notification settings. The TypeScript runtime is unchanged.

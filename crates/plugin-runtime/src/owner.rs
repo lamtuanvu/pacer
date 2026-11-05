@@ -6,7 +6,8 @@
 //! or setting `PACER_HOST_SOCKET`.
 
 use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, SpawnSpec};
-use std::collections::HashMap;
+use serde_json::Value;
+use std::{collections::HashMap, time::Duration};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -188,6 +189,27 @@ impl ProcessOwner {
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
         child.terminate().await?;
         Ok(())
+    }
+
+    /// Pid of a tracked child, if still alive to the OS.
+    pub fn find_plugin(&self, id: &str) -> Option<u32> {
+        self.children.get(id).and_then(PluginProcess::pid)
+    }
+
+    /// JSON-RPC request against a tracked child (`_host.plugin.call`).
+    pub async fn call_plugin(
+        &mut self,
+        id: &str,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+    ) -> Result<Value, OwnerError> {
+        self.ensure_native_library()?;
+        let child = self
+            .children
+            .get_mut(id)
+            .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
+        Ok(child.request(method, params, deadline, None).await?)
     }
 
     fn ensure_native_library(&self) -> Result<(), OwnerError> {

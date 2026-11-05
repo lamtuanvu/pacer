@@ -1,16 +1,21 @@
-//! Flag-gated native plugin-host session for serve (P4d-1).
+//! Flag-gated native plugin-host session for serve (P4d-1 / P4d-2).
 //!
 //! Default serve stays TypeScript-owned. When
 //! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] or [`crate::HOST_BRIDGE_ENABLE_ENV`] is
 //! explicitly enabled, serve may claim a [`ProcessOwner`], bind the reverse
-//! bridge, and export [`crate::HOST_SOCKET_ENV`] for the Core child.
+//! bridge with live call/find dispatch, and export [`crate::HOST_SOCKET_ENV`]
+//! for the Core child.
 
 use crate::{
     BridgeError, BridgeHandle, HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, OwnerError, ProcessOwner,
-    ReverseBridge, dark_bridge_enabled,
+    ReverseBridge, SharedOwner, dark_bridge_enabled,
 };
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 /// Explicit opt-in for serve-owned native plugin supervision (P4d-1).
 ///
@@ -49,18 +54,20 @@ pub fn native_plugin_host_enabled_from_env(
 
 /// Live serve-owned ProcessOwner + reverse-bridge accept loop.
 pub struct NativeHostSession {
-    owner: ProcessOwner,
+    owner: SharedOwner,
     bridge: BridgeHandle,
     socket: PathBuf,
 }
 
 impl NativeHostSession {
-    /// Claim native supervision, bind `host.sock`, spawn the accept loop, and
-    /// return Core env pairs (`PACER_HOST_SOCKET`). Does not mutate process env.
+    /// Claim native supervision, bind `host.sock`, spawn the accept loop with
+    /// live owner dispatch, and return Core env pairs (`PACER_HOST_SOCKET`).
+    /// Does not mutate process env.
     pub fn start(pacer_home: &Path) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
         let owner = ProcessOwner::native_for_serve();
         owner.claim_native_supervision()?;
-        let bridge = ReverseBridge::bind(pacer_home)?;
+        let owner = Arc::new(Mutex::new(owner));
+        let bridge = ReverseBridge::bind(pacer_home)?.with_live_owner(Arc::clone(&owner));
         let socket = bridge.path().to_path_buf();
         let core_env = vec![(HOST_SOCKET_ENV.to_string(), socket.display().to_string())];
         let bridge = bridge.spawn();
@@ -74,7 +81,7 @@ impl NativeHostSession {
         ))
     }
 
-    pub fn owner(&self) -> &ProcessOwner {
+    pub fn owner(&self) -> &SharedOwner {
         &self.owner
     }
 

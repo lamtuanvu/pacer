@@ -5,7 +5,8 @@
 //! children under [`ProcessOwner::native_for_tests`]. When
 //! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] or [`HOST_BRIDGE_ENABLE_ENV`] is set,
 //! serve may start a [`NativeHostSession`] that claims supervision, binds the
-//! reverse bridge, and exports [`HOST_SOCKET_ENV`] for the Core child.
+//! reverse bridge with live `_host.plugin.call` / `find` against owned
+//! children, and exports [`HOST_SOCKET_ENV`] for the Core child.
 
 mod bridge_listener;
 mod host_bridge;
@@ -13,8 +14,8 @@ mod owner;
 mod serve_host;
 
 pub use bridge_listener::{
-    BRIDGE_MAX_LINE_BYTES, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,
-    bridge_methods_are_private, serve_starts_reverse_bridge_by_default,
+    BRIDGE_MAX_LINE_BYTES, BridgeDispatch, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,
+    SharedOwner, bridge_methods_are_private, serve_starts_reverse_bridge_by_default,
 };
 pub use host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
