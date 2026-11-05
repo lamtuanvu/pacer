@@ -9,6 +9,8 @@ mod config_writes;
 pub mod plugins;
 mod task_reads;
 
+pub(crate) use config_writes::config_set_stays_forwarded;
+
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
     Box::pin(async move {
@@ -72,6 +74,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "notifications.set",
         call: config_writes::notifications_set,
+    },
+    NativeOp {
+        name: "config.set",
+        call: config_writes::config_set,
     },
     NativeOp {
         name: "activity.list",
@@ -182,10 +188,12 @@ mod tests {
             "runner.remove",
             "notifications.get",
             "notifications.set",
+            "config.set",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
         }
+        assert!(registry("").get("config.get").is_none());
         assert!(registry("").get("activity.list").is_some());
         assert!(registry("").get("plugin.install").is_none());
         assert!(registry("plugin.install").get("plugin.install").is_none());
@@ -222,10 +230,12 @@ mod tests {
             "runner.remove",
             "notifications.get",
             "notifications.set",
+            "config.set",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
         }
+        assert!(super::service_registry("").get("config.get").is_none());
         for name in [
             "plugin.install",
             "plugin.enable",
