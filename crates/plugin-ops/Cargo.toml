@@ -9,11 +9,16 @@ rust-version.workspace = true
 [dependencies]
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
 pacer-plugin-protocol = { path = "../plugin-protocol" }
+pacer-config = { path = "../config" }
 pacer-foundation = { path = "../foundation" }
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip", "unbounded_depth"] }
 tokio.workspace = true
 ryu-js = "1"
+uuid = { version = "1", features = ["v4"] }
+libc = "0.2"
+nix = { version = "0.31", features = ["dir", "fs", "user"] }
+unicode-normalization = "0.1.24"
 
 [dev-dependencies]
 tempfile = "3"

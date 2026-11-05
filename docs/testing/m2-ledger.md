@@ -14,7 +14,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `repo.add`, `repo.list`, `repo.remove` | Forwarded (P2-D) | Registry/path-probe/git identity and branch reads stay in TypeScript; only `repo_key` URL canonicalization is in the Rust host library. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
 | `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
-| `plugin.install`, `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Forwarded | All mutations, including the retired install response, remain in TypeScript. Future cutovers must establish mutation parity and live evidence before registration. |
+| `plugin.install`, `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Forwarded (X3 library ready) | Unserved Rust parity lives in `pacer-plugin-ops::{mutations,settings,ui,config}` (CAS settings, UI document/validate, strategy grant/disable edits, render/action cache). `PublicRegistry` still registers only the four HTTP reads. Private `/_internal/plugins` still allows prepare+`diagnostic.ping` only. Registration waits on P4d process ownership, reverse-bridge RPC, stop/changed publication, and CT-11. |
 | `strategy.list`, `strategy.show` | Native (P2-B) | `src/api/ops.ts` remains the reference and forward fallback via `PACER_FORWARD_OPS`; reads reuse `pacer-config` `list_strategy_reads` / `show_strategy`. |
 | `strategy.use`, `strategy.save`, `strategy.remove` | Native (P2-C) | `src/api/ops.ts` remains the reference and forward fallback; native effects use `pacer-config` and the P3-B publisher. |
 | `routing.set`, `runner.set`, `runner.reorder`, `runner.remove` | Native (P2-C) | Native document effects retain the private TypeScript endpoint-plugin synchronization bridge before publishing config changes. |
@@ -67,26 +67,25 @@ accept loop (0700/0600, peer-uid auth, stub `_host.plugin.call` /
 `_host.plugin.find`) behind explicit `PACER_HOST_BRIDGE=1` for Core env export;
 default serve still omits the env and does not start the listener. Production
 serve still leaves children with TypeScript (`/_internal/plugins`). Serve-side
-native ownership, mutation registration and CT-11 cutover remain later slices
-(X3 / P4d). See the X1 / X1b / X1c inventories under `.work/reviews/`.
+native ownership, mutation registration and CT-11 cutover remain P4d. X3 restores
+unserved mutation library parity (see `.work/reviews/m2-x3-plugin-mutations-2026-11-05.md`).
+See also the X1 / X1b / X1c inventories under `.work/reviews/`.
 
-## Deferred P4c mutation and distribution work
+## X3 mutation library (pre-P4d) and remaining deferred work
 
-- Enable, disable and remove, including strategy edits, process stop/reset and
-  publication, remain TypeScript operations. The new Rust strategy mutation
-  implementation and its shared YAML-editor changes have been removed from this
-  slice; the shared editor is unchanged from main.
-- UI rendering, actions, visibility and settings saves remain TypeScript operations.
-  The new unserved Rust UI validation/cache and settings mutation helpers and their
-  sole-use fixtures/tests have been removed with this narrowing.
-- Rust signed archive inspection, verification/extraction and publisher trust are
-  deferred and removed from this PR, along with their new dependency tree and
-  distribution-only fixtures. TypeScript archive and publisher implementations
-  and their established tests remain. The recorded unserved-library CT-11
-  exception does not waive RUST-7, and is not used to accept archive parity gaps.
-- The next mutation/distribution slice must cover the reviewed block/flow/anchor/
-  CRLF strategy shapes, archive overflow/null/UTF-16 identity rules and all archive
-  parser branches before registering a runtime caller. No waiver is claimed.
+- **Ready for P4d wiring (library + unit/parity tests; still Forwarded):**
+  `plugin.enable` / `disable` / `remove` orchestration, strategy grant/disable
+  byte edits (restored `StrategyDoc` sibling-insert fix), settings CAS /
+  visibility / forget / validate, UI document parse + `ui.settings.validate`
+  result normalization, render/action cache and inflight limits, retired
+  `plugin.install` refusal. Fixtures:
+  `plugin-strategy-byte-parity.json`, `plugin-public-parity.json`,
+  `plugin-operation-number-parity.json`.
+- **Blocked on P4d (do not register yet):** serve-owned `ProcessOwner`, reverse
+  bridge replacing stubs, expanding `/_internal/plugins` (or deleting it) for
+  stop/reset/changed/call beyond `diagnostic.ping`, and CT-11 live evidence.
+- **Still deferred (not in X3):** Rust signed archive inspection/extraction and
+  publisher trust (crypto dependency tree). TypeScript archive/publisher remain.
 
 ## Config library boundary
 
