@@ -66,7 +66,7 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
    const geometry=await page.evaluate(()=>{
     const box=document.querySelector('.pc-tasks-page')!.getBoundingClientRect();
     return {title:document.querySelector('.pc-tasks-page__title')?.textContent,width:box.width,left:box.left,
-     headBeforeMain:!!(document.querySelector('.pc-page-head')!.compareDocumentPosition(document.getElementById('main-content')!)&Node.DOCUMENT_POSITION_FOLLOWING)};
+     headBeforeMain:!!(document.querySelector('.pc-page-head')!.compareDocumentPosition(document.querySelector('.pc-main-scroll')!)&Node.DOCUMENT_POSITION_FOLLOWING)};
    });
    expect(geometry.title).toBe('Tasks');
    expect(geometry.headBeforeMain).toBe(true);

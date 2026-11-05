@@ -41,7 +41,7 @@ test.skipIf(!login || !process.env.PACER_TEST_BROWSER)('seeded live workspace ta
         const header = document.querySelector('.pc-topbar')!.getBoundingClientRect();
         return { top: r.top, bottom: r.bottom, navTop: nav?.top ?? innerHeight, headerBottom: header.bottom,
           contentTop: document.querySelector('.pc-workspace-task__body')!.getBoundingClientRect().top,
-          scroll: document.getElementById('main-content')!.scrollTop, overflow: document.documentElement.scrollWidth > innerWidth,
+          scroll: document.querySelector('.pc-main-scroll')!.scrollTop, overflow: document.documentElement.scrollWidth > innerWidth,
           targets: [...node.querySelectorAll('[role="tab"]')].map(tab => {
             const b = tab.getBoundingClientRect();
             return { name: tab.textContent, height: b.height, hits: [b.top + 2, b.top + b.height / 2, b.bottom - 2].map(y => tab.contains(document.elementFromPoint(b.x + b.width / 2, y))) };

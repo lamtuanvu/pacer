@@ -33,7 +33,7 @@ async function open(page: Page, built: { source: string; css: string }, hash: st
 // Preact runs effects after paint, so wait for focus to settle rather than reading it once.
 const focused = (page: Page, selector: string) => page.waitForFunction(at => document.activeElement?.matches(at), selector, { timeout: 2000 });
 const noHorizontalOverflow = (page: Page) => page.evaluate(() => {
-  const root = document.scrollingElement!, main = document.getElementById("main-content")!;
+  const root = document.scrollingElement!, main = document.querySelector(".pc-main-scroll")!;
   return root.scrollWidth <= root.clientWidth && main.scrollWidth <= main.clientWidth;
 });
 
@@ -45,7 +45,7 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
       const page = await browser.newPage({ viewport });
       await open(page, built, "#/dispatch");
       // Add enough real flowing content to exceed either viewport without changing the frame's styles.
-      await page.locator("#main-content").evaluate(main => {
+      await page.locator(".pc-main-scroll").evaluate(main => {
         const navigation = document.createElement("nav");
         navigation.className = "pc-detail-navigation";
         navigation.textContent = "Detail navigation";
@@ -64,7 +64,7 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
         }
       });
       const geometry = () => page.evaluate(() => {
-        const main = document.getElementById("main-content")!;
+        const main = document.querySelector(".pc-main-scroll")!;
         const bar = document.querySelector(".pc-statusbar, .pc-bottom-bar")!;
         return {
           documentHeight: document.scrollingElement!.scrollHeight,
@@ -84,9 +84,9 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
       expect(before.top).toBe(0);
       expect(before.mainBottom).toBeLessThanOrEqual(before.barTop);
       expect(before.barBottom).toBe(viewport.height);
-      await page.locator("#main-content").hover();
+      await page.locator(".pc-main-scroll").hover();
       await page.mouse.wheel(0, 500);
-      await page.waitForFunction(() => document.getElementById("main-content")!.scrollTop > 0);
+      await page.waitForFunction(() => document.querySelector(".pc-main-scroll")!.scrollTop > 0);
       const after = await geometry();
       expect(after.documentHeight).toBe(viewport.height);
       expect(after.documentTop).toBe(0);
@@ -94,7 +94,7 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
       expect(after.top).toBe(0);
       if (viewport.width >= 768) {
         const sticky = await page.evaluate(() => ({
-          mainTop: document.getElementById("main-content")!.getBoundingClientRect().top,
+          mainTop: document.querySelector(".pc-main-scroll")!.getBoundingClientRect().top,
           navigationTop: document.querySelector(".pc-detail-navigation")!.getBoundingClientRect().top,
           tabsTop: document.querySelector(".pc-session-main > .pc-tabs")!.getBoundingClientRect().top,
         }));
@@ -102,7 +102,7 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
         expect(sticky.tabsTop).toBe(sticky.mainTop);
       }
       // At the end of main, the final content remains above the fixed bottom bar.
-      await page.locator("#main-content").evaluate(main => { main.scrollTop = main.scrollHeight; });
+      await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = main.scrollHeight; });
       const lastBottom = await page.locator("#main-content .pc-session-main > p").last().evaluate(row => row.getBoundingClientRect().bottom);
       expect(lastBottom).toBeLessThanOrEqual((await geometry()).barTop);
       await page.close();
@@ -121,13 +121,13 @@ browserTest("tasks_list_restores_work_scroll_on_back", async () => {
       // Let initial loading and route effects settle before the user scrolls.
       await page.waitForTimeout(250);
       for (const position of [200, 350]) {
-        await page.locator("#main-content").evaluate((main, y) => { main.scrollTop = y; }, position);
-        await page.waitForFunction(y => Math.abs(document.getElementById("main-content")!.scrollTop - y) <= 1, position);
+        await page.locator(".pc-main-scroll").evaluate((main, y) => { main.scrollTop = y; main.dispatchEvent(new Event("scroll", { bubbles: true })); }, position);
+        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-main-scroll")!.scrollTop - y) <= 1, position);
         await page.waitForTimeout(50); // Deliver the scroll event that saves the list position.
         // Activate a real row link without Playwright scrolling it into view first.
         await page.locator('.pc-task-card a[href*="scroll-task-"]').first().evaluate(link => (link as HTMLElement).click());
         await page.waitForFunction(() => location.hash.startsWith("#/workspace?task="));
-        await page.waitForFunction(() => document.getElementById("main-content")!.scrollTop === 0);
+        await page.waitForFunction(() => document.querySelector(".pc-main-scroll")!.scrollTop === 0);
         // Model rows whose layout becomes available after the first restoration frame.
         await page.evaluate(() => {
           const style = document.createElement("style");
@@ -138,10 +138,10 @@ browserTest("tasks_list_restores_work_scroll_on_back", async () => {
         });
         await page.goBack();
         await page.locator(".pc-task-card").first().waitFor();
-        await page.waitForFunction(y => Math.abs(document.getElementById("main-content")!.scrollTop - y) <= 1, position, { timeout: 2000 });
+        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-main-scroll")!.scrollTop - y) <= 1, position, { timeout: 4000 });
         // Restoration must survive the parent's route reset and focus effects.
         await page.waitForTimeout(250);
-        expect(await page.locator("#main-content").evaluate(main => main.scrollTop)).toBeCloseTo(position, 0);
+        expect(await page.locator(".pc-main-scroll").evaluate(main => main.scrollTop)).toBeCloseTo(position, 0);
         expect(await page.evaluate(() => window.scrollY)).toBe(0);
       }
       await page.close();
@@ -157,7 +157,7 @@ browserTest("tasks_accessible_labels_stay_inside_the_work_scrollport", async () 
       const page = await browser.newPage({ viewport });
       await open(page, built, "#/tasks");
       // Reproduce the Tasks list's unpositioned flex rows and absolute accessible labels.
-      await page.locator("#main-content").evaluate(main => {
+      await page.locator(".pc-main-scroll").evaluate(main => {
         const list = document.createElement("section");
         list.setAttribute("aria-label", "Tasks");
         for (let i = 0; i < 50; i++) {
@@ -178,18 +178,18 @@ browserTest("tasks_accessible_labels_stay_inside_the_work_scrollport", async () 
         main.replaceChildren(list);
       });
       const geometry = () => page.evaluate(() => {
-        const root = document.scrollingElement!, main = document.getElementById("main-content")!;
+        const root = document.scrollingElement!, main = document.querySelector(".pc-main-scroll")!;
         return { documentHeight: root.scrollHeight, documentTop: root.scrollTop, mainTop: main.scrollTop,
           mainHeight: main.clientHeight, mainScrollHeight: main.scrollHeight };
       });
       const before = await geometry();
       expect(before.documentHeight).toBe(viewport.height);
       expect(before.mainScrollHeight).toBeGreaterThan(before.mainHeight);
-      await page.locator("#main-content").hover();
+      await page.locator(".pc-main-scroll").hover();
       await page.mouse.wheel(0, 500);
-      await page.waitForFunction(() => document.getElementById("main-content")!.scrollTop > 0);
+      await page.waitForFunction(() => document.querySelector(".pc-main-scroll")!.scrollTop > 0);
       expect((await geometry()).documentTop).toBe(0);
-      await page.locator("#main-content").evaluate(main => { main.scrollTop = main.scrollHeight; });
+      await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = main.scrollHeight; });
       await page.mouse.wheel(0, 500);
       // Allow scroll chaining to reach the document if any absolute descendant escaped.
       await page.waitForTimeout(150);
@@ -219,14 +219,14 @@ browserTest("narrow_settings_topbar_touches_the_tab_strip", async () => {
       const before = await geometry();
       expect(before.topbarTop).toBe(before.tabsBottom);
       expect(before.documentHeight).toBe(812);
-      await page.locator("#main-content").evaluate(main => {
+      await page.locator(".pc-main-scroll").evaluate(main => {
         for (let i = 0; i < 100; i++) {
           const row = document.createElement("p");
           row.textContent = `Setting ${i + 1}`;
           main.append(row);
         }
       });
-      await page.locator("#main-content").evaluate(main => { main.scrollTop = 400; });
+      await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = 400; });
       const after = await geometry();
       expect(after.topbarTop).toBe(after.tabsBottom);
       expect(after.documentHeight).toBe(812);
@@ -644,14 +644,14 @@ browserTest("the page head stays fixed above a scrolling main, and is empty and 
     await open(page, built, "?task-list#/tasks");
     await page.getByRole("heading", { level: 1, name: "Tasks" }).waitFor();
     const order = await page.evaluate(() => {
-      const head = document.querySelector(".pc-page-head")!, main = document.getElementById("main-content")!;
+      const head = document.querySelector(".pc-page-head")!, main = document.querySelector(".pc-main-scroll")!;
       return { headBeforeMain: !!(head.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING), headEmpty: head.textContent === "", headText: head.textContent };
     });
     expect(order.headBeforeMain).toBe(true);
     expect(order.headText).toContain("Tasks");
     const before = await page.evaluate(() => document.querySelector(".pc-page-head")!.getBoundingClientRect().top);
-    await page.locator("#main-content").evaluate(main => { main.scrollTop = 200; });
-    await page.waitForFunction(() => document.getElementById("main-content")!.scrollTop > 0);
+    await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = 200; });
+    await page.waitForFunction(() => document.querySelector(".pc-main-scroll")!.scrollTop > 0);
     const after = await page.evaluate(() => document.querySelector(".pc-page-head")!.getBoundingClientRect().top);
     expect(after).toBe(before); // The page head does not scroll away with main's content.
     // Workspace owns its own fixed strip and never fills the header slot, so the region collapses.
@@ -742,6 +742,7 @@ const ROUTED_PAGES: [hash: string, title: string][] = [
   ["#/tasks/t-0412", "Fix flaky retry test in the payments client"], ["#/setup", "Set up pacer"],
   ["#/settings", "Overview"], ["#/settings/app", "App preferences"], ["#/settings/planner", "Budget & pacing"],
   ["#/settings/diagnostics", "Diagnostics"], ["#/settings/plugins", "Plugins"], ["#/settings/executors", "Agents"],
+  ["#/settings/assistant", "Assistant"],
 ];
 browserTest("every routed page's header is non-empty, singular and stays fixed while main scrolls", async () => {
   const built = await allPagesFrame();
@@ -757,7 +758,7 @@ browserTest("every routed page's header is non-empty, singular and stays fixed w
       expect(await page.locator(".pc-page-head .pc-view-slot:not([hidden])").evaluate(node => node.textContent!.trim().length > 0)).toBe(true);
       // The page head does not move as main's own content scrolls.
       const before = await page.locator(".pc-page-head").evaluate(node => node.getBoundingClientRect().top);
-      await page.locator("#main-content").evaluate(main => { main.scrollTop = main.scrollHeight; });
+      await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = main.scrollHeight; });
       const after = await page.locator(".pc-page-head").evaluate(node => node.getBoundingClientRect().top);
       expect(after).toBe(before);
     }

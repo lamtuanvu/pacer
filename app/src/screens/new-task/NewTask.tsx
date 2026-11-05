@@ -323,6 +323,11 @@ const repoHelp = (p: ViewProps) => {
 
 function NewTaskPage(p: ViewProps) {
   const frame = useFrame();
+  // When the right panel is closed the form must still expose one primary submit (UI-13); the panel holds the full route preview.
+  const panelClosed = !!frame?.details && !frame.details.open;
+  const submit = <Button variant="primary" className="pc-new-task__delegate" disabled={p.submit.disabled} busy={false} onClick={p.onDelegate} aria-keyshortcuts={p.apple ? "Meta+Enter" : "Control+Enter"}>
+    {p.submit.label}<Kbd>{p.apple ? "⌘↵" : "Ctrl+↵"}</Kbd>
+  </Button>;
   const aside = <aside aria-label="Where this task goes" className="pc-new-task__aside">
     <section className="pc-route-card" aria-label="Will go to">
       <div className="pc-route-card__body">
@@ -333,9 +338,7 @@ function NewTaskPage(p: ViewProps) {
     </section>
 
     <div className="pc-new-task__submit">
-      <Button variant="primary" className="pc-new-task__delegate" disabled={p.submit.disabled} busy={false} onClick={p.onDelegate} aria-keyshortcuts={p.apple ? "Meta+Enter" : "Control+Enter"}>
-        {p.submit.label}<Kbd>{p.apple ? "⌘↵" : "Ctrl+↵"}</Kbd>
-      </Button>
+      {submit}
       <span className="pc-caption pc-new-task__submit-note">{p.submit.note}</span>
     </div>
   </aside>;
@@ -348,6 +351,7 @@ function NewTaskPage(p: ViewProps) {
           <span className="pc-caption">Describe the outcome and choose how to check success.</span>
         </div>
         <span className="pc-caption pc-new-task__saved" aria-live="polite">{p.note}</span>
+        {panelClosed && submit}
         <Button onClick={p.onSave}>Save draft</Button>
         <Button variant="ghost" onClick={p.onCancel}>Cancel</Button>
       </header>

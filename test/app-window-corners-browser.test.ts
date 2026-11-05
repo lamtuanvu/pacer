@@ -7,13 +7,13 @@ browserTest("desktop canvas clips to rounded transparent corners while web stays
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1120, height: 760 } });
-    // .pc-work only frames the page head and main; .pc-main is the one scroll container inside the clipped canvas.
-    await page.setContent('<div id="app"><div class="pc-app"><header class="pc-titlebar">Title</header><div class="pc-body"><div class="pc-work"><main class="pc-main">Content</main></div></div></div></div>');
+    // .pc-work frames main; .pc-main-scroll is the one scroll container inside the clipped canvas.
+    await page.setContent('<div id="app"><div class="pc-app"><header class="pc-titlebar">Title</header><div class="pc-body"><div class="pc-work"><main class="pc-main"><div class="pc-page-head"></div><div class="pc-main-scroll">Content</div></main></div></div></div></div>');
     await page.addStyleTag({ content: (await Promise.all(["app/src/ds/tokens.css", "app/src/styles.css"].map(path => Bun.file(path).text()))).join("\n") });
     const metrics = () => page.evaluate(() => {
       const body = getComputedStyle(document.body);
       const canvas = getComputedStyle(document.querySelector("#app")!);
-      const content = getComputedStyle(document.querySelector(".pc-main")!);
+      const content = getComputedStyle(document.querySelector(".pc-main-scroll")!);
       return { bodyBackground: body.backgroundColor, canvasRadius: canvas.borderTopLeftRadius, canvasOverflow: canvas.overflowY, contentOverflow: content.overflowY };
     });
     expect((await metrics()).bodyBackground).toBe("rgb(255, 255, 255)");
@@ -21,7 +21,7 @@ browserTest("desktop canvas clips to rounded transparent corners while web stays
     const desktop = await metrics();
     expect(desktop.bodyBackground).toBe("rgba(0, 0, 0, 0)");
     expect(parseFloat(desktop.canvasRadius)).toBeGreaterThan(0);
-    expect(desktop.canvasOverflow).toBe("hidden");
+    expect(desktop.canvasOverflow).toBe("clip");
     expect(desktop.contentOverflow).toBe("auto");
   } finally {
     await browser.close();
@@ -52,9 +52,13 @@ browserTest("web and desktop route reset and Tasks scroll positions use the clip
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1120, height: 760 } });
-    await page.setContent('<div id="app"><div class="pc-app"><header class="pc-titlebar">Title</header><div class="pc-body"><div class="pc-work"><main class="pc-main"><div style="height: 1800px; flex: none">Content</div></main></div></div></div></div>');
+    await page.setContent('<div id="app"><div class="pc-app"><header class="pc-titlebar">Title</header><div class="pc-body"><div class="pc-work"><main class="pc-main"><div class="pc-page-head"></div><div class="pc-main-scroll"><div style="height: 1800px; flex: none">Content</div></div></main></div></div></div></div>');
     await page.addStyleTag({ content: (await Promise.all(["app/src/ds/tokens.css", "app/src/styles.css"].map(path => Bun.file(path).text()))).join("\n") });
-    await page.addScriptTag({ content: await built.outputs[0]!.text() });
+    await page.evaluate(async code => {
+      const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+      await import(url);
+      URL.revokeObjectURL(url);
+    }, await built.outputs[0]!.text());
     await page.evaluate(() => {
       const fixture = (window as typeof window & { pageScrollFixture: typeof import("./fixtures/ui/page-scroll") }).pageScrollFixture;
       (window as typeof window & { lateScrollEvents?: number }).lateScrollEvents = 0;
@@ -82,7 +86,7 @@ browserTest("web and desktop route reset and Tasks scroll positions use the clip
       const fixture = (window as typeof window & { pageScrollFixture: typeof import("./fixtures/ui/page-scroll") }).pageScrollFixture;
       fixture.scrollPageTo(300);
       const position = fixture.pageScrollY();
-      const mainScroll = document.querySelector(".pc-main")!.scrollTop;
+      const mainScroll = document.querySelector(".pc-main-scroll")!.scrollTop;
       fixture.resetDesktopPageScroll();
       return { position, mainScroll, afterReset: fixture.pageScrollY(), windowScroll: window.scrollY };
     });

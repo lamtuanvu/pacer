@@ -1,7 +1,7 @@
 .pc-trace{padding:var(--space-6) var(--space-8) var(--space-10);display:flex;flex-direction:column;gap:var(--space-5);min-width:0;color:var(--ink);font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);font-variant-numeric:tabular-nums;box-sizing:border-box}
-.pc-trace h1,.pc-trace h2,.pc-trace p{margin:0}
-/* A task page title sits between page titles (28px) and section headings (16px), so long task names stay on one line. */
-.pc-trace h1{letter-spacing:normal;font-size:var(--type-number-lg-size);line-height:var(--type-number-lg-line);font-weight:var(--type-display-weight);overflow-wrap:break-word}
+.pc-trace h1,.pc-trace h2,.pc-trace p,.pc-trace__header h1{margin:0}
+/* A task page title sits between page titles (28px) and section headings (16px), so long task names stay on one line. Lives in the page head, so match both in-page and portaled headers. */
+.pc-trace h1,.pc-trace__header h1{letter-spacing:normal;font-size:var(--type-number-lg-size);line-height:var(--type-number-lg-line);font-weight:var(--type-display-weight);overflow-wrap:break-word}
 .pc-trace h2{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight)}
 .pc-trace b{font-weight:var(--type-count-badge-weight)}
 .pc-trace__step-title b,.pc-trace__candidate-copy b,.pc-trace__token-row>b,.pc-trace__subtask>.pc-trace__right{font-weight:var(--type-body-strong-weight)}

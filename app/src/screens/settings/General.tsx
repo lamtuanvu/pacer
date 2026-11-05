@@ -173,6 +173,7 @@ export function SettingsGeneral({
       >
         <SettingsQueryContext.Provider value={query}>
         {section === "dispatcher" && <PageHead><h1>Dispatcher</h1></PageHead>}
+        {section === "assistant" && <PageHead><header className="pc-settings-board__header"><h1>Assistant</h1><p>Ask questions about your tasks, dispatch and budgets from anywhere in the app. Choose where your questions are sent. Until then, the assistant button opens setup.</p></header></PageHead>}
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
           {note && <p className="u3-settings-note">{note}</p>}

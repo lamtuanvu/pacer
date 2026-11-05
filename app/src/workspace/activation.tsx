@@ -8,7 +8,7 @@ export function useViewPosition(key: string, active: boolean) {
   const roots = () => Array.from(document.querySelectorAll<HTMLElement>('[data-workspace-root]')).filter(node => node.dataset.workspaceRoot === key && !node.closest("[hidden]"));
   const nodes = () => {
    const result: [string, HTMLElement][] = [];
-   const page = document.getElementById('main-content'); if (page) result.push(['page', page]);
+   const page = document.querySelector<HTMLElement>('.pc-main-scroll'); if (page) result.push(['page', page]);
    for (const root of roots()) for (const node of root.querySelectorAll<HTMLElement>('[data-scroll-id]')) if (!node.closest('.xterm,[hidden],[inert]')) result.push([node.dataset.scrollId!, node]);
    return result;
   };
@@ -26,7 +26,7 @@ export function useViewPosition(key: string, active: boolean) {
   const onScroll = (event: Event) => {
    const target = event.target as HTMLElement;
    if (restoring || target?.closest?.('.xterm')) return;
-   const id = target?.matches?.('#main-content') ? 'page' : target?.dataset?.scrollId;
+   const id = target?.matches?.('.pc-main-scroll') ? 'page' : target?.dataset?.scrollId;
    if (!id || id !== 'page' && !roots().some(root => root.contains(target))) return;
    pending[id] = { scrollTop: target.scrollTop, scrollLeft: target.scrollLeft };
    if (!frame) frame = requestAnimationFrame(() => { frame = 0; flushScroll(); });
@@ -40,7 +40,7 @@ export function useViewPosition(key: string, active: boolean) {
     const node = roots().flatMap(root => [...root.querySelectorAll<HTMLElement>('[data-focus-id],[name],[id]')]).find(node => focusId(node) === id && !node.closest('[hidden],[inert]'));
     node?.focus({ preventScroll: true });
    });
-   else { const page = document.getElementById('main-content'); if (page) page.scrollTop = 0; const heading = roots().flatMap(root => [...root.querySelectorAll<HTMLElement>('#nt-request')])[0] ?? document.querySelector<HTMLElement>('.pc-topbar h1') ?? roots().flatMap(root => [...root.querySelectorAll<HTMLElement>('h1,h2')])[0] ?? document.getElementById('main-content'); if (heading) { if (!heading.matches('input,textarea')) heading.tabIndex = -1; heading.focus({ preventScroll: true }); } }
+   else { const page = document.querySelector<HTMLElement>('.pc-main-scroll'); if (page) page.scrollTop = 0; const heading = roots().flatMap(root => [...root.querySelectorAll<HTMLElement>('#nt-request')])[0] ?? document.querySelector<HTMLElement>('.pc-page-head h1') ?? document.querySelector<HTMLElement>('.pc-topbar h1') ?? roots().flatMap(root => [...root.querySelectorAll<HTMLElement>('h1,h2')])[0] ?? document.getElementById('main-content'); if (heading) { if (!heading.matches('input,textarea')) heading.tabIndex = -1; heading.focus({ preventScroll: true }); } }
    applying = false;
   };
   restore();

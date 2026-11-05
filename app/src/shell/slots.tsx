@@ -13,7 +13,7 @@ export interface FrameSlots {
   title: HTMLElement | null;
   /** Actions for the active panel, right of search and before the layout toggles. */
   actions?: HTMLElement | null;
-  /** The static page-head region above `main`: a screen's own header and filter strip. Never scrolls. */
+  /** The static page-head region first inside `main`: a screen's own header and filter strip. Never scrolls. */
   header: HTMLElement | null;
   left: HTMLElement | null;
   right: HTMLElement | null;

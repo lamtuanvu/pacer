@@ -14,7 +14,7 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
   overlay?: ComponentChildren;
   /** Polite announcements above the main landmark, such as a lost connection. */
   live?: ComponentChildren; mainClass?: string;
-  /** Receives the static page-head region a screen fills through `FrameSlot name="header"`, rendered before `main`. */
+  /** Receives the static page-head region a screen fills through `FrameSlot name="header"`, first inside `main`. */
   header?: (element: HTMLDivElement | null) => void;
 }) {
   const docked = !narrow && !!dock;
@@ -43,7 +43,7 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
         dock = next;
         if (dock) observer.observe(dock);
       }
-      const nextHeader = root.querySelector<HTMLElement>(".pc-session-bar, .pc-page-head, .pc-main .pc-page > header, .pc-main .pc-page-header");
+      const nextHeader = root.querySelector<HTMLElement>(".pc-session-bar, .pc-page-head, .pc-main-scroll .pc-page > header, .pc-main-scroll .pc-page-header");
       if (nextHeader !== sessionHeader) {
         if (sessionHeader) observer.unobserve(sessionHeader);
         sessionHeader = nextHeader;
@@ -56,11 +56,14 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
     children.observe(root, { childList: true, subtree: true });
     return () => { children.disconnect(); observer.disconnect(); };
   }, [docked]);
+  // Page head lives inside `main` so Skip to content and the landmark include the title; only `.pc-main-scroll` scrolls.
   const work = <div className="pc-work">
     {narrow && top}
     {narrow && <div aria-live="polite" role="status" className="pc-live-region">{live}</div>}
-    <div ref={header} className="pc-page-head" />
-    <main id="main-content" tabIndex={-1} className={mainClass}><div className="pc-offline-controls">{main}</div></main>
+    <main id="main-content" tabIndex={-1} className={mainClass}>
+      <div ref={header} className="pc-page-head" />
+      <div className="pc-main-scroll"><div className="pc-offline-controls">{main}</div></div>
+    </main>
   </div>;
   return <div ref={frame} className={`pc-app${narrow ? " pc-app--narrow" : ""}${status ? " pc-app--with-status" : ""}${docked ? " pc-app--with-dock" : ""}${live ? " pc-app--offline" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>

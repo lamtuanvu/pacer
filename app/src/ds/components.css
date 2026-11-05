@@ -1046,7 +1046,7 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-layout-toggles .pc-btn[aria-pressed=true]{background:transparent;color:var(--ink-secondary)}
 .pc-work-panel-bar>.pc-icon-button.pc-btn,.pc-task-nav__head .pc-icon-button.pc-btn{width:var(--size-26);height:var(--size-26);min-width:var(--size-26);min-height:var(--size-26)}
 
-.pc-work-wrap:has(.pc-aurora-launcher) .pc-main{padding-bottom:var(--size-80)}
+.pc-work-wrap:has(.pc-aurora-launcher) .pc-main-scroll{padding-bottom:var(--size-80)}
 .pc-side-dialog h2{font-weight:var(--type-display-weight)}
 .pc-side-dialog strong{font-weight:var(--type-body-strong-weight)}
 .pc-side-dialog .pc-checkbox{color:var(--ink)}
@@ -1303,8 +1303,9 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 .pc-btn.pc-icon-button--board{border:0}
 
 /* A workbench owns its viewport canvas, including the assistant overlay floor. */
-/* Workspace sizes and scrolls its own panes (.pc-task-workspace); main must not gain a second scroller. */
-.pc-main--workbench,.pc-work-wrap:has(.pc-aurora-launcher) .pc-main--workbench{padding:0;gap:0;min-height:0;overflow:hidden}
+/* Workspace sizes and scrolls its own panes (.pc-task-workspace); the shell scrollport must not gain a second scroller. */
+.pc-main--workbench,.pc-work-wrap:has(.pc-aurora-launcher) .pc-main--workbench{min-height:0;overflow:hidden}
+.pc-main--workbench > .pc-main-scroll,.pc-work-wrap:has(.pc-aurora-launcher) .pc-main--workbench > .pc-main-scroll{padding:0;gap:0;overflow:hidden}
 .pc-app--narrow .pc-main--workbench{flex:none}
 /* Keep workspace identity on its own row where frame controls compete for space. */
 @media(max-width:1100px){
