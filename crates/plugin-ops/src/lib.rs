@@ -1,4 +1,4 @@
-//! Native plugin UI/settings reads, plus unserved mutation parity (X3).
+//! Native plugin UI/settings reads and X3 mutation handlers (HTTP-wired in P4d-3).
 pub mod config;
 mod js_semantics;
 pub mod json;

@@ -52,7 +52,7 @@ impl Entry {
     pub(crate) fn available(&self) -> bool {
         ENABLED.contains(&self.state.as_str())
     }
-    pub(crate) fn surface(&self, surface: &str, id: &str) -> Result<&Value, CoreError> {
+    pub fn surface(&self, surface: &str, id: &str) -> Result<&Value, CoreError> {
         let kind = if surface == "panelTab" {
             "panelTabs"
         } else {
