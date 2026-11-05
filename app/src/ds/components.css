@@ -485,7 +485,7 @@ a.pc-btn{text-decoration:none}
 @media(max-width:700px){.pc-setting-row{grid-template-columns:minmax(0,1fr);gap:var(--space-2)}}
 
 /* SettingsNav: grouped settings menu. Groups stack on desktop; the shell lays them out in a row when narrow. */
-.pc-settings-nav{box-sizing:border-box;display:flex;flex-direction:column;gap:var(--space-half);width:var(--size-240);min-width:0;min-height:var(--size-600);flex:1;padding:var(--space-3\.5) var(--space-2\.5);border-right:1px solid var(--line);background:var(--surface-card);color:var(--ink);font-size:var(--type-body-size);line-height:var(--type-body-line)}
+.pc-settings-nav{box-sizing:border-box;display:flex;flex-direction:column;gap:var(--space-half);width:var(--size-272);min-width:0;min-height:var(--size-600);flex:1;padding:var(--space-3\.5) var(--space-2\.5);border-right:1px solid var(--line);background:var(--surface-card);color:var(--ink);font-size:var(--type-body-size);line-height:var(--type-body-line)}
 .pc-settings-nav__header{display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-1\.5) var(--space-3);font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight)}
 .pc-settings-nav__back{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--size-28);height:var(--size-28);border-radius:var(--radius-sm);color:var(--ink-secondary)}
 .pc-settings-nav__back svg{width:var(--size-16);height:var(--size-16)}
@@ -837,7 +837,7 @@ a.pc-btn{text-decoration:none}
 @container(max-width:520px){.pc-sortable--icons .pc-sortable__row{display:flex;flex-wrap:wrap}}
 .pc-choice-picker--mono .pc-choice-picker__value,.pc-choice-picker--mono .pc-choice-picker__option-label{font-family:var(--font-mono)}
 /* Settings owns the full left panel; the shared collapse control stays available beside its header. */
-.pc-side-panel--left:has(.pc-settings-nav){position:relative;flex-basis:var(--size-240);width:var(--size-240)}
+.pc-side-panel--left:has(.pc-settings-nav){position:relative;flex-basis:var(--size-272);width:var(--size-272)}
 .pc-side-panel--left:has(.pc-settings-nav)>.pc-side-panel__bar{position:absolute;top:var(--space-3\.5);right:var(--space-2\.5);z-index:var(--layer-base);padding:0}
 .pc-side-panel__content:has(>.pc-settings-nav){flex:1;padding:0;gap:0}
 .pc-side-panel__content>.pc-settings-nav{width:100%;border-right:0}
