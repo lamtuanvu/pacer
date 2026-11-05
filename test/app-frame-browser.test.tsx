@@ -761,7 +761,12 @@ browserTest("Trace, Setup and Agents fill shell panels through FrameSlot", async
     await page.evaluate(() => { location.hash = "#/settings/executors"; });
     await page.getByRole("heading", { level: 1, name: "Agents" }).waitFor();
     await page.getByRole("complementary", { name: "Settings" }).waitFor();
-    await page.getByRole("complementary", { name: "Inspector" }).waitFor();
+    // Inspector stays closed until an executor is selected.
+    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
+    await page.locator('button[aria-label^="More actions for"]').first().click();
+    const agentsInspector = page.getByRole("complementary", { name: "Inspector" });
+    await agentsInspector.waitFor();
+    await agentsInspector.getByRole("heading", { level: 2 }).first().waitFor();
   } finally { await browser.close(); }
 }, 30_000);
 

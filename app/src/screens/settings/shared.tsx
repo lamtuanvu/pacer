@@ -10,7 +10,7 @@ export { Field } from "../../ds/Controls";
 import { clock } from "../../../../src/view-model/time";
 import { settingsMigrationMessage } from "../../../../src/view-model/feedback";
 import { SectionHeading } from "../../ds/SectionHeading";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from 'preact';
 import type { Job } from '../../../../src/api/read-model/types';
 import type { BrowserApi } from '../../data/api';
@@ -44,6 +44,12 @@ export function Section({id,title,detail,actions,children,step}:{id:string;title
 export function SettingsBoard({id,title,caption,actions,children,aside}:{id:string;title:string;caption:string;actions?:ComponentChildren;children:ComponentChildren;aside?:ComponentChildren}) {
  useSettingsStyles();
  const frame = useFrame();
+ // Open the shell inspector only while an executor detail is selected; close it again when the selection clears.
+ useLayoutEffect(() => {
+  const details = frame?.details;
+  if (!details) return;
+  if (!!aside !== details.open) details.toggle();
+ }, [aside ? true : false, frame?.details?.open]);
  const board = <section id={id} aria-label={title} className="pc-settings-board u3-settings-board">
   {children}
  </section>;

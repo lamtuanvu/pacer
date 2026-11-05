@@ -114,6 +114,7 @@ export interface DoctorReport { id: string; ok: boolean; state: PluginState; ser
 interface ClassifierGeneration { fingerprint: string; manifest: PluginManifest; config: Record<string, unknown> }
 
 interface Entry {
+  nativeIdentity: string; nativeUiRevision: number; nativeSurfaceRevisions: Map<string, number>;
   id: string; manifest: PluginManifest | null; bundled: boolean; dir: string | null;
   state: PluginState; error: string | null; served: string[]; pluginProtocol: string | null;
   process?: PluginProcess; starting?: Promise<PluginProcess>; queue: SerialCalls;
@@ -1500,7 +1501,7 @@ export class PluginRegistry {
 
   private entry(id: string, manifest: PluginManifest | null, bundled: boolean, dir: string | null): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: new SerialCalls(), authorities: new Map(), crashes: [], nextStartAt: 0, stopping: false, invalidatedAt: 0, invalidatePending: undefined, lastInvalidLog: new Map(), renders: new Map(), actions: [], inflight: new Set(), cache: new Map() }; this.entries.set(id, e); }
+    if (!e) { e = { nativeIdentity: randomUUID(), nativeUiRevision: 0, nativeSurfaceRevisions: new Map(), id, manifest, bundled, dir, state: "idle", error: null, served: [], pluginProtocol: null, queue: new SerialCalls(), authorities: new Map(), crashes: [], nextStartAt: 0, stopping: false, invalidatedAt: 0, invalidatePending: undefined, lastInvalidLog: new Map(), renders: new Map(), actions: [], inflight: new Set(), cache: new Map() }; this.entries.set(id, e); }
     e.manifest = manifest; e.bundled = bundled; e.dir = dir;
     return e;
   }
@@ -1618,7 +1619,7 @@ export class PluginRegistry {
   private setState(ctx: Ctx, e: Entry, state: PluginState, error: string | null = null): void {
     if (e.state === state && e.error === error) return;
     e.state = state; e.error = error;
-    if (state === "disabled" || state === "needs_grant" || state === "refused" || state === "failing") e.cache.clear();
+    if (state === "disabled" || state === "needs_grant" || state === "refused" || state === "failing") { e.cache.clear(); e.nativeUiRevision++; }
     if (ctx.readOnly) return; // Passive usage must not create durable plugin event storage.
     this.published = this.published.then(() => publish(ctx, [{ type: "entity", data: { kind: "plugin", id: e.id, value: { id: e.id, state, error } } }])).catch(() => {});
     if (state === "failing") appendActivity(ctx, { kind: "plugin_state", level: "warn", text: `Plugin ${e.id} is failing · ${error ?? "unknown error"}` });
@@ -1695,7 +1696,7 @@ export class PluginRegistry {
   /** The plugin's current state with no refresh, no start and no event; null when the registry has not loaded it. */
   peek(id: string): PluginState | null { return this.entries.get(id)?.state ?? null; }
 
-  /** Private Core bridge for native reads; this registry remains the process owner. */
+  /** Private Core bridge for native reads/mutations; flag-off this registry owns children. */
   nativeSnapshot(ctx: Ctx) {
     this.refresh(ctx);
     const cfg = pluginsConfig(ctx);
@@ -1703,7 +1704,69 @@ export class PluginRegistry {
       id: e.id, manifest: e.manifest, bundled: e.bundled, state: e.state, grant: cfg.installed[e.id] ?? null,
       error: e.error, pid: e.process?.pid ?? null, served: e.served,
       protocol: e.pluginProtocol, restarts: e.crashes.length,
+      epoch: `${e.nativeIdentity}:${e.nativeUiRevision}`,
+      surfaceEpochs: Object.fromEntries(e.nativeSurfaceRevisions),
     }));
+  }
+
+  /**
+   * Seal spawn argv + hello params for the flag-on ProcessOwner without starting a
+   * local child. Refused when the plugin is not enabled.
+   */
+  nativeSpawnSpec(ctx: Ctx, id: string) {
+    const e = this.findEntry(ctx, id);
+    if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
+    const manifest = structuredClone(e.manifest!);
+    const notifierReference = BUNDLED.find(plugin => plugin.manifest.id === "pacer-notify");
+    const canonicalNotifier = e.bundled && e.id === "pacer-notify" && notifierReference !== undefined && this.deps.bundled.includes(notifierReference);
+    const config = canonicalNotifier ? Object.freeze({ platform: process.platform }) : pluginsConfig(ctx).config[e.id] ?? {};
+    const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
+    const spec = this.spec(ctx, e);
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(spec.env)) {
+      if (typeof value === "string") env[key] = value;
+    }
+    return {
+      argv: spec.argv,
+      cwd: spec.cwd,
+      env,
+      hello: {
+        protocol: PLUGIN_PROTOCOL_VERSION,
+        features: ["chunkedResults", "httpBodyChunks", "fileWriteChunks", "plannerInstallTransactions", POLICY_OBSERVATIONS_FEATURE, POLICY_REDACTION_METADATA_FEATURE],
+        pacer: currentVersion(),
+        manifest,
+        config,
+        grants,
+      },
+    };
+  }
+
+  /** Record a ProcessOwner hello without holding a local PluginProcess. */
+  nativeMarkReady(ctx: Ctx, id: string, protocol: string, served: string[]): void {
+    const e = this.findEntry(ctx, id);
+    e.pluginProtocol = protocol;
+    e.served = Object.freeze([...served]);
+    this.setState(ctx, e, "ready");
+  }
+
+  async nativeStop(ctx: Ctx, id: string): Promise<void> { await this.stop(this.findEntry(ctx, id)); }
+
+  nativeReset(ctx: Ctx, id: string): void {
+    const e = this.findEntry(ctx, id);
+    e.crashes = []; e.nextStartAt = 0;
+    if (e.state === "failing") e.state = "idle";
+    this.refresh(ctx);
+  }
+
+  /** Bump the surface epoch and drop TS-side cache rows; returns a thunk for deferred bump after a successful ui.action refresh. */
+  nativeCacheInvalidator(ctx: Ctx, id: string, surfaceId: string): () => void {
+    return () => this.nativeDropCache(ctx, id, surfaceId);
+  }
+
+  nativeDropCache(ctx: Ctx, id: string, surfaceId: string): void {
+    const e = this.findEntry(ctx, id);
+    e.nativeSurfaceRevisions.set(surfaceId, (e.nativeSurfaceRevisions.get(surfaceId) ?? 0) + 1);
+    for (const k of [...e.cache.keys()]) if (k.startsWith(`${surfaceId}\u0000`)) e.cache.delete(k);
   }
 
   list(ctx: Ctx): PluginInfo[] {
@@ -1797,6 +1860,10 @@ export class PluginRegistry {
     // A process outlives its launching request; each pending call owns its signal separately.
     const {operation:_operation,...processCtx}=ctx;
     ctx=processCtx;
+    // Flag-on serve: ProcessOwner supervises children. Refuse a second live owner.
+    if (ctx.env.PACER_HOST_SOCKET) {
+      throw new CoreError("plugin_unavailable", "native process owner supervises plugin children");
+    }
     if (e.starting) return e.starting;
     if (e.process?.alive) return e.process;
     e.starting = (async () => {
@@ -1906,6 +1973,8 @@ export class PluginRegistry {
 
   /** Drop cached documents and tell clients to re-render. Coalesced to one event per second with a trailing event, so the last change is never lost. */
   invalidate(ctx: Ctx, e: Entry, id: string | null): void {
+    if (id === null) e.nativeUiRevision++;
+    else e.nativeSurfaceRevisions.set(id, (e.nativeSurfaceRevisions.get(id) ?? 0) + 1);
     for (const k of [...e.cache.keys()]) if (id === null || k.startsWith(`${id}\u0000`)) e.cache.delete(k);
     e.invalidatePending = e.invalidatePending === undefined ? id : (e.invalidatePending === id ? id : null);
     const fire = () => {
@@ -1970,7 +2039,7 @@ export class PluginRegistry {
     e.actions.push(now); e.inflight.add(surfaceId);
     try {
       const out = await this.call<{ result: "done" | "refresh"; message?: string }>(ctx, id, "ui.action", { surface, id: surfaceId, action, context, requestId, ...(values ? { values } : {}) });
-      if (out.result === "refresh") for (const k of [...e.cache.keys()]) if (k.startsWith(`${surfaceId}\u0000`)) e.cache.delete(k);
+      if (out.result === "refresh") this.nativeDropCache(ctx, id, surfaceId);
       return out;
     } finally { e.inflight.delete(surfaceId); }
   }

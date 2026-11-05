@@ -311,10 +311,7 @@ async fn task_prune_and_restore_round_trip_through_shared_store() {
         Code::InvalidInput
     );
     assert_eq!(
-        task_restore(&c, json!({}))
-            .await
-            .unwrap_err()
-            .code,
+        task_restore(&c, json!({})).await.unwrap_err().code,
         Code::InvalidInput
     );
     assert_eq!(

@@ -1,4 +1,7 @@
-//! Native plugin registry shell. The TypeScript host owns plugins until the P4d cutover.
+//! Native plugin registry and capability library. The TypeScript host owns
+//! plugin processes until the P4d cutover. `pacer-plugin-runtime::ProcessOwner`
+//! can hold live [`PluginProcess`] children in library tests; serve still does
+//! not wire ownership or `PACER_HOST_SOCKET`.
 
 mod admission;
 mod authority;

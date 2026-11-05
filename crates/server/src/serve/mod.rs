@@ -25,6 +25,7 @@ pub mod native_context;
 mod native_helper;
 #[cfg(target_os = "macos")]
 mod native_helper_diagnostics;
+pub mod native_host;
 #[cfg(target_os = "macos")]
 pub mod native_listener;
 #[cfg(target_os = "macos")]
@@ -158,12 +159,12 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                 .await;
         }
-        let result = if op.name.starts_with("plugin.") && op.name != "plugin.install" {
+        let result = if op.name.starts_with("plugin.") {
             if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                 eprintln!("native {}", op.name);
             }
-            // Reads use the same authoritative process generation as the Core.
-            // Mutating plugin operations are absent from this native registry.
+            // Reads, X3 mutations, and retired install share the HTTP plugin service.
+            // Flag-on ProcessOwner (when present) starts children; Core supplies specs.
             let state = Arc::clone(&state);
             let name = op.name;
             match tokio::spawn(
@@ -188,13 +189,14 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             call_native(&request_ctx, op, params, None, endpoint_sync).await
         };
         if plugin
+            && crate::native::plugins::is_read(op.name)
             && result.as_ref().is_err_and(|error| {
                 error.code == Code::Unavailable
                     && error.message == pacer_plugin_ops::json::NESTING_FALLBACK
             })
         {
-            // All registered plugin operations are reads. Unsupported native
-            // envelopes may be replayed safely against the TS reference.
+            // Read envelopes may be replayed safely against the TS reference.
+            // Mutations must not replay after a native prepare/effect path.
             return forward_plugin_read(&state, parts, bytes, auth).await;
         }
         return match result {
@@ -312,6 +314,14 @@ pub async fn run_serve(
     // The internal HTTP listener binds independently. Its desktop integration
     // still needs the actual public port, including explicit/ephemeral binds.
     env.insert("PACER_PORT".into(), port.to_string());
+    // Flag-on P4d-1/P4d-4 path: claim ProcessOwner + reverse bridge before Core
+    // spawn so the child inherits PACER_HOST_SOCKET and HTTP plugin RPC can use
+    // the same owner. Default (flags unset) is a no-op.
+    let native_host = native_host::maybe_start(&ctx.pacer_home, &mut env)?;
+    let plugins = match &native_host {
+        Some(host) => crate::native::plugins::Service::with_native_owner(host.owner()),
+        None => crate::native::plugins::Service::default(),
+    };
     // Native operations and the core must observe the same configuration environment.
     ctx.env = env.clone();
     // Runtime environment cannot turn a generic front door into a native owner.
@@ -346,7 +356,7 @@ pub async fn run_serve(
         token,
         registry,
         scoped_work,
-        plugins: crate::native::plugins::Service::default(),
+        plugins,
         forward_log_follow,
     });
     let app = Router::new()
@@ -378,6 +388,9 @@ pub async fn run_serve(
     // Withdraw the advert with goodbye packets before the core stops.
     radio.stop().await;
     state.core.shutdown().await;
+    if let Some(native_host) = native_host {
+        native_host.shutdown().await;
+    }
     Ok(())
 }
 pub fn run_serve_blocking(

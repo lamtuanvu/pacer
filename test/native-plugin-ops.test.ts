@@ -106,7 +106,7 @@ async function service(forward = "", homeKind = "absolute") {
   } };
 }
 
-test.skipIf(!front)("native reads and forwarded mutations match forced TypeScript fallback", async () => {
+test.skipIf(!front)("native reads and mutations match forced TypeScript fallback", async () => {
   const results: unknown[][] = [];
   for (const forward of ["", "*"]) {
     const s = await service(forward), actual: unknown[] = [];
@@ -159,8 +159,12 @@ test.skipIf(!front)("native reads and forwarded mutations match forced TypeScrip
     } finally {
       const log = await s.stop();
       if (!forward && results.length > 0) {
-        for (const op of ["plugin.list", "plugin.doctor", "plugin.ui.list", "plugin.settings.get"]) expect(log).toContain(`native ${op}`);
-        for (const op of ["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.render", "plugin.ui.action", "plugin.ui.visibility", "plugin.settings.set", "plugin.install"]) expect(log).not.toContain(`native ${op}`);
+        for (const op of [
+          "plugin.list", "plugin.doctor", "plugin.ui.list", "plugin.settings.get",
+          "plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.render",
+          "plugin.ui.action", "plugin.ui.visibility", "plugin.settings.set",
+          "plugin.install",
+        ]) expect(log).toContain(`native ${op}`);
       } else if (forward) expect(log).not.toMatch(/^native plugin\./m);
     }
   }

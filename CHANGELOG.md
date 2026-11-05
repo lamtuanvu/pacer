@@ -19,6 +19,13 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Opt-in P4d-1 native plugin-host wiring in `pacer serve`: set `PACER_NATIVE_PLUGIN_HOST=1` and/or `PACER_HOST_BRIDGE=1` to claim a Rust `ProcessOwner`, bind `$PACER_HOME/run/host.sock`, and pass `PACER_HOST_SOCKET` to the Core child. Default (flags unset) remains TypeScript-owned.
+
+- P4d-2: when that flag path is on, reverse-bridge `_host.plugin.call` / `_host.plugin.find` reach live `ProcessOwner` children instead of dark stubs. Flag-off and unbound bridges keep the stub answers.
+
+- P4d-3: native HTTP handlers for `plugin.enable` / `disable` / `remove`, `plugin.settings.set`, and `plugin.ui.render` / `action` / `visibility` via the X3 mutation library and an expanded authenticated `/_internal/plugins` channel (`stop` / `changed` / `publish` / `log` and UI plugin calls). TypeScript Core remains the process owner; stdio and `plugin.install` stay forwarded. Flag-off child ownership is unchanged.
+- P4d-4: when `PACER_NATIVE_PLUGIN_HOST=1` (or `PACER_HOST_BRIDGE=1`), serve `ProcessOwner` starts/supervises plugin children for native HTTP plugin RPC; Core seals `spawn_spec` / `ready` over `/_internal/plugins` and refuses local spawn while `PACER_HOST_SOCKET` is set. Reverse bridge gains `_host.plugin.spawn` / `stop`. `plugin.install` is a native HTTP refuse. Flag-off path unchanged; `pacer-core` still ships.
+
 - [ADR 0021](docs/decisions/0021-single-installation-owner.md) ownership record at `$PACER_HOME/owner.json`: the CLI claims ownership on a successful `pacer service install` or the standalone installer's service step (only when unclaimed or already its own), and the desktop app claims it on the Welcome/Consent screen or a committed service takeover. `pacer update`, `pacer service install|uninstall` and `pacer uninstall --all` now exit with code 2 and point at the app's Settings when the app owns the installation, except when run as the app's own bundled CLI. `pacer update --release-ownership` and `pacer service install --release-ownership` hand the installation back to the CLI, restoring a `pacer.pre-app-*` terminal-command backup if one exists and re-registering the service; both refuse while tasks or terminal sessions are running unless given `--force`.
 
 - Rust library effects for named strategy saves, routing and runner edits, and notification settings. The TypeScript runtime is unchanged.
@@ -28,6 +35,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Expired Cursor (and other reactive) rate-limit marks no longer keep an executor **Skipped** forever. Execution `limit` cooldown facts that have passed their cooldown end are dropped on the next status or usage refresh, and eligibility only treats still-current evidence as conflicting — so a normal refresh is enough; no manual evidence cleanup. Active cooldowns still bind past the short-window freshness cap. See [Execution eligibility and evidence](docs/executors.md#execution-eligibility-and-evidence).
 - Stop the desktop app from stealing focus and restarting in a loop when its executable is run as the `pacer` command. A bare command now forwards to the bundle's CLI or fails with guidance, instead of starting another GUI. CLI discovery skips desktop executables on PATH. The automatic relaunch after the app bundle is replaced stays in the background. The desktop README names `Contents/Resources/pacer` as the CLI. [ADR 0021](docs/decisions/0021-single-installation-owner.md) records the ownership model.
 - Offer **Review service replacement** on the desktop's **Kept your current service** page, so a service replacement that was rolled back can be reviewed and tried again without hiding the offer. The service changes only after you confirm the offer.
 - Preserve unrelated notification settings containing malformed UTF-8 in native reads and writes, and match TypeScript number formatting in saved strategy YAML.
