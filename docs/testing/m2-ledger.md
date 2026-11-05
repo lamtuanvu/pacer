@@ -18,7 +18,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.prune`, `task.restore` | Native (P3-D) | Shared `TaskStore` retention helpers; TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. |
 | `task.dismiss` | Forwarded | Needs linked activity publication, task event and `autoCleanTask` side effects. |
 | `task.diff` | Forwarded | Needs the full git argv, snapshot fallback and file tree parity fixture. |
-| `task.get`, `task.list` | Forwarded | Store `read`/`list` alone lack `taskDetail` / `apiTaskPage` enrichment (git summary, cost, retry options, timeline, messaging/liveness, repo labels). Read-model cutover stays with P8/F1. |
+| `task.get`, `task.list` | Forwarded | Library now has `api_task_page` / `select_task_list` / `task_list_page` (per-task labels, visible `needs_input`, ActiveCounts). Native registration still waits on a SessionProbe/alive bridge for list and full `taskDetail` (git summary, cost, retry options, timeline, tokens, work/managedSkip) for get. |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 

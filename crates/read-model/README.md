@@ -45,3 +45,13 @@ Full session *projection* — the per-session detail rows, lifecycle timeline an
 historical attempt views exposed by `src/api/events`' member methods — is
 deferred: that path stays in TypeScript and is not mirrored in Rust. Only the
 counts and revision the snapshot needs are translated.
+
+## `task.list` composition (library only)
+
+`tasks::api_task_page`, `tasks::select_task_list` and `tasks::task_list_page`
+mirror the TypeScript `apiTaskPage` / `core.tasks.list` selection path used by
+`task.list`: per-task repo label scope, visible `needs_input` state, filter-
+before-page, and ActiveCounts for `activeAgentSessions`. They register no native
+op. A later cutover still needs a SessionProbe/alive bridge in the server and
+full `taskDetail` composition before `task.get` can go native; keep both ops
+Forwarded until then.
