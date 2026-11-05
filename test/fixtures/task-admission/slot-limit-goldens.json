@@ -1,0 +1,107 @@
+[
+  {
+    "id": "default-local-no-cap",
+    "strategy": {
+      "accounts": {},
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "agent": "codex",
+          "account": "default",
+          "host": null
+        }
+      },
+      "execution": {}
+    },
+    "runnerId": "codex",
+    "expected": { "executor": 1, "host": null, "local": null }
+  },
+  {
+    "id": "local-explicit-caps",
+    "strategy": {
+      "accounts": {},
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "agent": "codex",
+          "account": "default",
+          "host": null,
+          "maxTasks": 3
+        }
+      },
+      "execution": { "local_max_tasks": 4 }
+    },
+    "runnerId": "codex",
+    "expected": { "executor": 3, "host": null, "local": 4 }
+  },
+  {
+    "id": "remote-inherits-host-cap",
+    "strategy": {
+      "accounts": {},
+      "hosts": { "box": { "maxTasks": 2 } },
+      "runners": {
+        "codex@box": {
+          "id": "codex@box",
+          "agent": "codex",
+          "account": "default",
+          "host": "box"
+        }
+      },
+      "execution": { "local_max_tasks": 8 }
+    },
+    "runnerId": "codex@box",
+    "expected": { "executor": 2, "host": 2, "local": null }
+  },
+  {
+    "id": "remote-runner-max-overrides-host",
+    "strategy": {
+      "accounts": {},
+      "hosts": { "box": { "maxTasks": 2 } },
+      "runners": {
+        "codex@box": {
+          "id": "codex@box",
+          "agent": "codex",
+          "account": "default",
+          "host": "box",
+          "maxTasks": 3
+        }
+      },
+      "execution": { "local_max_tasks": 8 }
+    },
+    "runnerId": "codex@box",
+    "expected": { "executor": 3, "host": 2, "local": null }
+  },
+  {
+    "id": "alias-resolves-to-runner-caps",
+    "strategy": {
+      "accounts": {},
+      "hosts": {},
+      "runnerAliases": { "fast": "codex" },
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "agent": "codex",
+          "account": "default",
+          "host": null,
+          "maxTasks": 2
+        }
+      },
+      "execution": { "local_max_tasks": 5 }
+    },
+    "runnerId": "fast",
+    "expected": { "executor": 2, "host": null, "local": 5 }
+  },
+  {
+    "id": "unknown-runner-defaults",
+    "strategy": {
+      "accounts": {},
+      "hosts": {},
+      "runners": {},
+      "execution": { "local_max_tasks": 3 }
+    },
+    "runnerId": "missing",
+    "expected": { "executor": 1, "host": null, "local": 3 }
+  }
+]
