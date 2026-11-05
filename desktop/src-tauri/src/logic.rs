@@ -648,7 +648,7 @@ impl HealthStrikes {
 }
 /// Consecutive failures of a periodic session operation (the heartbeat, reopening the event
 /// stream) that end the connected session. The core's own event loop can block for a couple of
-/// seconds every ~15s under load (see docs/decisions on the core event-loop stall), long enough
+/// seconds under load (periodic snapshot and dispatch timers), long enough
 /// to miss one occasionally but not several in a row. A `sessionExpired` (401) is never a stall;
 /// it always ends the session at once so the app re-signs in.
 pub const SESSION_OP_STRIKES: u8 = 3;
