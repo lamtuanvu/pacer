@@ -122,7 +122,7 @@ pub fn events_since(
             }
         }
     }
-    let enriched = tasks::api_tasks(ctx, &records, store, alive)?;
+    let enriched = tasks::api_tasks(ctx, &crate::ActiveCounts::default(), &records, store, alive)?;
     let mut raw = Vec::new();
     if reset {
         raw.push(json!({
