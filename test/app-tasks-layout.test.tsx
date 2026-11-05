@@ -164,19 +164,21 @@ test.skipIf(!browserPath)('Dispatch clips long titles, omits the composer and st
    expect(await page.locator('.pc-start-composer textarea').count()).toBe(0);
    expect(await page.locator('.pc-start-fields').count()).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const contentEdge=await page.locator(width<560?'.pc-topbar h1':'.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left);
+   // The page h1 lives in the shell header slot (`.pc-dispatch__header`); narrow keeps the title in the top bar only.
+   const contentEdge=await page.locator(width<560?'.pc-topbar h1':'.pc-dispatch__header h1').evaluate(n=>n.getBoundingClientRect().left);
    if(width<560){expect(contentEdge).toBeGreaterThanOrEqual(16);expect(contentEdge).toBeLessThan(width);}
    else expect(contentEdge).toBe(44+32);
    expect(await page.locator('aside[aria-label="Scope"]').count()).toBe(0);
    if(width<560){
-    expect(await page.locator('.pc-dispatch h1').count()).toBe(0);
+    expect(await page.locator('.pc-dispatch__header h1').count()).toBe(0);
     expect(await page.locator('.pc-topbar h1').textContent()).toBe('Dispatch');
     expect(await page.locator('.pc-narrow-running').count()).toBe(1);
     expect(await page.locator('.pc-bottom-bar').count()).toBe(1);
     continue;
    }
    if(width>=560){
-    expect(await page.locator(".pc-dispatch").evaluate(n=>{const s=getComputedStyle(n);return [s.paddingTop,s.paddingRight,s.paddingBottom,s.gap,s.maxWidth]})).toEqual(["24px","32px","40px","20px","none"]);
+    // Desktop Dispatch zeroes top padding so the shell page-head owns the top inset (dispatch.css).
+    expect(await page.locator(".pc-dispatch").evaluate(n=>{const s=getComputedStyle(n);return [s.paddingTop,s.paddingRight,s.paddingBottom,s.gap,s.maxWidth]})).toEqual(["0px","32px","40px","20px","none"]);
     expect(await page.locator(".pc-filter--menu .pc-search-picker>.pc-btn").evaluate(n=>[getComputedStyle(n).borderRadius,n.getBoundingClientRect().height])).toEqual(["8px",32]);
    }
    expect(await page.locator(".pc-live-dot").first().evaluate(n=>[n.getBoundingClientRect().width,n.getBoundingClientRect().height])).toEqual([8,8]);
@@ -233,7 +235,13 @@ test.skipIf(!browserPath)('Needs you has one visible page h1 and board spacing b
    expect(await page.locator('h1').count()).toBe(1);
    expect(await page.locator('h1').innerText()).toBe('Needs you');
    expect(await page.locator('h1').evaluate(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);return b.width>1&&b.height>1&&s.visibility==='visible'&&s.display!=='none'})).toBe(true);
-   expect(await page.locator('.pc-needs-you').evaluate(n=>n.querySelector('.ny-list')!.getBoundingClientRect().top-n.querySelector('[role=tablist]')!.getBoundingClientRect().bottom)).toBe(20);
+   // Header + tabs fill the shell header slot (or its SSR fallback). Canvas main has no gap; separation is the
+   // head's bottom padding plus border (and the page's own top padding when the board does not zero it).
+   expect(await page.evaluate(()=>{
+     const tabs=document.querySelector('.ny-header')?.parentElement?.querySelector('[role=tablist]')??document.querySelector('[role=tablist]');
+     const list=document.querySelector('.ny-list');
+     return list!.getBoundingClientRect().top-tabs!.getBoundingClientRect().bottom;
+   })).toBeGreaterThanOrEqual(12);
    expect(await page.locator('.pc-topbar').getByRole('link',{name:'New task',exact:true}).count()).toBe(1);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }

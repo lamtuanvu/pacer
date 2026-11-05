@@ -15,7 +15,7 @@ import { useResource, Feedback } from "./shared";
 import { usePluginToggle } from "./Plugins";
 import { pluginIcon, pluginAdditions, capabilityWords, attentionState, pluginPresentation } from "./plugin-presentation";
 import { usePluginSettingsStyles } from "./plugin-styles";
-import { FrameSlot } from "../../shell/slots";
+import { PageHead } from "../../shell/slots";
 const places = [["Settings pages", "Listed under Extend, marked “plugin”"], ["Activity bar", "Icons under Plugins on the left"], ["Side panels", "Sections on the left, tabs on the right"], ["Routing engines", "A choice method in Dispatcher"], ["Usage readers", "Budgets for more agents"]];
 export function PluginsPage({ initialData, initialSurfaces }: { initialData?: {plugins:PluginInfo[]}; initialSurfaces?: {surfaces:SurfaceInfo[]} }) {
   usePluginSettingsStyles();
@@ -30,7 +30,7 @@ export function PluginsPage({ initialData, initialSurfaces }: { initialData?: {p
   async function remove(plugin: PluginInfo) {
     if (await dialogs.confirm(`Remove the plugin ${pluginPresentation(plugin).name}? Its settings will also be removed.`, "Remove plugin", "Remove")) await action.run("plugin.remove", {id:plugin.id}, resource.reload);
   }
-  return <DensityContext.Provider value="settings"><FrameSlot name="header"><header className="pc-settings-board__header"><h1>Plugins</h1><p>Add capabilities to pacer. Each plugin runs in its own process and says exactly what it adds and what it may access.</p></header></FrameSlot><Page width="full" className="u3-settings u3-settings-page"><div className="pc-settings-board pc-plugin-settings">
+  return <DensityContext.Provider value="settings"><PageHead><header className="pc-settings-board__header"><h1>Plugins</h1><p>Add capabilities to pacer. Each plugin runs in its own process and says exactly what it adds and what it may access.</p></header></PageHead><Page width="full" className="u3-settings u3-settings-page"><div className="pc-settings-board pc-plugin-settings">
     <span id="plugins-installed-label" className="pc-settings-board__label">Installed · {resource.data?.plugins.length ?? "…"}</span>
     <section aria-labelledby="plugins-installed-label" className="pc-plugin-installed">
       {!resource.data && !resource.error && <Skeleton layout="settings" label="Loading plugins…"/>}<ErrorMessage error={resource.error}/>

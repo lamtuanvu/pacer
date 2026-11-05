@@ -704,9 +704,11 @@ sizes; selected decoration and motion belong to SelectionStrip.
 
 ### Task page and Workspace (boards 25–26)
 
-Task titles open `#/tasks/<id>`. This is the Overview destination for every state;
-legacy trace, review and failure URLs redirect there. The page uses the recorded
-state, token roll-ups, routing trace, candidate decisions and acceptance result.
+Task titles open `#/tasks/<id>`, which renders Trace (a read-only history page whose
+header fills the shell `header` slot; its token/candidate aside still lives in the
+page until it moves to `FrameSlot` right). Legacy review and failure URLs redirect
+there. The page uses the recorded state, token roll-ups, routing trace, candidate
+decisions and acceptance result.
 Task IDs are secondary metadata rather than breadcrumb text. Rejection keeps its
 required note; retry keeps the existing executor/feedback/edit-brief choices.
 

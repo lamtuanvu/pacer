@@ -30,7 +30,7 @@ import {
 } from "../../model/new-task";
 import { type TaskSummary } from "../../model/tasks";
 import { hrefFor, routes, type RouteQuery } from "../../router";
-import { FrameSlot, useFrame } from "../../shell/slots";
+import { FrameSlot, PageHead, useFrame } from "../../shell/slots";
 import { NARROW_MEDIA, activeRepo, useMedia } from "../../shell/narrow";
 import { isApplePlatform } from "../../keys/registry";
 import { handleDelegateKey } from "../Delegate";
@@ -340,7 +340,7 @@ function NewTaskPage(p: ViewProps) {
     </div>
   </aside>;
   return <>
-    <FrameSlot name="header">
+    <PageHead>
       <header className="pc-new-task__header">
         <div className="pc-new-task__intro">
           <TextAction className="pc-new-task__crumb" href={hrefFor(routes.tasks())}>Tasks ›</TextAction>
@@ -351,7 +351,7 @@ function NewTaskPage(p: ViewProps) {
         <Button onClick={p.onSave}>Save draft</Button>
         <Button variant="ghost" onClick={p.onCancel}>Cancel</Button>
       </header>
-    </FrameSlot>
+    </PageHead>
     <Page width="full" className="pc-new-task">
       <FailureNotice p={p} />
       <div className="pc-new-task__cols" onKeyDown={formKeys(p)}>

@@ -28,6 +28,19 @@ export interface FrameSlots {
 export const FrameContext = createContext<FrameSlots | null>(null);
 export const useFrame = () => useContext(FrameContext);
 
+/**
+ * The screen's own page head (title, filter strip, actions). Portals into the static `header` region when the
+ * frame has mounted that host; otherwise renders inline (bare mounts / SSR without a portal target).
+ */
+export function PageHead({ children }: { children: ComponentChildren }) {
+  const frame = useFrame();
+  // Prefer the portal target once Layout's ref has attached; until then (and outside a frame) stay inline so
+  // renderToString and unit mounts still see the heading. Layout always provides a frame object, so checking
+  // `frame` alone would hide the head during SSR while the portal host is still null. The fallback is one
+  // element so a multi-child head (title + tabs) stays grouped under main's flex gap.
+  return frame?.header ? <FrameSlot name="header">{children}</FrameSlot> : <div className="pc-page-head-fallback">{children}</div>;
+}
+
 /** Renders children into a frame region. Outside the frame, or while the region is closed, nothing renders. */
 export function FrameSlot({ name, children }: { name: "title" | "actions" | "header" | "left" | "right"; children: ComponentChildren }) {
   const target = useFrame()?.[name], active = useViewActive(), scope = useContext(WorkspaceScope);

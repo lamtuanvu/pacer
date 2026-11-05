@@ -35,7 +35,7 @@ import { modeWords, toneFor } from "../../../../src/view-model/words";
 import { StatusDot } from "../../ds/StatusDot";
 import { desktopUpdateIndicator } from "../../../../src/view-model/updates";
 import { DiagnosticsSection } from "./Diagnostics";
-import { FrameSlot } from "../../shell/slots";
+import { PageHead } from "../../shell/slots";
 import {
   Checkbox,
   Switch,
@@ -172,7 +172,7 @@ export function SettingsGeneral({
         value={section === "planner" ? "pacing" : section ? settingsPageId(section) : null}
       >
         <SettingsQueryContext.Provider value={query}>
-        {section === "dispatcher" && <FrameSlot name="header"><h1>Dispatcher</h1></FrameSlot>}
+        {section === "dispatcher" && <PageHead><h1>Dispatcher</h1></PageHead>}
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
           {note && <p className="u3-settings-note">{note}</p>}
@@ -221,7 +221,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   if (setup) tiles.push({ label: "Dispatcher", value: `Saved setup ${setup.name}`, note: setup.summary, page: "dispatcher" });
   if (value("pacing.planner_reserve") != null) tiles.push({ label: "Budget", value: `${percentage(Number(value("pacing.planner_reserve")))} planner reserve`, note: [value("pacing.accounts") ? `${words(String(value("pacing.accounts")))} accounts` : "", value("pacing.fill_threshold") != null ? `move on at ${percentage(Number(value("pacing.fill_threshold")))}` : ""].filter(Boolean).join(" · "), page: "planner" });
   if (snapshot?.machine) tiles.push({ label: "Machines", value: machineHardCap(snapshot.machine) === null ? "No limit" : `${machineHardCap(snapshot.machine)} parallel`, note: snapshot.hosts ? `${snapshot.hosts.length} remote hosts` : undefined, page: "machine" });
-  return <><FrameSlot name="header"><header className="pc-settings-board__header"><h1>Overview</h1><p>What pacer needs before it can dispatch freely.</p></header></FrameSlot>
+  return <><PageHead><header className="pc-settings-board__header"><h1>Overview</h1><p>What pacer needs before it can dispatch freely.</p></header></PageHead>
   <div className="pc-settings-board pc-settings-board--overview">
     {executors && <Card tone="sunken"><div className="pc-readiness-summary">
       <div className="pc-readiness-summary__copy"><strong>{ready.length} of {executors.length} agents can take work. {needs.length} {needs.length === 1 ? "needs" : "need"} you.</strong>
@@ -254,7 +254,7 @@ function AppPreferences({ section, initialData }: { section: string; initialData
   }, [section]);
   return (
     <>
-    <FrameSlot name="header"><header className="pc-settings-board__header"><h1>App preferences</h1><p>How the app looks and talks to you. These stay on this device and never affect routing.</p></header></FrameSlot>
+    <PageHead><header className="pc-settings-board__header"><h1>App preferences</h1><p>How the app looks and talks to you. These stay on this device and never affect routing.</p></header></PageHead>
     <div className="pc-settings-board pc-settings-board--app">
       <AppearanceSection />
       <NotificationsSection initialData={initialData.notifications} />
@@ -301,7 +301,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
       return { account, window, binding: matched, stale, capturedAt, note };
     });
   });
-  return <><FrameSlot name="header"><header className="pc-settings-board__header"><h1>Budget &amp; pacing</h1><p>How much of each subscription pacer may use, and how fast. Changes apply to the next decision.</p></header></FrameSlot>
+  return <><PageHead><header className="pc-settings-board__header"><h1>Budget &amp; pacing</h1><p>How much of each subscription pacer may use, and how fast. Changes apply to the next decision.</p></header></PageHead>
   <div id="pacing" className="pc-settings-board pc-settings-board--budget">
     {planner && <Card tone="sunken"><div className="pc-budget-summary">
       <div className="pc-budget-summary__copy">

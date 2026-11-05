@@ -32,7 +32,7 @@ import type { Account } from "../../model/accounts";
 import type { Routing } from "../../model/home";
 import { withQuery, type RouteQuery } from "../../router";
 import { activeRepo, NarrowContext, useNarrow } from "../../shell/narrow";
-import { FrameSlot } from "../../shell/slots";
+import { PageHead } from "../../shell/slots";
 import { ActionButton } from "../ActionButton";
 import { useOverviewPage } from "../overview-page";
 import { repoChoices, RepoFilter } from "../RepoFilter";
@@ -374,7 +374,7 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
   const header = <DispatchHeader hideNewTask={empty || !!firstRun} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />;
   return <NarrowContext.Provider value={narrow}>
     {/* Narrow has no header landmark (DispatchHeader returns an inline policy caption instead); it stays in the page. */}
-    {!narrow && <FrameSlot name="header">{header}</FrameSlot>}
+    {!narrow && <PageHead>{header}</PageHead>}
     <Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
     <SetupBanner />
     {narrow && header}

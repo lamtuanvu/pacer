@@ -654,9 +654,10 @@ browserTest("the page head stays fixed above a scrolling main, and is empty and 
     await page.waitForFunction(() => document.getElementById("main-content")!.scrollTop > 0);
     const after = await page.evaluate(() => document.querySelector(".pc-page-head")!.getBoundingClientRect().top);
     expect(after).toBe(before); // The page head does not scroll away with main's content.
-    // A route whose screen never fills the header slot leaves it empty and collapsed.
-    await page.evaluate(() => { location.hash = "#/settings"; });
-    await page.getByRole("button", { name: "Save settings" }).waitFor();
+    // Workspace owns its own fixed strip and never fills the header slot, so the region collapses.
+    await page.evaluate(() => { location.hash = "#/workspace"; });
+    await page.waitForFunction(() => location.hash.startsWith("#/workspace"));
+    await page.waitForFunction(() => document.querySelector(".pc-page-head")!.textContent === "");
     const empty = await page.evaluate(() => {
       const head = document.querySelector(".pc-page-head")!;
       return { text: head.textContent, display: getComputedStyle(head).display };
@@ -726,7 +727,7 @@ async function allPagesFrame() {
   const build = await Bun.build({ entrypoints: ["test/fixtures/ui/all-pages-browser.tsx"], target: "browser", splitting: false });
   expect(build.success).toBe(true);
   const source = await build.outputs[0]!.text();
-  const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/session/session.css", "app/src/screens/new-task/new-task.css", "app/src/screens/dispatch/dispatch.css", "app/src/screens/insights/insights.css", "app/src/screens/settings/settings.css", "app/src/ds/native.css"].map(path => Bun.file(path).text()))].join("\n");
+  const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/session/session.css", "app/src/screens/new-task/new-task.css", "app/src/screens/dispatch/dispatch.css", "app/src/screens/insights/insights.css", "app/src/screens/settings/settings.css", "app/src/screens/trace/trace.css", "app/src/ds/native.css"].map(path => Bun.file(path).text()))].join("\n");
   return { source, css };
 }
 async function openAllPages(page: Page, built: { source: string; css: string }, hash: string) {
@@ -738,6 +739,7 @@ async function openAllPages(page: Page, built: { source: string; css: string }, 
 }
 const ROUTED_PAGES: [hash: string, title: string][] = [
   ["#/", "Dispatch"], ["#/needs-you", "Needs you"], ["#/insights", "Insights"], ["#/tasks", "Tasks"], ["#/tasks/new", "New task"],
+  ["#/tasks/t-0412", "Fix flaky retry test in the payments client"], ["#/setup", "Set up pacer"],
   ["#/settings", "Overview"], ["#/settings/app", "App preferences"], ["#/settings/planner", "Budget & pacing"],
   ["#/settings/diagnostics", "Diagnostics"], ["#/settings/plugins", "Plugins"], ["#/settings/executors", "Agents"],
 ];
@@ -749,10 +751,10 @@ browserTest("every routed page's header is non-empty, singular and stays fixed w
     await openAllPages(page, built, "#/");
     for (const [hash, title] of ROUTED_PAGES) {
       await page.evaluate(h => { location.hash = h; }, hash);
-      await page.waitForFunction(t => document.querySelector(".pc-page-head h1")?.textContent === t, title, { timeout: 2000 });
-      // Exactly one header: the previous page's own FrameSlot content never lingers behind the new one's.
-      expect(await page.locator(".pc-page-head .pc-view-slot").count()).toBe(1);
-      expect(await page.locator(".pc-page-head").evaluate(node => node.textContent!.trim().length > 0)).toBe(true);
+      // Detail views (Trace) stay mounted and only hide; read the active slot, not a leftover hidden h1.
+      await page.waitForFunction(t => document.querySelector<HTMLElement>(".pc-page-head .pc-view-slot:not([hidden]) h1")?.textContent === t, title, { timeout: 5000 });
+      expect(await page.locator(".pc-page-head .pc-view-slot:not([hidden])").count()).toBe(1);
+      expect(await page.locator(".pc-page-head .pc-view-slot:not([hidden])").evaluate(node => node.textContent!.trim().length > 0)).toBe(true);
       // The page head does not move as main's own content scrolls.
       const before = await page.locator(".pc-page-head").evaluate(node => node.getBoundingClientRect().top);
       await page.locator("#main-content").evaluate(main => { main.scrollTop = main.scrollHeight; });
@@ -760,4 +762,4 @@ browserTest("every routed page's header is non-empty, singular and stays fixed w
       expect(after).toBe(before);
     }
   } finally { await browser.close(); }
-}, 30_000);
+}, 60_000);

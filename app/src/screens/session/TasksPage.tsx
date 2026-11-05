@@ -21,7 +21,7 @@ import { taskHeading } from "../../../../src/view-model/titles";
 import { LazyTaskAside, LazyTaskBranch } from "./LazyTaskAside";
 import { taskHref } from "./task-href";
 import { withQuery, type RouteQuery } from "../../router";
-import { FrameSlot, useFrame } from "../../shell/slots";
+import { FrameSlot, PageHead, useFrame } from "../../shell/slots";
 
 type Filter = "all" | Exclude<TaskBucket, "other">;
 const FILTERS: { value: Filter; label: string; dot?: string }[] = [
@@ -91,7 +91,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
     ? <LazyTaskAside key={here.node.id} node={here.node} parent={here.parent} position={here.parent ? `Subtask ${here.index + 1} of ${here.siblings}` : "Root task"} href={href} viewHref={viewHref} />
     : <EmptyState title="No task selected" description="Choose a task on the left to see its details." />;
   return <>
-    <FrameSlot name="header">
+    <PageHead>
       <header className="pc-tasks-page__header">
         <div className="pc-tasks-page__heading">
           <h1 className="pc-tasks-page__title">Tasks</h1>
@@ -104,7 +104,7 @@ export function TasksPage({ nodes, repos, query, onNew, hasOlder, loadingOlder, 
       </header>
       <Tabs label="Task filter" id={`${viewId}-task-filter`} value={filter} onChange={value => { setFilter(value as Filter); setShown(PAGE); }}
         options={FILTERS.map(item => ({ value: item.value, label: <>{item.dot && <span className={`pc-tasks-page__dot pc-tasks-page__dot--${item.dot}`} aria-hidden="true" />}{item.label} <span className="pc-tasks-page__count">{counts[item.value]}</span></> }))} />
-    </FrameSlot>
+    </PageHead>
     <Page width="full" aria-busy={busy || undefined} className={`pc-tasks-page${busy ? " pc-query-refreshing" : ""}`}>
       {error}
       <section className="pc-tasks-page__tree" role="tabpanel" id={`${viewId}-task-filter-${filter}-panel`} aria-labelledby={`${viewId}-task-filter-${filter}-tab`}>

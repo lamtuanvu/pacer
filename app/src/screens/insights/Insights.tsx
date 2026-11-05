@@ -8,7 +8,7 @@ import { Card, EmptyState, Skeleton, Page, SegmentedControl, Stack } from "../..
 import { ErrorMessage, useDelayedBusy, useQuery, useTaskContext } from "../task-shared";
 import { executorLabel } from "../../../../src/view-model/words";
 import { withQuery, type RouteQuery } from "../../router";
-import { FrameSlot } from "../../shell/slots";
+import { PageHead } from "../../shell/slots";
 import { budgetOf, agentSlot, axisLabel, bars, CHART_DAYS, chartRange, compact, dayLabel, fullDay, niceMax, percent, periodRange, PERIODS, rangeLabel, slotClass, summaryCsv, versus, type PeriodKey, type Summary } from "./model";
 
 type Tone = "good" | "warn" | "bad";
@@ -57,7 +57,7 @@ export function Insights({ query }: { query: RouteQuery }) {
   const days = series.data ? bars(series.data.daily, agents, chart.from, CHART_DAYS, max) : [];
   const todayAt = Math.floor(Date.now() / 1000 / 86400) * 86400;
   const total = s?.tokens.total ?? 0, retried = s?.retryAttempts ?? 0;
-  return <><FrameSlot name="header">
+  return <><PageHead>
     <header className="pc-insights__header">
       <div className="pc-insights__title"><h1>Insights</h1><span className="pc-insights__caption">How well the dispatcher spread the work{s ? ` · ${rangeLabel(s.from, s.to)}` : ""}</span></div>
       <SegmentedControl variant="insights" label="Period" value={period} options={PERIODS} onChange={value => setPeriod(value as PeriodKey)} />
@@ -65,7 +65,7 @@ export function Insights({ query }: { query: RouteQuery }) {
         value={query.repo || null} onChange={goRepo} options={[{ value: null, label: "All repos" }, ...repos.map(r => ({ value: r.key, label: r.label, searchText: `${r.label} ${r.key}` }))]} />
       {csv && s ? <ButtonLink typography="board" href={csv} download={`pacer-insights-${new Date(s.from * 1000).toISOString().slice(0, 10)}.csv`}>Export CSV</ButtonLink> : <Button disabled>Export CSV</Button>}
     </header>
-  </FrameSlot>
+  </PageHead>
   <Page width="full" aria-busy={busy || undefined} className={`pc-page--insights${busy ? " pc-query-refreshing" : ""}`}><Stack space="board">
     {result.error && <ErrorMessage error={result.error} />}
     {!s ? <Skeleton layout="dashboard" label="Loading insights…" /> : s.rootTasksHandled === 0 && s.tokens.attempts === 0 ? <EmptyState title="Nothing in this period" description="No attempt ended. Try a longer period." /> : <>
