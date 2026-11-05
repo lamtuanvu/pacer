@@ -13,6 +13,7 @@ import { PLANNERS, validateStrategy } from "../config/strategy";
 import { editStrategy } from "../config/edit";
 import { migrateStrategy, migrationLines } from "../config/migrate";
 import { installPlanner } from "../install";
+import { claimCliOwnership } from "../install/owner";
 import { pacerArgv } from "../install/self";
 import { serviceBackend, type ServiceBackend } from "../service";
 import { dashboardClient } from "../dashboard/client";
@@ -108,7 +109,11 @@ export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): 
     if (serviceInstalled) print("✓ Login service (already done)");
     else {
       const consent = yes || installService || (tty && /^(?:y(?:es)?)?$/i.test((await question("Run pacer in the background at login? It keeps budgets fresh and runs delegated tasks. [Y/n] ")).trim()));
-      if (consent) { await service.install(); serviceInstalled = true; print("✓ Login service installed"); }
+      if (consent) {
+        await service.install(); serviceInstalled = true; print("✓ Login service installed");
+        // Only the standalone installer's own successful install claims ownership, and only when unclaimed or already ours.
+        claimCliOwnership(ctx, pacerArgv(ctx.env)[0], ctx.now);
+      }
       else print("Login service: skipped (install later with: pacer service install)");
     }
     const results = [];

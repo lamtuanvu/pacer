@@ -3,17 +3,24 @@ import { createInterface } from "node:readline/promises";
 import type { Result } from "../commands/types";
 import { readText } from "../install/fsx";
 import { isExecutorSession } from "../install/role";
+import { claimCliOwnership, ownerRefusal } from "../install/owner";
+import { releaseOwnership } from "../install/ownership-handback";
+import { pacerArgv } from "../install/self";
 import { serviceBackend, type ServiceDeps } from "./index";
 import { restartAroundWork, UPGRADE_CLI_REFUSAL } from "./upgrade";
 import { runningWork, stopRunningWork, workCounts } from "./running-work";
-export const SERVICE_USAGE = "service install [--replace]|uninstall [--stop-work] [--yes]|status [--json]|restart|logs [-n N]";
+const INSTALL_FLAGS = ["--replace", "--release-ownership", "--force"];
+export const SERVICE_USAGE = "service install [--replace] [--release-ownership [--force]]|uninstall [--stop-work] [--yes]|status [--json]|restart|logs [-n N]";
 export async function serviceCli(args: string[], ctx: Ctx, deps: ServiceDeps = {}): Promise<Result> {
   const [cmd, ...rest] = args;
   const bad = () => ({ code: 2, out: "", err: `usage: pacer ${SERVICE_USAGE}` });
   if (!["install", "uninstall", "status", "restart", "logs"].includes(cmd)) return bad();
-  if (cmd === "install" ? rest.length > 1 || rest.some(x => x !== "--replace") : cmd === "uninstall" ? new Set(rest).size !== rest.length || rest.some(x => x !== "--stop-work" && x !== "--yes") : cmd === "status" ? rest.length > 1 || rest.some(x => x !== "--json") : cmd === "logs" ? rest.length !== 0 && (rest.length !== 2 || rest[0] !== "-n" || !/^\d+$/.test(rest[1]) || !Number.isSafeInteger(Number(rest[1]))) : rest.length > 0) return bad();
+  if (cmd === "install" ? new Set(rest).size !== rest.length || rest.some(x => !INSTALL_FLAGS.includes(x)) : cmd === "uninstall" ? new Set(rest).size !== rest.length || rest.some(x => x !== "--stop-work" && x !== "--yes") : cmd === "status" ? rest.length > 1 || rest.some(x => x !== "--json") : cmd === "logs" ? rest.length !== 0 && (rest.length !== 2 || rest[0] !== "-n" || !/^\d+$/.test(rest[1]) || !Number.isSafeInteger(Number(rest[1]))) : rest.length > 0) return bad();
   // A guard against accidental self-upgrade from a delegated task, not an authorization boundary.
   if (["install", "restart", "uninstall"].includes(cmd) && isExecutorSession(ctx)) return { code: 2, out: "", err: `pacer service: ${UPGRADE_CLI_REFUSAL}` };
+  // --release-ownership performs the handback itself; it must run instead of the deference guard below.
+  if (cmd === "install" && rest.includes("--release-ownership")) return releaseOwnership(ctx, { force: rest.includes("--force"), service: deps });
+  if (["install", "uninstall"].includes(cmd)) { const refusal = ownerRefusal(ctx, "service"); if (refusal) return refusal; }
   try {
     const b = serviceBackend(ctx, deps); let out: string;
     const report = (r: { summary: string | null; warning?: string }) => [...(r.summary ? [r.summary] : []), ...(r.warning ? [`WARNING: ${r.warning}`] : [])];
@@ -21,6 +28,8 @@ export async function serviceCli(args: string[], ctx: Ctx, deps: ServiceDeps = {
       case "install": {
         const notes: string[] = [];
         const r = await restartAroundWork(ctx, async () => { notes.push(...await b.install({ replace: rest.includes("--replace") })); return true; }, { prefix: v => `Restarted on v${v}.`, deps: deps.upgrade });
+        // Only the CLI's own successful install claims ownership, and only when unclaimed or already ours.
+        claimCliOwnership(ctx, pacerArgv(ctx.env)[0], ctx.now);
         out = ["installed pacer serve", ...notes, ...report(r)].join("\n"); break;
       }
       case "uninstall": {

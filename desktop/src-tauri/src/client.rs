@@ -354,7 +354,10 @@ fn setup_files(
             Err(error) => return Err(SetupError::Failed(error.to_string())),
         }
     }
-    write_consent(config, rc.is_some(), false).map_err(SetupError::Failed)
+    write_consent(config, rc.is_some(), false).map_err(SetupError::Failed)?;
+    // ADR 0021: the Welcome/Consent screen's consent is the authorization; record the
+    // desktop as owner unconditionally (never for "Keep mine", which never reaches here).
+    crate::owner::claim_desktop_ownership(&pacer_home(), bundled, std::time::SystemTime::now()).map_err(SetupError::Failed)
 }
 
 pub struct Cli {
@@ -1569,6 +1572,15 @@ impl FirstRun {
                         Ok(state) if state == "committed" => {
                             *app.state::<Shell>().takeover.lock().unwrap() = None;
                             *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                            // ADR 0021: the user's takeover confirmation (ADR 0011) is also the
+                            // consent that makes the desktop the recorded owner. A failure here
+                            // does not undo the already-committed takeover; it only means the
+                            // record is stale until the next successful consent or claim.
+                            if let Some(bundled) = bundled.as_deref() {
+                                if let Err(error) = crate::owner::claim_desktop_ownership(&pacer_home(), bundled, std::time::SystemTime::now()) {
+                                    desktop_log!("pacer lifecycle: owner record write failed after takeover: {error}");
+                                }
+                            }
                             crate::recovery(app, "starting");
                         }
                         result => {
@@ -1625,6 +1637,8 @@ impl FirstRun {
                 crate::diagnostic_recovery(app, self.error.as_ref().unwrap());
                 return OnboardingGate::Wait;
             }
+            // ADR 0021: attaching to a healthy service the user did not hand over is not consent
+            // to own it, so no owner record is written here; only Welcome and takeover claim it.
             *app.state::<Shell>().onboarding_page.lock().unwrap() = None;
         }
         let decision = self.page(

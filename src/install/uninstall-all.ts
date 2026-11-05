@@ -12,6 +12,7 @@ import type { TaskState } from "../tasks/types";
 import { pluginDir, uninstallPlugin } from "../plugin/install";
 import { serviceBackend, servicePath, type ServiceBackend } from "../service";
 import { readManifest } from "./manifest";
+import { ownerRefusal } from "./owner";
 import { appLink, removePathBlock } from "./path-block";
 import { pacerArgv } from "./self";
 import { uninstallPlanner, type UninstallReport } from "./uninstall";
@@ -112,6 +113,7 @@ export async function uninstallAll(args: string[], ctx: Ctx, deps: UninstallAllD
     return { code: 2, out: "", err: `usage: pacer ${UNINSTALL_ALL_USAGE}` };
   }
   if (isExecutorSession(ctx)) return { code: 2, out: "", err: `pacer uninstall: ${UPGRADE_CLI_REFUSAL}` };
+  { const refusal = ownerRefusal(ctx, "uninstall"); if (refusal) return refusal; }
   const json = args.includes("--json"), tty = deps.tty ?? !!process.stdin.isTTY;
   const plan: PlanStep[] = [], results: StepResult[] = [];
   let blockedByTasks: BlockingTask[] = [], warning: string | undefined;

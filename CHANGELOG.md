@@ -17,6 +17,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- [ADR 0021](docs/decisions/0021-single-installation-owner.md) ownership record at `$PACER_HOME/owner.json`: the CLI claims ownership on a successful `pacer service install` or the standalone installer's service step (only when unclaimed or already its own), and the desktop app claims it on the Welcome/Consent screen or a committed service takeover. `pacer update`, `pacer service install|uninstall` and `pacer uninstall --all` now exit with code 2 and point at the app's Settings when the app owns the installation, except when run as the app's own bundled CLI. `pacer update --release-ownership` and `pacer service install --release-ownership` hand the installation back to the CLI, restoring a `pacer.pre-app-*` terminal-command backup if one exists and re-registering the service; both refuse while tasks or terminal sessions are running unless given `--force`.
+
 - Rust library effects for named strategy saves, routing and runner edits, and notification settings. The TypeScript runtime is unchanged.
 
 
