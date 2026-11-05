@@ -566,7 +566,12 @@ async fn write_raw(stream: &mut UnixStream, value: &Value) -> Result<(), BridgeE
     Ok(())
 }
 
-/// Invariant: default serve must not start this listener or set `PACER_HOST_SOCKET`.
+/// When true, unset env enables the native plugin host; set
+/// `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape.
+///
+/// Kept `false` until the native [`crate::ProcessOwner`] answers `capability.*`
+/// for bundled plugins and CT-11 live evidence lands (P4d-5). The disable
+/// parsing already works so cutover is a one-const flip plus validation.
 pub const fn serve_starts_reverse_bridge_by_default() -> bool {
     false
 }

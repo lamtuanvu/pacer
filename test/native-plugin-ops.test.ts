@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cpSync, existsSync, linkSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { installFixture } from "../conformance/install";
 import { tmpDir } from "./helpers";
@@ -60,8 +60,12 @@ test.skipIf(!front)("native raw JSON decoding matches fetch and JSON.parse bound
   expect(results[0]).toEqual(results[1]);
 }, 60000);
 
-async function service(forward = "", homeKind = "absolute") {
-  const home = realpathSync(tmpDir()), state = join(home, ".pacer");
+async function service(forward = "", homeKind = "absolute", options: { nativeHost?: string } = {}) {
+  // host.sock must fit SUN_LEN (~104). Bun test redirects TMPDIR into a deep
+  // isolated home, so flag-on homes allocate under /tmp directly.
+  const shortHome = options.nativeHost === "1";
+  const home = shortHome ? realpathSync(mkdtempSync("/tmp/pnh-")) : realpathSync(tmpDir());
+  const state = join(home, ".pacer");
   mkdirSync(state, { mode: 0o700 });
   writeFileSync(join(state, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n# preserve this comment\n", { mode: 0o600 });
   symlinkSync(join(import.meta.dir, "../node_modules"), join(home, "node_modules"), "dir");
@@ -78,7 +82,8 @@ async function service(forward = "", homeKind = "absolute") {
     env: { HOME: home, PACER_HOME: configuredHome, PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
       PACER_CORE_ARGV: JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]),
       PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-      PACER_DEBUG_NATIVE: "1", PACER_FORWARD_OPS: forward },
+      PACER_DEBUG_NATIVE: "1", PACER_FORWARD_OPS: forward,
+      ...(options.nativeHost !== undefined ? { PACER_NATIVE_PLUGIN_HOST: options.nativeHost } : {}) },
     stdin: "ignore", stdout: "ignore", stderr: "pipe",
   });
   const logs = new Response(child.stderr).text();
@@ -95,14 +100,20 @@ async function service(forward = "", homeKind = "absolute") {
       await Bun.sleep(20);
     }
     if (!token) throw Error("native fixture did not become ready");
-  } catch (error) { child.kill("SIGTERM"); await child.exited; throw error; }
+  } catch (error) {
+    child.kill("SIGTERM"); await child.exited;
+    if (shortHome) rmSync(home, { recursive: true, force: true });
+    throw error;
+  }
   const post = async (op: string, params: unknown) => {
     const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(params), signal: AbortSignal.timeout(15000) });
     return await response.json() as any;
   };
   return { home, state, plugin, base, token, post, async stop() {
     if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
-    return logs;
+    const text = await logs;
+    if (shortHome) rmSync(home, { recursive: true, force: true });
+    return text;
   } };
 }
 
@@ -512,3 +523,40 @@ let n=0;await serve({manifest,input:stdinLines(),handlers:{'diagnostic.ping':asy
     } finally { await s.stop(); }
   }
 }, 45000);
+
+test.skipIf(!front)("flag-on ProcessOwner binds host.sock and serves UI mutations", async () => {
+  const s = await service("", "absolute", { nativeHost: "1" });
+  try {
+    expect(existsSync(join(s.state, "run", "host.sock"))).toBe(true);
+    const enable = await s.post("plugin.enable", { id: "fx-ui", grant: true });
+    expect(enable, JSON.stringify(enable)).toEqual({ result: { id: "fx-ui", state: "idle" } });
+    const render = await s.post("plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context });
+    expect(render.error, JSON.stringify(render)).toBeUndefined();
+    const doctor = await s.post("plugin.doctor", { id: "fx-ui" });
+    expect(doctor.error, JSON.stringify(doctor)).toBeUndefined();
+    expect(doctor.result.reports[0].ok).toBe(true);
+    const save = await s.post("plugin.settings.set", { plugin: "fx-ui", values: { required: true }, expect_rev: 0 });
+    expect(save.result?.rev).toBe(1);
+  } finally {
+    const log = await s.stop();
+    expect(log).toContain("native plugin host enabled");
+    for (const op of ["plugin.enable", "plugin.ui.render", "plugin.doctor", "plugin.settings.set"]) {
+      expect(log).toContain(`native ${op}`);
+    }
+  }
+}, 90000);
+
+test.skipIf(!front)("PACER_NATIVE_PLUGIN_HOST=0 escape leaves serve without host.sock", async () => {
+  const s = await service("", "absolute", { nativeHost: "0" });
+  try {
+    expect(existsSync(join(s.state, "run", "host.sock"))).toBe(false);
+    const enable = await s.post("plugin.enable", { id: "fx-ui", grant: true });
+    expect(enable.result?.state, JSON.stringify(enable)).toBe("idle");
+    const render = await s.post("plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context });
+    expect(render.error, JSON.stringify(render)).toBeUndefined();
+  } finally {
+    const log = await s.stop();
+    expect(log).not.toContain("native plugin host enabled");
+    expect(log).toContain("native plugin.enable");
+  }
+}, 60000);
