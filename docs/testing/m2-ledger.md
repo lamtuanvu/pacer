@@ -7,6 +7,11 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `config.get` | Forwarded | Rust `pacer_config::settings::get_settings` owns the pure key/source read model. Terminal availability, machine guard/slot use and planner candidates are injected host fields that the native listener cannot yet supply without a host-field bridge; public routing remains in TypeScript (A2 blocked finding). |
 | `config.set` | Native (P2-E) | Pure keys use `pacer_config::settings::set_setting` plus the P3-B publisher. `planner` and `execution.backend` selectively forward to TypeScript for install/uninstall and backend readiness. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.account.add` | Forwarded | SSH account configuration and host adapter dependencies remain in TypeScript. |
+| `host.add`, `host.set`, `host.remove`, `host.repo.map` | Forwarded (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Public ops stay forwarded until native callers also cover endpoint sync (`applyEdit`), config publication, and `host.set` activity side effects. Plugin-owned SSH execution is out of scope. |
+| `host.list`, `host.get`, `host.suggest` | Forwarded (P2-D) | Need running-task/job/reachability state, check caches, or `~/.ssh` alias reads that the config library does not own. |
+| `host.check`, `host.clean`, `host.terminal`, `host.repo.setup` | Forwarded (P2-D) | Plugin-owned SSH execution, clone/identity/cleanup grants and jobs remain in TypeScript. |
+| `runner.settings.get`, `runner.settings.save` | Forwarded (P2-D) | `pacer-config::executor_settings` owns revision CAS, order/enabled/max_tasks projection and routing warnings. Registration waits for native lock/publication wiring matching `mutation(..., "runners", ...)`. |
+| `repo.add`, `repo.list`, `repo.remove` | Forwarded (P2-D) | Registry/path-probe/git identity and branch reads stay in TypeScript; only `repo_key` URL canonicalization is in the Rust host library. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
 | `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
 | `plugin.install`, `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Forwarded | All mutations, including the retired install response, remain in TypeScript. Future cutovers must establish mutation parity and live evidence before registration. |
@@ -96,6 +101,9 @@ The complete pure setter allow-list is `execution.auto_clean`,
 | Planner candidates | TypeScript discovers compatible planner accounts for `config.get`; Rust accepts host fields. Blocks native `config.get`. |
 | App/link `terminal.open` presets | Cookie-authenticated HTTP sets `PACER_TERMINAL_PRESETS_ONLY=1` on the request context so native pure-key writes match TypeScript `terminalPresetsOnly`. |
 | `host.account.add` | The full operation, host adapter dependencies and SSH account-folder configuration remain in TypeScript. |
+| Host YAML edits (`host.add` / `set` / `remove` / `repo.map`) | Library parity lives in `pacer-config::host`; ops stay forwarded for endpoint sync, publication and activity. |
+| `runner.settings.*` | Library CAS lives in `pacer-config::executor_settings`; ops stay forwarded until native publication is wired. |
+| `repo.*` registry | Path probe, git identity and branch listing stay in TypeScript; Rust owns URL `repo_key` only. |
 
 `test/config-settings-parity.test.ts` regenerates and verifies the shared
 `test/fixtures/config-settings/settings.json` corpus from the TypeScript reference.
@@ -123,12 +131,12 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `session.*` | 14 | P7 | e.g. `session.agent.create`, `session.agent.end`, `session.agent.get` (+11 more) |
 | `task.*` | 14 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+11 more) |
 | `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
-| `host.*` | 11 | P2 | e.g. `host.add`, `host.check`, `host.clean` (+8 more) |
+| `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
 | `account.*` | 9 | P7/P9 | e.g. `account.add`, `account.adopt`, `account.edit` (+6 more) |
 | `client.*` | 9 | P6 | e.g. `client.control.claim`, `client.control.complete`, `client.control.enroll` (+6 more) |
 | `msg.*` | 8 | P6 | e.g. `msg.close`, `msg.confirm`, `msg.inbox` (+5 more) |
 | `project.*` | 7 | P2 | e.g. `project.messaging.get`, `project.messaging.remove`, `project.messaging.set` (+4 more) |
-| `runner.*` | 7 | P2 | e.g. `runner.add`, `runner.block`, `runner.check` (+4 more) |
+| `runner.*` | 7 | P2 | `runner.settings.*` library-ready, still Forwarded; add/block/check stay TS |
 | `discovery.*` | 5 | P8 | e.g. `discovery.list`, `discovery.network.get`, `discovery.network.set` (+2 more) |
 | `agent.*` | 4 | P9 | e.g. `agent.connect`, `agent.detect`, `agent.disconnect` (+1 more) |
 | `service.*` | 4 | P9 | e.g. `service.handover`, `service.install`, `service.status` (+1 more) |
@@ -138,7 +146,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `job.*` | 3 | P6 | e.g. `job.cancel`, `job.get`, `job.list` |
 | `limits.*` | 3 | P5 | e.g. `limits.check`, `limits.refresh`, `limits.report` |
 | `machine.*` | 3 | P8 | e.g. `machine.get`, `machine.rotate`, `machine.set` |
-| `repo.*` | 3 | P2 | e.g. `repo.add`, `repo.list`, `repo.remove` |
+| `repo.*` | 3 | P2 | Registry/git probe remain Forwarded; URL `repo_key` in `pacer-config::host` |
 | `routing.*` | 3 | P2 | e.g. `routing.get`, `routing.route`, `routing.status` |
 | `api.*` | 2 | P8 | e.g. `api.describe`, `api.list` |
 | `attention.*` | 2 | P6 | e.g. `attention.dismiss`, `attention.snooze` |
