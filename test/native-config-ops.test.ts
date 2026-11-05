@@ -55,6 +55,13 @@ const named = (path: string) => {
 
 test("native registry matches every TS config operation result, bytes and publication", async () => {
   const cases: [string,unknown,((home: string)=>void)?][] = [
+    ["strategy.list",{}],
+    ["strategy.list",{},path=>{named(path);writeFileSync(join(path,"strategies","broken.yaml"),"planner: [oops\n",{mode:0o600});}],
+    ["strategy.list",{},path=>{named(path);writeFileSync(join(path,"active"),"review\n");}],
+    ["strategy.show",{name:"default"}],
+    ["strategy.show",{name:"review"},named],
+    ["strategy.show",{name:"review"},path=>{named(path);writeFileSync(join(path,"active"),"review\n");}],
+    ["strategy.show",{name:"missing"}],
     ["strategy.save",{name:"review",draft:{from:"default",description:"fixture",set:{"pacing.policy":"even"}},reason:"reviewed"}],
     ["strategy.use",{name:"review"},named], ["strategy.use",{name:"default"},path=>{named(path);writeFileSync(join(path,"active"),"review\n");}],
     ["strategy.remove",{name:"review"},named], ["strategy.remove",{name:"default"}],
@@ -73,6 +80,8 @@ test("native registry matches every TS config operation result, bytes and public
 
 test("native schemas match TS Unicode lengths, JS safe integers, nulls and issue order", async () => {
   const cases: [string,unknown][] = [
+    ["strategy.list",null],["strategy.show",{}],["strategy.show",{name:3}],["strategy.show",{name:""}],
+    ["strategy.show",{name:"😀".repeat(65)}],
     ["strategy.use",{}],["strategy.use",{name:3}],["strategy.use",[]],
     ["strategy.save",{name:"review",draft:{from:"default"},reason:"\uFEFF"}],
     ["strategy.save",{name:"review",draft:{from:"default"},reason:"\u0085"}],

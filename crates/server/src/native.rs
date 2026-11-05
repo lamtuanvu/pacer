@@ -30,6 +30,14 @@ fn debug(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
 
 static OPS: &[NativeOp] = &[
     NativeOp {
+        name: "strategy.list",
+        call: config_writes::strategy_list,
+    },
+    NativeOp {
+        name: "strategy.show",
+        call: config_writes::strategy_show,
+    },
+    NativeOp {
         name: "strategy.use",
         call: config_writes::strategy_use,
     },
@@ -155,6 +163,8 @@ mod tests {
     #[test]
     fn forward_override_removes_only_selected_native_ops() {
         for name in [
+            "strategy.list",
+            "strategy.show",
             "strategy.use",
             "strategy.save",
             "strategy.remove",
@@ -187,6 +197,8 @@ mod tests {
             assert!(registry("").get(name).is_none(), "stdio {name}");
         }
         for name in [
+            "strategy.list",
+            "strategy.show",
             "strategy.use",
             "strategy.save",
             "strategy.remove",
