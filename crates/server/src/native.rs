@@ -68,6 +68,14 @@ static OPS: &[NativeOp] = &[
         call: config_writes::runner_remove,
     },
     NativeOp {
+        name: "runner.settings.get",
+        call: config_writes::runner_settings_get,
+    },
+    NativeOp {
+        name: "runner.settings.save",
+        call: config_writes::runner_settings_save,
+    },
+    NativeOp {
         name: "notifications.get",
         call: config_writes::notifications_get,
     },
@@ -186,6 +194,8 @@ mod tests {
             "runner.set",
             "runner.reorder",
             "runner.remove",
+            "runner.settings.get",
+            "runner.settings.save",
             "notifications.get",
             "notifications.set",
             "config.set",
@@ -228,6 +238,8 @@ mod tests {
             "runner.set",
             "runner.reorder",
             "runner.remove",
+            "runner.settings.get",
+            "runner.settings.save",
             "notifications.get",
             "notifications.set",
             "config.set",

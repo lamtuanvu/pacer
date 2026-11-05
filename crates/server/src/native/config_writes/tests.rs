@@ -200,6 +200,72 @@ async fn pure_config_set_writes_publishes_and_strips_notes() {
 }
 
 #[tokio::test]
+async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() {
+    let dir = tempfile::tempdir().unwrap();
+    let yaml = "# keep\nplanner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\nrunners:\n  codex: {}\nrouting:\n  - kinds: [docs]\n    executors: [codex]\n  - default: [codex]\n";
+    std::fs::write(dir.path().join("strategy.yaml"), yaml).unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        Default::default(),
+        1_700_000_000.0,
+    );
+    let registry = crate::native::registry("");
+    let base = crate::native::call_native(
+        &ctx,
+        registry.get("runner.settings.get").unwrap(),
+        json!({}),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(!dir.path().join("link/outbox.jsonl").exists());
+    assert_eq!(base["order"], json!(["codex"]));
+
+    let saved = crate::native::call_native(
+        &ctx,
+        registry.get("runner.settings.save").unwrap(),
+        json!({
+            "expectedRevision": base["revision"],
+            "order": base["order"],
+            "runners": [{"id": "codex", "enabled": false, "maxTasks": 3}],
+        }),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_ne!(saved["revision"], base["revision"]);
+    assert_eq!(saved["runners"][0]["enabled"], false);
+    assert_eq!(saved["runners"][0]["maxTasks"], 3);
+    assert_eq!(saved["warnings"].as_array().unwrap().len(), 2);
+    assert!(dir.path().join("link/outbox.jsonl").exists());
+    let outbox = std::fs::read_to_string(dir.path().join("link/outbox.jsonl")).unwrap();
+    assert!(outbox.contains("\"area\":\"runners\""));
+
+    let conflict = crate::native::call_native(
+        &ctx,
+        registry.get("runner.settings.save").unwrap(),
+        json!({
+            "expectedRevision": base["revision"],
+            "order": base["order"],
+            "runners": [{"id": "codex", "enabled": true, "maxTasks": 1}],
+        }),
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(conflict.code, Code::Conflict);
+    assert_eq!(conflict.message, "Executor settings changed elsewhere.");
+    assert_eq!(
+        conflict.hint.as_deref(),
+        Some("Reload saved settings, then reapply your changes.")
+    );
+}
+
+#[tokio::test]
 async fn cookie_presets_flag_rejects_custom_terminal_open_templates() {
     let dir = tempfile::tempdir().unwrap();
     let fixture: Value = serde_json::from_str(include_str!(

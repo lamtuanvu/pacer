@@ -1,7 +1,7 @@
 //! P2-C/P2-E operation effects. The transport retains the TS endpoint-plugin bridge;
 //! final publication is performed only after that bridge has settled.
 use pacer_config::{
-    config_writes, notifications,
+    config_writes, executor_settings, notifications,
     settings::{self, SettingsError},
     strategy::{StrategyError, list_strategy_reads, load_strategy, show_strategy, strategy_path},
     strategy_write,
@@ -9,6 +9,7 @@ use pacer_config::{
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
+    lock::{LockOptions, with_lock},
 };
 use serde_json::{Value, json};
 
@@ -25,7 +26,13 @@ const STRATEGY_HINT: &str =
 #[allow(clippy::result_large_err)]
 fn error(op: &str, error: StrategyError) -> CoreError {
     let message = error.to_string();
-    let code = if message == "Your settings changed while they were being updated. Try again." {
+    let settings_conflict = op.starts_with("runner.settings.")
+        && (message == "Executor settings changed elsewhere."
+            || message == "Executor settings changed. Reload saved settings."
+            || message.contains("changed during edit"));
+    let code = if message == "Your settings changed while they were being updated. Try again."
+        || settings_conflict
+    {
         Code::Conflict
     } else if op == "runner.set" && message == "cannot edit the planner runner" {
         Code::NotAllowed
@@ -38,6 +45,8 @@ fn error(op: &str, error: StrategyError) -> CoreError {
         error = error.hint(STRATEGY_HINT);
     } else if op == "runner.remove" {
         error = error.hint("Check the runner id, account and host configuration.");
+    } else if message == "Executor settings changed elsewhere." {
+        error = error.hint("Reload saved settings, then reapply your changes.");
     } else if matches!(op, "runner.set" | "runner.reorder" | "routing.set")
         && (message.starts_with("invalid strategy ")
             || message.starts_with("bad YAML:")
@@ -65,7 +74,9 @@ fn settings_error(error: SettingsError) -> CoreError {
 pub(super) fn area(op: &str) -> Option<&'static str> {
     match op {
         "strategy.use" | "strategy.save" | "strategy.remove" => Some("strategy"),
-        "runner.set" | "runner.reorder" | "runner.remove" => Some("runners"),
+        "runner.set" | "runner.reorder" | "runner.remove" | "runner.settings.save" => {
+            Some("runners")
+        }
         "routing.set" => Some("routing"),
         "notifications.set" | "config.set" => Some("config"),
         _ => None,
@@ -234,6 +245,18 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
                 }
                 result
             }),
+            "runner.settings.get" => {
+                return executor_settings::read_executor_settings(home).map_err(|e| error(op, e));
+            }
+            "runner.settings.save" => {
+                // Matches TS withLock('executor-settings') + mutation(..., "runners", ...).
+                // No endpoint-plugin sync: finishNativeConfigEdit does not cover this op.
+                return with_lock(ctx, "executor-settings", LockOptions::default(), || {
+                    executor_settings::save_executor_settings(home, &p)
+                })
+                .map_err(|e| CoreError::new(Code::Unavailable, e.to_string()))?
+                .map_err(|e| error(op, e));
+            }
             "notifications.get" => {
                 return notifications::get_level(home, &legacy_dir(ctx))
                     .map_err(|e| CoreError::new(Code::Internal, e.to_string()));
@@ -272,7 +295,7 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
 macro_rules! handler {
     ($($name:ident => $op:literal),* $(,)?) => {$(pub(super) fn $name(ctx: &Ctx, params: Value) -> OpFuture<'_> { run(ctx,$op,params) })*};
 }
-handler! { strategy_list => "strategy.list", strategy_show => "strategy.show", strategy_use => "strategy.use", strategy_save => "strategy.save", strategy_remove => "strategy.remove", routing_set => "routing.set", runner_set => "runner.set", runner_reorder => "runner.reorder", runner_remove => "runner.remove", notifications_get => "notifications.get", notifications_set => "notifications.set", config_set => "config.set" }
+handler! { strategy_list => "strategy.list", strategy_show => "strategy.show", strategy_use => "strategy.use", strategy_save => "strategy.save", strategy_remove => "strategy.remove", routing_set => "routing.set", runner_set => "runner.set", runner_reorder => "runner.reorder", runner_remove => "runner.remove", runner_settings_get => "runner.settings.get", runner_settings_save => "runner.settings.save", notifications_get => "notifications.get", notifications_set => "notifications.set", config_set => "config.set" }
 
 #[cfg(test)]
 mod tests;

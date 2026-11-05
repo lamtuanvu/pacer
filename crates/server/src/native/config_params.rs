@@ -7,6 +7,8 @@ enum Schema {
     String(usize, Option<usize>),
     Bool,
     Integer(f64),
+    /// Inclusive min/max with Zod `.min(n).max(m)` messages (`>=` / `<=`).
+    IntegerBounds(f64, f64),
     Level,
     Json,
     Array(Box<Schema>),
@@ -61,7 +63,7 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
     let expected = match schema {
         Schema::String(_, _) | Schema::RunnerId => "string",
         Schema::Bool => "boolean",
-        Schema::Integer(_) => "number",
+        Schema::Integer(_) | Schema::IntegerBounds(_, _) => "number",
         Schema::Array(_) => "array",
         Schema::Object(_) => "object",
         _ => "",
@@ -86,7 +88,7 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
         Schema::Json => return value.cloned().unwrap_or(Value::Null),
         Schema::String(_, _) | Schema::RunnerId => value.is_some_and(Value::is_string),
         Schema::Bool => value.is_some_and(Value::is_boolean),
-        Schema::Integer(_) => value.is_some_and(Value::is_number),
+        Schema::Integer(_) | Schema::IntegerBounds(_, _) => value.is_some_and(Value::is_number),
         Schema::Array(_) => value.is_some_and(Value::is_array),
         Schema::Object(_) => value.is_some_and(Value::is_object),
     };
@@ -143,6 +145,25 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
                     } else {
                         "Too small: expected number to be >0".into()
                     });
+                }
+            }
+        }
+        Schema::IntegerBounds(min, max) => {
+            let n = value.as_f64().unwrap_or(f64::NAN);
+            if !n.is_finite() || n.fract() != 0.0 {
+                issue("Invalid input: expected int, received number".into());
+            } else {
+                if n < -9_007_199_254_740_991.0 {
+                    issue("Too small: expected int to be >=-9007199254740991".into());
+                }
+                if n > 9_007_199_254_740_991.0 {
+                    issue("Too big: expected int to be <=9007199254740991".into());
+                }
+                if n < *min {
+                    issue(format!("Too small: expected number to be >={min}"));
+                }
+                if n > *max {
+                    issue(format!("Too big: expected number to be <={max}"));
                 }
             }
         }
@@ -218,6 +239,20 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
         ]),
         "runner.reorder" => object(vec![("ids", array(id()), false)]),
         "runner.remove" => object(vec![("id", RunnerId, false)]),
+        "runner.settings.get" => object(vec![]),
+        "runner.settings.save" => object(vec![
+            ("expectedRevision", String(1, None), false),
+            ("order", array(id()), false),
+            (
+                "runners",
+                array(object(vec![
+                    ("id", id(), false),
+                    ("enabled", Bool, false),
+                    ("maxTasks", IntegerBounds(1.0, 16.0), false),
+                ])),
+                false,
+            ),
+        ]),
         "notifications.set" => object(vec![("level", Level, false)]),
         "config.set" => {
             return parse_config_set(params);

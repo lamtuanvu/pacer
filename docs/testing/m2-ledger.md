@@ -10,7 +10,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `host.add`, `host.set`, `host.remove`, `host.repo.map` | Forwarded (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Public ops stay forwarded until native callers also cover endpoint sync (`applyEdit`), config publication, and `host.set` activity side effects. Plugin-owned SSH execution is out of scope. |
 | `host.list`, `host.get`, `host.suggest` | Forwarded (P2-D) | Need running-task/job/reachability state, check caches, or `~/.ssh` alias reads that the config library does not own. |
 | `host.check`, `host.clean`, `host.terminal`, `host.repo.setup` | Forwarded (P2-D) | Plugin-owned SSH execution, clone/identity/cleanup grants and jobs remain in TypeScript. |
-| `runner.settings.get`, `runner.settings.save` | Forwarded (P2-D) | `pacer-config::executor_settings` owns revision CAS, order/enabled/max_tasks projection and routing warnings. Registration waits for native lock/publication wiring matching `mutation(..., "runners", ...)`. |
+| `runner.settings.get`, `runner.settings.save` | Native (P2-D) | Native callers use `pacer-config::executor_settings` under the shared `executor-settings` lock; saves publish the `runners` area via the P3-B publisher (matching TS `mutation(..., "runners", ...)`). No endpoint-plugin sync (unlike `runner.set` / `remove`). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `repo.add`, `repo.list`, `repo.remove` | Forwarded (P2-D) | Registry/path-probe/git identity and branch reads stay in TypeScript; only `repo_key` URL canonicalization is in the Rust host library. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
 | `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
@@ -113,7 +113,7 @@ The complete pure setter allow-list is `execution.auto_clean`,
 | App/link `terminal.open` presets | Cookie-authenticated HTTP sets `PACER_TERMINAL_PRESETS_ONLY=1` on the request context so native pure-key writes match TypeScript `terminalPresetsOnly`. |
 | `host.account.add` | The full operation, host adapter dependencies and SSH account-folder configuration remain in TypeScript. |
 | Host YAML edits (`host.add` / `set` / `remove` / `repo.map`) | Library parity lives in `pacer-config::host`; ops stay forwarded for endpoint sync, publication and activity. |
-| `runner.settings.*` | Library CAS lives in `pacer-config::executor_settings`; ops stay forwarded until native publication is wired. |
+| `runner.settings.*` | Native: library CAS + `executor-settings` lock + `runners` publication. Endpoint sync is not required for these ops. |
 | `repo.*` registry | Path probe, git identity and branch listing stay in TypeScript; Rust owns URL `repo_key` only. |
 
 `test/config-settings-parity.test.ts` regenerates and verifies the shared
@@ -147,7 +147,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `client.*` | 9 | P6 | e.g. `client.control.claim`, `client.control.complete`, `client.control.enroll` (+6 more) |
 | `msg.*` | 8 | P6 | e.g. `msg.close`, `msg.confirm`, `msg.inbox` (+5 more) |
 | `project.*` | 7 | P2 | e.g. `project.messaging.get`, `project.messaging.remove`, `project.messaging.set` (+4 more) |
-| `runner.*` | 7 | P2 | `runner.settings.*` library-ready, still Forwarded; add/block/check stay TS |
+| `runner.*` | 5 | P2 | `add`/`block`/`unblock`/`check`/`list` stay TS (`set`/`reorder`/`remove`/`settings.*` native above) |
 | `discovery.*` | 5 | P8 | e.g. `discovery.list`, `discovery.network.get`, `discovery.network.set` (+2 more) |
 | `agent.*` | 4 | P9 | e.g. `agent.connect`, `agent.detect`, `agent.disconnect` (+1 more) |
 | `service.*` | 4 | P9 | e.g. `service.handover`, `service.install`, `service.status` (+1 more) |
