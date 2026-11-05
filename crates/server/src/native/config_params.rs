@@ -182,6 +182,8 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
     pacer_config::normalize_json(&mut params);
     use Schema::*;
     let schema = match op {
+        "strategy.list" => object(vec![]),
+        "strategy.show" => object(vec![("name", id(), false)]),
         "strategy.use" => object(vec![("name", String(1, None), false)]),
         "strategy.remove" => object(vec![("name", id(), false)]),
         "strategy.save" => object(vec![
