@@ -13,6 +13,7 @@ import { DiagnosticRow } from "../../ds/DiagnosticRow";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { time, useOperation, useSettingsStyles } from "./shared";
+import { PageHead } from "../../shell/slots";
 
 export interface DoctorReport { checkedAt: number; durationSeconds?: number; checks: Check[]; planner?: string; repairAvailable?: boolean }
 interface RepairPreview { revision: string; agent: string; files: string[]; undo: string; detail?: string }
@@ -131,13 +132,15 @@ export function DiagnosticsSection() {
     try { await navigator.clipboard.writeText(diagnosticReportText(report)); setProgress("Report copied."); }
     catch (error) { setCopyError(error); setProgress("Could not copy the report."); }
   }
-  return <section id="diagnostics" aria-label="Diagnostics" className="pc-diagnostics">
+  return <><PageHead>
     <header className="pc-diagnostics-header">
       <div><h1>Diagnostics</h1><p className="pc-diagnostic-caption">Checks that pacer, your planner and every executor are wired up.{report && ` ${diagnosticTiming(report)}.`}</p></div>
       {report && <Button onClick={() => void copyReport()}>Copy report</Button>}
       <Button variant="primary" disabled={action.busy} aria-describedby={action.busy ? "diagnostics-progress" : undefined}
         onClick={() => void runChecks()}>Run all checks</Button>
     </header>
+  </PageHead>
+  <section id="diagnostics" aria-label="Diagnostics" className="pc-diagnostics">
     <div role="status" aria-live="polite" id="diagnostics-progress" className={progress ? undefined : "sr-only"}>{progress}</div>
     <ErrorMessage error={action.error}/><ErrorMessage error={copyError}/>
     {preview && <section className="pc-card" aria-label="Repair preview" aria-busy={action.busy}>
@@ -151,5 +154,5 @@ export function DiagnosticsSection() {
     </section>}
     {report && <div aria-busy={action.busy}><DiagnosticResults report={report} busy={action.busy} onRepair={agent => void previewRepair(agent)}/></div>}
     <NativeValidationSetup/>
-  </section>;
+  </section></>;
 }

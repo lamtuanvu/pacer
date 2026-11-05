@@ -11,7 +11,7 @@
 .pc-new-task__title.pc-page-title{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);white-space:normal}
 .pc-new-task__saved{display:flex;align-items:center;gap:var(--space-1\.5)}
 
-.pc-new-task__cols{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-5)}
+.pc-new-task__cols{display:flex;flex-direction:column;min-width:0}
 .pc-new-task__form{flex:1 1 var(--size-560);min-width:0;display:flex;flex-direction:column;gap:var(--space-5);padding:var(--space-5);border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card)}
 .pc-new-task__field{display:flex;flex-direction:column;gap:var(--space-2);min-width:0}
 .pc-new-task__label{font-weight:var(--type-body-strong-weight);color:var(--ink)}
@@ -49,8 +49,8 @@
 .pc-request-box__at{font-family:var(--font-mono);font-weight:var(--type-headline-weight)}
 .pc-request-box__tools .pc-attachment-picker--tool .pc-attachment-picker__trigger{height:var(--control-compact);font-size:var(--type-caption-size);font-weight:var(--type-body-strong-weight)}
 
-/* Aside: route card, notices, override and the primary action. */
-.pc-new-task__aside{flex:1 1 var(--size-360);display:flex;flex-direction:column;gap:var(--space-3);min-width:var(--size-300);max-width:calc(var(--size-320) + var(--size-120));position:sticky;top:var(--space-4)}
+/* Aside: route card, notices, override and the primary action. A real shell side panel owns the frame and width now. */
+.pc-new-task__aside{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}
 .pc-route-card{display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--surface-card)}
 .pc-route-card__body{display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4) calc(var(--space-4) + var(--space-half))}
 .pc-route-card__head{display:flex;align-items:center;gap:var(--space-2)}

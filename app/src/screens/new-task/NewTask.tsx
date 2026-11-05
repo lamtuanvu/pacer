@@ -30,6 +30,7 @@ import {
 } from "../../model/new-task";
 import { type TaskSummary } from "../../model/tasks";
 import { hrefFor, routes, type RouteQuery } from "../../router";
+import { FrameSlot, PageHead, useFrame } from "../../shell/slots";
 import { NARROW_MEDIA, activeRepo, useMedia } from "../../shell/narrow";
 import { isApplePlatform } from "../../keys/registry";
 import { handleDelegateKey } from "../Delegate";
@@ -321,62 +322,73 @@ const repoHelp = (p: ViewProps) => {
 };
 
 function NewTaskPage(p: ViewProps) {
-  return <Page width="full" className="pc-new-task">
-    <header className="pc-new-task__header">
-      <div className="pc-new-task__intro">
-        <TextAction className="pc-new-task__crumb" href={hrefFor(routes.tasks())}>Tasks ›</TextAction>
-        <h1 className="pc-page-title pc-new-task__title">New task</h1>
-        <span className="pc-caption">Describe the outcome and choose how to check success.</span>
+  const frame = useFrame();
+  // When the right panel is closed the form must still expose one primary submit (UI-13); the panel holds the full route preview.
+  const panelClosed = !!frame?.details && !frame.details.open;
+  const submit = <Button variant="primary" className="pc-new-task__delegate" disabled={p.submit.disabled} busy={false} onClick={p.onDelegate} aria-keyshortcuts={p.apple ? "Meta+Enter" : "Control+Enter"}>
+    {p.submit.label}<Kbd>{p.apple ? "⌘↵" : "Ctrl+↵"}</Kbd>
+  </Button>;
+  const aside = <aside aria-label="Where this task goes" className="pc-new-task__aside">
+    <section className="pc-route-card" aria-label="Will go to">
+      <div className="pc-route-card__body">
+        <span className="pc-route-card__head"><span className="pc-label">Will go to</span><span className="pc-caption" aria-live="polite">{p.card && !p.preview.error && !p.preview.empty ? "Updated as you type" : ""}</span></span>
+        <RouteBody p={p} />
       </div>
-      <span className="pc-caption pc-new-task__saved" aria-live="polite">{p.note}</span>
-      <Button onClick={p.onSave}>Save draft</Button>
-      <Button variant="ghost" onClick={p.onCancel}>Cancel</Button>
-    </header>
-    <FailureNotice p={p} />
-    <div className="pc-new-task__cols" onKeyDown={formKeys(p)}>
-      <section aria-label="Task request" className="pc-new-task__form">
-        <div className="pc-new-task__field">
-          <label htmlFor="nt-request" className="pc-new-task__label">What should get done?</label>
-          <RequestBox p={p} rows={6} />
-          <span id="nt-request-help" className="pc-caption">{p.preview.empty ? "Say what “done” looks like. Add success checks below when needed." : ""}</span>
-        </div>
-        <div className="pc-new-task__pair">
-          <div className="pc-new-task__field">
-            <label htmlFor="nt-repo" className="pc-new-task__label">Repository</label>
-            <RepoPicker p={p} id="nt-repo" />
-            <span className="pc-caption">{repoHelp(p)}</span>
-          </div>
-        </div>
-        <div className="pc-new-task__field">
-          <span className="pc-new-task__label-row"><span className="pc-new-task__label">Success checks</span><span className="pc-caption">Enabled commands must pass; text checks guide the agent</span></span>
-          <Checks p={p} />
-        </div>
-        <Disclosure className="pc-new-task__more" summary="Advanced options">
-          <div className="pc-new-task__more-body"><WorkspaceChoices p={p}/><KindField p={p}/><AgentChoices p={p}/><Field label="Maximum parallel agents" help="Limit parallel delegated work for this task (1–32)."><TextInput type="number" min="1" max="32" value={p.draft.maxConcurrent} onInput={e=>p.set({maxConcurrent:e.currentTarget.value})}/></Field><span className="pc-caption">Branch assigned at start.</span>
-            <Field label="Base branch" help="The new worktree starts from this branch.">
-              <ChoicePicker value={p.base} options={(p.repo?.branches ?? []).map(b => ({ value: b, label: b }))} placeholder="Current branch" onValueChange={value => p.set({ base: value })} />
-            </Field>
-          </div>
-        </Disclosure>
-      </section>
-      {<aside aria-label="Where this task goes" className="pc-new-task__aside">
-        <section className="pc-route-card" aria-label="Will go to">
-          <div className="pc-route-card__body">
-            <span className="pc-route-card__head"><span className="pc-label">Will go to</span><span className="pc-caption" aria-live="polite">{p.card && !p.preview.error && !p.preview.empty ? "Updated as you type" : ""}</span></span>
-            <RouteBody p={p} />
-          </div>
 
-        </section>
+    </section>
 
-        <div className="pc-new-task__submit">
-          <Button variant="primary" className="pc-new-task__delegate" disabled={p.submit.disabled} busy={false} onClick={p.onDelegate} aria-keyshortcuts={p.apple ? "Meta+Enter" : "Control+Enter"}>
-            {p.submit.label}<Kbd>{p.apple ? "⌘↵" : "Ctrl+↵"}</Kbd>
-          </Button>
-          <span className="pc-caption pc-new-task__submit-note">{p.submit.note}</span>
-        </div>
-      </aside>}
+    <div className="pc-new-task__submit">
+      {submit}
+      <span className="pc-caption pc-new-task__submit-note">{p.submit.note}</span>
     </div>
-  </Page>;
+  </aside>;
+  return <>
+    <PageHead>
+      <header className="pc-new-task__header">
+        <div className="pc-new-task__intro">
+          <TextAction className="pc-new-task__crumb" href={hrefFor(routes.tasks())}>Tasks ›</TextAction>
+          <h1 className="pc-page-title pc-new-task__title">New task</h1>
+          <span className="pc-caption">Describe the outcome and choose how to check success.</span>
+        </div>
+        <span className="pc-caption pc-new-task__saved" aria-live="polite">{p.note}</span>
+        {panelClosed && submit}
+        <Button onClick={p.onSave}>Save draft</Button>
+        <Button variant="ghost" onClick={p.onCancel}>Cancel</Button>
+      </header>
+    </PageHead>
+    <Page width="full" className="pc-new-task">
+      <FailureNotice p={p} />
+      <div className="pc-new-task__cols" onKeyDown={formKeys(p)}>
+        <section aria-label="Task request" className="pc-new-task__form">
+          <div className="pc-new-task__field">
+            <label htmlFor="nt-request" className="pc-new-task__label">What should get done?</label>
+            <RequestBox p={p} rows={6} />
+            <span id="nt-request-help" className="pc-caption">{p.preview.empty ? "Say what “done” looks like. Add success checks below when needed." : ""}</span>
+          </div>
+          <div className="pc-new-task__pair">
+            <div className="pc-new-task__field">
+              <label htmlFor="nt-repo" className="pc-new-task__label">Repository</label>
+              <RepoPicker p={p} id="nt-repo" />
+              <span className="pc-caption">{repoHelp(p)}</span>
+            </div>
+          </div>
+          <div className="pc-new-task__field">
+            <span className="pc-new-task__label-row"><span className="pc-new-task__label">Success checks</span><span className="pc-caption">Enabled commands must pass; text checks guide the agent</span></span>
+            <Checks p={p} />
+          </div>
+          <Disclosure className="pc-new-task__more" summary="Advanced options">
+            <div className="pc-new-task__more-body"><WorkspaceChoices p={p}/><KindField p={p}/><AgentChoices p={p}/><Field label="Maximum parallel agents" help="Limit parallel delegated work for this task (1–32)."><TextInput type="number" min="1" max="32" value={p.draft.maxConcurrent} onInput={e=>p.set({maxConcurrent:e.currentTarget.value})}/></Field><span className="pc-caption">Branch assigned at start.</span>
+              <Field label="Base branch" help="The new worktree starts from this branch.">
+                <ChoicePicker value={p.base} options={(p.repo?.branches ?? []).map(b => ({ value: b, label: b }))} placeholder="Current branch" onValueChange={value => p.set({ base: value })} />
+              </Field>
+            </div>
+          </Disclosure>
+        </section>
+      </div>
+    </Page>
+    <FrameSlot name="right">{aside}</FrameSlot>
+    {frame?.inline && aside}
+  </>;
 }
 
 type SheetName = "repo" | "workspace" | "kind" | "checks" | "agent";
