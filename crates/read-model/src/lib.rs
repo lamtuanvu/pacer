@@ -12,7 +12,10 @@ pub mod tasks;
 pub mod wire;
 use pacer_foundation::Ctx;
 use serde_json::Value;
-pub use snapshot::{Probes, ReadModel, SnapshotInput, SnapshotResult, StatusInput};
+pub use snapshot::{
+    ActiveCounts, ActiveSession, Probes, ReadModel, SessionProbe, SnapshotInput, SnapshotResult,
+    StatusInput,
+};
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]

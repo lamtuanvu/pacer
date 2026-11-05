@@ -4,7 +4,7 @@ import { taskDatabase } from "../src/tasks/store";
 import { join, resolve, relative } from "node:path";
 import { readModelContext } from "../src/api/read-model";
 import { machineGuardState } from "../src/engine/machine";
-import { agentSessionsRevision } from "../src/session/agents-state";
+import { activeAgentSessions, agentSessionsRevision } from "../src/session/agents-state";
 import { loadStrategy } from "../src/config/strategy";
 import { validateExecution } from "../src/config/execution";
 import { policySummary } from "../src/plugins/policy";
@@ -36,7 +36,7 @@ function capture(ctx: Ctx, input: Record<string, unknown>, expected: unknown) {
   const db = taskDatabase(ctx);
   const tasks = db.query<{ record: string }, []>("SELECT record FROM tasks ORDER BY created_at DESC, id DESC").all().map(r => JSON.parse(r.record));
   const tables: Record<string, unknown[]> = {};
-  for (const table of ["messages", "msg_liveness"]) {
+  for (const table of ["messages", "msg_liveness", "agent_sessions"]) {
     if (db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)) tables[table] = db.query(`SELECT * FROM ${table} ORDER BY rowid`).all();
   }
   const files: Record<string, string> = {};
@@ -50,7 +50,18 @@ function capture(ctx: Ctx, input: Record<string, unknown>, expected: unknown) {
   walk(ctx.pacerHome);
   let serialized = JSON.stringify({ group: homes.indexOf(ctx.pacerHome), input, tasks, tables, files, expected });
   serialized = serialized.replaceAll(ctx.home, "$HOME").replaceAll(ctx.home.split("/").at(-1)!, "FIXTURE_HOME").replace(/local:[0-9a-f]{12}/g, "local:FIXTURE").replace(/m-\d{14}-[0-9a-f]{8}/g, "MESSAGE_ID");
-  tasks.forEach((task, i) => { serialized = serialized.replaceAll(task.id, `t-20261010-190000-${String(i + 1).padStart(4, "0")}`); });
+  // Normalize task ids without disturbing ordering. Both the TS owner and the
+  // Rust model sort tasks by updatedAt DESC and tie-break with the file
+  // store's id-DESC order, so the replacement ids must PRESERVE the lexical
+  // order of the originals (`a < b` <=> `norm(a) < norm(b)`). Assign
+  // monotonic fixed-width normalized ids in LEXICOGRAPHIC order of the
+  // originals (not the created_at-DESC capture order), then rewrite every
+  // reference with a single callback-map pass so no already-normalized id is
+  // rescanned (no generated-id collision). Kept-record sequence is unchanged.
+  const originalIds = [...new Set(tasks.map(t => t.id))].sort();
+  const normId = new Map(originalIds.map((id, i) => [id, `t-20261010-190000-${String(i + 1).padStart(4, "0")}`]));
+  const esc = originalIds.map(id => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).sort((a, b) => b.length - a.length);
+  if (esc.length) serialized = serialized.replace(new RegExp(esc.join("|"), "g"), m => normId.get(m)!);
   const parsed = JSON.parse(serialized);
   parsed.input.alive = [0];
   // PID normalization applies to console registrations in both inputs and wire output.
@@ -81,13 +92,14 @@ export async function rustRequest(ctx: Ctx, request: Record<string, unknown>, ex
   pending = pending.slice(index + 1);
   return result;
 }
-export async function rustSnapshot(ctx: Ctx, expected: unknown, options: { status?: (ctx: Ctx) => Promise<Status>; maxBudgetAgeS?: number }, protocol: 2 | 3): Promise<unknown> {
+export async function rustSnapshot(ctx: Ctx, expected: unknown, options: { status?: (ctx: Ctx) => Promise<Status>; maxBudgetAgeS?: number; includeSessions?: boolean }, protocol: 2 | 3): Promise<unknown> {
   const { setup } = await readModelContext(ctx);
   let execution;
   try { execution = loadStrategy(ctx).execution; } catch { execution = {}; }
   let status: Status | undefined, statusError: string | undefined;
   if (options.status) try { status = await options.status(ctx); } catch (e) { statusError = (e as Error).message; }
-  const actual = await rustRequest(ctx, { op: "snapshot", protocol, setup, policy: policySummary(ctx), machine: { agentSessionsRevision: agentSessionsRevision(ctx), os: "PLATFORM", arch: "ARCH", ...machineGuardState(validateExecution(execution)) }, service: { version: pkg.version, protocol: "3.0.0", pid: 0, startedAt: 0, notifier: null }, desktopUpdates: [], serviceInstalled: false, status, statusError, useCache: !options.status, maxBudgetAgeS: options.maxBudgetAgeS }, expected);
+  const sessions = options.includeSessions === false ? undefined : { revision: agentSessionsRevision(ctx), active: activeAgentSessions(ctx).map(s => ({ task_id: s.task_id, executor: s.executor })) };
+  const actual = await rustRequest(ctx, { op: "snapshot", protocol, setup, policy: policySummary(ctx), machine: { os: "PLATFORM", arch: "ARCH", ...machineGuardState(validateExecution(execution)) }, service: { version: pkg.version, protocol: "3.0.0", pid: 0, startedAt: 0, notifier: null }, desktopUpdates: [], serviceInstalled: false, status, statusError, useCache: !options.status, maxBudgetAgeS: options.maxBudgetAgeS, sessions }, expected);
   // Caller normalizes only nondeterministic home/id/platform values. Byte comparison
   // keeps key order, omitted fields, arrays and every other wire byte significant.
   return actual;

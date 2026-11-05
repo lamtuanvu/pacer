@@ -102,7 +102,7 @@ pub fn counts(
         if review(&t) {
             by_repo[key]["review"] = number(num(&by_repo[key]["review"]) + 1.0);
         }
-        if t["state"] == "running" {
+        if t["state"] == "running" || truth(&t["activeAgentSessions"]) {
             by_repo[key]["running"] = number(num(&by_repo[key]["running"]) + 1.0);
         }
     }
@@ -118,7 +118,7 @@ pub fn counts(
         }
     }
     json!({
-    "attention":attention.len(),"problems":attention.iter().filter(|a|a["severity"]!="decide").count(),"review":tasks.iter().filter(review).count(),"running":tasks.iter().filter(|t|t["state"]=="running").count(),"queued":tasks.iter().filter(|t|t["state"]=="queued").count(),"ready":executors.iter().filter(|e|e["rank"]!="planner"&&(e["eligibility"].is_null()||e["eligibility"]["state"]=="eligible")&&["ready","busy"].contains(&text(&e["state"]))).count(),"executors":executors.iter().filter(|e|e["rank"]!="planner").count(),"setupOpen":setup["open"],"hostsWithProblems":hosts.iter().filter(|h|["down","needs_setup"].contains(&text(&h["state"]))).count(),"byRepo":by_repo}
+    "attention":attention.len(),"problems":attention.iter().filter(|a|a["severity"]!="decide").count(),"review":tasks.iter().filter(review).count(),"running":tasks.iter().filter(|t|t["state"]=="running"||truth(&t["activeAgentSessions"])).count(),"queued":tasks.iter().filter(|t|t["state"]=="queued").count(),"ready":executors.iter().filter(|e|e["rank"]!="planner"&&(e["eligibility"].is_null()||e["eligibility"]["state"]=="eligible")&&["ready","busy"].contains(&text(&e["state"]))).count(),"executors":executors.iter().filter(|e|e["rank"]!="planner").count(),"setupOpen":setup["open"],"hostsWithProblems":hosts.iter().filter(|h|["down","needs_setup"].contains(&text(&h["state"]))).count(),"byRepo":by_repo}
     )
 }
 pub fn today(now: f64, tasks: &[Value], zone: chrono_tz::Tz) -> Value {
@@ -132,6 +132,7 @@ pub fn today(now: f64, tasks: &[Value], zone: chrono_tz::Tz) -> Value {
         .filter(|t| {
             t["source"] != "onboarding"
                 && !["running", "queued"].contains(&text(&t["state"]))
+                && !truth(&t["activeAgentSessions"])
                 && num(&t["updatedAt"]) >= since
         })
         .collect();

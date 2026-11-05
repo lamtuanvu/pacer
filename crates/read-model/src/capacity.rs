@@ -1,3 +1,4 @@
+use crate::snapshot::ActiveCounts;
 use crate::{js::*, read};
 use chrono::{Datelike, TimeZone, Timelike};
 use pacer_foundation::Ctx;
@@ -272,7 +273,13 @@ pub(crate) fn jobs(ctx: &Ctx) -> Vec<Value> {
     }
     out
 }
-pub fn executors(ctx: &Ctx, st: &Value, s: &Value, tasks: &[Value]) -> Vec<Value> {
+pub fn executors(
+    ctx: &Ctx,
+    active: &ActiveCounts,
+    st: &Value,
+    s: &Value,
+    tasks: &[Value],
+) -> Vec<Value> {
     let planner_id = text(&st["planner"]);
     let planner_id = runner(s, planner_id)["id"].as_str().unwrap_or(planner_id);
     let ids: Vec<String> = values(&s["runners"])
@@ -309,7 +316,7 @@ pub fn executors(ctx: &Ctx, st: &Value, s: &Value, tasks: &[Value]) -> Vec<Value
         .iter()
         .filter(|id| !id.is_empty())
         .enumerate()
-        .map(|(index, id)| executor(ctx, st, s, tasks, &jobs, planner_id, id, index))
+        .map(|(index, id)| executor(ctx, active, st, s, tasks, &jobs, planner_id, id, index))
         .collect();
     if let Some(id) = array(&st["executors"]["ranked"])
         .iter()
@@ -330,6 +337,7 @@ pub fn executors(ctx: &Ctx, st: &Value, s: &Value, tasks: &[Value]) -> Vec<Value
 #[allow(clippy::too_many_arguments)]
 fn executor(
     ctx: &Ctx,
+    active: &ActiveCounts,
     st: &Value,
     s: &Value,
     tasks: &[Value],
@@ -351,7 +359,8 @@ fn executor(
     let used = tasks
         .iter()
         .filter(|t| t["state"] == "running" && t["executor"] == id)
-        .count();
+        .count()
+        + active.executor(id);
     let host_max = s["hosts"][text(host)]["maxTasks"].as_f64();
     let max = r["maxTasks"].as_f64().or(host_max).unwrap_or(1.0);
     let shared = host_max.or_else(|| local_cap(s));
@@ -383,7 +392,12 @@ fn executor(
                         t["host"] == *host || runner(s, text(&t["executor"]))["host"] == *host
                     }
             })
-            .count();
+            .count()
+            // TS addAgentSessionSlots folds every session into use.local
+            // (sessions are local; byHost is never touched). The local cap
+            // block therefore counts all active sessions, the host cap branch
+            // (host set) stays task-only, matching use.byHost.
+            + if host.is_null() { active.total } else { 0 };
         (n as f64 >= cap).then(|| {
             format!(
                 "{} busy ({n}/{})",
