@@ -15,7 +15,8 @@ export function DesktopConnectionShell({ children }: { children: ComponentChildr
     if (shell) shell.hidden = !blocked;
   }, [blocked]);
   if (!platform.desktop) return <>{children}</>;
-  return <div hidden={blocked} inert={blocked || undefined}>
+  // pc-desktop-connection keeps the desktop height chain (#app → .pc-app → .pc-work) intact.
+  return <div className="pc-desktop-connection" hidden={blocked} inert={blocked || undefined}>
     {platform.desktop && connected.current && connection.status === 'reconnecting' && <p role="status">Reconnecting to pacer… Your workspace is kept here.</p>}
     {connection.warning && <p role="status">{connection.warning}</p>}
     {children}
