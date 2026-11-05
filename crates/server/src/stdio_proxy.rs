@@ -176,7 +176,9 @@ async fn forward_input<
         {
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
             // Planner install and backend readiness remain on the TypeScript path.
-            if !(op.name == "config.set" && crate::native::config_set_stays_forwarded(&params)) {
+            if !(op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
+                && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
+            {
                 let request_ctx = ctx.at_now();
                 let result = call_native(
                     &request_ctx,
