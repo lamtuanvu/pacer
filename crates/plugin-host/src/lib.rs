@@ -1,6 +1,7 @@
 //! Native plugin registry and capability library. The TypeScript host owns
-//! plugin processes until the P4d cutover. Process-owner / `PACER_HOST_SOCKET`
-//! scaffolding lives in `pacer-plugin-runtime` and is not wired into serve yet.
+//! plugin processes until the P4d cutover. `pacer-plugin-runtime::ProcessOwner`
+//! can hold live [`PluginProcess`] children in library tests; serve still does
+//! not wire ownership or `PACER_HOST_SOCKET`.
 
 mod admission;
 mod authority;

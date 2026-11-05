@@ -91,6 +91,17 @@ impl Registry {
         self.entries.get(id)
     }
 
+    /// Stable id/state pairs for optional ProcessOwner shadow sync (no children).
+    pub fn plugin_states(&self) -> Vec<(String, PluginState)> {
+        let mut states: Vec<_> = self
+            .entries
+            .iter()
+            .map(|(id, entry)| (id.clone(), entry.state))
+            .collect();
+        states.sort_by(|a, b| a.0.cmp(&b.0));
+        states
+    }
+
     /// Missing legacy grants have no policy marker: closed mode cannot prove them safe.
     pub fn policy_unavailable(&self, config: &crate::PluginsConfig) -> Vec<(String, String)> {
         let mut unavailable = vec![];

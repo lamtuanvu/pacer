@@ -1493,8 +1493,11 @@ dependencies = [
 name = "pacer-plugin-runtime"
 version = "0.0.0"
 dependencies = [
+ "pacer-plugin-host",
+ "serde_json",
  "tempfile",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

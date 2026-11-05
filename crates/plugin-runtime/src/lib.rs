@@ -1,9 +1,9 @@
-//! Unactivated process-owner and reverse-bridge shell for the P4d serve cutover.
+//! Process-owner and reverse-bridge shell for the P4d serve cutover.
 //!
 //! Production `serve` still leaves plugin children with TypeScript
-//! (`/_internal/plugins`). This crate names the ownership gate and the private
-//! `PACER_HOST_SOCKET` contract so later slices can wire them without inventing
-//! paths or flipping ownership early.
+//! (`/_internal/plugins`). Library callers may hold live [`PluginProcess`]
+//! children under [`ProcessOwner::native_for_tests`] without setting
+//! `PACER_HOST_SOCKET` or flipping serve ownership.
 
 mod host_bridge;
 mod owner;
@@ -13,3 +13,4 @@ pub use host_bridge::{
     prepare_host_run_dir,
 };
 pub use owner::{OwnerError, Ownership, ProcessOwner};
+pub use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, SpawnSpec};
