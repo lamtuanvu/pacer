@@ -212,6 +212,15 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
     return violations;
   }
   if (!/\.[cm]?[jt]sx?$/.test(path)) return [];
+  // Side content that belongs beside a screen must fill FrameSlot left/right (with an inline fallback), not a page-local column layout.
+  if (path.startsWith("app/src/screens/")) {
+    for (const match of source.matchAll(/\b(?:pc-tasks-page__columns|pc-new-task__cols)\b/g)) {
+      add(match.index ?? 0, "UI-28", "Page-local side columns are forbidden; fill FrameSlot name=\"left\"/\"right\" (with frame.inline fallback) instead.");
+    }
+    if (/\bPageColumns\b/.test(source) && !/\bFrameSlot\b/.test(source)) {
+      add(0, "UI-28", "PageColumns alone recreates a page-local side column; pair it with FrameSlot name=\"left\"/\"right\" for the shell panel and keep PageColumns only as the frame.inline fallback.");
+    }
+  }
   const inDs = path.startsWith("app/src/ds/");
   let file: t.File;
   try { file = parse(source, { sourceType: "unambiguous", plugins: ["typescript", "jsx"] }); }

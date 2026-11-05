@@ -18,7 +18,7 @@ import { useActions } from "../../data/action-context";
 import { Button } from "../../ds/Button";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { withQuery, type RouteQuery } from "../../router";
-import { PageHead } from "../../shell/slots";
+import { FrameSlot, PageHead, useFrame } from "../../shell/slots";
 import styles from './settings.css' with {type:'text'};
 const styledDocuments = new WeakSet<Document>();
 /** Constructed sheets keep these standalone screens compatible with the app's strict style CSP. */
@@ -43,11 +43,13 @@ export function Section({id,title,detail,actions,children,step}:{id:string;title
 /** Board page heading and block rhythm shared by the Slice 6b editors. */
 export function SettingsBoard({id,title,caption,actions,children,aside}:{id:string;title:string;caption:string;actions?:ComponentChildren;children:ComponentChildren;aside?:ComponentChildren}) {
  useSettingsStyles();
+ const frame = useFrame();
  const board = <section id={id} aria-label={title} className="pc-settings-board u3-settings-board">
   {children}
  </section>;
  return <><PageHead><header className="pc-settings-board__header u3-board-header"><h1>{title}</h1><p>{caption}</p>{actions&&<div className="u3-actions u3-board-actions">{actions}</div>}</header></PageHead>
- {aside ? <PageColumns layout="agents" main={board} aside={aside}/> : board}</>;
+ <FrameSlot name="right">{aside}</FrameSlot>
+ {aside && frame?.inline ? <PageColumns layout="agents" main={board} aside={aside}/> : board}</>;
 }
 export function resourceRevision(op: string, invalidations: Record<string, number>): string {
  const budget = budgetResourceRevision(op, invalidations);

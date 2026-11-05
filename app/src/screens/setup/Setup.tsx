@@ -18,7 +18,7 @@ import { SetupContext } from './context';
 import { createPlannerAutoInit, plannerOptions, nextSetupStep, signedOutRunners, setupRunners, type SetupConfig, completeRunnerOrder, SETUP_STEPS, SERVICE_CONSENT, changeExecutor, reviewFirstTask, type SetupStep, type AgentPreview } from './model';
 import { PlannerChoices, ConnectChanges, ExecutorList, FirstTaskReview, setupAgentName } from './steps';
 import { Page } from '../../ds/Page';
-import { PageHead } from '../../shell/slots';
+import { FrameSlot, PageHead, useFrame } from '../../shell/slots';
 
 const autoInitPlanner = createPlannerAutoInit();
 const titles = ['Planner', 'Background service', 'Connect your planner', 'Who does the work', 'Try a first task'];
@@ -58,7 +58,7 @@ function FirstRun({ id, run }: { id: string; run: (work: () => Promise<unknown>,
 }
 
 export function SetupView({ checklist: initial }: { checklist: SetupChecklist; query: RouteQuery }) {
-  const { api, state } = useTaskContext(), setup = useContext(SetupContext);
+  const { api, state } = useTaskContext(), setup = useContext(SetupContext), frame = useFrame();
   const [checklist, setChecklist] = useState(initial);
   const [current, setCurrent] = useState<SetupStep>(() => nextSetupStep(initial));
   const [visited, setVisited] = useState<string[]>([]);
@@ -126,21 +126,23 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
     'Summarize a short README in a scratch folder, never in your code. Review the result the way your planner will review real work.',
   ];
   function visit(id: SetupStep) { if (!busy) setCurrent(id); }
+  const rail = <aside className="pc-setup-rail"><ol aria-label="Setup steps">{SETUP_STEPS.map((id, index) => {
+    const done = checklist.items.find(i => i.id === id)?.status === 'done';
+    return <li key={id} aria-current={id === current ? 'step' : undefined} data-step={id}>
+      <span className="pc-setup-number">{done ? <><StatusGlyph status={{ label: 'Done', glyph: '✓', tone: 'good' }} /><span className="sr-only">Done</span></> : index + 1}</span>
+      <div><span>{id === 'connect' && planner ? `Connect ${plannerName}` : titles[index]}</span>
+        <div className="pc-setup-value muted">{done ? id === 'planner' ? <><AgentMark agent={runnerAgent(planner)} size={16} labelled={false} />{plannerName} · <Button variant="ghost" onClick={() => visit('planner')}>Change</Button></>
+          : id === 'service' ? 'Running at login' : id === 'connect' ? 'Connected'
+          : id === 'executor' ? <>{railExecutors.map(id => <AgentMark key={id} agent={runnerAgent(id)} size={16} />)}{railExecutors.length} {railExecutors.length === 1 ? 'agent' : 'agents'}</>
+          : 'Finished' : id === 'first' ? 'Optional' : visited.includes(id) ? <Button variant="ghost" onClick={() => visit(id)}>Skipped · return</Button> : 'Needs you'}</div>
+      </div>
+    </li>;
+  })}</ol>{version && <p className="muted pc-setup-version">Service {version}</p>}</aside>;
   return <Page width="full" className="pc-setup">
     <PageHead><header className="pc-setup-header"><h1>Set up pacer</h1><span className="muted" role="status">{policyWords(checklist.policy)} · {count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header></PageHead>
-    <div className="pc-setup-layout">
-      <aside className="pc-setup-rail"><ol aria-label="Setup steps">{SETUP_STEPS.map((id, index) => {
-        const done = checklist.items.find(i => i.id === id)?.status === 'done';
-        return <li key={id} aria-current={id === current ? 'step' : undefined} data-step={id}>
-          <span className="pc-setup-number">{done ? <><StatusGlyph status={{ label: 'Done', glyph: '✓', tone: 'good' }} /><span className="sr-only">Done</span></> : index + 1}</span>
-          <div><span>{id === 'connect' && planner ? `Connect ${plannerName}` : titles[index]}</span>
-            <div className="pc-setup-value muted">{done ? id === 'planner' ? <><AgentMark agent={runnerAgent(planner)} size={16} labelled={false} />{plannerName} · <Button variant="ghost" onClick={() => visit('planner')}>Change</Button></>
-              : id === 'service' ? 'Running at login' : id === 'connect' ? 'Connected'
-              : id === 'executor' ? <>{railExecutors.map(id => <AgentMark key={id} agent={runnerAgent(id)} size={16} />)}{railExecutors.length} {railExecutors.length === 1 ? 'agent' : 'agents'}</>
-              : 'Finished' : id === 'first' ? 'Optional' : visited.includes(id) ? <Button variant="ghost" onClick={() => visit(id)}>Skipped · return</Button> : 'Needs you'}</div>
-          </div>
-        </li>;
-      })}</ol>{version && <p className="muted pc-setup-version">Service {version}</p>}</aside>
+    <FrameSlot name="left">{rail}</FrameSlot>
+    <div className={`pc-setup-layout${frame?.inline ? "" : " pc-setup-layout--framed"}`}>
+      {frame?.inline && rail}
       <section className="pc-setup-panel" ref={panel} tabIndex={-1} aria-label={headings[step]}>
         <div><p className="pc-setup-eyebrow">Step {step + 1} of 5{current === 'first' ? ' · optional' : ''}</p><h2>{headings[step]}</h2><p className="pc-setup-explanation">{explanations[step]}</p></div>
         {current === 'planner' && <>

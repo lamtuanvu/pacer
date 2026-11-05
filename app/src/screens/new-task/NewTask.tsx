@@ -358,7 +358,7 @@ function NewTaskPage(p: ViewProps) {
     </PageHead>
     <Page width="full" className="pc-new-task">
       <FailureNotice p={p} />
-      <div className="pc-new-task__cols" onKeyDown={formKeys(p)}>
+      <div className="pc-new-task__body" onKeyDown={formKeys(p)}>
         <section aria-label="Task request" className="pc-new-task__form">
           <div className="pc-new-task__field">
             <label htmlFor="nt-request" className="pc-new-task__label">What should get done?</label>

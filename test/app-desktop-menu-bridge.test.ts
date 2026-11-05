@@ -109,7 +109,7 @@ test("no static or runtime capability grants dialog or filesystem permissions", 
 
 function layoutCloseState() {
   const closed: string[] = [];
-  return { closed, dockAvailable: false, dockOpen: false, workPanels: false, newTaskPanels: false, tasksPanels: false, inspectorOpen: false, taskPanels: false, detailsOpen: false, scopeOpen: false, tasksOpen: false, hasLeft: false, leftOpen: false,
+  return { closed, dockAvailable: false, dockOpen: false, workPanels: false, newTaskPanels: false, tasksPanels: false, tracePanels: false, agentsPanels: false, setupPanels: false, inspectorOpen: false, taskPanels: false, detailsOpen: false, scopeOpen: false, tasksOpen: false, hasLeft: false, leftOpen: false,
     setDockOpen: () => { closed.push("dock"); }, setInspectorOpen: () => { closed.push("inspector"); }, setDetailsOpen: () => { closed.push("details"); }, setScopeOpen: () => { closed.push("scope"); }, setTasksOpen: () => { closed.push("tasks"); }, setLeftOpen: () => { closed.push("left"); } };
 }
 
@@ -131,10 +131,13 @@ test("Layout Close skips disabled tab buttons and closes only the first availabl
       [{ workPanels: true, inspectorOpen: true, scopeOpen: true }, "inspector"],
       [{ newTaskPanels: true, inspectorOpen: true }, "inspector"],
       [{ tasksPanels: true, inspectorOpen: true }, "inspector"],
+      [{ tracePanels: true, inspectorOpen: true }, "inspector"],
+      [{ agentsPanels: true, inspectorOpen: true }, "inspector"],
       [{ taskPanels: true, detailsOpen: true, tasksOpen: true }, "details"],
       [{ workPanels: true, scopeOpen: true }, "scope"],
       [{ taskPanels: true, tasksOpen: true }, "tasks"],
       [{ hasLeft: true, leftOpen: true }, "left"],
+      [{ setupPanels: true, leftOpen: true }, "left"],
     ] as const) {
       const state = { ...layoutCloseState(), ...flags };
       expect(closeLayoutView(state, { querySelector: () => tab })).toBe(true);

@@ -43,7 +43,7 @@ function AssistantLoader(props: { route: Route; narrow: boolean; repo: string | 
 }
 
 interface LayoutCloseState {
-  dockAvailable: boolean; dockOpen: boolean; workPanels: boolean; newTaskPanels: boolean; tasksPanels: boolean; inspectorOpen: boolean; taskPanels: boolean; detailsOpen: boolean; scopeOpen: boolean; tasksOpen: boolean; hasLeft: boolean; leftOpen: boolean;
+  dockAvailable: boolean; dockOpen: boolean; workPanels: boolean; newTaskPanels: boolean; tasksPanels: boolean; tracePanels: boolean; agentsPanels: boolean; setupPanels: boolean; inspectorOpen: boolean; taskPanels: boolean; detailsOpen: boolean; scopeOpen: boolean; tasksOpen: boolean; hasLeft: boolean; leftOpen: boolean;
   setDockOpen: (open: boolean) => void; setInspectorOpen: (open: boolean) => void; setDetailsOpen: (open: boolean) => void; setScopeOpen: (open: boolean) => void; setTasksOpen: (open: boolean) => void; setLeftOpen: (open: boolean) => void;
 }
 interface LayoutCloseDocument {
@@ -62,17 +62,17 @@ export function closeOpenDialog(document: { querySelectorAll(selector: string): 
 }
 /** The same close cascade used by the desktop command, with a small document seam for tests. */
 export function closeLayoutView(state: LayoutCloseState, document: LayoutCloseDocument): boolean {
-  const { dockAvailable, dockOpen, workPanels, newTaskPanels, tasksPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen } = state;
+  const { dockAvailable, dockOpen, workPanels, newTaskPanels, tasksPanels, tracePanels, agentsPanels, setupPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen } = state;
   // Reuse the selected workspace tab's existing close action, including its state cleanup.
   const tab = document.querySelector('[id^="workspace-panels-"][role="tab"][aria-selected="true"]');
   const close = tab?.parentElement?.querySelector('button[aria-label^="Close "]');
   if (close && !close.disabled) { close.click(); return true; }
   if (dockAvailable && dockOpen) { setDockOpen(false); return true; }
-  if ((workPanels || newTaskPanels || tasksPanels) && inspectorOpen) { setInspectorOpen(false); return true; }
+  if ((workPanels || newTaskPanels || tasksPanels || tracePanels || agentsPanels) && inspectorOpen) { setInspectorOpen(false); return true; }
   if (taskPanels && detailsOpen) { setDetailsOpen(false); return true; }
   if (workPanels && scopeOpen) { setScopeOpen(false); return true; }
   if (taskPanels && tasksOpen) { setTasksOpen(false); return true; }
-  if (hasLeft && leftOpen) { setLeftOpen(false); return true; }
+  if ((hasLeft || setupPanels) && leftOpen) { setLeftOpen(false); return true; }
   return false;
 }
 
@@ -99,7 +99,10 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
     return () => { window.removeEventListener("pacer:density", sync); window.removeEventListener("storage", sync); };
   }, []);
   const context = useContext(TaskContext), Panel = context ? SettingsPanelData : SettingsPanel;
-  const [leftOpen, setLeftOpen] = usePanelState("settings", true);
+  const [settingsOpen, setSettingsOpen] = usePanelState("settings", true);
+  const [setupRailOpen, setSetupRailOpen] = usePanelState("setup.rail", true);
+  const leftOpen = route.name === "setup" ? setupRailOpen : settingsOpen;
+  const setLeftOpen = route.name === "setup" ? setSetupRailOpen : setSettingsOpen;
   const [dockOpen, setDockOpen] = usePanelState("dock", false);
   const opener = useRef<HTMLElement | null>(null);
   const [palette, setPalette] = useState(false), [setupOpen, setSetupOpen] = useState(false);
@@ -134,7 +137,11 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
   const newTaskPanels = !narrow && wide && route.name === "new-task";
   // The Tasks board fills the right panel with the selected task; its own task route (with an id) renders Trace instead.
   const tasksPanels = !narrow && wide && route.name === "sessions" && !route.id;
+  const tracePanels = !narrow && wide && ((route.name === "sessions" && !!route.id) || route.name === "task-review" || route.name === "task-failure");
+  const agentsPanels = !narrow && wide && route.name === "settings" && route.section === "executors";
+  const setupPanels = !narrow && wide && route.name === "setup";
   const taskPanels = !narrow && wide && route.name === "terminal" && !!context && !state.sessionEnded;
+  const rightInspector = workPanels || newTaskPanels || tasksPanels || tracePanels || agentsPanels;
   // Both panels start open only where the session keeps room beside them; a saved choice always wins.
   const roomy = typeof matchMedia === "function" && matchMedia("(min-width: 1100px)").matches;
   const [tasksOpen, setTasksOpen] = usePanelState("tasks", roomy);
@@ -143,9 +150,9 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null), [leftSlot, setLeftSlot] = useState<HTMLElement | null>(null);
   const [rightSlot, setRightSlot] = useState<HTMLElement | null>(null), [heading, setHeading] = useState<FrameHeading | null>(null);
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
-  const slots = useMemo(() => ({ title: titleSlot, actions: actionSlot, left: leftSlot, right: rightSlot, header: headerSlot, inline: !taskPanels && !workPanels && !newTaskPanels && !tasksPanels, heading: setHeading,
+  const slots = useMemo(() => ({ title: titleSlot, actions: actionSlot, left: leftSlot, right: rightSlot, header: headerSlot, inline: !taskPanels && !workPanels && !newTaskPanels && !tasksPanels && !tracePanels && !agentsPanels && !setupPanels, heading: setHeading,
     sessions: workPanels ? { open: scopeOpen, toggle: () => setScopeOpen(!scopeOpen) } : taskPanels ? { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } : undefined,
-    details: newTaskPanels ? {open:inspectorOpen,toggle:()=>setInspectorOpen(!inspectorOpen)} : tasksPanels ? {open:inspectorOpen,toggle:()=>setInspectorOpen(!inspectorOpen)} : workPanels ? { open: inspectorOpen, toggle: () => setInspectorOpen(!inspectorOpen) } : taskPanels ? { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen) } : undefined }), [titleSlot, actionSlot, leftSlot, rightSlot, headerSlot, taskPanels, tasksOpen, detailsOpen, workPanels, scopeOpen, inspectorOpen, newTaskPanels, tasksPanels, route.name]);
+    details: rightInspector ? { open: inspectorOpen, toggle: () => setInspectorOpen(!inspectorOpen) } : taskPanels ? { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen) } : undefined }), [titleSlot, actionSlot, leftSlot, rightSlot, headerSlot, taskPanels, tasksOpen, detailsOpen, workPanels, scopeOpen, inspectorOpen, newTaskPanels, tasksPanels, tracePanels, agentsPanels, setupPanels, rightInspector, route.name]);
   // One terminal screen at a time, and only where the full desktop frame (and a service connection) exists.
   const dockAvailable = showStatusBar && wide && !!context && route.name !== "terminal" && !state.sessionEnded;
   const toggleDock = () => {
@@ -155,16 +162,16 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
     setDockOpen(!dockOpen);
   };
   useLayoutEffect(() => {
-    const offs = panelCommands(workPanels ? () => setScopeOpen(!scopeOpen) : hasLeft ? () => setLeftOpen(!leftOpen) : taskPanels ? () => setTasksOpen(!tasksOpen) : undefined,
-      dockAvailable ? toggleDock : undefined, workPanels || newTaskPanels || tasksPanels ? () => setInspectorOpen(!inspectorOpen) : taskPanels ? () => setDetailsOpen(!detailsOpen) : undefined).map(command => commands.register(command));
+    const offs = panelCommands(workPanels ? () => setScopeOpen(!scopeOpen) : hasLeft || setupPanels ? () => setLeftOpen(!leftOpen) : taskPanels ? () => setTasksOpen(!tasksOpen) : undefined,
+      dockAvailable ? toggleDock : undefined, rightInspector ? () => setInspectorOpen(!inspectorOpen) : taskPanels ? () => setDetailsOpen(!detailsOpen) : undefined).map(command => commands.register(command));
     return () => offs.forEach(off => off());
-  }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen, workPanels, scopeOpen, inspectorOpen, newTaskPanels, tasksPanels, route.name]);
+  }, [hasLeft, leftOpen, taskPanels, tasksOpen, detailsOpen, dockAvailable, dockOpen, workPanels, scopeOpen, inspectorOpen, newTaskPanels, tasksPanels, tracePanels, agentsPanels, setupPanels, rightInspector, route.name]);
   useLayoutEffect(() => {
     if (!isDesktop()) return;
     return registerViewClose(commands, { apple: isMacPlatform(), hide: () => { void windowControls().close(); }, close: () => {
-      return closeOpenDialog(document) || closeLayoutView({ dockAvailable, dockOpen, workPanels, newTaskPanels, tasksPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen }, document);
+      return closeOpenDialog(document) || closeLayoutView({ dockAvailable, dockOpen, workPanels, newTaskPanels, tasksPanels, tracePanels, agentsPanels, setupPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, setDockOpen, setInspectorOpen, setDetailsOpen, setScopeOpen, setTasksOpen, setLeftOpen }, document);
     } });
-  }, [dockAvailable, dockOpen, workPanels, newTaskPanels, tasksPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, route.name]);
+  }, [dockAvailable, dockOpen, workPanels, newTaskPanels, tasksPanels, tracePanels, agentsPanels, setupPanels, inspectorOpen, taskPanels, detailsOpen, scopeOpen, tasksOpen, hasLeft, leftOpen, route.name]);
   // Dispatcher commands exist only where the service offers the operation (UI-13).
   const paused = !!state.snapshot?.pause, ops = state.features.ops, api = context?.api;
   // The UI has its own API client, separate from the store's snapshot transport.
@@ -208,20 +215,21 @@ export function Layout({ route, loadingRoute = route, state, title, onDelegate =
   const loading = !state.snapshot;
   const outdated = !loading && NEEDS_READ_MODEL.has(route.name) && !state.features.readModel;
   // Dispatcher still relies on the shell for its h1 on narrow layouts; settings (including Assistant) own PageHead.
-  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={narrow && route.name === "dispatch" || route.name !== "new-task" && (route.name !== "sessions" || !!route.id) && route.name !== "terminal" && !pageOwnsTitle(route) && route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && route.name !== "settings" && route.name !== "add-executor" && (route.name !== "hosts" || (!!route.alias && !!state.snapshot?.hosts?.some(host => host.alias === route.alias)))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(workPanels ? { left: { open: scopeOpen, toggle: () => setScopeOpen(!scopeOpen) } } : hasLeft ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
-      ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}), ...(workPanels || newTaskPanels || tasksPanels ? { right: { open: inspectorOpen, toggle: () => setInspectorOpen(!inspectorOpen), label: "Inspector", keys: isMacPlatform() ? "Alt+Meta+B" : "Alt+Control+B" } } : taskPanels ? { right: { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen), label: "details panel", keys: isMacPlatform() ? "Alt+Meta+B" : "Alt+Control+B" } } : {}) }}
+  const topBar = <TopBar narrow={narrow} title={title} planner={state.snapshot?.planner ?? null} mode={state.snapshot?.mode?.mode ?? ""} connected={state.connected} lastUpdate={state.snapshot?.at ?? null} onDelegate={onDelegate} delegate={route.name !== "dispatch"} pageTitle={narrow && route.name === "dispatch" || route.name !== "new-task" && (route.name !== "sessions" || !!route.id) && route.name !== "terminal" && !pageOwnsTitle(route) && route.name !== "dispatch" && route.name !== "review" && route.name !== "plugin" && route.name !== "settings" && route.name !== "add-executor" && (route.name !== "hosts" || (!!route.alias && !!state.snapshot?.hosts?.some(host => host.alias === route.alias)))} plannerFigure={route.name !== "dispatch"} search={searchable ? <CommandTrigger onOpen={togglePalette} /> : undefined} narrowSearch={searchable ? <CommandTrigger narrow onOpen={togglePalette} /> : undefined} brand={<AppLink className="pc-topbar__home" to={routes.dispatch()} query={route.query} aria-label="pacer home"><Mark size={18} wordmark={false} /></AppLink>} panels={{ ...(workPanels ? { left: { open: scopeOpen, toggle: () => setScopeOpen(!scopeOpen) } } : hasLeft || setupPanels ? { left: { open: leftOpen, toggle: () => setLeftOpen(!leftOpen) } } : taskPanels ? { left: { open: tasksOpen, toggle: () => setTasksOpen(!tasksOpen) } } : {}),
+      ...(dockAvailable ? { dock: { open: dockOpen, toggle: toggleDock } } : {}), ...(rightInspector ? { right: { open: inspectorOpen, toggle: () => setInspectorOpen(!inspectorOpen), label: "Inspector", keys: isMacPlatform() ? "Alt+Meta+B" : "Alt+Control+B" } } : taskPanels ? { right: { open: detailsOpen, toggle: () => setDetailsOpen(!detailsOpen), label: "details panel", keys: isMacPlatform() ? "Alt+Meta+B" : "Alt+Control+B" } } : {}) }}
     heading={heading} context={setTitleSlot} actions={setActionSlot} showActions={route.name !== "setup"} />;
   const settings = SETTINGS.has(route.name) && (hasLeft
     ? <SidePanel side="left" label="Settings" bar={false} open={leftOpen} onToggle={setLeftOpen}><Panel route={route} counts={counts} snapshot={state.snapshot} embedded /></SidePanel>
     : <Panel route={route} counts={counts} snapshot={state.snapshot} />);
+  const setupRail = setupPanels && <SidePanel side="left" label="Setup steps" wide bar={false} open={leftOpen} onToggle={setLeftOpen}><div id="pc-side-panel-left" ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
   const tasks = taskPanels && <SidePanel side="left" label="Workspace" resize={{key:"pacer.workspace.left-width",initial:272,min:200,max:480}} wide bar={false} contentToggle open={tasksOpen} onToggle={setTasksOpen}><div ref={setLeftSlot} className="pc-frame-slot" /></SidePanel>;
   const details = taskPanels && <SidePanel side="right" label="Task" resize={{key:"pacer.workspace.right-width",initial:320,min:260,max:560}} open={detailsOpen} onToggle={setDetailsOpen} bar={false}><div ref={setRightSlot} className="pc-frame-slot" /></SidePanel>;
   return <NarrowContext.Provider value={narrow}><FrameContext.Provider value={slots}><DensityProvider value={density}><AppFrame narrow={narrow}
     header={setHeaderSlot}
     top={narrow && route.name === "setup" ? null : topBar}
     activity={<Rail terminal={dockAvailable ? {open:dockOpen,toggle:toggleDock} : undefined} route={route} counts={counts} narrow={narrow} settingsAttention={settingsAttention(state.snapshot)} />}
-    left={settings || tasks || (workPanels && scopeOpen && <aside className="pc-side-panel pc-side-panel--left pc-side-panel--wide pc-scope-panel" aria-label="Scope"><div id="pc-side-panel-left" ref={setLeftSlot} className="pc-frame-slot" /></aside>)}
-    right={details || ((workPanels || newTaskPanels || tasksPanels) && inspectorOpen && <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector"><div id="pc-side-panel-right" ref={setRightSlot} className="pc-frame-slot" /></aside>)}
+    left={settings || setupRail || tasks || (workPanels && scopeOpen && <aside className="pc-side-panel pc-side-panel--left pc-side-panel--wide pc-scope-panel" aria-label="Scope"><div id="pc-side-panel-left" ref={setLeftSlot} className="pc-frame-slot" /></aside>)}
+    right={details || (rightInspector && inspectorOpen && <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector"><div id="pc-side-panel-right" ref={setRightSlot} className="pc-frame-slot" /></aside>)}
     live={offlineBanner && !state.connected && state.snapshot ? <OfflineNotice lastUpdate={state.snapshot.at} /> : state.connected && state.snapshot?.service?.waiting?.kind === "folder" ? <div className="connection-bar"><span className="connection-bar__glyph" aria-hidden="true">◐</span><span>pacer is waiting to read {state.snapshot.service.waiting.path}. The app remains available while it waits.</span></div> : null}
     mainClass={`pc-main${taskPanels?" pc-main--workbench":""}${loading || !outdated && ["task-failure","task-review","new-task","insights","dispatch","review","settings","hosts","add-executor","sessions","terminal","setup"].includes(route.name)?" pc-main--canvas":""}`}
     main={loading ? <Skeleton layout={SETTINGS.has(loadingRoute.name) ? "settings" : ["task-review", "task-failure"].includes(loadingRoute.name) ? "task" : loadingRoute.name === "sessions" ? (loadingRoute.id ? "task" : "list") : loadingRoute.name === "review" ? "list" : "dashboard"} label={loadingRoute.name === "sessions" && loadingRoute.id ? "Loading the task" : `Loading ${loadingRoute.name === "sessions" ? "tasks" : loadingRoute.name === "review" ? "Needs you" : SETTINGS.has(loadingRoute.name) ? "settings" : "Dispatch"}`} /> : route.name === "loading" ? <p role="status">Checking setup…</p> : outdated ? <section className="pc-notice"><SectionHeading>Update pacer to use this view</SectionHeading><p>This screen needs a newer pacer service. Run <code>pacer update</code>, then reload this page.</p></section> : <DensityContext.Provider value={SETTINGS.has(route.name) ? "settings" : density}>{children}</DensityContext.Provider>}
