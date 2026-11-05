@@ -1,5 +1,12 @@
 //! Pure input handling for settings; no operation is registered here.
 
+mod host;
+pub use host::{
+    ConfigHostFields, ExecutionGuardLimits, MachineSignals, TerminalChoice, TerminalPlatform,
+    compose_host_fields, filter_terminal_choices, host_fields_from_parts, machine_host_fields,
+    terminal_catalogue,
+};
+
 /// Trim the ECMAScript WhiteSpace and LineTerminator code points.
 pub fn js_trim(value: &str) -> &str {
     pacer_foundation::js_semantics::js_trim(value)
@@ -339,8 +346,10 @@ fn canonical_numbers(value: &mut Value) {
     }
 }
 
-/// Pure config.get read model. The caller supplies host-dependent fields unchanged:
-/// terminal availability, current machine guard/slots and planner candidates.
+/// Pure config.get read model. The caller supplies host-dependent fields unchanged
+/// (`terminalChoices`, `machine`, `planners`) — build them with
+/// [`compose_host_fields`] / [`host_fields_from_parts`] so Rust never probes
+/// terminals, machine signals or planner accounts itself.
 pub fn get_settings(
     path: &Path,
     name: &str,

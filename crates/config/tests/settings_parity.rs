@@ -73,6 +73,10 @@ fn all_pure_settings_match_typescript_results_errors_and_edits() {
 
 #[test]
 fn read_dependencies_and_backend_override_are_explicit() {
+    use pacer_config::settings::{
+        ExecutionGuardLimits, MachineSignals, TerminalPlatform, compose_host_fields,
+        host_fields_from_parts,
+    };
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../test/fixtures/config-settings/settings.json"
     ))
@@ -80,7 +84,23 @@ fn read_dependencies_and_backend_override_are_explicit() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("strategy.yaml");
     fs::write(&path, fixture["base"].as_str().unwrap()).unwrap();
-    let host = json!({"terminalChoices":[{"value":"auto","label":"Automatic"}],"machine":{"used":3},"planners":["codex"]});
+    let host = compose_host_fields(&host_fields_from_parts(
+        TerminalPlatform::Other,
+        &[],
+        3,
+        &MachineSignals {
+            memory_pressure: Some("normal".into()),
+            load_per_core: Some(0.2),
+        },
+        &ExecutionGuardLimits::default(),
+        &["codex".into()],
+    ));
+    assert_eq!(
+        host["terminalChoices"],
+        json!([{"value":"auto","label":"Automatic"}])
+    );
+    assert_eq!(host["machine"]["used"], json!(3));
+    assert_eq!(host["planners"], json!(["codex"]));
     for (env, value, source) in [
         (None, "direct", "default"),
         (Some(""), "direct", "default"),
