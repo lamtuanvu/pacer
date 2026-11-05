@@ -1,18 +1,24 @@
-//! Optional P4d-1/P4d-2 native plugin-host wiring for serve.
+//! Optional P4d-1/P4d-4 native plugin-host wiring for serve.
 //!
 //! Default serve does not start this path. When `PACER_NATIVE_PLUGIN_HOST` or
 //! `PACER_HOST_BRIDGE` is set, [`maybe_start`] claims a native ProcessOwner,
-//! binds the reverse bridge with live call/find dispatch, and returns Core env
-//! pairs (`PACER_HOST_SOCKET`).
+//! binds the reverse bridge with live call/find/spawn/stop dispatch, and returns
+//! Core env pairs (`PACER_HOST_SOCKET`). The shared owner is attached to the
+//! HTTP plugin service so flag-on native ops spawn children there instead of in
+//! TypeScript.
 
-use pacer_plugin_runtime::{NativeHostSession, native_plugin_host_enabled_from_env};
-use std::{collections::HashMap, io, path::Path};
+use pacer_plugin_runtime::{NativeHostSession, SharedOwner, native_plugin_host_enabled_from_env};
+use std::{collections::HashMap, io, path::Path, sync::Arc};
 
 pub(super) struct Guard {
     session: NativeHostSession,
 }
 
 impl Guard {
+    pub(super) fn owner(&self) -> SharedOwner {
+        Arc::clone(self.session.owner())
+    }
+
     pub(super) async fn shutdown(self) {
         self.session.shutdown().await;
     }

@@ -6,8 +6,9 @@
 //! Stub (no-owner) call/find stay in reverse_bridge::fixture_dial_plugin_call_and_find_stubs.
 
 use pacer_plugin_runtime::{
-    HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, NativeHostSession, SpawnSpec,
-    native_plugin_host_enabled, serve_starts_reverse_bridge_by_default,
+    HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN,
+    METHOD_PLUGIN_STOP, NativeHostSession, SpawnSpec, native_plugin_host_enabled,
+    serve_starts_reverse_bridge_by_default,
 };
 use serde_json::{Value, json};
 use std::{env, fs, os::unix::fs::MetadataExt, path::Path, time::Duration};
@@ -175,5 +176,83 @@ async fn live_call_and_find_against_fixture_under_owner() {
         let mut owner = session.owner().lock().await;
         owner.terminate("fx-bridge").await.unwrap();
     }
+    session.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bridge_spawn_and_stop_under_owner() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let script = r#"const reader=Bun.stdin.stream().getReader();let text='';for(;;){const {value,done}=await reader.read();if(done)break;text+=new TextDecoder().decode(value);while(text.includes('\n')){const cut=text.indexOf('\n');const line=text.slice(0,cut);text=text.slice(cut+1);const m=JSON.parse(line);if(m.method==='probe')console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{ok:true}}));}}"#;
+    let peer = peer(script);
+    tokio::task::yield_now().await;
+
+    let spawn_params = json!({
+        "id":"fx-spawn",
+        "argv":peer.argv,
+        "cwd":peer.cwd.display().to_string(),
+        "env":peer.env,
+    });
+    let spawned = dial_json(
+        &path,
+        json!({
+            "jsonrpc":"2.0",
+            "id":20,
+            "method":METHOD_PLUGIN_SPAWN,
+            "params":spawn_params,
+        }),
+    )
+    .await;
+    assert!(spawned.get("error").is_none(), "{spawned}");
+    assert_eq!(spawned["result"]["created"], true);
+    assert_eq!(spawned["result"]["id"], "fx-spawn");
+    assert!(spawned["result"]["pid"].as_u64().is_some());
+
+    let again = dial_json(
+        &path,
+        json!({
+            "jsonrpc":"2.0",
+            "id":21,
+            "method":METHOD_PLUGIN_SPAWN,
+            "params":{
+                "id":"fx-spawn",
+                "argv":peer.argv,
+                "cwd":peer.cwd.display().to_string(),
+                "env":peer.env,
+            }
+        }),
+    )
+    .await;
+    assert_eq!(again["result"]["created"], false);
+    assert_eq!(again["result"]["pid"], spawned["result"]["pid"]);
+
+    let call = dial_json(
+        &path,
+        json!({
+            "jsonrpc":"2.0",
+            "id":22,
+            "method":METHOD_PLUGIN_CALL,
+            "params":{"id":"fx-spawn","method":"probe","params":{}}
+        }),
+    )
+    .await;
+    assert!(call.get("error").is_none(), "{call}");
+    assert_eq!(call["result"]["ok"], true);
+
+    let stopped = dial_json(
+        &path,
+        json!({"jsonrpc":"2.0","id":23,"method":METHOD_PLUGIN_STOP,"params":{"id":"fx-spawn"}}),
+    )
+    .await;
+    assert_eq!(stopped["result"]["stopped"], true);
+
+    let missing = dial_json(
+        &path,
+        json!({"jsonrpc":"2.0","id":24,"method":METHOD_PLUGIN_STOP,"params":{"id":"fx-spawn"}}),
+    )
+    .await;
+    assert_eq!(missing["result"]["stopped"], false);
+
     session.shutdown().await;
 }

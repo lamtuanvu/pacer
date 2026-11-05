@@ -205,6 +205,7 @@ mod tests {
         }
         assert!(registry("").get("config.get").is_none());
         assert!(registry("").get("activity.list").is_some());
+        // Stdio keeps retired install in TypeScript; HTTP registers the refuse.
         assert!(registry("").get("plugin.install").is_none());
         assert!(registry("plugin.install").get("plugin.install").is_none());
         assert!(registry("").get("task.log").is_some());
@@ -248,8 +249,13 @@ mod tests {
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
         }
         assert!(super::service_registry("").get("config.get").is_none());
-        // Retired install stays forwarded; stdio keeps every plugin op in TypeScript.
-        assert!(super::service_registry("").get("plugin.install").is_none());
+        // P4d-4: retired install is native HTTP refuse; stdio stays TypeScript.
+        assert!(super::service_registry("").get("plugin.install").is_some());
+        assert!(
+            super::service_registry("plugin.install")
+                .get("plugin.install")
+                .is_none()
+        );
         assert!(registry("").get("plugin.install").is_none());
         assert!(super::service_registry("*").names().is_empty());
         assert!(registry("").get("plugin.list").is_none());

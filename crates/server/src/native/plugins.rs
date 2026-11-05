@@ -1,8 +1,11 @@
-//! Public plugin handlers use Core's single process owner over generation-private IPC.
+//! Public plugin handlers use Core's process snapshot over generation-private IPC.
 //! No public request can choose a target, token, process, path or arbitrary method.
 //!
-//! P4d-3 registers X3 mutation ops on HTTP via the same private channel as the
-//! four reads. Stdio keeps plugin ops in TypeScript (no second process owner).
+//! P4d-3 registers X3 mutation ops on HTTP via the private channel as the four
+//! reads. P4d-4 registers retired `plugin.install` (refuse parity) and, when
+//! `PACER_NATIVE_PLUGIN_HOST` is on, routes plugin RPC spawn/call/stop through
+//! the serve [`SharedOwner`] so TypeScript does not also own those children.
+//! Stdio keeps plugin ops in TypeScript (no second process owner).
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use crate::serve::core_child::CoreChild;
 use axum::{body::Body, http::Request};
@@ -18,6 +21,7 @@ use pacer_plugin_ops::{
     mutations::{MUTATION_OPERATIONS, MutationOperations, MutationRuntime},
     public::{Entry, PublicOperations, Runtime},
 };
+use pacer_plugin_runtime::{SharedOwner, SpawnSpec};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -34,14 +38,12 @@ fn requires_owner(_: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 
-/// HTTP-native plugin ops: four reads plus X3 mutations except retired `plugin.install`.
+/// HTTP-native plugin ops: four reads plus X3 mutations including retired install.
 pub(super) fn registered_names() -> impl Iterator<Item = &'static str> {
-    pacer_plugin_ops::public::OPERATIONS.iter().copied().chain(
-        MUTATION_OPERATIONS
-            .iter()
-            .copied()
-            .filter(|name| *name != "plugin.install"),
-    )
+    pacer_plugin_ops::public::OPERATIONS
+        .iter()
+        .copied()
+        .chain(MUTATION_OPERATIONS.iter().copied())
 }
 
 pub(super) fn operations() -> Vec<NativeOp> {
@@ -54,7 +56,7 @@ pub(super) fn operations() -> Vec<NativeOp> {
 }
 
 pub(crate) fn is_mutation(op: &str) -> bool {
-    MUTATION_OPERATIONS.contains(&op) && op != "plugin.install"
+    MUTATION_OPERATIONS.contains(&op)
 }
 
 pub(crate) fn is_read(op: &str) -> bool {
@@ -70,12 +72,34 @@ struct Epochs {
 
 /// Ops and reads stay off the epoch lock so a long plugin RPC cannot stall
 /// independent list/settings/action requests (parity with TS admission).
-#[derive(Default)]
 pub struct Service {
     ops: MutationOperations,
     reads: PublicOperations,
     epochs: tokio::sync::Mutex<Epochs>,
     actions: Arc<Mutex<HashSet<String>>>,
+    /// Flag-on serve ProcessOwner. Absent under default TypeScript ownership.
+    native_owner: Option<SharedOwner>,
+}
+
+impl Default for Service {
+    fn default() -> Self {
+        Self {
+            ops: MutationOperations::default(),
+            reads: PublicOperations::default(),
+            epochs: tokio::sync::Mutex::new(Epochs::default()),
+            actions: Arc::new(Mutex::new(HashSet::new())),
+            native_owner: None,
+        }
+    }
+}
+
+impl Service {
+    pub fn with_native_owner(owner: SharedOwner) -> Self {
+        Self {
+            native_owner: Some(owner),
+            ..Self::default()
+        }
+    }
 }
 
 struct ActionGuard {
@@ -99,6 +123,24 @@ impl Service {
         op: &str,
         params: Value,
     ) -> Result<Value, CoreError> {
+        // Retired Orca install: refuse without Core IPC (parity with TS handler).
+        if op == "plugin.install" {
+            return self
+                .ops
+                .call(
+                    ctx,
+                    &mut Owner {
+                        target: (0, String::new()),
+                        entries: vec![],
+                        resets: HashSet::new(),
+                        logs: vec![],
+                        native_owner: None,
+                    },
+                    op,
+                    params,
+                )
+                .await;
+        }
         let target = core
             .target()
             .await
@@ -108,6 +150,7 @@ impl Service {
             entries: vec![],
             resets: HashSet::new(),
             logs: vec![],
+            native_owner: self.native_owner.clone(),
         };
         // Parameter and manifest-surface checks precede action admission, including
         // a concurrent request which will be refused before waiting on UI state.
@@ -216,7 +259,7 @@ impl Service {
                 .request(json!({"kind":"log", "id":id, "message":message}))
                 .await;
         }
-        if result.is_ok() && is_mutation(op) {
+        if result.is_ok() && is_mutation(op) && op != "plugin.install" {
             runtime.request(json!({"kind":"publish", "op":op})).await?;
         }
         result
@@ -228,6 +271,7 @@ struct Owner {
     entries: Vec<Value>,
     resets: HashSet<String>,
     logs: Vec<(String, String)>,
+    native_owner: Option<SharedOwner>,
 }
 
 impl Owner {
@@ -326,6 +370,108 @@ fn decode_error(e: &Value) -> CoreError {
     error
 }
 
+impl Owner {
+    async fn call_native(
+        &mut self,
+        id: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, CoreError> {
+        let Some(owner) = self.native_owner.clone() else {
+            return self
+                .request(json!({"kind":"call", "id":id, "method":method, "params":params}))
+                .await;
+        };
+        let spec_body = self.request(json!({"kind":"spawn_spec", "id":id})).await?;
+        let argv = spec_body["argv"]
+            .as_array()
+            .ok_or_else(|| internal("spawn_spec missing argv"))?
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if argv.is_empty() {
+            return Err(internal("spawn_spec empty argv"));
+        }
+        let cwd = spec_body["cwd"]
+            .as_str()
+            .ok_or_else(|| internal("spawn_spec missing cwd"))?;
+        let mut env = HashMap::new();
+        if let Some(object) = spec_body["env"].as_object() {
+            for (key, value) in object {
+                if let Some(text) = value.as_str() {
+                    env.insert(key.clone(), text.to_owned());
+                }
+            }
+        }
+        let hello = spec_body
+            .get("hello")
+            .cloned()
+            .ok_or_else(|| internal("spawn_spec missing hello"))?;
+        let spec = SpawnSpec {
+            argv,
+            cwd: cwd.into(),
+            env,
+        };
+        {
+            let mut guard = owner.lock().await;
+            guard
+                .ensure(id, &spec)
+                .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
+            if !guard.is_ready(id) {
+                let hello_result = guard
+                    .call_plugin(id, "plugin.hello", hello, Duration::from_secs(5))
+                    .await
+                    .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+                guard.mark_ready(id);
+                let protocol = hello_result["protocol"].as_str().unwrap_or("").to_owned();
+                let mut served = vec!["diagnostic".to_owned()];
+                if let Some(points) = hello_result["contributes"].as_array() {
+                    for point in points {
+                        if let Some(name) = point.as_str()
+                            && name != "diagnostic"
+                            && !served.iter().any(|s| s == name)
+                        {
+                            served.push(name.to_owned());
+                        }
+                    }
+                }
+                drop(guard);
+                self.request(json!({
+                    "kind":"ready",
+                    "id":id,
+                    "protocol":protocol,
+                    "served":served,
+                }))
+                .await?;
+                let mut guard = owner.lock().await;
+                return guard
+                    .call_plugin(id, method, params, Duration::from_secs(30))
+                    .await
+                    .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
+            }
+            guard
+                .call_plugin(id, method, params, Duration::from_secs(30))
+                .await
+                .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))
+        }
+    }
+
+    async fn stop_native(&mut self, id: &str) -> Result<Value, CoreError> {
+        if let Some(owner) = self.native_owner.clone() {
+            let mut guard = owner.lock().await;
+            if guard.find_plugin(id).is_some() {
+                guard
+                    .terminate(id)
+                    .await
+                    .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
+            }
+        }
+        // Registry bookkeeping (state / backoff) stays on Core even when Rust owns the OS child.
+        self.request(json!({"kind":"stop", "id":id})).await
+    }
+}
+
 impl Runtime for Owner {
     fn refresh(&mut self, _: &Ctx) -> Result<Vec<Entry>, CoreError> {
         self.entries
@@ -341,10 +487,7 @@ impl Runtime for Owner {
         method: &'a str,
         params: Value,
     ) -> OpFuture<'a> {
-        Box::pin(async move {
-            self.request(json!({"kind":"call", "id":id, "method":method, "params":params}))
-                .await
-        })
+        Box::pin(async move { self.call_native(id, method, params).await })
     }
 }
 
@@ -362,7 +505,7 @@ impl MutationRuntime for Owner {
         Runtime::call(self, ctx, id, method, params)
     }
     fn stop<'a>(&'a mut self, _: &'a Ctx, id: &'a str) -> OpFuture<'a> {
-        Box::pin(async move { self.request(json!({"kind":"stop", "id":id})).await })
+        Box::pin(async move { self.stop_native(id).await })
     }
     fn reset(&mut self, id: &str) {
         self.resets.insert(id.into());
