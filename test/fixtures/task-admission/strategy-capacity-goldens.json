@@ -1,0 +1,116 @@
+[
+  {
+    "id": "alias-uses-resolved-executor-id",
+    "strategy": {
+      "accounts": {},
+      "hosts": {},
+      "runnerAliases": { "fast": "codex" },
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "agent": "codex",
+          "account": "default",
+          "host": null,
+          "maxTasks": 1
+        }
+      },
+      "execution": {}
+    },
+    "executor": "fast",
+    "use": { "byExecutor": { "codex": 1, "fast": 0 }, "byHost": {}, "local": 1 },
+    "expected": {
+      "reason": "no_slot",
+      "limit": "executor",
+      "capacity": { "used": 1, "max": 1 }
+    }
+  },
+  {
+    "id": "remote-host-cap-before-local-use",
+    "strategy": {
+      "accounts": {},
+      "hosts": { "devbox": { "maxTasks": 2 } },
+      "runners": {
+        "codex@devbox": {
+          "id": "codex@devbox",
+          "agent": "codex",
+          "account": "default",
+          "host": "devbox"
+        }
+      },
+      "execution": { "local_max_tasks": 1 }
+    },
+    "executor": "codex@devbox",
+    "use": {
+      "byExecutor": { "codex@devbox": 1 },
+      "byHost": { "devbox": 2 },
+      "local": 9
+    },
+    "expected": {
+      "reason": "no_slot",
+      "limit": "host",
+      "capacity": { "used": 2, "max": 2 }
+    }
+  },
+  {
+    "id": "remote-ignores-machine-guard",
+    "strategy": {
+      "accounts": {},
+      "hosts": { "devbox": { "maxTasks": 4 } },
+      "runners": {
+        "codex@devbox": {
+          "id": "codex@devbox",
+          "agent": "codex",
+          "account": "default",
+          "host": "devbox"
+        }
+      },
+      "execution": {}
+    },
+    "executor": "codex@devbox",
+    "use": { "byExecutor": {}, "byHost": {}, "local": 0 },
+    "guard": {
+      "reason": "machine_memory_pressure",
+      "detail": "memory pressure critical",
+      "machine": {
+        "memoryPressure": "critical",
+        "memoryPressureLimit": "critical"
+      }
+    },
+    "expected": null
+  },
+  {
+    "id": "local-applies-machine-guard",
+    "strategy": {
+      "accounts": {},
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "agent": "codex",
+          "account": "default",
+          "host": null
+        }
+      },
+      "execution": {}
+    },
+    "executor": "codex",
+    "use": { "byExecutor": {}, "byHost": {}, "local": 0 },
+    "guard": {
+      "reason": "machine_memory_pressure",
+      "detail": "memory pressure warning",
+      "machine": {
+        "memoryPressure": "warning",
+        "memoryPressureLimit": "warning"
+      }
+    },
+    "expected": {
+      "reason": "machine_memory_pressure",
+      "limit": "machine",
+      "detail": "memory pressure warning",
+      "machine": {
+        "memoryPressure": "warning",
+        "memoryPressureLimit": "warning"
+      }
+    }
+  }
+]

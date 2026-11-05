@@ -9,7 +9,9 @@ mod schema;
 mod semantics;
 
 pub use brief::{AdmissionError, ExecutorResolution, ValidationContext};
-pub use capacity::{SlotLimits, queue_capacity, slot_use};
+pub use capacity::{
+    SlotLimits, holds_slot, queue_capacity, queue_capacity_for, slot_limit, slot_use,
+};
 
 pub use json::{AdmissionString, AdmissionValue};
 

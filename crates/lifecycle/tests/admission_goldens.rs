@@ -2,7 +2,8 @@
 
 use pacer_lifecycle::{
     AdmissionValue, ExecutorResolution, SlotLimits, ValidationContext, parse_delegate_brief,
-    parse_delegate_brief_json, queue_capacity, slot_use, validate_input, validate_input_json,
+    parse_delegate_brief_json, queue_capacity, queue_capacity_for, slot_limit, slot_use,
+    validate_input, validate_input_json,
 };
 use serde_json::{Value, json};
 
@@ -157,6 +158,50 @@ fn capacity_branch_goldens() {
                 host: limits["host"].as_u64().map(|n| n as usize),
                 local: limits["local"].as_u64().map(|n| n as usize),
             },
+            &row["use"],
+            row.get("guard").cloned(),
+        );
+        assert_eq!(
+            actual.unwrap_or(Value::Null),
+            row["expected"],
+            "{}",
+            row["id"]
+        );
+    }
+}
+
+#[test]
+fn slot_limit_goldens() {
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../test/fixtures/task-admission/slot-limit-goldens.json"
+    ))
+    .unwrap();
+    for row in rows {
+        let actual = slot_limit(&row["strategy"], row["runnerId"].as_str().unwrap());
+        let expected = &row["expected"];
+        assert_eq!(
+            actual,
+            SlotLimits {
+                executor: expected["executor"].as_u64().unwrap() as usize,
+                host: expected["host"].as_u64().map(|n| n as usize),
+                local: expected["local"].as_u64().map(|n| n as usize),
+            },
+            "{}",
+            row["id"]
+        );
+    }
+}
+
+#[test]
+fn strategy_capacity_goldens() {
+    let rows: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../test/fixtures/task-admission/strategy-capacity-goldens.json"
+    ))
+    .unwrap();
+    for row in rows {
+        let actual = queue_capacity_for(
+            &row["strategy"],
+            row["executor"].as_str().unwrap(),
             &row["use"],
             row.get("guard").cloned(),
         );
