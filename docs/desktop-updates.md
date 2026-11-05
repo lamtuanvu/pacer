@@ -138,6 +138,17 @@ desktop connection are required for actions. These commands are separate from
 
 ## Ownership and compatibility
 
+ADR 0021 records which one installation — the CLI or this app — owns the service, the
+`pacer` command, updates and agent hooks, at `$PACER_HOME/owner.json`. The app becomes the
+owner when you accept its Welcome/Consent screen, or when a service replacement (above)
+commits; from then on `pacer update` and `pacer service install|uninstall` from the CLI
+exit with a message to use **Settings** here instead, unless that CLI process is this app's
+own bundled copy. `pacer update --release-ownership` or
+`pacer service install --release-ownership` from a terminal hands the installation back to
+the CLI — it restores the terminal command from its `pacer.pre-app-*` backup when one
+exists, re-registers the service from the CLI, and records the CLI as owner; it refuses
+while tasks or terminal sessions are running unless run with `--force`.
+
 Pacer verifies the canonical app, signed executable identities, process
 incarnations, service registration, data home and port. A matching process name
 or listening port does not establish ownership. The destination must be writable

@@ -15,6 +15,7 @@ mod link;
 mod logging;
 mod logic;
 mod notifications;
+mod owner;
 mod permission_setup;
 mod profile;
 mod tray_model;

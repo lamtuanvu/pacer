@@ -38,7 +38,7 @@ These invariants hold for every owner:
 
 The prompt variants collapse into one consent plus a recorded owner. ADR 0011's confirmation is still needed when no owner is recorded, but a recorded desktop owner no longer asks again for its own repairs. A development build copied into the user's paths gets repaired by the owner instead of looping. Development work therefore has to stay in its own `PACER_HOME`, or the owner and the build fight each other. The live and OTA harnesses must be checked against this rule.
 
-This change ships the three invariants and the documentation fix. The owner record, CLI deference, uninstall handback and development isolation are follow-up work, tracked against this ADR.
+This change ships the three invariants and the documentation fix. The owner record (`$PACER_HOME/owner.json`, written by `src/install/owner.ts` and the desktop's `owner.rs`), the CLI's deference on `pacer update`, `pacer service install|uninstall` and `pacer uninstall --all`, and `--release-ownership` as the uninstall handback are now implemented. The desktop claims ownership on the Welcome/Consent screen and on a committed ADR 0011 takeover; the CLI claims it on a successful `pacer service install` or the standalone installer's service step, and only when the record is absent or already `cli`. The owner repairing its own installation without asking, and development/test builds never acting as an owner, remain follow-up work tracked against this ADR. A desktop installed and consented to before this change has no `owner.json` until its next Welcome/Consent write or takeover; migrating already-consented desktop installs to a recorded owner is also not implemented.
 
 ## Alternatives considered
 

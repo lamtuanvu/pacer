@@ -132,3 +132,16 @@ test('init exposes actual policy mode in text and JSON even with no policy plugi
  const next=await setupCmd([],f.ctx,f.deps);
  expect(next.out).toContain('policy: closed (0 plugins)');
 });
+
+test("init claims cli ownership only when it actually installs the login service", async () => {
+ const { readOwner, writeOwner } = await import("../src/install/owner");
+ const f = fixture(["claude"]);
+ const r = await setupCmd(["--service", "--json"], f.ctx, f.deps);
+ expect(r.code).toBe(0);
+ expect(readOwner(f.ctx)).toMatchObject({ owner: "cli", executable: "/fixture/pacer" });
+ // A desktop-owned record is never silently reclaimed by the standalone installer path.
+ const f2 = fixture(["claude"]);
+ writeOwner(f2.ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
+ await setupCmd(["--service", "--json"], f2.ctx, f2.deps);
+ expect(readOwner(f2.ctx)).toMatchObject({ owner: "desktop" });
+});
