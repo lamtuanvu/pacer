@@ -11,7 +11,7 @@ import taskDetail from "./fixtures/ui/task-get.json";
 import { taskStatus } from "../src/view-model/words";
 
 const noop = () => {};
-const frame = (open: boolean) => ({ title: null, left: null, right: null, inline: false, heading: noop, details: { open, toggle: noop } });
+const frame = (open: boolean) => ({ title: null, header: null, left: null, right: null, inline: false, heading: noop, details: { open, toggle: noop } });
 
 test("changes_tab_lists_worktree_files (markup)", () => {
   const diff = { patch: "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-x\n+y\n", untracked: ["new.png"], truncated: false };

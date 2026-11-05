@@ -146,7 +146,10 @@ browserTest(
     });
     await page.getByRole("heading", { name: "Tasks", exact: true }).waitFor();
     expect(await page.getByRole("complementary", { name: "Scope" }).count()).toBe(0);
-    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
+    // Tasks has its own right panel (tasksPanels), independent of Dispatch's — it defaults open even though
+    // Dispatch's own Inspector was just toggled closed above.
+    await page.getByRole("complementary", { name: "Inspector" }).waitFor();
+    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(1);
     await page.evaluate(() => {
       location.hash = "#/";
     });

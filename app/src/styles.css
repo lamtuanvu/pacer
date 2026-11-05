@@ -4,8 +4,12 @@ html[data-pacer-desktop],html[data-pacer-desktop] body{background:transparent}
 html[data-pacer-desktop] body{height:100vh;overflow:hidden}
 html[data-pacer-desktop] #app{height:100%;overflow:hidden;border-radius:var(--radius-xl);background:var(--surface-page)}
 html[data-pacer-desktop] .pc-app{height:100%;min-height:0}
-html[data-pacer-desktop] .pc-body{overflow:hidden}
-html[data-pacer-desktop] .pc-work{overflow:auto;min-height:0}
+/* The connection wrapper sits between #app and the density wrapper; without a height the app grows to its content and no screen scrolls. */
+html[data-pacer-desktop] .pc-desktop-connection:not([hidden]){display:flex;flex-direction:column;height:100%;min-height:0}
+html[data-pacer-desktop] .pc-desktop-connection>.pc-density{flex:1 1 0;min-height:0}
+/* Only .pc-main-scroll scrolls. clip (unlike hidden) can't be scrolled by focus or scrollIntoView, which otherwise shifts the whole app, top bar, rail and page head included, inside the window. */
+html[data-pacer-desktop],html[data-pacer-desktop] body,html[data-pacer-desktop] #app,html[data-pacer-desktop] .pc-desktop-connection,html[data-pacer-desktop] .pc-app,html[data-pacer-desktop] .pc-body,html[data-pacer-desktop] .pc-work,html[data-pacer-desktop] .pc-main{overflow:clip}
+html[data-pacer-desktop] .pc-main-scroll{overflow:auto;min-height:0}
 a{color:var(--link)}a:hover{color:var(--ink)}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
@@ -122,7 +126,7 @@ html:has(.pc-app--narrow .pc-aurora-launcher) .pc-notice-stack--narrow{bottom:ma
 .pc-app--with-status .pc-save-bar{bottom:var(--frame-status)}
 .pc-app--narrow .pc-save-bar{bottom:calc(var(--size-56) + env(safe-area-inset-bottom))}
 /* Focused fields scroll clear of an open SaveBar. */
-html:has(.pc-app--with-status .pc-save-bar:not(.pc-save-bar--clean)),.pc-work:has(.pc-save-bar:not(.pc-save-bar--clean)){scroll-padding-bottom:calc(var(--frame-status) + var(--size-120))}
+html:has(.pc-app--with-status .pc-save-bar:not(.pc-save-bar--clean)),.pc-main-scroll:has(.pc-save-bar:not(.pc-save-bar--clean)){scroll-padding-bottom:calc(var(--frame-status) + var(--size-120))}
 html:has(.pc-app--narrow .pc-save-bar:not(.pc-save-bar--clean)){scroll-padding-bottom:calc(var(--size-56) + var(--size-200) + env(safe-area-inset-bottom))}
 html[data-pacer-native-titlebar] .pc-traffic{display:none}
 html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
@@ -144,7 +148,16 @@ html[data-pacer-native-titlebar] .pc-traffic__btn{display:none}
 .pc-rail__badge--info{background:var(--info-bg);color:var(--info-fg)}
 .pc-rail__dot{position:absolute;top:var(--size-3);right:var(--size-3);width:var(--size-8);height:var(--size-8);box-sizing:content-box;border:var(--size-2) solid var(--surface-card);border-radius:var(--radius-full);background:var(--bad-fill)}
 .pc-panel{flex:0 0 var(--size-240);display:flex;flex-direction:column;padding:0;background:var(--surface-card)}
-.pc-work{position:relative;flex:1;min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column}
+/* The work area frames `main`; inside main the page head is static and `.pc-main-scroll` is the only scroller. */
+.pc-work{position:relative;flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+/* Empty and takes no space when no screen fills it (FrameSlot name="header"). Lives inside `main` so it is not a second banner. */
+.pc-page-head{flex:none;display:flex;flex-direction:column;gap:var(--space-3);padding:var(--space-4) var(--space-8) var(--space-3);background:var(--surface-page);border-bottom:1px solid var(--line)}
+/* Collapse when nothing fills it — including a hosted Trace/session slot that stays mounted with `hidden`. */
+.pc-page-head:empty,.pc-page-head:not(:has(.pc-view-slot:not([hidden]))){display:none}
+/* SSR / bare-mount stand-in for the shell header slot: same rhythm as `.pc-page-head` so canvas pages keep their inset. */
+.pc-page-head-fallback{display:flex;flex-direction:column;gap:var(--space-3);min-width:0;padding:var(--space-4) var(--space-8) var(--space-3);background:var(--surface-page);border-bottom:1px solid var(--line)}
+@media(max-width:767px){.pc-page-head-fallback{padding:var(--space-3) max(var(--space-4),env(safe-area-inset-right)) var(--space-2) max(var(--space-4),env(safe-area-inset-left))}}
+@media(max-width:767px){.pc-page-head{padding:var(--space-3) max(var(--space-4),env(safe-area-inset-right)) var(--space-2) max(var(--space-4),env(safe-area-inset-left))}}
 .pc-topbar{display:flex;align-items:center;gap:var(--space-2);min-height:var(--frame-top);height:var(--frame-top);box-sizing:border-box;padding:0 var(--size-10) 0 var(--size-84);flex-shrink:0;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--surface-card);z-index:var(--layer-sticky)}
 html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-topbar__brand{display:inline-flex;align-items:center;flex:none;border-radius:var(--radius-sm)}
@@ -173,7 +186,8 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 @media(min-width:560px) and (max-width:800px){.pc-app:not(.pc-app--narrow)>.pc-topbar .pc-planner__name{display:none}}
 @media(pointer:coarse){.pc-app:not(.pc-app--narrow)>.pc-topbar{height:auto;min-height:var(--control-touch)}.pc-rail{flex-basis:var(--size-56);width:var(--size-56);top:var(--control-touch);height:calc(100vh - var(--control-touch))}.pc-rail .pc-rail__item{width:var(--control-touch);height:var(--control-touch)}}
 @media(pointer:coarse){.pc-app--with-status .pc-rail{height:calc(100vh - var(--control-touch) - var(--frame-status))}}
-.pc-main{flex:1;min-height:min-content;padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-5);outline:none}
+.pc-main{flex:1;min-height:0;min-width:0;overflow:hidden;display:flex;flex-direction:column;outline:none}
+.pc-main-scroll{flex:1;min-height:0;min-width:0;overflow:auto;padding:var(--space-5);display:flex;flex-direction:column;gap:var(--space-5);outline:none}
 .pc-notice{max-width:var(--size-560)}
 .pc-keys dl{display:grid;grid-template-columns:auto 1fr;gap:var(--space-2) var(--space-4);margin:0}
 .pc-keys dd{margin:0}
@@ -293,7 +307,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-review-brief>div{display:contents}
 .pc-review-brief dd{white-space:pre-wrap}
 /* Routed screens own their canvas spacing; the shell supplies the rail and top bar. */
-.pc-main--canvas{padding:0;gap:0}
+.pc-main--canvas > .pc-main-scroll{padding:0;gap:0}
 @media(max-width:767px){
  .pc-rail{width:auto;height:auto;position:sticky;top:0;z-index:var(--layer-overlay);flex-direction:row;justify-content:flex-start;padding:var(--space-1);border-right:0;border-bottom:1px solid var(--line);overflow-x:auto}
  .pc-rail__divider{height:var(--size-24);width:var(--size-1);margin:0 var(--space-1)}
@@ -302,7 +316,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
  .pc-settings-nav__item{flex:none;min-height:var(--size-40);white-space:nowrap}
 
 
- .pc-work{width:100%}.pc-main{padding:var(--space-3)}.pc-main--canvas{padding:0}
+ .pc-work{width:100%}.pc-main-scroll{padding:var(--space-3)}.pc-main--canvas > .pc-main-scroll{padding:0}
 }
 
 
@@ -310,7 +324,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-repo-chip{display:inline-block;flex:none;max-width:35%;overflow:hidden;text-overflow:ellipsis;margin-left:0;padding:0 var(--space-1\.5);border-radius:var(--radius-sm);background:var(--surface-lane);font-size:var(--type-label-size);color:var(--ink-secondary);font-weight:var(--type-body-weight)}
 .pc-review-hints{text-align:right}.pc-review-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3)}.pc-review-cards section{min-width:0;border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-2\.5) var(--space-3);overflow-wrap:anywhere}.pc-review-cards p{margin:var(--space-1) 0}
 .pc-verdict-pair{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2)}.pc-review-verdict .pc-retry{display:flex;flex-direction:column;gap:var(--space-2)}.pc-retry select{flex:1;min-width:0;width:0}.pc-good-text{color:var(--good-fg)}
-@media(max-width:767px){.pc-panel{display:none}.pc-review-cards{grid-template-columns:minmax(0,1fr)}.pc-main{min-width:0;padding:var(--space-3)}.pc-app{width:100%}.pc-work{max-width:100%}.pc-main--canvas{padding:0}.pc-row__goal,.pc-session-header{overflow-wrap:anywhere}.pc-form,.form-row{min-width:0}pre{max-width:100%;overflow:auto}.pc-review-run{word-break:normal}}
+@media(max-width:767px){.pc-panel{display:none}.pc-review-cards{grid-template-columns:minmax(0,1fr)}.pc-main-scroll{min-width:0;padding:var(--space-3)}.pc-app{width:100%}.pc-work{max-width:100%}.pc-main--canvas > .pc-main-scroll{padding:0}.pc-row__goal,.pc-session-header{overflow-wrap:anywhere}.pc-form,.form-row{min-width:0}pre{max-width:100%;overflow:auto}.pc-review-run{word-break:normal}}
 .pc-review-queue{gap:var(--space-1)}
 
 
@@ -326,7 +340,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-bottom-bar>*{min-width:var(--size-44);flex:0 0 var(--size-44)}
 .pc-bottom-bar .pc-rail__item{max-width:100%;min-width:var(--size-44);min-height:var(--size-44);padding:0}
 /* The narrow header lives inside this scroller; native focus and scrollIntoView must clear it. */
-.pc-app--narrow .pc-work{width:100%;min-width:0;max-width:100%;scroll-padding-top:var(--pc-work-header-height, 0px)}
+.pc-app--narrow .pc-work{width:100%;min-width:0;max-width:100%}
 .pc-app--narrow .pc-topbar{flex-wrap:nowrap;position:sticky;min-height:var(--size-60);height:auto;padding:var(--space-2) var(--space-3);gap:var(--space-2)}
 .pc-app--narrow .pc-topbar h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--type-headline-size)}
 .pc-app--narrow .pc-topbar .pc-planner{display:inline-flex;gap:var(--space-1);flex:none}
@@ -334,8 +348,8 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-app--narrow .pc-topbar .pc-meter--top{width:var(--size-36)}
 .pc-app--narrow .pc-topbar .pc-usage{gap:var(--space-1)}
 .pc-app--narrow .pc-topbar .pc-usage__text{font-size:var(--type-label-size)}
-.pc-app--narrow .pc-main{padding:var(--space-3);min-width:0}
-.pc-app--narrow .pc-main--canvas{padding:0}
+.pc-app--narrow .pc-main-scroll{padding:var(--space-3);min-width:0}
+.pc-app--narrow .pc-main--canvas > .pc-main-scroll{padding:0}
 .pc-app--narrow .pc-panel{width:100%;max-width:100%;align-self:stretch;display:flex;flex-direction:row;flex:none;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:var(--space-2);gap:var(--space-1)}
 .pc-app--narrow .pc-settings-nav,.pc-app--narrow .pc-settings-nav__group,.pc-app--narrow .pc-settings-nav__list{flex-direction:row;align-items:center;flex:none}
 .pc-app--narrow .pc-settings-nav__item{flex:none;min-height:var(--size-44);white-space:nowrap}
@@ -372,7 +386,8 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 
 /* Setup keeps the five steps visible while the current panel scrolls. */
 .pc-setup{width:100%}
-.pc-setup-header{display:flex;justify-content:space-between;gap:var(--space-4);align-items:center;padding:var(--space-4) var(--space-8);border-bottom:1px solid var(--line)}
+/* Padding and rule come from `.pc-page-head`; keep this as a title row only. */
+.pc-setup-header{display:flex;justify-content:space-between;gap:var(--space-4);align-items:center;padding:0;border:0}
 .pc-setup-layout{display:grid;grid-template-columns:var(--size-300) minmax(0,1fr)}
 .pc-setup-rail{border-right:1px solid var(--line);padding:var(--space-5);position:sticky;top:0;align-self:start}
 .pc-setup-rail ol{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-1)}
@@ -382,7 +397,8 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-setup-value{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1);font-size:var(--type-caption-size);min-height:var(--size-24)}
 .pc-setup-version{margin:var(--space-8) var(--space-3) 0;font-size:var(--type-caption-size)}
 .pc-setup-panel{padding:var(--space-8) var(--space-12);display:flex;flex-direction:column;gap:var(--space-5);min-width:0;outline:none}
-.pc-setup-panel h1{font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking);margin:var(--space-2) 0}
+.pc-setup-header h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
+.pc-setup-panel h2{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight);margin:var(--space-2) 0}
 .pc-setup-eyebrow{font-size:var(--type-label-size);font-weight:var(--type-label-weight);letter-spacing:var(--type-label-tracking);text-transform:uppercase;color:var(--ink-muted);margin:0}
 .pc-setup-explanation{color:var(--ink-secondary);margin:var(--space-3) 0 0}
 .pc-setup .pc-btn,.pc-setup summary{min-height:var(--control-normal)}
@@ -402,7 +418,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-setup-executors li:last-child{border-bottom:0}.pc-setup-executors .pc-checkbox{grid-column:3}.pc-setup-move{display:flex;justify-content:flex-end}
 .pc-setup-executor-name .muted,.pc-setup-choice .muted{font-size:var(--type-caption-size)}
 .pc-setup-diff{border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4);background:var(--surface-card)}
-@media(max-width:767px){.pc-setup-layout{grid-template-columns:minmax(0,1fr)}.pc-setup-header{padding:var(--space-4);flex-wrap:wrap}.pc-setup-rail{position:static;border-right:0;border-bottom:1px solid var(--line);padding:var(--space-3)}.pc-setup-rail ol{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-setup-rail li{padding:var(--space-2)}.pc-setup-version{margin:var(--space-3)}.pc-setup-panel{padding:var(--space-5)}.pc-setup-executors li{grid-template-columns:var(--size-20) var(--size-32) minmax(0,1fr)}.pc-setup-executors .pc-pill{grid-column:3}.pc-setup-move{grid-column:3;justify-content:flex-start}}
+@media(max-width:767px){.pc-setup-layout{grid-template-columns:minmax(0,1fr)}.pc-setup-header{flex-wrap:wrap}.pc-setup-rail{position:static;border-right:0;border-bottom:1px solid var(--line);padding:var(--space-3)}.pc-setup-rail ol{grid-template-columns:repeat(2,minmax(0,1fr))}.pc-setup-rail li{padding:var(--space-2)}.pc-setup-version{margin:var(--space-3)}.pc-setup-panel{padding:var(--space-5)}.pc-setup-executors li{grid-template-columns:var(--size-20) var(--size-32) minmax(0,1fr)}.pc-setup-executors .pc-pill{grid-column:3}.pc-setup-move{grid-column:3;justify-content:flex-start}}
 /* Leave room for the fixed narrow navigation when Tab reveals a code preview. */
 .pc-app--narrow .pc-setup .pc-code-scroll{scroll-margin-bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom))}
 html:has(.pc-app--narrow .pc-setup){scroll-padding-bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom))}
@@ -514,7 +530,8 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 /* With the dock open the frame fits the viewport, like the desktop window: the work area scrolls on its own. */
 .pc-app--with-dock{height:100vh;min-height:0}
 .pc-app--with-dock .pc-body{overflow:hidden}
-.pc-app--with-dock .pc-work{overflow:auto;min-height:0}
+.pc-app--with-dock .pc-main{overflow:hidden;min-height:0}
+.pc-app--with-dock .pc-main-scroll{overflow:auto;min-height:0}
 .pc-app.pc-app--with-dock .pc-body>:is(.pc-rail,.pc-side-panel){position:static;height:auto;max-height:none;align-self:stretch}
 
 @media(max-width:767px){
@@ -688,7 +705,8 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .ny-heading h1{letter-spacing:normal}
 .ny-cap{font-size:var(--type-caption-size);line-height:var(--type-caption-line);color:var(--ink-muted)}
 .ny-mono{font-family:var(--font-mono);font-size:var(--type-code-size)}
-.ny-list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--radius-card);overflow:hidden;margin-top:var(--space-1)}
+/* Top separation from the page head (or its SSR fallback) is owned by main's gap, not a child margin. */
+.ny-list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--radius-card);overflow:hidden}
 .ny-item{display:grid;grid-template-columns:var(--size-16) minmax(0,1fr) auto;gap:var(--space-2);align-items:center;padding:var(--space-2) var(--space-3);border-top:1px solid var(--line)}
 .ny-item:first-child{border-top-color:transparent}
 .ny-item:hover{background:var(--surface-card)}
@@ -731,7 +749,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 }
 
 .pc-app--narrow .pc-topbar h1{font-size:var(--type-number-lg-size);line-height:var(--type-display-size)}
-.pc-app--narrow .pc-main:has(.pc-dispatch){padding:0}
+.pc-app--narrow .pc-main:has(.pc-dispatch) > .pc-main-scroll{padding:0}
 .pc-bottom-bar .pc-rail__badge--count{top:var(--space-1);left:calc(50% + var(--size-6));right:auto;background:var(--bad-fill);color:var(--ink-on-fill)}
 
 /* The flex work area already excludes the top, connection and status bars. */

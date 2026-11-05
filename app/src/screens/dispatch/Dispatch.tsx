@@ -32,6 +32,7 @@ import type { Account } from "../../model/accounts";
 import type { Routing } from "../../model/home";
 import { withQuery, type RouteQuery } from "../../router";
 import { activeRepo, NarrowContext, useNarrow } from "../../shell/narrow";
+import { PageHead } from "../../shell/slots";
 import { ActionButton } from "../ActionButton";
 import { useOverviewPage } from "../overview-page";
 import { repoChoices, RepoFilter } from "../RepoFilter";
@@ -370,9 +371,13 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
   const needs = <NeedsYouList snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />;
   const empty = snapshot.tasks.length === 0 && !(snapshot.attention?.length) && workRows.length === 0 && !workLoading && !workError;
   const liveWork = <LiveDispatch narrow={narrow} workUpdating={workUpdating} workLoading={workLoading} workError={workError} onWorkReload={onWorkReload} workRows={workRows} snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
-  return <NarrowContext.Provider value={narrow}><Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
+  const header = <DispatchHeader hideNewTask={empty || !!firstRun} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />;
+  return <NarrowContext.Provider value={narrow}>
+    {/* Narrow has no header landmark (DispatchHeader returns an inline policy caption instead); it stays in the page. */}
+    {!narrow && <PageHead>{header}</PageHead>}
+    <Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
     <SetupBanner />
-    <DispatchHeader hideNewTask={empty || !!firstRun} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />
+    {narrow && header}
     {firstRun ? firstRun : empty ? <EmptyDispatch query={query} sampleTask={sampleTask} /> : narrow ? <>
       {<NarrowPlanner snapshot={snapshot} now={now} routing={routing} shortWindowPct={shortWindowPct} />}{needs}{liveWork}
     </> : <>

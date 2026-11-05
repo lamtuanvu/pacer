@@ -18,6 +18,7 @@ import { SetupContext } from './context';
 import { createPlannerAutoInit, plannerOptions, nextSetupStep, signedOutRunners, setupRunners, type SetupConfig, completeRunnerOrder, SETUP_STEPS, SERVICE_CONSENT, changeExecutor, reviewFirstTask, type SetupStep, type AgentPreview } from './model';
 import { PlannerChoices, ConnectChanges, ExecutorList, FirstTaskReview, setupAgentName } from './steps';
 import { Page } from '../../ds/Page';
+import { PageHead } from '../../shell/slots';
 
 const autoInitPlanner = createPlannerAutoInit();
 const titles = ['Planner', 'Background service', 'Connect your planner', 'Who does the work', 'Try a first task'];
@@ -126,7 +127,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
   ];
   function visit(id: SetupStep) { if (!busy) setCurrent(id); }
   return <Page width="full" className="pc-setup">
-    <header className="pc-setup-header"><strong>Set up pacer</strong><span className="muted" role="status">{policyWords(checklist.policy)} · {count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header>
+    <PageHead><header className="pc-setup-header"><h1>Set up pacer</h1><span className="muted" role="status">{policyWords(checklist.policy)} · {count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header></PageHead>
     <div className="pc-setup-layout">
       <aside className="pc-setup-rail"><ol aria-label="Setup steps">{SETUP_STEPS.map((id, index) => {
         const done = checklist.items.find(i => i.id === id)?.status === 'done';
@@ -141,7 +142,7 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
         </li>;
       })}</ol>{version && <p className="muted pc-setup-version">Service {version}</p>}</aside>
       <section className="pc-setup-panel" ref={panel} tabIndex={-1} aria-label={headings[step]}>
-        <div><p className="pc-setup-eyebrow">Step {step + 1} of 5{current === 'first' ? ' · optional' : ''}</p><h1>{headings[step]}</h1><p className="pc-setup-explanation">{explanations[step]}</p></div>
+        <div><p className="pc-setup-eyebrow">Step {step + 1} of 5{current === 'first' ? ' · optional' : ''}</p><h2>{headings[step]}</h2><p className="pc-setup-explanation">{explanations[step]}</p></div>
         {current === 'planner' && <>
           {options.length > 0 ? <><PlannerChoices options={options} selected={chosen} select={select} signedIn={signedIn} /><Button variant="primary" disabled={!state.connected || busy} onClick={() => void choosePlanner(chosen)}>Continue with {setupAgentName(chosen)}</Button><p className="muted">Nothing in {setupAgentName(chosen)} changes until step 3.</p></>
             : item?.command && item.action !== 'setup.init' ? <Command command={item.command} /> : <p>Install Claude Code, Codex, Cursor or OpenCode to plan your work.</p>}

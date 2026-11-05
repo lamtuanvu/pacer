@@ -7,23 +7,24 @@ import { TextAction } from "../ds/Button";
  * and the status bar. Narrow layouts keep the touch order (bottom navigation first, header inside the work area)
  * and never show a right panel or a dock.
  */
-export function AppFrame({ top, activity, left, main, right, dock, status, overlay, narrow = false, live, mainClass = "pc-main" }: {
+export function AppFrame({ top, activity, left, main, right, dock, status, overlay, narrow = false, live, mainClass = "pc-main", header }: {
   top?: ComponentChildren; activity?: ComponentChildren; left?: ComponentChildren; main: ComponentChildren;
   right?: ComponentChildren; dock?: ComponentChildren; status?: ComponentChildren; narrow?: boolean;
   /** Floats over the work area, above the dock and status bar, such as the assistant sheet. */
   overlay?: ComponentChildren;
   /** Polite announcements above the main landmark, such as a lost connection. */
   live?: ComponentChildren; mainClass?: string;
+  /** Receives the static page-head region a screen fills through `FrameSlot name="header"`, first inside `main`. */
+  header?: (element: HTMLDivElement | null) => void;
 }) {
   const docked = !narrow && !!dock;
   const frame = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const root = frame.current;
     if (!root) return;
-    let dock: HTMLElement | null = null, sessionHeader: HTMLElement | null = null, workHeader: HTMLElement | null = null, topBar: HTMLElement | null = null;
+    let dock: HTMLElement | null = null, sessionHeader: HTMLElement | null = null, topBar: HTMLElement | null = null;
     const measureDock = () => {
       root.style.setProperty("--pc-dock-height", `${dock?.getBoundingClientRect().height ?? 0}px`);
-      root.style.setProperty("--pc-work-header-height", `${workHeader?.getBoundingClientRect().height ?? 0}px`);
       root.style.setProperty("--pc-frame-header-height", `${topBar?.getBoundingClientRect().height ?? 0}px`);
       const body = root.querySelector(".pc-body");
       root.style.setProperty("--pc-assistant-header-height", `${sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0}px`);
@@ -42,17 +43,11 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
         dock = next;
         if (dock) observer.observe(dock);
       }
-      const header = root.querySelector<HTMLElement>(".pc-session-bar, .pc-main .pc-page > header, .pc-main .pc-page-header");
-      if (header !== sessionHeader) {
+      const nextHeader = root.querySelector<HTMLElement>(".pc-session-bar, .pc-page-head, .pc-main-scroll .pc-page > header, .pc-main-scroll .pc-page-header");
+      if (nextHeader !== sessionHeader) {
         if (sessionHeader) observer.unobserve(sessionHeader);
-        sessionHeader = header;
+        sessionHeader = nextHeader;
         if (sessionHeader) observer.observe(sessionHeader);
-      }
-      const top = root.querySelector<HTMLElement>(".pc-work > .pc-topbar");
-      if (top !== workHeader) {
-        if (workHeader) observer.unobserve(workHeader);
-        workHeader = top;
-        if (workHeader) observer.observe(workHeader);
       }
       measureDock();
     };
@@ -61,10 +56,14 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
     children.observe(root, { childList: true, subtree: true });
     return () => { children.disconnect(); observer.disconnect(); };
   }, [docked]);
+  // Page head lives inside `main` so Skip to content and the landmark include the title; only `.pc-main-scroll` scrolls.
   const work = <div className="pc-work">
     {narrow && top}
     {narrow && <div aria-live="polite" role="status" className="pc-live-region">{live}</div>}
-    <main id="main-content" tabIndex={-1} className={mainClass}><div className="pc-offline-controls">{main}</div></main>
+    <main id="main-content" tabIndex={-1} className={mainClass}>
+      <div ref={header} className="pc-page-head" />
+      <div className="pc-main-scroll"><div className="pc-offline-controls">{main}</div></div>
+    </main>
   </div>;
   return <div ref={frame} className={`pc-app${narrow ? " pc-app--narrow" : ""}${status ? " pc-app--with-status" : ""}${docked ? " pc-app--with-dock" : ""}${live ? " pc-app--offline" : ""}`}>
     <TextAction href="#main-content" className="skip-link" onClick={event => { event.preventDefault(); document.getElementById("main-content")?.focus(); }}>Skip to content</TextAction>

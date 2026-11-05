@@ -92,13 +92,14 @@ browserTest('filters_wrap_and_nothing_overflows_at_375', async () => {
   } finally { await page.close(); }
 }, 30_000);
 
-test('page_renders_header_filters_search_and_empty_state_without_a_browser', () => {
+// The header (title, caption, filter tabs, search, New task) now renders through `FrameSlot name="header"`,
+// which portals into a real DOM node the shell owns; outside a mounted frame (as in this bare renderToString
+// smoke test) it renders nothing, by design (every other FrameSlot consumer already behaves this way in SSR).
+// `header_summary_filters_and_counts_follow_the_board` above covers that content against the real, mounted frame.
+test('page_renders_the_task_list_and_empty_state_without_a_browser_frame', () => {
   const html = (nodes: ReturnType<typeof taskTree> | undefined) => renderToString(<TaskContext.Provider value={{ state: { ...initialState(), connected: true } as never, api: { call: async () => ({}) } as never }}>
     <TasksPage nodes={nodes} repos={[]} query={{ repo: null, scope: null } as never} onNew={() => {}} hasOlder={false} loadingOlder={false} onLoadOlder={() => {}} /></TaskContext.Provider>);
   const loaded = html(taskTree({ tasks: [{ id: 'a', goal: 'Fix it', title: 'Fix it', state: 'failed', executor: 'codex', backend: null, worktree: null, updatedAt: Math.floor(Date.now() / 1000) - 60 }] }, { now: Math.floor(Date.now() / 1000) }));
-  expect(loaded).toContain('<h1 class="pc-tasks-page__title">Tasks</h1>');
-  expect(loaded).toContain('1 root task this week · 0 subtasks');
-  for (const word of ['All', 'Needs you', 'Running', 'Accepted', 'Stopped', 'New task', 'Search tasks']) expect(loaded).toContain(word);
   expect(loaded).toContain('Showing 1 of 1 root tasks');
   expect(html(undefined)).not.toContain('Loading tasks…');
   expect(html([])).toContain('No tasks yet.');
@@ -122,7 +123,8 @@ test('page_renders_header_filters_search_and_empty_state_without_a_browser', () 
     expect(await aside.locator('.pc-task-aside__caption').first().textContent()).toBe('Root task · Codex · 12m · 214k tokens');
     expect(await aside.getByText('Linked work', { exact: true }).count()).toBe(1);
     expect(await aside.getByText('worktree', { exact: false }).count()).toBeGreaterThan(0);
-    expect(await aside.evaluate(node => getComputedStyle(node).top)).toBe('16px');
+    // A real shell side panel now owns positioning; the aside itself is no longer sticky.
+    expect(await aside.evaluate(node => getComputedStyle(node).position)).toBe('static');
     const rowTitle = page.locator('.pc-task-card__title').nth(1);
     expect(await rowTitle.textContent()).toBe('Fix the retry bug');
     expect(await rowTitle.getAttribute('title')).toContain('Full brief');

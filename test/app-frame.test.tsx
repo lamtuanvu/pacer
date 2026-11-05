@@ -31,7 +31,7 @@ test("layout_renders_same_landmarks", () => {
   ]);
   expect(html).toContain('<header');
   expect(html.indexOf('class="pc-live-region"')).toBeLessThan(html.indexOf('class="pc-body"'));
-  expect(html).toContain('<main id="main-content" tabindex="-1" class="pc-main pc-main--canvas"><div class="pc-offline-controls">');
+  expect(html).toContain('<main id="main-content" tabindex="-1" class="pc-main pc-main--canvas"><div class="pc-page-head"></div><div class="pc-main-scroll"><div class="pc-offline-controls">');
   expect(html).not.toContain('aria-label="Scope"');
   expect(html).not.toContain('aria-label="Inspector"');
   expect(html).not.toContain("pc-dock");

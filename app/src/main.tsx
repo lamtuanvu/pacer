@@ -34,7 +34,7 @@ import { resolveWorkspaceIdentity } from "./workspace/identity";
 import { reconcileIdentity, workspaceManager } from "./workspace/manager";
 import { NoticeStack } from "./ds/NoticeCard";
 if (isDesktop()) document.documentElement.dataset.pacerDesktop = "";
-// The desktop attribute gates the shared .pc-work scroll-container height chain.
+// The desktop attribute gates the shared height chain that bounds .pc-main, the frame's single scroll container.
 // Rounded-window support only influences cosmetic border radius and must not
 // gate the layout, or no screen scrolls when the native check fails.
 void readRoundedWindowSupport().then(() => {});

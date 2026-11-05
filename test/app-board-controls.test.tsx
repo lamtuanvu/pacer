@@ -37,12 +37,14 @@ test.skipIf(!browserPath)('device density preserves board segments, chip geometr
       expect(await page.locator('.pc-chip--repo svg').count()).toBe(0);
       expect(await page.locator('.pc-chip--repo').evaluate(node => getComputedStyle(node).fontWeight)).toBe('600');
       expect(await page.locator('.pc-usage-popover button').evaluateAll(nodes => nodes.map(node => getComputedStyle(node).paddingInline))).toEqual(['12px', '12px']);
-      const toggles = await page.locator('.pc-task-card__toggle').evaluateAll(nodes => nodes.map(node => {
+      // TaskCard (regular) puts the toggle in `.pc-task-card__row--facts`; TaskNavigator puts it in `.pc-task-card__kids`.
+      const measure = (node: Element) => {
         const s = getComputedStyle(node); const icons = node.querySelectorAll('svg');
         return { height: node.getBoundingClientRect().height, padding: s.padding, border: s.borderTopWidth, radius: s.borderRadius, font: s.fontSize, weight: s.fontWeight, icons: [...icons].map(icon => icon.getBoundingClientRect().width), rotation: getComputedStyle(node.querySelector('.pc-task-card__chevron')!).transform, inset: getComputedStyle(node.parentElement!).padding };
-      }));
-      for (const toggle of toggles) expect(toggle).toEqual({ height: 22, padding: '0px 7px', border: '1px', radius: '6px', font: '12px', weight: '600', icons: [13, 11], rotation: 'matrix(-1, 0, 0, -1, 0, 0)', inset: '0px 8px 4px 24px' });
-      expect(toggles).toHaveLength(2);
+      };
+      const shared = { height: 22, padding: '0px 7px', border: '1px', radius: '6px', font: '12px', weight: '600', icons: [13, 11], rotation: 'matrix(-1, 0, 0, -1, 0, 0)' };
+      expect(await page.locator('.pc-tasks-page .pc-task-card__toggle').evaluate(measure)).toEqual({ ...shared, inset: '0px 0px 0px 20px' });
+      expect(await page.locator('.pc-session-node__toggle').evaluate(measure)).toEqual({ ...shared, inset: '0px 8px 4px 24px' });
       for (const selector of ['.pc-task-card__child-title', '.pc-session-node__children strong']) {
         expect(await page.locator(selector).evaluateAll(nodes => nodes.map(node => getComputedStyle(node).fontWeight))).toEqual(['650', '500']);
       }

@@ -1,5 +1,6 @@
 import { capturePosition, restorePosition } from "../../../app/src/workspace/position";
-const canvas = () => document.querySelector<HTMLElement>('.pc-work')!;
+// .pc-main-scroll is the frame's single scroll container; main owns the static page head.
+const canvas = () => document.querySelector<HTMLElement>('.pc-main-scroll')!;
 export const pageScrollY = () => canvas().scrollTop;
 export const scrollPageTo = (top: number) => restorePosition({ scroll: { page: { scrollTop: top, scrollLeft: 0 } } }, [['page', canvas()]], () => {});
 export const resetDesktopPageScroll = () => scrollPageTo(0);

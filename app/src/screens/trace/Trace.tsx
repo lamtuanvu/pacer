@@ -21,6 +21,7 @@ import { MessageAnswer } from "../TaskResult";
 import { messageQuestion } from "../../model/task-answer";
 import { livenessNotice, type LivenessInput } from "../../model/thread";
 import { Alert } from "../../ds/Alert";
+import { PageHead } from "../../shell/slots";
 import { candidateAgent, decisionCaption, executorTokenRole, childState, childTokens, tokenValue, traceCandidates, traceSteps, traceStepState, type TraceTree } from "./model";
 
 const name = (agent:string) => agentInfo(markAgent(agent)).name;
@@ -66,16 +67,20 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   const tokenRows=[...groups.values()].sort((a,b)=>b.total-a.total);
   const measuredTotal=tokenRows.reduce((sum,r)=>sum+r.total,0);
   let offset=0;
-  return <div className="pc-trace">
+  const title=t.fullTitle?.trim()||t.goal?.trim()||t.brief.goal;
+  const header=<>
     <nav aria-label="Breadcrumb" className="pc-trace__breadcrumb pc-trace__cap"><TextAction href={hrefFor(routes.tasks(query))}>Tasks</TextAction><span aria-hidden="true">/</span><span>{t.acceptance.state==="failed"?"Needs attention":["running","queued"].includes(t.state)?"Running":reviewable?"Needs your review":today?"Earlier today":day.replace(/ \d\d:\d\d$/,"")}</span><IconButton icon="notes" size="xs" variant="quiet" aria-label="Copy task ID" title={copied?"Task ID copied":"Copy task ID"} onClick={()=>void navigator.clipboard.writeText(t.id).then(()=>setCopied(true)).catch(()=>setCopied(false))}/></nav>
     <header className="pc-trace__header">
-      <div className="pc-trace__identity"><h1>{t.fullTitle?.trim()||t.goal?.trim()||t.brief.goal}</h1>
+      <div className="pc-trace__identity"><h1>{title}</h1>
         <div className="pc-trace__meta"><Pill tone={status.tone}>{status.label}</Pill>{status.label!=="Checks failed"&&<Pill tone={t.acceptance.state==="passed"?"good":t.acceptance.state==="failed"?"bad":"neutral"}>{t.acceptance.state==="passed"?"Checks passed":t.acceptance.state==="failed"?"Checks failed":"Not recorded"}</Pill>}{t.kind && <Pill>{kindCopy(t.kind)}</Pill>}<span className="pc-trace__cap">{t.repo.label}</span>{t.branch&&<span className="pc-trace__cap pc-trace__mono">{t.branch}</span>}<span className="pc-trace__cap">{started ? `Started ${started}${ran ? ` · ${ran}` : ""}` : "Not recorded"}</span></div>
       </div>
       <div className="pc-trace__actions">
         <TaskActions task={t} query={query} reload={task.reload}/>
       </div>
     </header>
+  </>;
+  return <div className="pc-trace">
+    <PageHead>{header}</PageHead>
     {task.error && <ErrorMessage error={task.error}/>}
     {question && <ActionPanel aria-label="Task question">
       <h2>Next step</h2>

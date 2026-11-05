@@ -9,6 +9,7 @@ import { Page, Stack, Skeleton, EmptyState } from "../ds/Patterns";
 import { Button } from "../ds/Button";
 import { AppLink } from "../navigation";
 import { routes } from "../router";
+import { PageHead } from "../shell/slots";
 import styles from "./plugins.css" with { type: "text" };
 
 export function pluginError(error: unknown) {
@@ -75,13 +76,13 @@ export function Activity({ plugin, id }: { plugin: string; id: string }) {
     } catch { if (active.current) setMessage("Couldn't complete this plugin action. Try again."); }
     finally { pending.current = false; if (active.current) setBusy(false); }
   }
-  return <Page width="standard"><Stack>
-    <header className="pc-settings-board__header pc-plugin-header"><h1>{title} <span className="pc-plugin-marker">plugin</span></h1></header>
+  return <><PageHead><header className="pc-settings-board__header pc-plugin-header"><h1>{title} <span className="pc-plugin-marker">plugin</span></h1></header></PageHead>
+    <Page width="standard"><Stack>
     <p className="pc-plugin-muted">Added by the plugin {plugin}{info?.version ? ` ${info.version}` : ""}{info?.publisher ? ` from ${info.publisher}` : ""}</p>
     {infoError && <p role="status">Plugin details could not be refreshed.</p>}
     {document && stale && <p role="status">This view is out of date. Retry to use its actions.</p>}{document && stale && !error && <Button onClick={() => reload(n => n + 1)}>Retry</Button>}
     {error && <PluginError error={error} retry={() => reload(n => n + 1)} />}
     {document ? <ViewDocument document={document} onAction={(value,control) => void action(value,control)} busy={busy} busyControl={busyControl} disabled={stale || !!error} /> : !error && <Skeleton layout="settings" label="Loading plugin view…" />}
     {message && <p role="status">{message}</p>}{dialogs.dialog}
-  </Stack></Page>;
+  </Stack></Page></>;
 }
