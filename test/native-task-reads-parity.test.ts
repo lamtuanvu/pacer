@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { createTask, updateTask } from "../src/tasks/store";
@@ -7,11 +8,11 @@ import { createTask, updateTask } from "../src/tasks/store";
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 
-async function exchange(home: string, requests: string[], forward: boolean) {
+async function exchange(home: string, requests: string[], forward: boolean, forwardOps = "activity.list,task.log") {
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-      PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: "activity.list,task.log" } : {}) },
+      PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: forwardOps } : {}) },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
@@ -21,7 +22,11 @@ async function exchange(home: string, requests: string[], forward: boolean) {
     expect(code, stderr).toBe(0);
     const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
     expect(replies[0]?.result?.protocol).toBe("3.0.0");
-    const markers = stderr.split("\n").filter(line => /^native (activity\.list|task\.log) \d+$/.test(line));
+    const ops = new Set(requests.map(request => JSON.parse(request).method as string));
+    const markers = stderr.split("\n").filter(line => {
+      const match = /^native (\S+) \d+$/.exec(line);
+      return match != null && ops.has(match[1]!);
+    });
     expect(markers).toEqual(forward ? [] : requests.map((request, index) => `native ${JSON.parse(request).method} ${index + 2}`));
     return replies.slice(1);
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
@@ -116,4 +121,77 @@ test.skipIf(!front)("activity.list and task.log match forced forwarding with exa
   const activityNative = await exchange(ctx.home, activityRequest, false);
   expect(activityNative).toEqual(await exchange(ctx.home, activityRequest, true));
   expect(activityNative[0]?.result?.entries.map((entry: { id: string }) => entry.id)).toEqual(["finite-dec", "finite-exp"]);
+}, 60000);
+
+test.skipIf(!front)("task.prune and task.restore match forced forwarding with exact native traces", async () => {
+  const seed = fakeCtx();
+  mkdirSync(join(seed.pacerHome, "state"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(seed.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {}\ntask_retention_days: 14\n", { mode: 0o600 });
+  const old = { ...seed, now: seed.now - 30 * 86400 };
+  const task = createTask(old, { brief: { goal: "retention parity", repo: seed.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(old, task.id, t => { t.state = "done"; t.dismissed = true; });
+  writeFileSync(join(seed.pacerHome, "tasks", `${task.id}.log`), "0123456789".repeat(1000), { mode: 0o600 });
+  writeFileSync(join(seed.pacerHome, "tasks", `${task.id}.brief.md`), "brief", { mode: 0o600 });
+  const clone = () => {
+    const home = mkdtempSync(join(tmpdir(), "pacer-retention-parity-"));
+    cpSync(seed.home, home, { recursive: true });
+    return home;
+  };
+  const normalize = (value: unknown, home: string) =>
+    JSON.parse(JSON.stringify(value).split(home).join("$HOME").split(home.replaceAll("\\", "/")).join("$HOME"));
+  const compare = async (requests: string[]) => {
+    const nativeHome = clone(), forwardHome = clone();
+    try {
+      const forwardOps = "task.prune,task.restore";
+      const native = await exchange(nativeHome, requests, false, forwardOps);
+      const forwarded = await exchange(forwardHome, requests, true, forwardOps);
+      expect(normalize(native, nativeHome)).toEqual(normalize(forwarded, forwardHome));
+      return native;
+    } finally {
+      rmSync(nativeHome, { recursive: true, force: true });
+      rmSync(forwardHome, { recursive: true, force: true });
+    }
+  };
+  const request = (id: number, method: string, params: string) => `{"jsonrpc":"2.0","id":${id},"method":"${method}","params":${params}}`;
+  const dry = await compare([request(2, "task.prune", '{"dry_run":true}')]);
+  expect(dry[0]?.result?.dryRun).toBe(true);
+  expect(dry[0]?.result?.tasks?.[0]?.id).toBe(task.id);
+  expect(dry[0]?.result?.bytesSaved).toBeGreaterThan(0);
+
+  const bad = await compare([
+    request(2, "task.prune", '{"dry_run":"yes"}'),
+    request(3, "task.restore", "{}"),
+    request(4, "task.restore", '{"id":""}'),
+    request(5, "task.restore", '{"id":"missing"}'),
+  ]);
+  expect(bad.map(reply => reply.error?.data?.code)).toEqual(["invalid_input", "invalid_input", "invalid_input", "unknown_task"]);
+
+  const prune = await compare([request(2, "task.prune", "{}")]);
+  expect(prune[0]?.result?.tasks?.[0]?.id).toBe(task.id);
+  expect(prune[0]?.result?.dryRun).toBe(false);
+
+  const archived = clone();
+  try {
+    await exchange(archived, [request(2, "task.prune", "{}")], false, "task.prune,task.restore");
+    const restore = await (async () => {
+      const nativeHome = mkdtempSync(join(tmpdir(), "pacer-retention-parity-"));
+      const forwardHome = mkdtempSync(join(tmpdir(), "pacer-retention-parity-"));
+      cpSync(archived, nativeHome, { recursive: true });
+      cpSync(archived, forwardHome, { recursive: true });
+      try {
+        const requests = [request(2, "task.restore", JSON.stringify({ id: task.id }))];
+        const native = await exchange(nativeHome, requests, false, "task.prune,task.restore");
+        const forwarded = await exchange(forwardHome, requests, true, "task.prune,task.restore");
+        expect(normalize(native, nativeHome)).toEqual(normalize(forwarded, forwardHome));
+        return native;
+      } finally {
+        rmSync(nativeHome, { recursive: true, force: true });
+        rmSync(forwardHome, { recursive: true, force: true });
+      }
+    })();
+    expect(restore[0]?.result).toMatchObject({ task_id: task.id, state: "done" });
+    expect(restore[0]?.result?.archived).toBeUndefined();
+  } finally {
+    rmSync(archived, { recursive: true, force: true });
+  }
 }, 60000);
