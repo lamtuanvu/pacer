@@ -1,8 +1,9 @@
-//! Plugin mutation orchestration (X3 library; P4d-3 HTTP wiring).
+//! Plugin mutation orchestration (X3 library; P4d-3/P4d-4 HTTP wiring).
 //!
 //! `PublicRegistry` still exposes only the four reads. HTTP serve registers these
-//! mutation ops through a `MutationRuntime` adapter over Core private IPC
-//! (`/_internal/plugins` stop/changed/call/publish/log). Stdio stays TypeScript.
+//! mutation ops (including retired `plugin.install` refuse) through a
+//! `MutationRuntime` adapter. Flag-off Core private IPC owns children; flag-on
+//! ProcessOwner spawns them. Stdio stays TypeScript.
 #![allow(clippy::result_large_err)]
 use crate::{
     config::{edit_config, read_config},
@@ -18,7 +19,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
-/// Mutation ops characterized here; HTTP serve registers all but `plugin.install`.
+/// Mutation ops characterized here; HTTP serve registers every entry including install.
 pub const MUTATION_OPERATIONS: &[&str] = &[
     "plugin.enable",
     "plugin.disable",

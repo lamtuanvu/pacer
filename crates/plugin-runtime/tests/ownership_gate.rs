@@ -48,6 +48,14 @@ fn reverse_bridge_contract_names_match_design() {
     assert_eq!(HOST_SOCKET_NAME, "host.sock");
     assert_eq!(METHOD_PLUGIN_CALL, "_host.plugin.call");
     assert_eq!(METHOD_PLUGIN_FIND, "_host.plugin.find");
+    assert_eq!(
+        pacer_plugin_runtime::METHOD_PLUGIN_SPAWN,
+        "_host.plugin.spawn"
+    );
+    assert_eq!(
+        pacer_plugin_runtime::METHOD_PLUGIN_STOP,
+        "_host.plugin.stop"
+    );
     assert!(!serve_starts_reverse_bridge_by_default());
     assert!(!dark_bridge_enabled(None));
     assert!(dark_bridge_enabled(Some("1")));

@@ -159,11 +159,12 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                 .await;
         }
-        let result = if op.name.starts_with("plugin.") && op.name != "plugin.install" {
+        let result = if op.name.starts_with("plugin.") {
             if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                 eprintln!("native {}", op.name);
             }
-            // Reads and X3 mutations share Core's process generation over private IPC.
+            // Reads, X3 mutations, and retired install share the HTTP plugin service.
+            // Flag-on ProcessOwner (when present) starts children; Core supplies specs.
             let state = Arc::clone(&state);
             let name = op.name;
             match tokio::spawn(
@@ -313,9 +314,14 @@ pub async fn run_serve(
     // The internal HTTP listener binds independently. Its desktop integration
     // still needs the actual public port, including explicit/ephemeral binds.
     env.insert("PACER_PORT".into(), port.to_string());
-    // Flag-on P4d-1 path: claim ProcessOwner + reverse bridge before Core spawn
-    // so the child inherits PACER_HOST_SOCKET. Default (flags unset) is a no-op.
+    // Flag-on P4d-1/P4d-4 path: claim ProcessOwner + reverse bridge before Core
+    // spawn so the child inherits PACER_HOST_SOCKET and HTTP plugin RPC can use
+    // the same owner. Default (flags unset) is a no-op.
     let native_host = native_host::maybe_start(&ctx.pacer_home, &mut env)?;
+    let plugins = match &native_host {
+        Some(host) => crate::native::plugins::Service::with_native_owner(host.owner()),
+        None => crate::native::plugins::Service::default(),
+    };
     // Native operations and the core must observe the same configuration environment.
     ctx.env = env.clone();
     // Runtime environment cannot turn a generic front door into a native owner.
@@ -350,7 +356,7 @@ pub async fn run_serve(
         token,
         registry,
         scoped_work,
-        plugins: crate::native::plugins::Service::default(),
+        plugins,
         forward_log_follow,
     });
     let app = Router::new()

@@ -14,8 +14,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `repo.add`, `repo.list`, `repo.remove` | Forwarded (P2-D) | Registry/path-probe/git identity and branch reads stay in TypeScript; only `repo_key` URL canonicalization is in the Rust host library. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
 | `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
-| `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3) | X3 `MutationOperations` over the same Core private IPC. `/_internal/plugins` accepts prepare for these ops plus `call` (`diagnostic.ping`, `ui.render`, `ui.action`, `ui.settings.validate`), `stop`, `changed`, `publish`, and `log`. TS Core remains the process owner (flag-off default; flag-on ProcessOwner still does not spawn children). Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the escape hatch. CT-11 live cutover still open. |
-| `plugin.install` | Forwarded | Retired Orca install refusal stays on the TypeScript handler; not registered native. |
+| `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3/P4d-4) | X3 `MutationOperations` over Core private IPC. Flag-off: `/_internal/plugins` prepare/`call`/`stop`/`changed`/`publish`/`log` with TS child spawn. Flag-on (`PACER_NATIVE_PLUGIN_HOST=1`): serve `ProcessOwner` starts/supervises children; Core supplies sealed `spawn_spec` + hello bookkeeping (`ready`) and refuses local spawn when `PACER_HOST_SOCKET` is set. Bridge adds `_host.plugin.spawn` / `stop`. Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the escape hatch. CT-11 live cutover still open. |
+| `plugin.install` | Native HTTP (P4d-4) | Retired Orca install refusal registered on the HTTP service registry (X3 parity). Stdio remains TypeScript. |
 | `strategy.list`, `strategy.show` | Native (P2-B) | `src/api/ops.ts` remains the reference and forward fallback via `PACER_FORWARD_OPS`; reads reuse `pacer-config` `list_strategy_reads` / `show_strategy`. |
 | `strategy.use`, `strategy.save`, `strategy.remove` | Native (P2-C) | `src/api/ops.ts` remains the reference and forward fallback; native effects use `pacer-config` and the P3-B publisher. |
 | `routing.set`, `runner.set`, `runner.reorder`, `runner.remove` | Native (P2-C) | Native document effects retain the private TypeScript endpoint-plugin synchronization bridge before publishing config changes. |
@@ -59,7 +59,7 @@ files are left intact. Mutation nesting failures do not replay. Oversized aggreg
 any diagnostic call; successful diagnostic payloads are discarded because TS
 ignores them. No operation is replayed after a diagnostic RPC. The bound is not a public JSON/schema rejection.
 
-## P4d path scaffolding (X1 / X1b / X1c / P4d-1 / P4d-2 / P4d-3)
+## P4d path scaffolding (X1 / X1b / X1c / P4d-1 / P4d-2 / P4d-3 / P4d-4)
 
 `pacer-plugin-runtime` names the process-owner gate and the private
 `PACER_HOST_SOCKET` / `$PACER_HOME/run/host.sock` contract. X1b lets a native
@@ -72,34 +72,38 @@ accept loop (0700/0600, peer-uid auth, stub `_host.plugin.call` /
 Core child; shutdown unlinks the socket. **P4d-2** attaches that owner to the
 bridge so flag-on `_host.plugin.call` / `find` hit live children; unbound /
 flag-off bridges keep stubs. **P4d-3** registers X3 mutation ops as Native HTTP
-through an expanded `/_internal/plugins` (stop/changed/publish/log + UI calls)
-while Core remains the process owner. **Default serve (flags unset) stays
-TypeScript-owned for child spawn** — safe rollback. Deleting
-`/_internal/plugins`, moving TS child spawn off Core, and CT-11 live cutover
-remain later P4d slices. See inventories under `.work/reviews/`.
+through an expanded `/_internal/plugins`. **P4d-4** moves flag-on child spawn
+onto that ProcessOwner (native HTTP call/stop + bridge `spawn`/`stop`),
+registers `plugin.install` refuse on HTTP, and has Core refuse local spawn when
+`PACER_HOST_SOCKET` is set so one plugin id cannot have two live owners.
+**Default serve (flags unset) stays TypeScript-owned for child spawn** — safe
+rollback. Shrinking `/_internal/plugins`, stdio native plugin ops, and CT-11
+live cutover remain later P4d slices. See inventories under `.work/reviews/`.
 
-### Per-scope plugin process owner (P4d-1 / P4d-2 / P4d-3)
+### Per-scope plugin process owner (P4d-1 … P4d-4)
 
 | Scope | Owner today | Notes |
 | --- | --- | --- |
-| Service (`pacer serve`) | TypeScript Core (default); optional Rust `NativeHostSession` when flag on | Flag-on: supervision + live bridge call/find; Core still spawns TS children until later P4d. HTTP plugin reads+mutations use Core IPC. |
+| Service (`pacer serve`) | TypeScript Core (default); Rust `ProcessOwner` when flag on | Flag-on: ProcessOwner starts/supervises children for native HTTP plugin RPC and bridge spawn/call/find/stop; Core seals spawn_spec and refuses local spawn. Flag-off unchanged. |
 | Stdio (`pacer-core api --stdio`) | TypeScript | Unchanged (P8) |
 | CLI one-shots | TypeScript | Unchanged |
 | `_run` runners | TypeScript | Unchanged (P6b) |
 
-## X3 / P4d-3 mutation status and remaining deferred work
+## X3 / P4d-3 / P4d-4 mutation status and remaining deferred work
 
 - **P4d-3 Native HTTP (via Core IPC):** `plugin.enable` / `disable` / `remove`,
   `plugin.settings.set`, `plugin.ui.render` / `action` / `visibility`. Library
   fixtures remain: `plugin-strategy-byte-parity.json`,
   `plugin-public-parity.json`, `plugin-operation-number-parity.json`.
-- **Still Forwarded:** `plugin.install` (retired refusal on TS).
+- **P4d-4 Native HTTP:** `plugin.install` (retired refuse). Flag-on ProcessOwner
+  child spawn for native plugin RPC + bridge `spawn`/`stop`.
 - **P4d-1 landed (flag-gated):** serve can claim `ProcessOwner` + reverse bridge
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against
   serve-owned children.
-- **Blocked on later P4d:** deleting `/_internal/plugins`, moving TS child spawn
-  off Core onto `ProcessOwner`, stdio native plugin ops, and CT-11 live evidence.
+- **Blocked on later P4d:** shrinking/deleting `/_internal/plugins` (still needed
+  for prepare/spawn_spec/ready/changed/publish/log), stdio native plugin ops,
+  full capability broker on the native owner, and CT-11 live evidence.
 - **Still deferred:** Rust signed archive inspection/extraction and publisher
   trust (crypto dependency tree). TypeScript archive/publisher remain.
 

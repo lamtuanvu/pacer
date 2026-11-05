@@ -29,6 +29,12 @@ pub const METHOD_PLUGIN_CALL: &str = "_host.plugin.call";
 /// Private JSON-RPC method: resolve a Rust-owned plugin entry.
 pub const METHOD_PLUGIN_FIND: &str = "_host.plugin.find";
 
+/// Private JSON-RPC method: spawn and track a child under the native owner.
+pub const METHOD_PLUGIN_SPAWN: &str = "_host.plugin.spawn";
+
+/// Private JSON-RPC method: terminate a tracked child.
+pub const METHOD_PLUGIN_STOP: &str = "_host.plugin.stop";
+
 /// `$PACER_HOME/run/host.sock` — never a TCP address.
 pub fn host_socket_path(pacer_home: &Path) -> PathBuf {
     pacer_home.join("run").join(HOST_SOCKET_NAME)

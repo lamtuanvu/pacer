@@ -1696,7 +1696,7 @@ export class PluginRegistry {
   /** The plugin's current state with no refresh, no start and no event; null when the registry has not loaded it. */
   peek(id: string): PluginState | null { return this.entries.get(id)?.state ?? null; }
 
-  /** Private Core bridge for native reads/mutations; this registry remains the process owner. */
+  /** Private Core bridge for native reads/mutations; flag-off this registry owns children. */
   nativeSnapshot(ctx: Ctx) {
     this.refresh(ctx);
     const cfg = pluginsConfig(ctx);
@@ -1707,6 +1707,46 @@ export class PluginRegistry {
       epoch: `${e.nativeIdentity}:${e.nativeUiRevision}`,
       surfaceEpochs: Object.fromEntries(e.nativeSurfaceRevisions),
     }));
+  }
+
+  /**
+   * Seal spawn argv + hello params for the flag-on ProcessOwner without starting a
+   * local child. Refused when the plugin is not enabled.
+   */
+  nativeSpawnSpec(ctx: Ctx, id: string) {
+    const e = this.findEntry(ctx, id);
+    if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
+    const manifest = structuredClone(e.manifest!);
+    const notifierReference = BUNDLED.find(plugin => plugin.manifest.id === "pacer-notify");
+    const canonicalNotifier = e.bundled && e.id === "pacer-notify" && notifierReference !== undefined && this.deps.bundled.includes(notifierReference);
+    const config = canonicalNotifier ? Object.freeze({ platform: process.platform }) : pluginsConfig(ctx).config[e.id] ?? {};
+    const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
+    const spec = this.spec(ctx, e);
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(spec.env)) {
+      if (typeof value === "string") env[key] = value;
+    }
+    return {
+      argv: spec.argv,
+      cwd: spec.cwd,
+      env,
+      hello: {
+        protocol: PLUGIN_PROTOCOL_VERSION,
+        features: ["chunkedResults", "httpBodyChunks", "fileWriteChunks", "plannerInstallTransactions", POLICY_OBSERVATIONS_FEATURE, POLICY_REDACTION_METADATA_FEATURE],
+        pacer: currentVersion(),
+        manifest,
+        config,
+        grants,
+      },
+    };
+  }
+
+  /** Record a ProcessOwner hello without holding a local PluginProcess. */
+  nativeMarkReady(ctx: Ctx, id: string, protocol: string, served: string[]): void {
+    const e = this.findEntry(ctx, id);
+    e.pluginProtocol = protocol;
+    e.served = Object.freeze([...served]);
+    this.setState(ctx, e, "ready");
   }
 
   async nativeStop(ctx: Ctx, id: string): Promise<void> { await this.stop(this.findEntry(ctx, id)); }
@@ -1820,6 +1860,10 @@ export class PluginRegistry {
     // A process outlives its launching request; each pending call owns its signal separately.
     const {operation:_operation,...processCtx}=ctx;
     ctx=processCtx;
+    // Flag-on serve: ProcessOwner supervises children. Refuse a second live owner.
+    if (ctx.env.PACER_HOST_SOCKET) {
+      throw new CoreError("plugin_unavailable", "native process owner supervises plugin children");
+    }
     if (e.starting) return e.starting;
     if (e.process?.alive) return e.process;
     e.starting = (async () => {
