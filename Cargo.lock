@@ -1490,6 +1490,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-runtime"
+version = "0.0.0"
+dependencies = [
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "pacer-read-model"
 version = "0.1.0"
 dependencies = [
