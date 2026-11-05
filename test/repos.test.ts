@@ -10,6 +10,20 @@ test("repo labels disambiguate hosts", () => {
  const labels=labelsFor(["github.com/acme/api","gitlab.com/acme/api"].map(key=>({key,path:"/api"})));
  expect([...labels.values()]).toEqual(["github.com/acme/api","gitlab.com/acme/api"]);
 });
+// apiTasks/snapshotTasks call labelsFor with one entry per task on every pump tick (every
+// 15s). It used to compare every entry against every other (two short-label computations per
+// pair), which took seconds on a task history in the thousands and blocked the core's event
+// loop (the desktop then saw "Operation failed"/"stopped" and dropped its connection). This
+// guards the O(n) rewrite with a generous bound: the old behavior took well over a second at
+// this size, so 200ms leaves wide margin without making the test flaky.
+test("repo labels stay fast with thousands of entries (regression: was O(n^2))", () => {
+ const entries=Array.from({length:4000},(_,i)=>({key:`github.com/acme/repo-${i % 50}`,path:`/repo-${i}`}));
+ const start=performance.now();
+ const labels=labelsFor(entries);
+ expect(performance.now()-start).toBeLessThan(200);
+ expect(labels.size).toBe(50);
+ expect(labels.get("github.com/acme/repo-0")).toBe("acme/repo-0");
+});
 test("resolve origin, linked worktree and registry-only subfolder lookup", async () => {
  const repo=gitRepo(), ctx=fakeCtx({run:realRun});
  await realRun(["git","-C",repo,"remote","add","origin","git@github.com:Acme/API.git"],10000);

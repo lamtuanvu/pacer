@@ -6,14 +6,19 @@ import type { TaskData } from "../../link/envelope";
 import type { TaskRecord } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import { unreadCounts } from "../../messaging/store";
-import { getLiveness } from "../../messaging/liveness-store";
-import { parentOf } from "../../messaging/participants";
+import { getLiveness, listLiveness, type LivenessRow } from "../../messaging/liveness-store";
+import { parentOfTask } from "../../messaging/participants";
 import type { ApiTask } from "./types";
 
 type UnreadCounts = ReturnType<typeof unreadCounts>;
-export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>, counts?: UnreadCounts, activeCount?:number): ApiTask {
+/** apiTasks batches this once (listLiveness) instead of two SELECTs per task (own + parent). */
+type LivenessLookup = (node: string) => LivenessRow | null;
+export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>, counts?: UnreadCounts, activeCount?:number, liveness?: LivenessLookup): ApiTask {
  const unread=(counts??unreadCounts(ctx,"human",[t.id])).get(t.id);
- const own=getLiveness(ctx,`task:${t.id}`), parent=parentOf(ctx,`task:${t.id}`), parentRow=parent?getLiveness(ctx,parent):null;
+ const lookupLiveness=liveness??(node=>getLiveness(ctx,node));
+ // parentOfTask(ctx,t), not parentOf(ctx,`task:${t.id}`): t is already a fresh read of this
+ // exact record, so this skips a second store lookup of it (see parentOfTask's comment).
+ const own=lookupLiveness(`task:${t.id}`), parent=parentOfTask(ctx,t), parentRow=parent?lookupLiveness(parent):null;
  const live=own?.reason?own:parentRow?.reason&&parentRow.escalatedAt?parentRow:null;
  const repo=t.repo??registeredRepo(ctx,t.brief.repo)??{...repoFor(ctx,t.brief.repo),identityUnverified:true as const},labels=repoLabels??labelsFor([...listRepos({...ctx,readOnly:true}),repo]);
  const active=activeCount??activeAgentSessions(ctx).filter(s=>s.task_id===t.id).length;
@@ -26,7 +31,11 @@ export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
  const counts=unreadCounts(ctx,"human",records.map(t=>t.id));
  const active=new Map<string,number>();
  for(const s of activeAgentSessions(ctx))active.set(s.task_id,(active.get(s.task_id)??0)+1);
- return records.map((t,i)=>apiTask(ctx,{...t,repo:repos[i]},labels,counts,active.get(t.id)??0));
+ // One SELECT for every node instead of up to two (own + parent) per task: msg_liveness is
+ // small (only nodes that ever stalled), so this is a plain in-memory lookup from here on.
+ const livenessByNode=new Map(listLiveness(ctx).map(row=>[row.node,row]));
+ const liveness:LivenessLookup=node=>livenessByNode.get(node)??null;
+ return records.map((t,i)=>apiTask(ctx,{...t,repo:repos[i]},labels,counts,active.get(t.id)??0,liveness));
 }
 /** Preserve task.list's per-task label scope, sharing registry reads and label work. */
 export function apiTaskPage(ctx: Ctx, records: TaskRecord[]): ApiTask[] {

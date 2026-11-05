@@ -1,9 +1,20 @@
+import type { Database } from "bun:sqlite";
 import { taskDatabase } from "../tasks/store";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 
+// taskDatabase(ctx) returns the same cached connection on every call (see tasks/store.ts), but
+// this function used to re-run its whole CREATE TABLE/INDEX/TRIGGER block (DDL, including
+// trigger bodies SQLite must re-parse) on every single call regardless. getWork/appendWorkEvent
+// call this once per task, so a tick enriching thousands of tasks (apiTasks, every pump cycle)
+// paid for the full schema check thousands of times over. Ensuring it once per Database
+// instance -- the same guard liveness-store.ts already uses for its own schema -- is safe: the
+// schema itself is unconditional and idempotent, so skipping a repeat of the identical DDL
+// changes nothing about what tables/triggers end up existing.
+const ready = new WeakSet<Database>();
 export function dispatchDatabase(ctx: Ctx) {
   const db = taskDatabase(ctx);
+  if (ready.has(db)) return db;
   db.exec(`
     CREATE TABLE IF NOT EXISTS work_nodes(task_id TEXT PRIMARY KEY, parent_id TEXT, root_id TEXT NOT NULL, depth INTEGER NOT NULL, options TEXT NOT NULL, dependencies TEXT NOT NULL DEFAULT '[]');
     CREATE INDEX IF NOT EXISTS work_root ON work_nodes(root_id);
@@ -50,6 +61,7 @@ export function dispatchDatabase(ctx: Ctx) {
       UPDATE work_waits SET total_seconds=total_seconds+CASE WHEN started_at IS NULL THEN 0 ELSE max(0,NEW.updated_at-started_at) END,started_at=NULL,refs=0 WHERE task_id=NEW.id AND kind='capacity';
     END;
   `);
+  ready.add(db);
   return db;
 }
 export function boundedJson(value: unknown): string {
