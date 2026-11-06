@@ -10,6 +10,7 @@ type EntityEventType = (typeof ENTITY_EVENT_TYPES)[number] | "pause";
 import { attentionOrder } from "../../../src/view-model/selectors";
 import { ApiError, createApi, type BrowserApi } from "./api";
 import { invalidateQueryCache } from "./query";
+import { createServiceNotifier, type ServiceNotifier } from "./service-notifier";
 
 export interface Features { readModel: boolean; ops: ReadonlySet<string> }
 export interface StoreState {
@@ -114,6 +115,8 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
       const event = action.event;
       if (event.type === "reset") return { ...state, needsSnapshot: true };
       if (!state.snapshot || state.needsSnapshot || event.seq <= state.snapshot.seq) return state;
+      // A notice does not change the snapshot body. Advance the cursor so a reconnect does not replay it.
+      if (event.type === "notify") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at } };
       // Plugin surfaces re-render on any plugin event; the catalog follows this counter.
       if (event.type === "plugin") return { ...state, snapshot: { ...state.snapshot, seq: event.seq, at: event.at }, invalidations: { ...state.invalidations, plugin: (state.invalidations.plugin ?? 0) + 1 } };
       // A machine seen on the network changes discovery.list without a config change.
@@ -155,9 +158,21 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
   let waitingTimer: ReturnType<typeof setInterval> | undefined;
   let waitingRead = false;
   const acknowledgedReviews = new Set<string>();
+  let serviceNotifier: ServiceNotifier | undefined;
+  const stopServiceNotifier = () => { serviceNotifier?.stop(); serviceNotifier = undefined; };
   const dispatch = (action: StoreAction) => { if (["disconnected", "session-ended"].includes(action.type)) invalidateQueryCache(api); state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; if (action.type === "disconnected") platform.setConnectionStatus("reconnecting"); else if (action.type === "reconnected") platform.setConnectionStatus("connected"); else if (action.type === "session-ended") platform.setConnectionStatus("disconnected"); for (const listener of listeners) listener(); };
-  const endSession = () => { stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); api.setConnected?.(false); dispatch({ type: "session-ended" }); };
+  const endSession = () => { stopServiceNotifier(); stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); api.setConnected?.(false); dispatch({ type: "session-ended" }); };
   const api = injectedApi ?? createApi(endSession);
+  const ensureServiceNotifier = (version: string) => {
+    if (platform.desktop) return;
+    serviceNotifier ??= createServiceNotifier({
+      call: (op, params) => api.call(op, params ?? {}),
+      notify: (title, options) => platform.notify(title, options),
+      desktop: false,
+      version: version || "0.0.0-dev",
+    });
+    void serviceNotifier.start();
+  };
   const pollWaiting = async () => {
     if (stopped || !state.connected || waitingRead) return;
     waitingRead = true;
@@ -216,6 +231,7 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
         // EventSource does not expose HTTP status. A normal request detects expired cookies.
         void api.hello().catch(error => { if (active() && error instanceof ApiError && error.status === 401) endSession(); });
       });
+      ensureServiceNotifier(hello.pacer);
       for (const type of new Set<string>([...V1_EVENTS, ...hello.events])) source.addEventListener(type, event => {
         if (!active()) return;
         try {
@@ -223,7 +239,10 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
           const seq = Number(message.lastEventId);
           if (!Number.isSafeInteger(seq) || seq < 0) return;
           if (type === "reset") cursorReset = true;
-          dispatch({ type: "event", event: { seq, at: Date.now() / 1000, type: type as EventType, data: JSON.parse(message.data) } });
+          const data = JSON.parse(message.data);
+          const cursor = state.snapshot?.seq;
+          dispatch({ type: "event", event: { seq, at: Date.now() / 1000, type: type as EventType, data } });
+          if (type === "notify" && cursor !== undefined && seq > cursor && state.snapshot?.seq === seq) serviceNotifier?.event({ type: "notify", data });
           if (state.needsSnapshot) void refresh();
         } catch { cursorReset = true; state = { ...state, needsSnapshot: true }; void refresh(); }
       });
@@ -244,6 +263,6 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
     /** Resynchronize after an unreplayable gap or an explicit identity/protocol change. */
     refresh: () => { cursorReset = true; state = { ...state, needsSnapshot: true }; invalidateQueryCache(api); return refresh(); },
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    start() { stopped = false; platform.setConnectionStatus("connecting"); void refresh(); waitingTimer = setInterval(() => void pollWaiting(), 5000); return () => { stopped = true; clearInterval(waitingTimer); generation++; stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); platform.setConnectionStatus("disconnected"); }; },
+    start() { stopped = false; platform.setConnectionStatus("connecting"); void refresh(); waitingTimer = setInterval(() => void pollWaiting(), 5000); return () => { stopped = true; stopServiceNotifier(); clearInterval(waitingTimer); generation++; stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); platform.setConnectionStatus("disconnected"); }; },
   };
 }

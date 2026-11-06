@@ -358,12 +358,12 @@ test('a stale snapshot after a config event cannot replay invalidations in a req
 
 test('a stream error invalidates client query data even when its screen is unmounted',async()=>{
  const {queryCacheFor}=await import('../app/src/data/query');
- FakeEvents.instances=[];let reads=0;
- const api={hello:async()=>hello('3.0.0',[]),snapshot:async()=>({protocol:'3.0.0',seq:5,snapshot}),call:async<T>()=>{reads++;return ['repo'] as T;}};
+ FakeEvents.instances=[];const calls:string[]=[];
+ const api={hello:async()=>hello('3.0.0',[]),snapshot:async()=>({protocol:'3.0.0',seq:5,snapshot}),call:async<T>(op:string)=>{calls.push(op);return ['repo'] as T;}};
  const cache=queryCacheFor(api,api.call),query=cache.createQuery(()=>{});
- query.update('repo.list','{}','online');await flush();query.dispose();expect(reads).toBe(1);
+ query.update('repo.list','{}','online');await flush();query.dispose();expect(calls).toEqual(['repo.list']);
  const store=createStore(api,FakeEvents as any),stop=store.start();
- try {await flush();FakeEvents.instances[0]!.emit('open');FakeEvents.instances[0]!.emit('error');const remount=cache.createQuery(()=>{});remount.update('repo.list','{}','online');await flush();expect(reads).toBe(2);remount.dispose();}finally{stop();}
+ try {await flush();FakeEvents.instances[0]!.emit('open');FakeEvents.instances[0]!.emit('error');const remount=cache.createQuery(()=>{});remount.update('repo.list','{}','online');await flush();expect(calls).toEqual(['repo.list','client.register','repo.list']);remount.dispose();}finally{stop();}
 });
 
 test('a separate screen API refreshes cached reads after a store reconnect while unmounted', async () => {
