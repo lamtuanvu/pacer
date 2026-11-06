@@ -1,5 +1,7 @@
 //! File-backed repository registry removal during TypeScript coexistence.
 
+#![allow(clippy::result_large_err)]
+
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError},
@@ -150,5 +152,5 @@ pub fn remove_repo(ctx: &Ctx, key: &str) -> Result<Value, CoreError> {
         .map_err(io_error)?;
         Ok(json!({"removed":true}))
     })
-    .map_err(|error| io_error(error))?
+    .map_err(io_error)?
 }
