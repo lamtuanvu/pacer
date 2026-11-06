@@ -211,6 +211,21 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
+            let task_read_sync = if crate::native::needs_task_read_bridge(op.name) {
+                let id = params
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                state.core.target().await.map(|target| {
+                    let id = id.clone();
+                    Box::pin(async move {
+                        crate::native::task_read_sync::http(Some(target), &id).await
+                    }) as pacer_foundation::api::OpFuture<'_>
+                })
+            } else {
+                None
+            };
             call_native(
                 &request_ctx,
                 op,
@@ -219,6 +234,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 endpoint_sync,
                 broker_sync,
                 session_sync,
+                task_read_sync,
             )
             .await
         };
