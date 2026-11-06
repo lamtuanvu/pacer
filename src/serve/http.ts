@@ -281,6 +281,58 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/machine-bridge" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const op = body && typeof body === "object" && !Array.isArray(body) ? (body as { op?: unknown }).op : undefined;
+            const bridgeParams = body && typeof body === "object" && !Array.isArray(body) ? (body as { params?: unknown }).params : undefined;
+            if (typeof op !== "string" || !op.startsWith("machine.") || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "invalid machine bridge body");
+            }
+            const { machineBridge } = await import("../api/machine-bridge");
+            return Response.json({
+              result: await machineBridge(getCtx(), op as "machine.get" | "machine.set" | "machine.rotate", bridgeParams as Record<string, unknown>),
+            });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/files-search" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => ({}));
+            const searchParams = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+            const { filesSearchBridge } = await import("../api/files-search-bridge");
+            return Response.json({
+              result: await filesSearchBridge(getCtx(), searchParams as { query: string; repo?: string; limit?: number }),
+            });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/setup-check" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => ({}));
+            const snapshotProbe = body && typeof body === "object" && !Array.isArray(body)
+              ? (body as { snapshotProbe?: unknown }).snapshotProbe
+              : undefined;
+            const { setupCheckBridge } = await import("../api/setup-check-bridge");
+            return Response.json({
+              result: await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false),
+            });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
         if (pathname === "/_internal/discovery/config" && req.method === "POST") {
           const { buildRadioConfig } = await import("../discovery/radio");

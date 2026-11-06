@@ -272,6 +272,32 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
+            let core_bridge_sync = if crate::native::needs_core_bridge(op.name) {
+                match crate::native::p8_bridge_ops::bridge_params(op.name, &params) {
+                    Ok(mut bridge_params) => {
+                        if op.name == "setup.check" {
+                            if let serde_json::Value::Object(map) = &mut bridge_params {
+                                map.insert("snapshotProbe".into(), serde_json::json!(false));
+                            }
+                        }
+                        let op_name = op.name.to_owned();
+                        state.core.target().await.map(|target| {
+                            let bridge_params = bridge_params.clone();
+                            Box::pin(async move {
+                                crate::native::core_bridge_sync::http(
+                                    Some(target),
+                                    &op_name,
+                                    bridge_params,
+                                )
+                                .await
+                            }) as pacer_foundation::api::OpFuture<'_>
+                        })
+                    }
+                    Err(error) => return native_error(error),
+                }
+            } else {
+                None
+            };
             call_native(
                 &request_ctx,
                 op,
@@ -285,6 +311,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 snapshot_sync,
                 task_clean_sync,
                 host_read_sync,
+                core_bridge_sync,
             )
             .await
         };
