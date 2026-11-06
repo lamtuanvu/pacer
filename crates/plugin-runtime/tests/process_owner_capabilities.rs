@@ -7,7 +7,7 @@ use pacer_plugin_runtime::{
     LocalHostEffect, OrcaCallContext, PluginCapabilitySession, ProcessOwner, ProviderSnapshot,
     ReadResource, SpawnSpec, call_resources_from_value, host_snapshots_from_value, parse_manifest,
     observation_bootstrap_from_value, session_for_call, session_from_hello,
-    worktree_context_from_value,
+    executor_context_from_value, worktree_context_from_value,
 };
 use pacer_store::TaskStore;
 use serde_json::json;
@@ -283,6 +283,7 @@ for (;;) {{
         None,
         None,
         None,
+        None
     )
     .unwrap();
 
@@ -386,6 +387,7 @@ for (;;) {{
         None,
         None,
         None,
+        None
     )
     .unwrap();
 
@@ -487,6 +489,7 @@ for (;;) {{
         None,
         None,
         None,
+        None
     )
     .unwrap();
 
@@ -596,6 +599,7 @@ for (;;) {
         Some(&host_attach),
         None,
         None,
+        None
     )
     .unwrap();
     session.bind_hosts_fixture(
@@ -718,6 +722,7 @@ for (;;) {
         None,
         Some(orca_context),
         None,
+        None
     )
     .unwrap();
     session
@@ -883,6 +888,7 @@ for (;;) {
         None,
         None,
         worktree_context,
+        None,
     )
     .unwrap();
     session.bind_process_owner_worktree().await.unwrap();
@@ -912,6 +918,130 @@ for (;;) {
         run["sha"].as_str().unwrap(),
         base_sha,
         "Core-sealed worktree must answer capability.worktree.resolveBase"
+    );
+    owner.terminate("fx-executor").await.unwrap();
+}
+
+#[tokio::test]
+async fn process_owner_answers_executor_claim_when_core_seals_grant() {
+    let root = TempDir::new().unwrap();
+    let home = {
+        fs::create_dir_all(root.path().join("home")).unwrap();
+        fs::canonicalize(root.path().join("home")).unwrap()
+    };
+    let repo = root.path().join("repo");
+    fs::create_dir(&repo).unwrap();
+    let repo = fs::canonicalize(&repo).unwrap();
+    let task_id = "t-20261106-125719-c5fb";
+    let executable = fs::canonicalize("/usr/bin/printf").unwrap();
+    let mut store = TaskStore::open(&home).unwrap();
+    store
+        .insert(
+            &json!({
+                "id": task_id,
+                "rev": 1,
+                "createdAt": 1,
+                "state": "running",
+                "executorProvider": "fx-executor",
+                "executor": "tool",
+                "attempts": [],
+                "brief": {"repo": repo.to_str().unwrap()}
+            }),
+            1.0,
+        )
+        .unwrap();
+
+    let source = r#"const r = Bun.stdin.stream().getReader();
+let b = "", pending;
+const send = (x) => console.log(JSON.stringify({ jsonrpc: "2.0", ...x }));
+for (;;) {
+  const { value, done } = await r.read();
+  if (done) break;
+  b += new TextDecoder().decode(value);
+  while (b.includes("\n")) {
+    const i = b.indexOf("\n");
+    const m = JSON.parse(b.slice(0, i));
+    b = b.slice(i + 1);
+    if (m.method === "plugin.hello") {
+      send({ id: m.id, result: { ok: true, protocol: "1.10.0", id: "fx-executor", version: "1.0.0", contributes: ["executor"] } });
+    } else if (m.method === "executor.run") {
+      pending = m.id;
+      send({ id: 7, method: "capability.process.claimRun", params: { taskId: "t-20261106-125719-c5fb", attempt: 1 } });
+    } else if (m.id === 7) {
+      send({ id: pending, result: { ok: true, runDir: m.result?.runDir } });
+    }
+  }
+}"#;
+
+    let hello = json!({
+        "protocol":"1.10.0","pacer":"0.2.0",
+        "manifest":{
+            "id":"fx-executor","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+            "capabilities":[{"name":"process.spawn","scopes":["printf"]}],
+            "contributes":{"executor":{"backends":["direct"]}}
+        },
+        "config":{},"grants":["process.spawn"],"features":[]
+    });
+    let sealed = json!({
+        "reads":[],
+        "writes":[],
+        "commands":[],
+        "hosts":[],
+        "executorClaim":{
+            "taskId": task_id,
+            "attempt": 1,
+            "providerId":"fx-executor",
+            "executor":"tool",
+            "launch":{
+                "argv":["printf","%s","claimed"],
+                "cwd": repo,
+                "executable": executable,
+                "env": {}
+            }
+        },
+        "executorContext":{"home": home}
+    });
+    let resources = call_resources_from_value(&sealed).unwrap();
+    let executor_context = executor_context_from_value(&sealed).unwrap();
+    let mut session = session_for_call(
+        &hello,
+        resources,
+        Some(vec!["process.spawn".into()]),
+        Duration::from_secs(30),
+        None,
+        None,
+        None,
+        None,
+        executor_context,
+    )
+    .unwrap();
+    session.bind_process_owner_executor().unwrap();
+
+    let dir = TempDir::new().unwrap();
+    let mut owner = ProcessOwner::native_for_tests();
+    owner
+        .spawn("fx-executor", &peer_script(dir.path(), source))
+        .unwrap();
+    owner
+        .install_capability_session("fx-executor", session)
+        .unwrap();
+    owner
+        .call_plugin("fx-executor", "plugin.hello", hello, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let run = owner
+        .call_plugin(
+            "fx-executor",
+            "executor.run",
+            json!({"task":{"id":task_id,"rev":1},"attempt":1,"runDir":1,"owned":{"placement":"current","timeoutMs":60000}}),
+            Duration::from_secs(30),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        run["runDir"].as_u64(),
+        Some(1),
+        "Core-sealed executorClaim must answer capability.process.claimRun"
     );
     owner.terminate("fx-executor").await.unwrap();
 }
