@@ -28,6 +28,7 @@ async fn main() -> io::Result<()> {
             env,
             input["now"].as_f64().unwrap_or(1_700_000_000.0),
         );
+        pacer_server::native::set_identity_platform_for_tests(input["identityPlatform"].as_str());
         let registry = pacer_server::native::registry("");
         let name = input["op"].as_str().unwrap_or("");
         if pacer_server::native::discovery_stays_forwarded(&ctx, name, &input["params"])
@@ -52,15 +53,7 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
-        let core_bridge_sync = if matches!(
-            name,
-            "machine.get"
-                | "machine.set"
-                | "machine.rotate"
-                | "setup.check"
-                | "repo.list"
-                | "repo.add"
-        ) {
+        let core_bridge_sync = if matches!(name, "setup.check" | "repo.list" | "repo.add") {
             let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)
         } else {
