@@ -23,7 +23,7 @@ use pacer_plugin_ops::{
     mutations::{MUTATION_OPERATIONS, MutationOperations, MutationRuntime},
     public::{Entry, PublicOperations, Runtime},
 };
-use pacer_plugin_runtime::{SharedOwner, SpawnSpec};
+use pacer_plugin_runtime::{SharedOwner, SpawnSpec, session_from_hello};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -417,11 +417,20 @@ impl Owner {
             cwd: cwd.into(),
             env,
         };
-        {
+        let result = {
             let mut guard = owner.lock().await;
             guard
                 .ensure(id, &spec)
                 .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
+            // P4d-6: answer capability.* via plugin-host broker (log/config.get;
+            // scoped natives when later slices issue CallResources).
+            if guard.capability_session(id).is_none() {
+                let session = session_from_hello(&hello, Duration::from_secs(300))
+                    .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+                guard
+                    .install_capability_session(id, session)
+                    .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
+            }
             if !guard.is_ready(id) {
                 let hello_result = guard
                     .call_plugin(id, "plugin.hello", hello, Duration::from_secs(5))
@@ -449,15 +458,43 @@ impl Owner {
                 }))
                 .await?;
                 let mut guard = owner.lock().await;
-                return guard
+                guard
                     .call_plugin(id, method, params, Duration::from_secs(30))
                     .await
-                    .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
+                    .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))
+            } else {
+                guard
+                    .call_plugin(id, method, params, Duration::from_secs(30))
+                    .await
+                    .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))
             }
-            guard
-                .call_plugin(id, method, params, Duration::from_secs(30))
-                .await
-                .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))
+        };
+        self.flush_capability_logs(owner, id).await;
+        result
+    }
+
+    async fn flush_capability_logs(&mut self, owner: SharedOwner, id: &str) {
+        let logs = {
+            let guard = owner.lock().await;
+            let Some(session) = guard.capability_session(id) else {
+                return;
+            };
+            drop(guard);
+            let mut session = session.lock().await;
+            session.take_logs()
+        };
+        for (level, message) in logs {
+            let mut text = if level == "info" {
+                message
+            } else {
+                format!("[{level}] {message}")
+            };
+            if text.len() > 1000 {
+                text.truncate(1000);
+            }
+            let _ = self
+                .request(json!({"kind":"log", "id":id, "message":text}))
+                .await;
         }
     }
 
