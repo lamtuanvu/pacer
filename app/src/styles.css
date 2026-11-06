@@ -396,7 +396,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-setup-rail li{display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3);border:1px solid transparent;border-radius:var(--radius-lg)}
 .pc-setup-rail li[aria-current]{background:var(--surface-card);border-color:var(--line)}
 .pc-setup-rail li{position:relative}.pc-setup-value .pc-btn{position:relative;z-index:var(--layer-base)}
-.pc-setup-rail .pc-btn.pc-setup-step-link,.pc-setup-rail .pc-btn.pc-setup-step-link:hover{position:static;display:inline;min-width:0;min-height:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left}
+.pc-setup-rail .pc-btn.pc-setup-step-link,.pc-setup-rail .pc-btn.pc-setup-step-link:hover{position:static;display:inline;min-width:0;min-height:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .pc-setup-step-link::after{content:'';position:absolute;inset:0;border-radius:var(--radius-lg)}.pc-setup-rail .pc-btn.pc-setup-step-link:focus-visible{outline:0}.pc-setup-step-link:focus-visible::after{outline:var(--stroke-focus) solid var(--focus)}
 .pc-setup-rail li:has(.pc-setup-step-link:not(:disabled)):hover{background:var(--surface-card)}
 .pc-setup-number{width:var(--size-24);flex:none;text-align:center;border:1px solid var(--line);border-radius:var(--radius-full)}

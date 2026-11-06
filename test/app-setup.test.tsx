@@ -225,6 +225,7 @@ test('executor controls block indefinitely, unblock and reorder through the API'
   await controls.find(n => n.props?.['aria-label'] === 'Use OpenCode with Ollama' && n.props.onChange).props.onChange({ currentTarget: { checked: true } });
   await controls.find(n => n.props?.['aria-label'] === 'Move Codex down').props.onClick();
   expect(h.calls).toEqual([['runner.block', { id: 'codex' }], ['runner.unblock', { id: 'opencode#ollama' }], ['runner.reorder', { ids: ['opencode#ollama', 'codex', 'agy'] }]]);
+  expect(renderToString(tree)).toContain('pc-switch--sm');
   let text = renderToString(tree), previous;
   do { previous = text; text = text.replace(/<[^>]*>/g, ''); } while (text !== previous);
   for (const id of ['claude-code', 'opencode#ollama', 'agy']) expect(text).not.toContain(id);

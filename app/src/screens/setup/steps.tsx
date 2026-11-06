@@ -73,11 +73,12 @@ export function ExecutorList({ runners, providers, busy, change, reorder }: {
   return <ol className="pc-setup-executors" aria-label="Executor priority">{runners.map((row, index) => {
     const name = setupAgentName(row.id);
     const status = executorStatus(row.state === 'ok' ? 'ready' : row.state === 'broken' ? 'down' : row.state);
+    const budget = budgetLine(providers.find(p => p.id === row.id));
     return <li key={row.id}>
       <span className="muted">{index + 1}</span>
       <Switch size="sm" aria-label={`Use ${name}`} checked={row.state !== 'blocked'} disabled={busy} onChange={e => change(row.id, e.currentTarget.checked)} />
       <AgentMark agent={runnerAgent(row.id)} size={24} labelled={false} />
-      <div className="pc-setup-executor-name"><strong>{name}</strong><span className="muted">{budgetLine(providers.find(p => p.id === row.id))}</span></div>
+      <div className="pc-setup-executor-name"><strong title={name}>{name}</strong><span className="muted" title={budget}>{budget}</span></div>
       <Pill tone={status.tone}><StatusGlyph status={status} /> {status.label}</Pill>
       <div className="pc-setup-move">
         {index > 0 && <Button variant="ghost" aria-label={`Move ${name} up`} disabled={busy} onClick={() => move(index, -1)}>↑</Button>}
