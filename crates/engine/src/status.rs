@@ -219,11 +219,11 @@ pub fn rank_route(input: &Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
 
-    fn strategy() -> Value {
+    pub(crate) fn strategy() -> Value {
         json!({
             "name": "default",
             "planner": {"agent": "claude-code", "account": "claude"},
@@ -241,7 +241,7 @@ mod tests {
         })
     }
 
-    fn provider(id: &str, account: &str, verdict: &str) -> Value {
+    pub(crate) fn provider(id: &str, account: &str, verdict: &str) -> Value {
         json!({
             "id": id,
             "account": account,
