@@ -55,6 +55,13 @@ const named = (path: string) => {
 
 test("native registry matches every TS config operation result, bytes and publication", async () => {
   const cases: [string,unknown,((home: string)=>void)?][] = [
+    ["strategy.list",{}],
+    ["strategy.list",{},path=>{named(path);writeFileSync(join(path,"strategies","broken.yaml"),"planner: [oops\n",{mode:0o600});}],
+    ["strategy.list",{},path=>{named(path);writeFileSync(join(path,"active"),"review\n");}],
+    ["strategy.show",{name:"default"}],
+    ["strategy.show",{name:"review"},named],
+    ["strategy.show",{name:"review"},path=>{named(path);writeFileSync(join(path,"active"),"review\n");}],
+    ["strategy.show",{name:"missing"}],
     ["strategy.save",{name:"review",draft:{from:"default",description:"fixture",set:{"pacing.policy":"even"}},reason:"reviewed"}],
     ["strategy.use",{name:"review"},named], ["strategy.use",{name:"default"},path=>{named(path);writeFileSync(join(path,"active"),"review\n");}],
     ["strategy.remove",{name:"review"},named], ["strategy.remove",{name:"default"}],
@@ -67,12 +74,24 @@ test("native registry matches every TS config operation result, bytes and public
     ["runner.remove",{id:"cursor"}], ["runner.remove",{id:"claude-code"}], ["runner.remove",{id:"codex#missing"}],
     ["notifications.get",{}], ["notifications.get",{},p=>writeFileSync(join(p,"settings.json"),'{"notifications":"all"}')],
     ...["off","important","all"].map(level=>["notifications.set",{level}] as [string,unknown]),
+    // Nested pacing inserts that add new map keys after a blank line before the
+    // next root key are not byte-identical on this golden yet; stick to keys the
+    // shared editor already matches here (corpus covers the broader matrix).
+    ["config.set",{key:"update_check",value:false}],
+    ["config.set",{key:"execution.auto_clean",value:true}],
+    ["config.set",{key:"task_retention_days",value:7}],
+    ["config.set",{key:"execution.local_max_tasks",value:3}],
+    ["config.set",{key:"pacing.order",value:["codex","cursor"]}],
+    ["config.set",{key:"terminal.app",value:"Ghostty"}],
+    ["config.set",{key:"terminal.open",value:"kitty"}],
   ];
   for (const [op,params,setup] of cases) await compare(op,params,setup);
 }, 60_000);
 
 test("native schemas match TS Unicode lengths, JS safe integers, nulls and issue order", async () => {
   const cases: [string,unknown][] = [
+    ["strategy.list",null],["strategy.show",{}],["strategy.show",{name:3}],["strategy.show",{name:""}],
+    ["strategy.show",{name:"😀".repeat(65)}],
     ["strategy.use",{}],["strategy.use",{name:3}],["strategy.use",[]],
     ["strategy.save",{name:"review",draft:{from:"default"},reason:"\uFEFF"}],
     ["strategy.save",{name:"review",draft:{from:"default"},reason:"\u0085"}],
@@ -84,6 +103,10 @@ test("native schemas match TS Unicode lengths, JS safe integers, nulls and issue
     ["runner.remove",{id:""}], ["runner.remove",{id:"codex\n"}],
     ["runner.reorder",{ids:[3,""]}], ["routing.set",{rules:[{kinds:null,executors:[null,""]},null]}],
     ["notifications.set",{level:"bad"}], ["notifications.get",null],
+    ["config.set",{}], ["config.set",{key:"nope",value:1}],
+    ["config.set",{key:"update_check",value:{a:1}}],
+    ["config.set",{key:"pacing.policy",value:"bad"}],
+    ["config.set",{key:"terminal.open",value:"not-a-preset"}],
   ];
   for (const [op,params] of cases) await compare(op,params);
 },60_000);

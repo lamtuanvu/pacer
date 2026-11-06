@@ -16,7 +16,7 @@ fn selected_settings_match(home: &Path, path: &Path, before: &str) -> bool {
         && fs::read_to_string(path).is_ok_and(|current| current == before)
 }
 
-fn ensure_migrated(home: &Path) -> Result<Option<Value>, StrategyError> {
+pub(crate) fn ensure_migrated(home: &Path) -> Result<Option<Value>, StrategyError> {
     let (path, _) = strategy_path(home)?;
     let before = fs::read_to_string(&path)?;
     let strategy = load_strategy(home)?;
@@ -100,7 +100,8 @@ fn diff(path: &str, before: &str, after: &str) -> String {
     out.join("\n")
 }
 
-fn resolve<'a>(strategy: &'a Value, id: &str) -> Option<&'a Value> {
+/// Resolve a runner id or alias the same way TypeScript `resolveRunner` does.
+pub fn resolve<'a>(strategy: &'a Value, id: &str) -> Option<&'a Value> {
     if let Some(runner) = strategy["runners"].get(id) {
         return Some(runner);
     }
@@ -170,13 +171,13 @@ fn default_account<'a>(strategy: &'a Value, agent: &str) -> Option<&'a str> {
     matches.next().is_none().then_some(one)
 }
 
-fn planner(strategy: &Value, runner: &Value) -> bool {
+pub(crate) fn planner(strategy: &Value, runner: &Value) -> bool {
     runner["host"].is_null()
         && runner["agent"] == strategy["planner"]["agent"]
         && runner["account"] == strategy["planner"]["account"]
 }
 
-fn executor_ids(strategy: &Value) -> Vec<String> {
+pub(crate) fn executor_ids(strategy: &Value) -> Vec<String> {
     strategy["runners"]
         .as_object()
         .into_iter()
@@ -184,6 +185,43 @@ fn executor_ids(strategy: &Value) -> Vec<String> {
         .filter(|runner| !planner(strategy, runner))
         .filter_map(|runner| runner["id"].as_str().map(str::to_owned))
         .collect()
+}
+
+/// Match `orderedExecutorIds`: pacing order first, then remaining non-planner runners.
+pub(crate) fn ordered_executor_ids(strategy: &Value) -> Vec<String> {
+    let ids = executor_ids(strategy);
+    let mut order = Vec::new();
+    for reference in strategy["pacing"]["order"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if reference == "opencode" {
+            for candidate in &ids {
+                if strategy["runners"][candidate]["agent"] == "opencode"
+                    && !order.contains(candidate)
+                {
+                    order.push(candidate.clone());
+                }
+            }
+        } else {
+            let candidate = resolve(strategy, reference)
+                .and_then(|runner| runner["id"].as_str())
+                .unwrap_or(reference);
+            if ids.iter().any(|known| known == candidate)
+                && !order.iter().any(|known| known == candidate)
+            {
+                order.push(candidate.to_owned());
+            }
+        }
+    }
+    for candidate in &ids {
+        if !order.contains(candidate) {
+            order.push(candidate.clone());
+        }
+    }
+    order
 }
 
 fn path(parts: &[Value]) -> &[Value] {
@@ -307,38 +345,7 @@ fn move_rank(
     id: &str,
     rank: usize,
 ) -> Result<(), StrategyError> {
-    let ids = executor_ids(strategy);
-    let mut order = Vec::new();
-    for reference in strategy["pacing"]["order"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-    {
-        if reference == "opencode" {
-            for candidate in &ids {
-                if strategy["runners"][candidate]["agent"] == "opencode"
-                    && !order.contains(candidate)
-                {
-                    order.push(candidate.clone());
-                }
-            }
-        } else {
-            let candidate = resolve(strategy, reference)
-                .and_then(|runner| runner["id"].as_str())
-                .unwrap_or(reference);
-            if ids.iter().any(|known| known == candidate)
-                && !order.iter().any(|known| known == candidate)
-            {
-                order.push(candidate.to_owned());
-            }
-        }
-    }
-    for candidate in &ids {
-        if !order.contains(candidate) {
-            order.push(candidate.clone());
-        }
-    }
+    let mut order = ordered_executor_ids(strategy);
     order.retain(|candidate| candidate != id);
     order.insert(rank.min(order.len()), id.to_owned());
     doc.set_list(

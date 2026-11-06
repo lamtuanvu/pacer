@@ -595,15 +595,19 @@ browserTest("Answer Escape restores its opening control inside Layout", () => wi
   expect(await answer.evaluate(el=>el===document.activeElement)).toBe(true);
 }));
 
-browserTest("Tasks owns its selected task aside with the shell Inspector toggle disabled", () => withPage(async (page, built) => {
+browserTest("Tasks fills a real shell Inspector panel, with a working toggle", () => withPage(async (page, built) => {
   await open(page, built, "?task-list#/tasks");
-  const aside = page.getByRole("complementary",{name:"Selected task"});
+  const inspector = page.getByRole("complementary", {name:"Inspector", exact:true});
+  await inspector.waitFor();
+  const aside = inspector.getByRole("complementary",{name:"Selected task"});
   await aside.waitFor();
   expect(await aside.isVisible()).toBe(true);
   expect(await page.getByRole("button", {name:"Hide Inspector"}).count()).toBe(0);
-  expect(await page.getByRole("button", {name:"Toggle right panel", exact:true}).isDisabled()).toBe(true);
-  expect(await page.getByRole("complementary", {name:"Inspector", exact:true}).count()).toBe(0);
+  const toggle = page.getByRole("button", {name:"Toggle right panel", exact:true});
+  expect(await toggle.isDisabled()).toBe(false);
+  await toggle.click();
+  await expect(page.getByRole("complementary", {name:"Inspector", exact:true}).count()).resolves.toBe(0);
   await page.keyboard.press("ControlOrMeta+Alt+b");
+  await inspector.waitFor();
   expect(await aside.isVisible()).toBe(true);
-  expect(await page.getByRole("complementary", {name:"Inspector", exact:true}).count()).toBe(0);
 }));

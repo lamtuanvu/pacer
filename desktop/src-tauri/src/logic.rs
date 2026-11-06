@@ -646,6 +646,26 @@ impl HealthStrikes {
         self.0 >= HEALTH_STRIKES && !transaction
     }
 }
+/// Consecutive failures of a periodic session operation (the heartbeat, reopening the event
+/// stream) that end the connected session. The core's own event loop can block for a couple of
+/// seconds under load (periodic snapshot and dispatch timers), long enough
+/// to miss one occasionally but not several in a row. A `sessionExpired` (401) is never a stall;
+/// it always ends the session at once so the app re-signs in.
+pub const SESSION_OP_STRIKES: u8 = 3;
+#[derive(Debug, Default)]
+pub struct SessionOpStrikes(u8);
+impl SessionOpStrikes {
+    /// Records one operation's outcome; true when the session should end. `Ok` resets the
+    /// strike count. An `Err("sessionExpired")` always ends the session immediately; any other
+    /// error tolerates up to `SESSION_OP_STRIKES - 1` consecutive misses first.
+    pub fn observe(&mut self, result: &Result<(), String>) -> bool {
+        match result {
+            Ok(()) => { self.0 = 0; false }
+            Err(message) if message == "sessionExpired" => true,
+            Err(_) => { self.0 = self.0.saturating_add(1); self.0 >= SESSION_OP_STRIKES }
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum JobState {
     NotLoaded,
@@ -1255,6 +1275,16 @@ pub fn candidates(path: &str, home: &Path) -> Vec<PathBuf> {
     unique
 }
 
+/// Launches pass only `--pacer-*` flags, macOS system flags (`-psn_*`, `-NS*`,
+/// `-Apple*`) or a `pacer://` link. Anything else (`pacer statusline`,
+/// `pacer --help`) means the desktop executable was run as the CLI.
+pub fn cli_invocation(first: &str) -> bool {
+    !(first.is_empty()
+        || first.starts_with("--pacer-")
+        || ["-psn_", "-NS", "-Apple"].iter().any(|flag| first.starts_with(flag))
+        || first.starts_with("pacer://"))
+}
+
 pub fn auth_url(raw: &str) -> Result<Url, String> {
     let url = Url::parse(raw.trim()).map_err(|_| "Invalid sign-in URL")?;
     let codes: Vec<_> = url.query_pairs().collect();
@@ -1444,6 +1474,24 @@ impl Sse {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cli_invocation_is_anything_but_a_launch_flag_or_link() {
+        for command in ["statusline", "open", "serve", "route", "--help", "-h", "--json"] {
+            assert!(cli_invocation(command), "{command}");
+        }
+        for launch in [
+            "",
+            "-psn_0_12345",
+            "-NSDocumentRevisionsDebugMode",
+            "-AppleLanguages",
+            "--pacer-relaunch-hidden",
+            "--pacer-relaunch-route=#/",
+            "--pacer-maintenance-launch",
+            "pacer://tasks/t-0412",
+        ] {
+            assert!(!cli_invocation(launch), "{launch}");
+        }
+    }
     #[test]
     fn bundled_shell_state_keeps_document_and_binds_takeover_token() {
         let url=Url::parse("tauri://localhost/index.html").unwrap();
@@ -2023,6 +2071,42 @@ mod tests {
             assert!(!strikes.observe(HealthProbe::NoAnswer, false));
         }
         assert!(strikes.observe(HealthProbe::NoAnswer, false));
+    }
+    #[test]
+    fn one_missed_heartbeat_keeps_the_session() {
+        let mut strikes = SessionOpStrikes::default();
+        assert!(!strikes.observe(&Err("Operation failed".into())));
+        assert!(!strikes.observe(&Ok(())));
+        assert!(!strikes.observe(&Err("stopped".into())));
+    }
+    #[test]
+    fn consecutive_missed_heartbeats_end_the_session() {
+        for error in ["Operation failed", "stopped", "Invalid service response"] {
+            let mut strikes = SessionOpStrikes::default();
+            for _ in 1..SESSION_OP_STRIKES {
+                assert!(!strikes.observe(&Err(error.to_string())), "{error}");
+            }
+            assert!(strikes.observe(&Err(error.to_string())), "{error}");
+            // Once it has ended, staying down keeps reporting true (the caller stops polling).
+            assert!(strikes.observe(&Err(error.to_string())), "{error}");
+        }
+    }
+    #[test]
+    fn session_expired_ends_the_session_at_once() {
+        let mut strikes = SessionOpStrikes::default();
+        assert!(strikes.observe(&Err("sessionExpired".into())));
+    }
+    #[test]
+    fn a_success_between_misses_resets_the_strike_count() {
+        let mut strikes = SessionOpStrikes::default();
+        for _ in 1..SESSION_OP_STRIKES {
+            assert!(!strikes.observe(&Err("Operation failed".into())));
+        }
+        assert!(!strikes.observe(&Ok(())));
+        for _ in 1..SESSION_OP_STRIKES {
+            assert!(!strikes.observe(&Err("Operation failed".into())));
+        }
+        assert!(strikes.observe(&Err("Operation failed".into())));
     }
     #[test]
     fn automatic_lifecycle_transitions() {

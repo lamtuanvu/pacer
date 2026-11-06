@@ -49,6 +49,8 @@ function writeStrategyYaml(ctx: Ctx, extra: string = "", probe: "ask" | "auto" |
 planner: claude-code
 providers:
   claude-code: {}
+execution:
+  launch_mode: headless
 routing:
   - default: [claude-code]
 pacing:

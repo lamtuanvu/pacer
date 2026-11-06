@@ -6,6 +6,7 @@ import { readManifest } from "../src/install/manifest";
 import { runDoctor } from "../src/install/doctor";
 import { health, binaryInFile, parseLaunchd, parseSystemd, plist, restartAfterUpdate, serviceBackend, serviceInstalled, servicePath, servicePATH, unit, type ServiceDeps } from "../src/service";
 import { serviceCli } from "../src/service/cli";
+import { MANAGED_BY_DESKTOP_MESSAGE, readOwner, writeOwner } from "../src/install/owner";
 import { fakeCtx } from "./helpers";
 const goodFetch = (async () => Response.json({ ok: true, pid:456 }, { headers: { "X-Pacer": "1" } })) as NonNullable<ServiceDeps["fetch"]>;
 const deps: ServiceDeps = { platform: "darwin", uid: 501, argv: ["/opt/pacer"], fetch: goodFetch, waitMs: 0 };
@@ -151,6 +152,48 @@ test("service refuses source argv before any files or commands are changed", asy
   expect(existsSync(path)).toBe(false);expect(calls).toHaveLength(0);
  }
 });
+test("a dev (source) invocation refuses install, uninstall and restart against the real launchd label", async () => {
+  const { ctx, d, calls, path } = fixture(); delete ctx.env.PACER_BIN;
+  put(path, '<key>Label</key>\n<string>com.pacer.serve</string>');
+  const argv = ["/bin/bun", "/repo/src/cli.ts"];
+  for (const op of ["install", "uninstall", "restart"] as const) {
+    await expect(serviceBackend(ctx, { ...d, argv })[op]()).rejects.toThrow("refusing to manage the login service from a source (dev) invocation");
+    expect(calls).toHaveLength(0);
+  }
+  expect(existsSync(path)).toBe(true); // uninstall never reached rmSync
+});
+test("PACER_ALLOW_REAL_INSTALL=1 is the only way past the dev-invocation refusal", async () => {
+  const { ctx, d, calls, path } = fixture(); delete ctx.env.PACER_BIN;
+  put(path, '<key>Label</key>\n<string>com.pacer.serve</string>');
+  const argv = ["/bin/bun", "/repo/src/cli.ts"];
+  process.env.PACER_ALLOW_REAL_INSTALL = "1";
+  try {
+    await serviceBackend(ctx, { ...d, argv }).restart();
+    expect(calls.some(c => c[0] === "launchctl" && c[1] === "kickstart")).toBe(true);
+  } finally { delete process.env.PACER_ALLOW_REAL_INSTALL; }
+  calls.length = 0;
+  await expect(serviceBackend(ctx, { ...d, argv }).restart()).rejects.toThrow("refusing to manage the login service from a source (dev) invocation");
+  expect(calls).toHaveLength(0);
+});
+test("an installed or compiled binary (single-element argv) is unaffected by the dev-invocation refusal", async () => {
+  const { ctx, d, calls, path } = fixture(); delete ctx.env.PACER_BIN;
+  put(path, '<key>Label</key>\n<string>com.pacer.serve</string>');
+  // A real compiled pacer's own argv, from either a release binary or an explicit PACER_BIN, is a single element.
+  await serviceBackend(ctx, { ...d, argv: ["/opt/pacer"] }).restart();
+  expect(calls.some(c => c[0] === "launchctl" && c[1] === "kickstart")).toBe(true);
+  calls.length = 0;
+  await serviceBackend(ctx, { ...d, argv: ["/opt/pacer"] }).uninstall();
+  expect(calls.some(c => c[0] === "launchctl" && c[1] === "bootout")).toBe(true);
+  expect(existsSync(path)).toBe(false);
+});
+test("a fixture (compiled sandbox) service label is unaffected by the dev-invocation refusal even with dev argv", async () => {
+  const { ctx, d, calls, path } = fixture();
+  delete ctx.env.PACER_BIN;
+  const fixtureLabel = "com.pacer.live.0123456789abcdef0123456789abcdef.service";
+  put(path, `<key>Label</key>\n<string>${fixtureLabel}</string>`);
+  await serviceBackend(ctx, { ...d, argv: ["/bin/bun", "/repo/src/cli.ts"], label: fixtureLabel }).restart();
+  expect(calls.some(c => c[0] === "launchctl" && c[1] === "kickstart" && c[3] === `gui/501/${fixtureLabel}`)).toBe(true);
+});
 for(const location of ["orca","git-worktree","dot-worktrees","symlink"] as const)test("service refuses a compiled binary in development workspace: "+location,async()=>{
  const {ctx,d,calls,path}=fixture();delete ctx.env.PACER_BIN;
  const root=location==="orca"?join(ctx.home,"orca/workspaces/repo"):location==="dot-worktrees"?join(ctx.home,"repo/.worktrees/w"):join(ctx.home,"checkout");
@@ -263,4 +306,59 @@ test("launchd owner ignores inherited, default and nested environment blocks", a
 test("service install CLI reports a foreign owner with a failing exit code", async () => {
   const f = fixture(); ownerProbe(f, ownedJob("darwin", "/foreign"));
   expect(await serviceCli(["install"], f.ctx, f.d)).toMatchObject({ code: 1, err: expect.stringContaining("Another pacer") });
+});
+
+test("a successful service install claims cli ownership only when unclaimed or already cli", async () => {
+  const { ctx, d } = fixture();
+  expect(readOwner(ctx)).toBeNull();
+  expect((await serviceCli(["install"], ctx, d)).code).toBe(0);
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/opt/pacer" });
+  // A later successful install from the same CLI keeps (re-records) cli ownership.
+  expect((await serviceCli(["install"], ctx, d)).code).toBe(0);
+  expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/opt/pacer" });
+});
+
+test("service install and uninstall defer to a desktop owner with exit code 2", async () => {
+  const { ctx, d } = fixture();
+  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
+  expect(await serviceCli(["install"], ctx, d)).toEqual({ code: 2, out: "", err: `pacer service: ${MANAGED_BY_DESKTOP_MESSAGE}` });
+  expect(await serviceCli(["uninstall"], ctx, d)).toEqual({ code: 2, out: "", err: `pacer service: ${MANAGED_BY_DESKTOP_MESSAGE}` });
+  // Read-only commands stay unaffected.
+  expect((await serviceCli(["status"], ctx, d)).code).toBe(0);
+});
+
+test("the bundled CLI (PACER_BIN matching the recorded desktop executable) is never blocked, and never overrides desktop ownership", async () => {
+  const { ctx, d } = fixture();
+  writeOwner(ctx, { owner: "desktop", executable: "/opt/pacer", at: 1 });
+  const result = await serviceCli(["install"], ctx, d);
+  expect(result.code).toBe(0);
+  // Its own install succeeded, but ownership stays with the desktop: claimCliOwnership defers.
+  expect(readOwner(ctx)).toMatchObject({ owner: "desktop", executable: "/opt/pacer" });
+});
+
+test("the desktop's own bundled CLI running `service install` never claims a cli record pointing into the app bundle", async () => {
+  const { ctx, d } = fixture();
+  ctx.env.PACER_BIN = "/Applications/pacer.app/Contents/Resources/pacer";
+  expect(readOwner(ctx)).toBeNull(); // no record at all yet: the bug this guards against has no existing desktop record to defer to
+  const result = await serviceCli(["install"], ctx, { ...d, argv: [ctx.env.PACER_BIN] });
+  expect(result.code).toBe(0);
+  expect(readOwner(ctx)).toBeNull();
+});
+
+test("--release-ownership hands a desktop-owned installation back to this CLI instead of deferring", async () => {
+  const { ctx, d } = fixture();
+  // No pre-app backup here: the handback falls back to the already-standalone command at the
+  // conventional link path (never to the PACER_BIN/app-bundle path; see ownership-handback.ts).
+  put(join(ctx.home, ".local/bin/pacer"), "standalone");
+  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
+  const result = await serviceCli(["install", "--release-ownership"], ctx, d);
+  expect(result.code).toBe(0);
+  expect(readOwner(ctx)?.owner).toBe("cli");
+  expect(readOwner(ctx)?.executable).toMatch(/\.local\/bin\/pacer$/);
+  expect(result.out).toContain("ownership released to this CLI");
+});
+
+test("service install rejects --release-ownership combined with an unknown flag", async () => {
+  const { ctx, d } = fixture();
+  expect((await serviceCli(["install", "--release-ownership", "--bogus"], ctx, d)).code).toBe(2);
 });

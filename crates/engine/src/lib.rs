@@ -1,5 +1,10 @@
-//! Pure engine calculations. Inputs and outputs use the TypeScript JSON shapes until
-//! the M2 operation boundary is ready to introduce protocol types.
+//! Pure engine calculations plus safe pacing-state helpers (pause, mode hold, exhausted marks).
+//! Inputs and outputs use the TypeScript JSON shapes until the M2 operation boundary introduces
+//! protocol types. Status/usage-broker ops stay forwarded until P5b.
+pub mod exhausted;
+pub mod mode_hold;
+pub mod pause;
+
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::Tz;
 use serde_json::{Value, json};
@@ -379,12 +384,33 @@ fn eligibility_detail(decision: &Value) -> String {
             "availability_unknown" => "Executor availability is not confirmed",
             "subscription_missing" => "No active subscription",
             "subscription_failed" => "Subscription is unavailable",
+            "subscription_response_invalid" => "Subscription status could not be read",
             "authentication_failed" => "Sign-in is required",
+            "refresh_failed" => "Could not refresh execution evidence",
+            "disabled" => "Disabled",
+            "not_installed" => "Not installed",
+            "signed_out" => "Sign-in is required",
+            "blocked" => "Blocked by you",
+            "broken" => "Executor is not working",
+            "unavailable" => "Executor is unavailable",
+            "planner" => "Reserved for planning",
+            "not_configured" => "Not configured",
+            "quota_failure" => "The executor reported a quota limit",
             "machine_load" | "machine_memory_pressure" => "Execution evidence needs attention",
             _ => "Execution evidence needs attention",
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+/// Map a provider verdict to the planner's operating mode.
+pub fn planner_mode(verdict: &str) -> &'static str {
+    match verdict {
+        "EXHAUSTED" => "emergency",
+        "AHEAD" | "NEAR_LIMIT" => "strict",
+        "BEHIND" | "EXPIRING" => "relaxed",
+        _ => "normal",
+    }
 }
 #[derive(Clone)]
 struct Candidate {
@@ -765,6 +791,56 @@ pub fn rank_executors(input: &Value) -> Value {
     result
 }
 
+/// Append a conversation-requested executor that was left out of the routing pool.
+/// Mutates `ranking` in place, matching the TypeScript helper.
+pub fn conversation_fallback(ranking: &mut Value, input: &Value) {
+    let requested = match input["requested"].as_str() {
+        Some(id) if !id.is_empty() => id,
+        _ => return,
+    };
+    let ranked = array(&ranking["ranked"]);
+    let excluded = array(&ranking["excluded"]);
+    if ranked.iter().any(|e| string(&e["id"]) == requested)
+        || excluded.iter().any(|e| string(&e["id"]) == requested)
+    {
+        return;
+    }
+    let mut solo_input = input.clone();
+    if let Some(obj) = solo_input.as_object_mut() {
+        obj.insert(
+            "selection".into(),
+            json!({"executors": [requested], "order": "configured"}),
+        );
+        obj.insert("includePlanner".into(), json!(true));
+    }
+    let solo = rank_executors(&solo_input);
+    let solo_ranked = array(&solo["ranked"]);
+    if solo_ranked.is_empty() {
+        if let Some(list) = ranking["excluded"].as_array_mut() {
+            list.extend(array(&solo["excluded"]).iter().cloned());
+        }
+        return;
+    }
+    let floor = ranked
+        .iter()
+        .filter_map(|e| optional_number(&e["score"]))
+        .fold(1.0_f64, f64::min);
+    let mut candidate = solo_ranked[0].clone();
+    candidate["score"] = json!(floor - 1.0);
+    if let Some(list) = ranking["ranked"].as_array_mut() {
+        list.push(candidate);
+    }
+    let solo_uncertain = array(&solo["uncertain"]);
+    if !solo_uncertain.is_empty() {
+        if ranking["uncertain"].is_null() {
+            ranking["uncertain"] = json!([]);
+        }
+        if let Some(list) = ranking["uncertain"].as_array_mut() {
+            list.extend(solo_uncertain.iter().cloned());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -798,5 +874,17 @@ mod tests {
         let input = json!({"config": {"localMemoryPressureLimit": "critical", "localLoadLimit": 1},
             "signals": {"memoryPressure": null, "loadPerCore": null}});
         assert!(machine_guard(&input).is_null());
+    }
+
+    #[test]
+    fn planner_mode_matches_typescript() {
+        assert_eq!(planner_mode("EXHAUSTED"), "emergency");
+        assert_eq!(planner_mode("AHEAD"), "strict");
+        assert_eq!(planner_mode("NEAR_LIMIT"), "strict");
+        assert_eq!(planner_mode("BEHIND"), "relaxed");
+        assert_eq!(planner_mode("EXPIRING"), "relaxed");
+        assert_eq!(planner_mode("ON_PACE"), "normal");
+        assert_eq!(planner_mode("UNKNOWN"), "normal");
+        assert_eq!(planner_mode("OK"), "normal");
     }
 }

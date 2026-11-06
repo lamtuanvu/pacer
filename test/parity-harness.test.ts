@@ -49,7 +49,9 @@ test("real TypeScript stdio reference smoke", async () => {
   await parity({ fixture, reference: core, candidate: core, startup: { readyLine, timeoutMs: 30000 }, steps: [{ op: "version.get", expect: "ok" }, { op: "nonexistent.operation", expect: "error" }] });
 }, 60000);
 test.skipIf(!process.env.PACER_TEST_FRONT_DOOR)("explicit compiled front door smoke (forwarding only, no native claim)", async () => {
-  await parity({ fixture, reference: process.env.PACER_TEST_REFERENCE_CORE ? [process.env.PACER_TEST_REFERENCE_CORE, "api", "--stdio"] : [process.execPath, join(import.meta.dir, "../src/cli.ts"), "api", "--stdio"], candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"], steps: [{ op: "version.get", expect: "ok" }, { op: "nonexistent.operation", expect: "error" }], candidateEnv: { PACER_CORE_ARGV: coreArgv } });
+  // The front door must forward to the reference's own core, or hello's coreBuild differs by build.
+  const referenceCore = process.env.PACER_TEST_REFERENCE_CORE;
+  await parity({ fixture, reference: referenceCore ? [referenceCore, "api", "--stdio"] : [process.execPath, join(import.meta.dir, "../src/cli.ts"), "api", "--stdio"], candidate: [process.env.PACER_TEST_FRONT_DOOR!, "api", "--stdio"], steps: [{ op: "version.get", expect: "ok" }, { op: "nonexistent.operation", expect: "error" }], candidateEnv: { PACER_CORE_ARGV: referenceCore ? JSON.stringify([referenceCore]) : coreArgv } });
 });
 test("expected success cannot silently accept equal application errors", async () => {
   await expect(run("error", { reference: [...command, "error"], steps: [{ op: "write", expect: "ok" }] })).rejects.toThrow("expected success");

@@ -13,6 +13,8 @@ export interface FrameSlots {
   title: HTMLElement | null;
   /** Actions for the active panel, right of search and before the layout toggles. */
   actions?: HTMLElement | null;
+  /** The static page-head region first inside `main`: a screen's own header and filter strip. Never scrolls. */
+  header: HTMLElement | null;
   left: HTMLElement | null;
   right: HTMLElement | null;
   /** Side panels cannot show (narrow layouts); a screen may then provide its own in-page `right` target. */
@@ -26,10 +28,28 @@ export interface FrameSlots {
 export const FrameContext = createContext<FrameSlots | null>(null);
 export const useFrame = () => useContext(FrameContext);
 
+/**
+ * The screen's own page head (title, filter strip, actions). Portals into the static `header` region when the
+ * frame has mounted that host; otherwise renders inline (bare mounts / SSR without a portal target).
+ */
+export function PageHead({ children }: { children: ComponentChildren }) {
+  const frame = useFrame();
+  // Prefer the portal target once Layout's ref has attached; until then (and outside a frame) stay inline so
+  // renderToString and unit mounts still see the heading. Layout always provides a frame object, so checking
+  // `frame` alone would hide the head during SSR while the portal host is still null. The fallback is one
+  // element so a multi-child head (title + tabs) stays grouped under main's flex gap.
+  return frame?.header ? <FrameSlot name="header">{children}</FrameSlot> : <div className="pc-page-head-fallback">{children}</div>;
+}
+
 /** Renders children into a frame region. Outside the frame, or while the region is closed, nothing renders. */
-export function FrameSlot({ name, children }: { name: "title" | "actions" | "left" | "right"; children: ComponentChildren }) {
+export function FrameSlot({ name, children }: { name: "title" | "actions" | "header" | "left" | "right"; children: ComponentChildren }) {
   const target = useFrame()?.[name], active = useViewActive(), scope = useContext(WorkspaceScope);
   const group = useRef<HTMLSpanElement>(null), within = useRef(false);
+  const node = useRef<HTMLDivElement | null>(null);
+  // A plain ref callback, not an object ref: it only ever records a real, attached element. React/Preact call a
+  // ref callback with null as part of unmounting, before this component's own effect cleanups run; capturing the
+  // node this way instead keeps a usable reference through that window for the defensive cleanup below.
+  const setNode = (element: HTMLDivElement | null) => { if (element) node.current = element; };
   useEffect(() => {
     if (active && name === "actions" && within.current && document.activeElement === document.body) {
       const bar = target?.closest(".pc-topbar");
@@ -37,7 +57,12 @@ export function FrameSlot({ name, children }: { name: "title" | "actions" | "lef
       within.current = false;
     }
   });
-  return target ? createPortal(<div className="pc-view-slot" data-workspace-root={scope ?? undefined} hidden={!active} inert={!active ? true : undefined}>{name === "actions" ? <span ref={group} className="pc-frame-actions"
+  // Defensive cleanup: when a whole route's view is torn down at once (switching between two routes that both
+  // fill the same frame region, outside the session views that stay mounted and merely hide), the portal host's
+  // own unmount can run after the real target already has a new screen's content. Remove this node directly so
+  // a destroyed screen never leaves stale content sitting alongside — or on top of — what fills the slot next.
+  useEffect(() => () => { if (node.current?.parentNode) node.current.parentNode.removeChild(node.current); }, []);
+  return target ? createPortal(<div ref={setNode} className="pc-view-slot" data-workspace-root={scope ?? undefined} hidden={!active} inert={!active ? true : undefined}>{name === "actions" ? <span ref={group} className="pc-frame-actions"
     onFocusIn={() => { within.current = true; }}
     onFocusOut={event => { if (event.relatedTarget) within.current = group.current!.contains(event.relatedTarget as Node); }}>{children}</span> : <>{children}</>}</div>, target) : null;
 }

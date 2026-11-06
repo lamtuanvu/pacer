@@ -66,6 +66,8 @@ export function entityDiff(prev:Record<string,string>,rows:{kind:EntityData["kin
  return {envelopes,next};
 }
 const alert=(a:AlertData):OutboxEvent=>({type:"alert",data:a});
+/** Cooperative-yield batch size for the per-task loop below; see its comment. */
+const PUMP_YIELD_EVERY = 100;
 interface ActivityStatus {
   mode?: string;
   executors: Record<string, string>;
@@ -186,7 +188,15 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
   const dataPath=join(ctx.pacerHome,"link","task-data-seen.json"),seenData=readJson<Record<string,TaskData>>(dataPath)??{};
   const nextData:Record<string,TaskData>={...seenData};
   const terminals=await Promise.all(records.map(async t=>{const handle=workers.find(w=>w.taskId===t.id)?.terminal;if(!handle)return false;try{return isLiveTerminal(await client.terminalShow(handle));}catch{return false;}}));
-  for(const [index,t] of records.entries()){const d=await sessionTaskData(ctx,taskData(t),terminals[index]),prev=latest.tasks.find(x=>x.id===d.id)??seenData[d.id],before=known[d.id]??prev?.state;
+  // Each iteration's awaits (sessionTaskData -> sessionInfo) resolve without ever reaching
+  // real I/O for most historical tasks, so they never yield to the macrotask queue; a tick
+  // with thousands of tasks ran this whole loop as one uninterrupted stretch and blocked
+  // concurrent requests (desktop heartbeat, event stream) for hundreds of ms. Yielding every
+  // 100 tasks keeps each stretch short without changing any result (PUMP_YIELD_EVERY tasks is
+  // an arbitrary batch size, not a behavior change).
+  for(const [index,t] of records.entries()){
+    if(index>0 && index%PUMP_YIELD_EVERY===0) await new Promise<void>(done=>setImmediate(done));
+    const d=await sessionTaskData(ctx,taskData(t),terminals[index]),prev=latest.tasks.find(x=>x.id===d.id)??seenData[d.id],before=known[d.id]??prev?.state;
     if(known[d.id]!==d.state){known[d.id]=d.state;statesChanged=true;}
     if(prev && Object.keys({...prev,...d}).every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])))continue;
     // Coalesce progress-only changes; state transitions always publish immediately.

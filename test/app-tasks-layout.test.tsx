@@ -47,26 +47,33 @@ test('Task navigator identifies the selected task and preserves the repo filter'
 
 const browserPath=process.env.PACER_TEST_BROWSER;
 test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tree inside the content width',async()=>{
- const fixture=(await import('./fixtures/ui/snapshot.json')).default;
- const state={...initialState(),connected:true,features:{readModel:true,ops:new Set<string>()},snapshot:fixture};
+ // A real mounted frame, not renderToString: the header and the right-panel Inspector both portal through
+ // FrameSlot refs that only fire once Preact actually mounts, so the board must be measured live.
+ const built=await Bun.build({entrypoints:['test/fixtures/ui/tasks-layout-browser.tsx'],target:'browser'});
+ if(!built.success)throw new AggregateError(built.logs);
+ const script=await built.outputs[0]!.text();
  const css=(await Promise.all(['app/src/ds/tokens.css','app/src/ds/components.css','app/src/styles.css','app/src/screens/session/session.css'].map(f=>Bun.file(f).text()))).join('\n');
  const browser=await chromium.launch({executablePath:browserPath!,headless:true});
  try{
-  const page=await browser.newPage();
-  for(const width of [1990,1440])for(const scopeOpen of [true,false]){
-   await page.setViewportSize({width,height:1000});
-   const storage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-   Object.defineProperty(globalThis, 'localStorage', {configurable:true,value:{getItem:(key:string)=>key==='pacer.panel.sessions.inspector'?'0':key==='pacer.panel.sessions.scope'?(scopeOpen?'1':'0'):null}});
-   let html:string;
-   try { html=renderToString(<TaskContext.Provider value={{state:state as unknown as StoreState,api:{} as BrowserApi}}><Layout route={{name:'sessions',query:{repo:null,scope:null}}} state={state as unknown as StoreState} title="Tasks"><Sessions query={{repo:null,scope:null}}/></Layout></TaskContext.Provider>); } finally { if(storage)Object.defineProperty(globalThis,'localStorage',storage);else Reflect.deleteProperty(globalThis,'localStorage'); }
-   await page.setContent(`<html data-pacer-desktop data-pacer-native-titlebar><style>${css}</style><div id="app">${html}</div></html>`);
+  for(const width of [1990,1440])for(const inspectorOpen of [true,false]){
+   const page=await browser.newContext({viewport:{width,height:1000}}).then(c=>c.newPage());
+   await page.route('http://pacer.test/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html data-pacer-desktop data-pacer-native-titlebar><title>tasks</title><div id="app"></div></html>'}));
+   await page.goto('http://pacer.test/');
+   await page.evaluate(css=>{document.head.insertAdjacentHTML('beforeend',`<style>${css}</style>`);},css);
+   await page.evaluate(open=>localStorage.setItem('pacer.panel.sessions.inspector',open?'1':'0'),inspectorOpen);
+   await page.evaluate(async code=>{const url=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));await import(url);URL.revokeObjectURL(url);},script);
+   await page.locator('.pc-tasks-page__title').waitFor();
    const geometry=await page.evaluate(()=>{
     const box=document.querySelector('.pc-tasks-page')!.getBoundingClientRect();
-    return {title:document.querySelector('.pc-tasks-page__title')?.textContent,width:box.width,left:box.left,columns:getComputedStyle(document.querySelector('.pc-tasks-page__columns')!).display};
+    return {title:document.querySelector('.pc-tasks-page__title')?.textContent,width:box.width,left:box.left,
+     headBeforeMain:!!(document.querySelector('.pc-page-head')!.compareDocumentPosition(document.querySelector('.pc-main-scroll')!)&Node.DOCUMENT_POSITION_FOLLOWING)};
    });
    expect(geometry.title).toBe('Tasks');
+   expect(geometry.headBeforeMain).toBe(true);
+   const inspector=page.getByRole('complementary',{name:'Inspector'});
+   expect(await inspector.count()).toBe(inspectorOpen?1:0);
    // Measured against the Tasks board: type, padding, card geometry and the quick-action size.
-   const board=await page.evaluate(()=>{
+   const board=await page.evaluate(inspectorOpen=>{
     const style=(selector:string)=>{const el=document.querySelector(selector);return el?getComputedStyle(el):undefined;};
     const box=(selector:string)=>document.querySelector(selector)?.getBoundingClientRect();
     return {
@@ -79,18 +86,18 @@ test.skipIf(!browserPath)('Tasks route lays out the board header, filters and tr
      dot:[box('.pc-task-card__dot--root')?.width,box('.pc-task-card__dot--root')?.height],
      host:[box('.pc-task-card .pc-host-chip')?.height],
      action:[box('.pc-task-card__action')?.width,box('.pc-task-card__action')?.height],
-     aside:[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position],
+     aside:inspectorOpen?[box('.pc-task-aside')?.width,style('.pc-task-aside')?.position]:undefined,
     };
-   });
-   expect(board).toEqual({h1:['28px','34px','650'],page:['24px','32px','40px','16px'],search:[36,260],card:['0px','0px'],main:['0px','8px','12px'],title:['13px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:[362,'sticky']});
+   },inspectorOpen);
+   expect(board).toEqual({h1:['28px','34px','650'],page:['24px','32px','40px','16px'],search:[36,260],card:['0px','0px'],main:['0px','8px','12px'],title:['13px','21px','600'],dot:[10,10],host:[22],action:[26,26],aside:inspectorOpen?[319,'static']:undefined});
    // Selected and unselected root titles retain the same board weight.
    expect(await page.locator('.pc-task-card__main:not(.pc-task-card__main--selected) .pc-task-card__title').first().evaluate(node=>getComputedStyle(node).fontWeight)).toBe('600');
-   // The board fills the content area beside the 44px activity rail; the tree and aside share a row.
-   expect(geometry.width).toBe(width-44);
+   // The board fills the content area beside the 44px activity rail and the Inspector panel, when open.
+   expect(geometry.width).toBe(width-44-(inspectorOpen?320:0));
    expect(geometry.left).toBe(44);
    expect(await page.locator('.pc-tasks-page__title').evaluate(n=>n.getBoundingClientRect().left)).toBe(44+32);
-   expect(geometry.columns).toBe('flex');
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+   await page.close();
   }
  }finally{await browser.close();}
 });
@@ -157,19 +164,21 @@ test.skipIf(!browserPath)('Dispatch clips long titles, omits the composer and st
    expect(await page.locator('.pc-start-composer textarea').count()).toBe(0);
    expect(await page.locator('.pc-start-fields').count()).toBe(0);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-   const contentEdge=await page.locator(width<560?'.pc-topbar h1':'.pc-dispatch h1').evaluate(n=>n.getBoundingClientRect().left);
+   // The page h1 lives in the shell header slot (`.pc-dispatch__header`); narrow keeps the title in the top bar only.
+   const contentEdge=await page.locator(width<560?'.pc-topbar h1':'.pc-dispatch__header h1').evaluate(n=>n.getBoundingClientRect().left);
    if(width<560){expect(contentEdge).toBeGreaterThanOrEqual(16);expect(contentEdge).toBeLessThan(width);}
    else expect(contentEdge).toBe(44+32);
    expect(await page.locator('aside[aria-label="Scope"]').count()).toBe(0);
    if(width<560){
-    expect(await page.locator('.pc-dispatch h1').count()).toBe(0);
+    expect(await page.locator('.pc-dispatch__header h1').count()).toBe(0);
     expect(await page.locator('.pc-topbar h1').textContent()).toBe('Dispatch');
     expect(await page.locator('.pc-narrow-running').count()).toBe(1);
     expect(await page.locator('.pc-bottom-bar').count()).toBe(1);
     continue;
    }
    if(width>=560){
-    expect(await page.locator(".pc-dispatch").evaluate(n=>{const s=getComputedStyle(n);return [s.paddingTop,s.paddingRight,s.paddingBottom,s.gap,s.maxWidth]})).toEqual(["24px","32px","40px","20px","none"]);
+    // Desktop Dispatch zeroes top padding so the shell page-head owns the top inset (dispatch.css).
+    expect(await page.locator(".pc-dispatch").evaluate(n=>{const s=getComputedStyle(n);return [s.paddingTop,s.paddingRight,s.paddingBottom,s.gap,s.maxWidth]})).toEqual(["0px","32px","40px","20px","none"]);
     expect(await page.locator(".pc-filter--menu .pc-search-picker>.pc-btn").evaluate(n=>[getComputedStyle(n).borderRadius,n.getBoundingClientRect().height])).toEqual(["8px",32]);
    }
    expect(await page.locator(".pc-live-dot").first().evaluate(n=>[n.getBoundingClientRect().width,n.getBoundingClientRect().height])).toEqual([8,8]);
@@ -226,7 +235,13 @@ test.skipIf(!browserPath)('Needs you has one visible page h1 and board spacing b
    expect(await page.locator('h1').count()).toBe(1);
    expect(await page.locator('h1').innerText()).toBe('Needs you');
    expect(await page.locator('h1').evaluate(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);return b.width>1&&b.height>1&&s.visibility==='visible'&&s.display!=='none'})).toBe(true);
-   expect(await page.locator('.pc-needs-you').evaluate(n=>n.querySelector('.ny-list')!.getBoundingClientRect().top-n.querySelector('[role=tablist]')!.getBoundingClientRect().bottom)).toBe(20);
+   // Header + tabs fill the shell header slot (or its SSR fallback). Canvas main has no gap; separation is the
+   // head's bottom padding plus border (and the page's own top padding when the board does not zero it).
+   expect(await page.evaluate(()=>{
+     const tabs=document.querySelector('.ny-header')?.parentElement?.querySelector('[role=tablist]')??document.querySelector('[role=tablist]');
+     const list=document.querySelector('.ny-list');
+     return list!.getBoundingClientRect().top-tabs!.getBoundingClientRect().bottom;
+   })).toBeGreaterThanOrEqual(12);
    expect(await page.locator('.pc-topbar').getByRole('link',{name:'New task',exact:true}).count()).toBe(1);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }

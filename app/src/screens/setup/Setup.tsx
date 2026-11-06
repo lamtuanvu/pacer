@@ -18,6 +18,7 @@ import { SetupContext } from './context';
 import { createPlannerAutoInit, plannerOptions, nextSetupStep, signedOutRunners, setupRunners, type SetupConfig, completeRunnerOrder, SETUP_STEPS, SERVICE_CONSENT, changeExecutor, reviewFirstTask, type SetupStep, type AgentPreview } from './model';
 import { PlannerChoices, ConnectChanges, ExecutorList, FirstTaskReview, setupAgentName } from './steps';
 import { Page } from '../../ds/Page';
+import { FrameSlot, PageHead, useFrame } from '../../shell/slots';
 
 const autoInitPlanner = createPlannerAutoInit();
 const titles = ['Planner', 'Background service', 'Connect your planner', 'Who does the work', 'Try a first task'];
@@ -60,7 +61,7 @@ export function StepDone({ message, next }: { message: string; next: () => void 
   return <><p role="status"><StatusGlyph status={{ label: 'Done', glyph: '✓', tone: 'good' }} /> {message}</p><div className="pc-setup-actions"><Button variant="primary" onClick={next}>Continue</Button></div></>;
 }
 export function SetupView({ checklist: initial }: { checklist: SetupChecklist; query: RouteQuery }) {
-  const { api, state } = useTaskContext(), setup = useContext(SetupContext);
+  const { api, state } = useTaskContext(), setup = useContext(SetupContext), frame = useFrame();
   const [checklist, setChecklist] = useState(initial);
   const [current, setCurrent] = useState<SetupStep>(() => nextSetupStep(initial));
   const [visited, setVisited] = useState<string[]>([]);
@@ -129,24 +130,26 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
   ];
   function visit(id: SetupStep) { if (!busy) setCurrent(id); }
   const next = () => visit(nextSetupStep(checklist, current, visited));
+  const rail = <aside className="pc-setup-rail"><ol aria-label="Setup steps">{SETUP_STEPS.map((id, index) => {
+    const done = checklist.items.find(i => i.id === id)?.status === 'done';
+    const label = id === 'connect' && planner ? `Connect ${plannerName}` : titles[index];
+    return <li key={id} aria-current={id === current ? 'step' : undefined} data-step={id}>
+      <span className="pc-setup-number">{done ? <><StatusGlyph status={{ label: 'Done', glyph: '✓', tone: 'good' }} /><span className="sr-only">Done</span></> : index + 1}</span>
+      <div>{done && id !== current ? <Button variant="ghost" className="pc-setup-step-link" disabled={busy} onClick={() => visit(id)}>{label}</Button> : <span>{label}</span>}
+        <div className="pc-setup-value muted">{done ? id === 'planner' ? <><AgentMark agent={runnerAgent(planner)} size={16} labelled={false} />{plannerName} · <Button variant="ghost" onClick={() => visit('planner')}>Change</Button></>
+          : id === 'service' ? 'Running at login' : id === 'connect' ? 'Connected'
+          : id === 'executor' ? <>{railExecutors.map(id => <AgentMark key={id} agent={runnerAgent(id)} size={16} />)}{railExecutors.length} {railExecutors.length === 1 ? 'agent' : 'agents'}</>
+          : 'Finished' : id === 'first' ? 'Optional' : visited.includes(id) ? <Button variant="ghost" onClick={() => visit(id)}>Skipped · return</Button> : 'Needs you'}</div>
+      </div>
+    </li>;
+  })}</ol>{version && <p className="muted pc-setup-version">Service {version}</p>}</aside>;
   return <Page width="full" className="pc-setup">
-    <header className="pc-setup-header"><strong>Set up pacer</strong><span className="muted" role="status">{policyWords(checklist.policy)} · {count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header>
-    <div className="pc-setup-layout">
-      <aside className="pc-setup-rail"><ol aria-label="Setup steps">{SETUP_STEPS.map((id, index) => {
-        const done = checklist.items.find(i => i.id === id)?.status === 'done';
-        const label = id === 'connect' && planner ? `Connect ${plannerName}` : titles[index];
-        return <li key={id} aria-current={id === current ? 'step' : undefined} data-step={id}>
-          <span className="pc-setup-number">{done ? <><StatusGlyph status={{ label: 'Done', glyph: '✓', tone: 'good' }} /><span className="sr-only">Done</span></> : index + 1}</span>
-          <div>{done && id !== current ? <Button variant="ghost" className="pc-setup-step-link" disabled={busy} onClick={() => visit(id)}>{label}</Button> : <span>{label}</span>}
-            <div className="pc-setup-value muted">{done ? id === 'planner' ? <><AgentMark agent={runnerAgent(planner)} size={16} labelled={false} />{plannerName} · <Button variant="ghost" onClick={() => visit('planner')}>Change</Button></>
-              : id === 'service' ? 'Running at login' : id === 'connect' ? 'Connected'
-              : id === 'executor' ? <>{railExecutors.map(id => <AgentMark key={id} agent={runnerAgent(id)} size={16} />)}{railExecutors.length} {railExecutors.length === 1 ? 'agent' : 'agents'}</>
-              : 'Finished' : id === 'first' ? 'Optional' : visited.includes(id) ? <Button variant="ghost" onClick={() => visit(id)}>Skipped · return</Button> : 'Needs you'}</div>
-          </div>
-        </li>;
-      })}</ol>{version && <p className="muted pc-setup-version">Service {version}</p>}</aside>
+    <PageHead><header className="pc-setup-header"><h1>Set up pacer</h1><span className="muted" role="status">{policyWords(checklist.policy)} · {count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header></PageHead>
+    <FrameSlot name="left">{rail}</FrameSlot>
+    <div className={`pc-setup-layout${frame?.inline ? "" : " pc-setup-layout--framed"}`}>
+      {frame?.inline && rail}
       <section className="pc-setup-panel" ref={panel} tabIndex={-1} aria-label={headings[step]}>
-        <div><p className="pc-setup-eyebrow">Step {step + 1} of 5{current === 'first' ? ' · optional' : ''}</p><h1>{headings[step]}</h1><p className="pc-setup-explanation">{explanations[step]}</p></div>
+        <div><p className="pc-setup-eyebrow">Step {step + 1} of 5{current === 'first' ? ' · optional' : ''}</p><h2>{headings[step]}</h2><p className="pc-setup-explanation">{explanations[step]}</p></div>
         {current === 'planner' && <>
           {options.length > 0 ? <><PlannerChoices options={options} selected={chosen} select={select} signedIn={signedIn} /><Button variant="primary" disabled={!state.connected || busy} onClick={() => void choosePlanner(chosen)}>Continue with {setupAgentName(chosen)}</Button><p className="muted">Nothing in {setupAgentName(chosen)} changes until step 3.</p></>
             : item?.command && item.action !== 'setup.init' ? <Command command={item.command} /> : <p>Install Claude Code, Codex, Cursor or OpenCode to plan your work.</p>}

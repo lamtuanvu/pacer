@@ -25,8 +25,10 @@ hmac = "0.12"
 getrandom = "0.4"
 ryu-js = "1"
 sha1 = "0.10"
+rusqlite = { version = "0.41", features = ["bundled"] }
 pacer-store = { path = "../store" }
 pacer-foundation = { path = "../foundation" }
+pacer-js-json = { path = "../js-json" }
 
 [lints]
 workspace = true

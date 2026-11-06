@@ -48,7 +48,7 @@ async function setup(agent = "codex", account = "") {
   } });
   mkdirSync(ctx.pacerHome, { recursive: true });
   const id = `${agent}${account ? `#${account}` : ""}@box`;
-  const raw = { accounts: { claude: { kind: "claude" }, codex: { kind: "codex" }, team: { kind: agent === "codex" ? "codex" : "claude", home: "~/local-team" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" }, accounts: { team: { home: "~/host-team" } } } }, routing: [{ default: [id] }] };
+  const raw = { execution: { launch_mode: "headless" }, accounts: { claude: { kind: "claude" }, codex: { kind: "codex" }, team: { kind: agent === "codex" ? "codex" : "claude", home: "~/local-team" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" }, accounts: { team: { home: "~/host-team" } } } }, routing: [{ default: [id] }] };
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify(raw));
   const { loadStrategy } = await import("../src/config/strategy");
   const cfg = loadStrategy(ctx).providers[id];

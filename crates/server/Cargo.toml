@@ -16,9 +16,12 @@ serde.workspace = true
 ryu-js = "1"
 pacer-foundation = { path = "../foundation" }
 pacer-plugin-ops = { path = "../plugin-ops" }
+pacer-plugin-runtime = { path = "../plugin-runtime" }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 pacer-config = { path = "../config" }
+pacer-engine = { path = "../engine" }
 pacer-store = { path = "../store" }
+pacer-read-model = { path = "../read-model" }
 pacer-mdns = { path = "../mdns" }
 
 axum = { version = "0.8", features = ["ws"] }

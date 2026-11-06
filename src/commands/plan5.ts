@@ -1,4 +1,6 @@
 import { isExecutorSession } from "../install/role";
+import { ownerRefusal } from "../install/owner";
+import { releaseOwnership } from "../install/ownership-handback";
 import { UPGRADE_CLI_REFUSAL } from "../service/upgrade";
 import { checkUpdateReport } from "../update/check";
 import { defaultUpdateDeps, parseUpdateArgs, runUpdate } from "../update/update";
@@ -14,13 +16,17 @@ export const COMMANDS: Command[] = [
   { name: "--version", usage: usage("--version", "same as version"), run: printVersion },
   {
     name: "update",
-    usage: usage("update [--check [--json]] [--to <v>] [--base <url>] [--no-restart] [--no-reinstall]", "update binary, refresh integrations, restart the service; running work keeps going"),
+    usage: usage("update [--check [--json]] [--to <v>] [--base <url>] [--no-restart] [--no-reinstall] [--release-ownership [--force]]", "update binary, refresh integrations, restart the service; running work keeps going"),
     run: async (args, ctx) => {
       const o = parseUpdateArgs(args);
       if (typeof o === "string") return { code: 2, out: "", err: o };
-      if (o.check && !o.to) return checkUpdateReport(ctx, o.json, { base: o.base });
       // A guard against accidental self-upgrade from a delegated task, not an authorization boundary.
+      // Checked before --release-ownership too, exactly like `service install` does.
       if (!o.check && isExecutorSession(ctx)) return { code: 2, out: "", err: `pacer update: ${UPGRADE_CLI_REFUSAL}` };
+      // --release-ownership performs the handback itself; it must run instead of the deference guard below.
+      if (o.releaseOwnership) return releaseOwnership(ctx, { force: !!o.force });
+      if (o.check && !o.to) return checkUpdateReport(ctx, o.json, { base: o.base });
+      if (!o.check) { const refusal = ownerRefusal(ctx, "update"); if (refusal) return refusal; }
       return runUpdate(o, defaultUpdateDeps(ctx));
     },
   },

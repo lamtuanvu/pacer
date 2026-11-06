@@ -7,6 +7,8 @@ enum Schema {
     String(usize, Option<usize>),
     Bool,
     Integer(f64),
+    /// Inclusive min/max with Zod `.min(n).max(m)` messages (`>=` / `<=`).
+    IntegerBounds(f64, f64),
     Level,
     Json,
     Array(Box<Schema>),
@@ -61,7 +63,7 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
     let expected = match schema {
         Schema::String(_, _) | Schema::RunnerId => "string",
         Schema::Bool => "boolean",
-        Schema::Integer(_) => "number",
+        Schema::Integer(_) | Schema::IntegerBounds(_, _) => "number",
         Schema::Array(_) => "array",
         Schema::Object(_) => "object",
         _ => "",
@@ -86,7 +88,7 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
         Schema::Json => return value.cloned().unwrap_or(Value::Null),
         Schema::String(_, _) | Schema::RunnerId => value.is_some_and(Value::is_string),
         Schema::Bool => value.is_some_and(Value::is_boolean),
-        Schema::Integer(_) => value.is_some_and(Value::is_number),
+        Schema::Integer(_) | Schema::IntegerBounds(_, _) => value.is_some_and(Value::is_number),
         Schema::Array(_) => value.is_some_and(Value::is_array),
         Schema::Object(_) => value.is_some_and(Value::is_object),
     };
@@ -146,6 +148,25 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
                 }
             }
         }
+        Schema::IntegerBounds(min, max) => {
+            let n = value.as_f64().unwrap_or(f64::NAN);
+            if !n.is_finite() || n.fract() != 0.0 {
+                issue("Invalid input: expected int, received number".into());
+            } else {
+                if n < -9_007_199_254_740_991.0 {
+                    issue("Too small: expected int to be >=-9007199254740991".into());
+                }
+                if n > 9_007_199_254_740_991.0 {
+                    issue("Too big: expected int to be <=9007199254740991".into());
+                }
+                if n < *min {
+                    issue(format!("Too small: expected number to be >={min}"));
+                }
+                if n > *max {
+                    issue(format!("Too big: expected number to be <={max}"));
+                }
+            }
+        }
         Schema::Array(inner) => {
             return Value::Array(
                 value
@@ -182,6 +203,8 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
     pacer_config::normalize_json(&mut params);
     use Schema::*;
     let schema = match op {
+        "strategy.list" => object(vec![]),
+        "strategy.show" => object(vec![("name", id(), false)]),
         "strategy.use" => object(vec![("name", String(1, None), false)]),
         "strategy.remove" => object(vec![("name", id(), false)]),
         "strategy.save" => object(vec![
@@ -216,7 +239,24 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
         ]),
         "runner.reorder" => object(vec![("ids", array(id()), false)]),
         "runner.remove" => object(vec![("id", RunnerId, false)]),
+        "runner.settings.get" => object(vec![]),
+        "runner.settings.save" => object(vec![
+            ("expectedRevision", String(1, None), false),
+            ("order", array(id()), false),
+            (
+                "runners",
+                array(object(vec![
+                    ("id", id(), false),
+                    ("enabled", Bool, false),
+                    ("maxTasks", IntegerBounds(1.0, 16.0), false),
+                ])),
+                false,
+            ),
+        ]),
         "notifications.set" => object(vec![("level", Level, false)]),
+        "config.set" => {
+            return parse_config_set(params);
+        }
         _ => object(vec![]),
     };
     let params = if params.is_null() { json!({}) } else { params };
@@ -250,4 +290,69 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
     } else {
         Err(CoreError::new(Code::InvalidInput, issues.join("; ")))
     }
+}
+
+fn config_key_options() -> String {
+    pacer_config::settings::CONFIG_KEYS
+        .iter()
+        .map(|k| format!("\"{k}\""))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+#[allow(clippy::result_large_err)]
+fn parse_config_set(mut params: Value) -> Result<Value, CoreError> {
+    pacer_config::normalize_json(&mut params);
+    // Zod's object schema treats null like a missing object body for these fields.
+    let params = if params.is_null() { json!({}) } else { params };
+    let mut issues = Vec::new();
+    if !params.is_object() {
+        issues.push(format!(
+            "params: Invalid input: expected object, received {}",
+            kind(Some(&params))
+        ));
+        return Err(CoreError::new(Code::InvalidInput, issues.join("; ")));
+    }
+    let key = params.get("key").and_then(Value::as_str);
+    if !key.is_some_and(|k| pacer_config::settings::CONFIG_KEYS.contains(&k)) {
+        // z.enum reports Invalid option for missing, wrong-type and unknown keys.
+        issues.push(format!(
+            "key: Invalid option: expected one of {}",
+            config_key_options()
+        ));
+    }
+    let value = params.get("value");
+    let value_ok = value.is_some_and(|v| {
+        v.is_string()
+            || v.is_number()
+            || v.is_boolean()
+            || v.as_array().is_some_and(|a| a.iter().all(Value::is_string))
+    });
+    if !value_ok {
+        // z.union collapses to a bare Invalid input for this field.
+        issues.push("value: Invalid input".into());
+    }
+    if let Some(integrations) = params.get("integrations")
+        && !integrations
+            .as_str()
+            .is_some_and(|v| matches!(v, "install" | "skip"))
+    {
+        issues.push("integrations: Invalid option: expected one of \"install\"|\"skip\"".into());
+    }
+    if !issues.is_empty() {
+        return Err(CoreError::new(Code::InvalidInput, issues.join("; ")));
+    }
+    let mut result = serde_json::Map::new();
+    result.insert(
+        "key".into(),
+        params.get("key").cloned().unwrap_or(Value::Null),
+    );
+    result.insert(
+        "value".into(),
+        params.get("value").cloned().unwrap_or(Value::Null),
+    );
+    if let Some(integrations) = params.get("integrations") {
+        result.insert("integrations".into(), integrations.clone());
+    }
+    Ok(Value::Object(result))
 }

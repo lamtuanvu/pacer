@@ -128,6 +128,12 @@ Their metadata PASS means evidence was not required, not that UI was reviewed.
 |----|--------------------|--------|------------------|--------------|
 | UI-27 | Each space has one owner. Shared layout containers own child separation with gap; their direct children carry no block margins. Use Stack compact (8px) for related rows/disclosures, normal (12px) for content, and section (24px) for separate regions, through existing DS tokens. Section text uses an 8px gap. PageHeader has a standalone trailing margin only when its parent does not already own a gap. DisclosurePanel summaries use 36px minimum height on desktop and 48px on touch layouts. Screens must not override shared stack/page-header/section/disclosure/action-panel margins, padding or gaps, even with tokens; add a DS variant when necessary. Prose, list indentation, bordered section padding, specialized grids and terminal geometry retain their explicitly documented rhythm. | Proposed 0.12.0; adopted only by maintainer merge | App-wide spacing audit requested 2026-10-24; compounded margins and inconsistent disclosure grouping | ui:check rejects consumer CSS spacing overrides; browser geometry regressions exercise actual gaps, text margins, disclosure rows, prose and narrow containment; UI-18 screenshots and CT-11 live evidence |
 
+### Shell-owned side regions (amendment 0.21.0)
+
+| ID | Rule or convention | Status | Rationale/source | Verification |
+|----|--------------------|--------|------------------|--------------|
+| UI-28 | A screen must not build a page-local side column for content that belongs beside it. Fill `FrameSlot name="left"` or `name="right"` (with a `frame.inline` in-page fallback). Forbidden regressions include `.pc-tasks-page__columns` / `.pc-new-task__cols` layouts and `PageColumns` used without a paired `FrameSlot`. | Proposed 0.21.0; adopted only by maintainer merge | ADR 0022 shell-owned page regions; Tasks/New task/Trace/Setup/Agents panel migration | ui:check UI-28; frame browser geometry; UI-18 and CT-11 live evidence |
+
 ### Implementer checklist
 
 Before you hand a UI change over, check the screen against this list:
@@ -146,7 +152,8 @@ Before you hand a UI change over, check the screen against this list:
 12. Are primitives/composites canonical, token checks passing, and catalog/provenance current? (UI-19–23/25)
 13. Are desktop controls compact and aligned, with larger touch targets and useful multiline fields preserved? (UI-26)
 14. Does each gap have one owner, without child block margins or consumer overrides of shared layout rhythm? (UI-27)
-15. Do the compliance, independent UI and QA reports contain real checks and accessible evidence, with outstanding surfaces marked UNVERIFIED? (UI-24; CT-11)
+15. Does any screen rebuild a page-local side column instead of filling `FrameSlot` left/right? (UI-28)
+16. Do the compliance, independent UI and QA reports contain real checks and accessible evidence, with outstanding surfaces marked UNVERIFIED? (UI-24; CT-11)
 
 Relevant reviewers: [ui-accessibility](../reviewers/ui-accessibility.md)
 Exceptions and open decisions: UI-7 remains proposed. UI-19–UI-25 were adopted under amendment 0.4.0; see [decisions.md](../decisions.md).

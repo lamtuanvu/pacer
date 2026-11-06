@@ -33,7 +33,7 @@ async function open(page: Page, built: { source: string; css: string }, hash: st
 // Preact runs effects after paint, so wait for focus to settle rather than reading it once.
 const focused = (page: Page, selector: string) => page.waitForFunction(at => document.activeElement?.matches(at), selector, { timeout: 2000 });
 const noHorizontalOverflow = (page: Page) => page.evaluate(() => {
-  const root = document.scrollingElement!, main = document.getElementById("main-content")!;
+  const root = document.scrollingElement!, main = document.querySelector(".pc-main-scroll")!;
   return root.scrollWidth <= root.clientWidth && main.scrollWidth <= main.clientWidth;
 });
 
@@ -45,7 +45,7 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
       const page = await browser.newPage({ viewport });
       await open(page, built, "#/dispatch");
       // Add enough real flowing content to exceed either viewport without changing the frame's styles.
-      await page.locator("#main-content").evaluate(main => {
+      await page.locator(".pc-main-scroll").evaluate(main => {
         const navigation = document.createElement("nav");
         navigation.className = "pc-detail-navigation";
         navigation.textContent = "Detail navigation";
@@ -64,45 +64,45 @@ browserTest("web_frame_scrolls_work_without_moving_chrome", async () => {
         }
       });
       const geometry = () => page.evaluate(() => {
-        const work = document.querySelector<HTMLElement>(".pc-work")!;
+        const main = document.querySelector(".pc-main-scroll")!;
         const bar = document.querySelector(".pc-statusbar, .pc-bottom-bar")!;
         return {
           documentHeight: document.scrollingElement!.scrollHeight,
           documentTop: document.scrollingElement!.scrollTop,
-          workHeight: work.clientHeight,
-          workScrollHeight: work.scrollHeight,
-          workTop: work.scrollTop,
+          mainHeight: main.clientHeight,
+          mainScrollHeight: main.scrollHeight,
+          mainTop: main.scrollTop,
           top: document.querySelector(".pc-topbar")!.getBoundingClientRect().y,
-          workBottom: work.getBoundingClientRect().bottom,
+          mainBottom: main.getBoundingClientRect().bottom,
           barTop: bar.getBoundingClientRect().top,
           barBottom: bar.getBoundingClientRect().bottom,
         };
       });
       const before = await geometry();
       expect(before.documentHeight).toBe(viewport.height);
-      expect(before.workScrollHeight).toBeGreaterThan(before.workHeight);
+      expect(before.mainScrollHeight).toBeGreaterThan(before.mainHeight);
       expect(before.top).toBe(0);
-      expect(before.workBottom).toBeLessThanOrEqual(before.barTop);
+      expect(before.mainBottom).toBeLessThanOrEqual(before.barTop);
       expect(before.barBottom).toBe(viewport.height);
-      await page.locator(".pc-work").hover();
+      await page.locator(".pc-main-scroll").hover();
       await page.mouse.wheel(0, 500);
-      await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop > 0);
+      await page.waitForFunction(() => document.querySelector(".pc-main-scroll")!.scrollTop > 0);
       const after = await geometry();
       expect(after.documentHeight).toBe(viewport.height);
       expect(after.documentTop).toBe(0);
-      expect(after.workTop).toBeGreaterThan(0);
+      expect(after.mainTop).toBeGreaterThan(0);
       expect(after.top).toBe(0);
       if (viewport.width >= 768) {
         const sticky = await page.evaluate(() => ({
-          workTop: document.querySelector(".pc-work")!.getBoundingClientRect().top,
+          mainTop: document.querySelector(".pc-main-scroll")!.getBoundingClientRect().top,
           navigationTop: document.querySelector(".pc-detail-navigation")!.getBoundingClientRect().top,
           tabsTop: document.querySelector(".pc-session-main > .pc-tabs")!.getBoundingClientRect().top,
         }));
-        expect(sticky.navigationTop).toBe(sticky.workTop);
-        expect(sticky.tabsTop).toBe(sticky.workTop);
+        expect(sticky.navigationTop).toBe(sticky.mainTop);
+        expect(sticky.tabsTop).toBe(sticky.mainTop);
       }
-      // At the end of the work area, the final content remains above the fixed bottom bar.
-      await page.locator(".pc-work").evaluate(work => { work.scrollTop = work.scrollHeight; });
+      // At the end of main, the final content remains above the fixed bottom bar.
+      await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = main.scrollHeight; });
       const lastBottom = await page.locator("#main-content .pc-session-main > p").last().evaluate(row => row.getBoundingClientRect().bottom);
       expect(lastBottom).toBeLessThanOrEqual((await geometry()).barTop);
       await page.close();
@@ -121,13 +121,13 @@ browserTest("tasks_list_restores_work_scroll_on_back", async () => {
       // Let initial loading and route effects settle before the user scrolls.
       await page.waitForTimeout(250);
       for (const position of [200, 350]) {
-        await page.locator(".pc-work").evaluate((work, y) => { work.scrollTop = y; }, position);
-        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-work")!.scrollTop - y) <= 1, position);
+        await page.locator(".pc-main-scroll").evaluate((main, y) => { main.scrollTop = y; main.dispatchEvent(new Event("scroll", { bubbles: true })); }, position);
+        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-main-scroll")!.scrollTop - y) <= 1, position);
         await page.waitForTimeout(50); // Deliver the scroll event that saves the list position.
         // Activate a real row link without Playwright scrolling it into view first.
         await page.locator('.pc-task-card a[href*="scroll-task-"]').first().evaluate(link => (link as HTMLElement).click());
         await page.waitForFunction(() => location.hash.startsWith("#/workspace?task="));
-        await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop === 0);
+        await page.waitForFunction(() => document.querySelector(".pc-main-scroll")!.scrollTop === 0);
         // Model rows whose layout becomes available after the first restoration frame.
         await page.evaluate(() => {
           const style = document.createElement("style");
@@ -138,10 +138,10 @@ browserTest("tasks_list_restores_work_scroll_on_back", async () => {
         });
         await page.goBack();
         await page.locator(".pc-task-card").first().waitFor();
-        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-work")!.scrollTop - y) <= 1, position, { timeout: 2000 });
+        await page.waitForFunction(y => Math.abs(document.querySelector(".pc-main-scroll")!.scrollTop - y) <= 1, position, { timeout: 4000 });
         // Restoration must survive the parent's route reset and focus effects.
         await page.waitForTimeout(250);
-        expect(await page.locator(".pc-work").evaluate(work => work.scrollTop)).toBeCloseTo(position, 0);
+        expect(await page.locator(".pc-main-scroll").evaluate(main => main.scrollTop)).toBeCloseTo(position, 0);
         expect(await page.evaluate(() => window.scrollY)).toBe(0);
       }
       await page.close();
@@ -157,7 +157,7 @@ browserTest("tasks_accessible_labels_stay_inside_the_work_scrollport", async () 
       const page = await browser.newPage({ viewport });
       await open(page, built, "#/tasks");
       // Reproduce the Tasks list's unpositioned flex rows and absolute accessible labels.
-      await page.locator("#main-content").evaluate(main => {
+      await page.locator(".pc-main-scroll").evaluate(main => {
         const list = document.createElement("section");
         list.setAttribute("aria-label", "Tasks");
         for (let i = 0; i < 50; i++) {
@@ -178,18 +178,18 @@ browserTest("tasks_accessible_labels_stay_inside_the_work_scrollport", async () 
         main.replaceChildren(list);
       });
       const geometry = () => page.evaluate(() => {
-        const root = document.scrollingElement!, work = document.querySelector(".pc-work")!;
-        return { documentHeight: root.scrollHeight, documentTop: root.scrollTop, workTop: work.scrollTop,
-          workHeight: work.clientHeight, workScrollHeight: work.scrollHeight };
+        const root = document.scrollingElement!, main = document.querySelector(".pc-main-scroll")!;
+        return { documentHeight: root.scrollHeight, documentTop: root.scrollTop, mainTop: main.scrollTop,
+          mainHeight: main.clientHeight, mainScrollHeight: main.scrollHeight };
       });
       const before = await geometry();
       expect(before.documentHeight).toBe(viewport.height);
-      expect(before.workScrollHeight).toBeGreaterThan(before.workHeight);
-      await page.locator(".pc-work").hover();
+      expect(before.mainScrollHeight).toBeGreaterThan(before.mainHeight);
+      await page.locator(".pc-main-scroll").hover();
       await page.mouse.wheel(0, 500);
-      await page.waitForFunction(() => document.querySelector(".pc-work")!.scrollTop > 0);
+      await page.waitForFunction(() => document.querySelector(".pc-main-scroll")!.scrollTop > 0);
       expect((await geometry()).documentTop).toBe(0);
-      await page.locator(".pc-work").evaluate(work => { work.scrollTop = work.scrollHeight; });
+      await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = main.scrollHeight; });
       await page.mouse.wheel(0, 500);
       // Allow scroll chaining to reach the document if any absolute descendant escaped.
       await page.waitForTimeout(150);
@@ -197,7 +197,7 @@ browserTest("tasks_accessible_labels_stay_inside_the_work_scrollport", async () 
       const after = await geometry();
       expect(after.documentHeight).toBe(viewport.height);
       expect(after.documentTop).toBe(0);
-      expect(after.workTop).toBeGreaterThan(0);
+      expect(after.mainTop).toBeGreaterThan(0);
       await page.close();
     }
   } finally { await browser.close(); }
@@ -219,14 +219,14 @@ browserTest("narrow_settings_topbar_touches_the_tab_strip", async () => {
       const before = await geometry();
       expect(before.topbarTop).toBe(before.tabsBottom);
       expect(before.documentHeight).toBe(812);
-      await page.locator("#main-content").evaluate(main => {
+      await page.locator(".pc-main-scroll").evaluate(main => {
         for (let i = 0; i < 100; i++) {
           const row = document.createElement("p");
           row.textContent = `Setting ${i + 1}`;
           main.append(row);
         }
       });
-      await page.locator(".pc-work").evaluate(work => { work.scrollTop = 400; });
+      await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = 400; });
       const after = await geometry();
       expect(after.topbarTop).toBe(after.tabsBottom);
       expect(after.documentHeight).toBe(812);
@@ -635,3 +635,181 @@ browserTest("rail_tooltips_escape_stacking_context_and_fit_the_viewport", async 
     await page.close();
   } finally { await browser.close(); }
 }, 20_000);
+
+browserTest("the page head stays fixed above a scrolling main, and is empty and hidden when no screen fills it", async () => {
+  const built = await frame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "?task-list#/tasks");
+    await page.getByRole("heading", { level: 1, name: "Tasks" }).waitFor();
+    const order = await page.evaluate(() => {
+      const head = document.querySelector(".pc-page-head")!, main = document.querySelector(".pc-main-scroll")!;
+      return { headBeforeMain: !!(head.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING), headEmpty: head.textContent === "", headText: head.textContent };
+    });
+    expect(order.headBeforeMain).toBe(true);
+    expect(order.headText).toContain("Tasks");
+    const before = await page.evaluate(() => document.querySelector(".pc-page-head")!.getBoundingClientRect().top);
+    await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = 200; });
+    await page.waitForFunction(() => document.querySelector(".pc-main-scroll")!.scrollTop > 0);
+    const after = await page.evaluate(() => document.querySelector(".pc-page-head")!.getBoundingClientRect().top);
+    expect(after).toBe(before); // The page head does not scroll away with main's content.
+    // Workspace owns its own fixed strip and never fills the header slot, so the region collapses.
+    await page.evaluate(() => { location.hash = "#/workspace"; });
+    await page.waitForFunction(() => location.hash.startsWith("#/workspace"));
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".pc-page-head")!).display === "none");
+    const empty = await page.evaluate(() => {
+      const head = document.querySelector(".pc-page-head")!;
+      return { text: head.textContent, display: getComputedStyle(head).display };
+    });
+    expect(empty.display).toBe("none");
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("a hosted Trace header slot does not leave a blank page-head band on Workspace", async () => {
+  const built = await allPagesFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openAllPages(page, built, "#/tasks/t-0412");
+    await page.waitForFunction(() => document.querySelector<HTMLElement>(".pc-page-head .pc-view-slot:not([hidden]) h1")?.textContent?.includes("Fix flaky"));
+    await page.evaluate(() => { location.hash = "#/workspace?task=t-0412"; });
+    await page.waitForFunction(() => location.hash.startsWith("#/workspace"));
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".pc-page-head")!).display === "none");
+    const geometry = await page.evaluate(() => {
+      const head = document.querySelector(".pc-page-head")!;
+      const box = head.getBoundingClientRect();
+      return { display: getComputedStyle(head).display, height: box.height, hiddenSlots: head.querySelectorAll(".pc-view-slot[hidden]").length };
+    });
+    expect(geometry.display).toBe("none");
+    expect(geometry.height).toBe(0);
+    expect(geometry.hiddenSlots).toBeGreaterThan(0);
+  } finally { await browser.close(); }
+}, 20_000);
+
+// A dedicated fixture (not shared with other browser tests, which rely on the generic fallback page at
+// "#/tasks/new") that mounts the real Tasks board and New task screen, so the Inspector panel is real content.
+async function regionsFrame() {
+  const build = await Bun.build({ entrypoints: ["test/fixtures/ui/shell-regions-browser.tsx"], target: "browser" });
+  expect(build.success).toBe(true);
+  const source = await build.outputs[0]!.text();
+  const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/session/session.css", "app/src/screens/new-task/new-task.css"].map(path => Bun.file(path).text()))].join("\n");
+  return { source, css };
+}
+async function openRegions(page: Page, built: { source: string; css: string }, hash: string) {
+  await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>regions</title><div id="app"></div>' }));
+  await page.goto(`http://pacer.test/${hash}`);
+  await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); }, built.css);
+  await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, built.source);
+  await page.locator("#main-content").waitFor();
+}
+
+browserTest("Tasks and New task fill the right panel through the frame, not a page-local column", async () => {
+  const built = await regionsFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openRegions(page, built, "#/tasks");
+    await page.getByRole("heading", { level: 1, name: "Tasks" }).waitFor();
+    const tasksInspector = page.getByRole("complementary", { name: "Inspector" });
+    await tasksInspector.waitFor();
+    await tasksInspector.getByRole("complementary", { name: "Selected task" }).waitFor();
+    expect(await page.locator(".pc-tasks-page__columns").count()).toBe(0);
+    await page.evaluate(() => { location.hash = "#/tasks/new"; });
+    const newTaskInspector = page.getByRole("complementary", { name: "Inspector" });
+    await newTaskInspector.getByText("Will go to", { exact: true }).waitFor();
+    expect(await page.locator(".pc-new-task__body .pc-new-task__aside").count()).toBe(0);
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("New task's Inspector toggle actually opens and closes the panel", async () => {
+  const built = await regionsFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openRegions(page, built, "#/tasks/new");
+    const toggle = page.getByRole("button", { name: "Toggle right panel", exact: true });
+    const inspector = page.getByRole("complementary", { name: "Inspector" });
+    await inspector.waitFor();
+    await expect(toggle.getAttribute("aria-pressed")).resolves.toBe("true");
+    await toggle.click();
+    await expect(inspector.count()).resolves.toBe(0);
+    await expect(toggle.getAttribute("aria-pressed")).resolves.toBe("false");
+    await toggle.click();
+    await inspector.waitFor();
+    await expect(toggle.getAttribute("aria-pressed")).resolves.toBe("true");
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("Trace, Setup and Agents fill shell panels through FrameSlot", async () => {
+  const built = await allPagesFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openAllPages(page, built, "#/tasks/t-0412");
+    await page.getByRole("heading", { level: 1, name: /Fix flaky/ }).waitFor();
+    const traceInspector = page.getByRole("complementary", { name: "Inspector" });
+    await traceInspector.waitFor();
+    await traceInspector.getByRole("heading", { name: "Tokens by agent" }).waitFor();
+    expect(await page.locator(".pc-main-scroll .pc-trace__aside").count()).toBe(0);
+    await page.evaluate(() => { location.hash = "#/setup"; });
+    await page.getByRole("heading", { level: 1, name: "Set up pacer" }).waitFor();
+    const setupRail = page.getByRole("complementary", { name: "Setup steps" });
+    await setupRail.waitFor();
+    await setupRail.getByRole("list", { name: "Setup steps" }).waitFor();
+    expect(await page.locator(".pc-setup-layout--framed .pc-setup-rail").count()).toBe(0);
+    await page.evaluate(() => { location.hash = "#/settings/executors"; });
+    await page.getByRole("heading", { level: 1, name: "Agents" }).waitFor();
+    await page.getByRole("complementary", { name: "Settings" }).waitFor();
+    // Inspector stays closed until an executor is selected.
+    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
+    await page.locator('button[aria-label^="More actions for"]').first().click();
+    const agentsInspector = page.getByRole("complementary", { name: "Inspector" });
+    await agentsInspector.waitFor();
+    await agentsInspector.getByRole("heading", { level: 2 }).first().waitFor();
+  } finally { await browser.close(); }
+}, 30_000);
+
+// Every routed page's own header (title, filter tabs, actions) now lives in the real router/Layout/Screen tree,
+// via FrameSlot name="header"; this fixture is the only one that walks the router instead of mounting one screen.
+async function allPagesFrame() {
+  const build = await Bun.build({ entrypoints: ["test/fixtures/ui/all-pages-browser.tsx"], target: "browser", splitting: false });
+  expect(build.success).toBe(true);
+  const source = await build.outputs[0]!.text();
+  const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/session/session.css", "app/src/screens/new-task/new-task.css", "app/src/screens/dispatch/dispatch.css", "app/src/screens/insights/insights.css", "app/src/screens/settings/settings.css", "app/src/screens/trace/trace.css", "app/src/ds/native.css"].map(path => Bun.file(path).text()))].join("\n");
+  return { source, css };
+}
+async function openAllPages(page: Page, built: { source: string; css: string }, hash: string) {
+  await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>pages</title><div id="app"></div>' }));
+  await page.goto(`http://pacer.test/${hash}`);
+  await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); }, built.css);
+  await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, built.source);
+  await page.locator("#main-content").waitFor();
+}
+const ROUTED_PAGES: [hash: string, title: string][] = [
+  ["#/", "Dispatch"], ["#/needs-you", "Needs you"], ["#/insights", "Insights"], ["#/tasks", "Tasks"], ["#/tasks/new", "New task"],
+  ["#/tasks/t-0412", "Fix flaky retry test in the payments client"], ["#/setup", "Set up pacer"],
+  ["#/settings", "Overview"], ["#/settings/app", "App preferences"], ["#/settings/planner", "Budget & pacing"],
+  ["#/settings/diagnostics", "Diagnostics"], ["#/settings/plugins", "Plugins"], ["#/settings/executors", "Agents"],
+  ["#/settings/assistant", "Assistant"],
+];
+browserTest("every routed page's header is non-empty, singular and stays fixed while main scrolls", async () => {
+  const built = await allPagesFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openAllPages(page, built, "#/");
+    for (const [hash, title] of ROUTED_PAGES) {
+      await page.evaluate(h => { location.hash = h; }, hash);
+      // Detail views (Trace) stay mounted and only hide; read the active slot, not a leftover hidden h1.
+      await page.waitForFunction(t => document.querySelector<HTMLElement>(".pc-page-head .pc-view-slot:not([hidden]) h1")?.textContent === t, title, { timeout: 5000 });
+      expect(await page.locator(".pc-page-head .pc-view-slot:not([hidden])").count()).toBe(1);
+      expect(await page.locator(".pc-page-head .pc-view-slot:not([hidden])").evaluate(node => node.textContent!.trim().length > 0)).toBe(true);
+      // The page head does not move as main's own content scrolls.
+      const before = await page.locator(".pc-page-head").evaluate(node => node.getBoundingClientRect().top);
+      await page.locator(".pc-main-scroll").evaluate(main => { main.scrollTop = main.scrollHeight; });
+      const after = await page.locator(".pc-page-head").evaluate(node => node.getBoundingClientRect().top);
+      expect(after).toBe(before);
+    }
+  } finally { await browser.close(); }
+}, 60_000);

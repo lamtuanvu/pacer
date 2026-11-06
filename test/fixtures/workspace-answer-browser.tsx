@@ -76,7 +76,7 @@ function App() {
     return () => removeEventListener("hashchange", update);
   }, []);
   return <TaskContext.Provider value={{ api: api as any, state: { ...store, snapshot: { ...store.snapshot, seq: revision, tasks: tasks() } as any } }}><ActionContext.Provider value={runner}>
-    <NavigationProvider route={route}><FrameContext.Provider value={options.retained ? { inline: true, title: null, actions: null, left: null, right: null, heading() {} } : null}><Screen route={route}/></FrameContext.Provider></NavigationProvider>
+    <NavigationProvider route={route}><FrameContext.Provider value={options.retained ? { inline: true, title: null, actions: null, header: null, left: null, right: null, heading() {} } : null}><Screen route={route}/></FrameContext.Provider></NavigationProvider>
   </ActionContext.Provider></TaskContext.Provider>;
 }
 render(<App/>, document.getElementById("app")!);

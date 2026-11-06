@@ -1236,12 +1236,14 @@ dependencies = [
 name = "pacer-config"
 version = "0.0.0"
 dependencies = [
+ "hex",
  "indexmap",
  "pacer-foundation",
  "ryu-js",
  "saphyr-parser",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "url",
@@ -1279,8 +1281,10 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "pacer-foundation",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1303,6 +1307,15 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "pacer-js-json"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -1399,9 +1412,11 @@ dependencies = [
  "libc",
  "nix",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-plugin-protocol",
  "pacer-store",
  "reqwest",
+ "rusqlite",
  "ryu-js",
  "semver",
  "serde",
@@ -1439,6 +1454,9 @@ name = "pacer-plugin-ops"
 version = "0.0.0"
 dependencies = [
  "icu_collator",
+ "libc",
+ "nix",
+ "pacer-config",
  "pacer-foundation",
  "pacer-plugin-protocol",
  "ryu-js",
@@ -1446,6 +1464,8 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "unicode-normalization",
+ "uuid",
 ]
 
 [[package]]
@@ -1474,6 +1494,18 @@ dependencies = [
  "serde",
  "serde_json",
  "xtask",
+]
+
+[[package]]
+name = "pacer-plugin-runtime"
+version = "0.0.0"
+dependencies = [
+ "nix",
+ "pacer-plugin-host",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -1512,9 +1544,12 @@ dependencies = [
  "libproc",
  "nix",
  "pacer-config",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-mdns",
  "pacer-plugin-ops",
+ "pacer-plugin-runtime",
+ "pacer-read-model",
  "pacer-store",
  "rand 0.9.5",
  "ryu-js",

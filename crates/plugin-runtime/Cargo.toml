@@ -1,0 +1,22 @@
+[package]
+name = "pacer-plugin-runtime"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pacer-plugin-host = { path = "../plugin-host" }
+nix = { version = "0.31", features = ["fs", "user", "socket"] }
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+thiserror.workspace = true
+tokio = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+tempfile = "3"
+tokio = { workspace = true }
+
+[lints]
+workspace = true

@@ -2,6 +2,7 @@ import { render } from 'preact';
 import { TasksPage } from '../../../app/src/screens/session/TasksPage';
 import { TaskContext } from '../../../app/src/screens/task-shared';
 import { initialState } from '../../../app/src/data/store';
+import { FrameContext } from '../../../app/src/shell/slots';
 import type { TaskNodeView } from '../../../src/view-model/task-tree';
 
 const leaf = (id: string, title: string, over: Partial<TaskNodeView> = {}): TaskNodeView => ({
@@ -15,6 +16,15 @@ const nodes: TaskNodeView[] = [
   ...Array.from({ length: 24 }, (_, index) => leaf(`t-x${index}`, `Background task ${index}`, { bucket: 'accepted', active: false, state: { tone: 'good', live: false, label: 'Completed' } })),
 ];
 const state = { ...initialState(), connected: true, snapshot: { tasks: [{ id: 't-2', title: 'Curated regression title' }], planner: { agent: 'codex' } } } as never;
+// The real shell portals the header and right-panel FrameSlots outside the Page; mount real DOM targets for them here,
+// since this fixture renders TasksPage directly, without Layout/AppFrame around it.
+const headerSlot = document.createElement('div'); headerSlot.id = 'frame-header'; headerSlot.className = 'pc-page-head';
+const rightSlot = document.createElement('div'); rightSlot.id = 'frame-right';
+document.body.insertBefore(headerSlot, document.getElementById('root'));
+document.body.append(rightSlot);
+const frame = { title: null, actions: null, left: null, right: rightSlot, header: headerSlot, inline: false, heading: () => {} };
 render(<TaskContext.Provider value={{ state, api: { call: async () => ({ startedAt: 1000, endedAt: 1720, brief: { constraints: 'Report only. Keep existing routes.' }, source: 'planner', branch: 'fix/retry', timeline: [] }) } as never }}>
-  <TasksPage nodes={nodes} repos={[{ key: 'a', label: 'org/a', path: '/a' }]} query={{ repo: null, scope: null } as never} onNew={() => { (window as unknown as { newTask: number }).newTask = 1; }} hasOlder={false} loadingOlder={false} onLoadOlder={() => {}} />
+  <FrameContext.Provider value={frame}>
+    <TasksPage nodes={nodes} repos={[{ key: 'a', label: 'org/a', path: '/a' }]} query={{ repo: null, scope: null } as never} onNew={() => { (window as unknown as { newTask: number }).newTask = 1; }} hasOlder={false} loadingOlder={false} onLoadOlder={() => {}} />
+  </FrameContext.Provider>
 </TaskContext.Provider>, document.getElementById('root')!);

@@ -1,3 +1,4 @@
+import { diagnosticSummary, diagnosticRemediation } from '../../../../src/view-model/diagnostics';
 import { executorLabel } from '../../../../src/view-model/words';
 
 /** Account identities remain readable in text, tooltips and accessible names. */
@@ -13,21 +14,6 @@ export function displayPath(value: string): string {
   return value.replace(/^(?:\/Users\/[^/]+\/|\/home\/[^/]+\/|.*\/home\/)/, '~/');
 }
 
-/** Diagnostics describe the outcome, while implementation output stays out of the UI. */
-export function diagnosticDetail(check: {name: string; detail: string; level: string; evidence?: string}): string {
-  if (/\/v\d|\b\w+: (?:true|false)|;|--help|code object|\/Volumes\/|\/Users\/|\/home\//.test(check.detail)) {
-    if (/snapshot/i.test(check.name)) return 'The local service responded to the performance check.';
-    if (/CLI|Binary/.test(check.name)) return check.level === 'ok' ? 'The agent is installed and available.' : 'The agent could not be checked. Check its installation and try again.';
-    if (/consent/i.test(check.name + check.detail)) return 'Review the requested integration changes before connecting.';
-    if (/repo/i.test(check.name)) return check.level === 'ok' ? 'The repository is accessible.' : 'The repository could not be accessed.';
-    return check.level === 'ok' ? 'Configuration is present. A real session is needed to verify the connection.' : 'This connection needs attention. Run the check again after reviewing your setup.';
-  }
-  return settingsText(check.detail.replace(/configuration only; runtime unverified/gi, 'a real session is still needed'));
-}
-
-/** Preserve useful recovery advice while replacing commands and implementation output. */
-export function diagnosticNextStep(fix: string): string {
-  return /(?:pacer |--|\/v\d|\b(?:codex|opencode|claude)\b|[\/\\])/.test(fix)
-    ? 'Review the integration in Settings, then run the checks again.'
-    : settingsText(fix);
-}
+/** Shared diagnostic copy never discards the original evidence in the row disclosure. */
+export const diagnosticDetail = diagnosticSummary;
+export const diagnosticNextStep = diagnosticRemediation;

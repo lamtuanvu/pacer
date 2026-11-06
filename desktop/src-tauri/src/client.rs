@@ -9,6 +9,10 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 use tokio::process::Command;
+#[cfg(feature = "native-socket")]
+use pacer_desktop::ota::control::NativeConnection;
+#[cfg(feature = "native-socket")]
+use std::sync::Arc;
 
 fn pacer_home() -> PathBuf {
     std::env::var_os("PACER_HOME")
@@ -37,9 +41,33 @@ pub(crate) fn bundled_binary() -> Option<PathBuf> {
     }
 }
 
+/// Discovery runs on every onboarding pass; scan each executable only when it changes.
+fn desktop_executable(path: &Path) -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    type Seen = HashMap<PathBuf, (u64, Option<std::time::SystemTime>, bool)>;
+    static SEEN: OnceLock<Mutex<Seen>> = OnceLock::new();
+    let Ok(metadata) = path.metadata() else {
+        return false;
+    };
+    let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let stamp = (metadata.len(), metadata.modified().ok());
+    let seen = SEEN.get_or_init(Default::default);
+    if let Some(&(len, modified, desktop)) = seen.lock().unwrap().get(&key) {
+        if (len, modified) == stamp {
+            return desktop;
+        }
+    }
+    let desktop = pacer_desktop::packaging::is_desktop_executable(&key);
+    seen.lock().unwrap().insert(key, (stamp.0, stamp.1, desktop));
+    desktop
+}
+
 fn external_binary(path: &str, home: &Path, bundled: Option<&Path>) -> Option<PathBuf> {
     logic::candidates(path, home).into_iter().find(|candidate| {
         executable(candidate)
+            // A desktop executable on PATH is never a CLI: running it boots another GUI.
+            && !desktop_executable(candidate)
             && bundled.is_none_or(|bundled| {
                 !same_path(candidate, bundled)
                     && !(candidate == &link::link_path(home)
@@ -326,7 +354,10 @@ fn setup_files(
             Err(error) => return Err(SetupError::Failed(error.to_string())),
         }
     }
-    write_consent(config, rc.is_some(), false).map_err(SetupError::Failed)
+    write_consent(config, rc.is_some(), false).map_err(SetupError::Failed)?;
+    // ADR 0021: the Welcome/Consent screen's consent is the authorization; record the
+    // desktop as owner unconditionally (never for "Keep mine", which never reaches here).
+    crate::owner::claim_desktop_ownership(&pacer_home(), bundled, std::time::SystemTime::now()).map_err(SetupError::Failed)
 }
 
 pub struct Cli {
@@ -432,6 +463,8 @@ pub struct Session {
     owner_identity: String,
     pub cookies: std::sync::Arc<reqwest::cookie::Jar>,
     pub ops: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    #[cfg(feature = "native-socket")]
+    native: Option<Arc<NativeConnection>>,
 }
 async fn count_active_tasks(session: &Session) -> Option<usize> {
     let mut count = 0usize;
@@ -452,13 +485,47 @@ impl Session {
     pub fn service_version(&self) -> Option<&str> { self.service_version.as_deref() }
     #[cfg(test)]
     pub(crate) fn for_capture_test(client: Client, origin: String) -> Self {
-        Self { client, origin, service_version: None, cookies: Default::default(), ops: Default::default(), hello_identity: Default::default(), owner_identity: String::new() }
+        Self { client, origin, service_version: None, cookies: Default::default(), ops: Default::default(), hello_identity: Default::default(), owner_identity: String::new(), #[cfg(feature = "native-socket")] native: None }
     }
     pub async fn connect(cli: &Cli, auth: &Url) -> Result<Self, String> {
         // Use exactly the home passed to CLI discovery, including PACER_HOME overrides.
         let token = std::fs::read_to_string(cli.pacer_home.join("token"))
             .map_err(|_| "Unable to read service token")?;
+        #[cfg(feature = "native-socket")]
+        {
+            if let Ok(native_session) = Self::connect_native(cli, auth, &token).await {
+                return Ok(native_session);
+            }
+            // Fall back to HTTP if native connection fails
+            desktop_log!("pacer lifecycle: native socket unavailable, falling back to HTTP");
+        }
         Self::exchange(auth, token).await
+    }
+    #[cfg(feature = "native-socket")]
+    async fn connect_native(cli: &Cli, auth: &Url, token: &str) -> Result<Self, String> {
+        let trust = pacer_desktop::ota::trust::ReleaseTrust::configured().ok_or("Release trust unavailable")?;
+        let user_home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME not set")?);
+        let home = cli.pacer_home.clone();
+        let port = service_port();
+        let registered = pacer_desktop::ota::control::inspect_registered_service(
+            &user_home, &home, port, &trust,
+        ).map_err(|e| e.to_string())?;
+        let endpoint = registered.endpoint();
+        let native = NativeConnection::connect(&endpoint, &trust, None, Arc::new(|_| {})).map_err(|e| e.to_string())?;
+        // Authenticate via HTTP first to get session cookies and hello
+        let http_session = Self::exchange(auth, token.to_string()).await?;
+        // Subscribe to events on native socket
+        native.subscribe_events().map_err(|e| e.to_string())?;
+        Ok(Self {
+            client: http_session.client,
+            origin: http_session.origin,
+            service_version: http_session.service_version,
+            hello_identity: http_session.hello_identity,
+            owner_identity: http_session.owner_identity,
+            cookies: http_session.cookies,
+            ops: http_session.ops,
+            native: Some(native),
+        })
     }
     async fn exchange(auth: &Url, token: String) -> Result<Self, String> {
         let origin = logic::local_origin(auth).ok_or("Invalid origin")?;
@@ -482,6 +549,8 @@ impl Session {
             owner_identity,
             cookies,
             ops: Default::default(),
+            #[cfg(feature = "native-socket")]
+            native: None,
         };
         if token.trim().is_empty() {
             return Err("Missing service token".into());
@@ -525,10 +594,21 @@ impl Session {
         *self.ops.lock().unwrap() = hello["ops"].as_array().map(|ops|ops.iter().filter_map(|v|v.as_str().map(str::to_owned)).collect()).unwrap_or_default();
     }
     pub async fn op(&self, op: &str, params: &Value) -> Result<Value, String> {
+        self.op_timeout(op, params, Duration::from_secs(10)).await
+    }
+    /// Same as `op`, with a caller-chosen request timeout. The heartbeat uses this to give
+    /// itself more headroom than a user-triggered op should ever need to wait.
+    pub async fn op_timeout(&self, op: &str, params: &Value, timeout: Duration) -> Result<Value, String> {
         if crate::actions::dispatch(&serde_json::json!({"op":op,"params":params})).is_none()
             || op == "ui.open"
         {
             return Err("Invalid operation".into());
+        }
+        #[cfg(feature = "native-socket")]
+        if let Some(native) = &self.native {
+            if native.alive() {
+                return native.send_op(op, params.clone()).map_err(|e| e.to_string());
+            }
         }
         self.client
             .post(format!("{}/v3/ops/{op}", self.origin))
@@ -536,7 +616,7 @@ impl Session {
             // Cookie writes must say exactly "app" (the service's CSRF check); reads keep the desktop label.
             .header("X-Pacer-Client", "app")
             .json(params)
-            .timeout(Duration::from_secs(10))
+            .timeout(timeout)
             .send()
             .await
             .map_err(|_| "Operation failed")?
@@ -565,6 +645,38 @@ impl Session {
                     "stopped"
                 }.into()
             })
+    }
+    #[cfg(feature = "native-socket")]
+    pub async fn subscribe_events_native(&self) -> Result<impl futures_util::Stream<Item = Result<(String, Value), String>>, String> {
+        use futures_util::stream::unfold;
+        let native = self.native.as_ref().ok_or("No native connection")?.clone();
+        if !native.alive() {
+            return Err("Native connection not alive".into());
+        }
+        // The subscription was already done in connect_native; we just read events
+        let stream = unfold(native, move |native| async move {
+            if !native.alive() {
+                return None;
+            }
+            match native.read_app_frame() {
+                Ok(frame) => Some((Ok((frame.event, frame.data)), native)),
+                Err(e) => Some((Err(e.to_string()), native)),
+            }
+        });
+        Ok(stream)
+    }
+    #[cfg(feature = "native-socket")]
+    pub fn send_heartbeat(&self) -> Result<(), String> {
+        if let Some(native) = &self.native {
+            if native.alive() {
+                return native.send_heartbeat().map_err(|e| e.to_string());
+            }
+        }
+        Err("No native connection".into())
+    }
+    #[cfg(feature = "native-socket")]
+    pub fn is_native(&self) -> bool {
+        self.native.as_ref().is_some_and(|n| n.alive())
     }
 }
 
@@ -996,10 +1108,18 @@ async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> 
         }
     }
 }
+/// Longer than the shared `op()` timeout: the core's own event loop can block for a couple of
+/// seconds under load (background timers), and a heartbeat should outlast that before it even
+/// counts as a miss, independent of the retry tolerance below.
+const HEARTBEAT_OP_TIMEOUT: Duration = Duration::from_secs(20);
 async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Result<(), String> {
     let mut missing_reported = false;
     let mut interval = tokio::time::interval(Duration::from_secs(30));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // One slow or failed heartbeat must not tear down the whole session: a core stall can miss
+    // a single 30s beat without the connection actually being down. A `sessionExpired` (401)
+    // still ends it immediately.
+    let mut strikes = logic::SessionOpStrikes::default();
     loop {
         interval.tick().await;
         if !missing_reported {
@@ -1014,12 +1134,20 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
             }
         }
 
-        session
-            .op(
+        let result = session
+            .op_timeout(
                 "client.heartbeat",
                 &serde_json::json!({"client_id":client_id}),
+                HEARTBEAT_OP_TIMEOUT,
             )
-            .await?;
+            .await;
+        let outcome = result.as_ref().map(|_| ()).map_err(Clone::clone);
+        if strikes.observe(&outcome) {
+            if let Err(message) = &outcome {
+                desktop_log!("pacer lifecycle: heartbeat ending the session after repeated failures: {message}");
+            }
+            return outcome;
+        }
     }
 }
 fn native_headers(origin: &str) -> Result<reqwest::header::HeaderMap,String> {
@@ -1064,23 +1192,46 @@ async fn listen(
         session.replace_ops(&hello);
         let snapshot=wait_for_snapshot(app,session).await?;
         let mut seq=reconcile_cursor(app,session,home,&snapshot).await?;
-        let response = tokio::time::timeout(
-            Duration::from_secs(15),
-            session
-                .client
-                .get(format!("{}/v3/events?since={seq}", session.origin))
-                .headers(match app.state::<crate::ipc_transport::Bridge>().instance() {
-                    Some(instance)=>crate::ipc_transport::app_headers(&session.origin,&instance)?,
-                    None=>native_headers(&session.origin)?,
-                })
-                .header("Accept", "text/event-stream")
-                .send(),
-        )
-        .await
-        .map_err(|_| "stopped")?
-        .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?
-        .error_for_status()
-        .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())))?;
+        // Opening the event stream can race the same core stalls as the heartbeat. A single
+        // slow or failed attempt reconnects the stream, not the whole session (which would
+        // force a full re-sign-in); only a sustained failure -- or an expired session, which
+        // ends it at once -- gives up and propagates out of listen().
+        let mut open_strikes = logic::SessionOpStrikes::default();
+        let response = loop {
+            // Header construction is a local, deterministic failure (never a stall): build it
+            // outside the retried attempt so it still ends the session at once, as before.
+            let headers = match app.state::<crate::ipc_transport::Bridge>().instance() {
+                Some(instance)=>crate::ipc_transport::app_headers(&session.origin,&instance)?,
+                None=>native_headers(&session.origin)?,
+            };
+            let attempt: Result<reqwest::Response, String> = async {
+                tokio::time::timeout(
+                    Duration::from_secs(15),
+                    session
+                        .client
+                        .get(format!("{}/v3/events?since={seq}", session.origin))
+                        .headers(headers)
+                        .header("Accept", "text/event-stream")
+                        .send(),
+                )
+                .await
+                .map_err(|_| "stopped".to_string())?
+                .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())).to_string())?
+                .error_for_status()
+                .map_err(|e| logic::session_error(e.status().map(|status| status.as_u16())).to_string())
+            }
+            .await;
+            match attempt {
+                Ok(response) => break response,
+                Err(message) => {
+                    let outcome: Result<(), String> = Err(message.clone());
+                    if open_strikes.observe(&outcome) {
+                        return Err(message);
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        };
         if !response
             .headers()
             .get("content-type")
@@ -1465,6 +1616,15 @@ impl FirstRun {
                         Ok(state) if state == "committed" => {
                             *app.state::<Shell>().takeover.lock().unwrap() = None;
                             *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                            // ADR 0021: the user's takeover confirmation (ADR 0011) is also the
+                            // consent that makes the desktop the recorded owner. A failure here
+                            // does not undo the already-committed takeover; it only means the
+                            // record is stale until the next successful consent or claim.
+                            if let Some(bundled) = bundled.as_deref() {
+                                if let Err(error) = crate::owner::claim_desktop_ownership(&pacer_home(), bundled, std::time::SystemTime::now()) {
+                                    desktop_log!("pacer lifecycle: owner record write failed after takeover: {error}");
+                                }
+                            }
                             crate::recovery(app, "starting");
                         }
                         result => {
@@ -1521,6 +1681,8 @@ impl FirstRun {
                 crate::diagnostic_recovery(app, self.error.as_ref().unwrap());
                 return OnboardingGate::Wait;
             }
+            // ADR 0021: attaching to a healthy service the user did not hand over is not consent
+            // to own it, so no owner record is written here; only Welcome and takeover claim it.
             *app.state::<Shell>().onboarding_page.lock().unwrap() = None;
         }
         let decision = self.page(
@@ -2321,6 +2483,25 @@ mod tests {
         assert_eq!(previous["keep"], true);
         assert_eq!(current["keep"], false);
         assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn external_discovery_skips_a_desktop_executable_copied_onto_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let local = dir.0.join(".local/bin");
+        let brew = dir.0.join("brew");
+        std::fs::create_dir_all(&local).unwrap();
+        std::fs::create_dir(&brew).unwrap();
+        let mut gui = b"gui ".to_vec();
+        gui.extend_from_slice(&pacer_desktop::packaging::DESKTOP_EXECUTABLE_MARKER);
+        std::fs::write(local.join("pacer"), gui).unwrap();
+        std::fs::write(brew.join("pacer"), "cli").unwrap();
+        for path in [local.join("pacer"), brew.join("pacer")] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let path = format!("{}:{}", local.display(), brew.display());
+        assert_eq!(external_binary(&path, &dir.0, None), Some(brew.join("pacer")));
     }
 
     #[test]

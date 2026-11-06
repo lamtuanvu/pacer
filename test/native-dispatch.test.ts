@@ -42,7 +42,7 @@ test.skipIf(!front)("test binary exposes only its feature-gated native operation
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(exit, stderr).toBe(0);
     const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
-    expect(replies[1].result).toEqual(["_debug.native", "activity.list", "notifications.get", "notifications.set", "routing.set", "runner.remove", "runner.reorder", "runner.set", "strategy.remove", "strategy.save", "strategy.use", "task.log", "test.echo"]);
+    expect(replies[1].result).toEqual(["_debug.native", "activity.list", "config.set", "notifications.get", "notifications.set", "routing.set", "runner.remove", "runner.reorder", "runner.set", "strategy.list", "strategy.remove", "strategy.save", "strategy.show", "strategy.use", "task.log", "task.prune", "task.restore", "test.echo"]);
     expect(stderr).toContain("native _debug.native");
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);

@@ -24,6 +24,7 @@ fn fixture() -> (tempfile::TempDir, Ctx, Probes, Value) {
         desktop_updates: vec![],
         service_installed: false,
         can_pair: false,
+        sessions: pacer_read_model::SessionProbe::default(),
     };
     (root, ctx, probes, input["status"].clone())
 }

@@ -212,6 +212,15 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
     return violations;
   }
   if (!/\.[cm]?[jt]sx?$/.test(path)) return [];
+  // Side content that belongs beside a screen must fill FrameSlot left/right (with an inline fallback), not a page-local column layout.
+  if (path.startsWith("app/src/screens/")) {
+    for (const match of source.matchAll(/\b(?:pc-tasks-page__columns|pc-new-task__cols)\b/g)) {
+      add(match.index ?? 0, "UI-28", "Page-local side columns are forbidden; fill FrameSlot name=\"left\"/\"right\" (with frame.inline fallback) instead.");
+    }
+    if (/\bPageColumns\b/.test(source) && !/\bFrameSlot\b/.test(source)) {
+      add(0, "UI-28", "PageColumns alone recreates a page-local side column; pair it with FrameSlot name=\"left\"/\"right\" for the shell panel and keep PageColumns only as the frame.inline fallback.");
+    }
+  }
   const inDs = path.startsWith("app/src/ds/");
   let file: t.File;
   try { file = parse(source, { sourceType: "unambiguous", plugins: ["typescript", "jsx"] }); }
@@ -245,12 +254,12 @@ export function checkUiSource(inputPath: string, source: string): UiViolation[] 
   const checkProperty = (node: t.Node, name: string, value: t.Node, ancestors: t.Node[] = []) => {
     name = cssProperty(name);
     // Frame offsets consume only measured dock/header geometry, not authored lengths.
-    if (path === "app/src/shell/AppFrame.tsx" && ["--pc-dock-height", "--pc-assistant-header-height", "--pc-work-header-height", "--pc-frame-header-height"].includes(name)
+    if (path === "app/src/shell/AppFrame.tsx" && ["--pc-dock-height", "--pc-assistant-header-height", "--pc-frame-header-height"].includes(name)
       && node.type === "CallExpression" && node.callee.type === "MemberExpression"
       && source.slice(node.callee.start ?? 0, node.callee.end ?? 0) === "root.style.setProperty"
       && value.type === "TemplateLiteral" && value.expressions.length === 1
       && value.quasis[0]?.value.cooked === "" && value.quasis[1]?.value.cooked === "px"
-      && source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0) === (name === "--pc-dock-height" ? "dock?.getBoundingClientRect().height ?? 0" : name === "--pc-work-header-height" ? "workHeader?.getBoundingClientRect().height ?? 0" : name === "--pc-frame-header-height" ? "topBar?.getBoundingClientRect().height ?? 0" : "sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0")) return;
+      && source.slice(value.expressions[0]!.start ?? 0, value.expressions[0]!.end ?? 0) === (name === "--pc-dock-height" ? "dock?.getBoundingClientRect().height ?? 0" : name === "--pc-frame-header-height" ? "topBar?.getBoundingClientRect().height ?? 0" : "sessionHeader && body ? Math.max(0, sessionHeader.getBoundingClientRect().bottom - body.getBoundingClientRect().top) : 0")) return;
     // SidePanel's bounded drag/keyboard measurement is a unitless geometry channel.
     // CSS multiplies it by the generated one-pixel token; neighboring styles stay checked.
     if (path === "app/src/ds/SidePanel.tsx" && name === "--pc-panel-width"

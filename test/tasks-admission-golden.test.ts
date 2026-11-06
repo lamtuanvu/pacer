@@ -5,9 +5,10 @@ import { queueCapacity } from "../src/tasks/capacity";
 import { validateStrategy } from "../src/config/strategy";
 import { queueStrategy } from "./queue-helpers";
 import { fakeCtx } from "./helpers";
-import { slotUse } from "../src/engine/slots";
+import { slotLimit, slotUse } from "../src/engine/slots";
 import { setMachineReaders } from "../src/engine/machine";
 import { capacityFixture } from "./read-model-helpers";
+import type { Strategy } from "../src/config/strategy";
 import type { TaskRecord } from "../src/tasks/types";
 
 interface Golden {
@@ -37,6 +38,40 @@ for (const golden of goldens) test(`delegate brief golden: ${golden.id}`, () => 
 const slotGoldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/slot-goldens.json", import.meta.url), "utf8")) as Array<{id:string;tasks:unknown[];expected:unknown}>;
 for (const row of slotGoldens) test(`slot use golden: ${row.id}`, () => {
   expect(slotUse(row.tasks as TaskRecord[])).toEqual(row.expected as ReturnType<typeof slotUse>);
+});
+
+const slotLimitGoldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/slot-limit-goldens.json", import.meta.url), "utf8")) as Array<{
+  id: string; strategy: Strategy; runnerId: string; expected: ReturnType<typeof slotLimit>;
+}>;
+for (const row of slotLimitGoldens) test(`slot limit golden: ${row.id}`, () => {
+  expect(slotLimit(row.strategy, row.runnerId)).toEqual(row.expected);
+});
+
+const strategyCapacityGoldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/strategy-capacity-goldens.json", import.meta.url), "utf8")) as Array<{
+  id: string; strategy: Strategy; executor: string;
+  use: { byExecutor: Record<string, number>; byHost: Record<string, number>; local: number };
+  guard?: {reason: "machine_memory_pressure" | "machine_load"; detail: string; machine: {memoryPressure?: string; memoryPressureLimit?: string}};
+  expected: NonNullable<ReturnType<typeof queueCapacity>> | null;
+}>;
+for (const row of strategyCapacityGoldens) test(`strategy capacity golden: ${row.id}`, () => {
+  const s = row.strategy;
+  const resolved = s.runners[row.executor]
+    ?? (s.runnerAliases?.[row.executor] ? s.runners[s.runnerAliases[row.executor]] : undefined);
+  const originalPressure = s.execution.local_memory_pressure_limit;
+  try {
+    // Rust queue_capacity_for takes a precomputed guard; TypeScript derives it from signals.
+    if (row.guard && !resolved?.host) {
+      s.execution.local_memory_pressure_limit = row.guard.machine.memoryPressureLimit ?? "critical";
+      setMachineReaders({
+        pressure: () => row.guard!.machine.memoryPressure === "warning" ? 2 : 4,
+        load: () => null,
+      });
+    } else setMachineReaders({ pressure: () => null, load: () => null });
+    expect(queueCapacity(s, row.executor, row.use) ?? null).toEqual(row.expected);
+  } finally {
+    s.execution.local_memory_pressure_limit = originalPressure;
+    setMachineReaders();
+  }
 });
 
 const capacityBranches = JSON.parse(readFileSync(new URL("./fixtures/task-admission/capacity-branches.json", import.meta.url), "utf8")) as Array<{id:string;executor:string;limits:{executor:number;host:number|null;local:number|null};use:{byExecutor:Record<string,number>;byHost:Record<string,number>;local:number};expected:unknown}>;

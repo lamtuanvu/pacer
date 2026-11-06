@@ -143,3 +143,20 @@ fn signed_radix_strings_preserve_their_type_after_bun_stringify() {
         assert_eq!(pacer_config::doc::parse_value(&yaml).unwrap(), value);
     }
 }
+
+#[test]
+fn plugin_installed_insert_preserves_disabled_sibling() {
+    use pacer_config::doc::StrategyDoc;
+    use serde_json::json;
+    let before = "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  installed:\n    other:\n      version: 1.0.0\n      capabilities: []\n  disabled:\n    - other\n";
+    let mut doc = StrategyDoc::new(before);
+    doc.set_in(
+        &[json!("plugins"), json!("installed"), json!("fx-ui")],
+        &json!({"version":"1.0.0","capabilities":[],"surfaces":["activity"],"policy":true}),
+    )
+    .unwrap();
+    let after = doc.as_str();
+    eprintln!("AFTER:\n{after}");
+    assert!(after.contains("  disabled:\n"), "{after}");
+    assert!(!after.contains("\ndisabled:\n"), "{after}");
+}

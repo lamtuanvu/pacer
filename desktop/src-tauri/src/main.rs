@@ -15,6 +15,7 @@ mod link;
 mod logging;
 mod logic;
 mod notifications;
+mod owner;
 mod permission_setup;
 mod profile;
 mod tray_model;
@@ -1193,10 +1194,11 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
             let route = app.state::<Shell>().route.lock().unwrap().clone();
             // All variable data is argv. Wait for exit so the single-instance plugin
             // cannot redirect the new launch back into this obsolete process.
+            // `-g`: nobody asked for this relaunch, so it must not take focus.
             let mut command = std::process::Command::new("/bin/sh");
             command.args([
                 "-c",
-                "sleep 1; while kill -0 \"$1\" 2>/dev/null; do sleep 1; done; shift; exec /usr/bin/open -n \"$@\"",
+                "sleep 1; while kill -0 \"$1\" 2>/dev/null; do sleep 1; done; shift; exec /usr/bin/open -n -g \"$@\"",
                 "pacer-relaunch",
             ])
                 .arg(std::process::id().to_string())
@@ -1222,6 +1224,27 @@ fn watch_bundle(app: AppHandle, executable: std::path::PathBuf, started: logic::
     });
 }
 
+/// `pacer <command>` reached the desktop executable, e.g. a copy on PATH. Hand it to
+/// this bundle's CLI, or fail; a command must never boot another GUI instance.
+fn forward_to_cli() -> ! {
+    use std::os::unix::process::CommandExt;
+    let cli = std::env::current_exe()
+        .ok()
+        .and_then(|exe| pacer_desktop::packaging::packaged_cli(&exe).ok().flatten());
+    if let Some(cli) = cli {
+        let error = std::process::Command::new(&cli)
+            .args(std::env::args_os().skip(1))
+            .exec();
+        eprintln!("pacer: unable to run {}: {error}", cli.display());
+        std::process::exit(126);
+    }
+    eprintln!(
+        "pacer: this is the pacer desktop app executable, not the pacer command. \
+         Recreate the command from the app or reinstall the CLI."
+    );
+    std::process::exit(64);
+}
+
 fn main() {
     capture::initialize_build_identity();
     // Build smoke checks run before GUI initialization or service discovery.
@@ -1240,6 +1263,7 @@ fn main() {
             println!("{identity}");
             return;
         }
+        Some(first) if logic::cli_invocation(first) => forward_to_cli(),
         _ => {}
     }
     desktop_log!(

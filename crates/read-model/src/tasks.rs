@@ -1,8 +1,9 @@
 //! Task selection and message/liveness enrichment. SQLite is authoritative; the
 //! shared store imports old-release JSON using the existing revision protocol.
+use crate::snapshot::ActiveCounts;
 use crate::{Error, js::*, read};
 use pacer_foundation::Ctx;
-use pacer_store::TaskStore;
+use pacer_store::{TaskFilter, TaskStore};
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
@@ -268,6 +269,30 @@ pub fn full_title(t: &Value) -> String {
         title.into()
     })
 }
+/// Match TS `visibleTaskState`: a running task with an unanswered question is
+/// presented as `needs_input` on read surfaces (`task.list` / `task.get` rows).
+pub fn visible_task_state(task: &Value) -> String {
+    if text(&task["state"]) == "running"
+        && task
+            .get("question")
+            .is_some_and(|q| q.is_object() && q.get("answer").is_none())
+    {
+        "needs_input".into()
+    } else {
+        text(&task["state"]).into()
+    }
+}
+fn chosen_executor(t: &Value) -> Option<&str> {
+    let last = array(&t["attempts"]).last().unwrap_or(&Value::Null);
+    [
+        &t["result"]["executor"],
+        &t["executor"],
+        &last["executor"],
+        &t["requestedExecutor"],
+    ]
+    .into_iter()
+    .find_map(|v| v.as_str().filter(|s| !s.is_empty()))
+}
 pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
     let last = array(&t["attempts"]).last().unwrap_or(&Value::Null);
     let coalesce = |items: &[&Value]| {
@@ -283,12 +308,14 @@ pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
         &t["attemptStartedAt"],
         &t["reviewRequest"]["at"],
         &t["stopPending"]["requestedAt"],
+        &t["question"]["at"],
+        &t["question"]["answeredAt"],
     ]
     .iter()
     .map(|v| num(v))
     .fold(0.0, f64::max);
     let mut row = json!({
-    "id":t["id"],"title":if trim(text(&t["title"])).is_empty(){clip_points(&goal_title(text(&t["brief"]["goal"]),true),60)}else{clip_points(&full_title(t),60)},"state":t["state"],"goal":clip(text(&t["brief"]["goal"]),200),"executor":coalesce(&[&t["result"]["executor"],&t["executor"],&last["executor"]]),"backend":coalesce(&[&t["result"]["backend"],&t["backend"]]),"worktree":coalesce(&[&t["result"]["worktree"],&t["worktree"]]),"updatedAt":number(updated)}
+    "id":t["id"],"title":if trim(text(&t["title"])).is_empty(){clip_points(&goal_title(text(&t["brief"]["goal"]),true),60)}else{clip_points(&full_title(t),60)},"state":visible_task_state(t),"goal":clip(text(&t["brief"]["goal"]),200),"executor":coalesce(&[&t["result"]["executor"],&t["executor"],&last["executor"]]),"backend":coalesce(&[&t["result"]["backend"],&t["backend"]]),"worktree":coalesce(&[&t["result"]["worktree"],&t["worktree"]]),"updatedAt":number(updated)}
     );
     if truth(&t["placement"]["mode"]) && t["placement"].get("why").is_some() {
         row["placement"] = t["placement"].clone();
@@ -374,6 +401,21 @@ fn label(r: &Value) -> String {
             .join("/")
     }
 }
+fn apply_repo_label(repo: &mut Value, peers: &[Value]) {
+    let short = label(repo);
+    let collision = peers
+        .iter()
+        .any(|other| other["key"] != repo["key"] && label(other) == short);
+    repo["label"] = json!(if collision {
+        if text(&repo["key"]).starts_with("local:") {
+            format!("{short} ({})", text(&repo["key"]))
+        } else {
+            text(&repo["key"]).into()
+        }
+    } else {
+        short
+    });
+}
 fn repo(ctx: &Ctx, t: &Value) -> Value {
     if truth(&t["repo"]) {
         return t["repo"].clone();
@@ -411,94 +453,286 @@ fn has_table(db: &Connection, name: &str) -> Result<bool, Error> {
         .optional()?
         .unwrap_or(false))
 }
+struct EnrichTables {
+    messages: bool,
+    liveness: bool,
+    work_nodes: bool,
+}
+fn enrich_tables(db: &Connection) -> Result<EnrichTables, Error> {
+    Ok(EnrichTables {
+        messages: has_table(db, "messages")?,
+        liveness: has_table(db, "msg_liveness")?,
+        work_nodes: has_table(db, "work_nodes")?,
+    })
+}
+fn enrich_api_task(
+    t: &Value,
+    repo: Value,
+    active: &ActiveCounts,
+    alive: &dyn Fn(i64) -> bool,
+    db: &Connection,
+    tables: &EnrichTables,
+) -> Result<Value, Error> {
+    let mut row = task_data(t, alive);
+    let n = active.task(text(&t["id"]));
+    if n > 0 {
+        row["activeAgentSessions"] = json!(n);
+    }
+    for key in ["archived", "archivePath"] {
+        if truth(&t["archived"])
+            && let Some(v) = t.get(key)
+        {
+            row[key] = v.clone();
+        }
+    }
+    row["fullTitle"] = json!(full_title(t));
+    if truth(&t["question"]) {
+        row["question"] = t["question"].clone();
+    }
+    row["rev"] = t.get("rev").cloned().unwrap_or(json!(1));
+    row["queue"] = t["queue"].clone();
+    if truth(&t["source"]) {
+        row["source"] = t["source"].clone();
+    }
+    row["repo"] = repo;
+    row["kind"] = t["kind"].clone();
+    row["host"] = t["run"]["host"].clone();
+    if tables.liveness {
+        let own = format!("task:{}", text(&t["id"]));
+        let work_parent = if tables.work_nodes {
+            db.query_row(
+                "SELECT parent_id FROM work_nodes WHERE task_id=?",
+                [text(&t["id"])],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten()
+            .map(|id| format!("task:{id}"))
+        } else {
+            None
+        };
+        let parent = work_parent.as_deref().or(t["origin"].as_str()).unwrap_or(
+            if t["source"] == "planner" {
+                "external:planner"
+            } else {
+                "human"
+            },
+        );
+        for node in [&own, parent] {
+            let live = db
+                .query_row(
+                    "SELECT reason,since,stalled_at,escalated_at FROM msg_liveness WHERE node=?",
+                    [node],
+                    |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, f64>(1)?,
+                            r.get::<_, Option<f64>>(2)?,
+                            r.get::<_, Option<f64>>(3)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            if let Some((reason, since, stalled, escalated)) = live
+                && !reason.is_empty()
+                && (*node == own || escalated.is_some_and(|n| n != 0.0))
+            {
+                let mut v = json!({
+                "stalled":stalled.is_some_and(|n|n!=0.0),"reason":reason,"since":number(since)}
+                );
+                if *node != own {
+                    v["waitingOn"] = json!(node);
+                }
+                row["liveness"] = v;
+                break;
+            }
+        }
+    }
+    if tables.messages {
+        let mut stmt = db.prepare("SELECT id,kind,body,created_at FROM messages WHERE recipient='human' AND status IN ('pending','delivered') AND kind<>'report' AND task_id=? ORDER BY id")?;
+        let entries = stmt
+            .query_map([text(&t["id"])], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, f64>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        if !entries.is_empty() {
+            let mut msg = json!({
+            "unreadForHuman":entries.len()}
+            );
+            if let Some((id, _, body, at)) = entries
+                .iter()
+                .rev()
+                .find(|(_, kind, _, _)| kind == "question")
+            {
+                msg["question"] = json!({
+                "id":id,"text":slice(body,1000),"at":number(*at)}
+                );
+            }
+            row["messages"] = msg;
+        }
+    }
+    Ok(row)
+}
 pub fn api_tasks(
     ctx: &Ctx,
+    active: &ActiveCounts,
     records: &[Value],
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
 ) -> Result<Vec<Value>, Error> {
     let db = store.connection()?;
-    let messages = has_table(db, "messages")?;
-    let liveness = has_table(db, "msg_liveness")?;
-    let work_nodes = has_table(db, "work_nodes")?;
+    let tables = enrich_tables(db)?;
     let mut repos: Vec<Value> = records.iter().map(|t| repo(ctx, t)).collect();
     let all: Vec<Value> = registered_repos(ctx)
         .into_iter()
         .chain(repos.clone())
         .collect();
     for r in &mut repos {
-        let short = label(r);
-        let collision = all
-            .iter()
-            .any(|other| other["key"] != r["key"] && label(other) == short);
-        r["label"] = json!(if collision {
-            if text(&r["key"]).starts_with("local:") {
-                format!("{short} ({})", text(&r["key"]))
-            } else {
-                text(&r["key"]).into()
-            }
-        } else {
-            short
-        });
+        apply_repo_label(r, &all);
     }
-    records.iter().zip(repos).map(|(t,repo)|{
- let mut row=task_data(t,alive);
-for key in ["archived","archivePath"]{
-if truth(&t["archived"])&& let Some(v)=t.get(key){
-row[key]=v.clone();
+    records
+        .iter()
+        .zip(repos)
+        .map(|(t, labeled)| enrich_api_task(t, labeled, active, alive, db, &tables))
+        .collect()
 }
+/// Preserve `task.list`'s per-task label scope: each row collides only against
+/// the registered repos plus that row's own repo (not the rest of the page).
+pub fn api_task_page(
+    ctx: &Ctx,
+    active: &ActiveCounts,
+    records: &[Value],
+    store: &mut TaskStore,
+    alive: &dyn Fn(i64) -> bool,
+) -> Result<Vec<Value>, Error> {
+    if records.is_empty() {
+        return Ok(Vec::new());
+    }
+    let registered = registered_repos(ctx);
+    let db = store.connection()?;
+    let tables = enrich_tables(db)?;
+    let mut out = Vec::with_capacity(records.len());
+    for t in records {
+        let mut labeled = repo(ctx, t);
+        let peers: Vec<Value> = registered
+            .iter()
+            .cloned()
+            .chain(std::iter::once(labeled.clone()))
+            .collect();
+        apply_repo_label(&mut labeled, &peers);
+        out.push(enrich_api_task(t, labeled, active, alive, db, &tables)?);
+    }
+    Ok(out)
 }
-row["fullTitle"]=json!(full_title(t));
-if truth(&t["question"]){
-row["question"]=t["question"].clone();
+/// Options for the `task.list` selection path (`src/core/tasks.ts` `list`).
+#[derive(Clone, Debug, Default)]
+pub struct TaskListOptions<'a> {
+    pub all: bool,
+    pub limit: Option<usize>,
+    pub before: Option<&'a str>,
+    pub repo: Option<&'a str>,
+    pub states: Option<&'a [&'a str]>,
+    pub executor: Option<&'a str>,
+    pub since: Option<f64>,
 }
-row["rev"]=t.get("rev").cloned().unwrap_or(json!(1));
-row["queue"]=t["queue"].clone();
-if truth(&t["source"]){
-row["source"]=t["source"].clone();
+/// Newest-first selection matching TS `core.tasks.list`: filter before paging.
+pub fn select_task_list(
+    ctx: &Ctx,
+    store: &mut TaskStore,
+    options: &TaskListOptions<'_>,
+) -> Result<Vec<Value>, Error> {
+    let limit = options.limit.unwrap_or(20);
+    let sql_states: Option<Vec<&str>> = options.states.map(|states| {
+        let mut out: Vec<&str> = states.to_vec();
+        for extra in ["queued", "running"] {
+            if !out.contains(&extra) {
+                out.push(extra);
+            }
+        }
+        out
+    });
+    let states_ref = sql_states.as_deref();
+    let records = store.list(&TaskFilter {
+        states: states_ref,
+        updated_since: options.since,
+        all: options.all,
+        ..TaskFilter::default()
+    })?;
+    let mut rows = Vec::new();
+    for t in records {
+        if options
+            .before
+            .is_some_and(|before| text(&t["id"]) >= before)
+        {
+            continue;
+        }
+        let visible = visible_task_state(&t);
+        if options
+            .states
+            .is_some_and(|states| !states.contains(&visible.as_str()))
+        {
+            continue;
+        }
+        if options
+            .executor
+            .is_some_and(|want| chosen_executor(&t) != Some(want))
+        {
+            continue;
+        }
+        if options
+            .since
+            .is_some_and(|since| num(&t["createdAt"]) < since)
+        {
+            continue;
+        }
+        if let Some(want) = options.repo {
+            let resolved = repo(ctx, &t);
+            if text(&resolved["key"]) != want {
+                continue;
+            }
+        }
+        rows.push(t);
+        if rows.len() >= limit {
+            break;
+        }
+    }
+    Ok(rows)
 }
-row["repo"]=repo;
-row["kind"]=t["kind"].clone();
-row["host"]=t["run"]["host"].clone();
- if liveness{
-let own=format!("task:{}",text(&t["id"]));
-let work_parent=if work_nodes{db.query_row("SELECT parent_id FROM work_nodes WHERE task_id=?",[text(&t["id"])],|r|r.get::<_,Option<String>>(0)).optional()?.flatten().map(|id|format!("task:{id}"))}else{None};
-let parent=work_parent.as_deref().or(t["origin"].as_str()).unwrap_or(if t["source"]=="planner"{"external:planner"}else{"human"});
-for node in [&own,parent]{
-let live=db.query_row("SELECT reason,since,stalled_at,escalated_at FROM msg_liveness WHERE node=?",[node],|r|Ok((r.get::<_,String>(0)?,r.get::<_,f64>(1)?,r.get::<_,Option<f64>>(2)?,r.get::<_,Option<f64>>(3)?))).optional()?;
-if let Some((reason,since,stalled,escalated))=live&& !reason.is_empty()&&(node==own||escalated.is_some_and(|n|n!=0.0)){
-let mut v=json!({
-"stalled":stalled.is_some_and(|n|n!=0.0),"reason":reason,"since":number(since)}
-);
-if node!=own{
-v["waitingOn"]=json!(node);
-}
-row["liveness"]=v;
-break;
-}
-}
-}
- if messages{
-let mut stmt=db.prepare("SELECT id,kind,body,created_at FROM messages WHERE recipient='human' AND status IN ('pending','delivered') AND kind<>'report' AND task_id=? ORDER BY id")?;
-let entries=stmt.query_map([text(&t["id"])],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,f64>(3)?)))?.collect::<Result<Vec<_>,_>>()?;
-if !entries.is_empty(){
-let mut msg=json!({
-"unreadForHuman":entries.len()}
-);
-if let Some((id,_,body,at))=entries.iter().rev().find(|(_,kind,_,_)|kind=="question"){
-msg["question"]=json!({
-"id":id,"text":slice(body,1000),"at":number(*at)}
-);
-}
-row["messages"]=msg;
-}
-}
- Ok(row)
- }
-).collect()
+/// Compose `{ tasks, next }` for a later native `task.list` registration.
+pub fn task_list_page(
+    ctx: &Ctx,
+    active: &ActiveCounts,
+    store: &mut TaskStore,
+    options: &TaskListOptions<'_>,
+    alive: &dyn Fn(i64) -> bool,
+) -> Result<Value, Error> {
+    let limit = options.limit.unwrap_or(20);
+    let fetch = TaskListOptions {
+        limit: Some(limit.saturating_add(1)),
+        ..options.clone()
+    };
+    let rows = select_task_list(ctx, store, &fetch)?;
+    let page = if rows.len() > limit {
+        &rows[..limit]
+    } else {
+        &rows[..]
+    };
+    let tasks = api_task_page(ctx, active, page, store, alive)?;
+    let next = if rows.len() > limit {
+        page.last().map(|t| t["id"].clone()).unwrap_or(Value::Null)
+    } else {
+        Value::Null
+    };
+    Ok(json!({ "tasks": tasks, "next": next }))
 }
 pub fn snapshot_tasks(
     ctx: &Ctx,
+    active: &ActiveCounts,
     records: &[Value],
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
@@ -508,9 +742,12 @@ pub fn snapshot_tasks(
         .filter(|t| !truth(&t["archived"]))
         .cloned()
         .collect();
-    let mut rows = api_tasks(ctx, &selected, store, alive)?;
+    let mut rows = api_tasks(ctx, active, &selected, store, alive)?;
     rows.retain(|t| {
-        ["queued", "running"].contains(&text(&t["state"]))
+        // Missing map entry reads as 0. A session-holding task stays in the
+        // window even if stale (>24h) or dismissed, mirroring `!!t.activeAgentSessions`.
+        active.task(text(&t["id"])) > 0
+            || ["queued", "running"].contains(&text(&t["state"]))
             || (!truth(&t["dismissed"]) && num(&t["updatedAt"]) >= ctx.now - 86400.0)
     });
     rows.sort_by(|a, b| num(&b["updatedAt"]).total_cmp(&num(&a["updatedAt"])));
@@ -559,7 +796,7 @@ pub fn snapshot_document(
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
 ) -> Result<crate::wire::Document, Error> {
-    let rows = snapshot_tasks(ctx, records, store, alive)?;
+    let rows = snapshot_tasks(ctx, &ActiveCounts::default(), records, store, alive)?;
     let questions = crate::wire::questions(store)?;
     let mut doc = crate::wire::Document::new(serde_json::json!(rows));
     crate::wire::task_strings(&mut doc, &rows, "", &questions);

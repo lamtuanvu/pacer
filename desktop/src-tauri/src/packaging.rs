@@ -116,10 +116,58 @@ fn validate_bundle(contents: &Path) -> Result<PathBuf, String> {
         .map_err(|_| error())
 }
 
+/// Embedded in every desktop executable, never in the CLI. A desktop executable
+/// copied onto PATH boots the GUI for every `pacer <command>`. A `const` needle is
+/// lowered to immediates in optimized builds, so the bytes live in a retained static
+/// that the scan reads through `black_box`; release staging checks it is present.
+#[used]
+pub static DESKTOP_EXECUTABLE_MARKER: [u8; 34] = *b"pacer-desktop-executable-marker/v1";
+
+/// Whether the file at `path` is a pacer desktop executable rather than a CLI.
+/// Streams the file so a large CLI is never loaded whole.
+pub fn is_desktop_executable(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let marker: &[u8] = std::hint::black_box(&DESKTOP_EXECUTABLE_MARKER);
+    let mut buffer = vec![0u8; 1 << 20];
+    let mut carry = 0;
+    loop {
+        let read = match file.read(&mut buffer[carry..]) {
+            Ok(0) => return false,
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return false,
+        };
+        let filled = carry + read;
+        if buffer[..filled].windows(marker.len()).any(|window| window == marker) {
+            return true;
+        }
+        carry = (marker.len() - 1).min(filled);
+        buffer.copy_within(filled - carry..filled, 0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
+    #[test]
+    fn desktop_marker_detection_finds_marker_across_chunk_boundaries() {
+        let f = fixture();
+        let cli = f.0.join("cli");
+        std::fs::write(&cli, vec![b'x'; 3 << 20]).unwrap();
+        assert!(!is_desktop_executable(&cli));
+        assert!(!is_desktop_executable(&f.0.join("missing")));
+        let split = (1 << 20) - DESKTOP_EXECUTABLE_MARKER.len() / 2;
+        let mut bytes = vec![b'x'; split];
+        bytes.extend_from_slice(&DESKTOP_EXECUTABLE_MARKER);
+        bytes.extend(vec![b'y'; 1 << 20]);
+        let desktop = f.0.join("desktop");
+        std::fs::write(&desktop, bytes).unwrap();
+        assert!(is_desktop_executable(&desktop));
+    }
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
     struct Fixture(PathBuf);

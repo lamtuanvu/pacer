@@ -64,6 +64,17 @@ export function parentOf(ctx: Ctx, p: string): string | null {
   if (!task) return null;
   return task.origin ?? (task.source === "ui" ? "human" : task.source === "planner" ? "external:planner" : "human");
 }
+/**
+ * Same as `parentOf(ctx, \`task:${t.id}\`)`, for a caller that already holds the task record
+ * (a fresh read from the same store, e.g. the one `apiTasks` iterates). Skips the repeat
+ * `readTask` -- each one reopens/stats the tasks database, so a loop over many tasks (every
+ * pump tick) was paying for a second lookup of the exact record it already had.
+ */
+export function parentOfTask(ctx: Ctx, t: { id: string; origin?: string | null; source?: string | null }): string | null {
+  const work = getWork(ctx, t.id);
+  if (work?.parentId) return `task:${work.parentId}`;
+  return t.origin ?? (t.source === "ui" ? "human" : t.source === "planner" ? "external:planner" : "human");
+}
 
 function ancestors(ctx: Ctx, p: string): string[] {
   const out: string[] = [];

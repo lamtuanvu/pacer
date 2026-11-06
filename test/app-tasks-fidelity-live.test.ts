@@ -35,7 +35,8 @@ test.skipIf(!login || !process.env.PACER_TEST_BROWSER)("seeded Tasks and New tas
         expect(observed.searchGap).toBe(8);
         expect(observed.overflow).toBe(false);
         expect(observed.scope).toBe(false);
-        expect(observed.inspector).toBe(false);
+        // Tasks fills a real right-panel Inspector (open by default) from 768px up; narrow has no side panels.
+        expect(observed.inspector).toBe(width !== 375);
         expect(observed.animations.every(name => name === "none")).toBe(true);
         await page.getByRole("searchbox", { name: "Search tasks" }).focus();
         expect(await page.locator(".pc-search-input").evaluate(el => getComputedStyle(el).outlineStyle)).toBe("solid");

@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used)]
 use pacer_foundation::{Ctx, fsutil::write_json_atomic};
-use pacer_read_model::{Probes, ReadModel, SnapshotInput, StatusInput, js::*};
+use pacer_read_model::{
+    ActiveSession, Probes, ReadModel, SessionProbe, SnapshotInput, StatusInput, js::*,
+};
 use serde_json::Value;
 use std::{collections::HashMap, fs};
 fn normalized(v: &Value, home: &str) -> String {
@@ -51,7 +53,7 @@ fn complete_typescript_snapshots_from_sqlite_and_old_release_homes() {
             .unwrap();
         }
         let db = model.store(&ctx).unwrap().connection().unwrap();
-        db.execute_batch("CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,task_id TEXT,root_id TEXT,sender TEXT,recipient TEXT,kind TEXT,body TEXT,reply_to TEXT,request_id TEXT,status TEXT,created_at REAL,delivered_at REAL,read_at REAL,turn_id TEXT,fingerprint TEXT); CREATE TABLE IF NOT EXISTS msg_liveness(node TEXT PRIMARY KEY,reason TEXT,since REAL,attempts INTEGER,nudges INTEGER,next_at REAL,progress_mark TEXT,stalled_at REAL,escalated_at REAL,hook_set TEXT,hook_blocks INTEGER);").unwrap();
+        db.execute_batch("CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,task_id TEXT,root_id TEXT,sender TEXT,recipient TEXT,kind TEXT,body TEXT,reply_to TEXT,request_id TEXT,status TEXT,created_at REAL,delivered_at REAL,read_at REAL,turn_id TEXT,fingerprint TEXT); CREATE TABLE IF NOT EXISTS msg_liveness(node TEXT PRIMARY KEY,reason TEXT,since REAL,attempts INTEGER,nudges INTEGER,next_at REAL,progress_mark TEXT,stalled_at REAL,escalated_at REAL,hook_set TEXT,hook_blocks INTEGER); CREATE TABLE IF NOT EXISTS agent_sessions(id TEXT PRIMARY KEY,task TEXT NOT NULL,request_id TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS agent_session_revision(id INTEGER PRIMARY KEY CHECK(id=1),generation INTEGER NOT NULL); INSERT OR IGNORE INTO agent_session_revision VALUES(1,0);").unwrap();
         for (table, rows) in case["tables"].as_object().unwrap() {
             db.execute(&format!("DELETE FROM {table}"), []).unwrap();
             for row in rows.as_array().unwrap() {
@@ -82,6 +84,22 @@ fn complete_typescript_snapshots_from_sqlite_and_old_release_homes() {
             desktop_updates: vec![],
             service_installed: false,
             can_pair: false,
+            // Only a MISSING sessions field selects Default (pre-session legacy
+            // fixtures). An explicitly supplied revision passes through verbatim.
+            sessions: if input.get("sessions").is_some() {
+                SessionProbe {
+                    revision: text(&input["sessions"]["revision"]).to_string(),
+                    active: array(&input["sessions"]["active"])
+                        .iter()
+                        .map(|s| ActiveSession {
+                            task_id: text(&s["task_id"]).to_string(),
+                            executor: text(&s["executor"]).to_string(),
+                        })
+                        .collect(),
+                }
+            } else {
+                SessionProbe::default()
+            },
         };
         let status = if input["useCache"] == true {
             StatusInput::Cached
@@ -114,5 +132,9 @@ fn complete_typescript_snapshots_from_sqlite_and_old_release_homes() {
     }
     // These stored cases complement the unchanged #570 golden, whose fixture driver
     // also compares each TS and Rust snapshot byte for byte before asserting it.
-    assert_eq!(array(&cases).len(), 11);
+    // Count is owned by the real TS-owner export (EXPORT_RUST_READ_MODEL=1): the
+    // 11 original golden cases (groups 0-1) plus 14 session cases (S1-S7 at both
+    // protocols 2 and 3, groups 2-8), regenerated via `bun test
+    // test/read-model-parity.test.ts`. Never hand-patch this count; regenerate.
+    assert_eq!(array(&cases).len(), 25);
 }
