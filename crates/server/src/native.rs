@@ -1,3 +1,4 @@
+use pacer_assistant_ops::assistant_ops;
 use pacer_config_ops::config_get_ops;
 use pacer_foundation::{
     Ctx,
@@ -46,6 +47,7 @@ pub(crate) mod task_stop_sync;
 use pacer_task_ops::task_wait_ops;
 pub(crate) mod task_wait_sync;
 
+pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
@@ -373,6 +375,46 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "desktop.reconcile.cancel",
         call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+    },
+    NativeOp {
+        name: "assistant.status",
+        call: assistant_ops::assistant_status,
+    },
+    NativeOp {
+        name: "assistant.settings.get",
+        call: assistant_ops::assistant_settings_get,
+    },
+    NativeOp {
+        name: "assistant.settings.set",
+        call: assistant_ops::assistant_settings_set,
+    },
+    NativeOp {
+        name: "assistant.candidates",
+        call: assistant_ops::assistant_candidates,
+    },
+    NativeOp {
+        name: "assistant.conversations",
+        call: assistant_ops::assistant_conversations,
+    },
+    NativeOp {
+        name: "assistant.conversation",
+        call: assistant_ops::assistant_conversation,
+    },
+    NativeOp {
+        name: "assistant.turn",
+        call: assistant_ops::assistant_turn,
+    },
+    NativeOp {
+        name: "assistant.delete",
+        call: assistant_ops::assistant_delete,
+    },
+    NativeOp {
+        name: "assistant.card.record",
+        call: assistant_ops::assistant_card_record,
+    },
+    NativeOp {
+        name: "assistant.card.refresh",
+        call: assistant_ops::assistant_card_refresh,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {

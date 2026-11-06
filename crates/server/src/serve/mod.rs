@@ -183,6 +183,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::msg_stays_forwarded(op.name, &ctx)
             || crate::native::discovery_stays_forwarded(&ctx, op.name, &params)
             || crate::native::desktop_reconcile_stays_forwarded(op.name)
+            || crate::native::assistant_stays_forwarded(&ctx, op.name, &params)
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);

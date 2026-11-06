@@ -71,6 +71,16 @@ fn forward_override_removes_only_selected_native_ops() {
         "desktop.reconcile.status",
         "desktop.reconcile.request",
         "desktop.reconcile.cancel",
+        "assistant.status",
+        "assistant.settings.get",
+        "assistant.settings.set",
+        "assistant.candidates",
+        "assistant.conversations",
+        "assistant.conversation",
+        "assistant.turn",
+        "assistant.delete",
+        "assistant.card.record",
+        "assistant.card.refresh",
     ] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
@@ -132,6 +142,8 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("task.review").get("task.review").is_none());
     assert!(registry("").get("task.ask").is_none());
     assert!(registry("").get("limits.refresh").is_none());
+    assert!(registry("").get("assistant.ask").is_none());
+    assert!(registry("").get("assistant.cancel").is_none());
     for name in [
         "msg.send",
         "msg.wait",
@@ -218,6 +230,16 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "desktop.reconcile.status",
         "desktop.reconcile.request",
         "desktop.reconcile.cancel",
+        "assistant.status",
+        "assistant.settings.get",
+        "assistant.settings.set",
+        "assistant.candidates",
+        "assistant.conversations",
+        "assistant.conversation",
+        "assistant.turn",
+        "assistant.delete",
+        "assistant.card.record",
+        "assistant.card.refresh",
     ] {
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry(name).get(name).is_none(), "{name}");

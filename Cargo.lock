@@ -1240,6 +1240,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-assistant-ops"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-messaging-ops",
+ "pacer-read-model",
+ "pacer-store",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-assistant-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1661,6 +1677,7 @@ dependencies = [
  "icu_collator",
  "libproc",
  "nix",
+ "pacer-assistant-ops",
  "pacer-config",
  "pacer-config-ops",
  "pacer-discovery-ops",
