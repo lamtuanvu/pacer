@@ -11,6 +11,7 @@ mod config_writes;
 pub(crate) mod core_bridge_sync;
 mod dispatch_ops;
 mod engine_ops;
+mod files_search_ops;
 mod host_mut_ops;
 pub(crate) mod host_mut_sync;
 mod host_read_ops;
@@ -284,7 +285,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "files.search",
-        call: p8_bridge_ops::bridge_stub,
+        call: files_search_ops::files_search_op,
     },
     NativeOp {
         name: "setup.check",

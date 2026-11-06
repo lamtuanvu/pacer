@@ -413,21 +413,6 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
-        if (pathname === "/_internal/files-search" && req.method === "POST") {
-          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
-          try {
-            const body = await req.json().catch(() => ({}));
-            const searchParams = body && typeof body === "object" && !Array.isArray(body) ? body : {};
-            const { filesSearchBridge } = await import("../api/files-search-bridge");
-            return Response.json({
-              result: await filesSearchBridge(getCtx(), searchParams as { query: string; repo?: string; limit?: number }),
-            });
-          } catch (error) {
-            const { toApiError, httpStatus } = await import("../api/errors");
-            const body = toApiError(error);
-            return Response.json({ error: body }, { status: httpStatus(body.code) });
-          }
-        }
         if (pathname === "/_internal/repo-bridge" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

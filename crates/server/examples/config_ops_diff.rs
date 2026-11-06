@@ -47,7 +47,6 @@ async fn main() -> io::Result<()> {
             "machine.get"
                 | "machine.set"
                 | "machine.rotate"
-                | "files.search"
                 | "setup.check"
                 | "repo.list"
                 | "repo.add"
