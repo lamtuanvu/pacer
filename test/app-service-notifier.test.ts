@@ -9,6 +9,7 @@ import { SettingsGeneral } from "../app/src/screens/settings/General";
 import { settings } from "./fixtures/ui/settings";
 import {
   HEARTBEAT_MS,
+  REGISTER_RETRY_MS,
   createServiceNotifier,
   showBrowserNotificationOffer,
   type IntervalClock,
@@ -71,6 +72,91 @@ test("browser notifier registers, heartbeats, and stops", async () => {
   expect(calls.filter(call => call.op === "client.heartbeat")).toHaveLength(2);
   await notifier.start();
   expect(calls.filter(call => call.op === "client.register")).toHaveLength(1);
+});
+
+test("an offline register retries until the client id is set", async () => {
+  const calls: { op: string; params?: unknown }[] = [];
+  const notes: string[] = [];
+  const scheduled: { handler: () => void; ms: number }[] = [];
+  let online = false;
+  const notifier = createServiceNotifier({
+    desktop: false,
+    version: "1.2.3",
+    permission: () => "granted",
+    visible: () => true,
+    notify: async title => { notes.push(title); return true; },
+    clock: {
+      setInterval(handler, ms) { scheduled.push({ handler, ms }); return { unref() {} }; },
+      clearInterval() {},
+    },
+    call: async (op, params) => {
+      calls.push({ op, params });
+      if (!online) throw new Error("offline");
+      return op === "client.register" ? { client_id: mine, lease_s: 45 } : { ok: true };
+    },
+  });
+  await notifier.start();
+  expect(calls).toEqual([{ op: "client.register", params: { kind: "app", version: "1.2.3", notifier: true } }]);
+  expect(scheduled.map(item => item.ms)).toEqual([REGISTER_RETRY_MS]);
+  notifier.event({ type: "notify", data: { recipients: [mine], title: "Early", body: "no" } });
+  expect(notes).toEqual([]);
+  scheduled[0]!.handler();
+  await flush();
+  expect(calls).toHaveLength(2);
+  expect(scheduled.map(item => item.ms)).toEqual([REGISTER_RETRY_MS, REGISTER_RETRY_MS * 2]);
+  online = true;
+  scheduled[1]!.handler();
+  await flush();
+  expect(calls[2]).toEqual({ op: "client.register", params: { kind: "app", version: "1.2.3", notifier: true } });
+  expect(scheduled.map(item => item.ms)).toEqual([REGISTER_RETRY_MS, REGISTER_RETRY_MS * 2, HEARTBEAT_MS]);
+  notifier.event({ type: "notify", data: { recipients: [mine], title: "Later", body: "yes" } });
+  expect(notes).toEqual(["Later"]);
+  notifier.stop();
+});
+
+test("a visible page retries register without waiting out the backoff", async () => {
+  const calls: string[] = [];
+  const notes: string[] = [];
+  const listeners = new Set<() => void>();
+  let visible = false;
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      visibilityState: "hidden",
+      addEventListener(_type: string, handler: () => void) { listeners.add(handler); },
+      removeEventListener(_type: string, handler: () => void) { listeners.delete(handler); },
+    },
+  });
+  const notifier = createServiceNotifier({
+    desktop: false,
+    version: "1.2.3",
+    permission: () => "granted",
+    visible: () => visible,
+    notify: async title => { notes.push(title); return true; },
+    clock: { setInterval() { return {}; }, clearInterval() {} },
+    call: async () => {
+      calls.push("client.register");
+      if (calls.length === 1) throw new Error("offline");
+      return { client_id: mine };
+    },
+  });
+  try {
+    await notifier.start();
+    expect(calls).toEqual(["client.register"]);
+    expect(listeners.size).toBe(1);
+    visible = true;
+    for (const listener of listeners) listener();
+    await flush();
+    expect(calls).toEqual(["client.register", "client.register"]);
+    notifier.event({ type: "notify", data: { recipients: [mine], title: "Seen", body: "y" } });
+    expect(notes).toEqual(["Seen"]);
+    notifier.stop();
+    expect(listeners.size).toBe(0);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "document", previous);
+    else Reflect.deleteProperty(globalThis, "document");
+  }
 });
 
 test("desktop notifier does not register", async () => {
@@ -246,6 +332,52 @@ test("the browser store opens the event stream only after register resolves", as
     release();
     await flush();
     expect(FakeEvents.instances).toHaveLength(1);
+    FakeEvents.instances[0]!.emit("notify", { recipients: [mine], client_id: "primary", title: "Ready", body: "Detail" }, "6");
+    expect(shown).toEqual([{ title: "Ready", options: { body: "Detail" } }]);
+  } finally {
+    stop();
+    if (previousNotification) Object.defineProperty(globalThis, "Notification", previousNotification);
+    else Reflect.deleteProperty(globalThis, "Notification");
+    if (previousTauri) host.__TAURI__ = previousTauri;
+    else delete host.__TAURI__;
+    expect(platform.desktop).toBe(!!host.__TAURI__);
+  }
+});
+
+test("the browser store opens the stream when the first register is offline, then registers once connected", async () => {
+  const previousTauri = host.__TAURI__;
+  const previousNotification = Object.getOwnPropertyDescriptor(globalThis, "Notification");
+  delete host.__TAURI__;
+  expect(platform.desktop).toBe(false);
+  const shown: { title: string; options?: NotificationOptions }[] = [];
+  class FakeNotification {
+    static permission: NotificationPermission = "granted";
+    constructor(title: string, options?: NotificationOptions) { shown.push({ title, options }); }
+  }
+  Object.defineProperty(globalThis, "Notification", { configurable: true, writable: true, value: FakeNotification });
+  FakeEvents.instances = [];
+  let offline = true;
+  const calls: string[] = [];
+  const api = {
+    hello: async () => ({ protocol: "3.0.0", pacer: "1.2.3", ops: ["client.register"], events: ["notify", "attention"] }),
+    snapshot: async () => ({ protocol: "3.0.0", seq: 5, snapshot: { ...emptySnapshot(), seq: 5 } }),
+    setConnected(value: boolean) { if (value) offline = false; },
+    call: async (op: string) => {
+      calls.push(op);
+      if (op === "client.register" && offline) throw new Error("offline");
+      return op === "client.register" ? { client_id: mine, lease_s: 45 } : { ok: true };
+    },
+  };
+  const store = createStore(api, FakeEvents as unknown as typeof EventSource);
+  const stop = store.start();
+  try {
+    await flush();
+    expect(calls).toEqual(["client.register"]);
+    expect(FakeEvents.instances).toHaveLength(1);
+    expect(shown).toEqual([]);
+    FakeEvents.instances[0]!.emit("open", {}, "0");
+    await flush();
+    expect(calls).toEqual(["client.register", "client.register"]);
     FakeEvents.instances[0]!.emit("notify", { recipients: [mine], client_id: "primary", title: "Ready", body: "Detail" }, "6");
     expect(shown).toEqual([{ title: "Ready", options: { body: "Detail" } }]);
   } finally {

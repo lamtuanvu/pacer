@@ -363,7 +363,7 @@ test('a stream error invalidates client query data even when its screen is unmou
  const cache=queryCacheFor(api,api.call),query=cache.createQuery(()=>{});
  query.update('repo.list','{}','online');await flush();query.dispose();expect(calls).toEqual(['repo.list']);
  const store=createStore(api,FakeEvents as any),stop=store.start();
- try {await flush();FakeEvents.instances[0]!.emit('open');FakeEvents.instances[0]!.emit('error');const remount=cache.createQuery(()=>{});remount.update('repo.list','{}','online');await flush();expect(calls).toEqual(['repo.list','client.register','repo.list']);remount.dispose();}finally{stop();}
+ try {await flush();FakeEvents.instances[0]!.emit('open');FakeEvents.instances[0]!.emit('error');const remount=cache.createQuery(()=>{});remount.update('repo.list','{}','online');await flush();expect(calls).toEqual(['repo.list','client.register','client.register','repo.list']);remount.dispose();}finally{stop();}
 });
 
 test('a separate screen API refreshes cached reads after a store reconnect while unmounted', async () => {

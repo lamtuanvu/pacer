@@ -1,5 +1,7 @@
 /** Renew well inside the 45s lease lapse. */
 export const HEARTBEAT_MS = 30_000;
+/** First delay after a failed register. Doubles until it matches the heartbeat interval. */
+export const REGISTER_RETRY_MS = 1_000;
 
 export type NotifierCall = (op: string, params?: unknown) => Promise<unknown>;
 export type BrowserPermission = NotificationPermission | "unsupported";
@@ -73,7 +75,10 @@ function pageVisible(): boolean {
 /**
  * Register this browser tab as a delivery client and present notify events addressed to it.
  * The desktop shell owns OS delivery, so `desktop` never registers.
- * `start` resolves after the first register attempt, so callers can open the event stream only then.
+ * `start` resolves after the first register attempt, success or failure, so callers can open
+ * the event stream without waiting out retries. Offline is not permanent: attempts continue
+ * until a client id exists or `stop` runs, on a later `start` (hello or the stream connecting),
+ * when the page becomes visible, and on a backoff from REGISTER_RETRY_MS up to HEARTBEAT_MS.
  * A missed heartbeat keeps the last client id. Only `stop` forgets it.
  */
 export function createServiceNotifier(deps: {
@@ -89,7 +94,10 @@ export function createServiceNotifier(deps: {
   let clientId: string | undefined;
   let stopped = false;
   let timer: { unref?: () => void } | undefined;
-  let pending: Promise<void> | undefined;
+  let retryTimer: { unref?: () => void } | undefined;
+  let retryDelay = REGISTER_RETRY_MS;
+  let attempt: Promise<void> | undefined;
+  let removeVisibility: (() => void) | undefined;
 
   const permission = () => {
     try { return deps.permission?.() ?? browserNotificationPermission(); }
@@ -99,6 +107,21 @@ export function createServiceNotifier(deps: {
     try { return deps.visible?.() ?? pageVisible(); }
     catch { return true; }
   };
+
+  function clearRetryTimer() {
+    if (!retryTimer) return;
+    clock.clearInterval(retryTimer);
+    retryTimer = undefined;
+  }
+
+  function watchVisibility() {
+    if (removeVisibility || deps.desktop) return;
+    const doc = (globalThis as { document?: { addEventListener?: (type: string, handler: () => void) => void; removeEventListener?: (type: string, handler: () => void) => void } }).document;
+    if (!doc?.addEventListener || !doc.removeEventListener) return;
+    const onVisibility = () => { if (!stopped && !clientId && visible()) void start(); };
+    doc.addEventListener("visibilitychange", onVisibility);
+    removeVisibility = () => doc.removeEventListener!("visibilitychange", onVisibility);
+  }
 
   async function register(): Promise<void> {
     const result = await deps.call("client.register", { kind: "app", version: deps.version, notifier: true });
@@ -119,24 +142,53 @@ export function createServiceNotifier(deps: {
     }
   }
 
+  function armHeartbeat() {
+    clearRetryTimer();
+    if (timer || stopped || !clientId) return;
+    const next = clock.setInterval(beat, HEARTBEAT_MS);
+    next.unref?.();
+    timer = next;
+    if (stopped) clock.clearInterval(next);
+  }
+
+  /** One-shot via setInterval so injected clocks can fire the retry without a second timer API. */
+  function scheduleRetry() {
+    if (stopped || clientId || retryTimer) return;
+    const delay = retryDelay;
+    let scheduled: { unref?: () => void } | undefined;
+    scheduled = clock.setInterval(() => {
+      if (scheduled) clock.clearInterval(scheduled);
+      if (retryTimer === scheduled) retryTimer = undefined;
+      if (stopped || clientId) return;
+      retryDelay = Math.min(retryDelay * 2, HEARTBEAT_MS);
+      void start();
+    }, delay);
+    scheduled.unref?.();
+    retryTimer = scheduled;
+  }
+
+  async function runAttempt(): Promise<void> {
+    if (stopped || clientId || deps.desktop) return;
+    try {
+      await register();
+    } catch {
+      // Offline and transport errors are not permanent. The next attempt waits for the stream or the backoff.
+    }
+    if (stopped || deps.desktop) return;
+    if (clientId) {
+      armHeartbeat();
+      return;
+    }
+    scheduleRetry();
+  }
+
   function start(): Promise<void> {
     if (deps.desktop || stopped || clientId) return Promise.resolve();
-    if (pending) return pending;
-    pending = (async () => {
-      try {
-        await register();
-        if (stopped || !clientId) return;
-        const next = clock.setInterval(beat, HEARTBEAT_MS);
-        next.unref?.();
-        timer = next;
-        if (stopped) clock.clearInterval(next);
-      } catch {
-        // The next authenticated refresh can retry. Notices stay closed until an id exists.
-      } finally {
-        if (!clientId) pending = undefined;
-      }
-    })();
-    return pending;
+    watchVisibility();
+    if (attempt) return attempt;
+    clearRetryTimer();
+    attempt = runAttempt().finally(() => { attempt = undefined; });
+    return attempt;
   }
 
   function stop() {
@@ -144,6 +196,9 @@ export function createServiceNotifier(deps: {
     clientId = undefined;
     if (timer) clock.clearInterval(timer);
     timer = undefined;
+    clearRetryTimer();
+    removeVisibility?.();
+    removeVisibility = undefined;
   }
 
   function event(event: { type: string; data: unknown }) {

@@ -221,6 +221,8 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
         clearTimeout(offlineTimer); api.setConnected?.(true); platform.setConnectionStatus("connected");
         dispatch({ type: opened && dropped ? "reconnected" : "connected" });
         opened = true; dropped = false;
+        // Layout marks the shared client offline before the first hello. Register again now that it is connected.
+        void ensureServiceNotifier(hello.pacer);
       });
       source.addEventListener("error", () => {
         if (!active()) return;
