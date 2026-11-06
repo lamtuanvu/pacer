@@ -64,7 +64,7 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifiers,notifier:notifiers.os,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
 }
 
-function serviceNotifiers(ctx: Ctx): ServiceNotifiers {
+export function serviceNotifiers(ctx: Ctx): ServiceNotifiers {
  const notifiers: ServiceNotifiers = { os: null, terminal: null, browser: null };
  for (const presenter of deliveryPresenters(ctx)) {
   notifiers[presenter.medium] = { client_id: presenter.client_id, kind: presenter.kind };
