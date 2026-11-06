@@ -15,6 +15,7 @@ pub(crate) mod session_ops;
 pub(crate) mod session_sync;
 pub(crate) mod status_ops;
 pub(crate) mod status_sync;
+mod meta_ops;
 mod snapshot_get_ops;
 pub(crate) mod snapshot_sync;
 mod task_get_ops;
@@ -140,6 +141,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "snapshot.get",
         call: snapshot_get_ops::snapshot_get_stub,
+    },
+    NativeOp {
+        name: "version.get",
+        call: meta_ops::version_get,
+    },
+    NativeOp {
+        name: "api.list",
+        call: meta_ops::api_list,
+    },
+    NativeOp {
+        name: "api.describe",
+        call: meta_ops::api_describe,
     },
     NativeOp {
         name: "delegation.pause",
@@ -352,6 +365,9 @@ mod tests {
             "task.list",
             "task.get",
             "snapshot.get",
+            "version.get",
+            "api.list",
+            "api.describe",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -425,6 +441,9 @@ mod tests {
             "task.list",
             "task.get",
             "snapshot.get",
+            "version.get",
+            "api.list",
+            "api.describe",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
