@@ -16,11 +16,11 @@ use pacer_read_model::{ActiveCounts, tasks as read_tasks};
 use pacer_store::TaskStore;
 use serde_json::{Map, Value, json};
 
-fn invalid(message: impl Into<String>) -> CoreError {
+pub(super) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-fn type_name(value: &Value) -> &'static str {
+pub(super) fn type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -31,7 +31,7 @@ fn type_name(value: &Value) -> &'static str {
     }
 }
 
-fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
+pub(super) fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
     params.as_object().ok_or_else(|| {
         invalid(format!(
             "params: Invalid input: expected object, received {}",
@@ -53,7 +53,7 @@ fn require_string<'a>(params: &'a Map<String, Value>, name: &str) -> Result<&'a 
     }
 }
 
-fn optional_expect_rev(params: &Map<String, Value>) -> Result<Option<f64>, CoreError> {
+pub(super) fn optional_expect_rev(params: &Map<String, Value>) -> Result<Option<f64>, CoreError> {
     match params.get("expect_rev") {
         None => Ok(None),
         Some(Value::Null) => Ok(None),
@@ -85,7 +85,7 @@ fn optional_expect_rev(params: &Map<String, Value>) -> Result<Option<f64>, CoreE
     }
 }
 
-fn project_api_task(ctx: &Ctx, store: &mut TaskStore, task: &Value) -> Result<Value, CoreError> {
+pub(super) fn project_api_task(ctx: &Ctx, store: &mut TaskStore, task: &Value) -> Result<Value, CoreError> {
     let rows = read_tasks::api_tasks(
         ctx,
         &ActiveCounts::default(),

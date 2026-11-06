@@ -235,6 +235,23 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/task-auto-clean" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const ids = body && typeof body === "object" && !Array.isArray(body) ? (body as { ids?: unknown }).ids : undefined;
+            if (!Array.isArray(ids) || ids.some(id => typeof id !== "string")) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "ids required");
+            }
+            const { taskAutoCleanBridge } = await import("../api/task-clean-bridge");
+            return Response.json({ result: await taskAutoCleanBridge(getCtx(), ids) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

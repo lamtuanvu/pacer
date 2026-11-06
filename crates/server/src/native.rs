@@ -12,6 +12,8 @@ mod engine_ops;
 mod host_read_ops;
 mod lifecycle_ops;
 mod meta_ops;
+pub(crate) mod task_clean_sync;
+pub(crate) mod task_dismiss_ops;
 pub mod plugins;
 pub(crate) mod session_ops;
 pub(crate) mod session_sync;
@@ -29,6 +31,7 @@ pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
+pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
 
 #[cfg(feature = "test-ops")]
@@ -195,6 +198,10 @@ static OPS: &[NativeOp] = &[
         name: "task.request_review",
         call: lifecycle_ops::task_request_review,
     },
+    NativeOp {
+        name: "task.dismiss",
+        call: task_dismiss_ops::task_dismiss_stub,
+    },
     #[cfg(feature = "test-ops")]
     NativeOp {
         name: "test.echo",
@@ -240,6 +247,7 @@ pub async fn call_native(
     task_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     config_host_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     snapshot_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_clean_sync: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
@@ -252,6 +260,12 @@ pub async fn call_native(
         return Err(CoreError::new(
             pacer_foundation::api::Code::Unavailable,
             "endpoint synchronization bridge unavailable",
+        ));
+    }
+    if needs_task_clean_bridge(op.name) && task_clean_sync.is_none() {
+        return Err(CoreError::new(
+            pacer_foundation::api::Code::Unavailable,
+            "task clean bridge unavailable",
         ));
     }
     let result = if needs_usage_broker(op.name) {
@@ -312,6 +326,17 @@ pub async fn call_native(
             "config.get" => config_get_ops::config_get(ctx, params, parts.await?).await?,
             _ => unreachable!("needs_config_host_bridge"),
         }
+    } else if needs_task_clean_bridge(op.name) {
+        let clean = task_clean_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "task clean bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "task.dismiss" => task_dismiss_ops::task_dismiss(ctx, params, clean).await?,
+            _ => unreachable!("needs_task_clean_bridge"),
+        }
     } else {
         (op.call)(ctx, params).await?
     };
@@ -368,6 +393,7 @@ mod tests {
             "routing.status",
             "routing.route",
             "task.request_review",
+            "task.dismiss",
             "task.list",
             "task.get",
             "snapshot.get",
@@ -392,7 +418,8 @@ mod tests {
         assert!(registry("task.prune").get("task.prune").is_none());
         assert!(registry("task.prune").get("task.restore").is_some());
         assert!(registry("*").names().is_empty());
-        assert!(registry("").get("task.dismiss").is_none());
+        assert!(registry("").get("task.dismiss").is_some());
+        assert!(registry("task.dismiss").get("task.dismiss").is_none());
         assert!(registry("").get("task.diff").is_none());
         assert!(registry("task.list").get("task.list").is_none());
         assert!(registry("task.get").get("task.get").is_none());
@@ -445,6 +472,7 @@ mod tests {
             "routing.status",
             "routing.route",
             "task.request_review",
+            "task.dismiss",
             "task.list",
             "task.get",
             "snapshot.get",
