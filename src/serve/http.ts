@@ -287,6 +287,59 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/task-review-probe" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const record = body && typeof body === "object" && !Array.isArray(body) ? body as { id?: unknown; verdict?: unknown } : {};
+            const id = record.id;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            const { taskReviewProbe } = await import("../api/task-review-bridge");
+            return Response.json({ result: taskReviewProbe(getCtx(), id, record) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/task-review-effects" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const record = body && typeof body === "object" && !Array.isArray(body)
+              ? body as { id?: unknown; verdict?: unknown; kind?: unknown; note?: unknown }
+              : {};
+            const id = record.id;
+            const verdict = record.verdict;
+            const kind = record.kind;
+            const note = record.note;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            if (verdict !== "accept" && verdict !== "reject") {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "verdict required");
+            }
+            const { taskReviewAfterStore } = await import("../api/task-review-bridge");
+            return Response.json({
+              result: await taskReviewAfterStore(
+                getCtx(),
+                id,
+                verdict,
+                typeof kind === "string" ? kind : undefined,
+                typeof note === "string" ? note : undefined,
+              ),
+            });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/task-stop-effects" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

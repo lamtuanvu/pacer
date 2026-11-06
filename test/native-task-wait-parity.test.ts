@@ -63,7 +63,7 @@ test.skipIf(!front)("native task.wait matches TypeScript for a settled task", as
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   const task = createTask(ctx, { brief: { goal: "Wait me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   updateTask(ctx, task.id, x => { x.state = "done"; });
-  const reference = await callOp(ctx, "task.wait", { id: task.id });
+  const reference = await callOp(ctx, "task.wait", { id: task.id }) as { state: string };
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-task-wait-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-task-wait-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });
