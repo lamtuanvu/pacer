@@ -41,6 +41,8 @@ async fn failed_endpoint_sync_keeps_saved_edit_but_does_not_publish_success() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .unwrap_err();
@@ -109,6 +111,8 @@ async fn missing_bridge_refuses_before_mutating_the_document() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .unwrap_err();
@@ -155,6 +159,8 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -181,6 +187,8 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -191,6 +199,8 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         &ctx,
         registry.get("strategy.show").unwrap(),
         json!({"name":"missing"}),
+        None,
+        None,
         None,
         None,
         None,
@@ -259,6 +269,8 @@ async fn pure_config_set_writes_publishes_and_strips_notes() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -270,6 +282,8 @@ async fn pure_config_set_writes_publishes_and_strips_notes() {
         &ctx,
         registry.get("config.set").unwrap(),
         json!({"key":"planner","value":"codex","integrations":"skip"}),
+        None,
+        None,
         None,
         None,
         None,
@@ -312,6 +326,8 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -326,6 +342,8 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
             "order": base["order"],
             "runners": [{"id": "codex", "enabled": false, "maxTasks": 3}],
         }),
+        None,
+        None,
         None,
         None,
         None,
@@ -355,6 +373,8 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
             "order": base["order"],
             "runners": [{"id": "codex", "enabled": true, "maxTasks": 1}],
         }),
+        None,
+        None,
         None,
         None,
         None,
@@ -396,6 +416,8 @@ async fn cookie_presets_flag_rejects_custom_terminal_open_templates() {
         &ctx,
         registry.get("config.set").unwrap(),
         json!({"key":"terminal.open","value":"custom-{cmd}"}),
+        None,
+        None,
         None,
         None,
         None,

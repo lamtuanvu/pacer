@@ -4,8 +4,11 @@
 //! gates stay on TypeScript. P6b/`run_spawn` pins the `_run` plan; P6e-run adds
 //! drain launch guards and a gated ProcessOwner spawn spec; P6c adds
 //! store-only `record_review_verdict` (accept/reject fields) without registering
-//! `task.review`. P6d adds `record_task_stop` and `task_wait_settled` without
-//! registering `task.stop` or `task.wait`.
+//! `task.review`. P6d adds `record_task_stop` and `task_wait_settled`; P6 stop
+//! registers selective native `task.stop` when the Core probe reports no managed
+//! work or live agent session (effects bridge otherwise). P6 wait registers
+//! selective native `task.wait` when the Core probe reports the task already
+//! settled (no agent-session holds); active tasks still forward for drain/supervise.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
@@ -41,7 +44,10 @@ pub(super) fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
     })
 }
 
-fn require_string<'a>(params: &'a Map<String, Value>, name: &str) -> Result<&'a str, CoreError> {
+pub(super) fn require_string<'a>(
+    params: &'a Map<String, Value>,
+    name: &str,
+) -> Result<&'a str, CoreError> {
     match params.get(name) {
         Some(Value::String(s)) => Ok(s.as_str()),
         Some(other) => Err(invalid(format!(
