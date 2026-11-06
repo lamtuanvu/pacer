@@ -15,6 +15,7 @@ use pacer_config_ops::host_read_ops;
 pub(crate) mod host_read_sync;
 use pacer_task_ops::lifecycle_ops;
 mod meta_ops;
+pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) mod p8_bridge_ops;
 pub mod plugins;
 mod project_messaging_ops;
@@ -43,6 +44,7 @@ pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
+pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
@@ -313,6 +315,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "project.messaging.remove",
         call: project_messaging_ops::project_messaging_remove,
+    },
+    NativeOp {
+        name: "msg.inbox",
+        call: msg_ops::msg_inbox,
+    },
+    NativeOp {
+        name: "msg.log",
+        call: msg_ops::msg_log,
+    },
+    NativeOp {
+        name: "msg.read",
+        call: msg_ops::msg_read,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {

@@ -56,6 +56,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 1 | `pacer-foundation` (`crates/foundation`) | Ctx, file rules, lock, `CoreError`, op registry types | 1,000–1,500 | none |
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |
 | 3 | `pacer-config` (`crates/config`) | Strategy, YAML editor, config areas (publishes config changes through `pacer-store`) | 3,000–3,800 | none |
+| 3 | `pacer-messaging-ops` (`crates/messaging-ops`) | Native project messaging read operation handlers (`msg.inbox`, `msg.log`, `msg.read`) over the message store | ≤ 1,000 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
 | 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities | 3,000–4,000 | `reqwest` |
 | 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations, settings reads and JSON compatibility | ≤ 5,000 | none |

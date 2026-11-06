@@ -1419,6 +1419,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-messaging-ops"
+version = "0.0.0"
+dependencies = [
+ "pacer-foundation",
+ "pacer-store",
+ "serde_json",
+]
+
+[[package]]
 name = "pacer-messaging-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1619,6 +1628,7 @@ dependencies = [
  "pacer-foundation",
  "pacer-lifecycle",
  "pacer-mdns",
+ "pacer-messaging-ops",
  "pacer-plugin-ops",
  "pacer-plugin-runtime",
  "pacer-read-model",

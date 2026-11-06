@@ -59,6 +59,9 @@ fn forward_override_removes_only_selected_native_ops() {
         "project.messaging.get",
         "project.messaging.set",
         "project.messaging.remove",
+        "msg.inbox",
+        "msg.log",
+        "msg.read",
     ] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
@@ -99,6 +102,15 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("task.review").get("task.review").is_none());
     assert!(registry("").get("task.ask").is_none());
     assert!(registry("").get("limits.refresh").is_none());
+    for name in [
+        "msg.send",
+        "msg.wait",
+        "msg.confirm",
+        "msg.close",
+        "msg.policy",
+    ] {
+        assert!(registry("").get(name).is_none(), "{name}");
+    }
 }
 
 #[test]
@@ -164,6 +176,9 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "project.messaging.get",
         "project.messaging.set",
         "project.messaging.remove",
+        "msg.inbox",
+        "msg.log",
+        "msg.read",
     ] {
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry(name).get(name).is_none(), "{name}");

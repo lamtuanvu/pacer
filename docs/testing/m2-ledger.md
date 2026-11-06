@@ -77,11 +77,12 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `dispatch.models`, `dispatch.refresh` | Forwarded (P5/P6) | Model inventory and observation refresh with backoff (`listDispatchModels`, `refreshObservations`); issues scoped plugin/executor observation calls. |
 | `dispatch.analytics`, `dispatch.learning.reset` | Forwarded (P5/P6) | Derived learning aggregates and per-repo reset/exclude (`dispatchAnalytics`, `resetLearning`); reads and mutates learning state beyond native routing broker. |
 | `msg.send` | Forwarded (P6) | Turn delivery: participant policy, project messaging rules, held-message guardrails and admitted-executor resume via `sendMessage` / `deliver` (delegate, route, `spawnRunner`). |
-| `msg.inbox`, `msg.read`, `msg.wait` | Forwarded (P6) | Caller-scoped message store reads; `msg.wait` blocks with polling and marks returned messages read. Work-grant authorization in `core/work.ts`. |
-| `msg.log` | Forwarded (P6) | Task thread read with tree visibility rules (`assertCanRead`, `store.thread`). |
+| `msg.inbox`, `msg.log` | Native (P6, selective) | `pacer_store::messages` reads the `messages` table and work/task parent links in `tasks.db` (`store.inbox`, `store.thread`); Rust resolves the caller participant as `callerParticipant` does (executor env or own-worktree cwd, app cookie, planner env, bearer plus valid `X-Pacer-Session`, `external:local`) and applies the `assertCanRead` root check for `msg.log`. Work-grant and enforcement-token callers, and Orca worktree cwds outside an executor session, selectively forward to TypeScript (`authorizeWorkOperation`, Orca workspace probe). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `msg.read` | Native (P6, selective) | Same caller resolution and forwards as `msg.inbox`; Rust marks receipts read in one immediate transaction (`store.markRead`, millisecond `read_at`). `human` callers selectively forward because TypeScript publishes task and attention events for read receipts (`publishTaskMessages`). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `msg.wait` | Forwarded (P6) | Blocks up to 3000 s polling the inbox and marks returned messages read; a native blocking loop would hold the stdio connection, and `human` consumption publishes task and attention events. |
 | `msg.confirm` | Forwarded (P6) | Human-only release of policy-held messages then `deliver` with runner spawn. |
 | `msg.close` | Forwarded (P6) | Sets `msgClosed`, parent/origin/human authorization and `autoCleanTask` worktree release; no review verdict. |
-| `msg.policy` | Forwarded (P6) | Effective repository guardrails and hypothetical `checkSend` evaluation (`effectivePolicy`, project messaging config). |
+| `msg.policy` | Forwarded (P6) | Effective repository guardrails and hypothetical `checkSend` evaluation (`effectivePolicy`): needs the Zod-defaulted strategy messaging config merged with project messaging rules, plus relation, rate-limit and held-message evaluation that has no Rust owner yet. |
 | `desktop.capture.register`, `desktop.capture.targets`, `desktop.capture.request`, `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.result` | Forwarded (P8/P9) | Desktop capture broker over connected authenticated desktop clients (`src/desktop/capture-broker.ts`, `src/api/ops-desktop.ts`): worker credential renewal, owned-window inventory, request/claim/complete lifecycle and PNG metadata reads. Bounded image upload stays on authenticated HTTP routes. |
 | `desktop.update.status`, `desktop.update.check`, `desktop.update.download`, `desktop.update.restart`, `desktop.update.cancel`, `desktop.update.configure`, `desktop.update.adopt`, `desktop.update.adoptCancel` | Forwarded (P8/P9) | Verified desktop OTA and service-adoption runtime (`src/api/ops-desktop-update.ts`, `src/desktop/update/`): feed checks, signed download, restart reservation, adoption handoff and public status. Snapshot probe carries update rows only; effectful install/restart stays TypeScript. |
 | `desktop.reconcile.status`, `desktop.reconcile.request`, `desktop.reconcile.cancel` | Forwarded (P8/P9) | Service reconciliation assessment and (future) native-proof request/cancel stubs (`src/api/ops-desktop-reconciliation.ts`); `request`/`cancel` remain unavailable until reconciliation is implemented. |
@@ -256,7 +257,10 @@ effectful `_run` spawn, messaging store turns, project policy, and
 `deliver`/`autoCleanTask` side effects still owned by TypeScript. This slice
 only expands the ledger with explicit Forwarded rows and residual owners; it
 does not register native handlers. Native cutover waits on P6 spawn ownership,
-P5 observation/broker bridges, and a messaging read model. v3-only `tree.status`
+P5 observation/broker bridges, and a messaging read model. The messaging read
+model has since landed for `msg.inbox`, `msg.log` and `msg.read` (see the Native
+rows above); `msg.wait`, `msg.policy`, `msg.send`, `msg.confirm` and `msg.close`
+stay Forwarded. v3-only `tree.status`
 is named in the detailed Forwarded table above; `liveness.status` remains
 MCP-only (`src/mcp/server.ts`).
 
@@ -514,12 +518,12 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **72** of 224 (60 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Ten of these selectively forward some inputs to TypeScript:
+Total native: **75** of 224 (63 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Thirteen of these selectively forward some inputs to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `repo.remove`, `task.stop`,
-`task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`
-and `project.messaging.remove`.
-Total still not native (v3 − native set): **152**.
+`task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
+`project.messaging.remove`, `msg.inbox`, `msg.log` and `msg.read`.
+Total still not native (v3 − native set): **149**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
