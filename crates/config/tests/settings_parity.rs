@@ -38,18 +38,35 @@ fn all_pure_settings_match_typescript_results_errors_and_edits() {
             Err(e) => actual["getError"] = json!({"code":e.code,"message":e.message}),
         }
         let normalize = |v: Value| -> Value {
-            serde_json::from_str(
-                &serde_json::to_string(&v)
-                    .unwrap()
-                    .replace(path.to_str().unwrap(), "strategy.yaml"),
+            fn canon(value: Value) -> Value {
+                match value {
+                    Value::Number(n) => n
+                        .as_f64()
+                        .and_then(serde_json::Number::from_f64)
+                        .map(Value::Number)
+                        .unwrap_or(Value::Number(n)),
+                    Value::Array(items) => Value::Array(items.into_iter().map(canon).collect()),
+                    Value::Object(map) => Value::Object(
+                        map.into_iter().map(|(k, v)| (k, canon(v))).collect(),
+                    ),
+                    other => other,
+                }
+            }
+            canon(
+                serde_json::from_str(
+                    &serde_json::to_string(&v)
+                        .unwrap()
+                        .replace(path.to_str().unwrap(), "strategy.yaml"),
+                )
+                .unwrap(),
             )
-            .unwrap()
         };
         let actual = normalize(actual);
         let mut expected = c["expected"].clone();
         if let Some(index) = expected.get("keys").and_then(Value::as_u64) {
             expected["keys"] = cases["views"][index as usize].clone();
         }
+        let expected = normalize(expected);
         if actual != expected {
             failures.push(format!(
                 "{}\nactual: {actual}\nexpected: {}",
