@@ -265,12 +265,20 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
             ),
         ]),
         "notifications.set" => object(vec![("level", Level, false)]),
-        "host.add" => object(vec![("alias", id(), false), ("ssh", String(1, None), false)]),
+        "host.add" => object(vec![
+            ("alias", id(), false),
+            ("ssh", String(1, None), false),
+        ]),
         "host.remove" => object(vec![("alias", id(), false)]),
         "host.repo.map" => object(vec![
             ("alias", id(), false),
             ("key", id(), false),
             ("path", String(1, None), false),
+        ]),
+        "host.account.add" => object(vec![
+            ("alias", id(), false),
+            ("account", id(), false),
+            ("home", String(1, None), false),
         ]),
         "host.set" => object(vec![
             ("alias", id(), false),

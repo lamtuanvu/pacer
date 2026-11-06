@@ -77,7 +77,9 @@ pub(super) fn area(op: &str) -> Option<&'static str> {
         "runner.set" | "runner.reorder" | "runner.remove" | "runner.settings.save" => {
             Some("runners")
         }
-        "host.add" | "host.set" | "host.remove" | "host.repo.map" => Some("hosts"),
+        "host.add" | "host.set" | "host.remove" | "host.repo.map" | "host.account.add" => {
+            Some("hosts")
+        }
         "routing.set" => Some("routing"),
         "notifications.set" | "config.set" => Some("config"),
         "delegation.pause" | "delegation.resume" => Some("delegation"),
@@ -93,6 +95,7 @@ pub(super) fn syncs_endpoints(op: &str) -> bool {
             | "host.set"
             | "host.remove"
             | "host.repo.map"
+            | "host.account.add"
             | "runner.set"
             | "runner.reorder"
             | "runner.remove"

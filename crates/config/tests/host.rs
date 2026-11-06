@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
-use pacer_config::host::{HostEdit, edit_host, repo_key, save_host};
+use pacer_config::host::{
+    HostEdit, account_login_command, edit_host, repo_key, save_host, shell_quote,
+};
 use std::fs;
 
 const BASE: &str = "# keep this comment\nplanner: codex\nproviders: {codex: {}}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\n";
@@ -89,6 +91,39 @@ fn host_edits_preserve_unrelated_bytes_and_refuse_invalid_inputs() {
         .is_err()
     );
     assert!(edit_host(BASE, path, "default", HostEdit::Remove { alias: "missing" }).is_err());
+}
+
+#[test]
+fn account_login_command_matches_ts_shq() {
+    assert_eq!(
+        account_login_command("codex", "~/.codex-team").as_deref(),
+        Some("CODEX_HOME=~/.codex-team codex login")
+    );
+    assert_eq!(
+        account_login_command("claude", "/var/my claude").as_deref(),
+        Some("CLAUDE_CONFIG_DIR='/var/my claude' claude\n# Then run /login to sign in.")
+    );
+    assert_eq!(shell_quote("safe/path+1"), "safe/path+1");
+    assert_eq!(shell_quote("sp ace"), "'sp ace'");
+}
+
+#[test]
+fn map_account_preserves_unrelated_host_bytes() {
+    let path = std::path::Path::new("strategy.yaml");
+    let mapped = edit_host(
+        BASE,
+        path,
+        "default",
+        HostEdit::MapAccount {
+            alias: "devbox",
+            account: "team",
+            home: "~/.codex-team",
+        },
+    )
+    .unwrap();
+    assert!(mapped.contains("accounts:"));
+    assert!(mapped.contains("~/.codex-team"));
+    assert!(mapped.contains("# keep this comment"));
 }
 
 #[test]

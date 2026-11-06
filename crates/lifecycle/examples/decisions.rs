@@ -72,6 +72,11 @@ pub fn run(c: &Value) -> Result<String, serde_json::Error> {
         "host.check" => encoded(hosts::check(c)),
         "host.setup" => encoded(hosts::setup(c)),
         "host.clean" => encoded(hosts::clean(c)),
+        "host.terminal" => encoded(hosts::terminal_ssh(
+            c["alias"].as_str().unwrap_or(""),
+            c["ssh"].as_str().unwrap_or(""),
+            c["builtin"] == true,
+        )),
         "host.summary" => encoded(hosts::summary(c)),
         "host.list" => encoded(hosts::list(c)),
         "host.detail" => encoded(hosts::detail(c).unwrap_or_else(|e| e.value())),
