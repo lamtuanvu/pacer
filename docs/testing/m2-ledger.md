@@ -14,7 +14,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `repo.add`, `repo.list`, `repo.remove` | Forwarded (P2-D) | Registry/path-probe/git identity and branch reads stay in TypeScript; only `repo_key` URL canonicalization is in the Rust host library. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
 | `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
-| `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3…P4d-6) | X3 `MutationOperations` over Core private IPC. Flag-off: `/_internal/plugins` prepare/`call`/`stop`/`changed`/`publish`/`log` with TS child spawn. Flag-on (`PACER_NATIVE_PLUGIN_HOST=1`): serve `ProcessOwner` starts/supervises children; Core supplies sealed `spawn_spec` + hello bookkeeping (`ready`) and refuses local spawn when `PACER_HOST_SOCKET` is set; private `call` is retired on that path. **P4d-6** installs a hello-sealed `PluginCapabilitySession` so the owner answers `capability.log` / `capability.config.get` (and native fs/process/http when call-scoped resources are attached in library/tests). **Default serve stays flag-off** until Core issues call-scoped resources for executors, observation/hosts/orca brokers, and CT-11 land; `PACER_NATIVE_PLUGIN_HOST=0` is the documented escape for the future default-on flip (`serve_starts_reverse_bridge_by_default`). Bridge adds `_host.plugin.spawn` / `stop`. Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the op escape hatch. |
+| `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3…P4d-7) | X3 `MutationOperations` over Core private IPC. Flag-off: `/_internal/plugins` prepare/`call`/`stop`/`changed`/`publish`/`log` with TS child spawn. Flag-on (`PACER_NATIVE_PLUGIN_HOST=1`): serve `ProcessOwner` starts/supervises children; Core supplies sealed `spawn_spec` + `call_authority` + hello bookkeeping (`ready`) and refuses local spawn when `PACER_HOST_SOCKET` is set; private `call` is retired on that path. **P4d-6/7** install a hello-sealed `PluginCapabilitySession` and bind Core-issued call-scoped `CallResources` so `capability.log` / `config.get` and fixture fs/process/http natives answer. **Default serve stays flag-off** until executor-class resources, observation/hosts/orca brokers, and CT-11 land; `PACER_NATIVE_PLUGIN_HOST=0` is the documented escape for the future default-on flip (`serve_starts_reverse_bridge_by_default`). Bridge adds `_host.plugin.spawn` / `stop`. Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the op escape hatch. |
 | `plugin.install` | Native HTTP (P4d-4) | Retired Orca install refusal registered on the HTTP service registry (X3 parity). Stdio remains TypeScript. |
 | `strategy.list`, `strategy.show` | Native (P2-B) | `src/api/ops.ts` remains the reference and forward fallback via `PACER_FORWARD_OPS`; reads reuse `pacer-config` `list_strategy_reads` / `show_strategy`. |
 | `strategy.use`, `strategy.save`, `strategy.remove` | Native (P2-C) | `src/api/ops.ts` remains the reference and forward fallback; native effects use `pacer-config` and the P3-B publisher. |
@@ -91,21 +91,22 @@ registers `plugin.install` refuse on HTTP, and has Core refuse local spawn when
 `PACER_HOST_SOCKET` is set so one plugin id cannot have two live owners.
 **P4d-5** lands the `PACER_NATIVE_PLUGIN_HOST=0` escape semantics and retires
 private `call` on the flag-on path, but **keeps default serve TypeScript-owned**
-(`serve_starts_reverse_bridge_by_default = false`). **P4d-6** wires
+(`serve_starts_reverse_bridge_by_default = false`). **P4d-6/7** wire
 `PluginCapabilitySession` on the flag-on `ProcessOwner`: hello-sealed
-`capability.log` / `capability.config.get`, with `pacer-plugin-host` native
-fs/process/http modules reusable when `CallResources` are attached (proven in
-library tests). Default stays off because Core does not yet issue call-scoped
-resources for executor plugins, observation/hosts/orca brokers are unfinished,
-and CT-11 live cutover is still open. Flipping that const plus live evidence is
-the remaining default-on slice. Stdio native plugin ops and further
-`/_internal/plugins` deletion remain later. See inventories under `.work/reviews/`.
+`capability.log` / `capability.config.get`, plus Core `call_authority` that
+seals exact-path `fs.read` / exact-host `net.http` (and host-supplied
+reads/commands/http) so native modules attach for fixture plugin calls.
+Default stays off because executor-class resources (usage/orca/worktree),
+observation/hosts brokers are unfinished, and CT-11 live cutover is still open.
+Flipping that const plus live evidence is the remaining default-on slice. Stdio
+native plugin ops and further `/_internal/plugins` deletion remain later. See
+inventories under `.work/reviews/`.
 
-### Per-scope plugin process owner (P4d-1 … P4d-6)
+### Per-scope plugin process owner (P4d-1 … P4d-7)
 
 | Scope | Owner today | Notes |
 | --- | --- | --- |
-| Service (`pacer serve`) | TypeScript Core (default); Rust `ProcessOwner` when flag on | Flag-on: ProcessOwner starts/supervises children for native HTTP plugin RPC and bridge spawn/call/find/stop; answers hello-sealed `capability.log`/`config.get` (P4d-6); Core seals spawn_spec and refuses local spawn; private `call` retired. Default stays off; `=0` escape ready for default-on. |
+| Service (`pacer serve`) | TypeScript Core (default); Rust `ProcessOwner` when flag on | Flag-on: ProcessOwner starts/supervises children for native HTTP plugin RPC and bridge spawn/call/find/stop; answers hello-sealed `capability.log`/`config.get` and Core-sealed call-scoped fs/process/http (P4d-6/7); Core seals spawn_spec/`call_authority` and refuses local spawn; private `call` retired. Default stays off; `=0` escape ready for default-on. |
 | Stdio (`pacer-core api --stdio`) | TypeScript | Unchanged (P8) |
 | CLI one-shots | TypeScript | Unchanged |
 | `_run` runners | TypeScript | Unchanged (P6b) |
@@ -120,19 +121,21 @@ the remaining default-on slice. Stdio native plugin ops and further
   child spawn for native plugin RPC + bridge `spawn`/`stop`.
 - **P4d-5:** `PACER_NATIVE_PLUGIN_HOST=0` escape parsing; private `call` retired
   when `PACER_HOST_SOCKET` is set; default remains off. Flag-on surface is
-  prepare/spawn_spec/ready/stop/changed/publish/log.
+  prepare/spawn_spec/ready/stop/changed/publish/log (+ `call_authority` in P4d-7).
 - **P4d-6:** hello-sealed `PluginCapabilitySession` on flag-on ProcessOwner;
   `capability.log` / `capability.config.get`; native fs/process/http modules
-  reusable with issued `CallResources` (library proof). Default remains off
-  (call-scoped Core resources + observation/hosts/orca + CT-11).
+  reusable with issued `CallResources` (library proof).
+- **P4d-7:** Core→Rust `call_authority` seals call-scoped `CallResources`;
+  ProcessOwner binds natives for the call (fixture fs/process/http). Default
+  remains off (executor-class resources + observation/hosts/orca + CT-11).
 - **P4d-1 landed (flag-gated):** serve can claim `ProcessOwner` + reverse bridge
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against
   serve-owned children.
 - **Blocked on later P4d:** flipping `serve_starts_reverse_bridge_by_default`,
   deleting remaining `/_internal/plugins` kinds (still needed for
-  prepare/spawn_spec/ready/changed/publish/log), stdio native plugin ops,
-  Core-issued call-scoped capability resources, observation/hosts/orca on the
+  prepare/spawn_spec/call_authority/ready/changed/publish/log), stdio native
+  plugin ops, executor-class call resources, observation/hosts/orca on the
   native owner, and CT-11 live evidence.
 - **Still deferred:** Rust signed archive inspection/extraction and publisher
   trust (crypto dependency tree). TypeScript archive/publisher remain.
