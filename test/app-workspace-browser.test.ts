@@ -272,7 +272,7 @@ browserTest('child and retained panels own fresh detail through questions, compl
   const page=await browser.newPage();page.setDefaultTimeout(3000);await page.route('http://pacer.test/**',r=>r.fulfill({contentType:'text/html',body:'<div id="app"></div>'}));
   await page.goto('http://pacer.test/?mode=childstates#/workspace?task=workspace-task&repo=api&scope=all');await page.addScriptTag({type:'module',content:await result.outputs[0]!.text()});
   await page.locator('.pc-workspace-session-row').filter({hasText:'Codex'}).first().click();
-  await page.getByRole('region',{name:'Question',exact:true}).getByText('Child question?',{exact:true}).waitFor();
+  await page.getByRole('region',{name:'Task question',exact:true}).getByText('Child question?',{exact:true}).waitFor();
   expect(await page.getByRole('button',{name:'Send answer',exact:true}).count()).toBe(1);
   await page.evaluate(()=>(window as any).workspaceChildFinish());
   await page.getByText('Fresh child summary',{exact:true}).waitFor();
