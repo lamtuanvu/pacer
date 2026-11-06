@@ -253,6 +253,23 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/task-wait-probe" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const id = body && typeof body === "object" && !Array.isArray(body) ? (body as { id?: unknown }).id : undefined;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            const { taskWaitProbe } = await import("../api/task-wait-bridge");
+            return Response.json({ result: taskWaitProbe(getCtx(), id) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/task-stop-probe" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

@@ -117,6 +117,17 @@ export async function runStdio(
           result = await snapshotProbeParts(getCtx());
           break;
         }
+        case "_internal.task-wait.probe": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const id = (r.params as { id?: unknown }).id;
+          if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "id required");
+          const { taskWaitProbe } = await import("./task-wait-bridge");
+          result = taskWaitProbe(getCtx(), id);
+          break;
+        }
         case "_internal.task-stop.probe": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
