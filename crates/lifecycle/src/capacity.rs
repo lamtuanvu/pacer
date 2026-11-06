@@ -168,10 +168,6 @@ pub fn queue_capacity_for(
         .and_then(|r| r.get("id").and_then(Value::as_str))
         .unwrap_or(executor);
     let host = runner.and_then(|r| r.get("host").and_then(Value::as_str));
-    let guard = if host.is_none() {
-        machine_guard
-    } else {
-        None
-    };
+    let guard = if host.is_none() { machine_guard } else { None };
     queue_capacity(id, host, limits, use_, guard)
 }

@@ -32,6 +32,12 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `limits.check`, `limits.refresh` | Forwarded (P5b) | Need the usage broker / plugin readings and status composition. |
 | `routing.status`, `routing.route` | Forwarded (P5b) | Need `computeStatus`, ranking over live readings, remote eligibility and optional classifier. Pure rank/eligibility/pace remain in `pacer-engine` (P5a). |
 | `routing.get` | Forwarded (P2) | Strategy routing document read; not part of the safe engine-ops batch. |
+| `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6b/P6c) | Need `_run` spawn, drain launch, policy/project admission effects and executor-session guard. |
+| `task.stop`, `task.ask` | Forwarded (P6b/P6c) | Need executor/provider stop grants, live-worker release, agent-session checks and (for ask) messaging insert. |
+| `task.wait` | Forwarded (P6b/P6c) | Poll loop still drains the queue, supervises the runner and waits on agent sessions/checks. |
+| `task.review` | Forwarded (P6c) | Accept/reject need agent-session/check gates and labels; `send_back`/`retry` need delegate/`_run`. |
+| `task.retry_options` | Forwarded (P5b/P6) | Needs routing/policy ranking over live readings (same broker gap as `routing.route`). |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
@@ -178,7 +184,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `dispatch.*` | 23 | P5/P6 | e.g. `dispatch.analytics`, `dispatch.answer`, `dispatch.child` (+20 more) |
 | `desktop.*` | 17 | P8/P9 | e.g. `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.register` (+14 more) |
 | `session.*` | 14 | P7 | e.g. `session.agent.create`, `session.agent.end`, `session.agent.get` (+11 more) |
-| `task.*` | 14 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+11 more) |
+| `task.*` | 13 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+10 more); `request_review` native above |
 | `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
 | `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
 | `account.*` | 9 | P7/P9 | e.g. `account.add`, `account.adopt`, `account.edit` (+6 more) |
@@ -208,8 +214,8 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 | `version.*` | 1 | P9 | e.g. `version.get` |
 
-Total unregistered (not in the detailed table): **182**.
-Total still not native (v3 − native set): **197**.
+Total unregistered (not in the detailed table): **181**.
+Total still not native (v3 − native set): **196**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
