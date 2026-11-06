@@ -51,7 +51,7 @@ counts and revision the snapshot needs are translated.
 `tasks::api_task_page`, `tasks::select_task_list` and `tasks::task_list_page`
 mirror the TypeScript `apiTaskPage` / `core.tasks.list` selection path used by
 `task.list`: per-task repo label scope, visible `needs_input` state, filter-
-before-page, and ActiveCounts for `activeAgentSessions`. They register no native
-op. A later cutover still needs a SessionProbe/alive bridge in the server and
-full `taskDetail` composition before `task.get` can go native; keep both ops
-Forwarded until then.
+before-page, and ActiveCounts for `activeAgentSessions`. Native `task.list`
+registers through `pacer-server` once Core supplies session probe parts
+(`/_internal/session-probe-parts` / `_internal.session-probe.parts`). Full
+`taskDetail` composition for native `task.get` remains a later slice.
