@@ -40,6 +40,11 @@ async fn failed_endpoint_sync_keeps_saved_edit_but_does_not_publish_success() {
         None,
         None,
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap_err();
@@ -51,6 +56,86 @@ async fn failed_endpoint_sync_keeps_saved_edit_but_does_not_publish_success() {
     assert!(!dir.path().join("link/outbox.jsonl").exists());
     let strategy = pacer_config::strategy::load_strategy(dir.path()).unwrap();
     assert!(strategy["runners"].get("cursor").is_none());
+}
+
+#[tokio::test]
+async fn host_account_add_missing_endpoint_bridge_refuses_before_write() {
+    let dir = tempfile::tempdir().unwrap();
+    write_fixture_strategy(&dir);
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        Default::default(),
+        0.0,
+    );
+    let registry = crate::native::registry("");
+    let error = crate::native::call_native(
+        &ctx,
+        registry.get("host.account.add").unwrap(),
+        json!({"alias":"devbox","account":"team","home":"~/.codex-team"}),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, Code::Unavailable);
+    let text = std::fs::read_to_string(dir.path().join("strategy.yaml")).unwrap();
+    assert!(!text.contains("~/.codex-team"));
+}
+
+fn write_fixture_strategy(dir: &tempfile::TempDir) {
+    std::fs::write(
+        dir.path().join("strategy.yaml"),
+        "planner: codex\nproviders: {codex: {}}\naccounts: {team: {kind: codex}}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\n",
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn host_add_missing_endpoint_bridge_refuses_before_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        Default::default(),
+        0.0,
+    );
+    let registry = crate::native::registry("");
+    let error = crate::native::call_native(
+        &ctx,
+        registry.get("host.add").unwrap(),
+        json!({"alias":"box","ssh":"box-ssh"}),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, Code::Unavailable);
+    assert!(!dir.path().join("strategy.yaml").exists());
 }
 
 #[tokio::test]
@@ -67,6 +152,11 @@ async fn missing_bridge_refuses_before_mutating_the_document() {
         &ctx,
         registry.get("runner.set").unwrap(),
         json!({"id":"codex","rank":1}),
+        None,
+        None,
+        None,
+        None,
+        None,
         None,
         None,
         None,
@@ -121,6 +211,11 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -146,6 +241,11 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -156,6 +256,11 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         &ctx,
         registry.get("strategy.show").unwrap(),
         json!({"name":"missing"}),
+        None,
+        None,
+        None,
+        None,
+        None,
         None,
         None,
         None,
@@ -222,6 +327,11 @@ async fn pure_config_set_writes_publishes_and_strips_notes() {
         None,
         None,
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -233,6 +343,11 @@ async fn pure_config_set_writes_publishes_and_strips_notes() {
         &ctx,
         registry.get("config.set").unwrap(),
         json!({"key":"planner","value":"codex","integrations":"skip"}),
+        None,
+        None,
+        None,
+        None,
+        None,
         None,
         None,
         None,
@@ -273,6 +388,11 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
         None,
         None,
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -287,6 +407,11 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
             "order": base["order"],
             "runners": [{"id": "codex", "enabled": false, "maxTasks": 3}],
         }),
+        None,
+        None,
+        None,
+        None,
+        None,
         None,
         None,
         None,
@@ -315,6 +440,11 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
             "order": base["order"],
             "runners": [{"id": "codex", "enabled": true, "maxTasks": 1}],
         }),
+        None,
+        None,
+        None,
+        None,
+        None,
         None,
         None,
         None,
@@ -355,6 +485,11 @@ async fn cookie_presets_flag_rejects_custom_terminal_open_templates() {
         &ctx,
         registry.get("config.set").unwrap(),
         json!({"key":"terminal.open","value":"custom-{cmd}"}),
+        None,
+        None,
+        None,
+        None,
+        None,
         None,
         None,
         None,

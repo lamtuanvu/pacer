@@ -253,6 +253,118 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/task-wait-probe" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const id = body && typeof body === "object" && !Array.isArray(body) ? (body as { id?: unknown }).id : undefined;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            const { taskWaitProbe } = await import("../api/task-wait-bridge");
+            return Response.json({ result: taskWaitProbe(getCtx(), id) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/task-stop-probe" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const id = body && typeof body === "object" && !Array.isArray(body) ? (body as { id?: unknown }).id : undefined;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            const { taskStopProbe } = await import("../api/task-stop-bridge");
+            return Response.json({ result: taskStopProbe(getCtx(), id) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/task-review-probe" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const record = body && typeof body === "object" && !Array.isArray(body) ? body as { id?: unknown; verdict?: unknown } : {};
+            const id = record.id;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            const { taskReviewProbe } = await import("../api/task-review-bridge");
+            return Response.json({ result: taskReviewProbe(getCtx(), id, record) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/task-review-effects" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const record = body && typeof body === "object" && !Array.isArray(body)
+              ? body as { id?: unknown; verdict?: unknown; kind?: unknown; note?: unknown }
+              : {};
+            const id = record.id;
+            const verdict = record.verdict;
+            const kind = record.kind;
+            const note = record.note;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            if (verdict !== "accept" && verdict !== "reject") {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "verdict required");
+            }
+            const { taskReviewAfterStore } = await import("../api/task-review-bridge");
+            return Response.json({
+              result: await taskReviewAfterStore(
+                getCtx(),
+                id,
+                verdict,
+                typeof kind === "string" ? kind : undefined,
+                typeof note === "string" ? note : undefined,
+              ),
+            });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/task-stop-effects" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const record = body && typeof body === "object" && !Array.isArray(body) ? body as { id?: unknown; beforeState?: unknown } : {};
+            const id = record.id;
+            const beforeState = record.beforeState;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            const { taskStopAfterStore } = await import("../api/task-stop-bridge");
+            return Response.json({
+              result: await taskStopAfterStore(
+                getCtx(),
+                id,
+                typeof beforeState === "string" ? beforeState : null,
+              ),
+            });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/task-auto-clean" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -275,6 +387,78 @@ export function startServer(
           try {
             const { snapshotProbeParts } = await import("../api/snapshot-probe-bridge");
             return Response.json({ result: await snapshotProbeParts(getCtx()) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/machine-bridge" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const op = body && typeof body === "object" && !Array.isArray(body) ? (body as { op?: unknown }).op : undefined;
+            const bridgeParams = body && typeof body === "object" && !Array.isArray(body) ? (body as { params?: unknown }).params : undefined;
+            if (typeof op !== "string" || !op.startsWith("machine.") || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "invalid machine bridge body");
+            }
+            const { machineBridge } = await import("../api/machine-bridge");
+            return Response.json({
+              result: await machineBridge(getCtx(), op as "machine.get" | "machine.set" | "machine.rotate", bridgeParams as Record<string, unknown>),
+            });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/files-search" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => ({}));
+            const searchParams = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+            const { filesSearchBridge } = await import("../api/files-search-bridge");
+            return Response.json({
+              result: await filesSearchBridge(getCtx(), searchParams as { query: string; repo?: string; limit?: number }),
+            });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/repo-bridge" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const op = body && typeof body === "object" && !Array.isArray(body) ? (body as { op?: unknown }).op : undefined;
+            const bridgeParams = body && typeof body === "object" && !Array.isArray(body) ? (body as { params?: unknown }).params : undefined;
+            if (typeof op !== "string" || (op !== "repo.list" && op !== "repo.add") || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "invalid repo bridge body");
+            }
+            const { repoBridge } = await import("../api/repo-bridge");
+            return Response.json({
+              result: await repoBridge(getCtx(), op, bridgeParams as Record<string, unknown>),
+            });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/setup-check" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => ({}));
+            const snapshotProbe = body && typeof body === "object" && !Array.isArray(body)
+              ? (body as { snapshotProbe?: unknown }).snapshotProbe
+              : undefined;
+            const { setupCheckBridge } = await import("../api/setup-check-bridge");
+            return Response.json({
+              result: await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false),
+            });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);

@@ -52,7 +52,7 @@ test("TASK_KINDS stays aligned with strategy KINDS", () => {
     "performance",
     "unfamiliar-code",
     "research",
-  ] as const;
+  ] as const satisfies readonly (typeof KINDS)[number][];
   expect([...KINDS].sort()).toEqual([...expected].sort());
 });
 

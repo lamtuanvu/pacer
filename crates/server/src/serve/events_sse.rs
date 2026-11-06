@@ -128,21 +128,22 @@ pub async fn stream(
                 let store_for_poll = store.clone();
                 let mut cursor_for_poll = cursor;
                 let polled = tokio::task::spawn_blocking(move || {
-                    let mut store = store_for_poll.lock().ok()?;
+                    let mut store = store_for_poll
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
                     cursor_for_poll
                         .poll(&ctx_for_poll, &mut store, zone, &pid_alive)
-                        .ok()
                         .map(|frames| (cursor_for_poll, frames))
                 })
                 .await;
                 cursor = match polled {
-                    Ok(Some((next, frames))) => {
+                    Ok(Ok((next, frames))) => {
                         if !frames.is_empty() {
                             pending.push(frames);
                         }
                         next
                     }
-                    Ok(None) | Err(_) => return None,
+                    Ok(Err(_)) | Err(_) => return None,
                 };
                 if !pending.is_empty() {
                     continue;

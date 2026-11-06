@@ -1,12 +1,17 @@
 # pacer-lifecycle
 
 Layer 6. Task admission (brief validation, capacity, lineage, strategy, prepared
-admission, queue drain and revision-checked mutation) alongside P6e attention,
+admission, P6f delegate orchestration, queue drain and revision-checked mutation)
+alongside P6e attention,
 client, job, host, notification and runner-check decisions. The first served lifecycle op is store-only `task.request_review`. P6b adds
 `run_spawn` (`self_command`, `runner_log_path`, `build_run_spawn_plan`,
 `RunSpawnOwner`, `validate_run_spawn_plan`) so drain launch hooks and future
 native supervisors share the same `_run` argv/env/log contract as
-`src/tasks/api.ts`; effectful spawn remains TypeScript-owned. P6c adds
+`src/tasks/api.ts`; effectful spawn remains TypeScript-owned. P6e-run adds
+`resolve_launch_admission_lease`, `build_run_spawn_plan_for_launch`,
+`drain_launch_run_spawn_plan`, `guard_run_spawn_plan` and a gated
+`SupervisorRunSpawnSpec` for ProcessOwner cutover without registering
+`task.delegate`. P6c adds
 store-only `record_review_verdict` (accept/reject SQLite fields matching
 `taskReview` without labels or gates). P6d adds store-only `record_task_stop`
 and `task_wait_settled` (matching `taskStop` store fields and the `taskWait`
@@ -18,8 +23,8 @@ publication and mutation locks. Capacity characterization covers `slot_use`,
 strategy-derived `slot_limit` / `queue_capacity_for` (TS `slotLimit` /
 `queueCapacity`) and precomputed `queue_capacity` goldens. Machine-signal
 collection stays outside this crate; callers pass an evaluated guard snapshot.
-Its disposable `task_admission_probe` binary exercises the shared Bun/Rust
-admission boundaries in tests.
+Its disposable `task_admission_probe` and `prepared_admission_probe` binaries
+exercise the shared Bun/Rust admission boundaries in tests.
 
 The P6e modules import no runner, supervisor, transport, plugin implementation,
 filesystem, process, clock or timer code. They write no state, so their SEC-7
@@ -73,6 +78,9 @@ Validation:
   invokes Bun to check revisions, descendant budgets and slot contention.
 - `bun run test test/p6e-parity.test.ts` checks Rust output against the goldens and
   verifies their freshness against current TS source and fixture inputs.
+- `bun run test test/run-spawn-parity.test.ts` and
+  `test/run-spawn-launch-parity.test.ts` keep P6b/P6e-run `_run` plans aligned
+  with Rust `run_spawn`.
 
 CT-11 runtime coverage is **UNVERIFIED** under the 2026-11-01 unreachable-library
 exception in `.project/decisions.md`. The first runtime cutover must exercise all

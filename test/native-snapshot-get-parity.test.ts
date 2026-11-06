@@ -89,7 +89,7 @@ test.skipIf(!front)("snapshot.get matches forced forwarding over stdio", async (
   const ctx = fakeCtx();
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   mkdirSync(join(ctx.pacerHome, "link"), { recursive: true, mode: 0o700 });
-  const reference = await callOp(ctx, "snapshot.get", {});
+  const reference = (await callOp(ctx, "snapshot.get", {})) as { snapshot?: Record<string, unknown> };
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-snapshot-get-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-snapshot-get-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });
@@ -100,8 +100,7 @@ test.skipIf(!front)("snapshot.get matches forced forwarding over stdio", async (
     const norm = (reply: { result?: { snapshot?: Record<string, unknown> } }) =>
       normalize({ ...reply?.result, snapshot: stripVolatile(reply?.result?.snapshot ?? {}) });
     expect(norm(native)).toEqual(norm(forwarded));
-    const referenceResult = reference as { snapshot?: Record<string, unknown> };
-    expect(norm(native)).toEqual(normalize({ ...referenceResult, snapshot: stripVolatile(referenceResult.snapshot ?? {}) }));
+    expect(norm(native)).toEqual(normalize({ ...reference, snapshot: stripVolatile(reference.snapshot as Record<string, unknown>) }));
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });

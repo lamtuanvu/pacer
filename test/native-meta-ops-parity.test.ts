@@ -82,7 +82,9 @@ test("native version.get, api.list and api.describe match TypeScript", async () 
       expect(reply.error).toBeUndefined();
       expect(normalize(reply.result)).toEqual(normalize(reference));
     }
-    const describe = await callOp(ctx, "api.describe", { name: "runner.settings.save" }) as { params: unknown };
+    const describe = (await callOp(ctx, "api.describe", { name: "runner.settings.save" })) as {
+      params: unknown;
+    };
     expect(describe.params).toEqual(opJsonSchemas()["runner.settings.save"].params);
   } finally {
     rmSync(home, { recursive: true, force: true });

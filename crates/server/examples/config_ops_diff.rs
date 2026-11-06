@@ -42,6 +42,21 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
+        let core_bridge_sync = if matches!(
+            name,
+            "machine.get"
+                | "machine.set"
+                | "machine.rotate"
+                | "files.search"
+                | "setup.check"
+                | "repo.list"
+                | "repo.add"
+        ) {
+            let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
+            Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)
+        } else {
+            None
+        };
         let result = pacer_server::native::call_native(
             &ctx,
             op,
@@ -55,6 +70,11 @@ async fn main() -> io::Result<()> {
             None,
             None,
             host_read_sync,
+            core_bridge_sync,
+            None,
+            None,
+            None,
+            None,
         )
         .await;
         let output = match result {

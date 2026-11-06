@@ -1,5 +1,4 @@
-import { diff } from "../src/core/tasks";
-import type { DiffFile } from "../src/tasks/diff";
+import { diff, type DiffFile } from "../src/core/tasks";
 import type { WorktreeRequest } from "../src/tasks/types";
 import { beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
@@ -7,21 +6,22 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
-import fixtureCases from "./fixtures/task-diff/file-tree-parity.json";
+import fixtureCasesRaw from "./fixtures/task-diff/file-tree-parity.json";
+
+const fixtureCases = fixtureCasesRaw as {
+  description: string;
+  cases: {
+    name: string;
+    summaryOnly?: boolean;
+    startCommit?: boolean;
+    orca?: WorktreeRequest;
+    files: DiffFile[];
+  }[];
+};
 
 const ROOT = join(import.meta.dir, "..");
 const TARGET = join(ROOT, "target");
 let probe = "";
-
-type FixtureCase = {
-  name: string;
-  summaryOnly?: boolean;
-  startCommit?: boolean;
-  orca?: Extract<WorktreeRequest, "current" | "new">;
-  files: DiffFile[];
-};
-
-const cases = fixtureCases.cases as FixtureCase[];
 
 beforeAll(() => {
   execFileSync("cargo", ["build", "-q", "-p", "pacer-lifecycle", "--bin", "task_diff_probe"], {
@@ -40,7 +40,7 @@ function rustDiff(pacerHome: string, taskId: string, path?: string, summaryOnly 
   return JSON.parse(out) as {
     base: string | null;
     worktree: string;
-    files: DiffFile[];
+    files: typeof fixtureCases.cases[0]["files"];
     patch: string;
     untracked: string[];
     truncated: boolean;
@@ -66,7 +66,7 @@ function defaultFixture() {
   return { repo, ctx, task, git };
 }
 
-for (const spec of cases) {
+for (const spec of fixtureCases.cases) {
   test(`task_diff file tree parity: ${spec.name}`, async () => {
     const { repo, ctx, task, git } = defaultFixture();
     if (spec.startCommit) {
@@ -78,7 +78,6 @@ for (const spec of cases) {
       });
     }
     if (spec.orca) {
-      const orca = spec.orca;
       git("checkout", "-qb", "feature");
       git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "earlier branch work");
       const start = Bun.spawnSync(["git", "-C", repo, "rev-parse", "HEAD"]).stdout.toString().trim();
@@ -87,9 +86,10 @@ for (const spec of cases) {
       git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "task work");
       updateTask(ctx, task.id, (t) => {
         t.backend = "orca";
-        t.placement = { requested: orca, mode: orca, why: "test" };
+        const mode = spec.orca as "current" | "new";
+        t.placement = { requested: mode, mode, why: "test" };
         t.baseBranch = "main";
-        if (orca === "current") t.startSha = start;
+        if (spec.orca === "current") t.startSha = start;
         else t.baseSha = start;
       });
     }

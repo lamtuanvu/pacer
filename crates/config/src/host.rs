@@ -103,6 +103,39 @@ pub enum HostEdit<'a> {
         paused: Option<bool>,
         session: Option<&'a str>,
     },
+    MapAccount {
+        alias: &'a str,
+        account: &'a str,
+        home: &'a str,
+    },
+}
+
+/// Match `shq` in `src/install/fsx.ts`.
+pub fn shell_quote(value: &str) -> String {
+    if value
+        .bytes()
+        .all(|c| c.is_ascii_alphanumeric() || b"_/.:=@%+-".contains(&c))
+    {
+        value.to_owned()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+/// Login command returned by `host.account.add`; no SSH or host adapter I/O.
+pub fn account_login_command(kind: &str, home: &str) -> Option<String> {
+    let folder = if let Some(rest) = home.strip_prefix("~/") {
+        format!("~/{}", shell_quote(rest))
+    } else {
+        shell_quote(home)
+    };
+    match kind {
+        "codex" => Some(format!("CODEX_HOME={folder} codex login")),
+        "claude" => Some(format!(
+            "CLAUDE_CONFIG_DIR={folder} claude\n# Then run /login to sign in."
+        )),
+        _ => None,
+    }
 }
 
 fn invalid(message: &str) -> StrategyError {
@@ -123,6 +156,7 @@ pub fn edit_host(
         HostEdit::Add { alias, .. }
         | HostEdit::Remove { alias }
         | HostEdit::MapRepo { alias, .. }
+        | HostEdit::MapAccount { alias, .. }
         | HostEdit::Set { alias, .. } => alias,
     };
     if let HostEdit::Add { .. } = edit {
@@ -169,6 +203,10 @@ pub fn edit_host(
             }
             doc.set_in(&key(&["hosts", alias, "repos", &repo]), &json!(path))
         }
+        HostEdit::MapAccount { account, home, .. } => doc.set_in(
+            &key(&["hosts", alias, "accounts", account, "home"]),
+            &json!(home),
+        ),
         HostEdit::Set {
             max_tasks,
             paused,

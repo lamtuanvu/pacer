@@ -7,6 +7,7 @@ pub mod mode_hold;
 pub mod pause;
 pub mod status;
 pub mod usage_broker;
+pub mod usage_refresh;
 
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::Tz;

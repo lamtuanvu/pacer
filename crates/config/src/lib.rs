@@ -7,6 +7,7 @@ pub mod host;
 mod js_semantics;
 mod notification_json;
 pub mod notifications;
+pub mod repos;
 mod sections;
 pub mod ssh_config;
 pub mod strategy;

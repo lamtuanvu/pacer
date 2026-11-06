@@ -8,14 +8,20 @@ pub(crate) mod config_host_sync;
 mod config_params;
 pub(crate) mod config_sync;
 mod config_writes;
+pub(crate) mod core_bridge_sync;
 mod engine_ops;
+mod host_mut_ops;
+pub(crate) mod host_mut_sync;
 mod host_read_ops;
 pub(crate) mod host_read_sync;
 mod lifecycle_ops;
 mod meta_ops;
+pub(crate) mod p8_bridge_ops;
 pub mod plugins;
+mod repo_ops;
 pub(crate) mod session_ops;
 pub(crate) mod session_sync;
+mod setup_ops;
 mod snapshot_get_ops;
 pub(crate) mod snapshot_sync;
 pub(crate) mod status_ops;
@@ -26,16 +32,26 @@ pub(crate) mod task_dismiss_ops;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
+mod task_review_ops;
+pub(crate) mod task_review_sync;
+mod task_stop_ops;
+pub(crate) mod task_stop_sync;
+mod task_wait_ops;
+pub(crate) mod task_wait_sync;
 
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
-pub(crate) use host_read_ops::needs_host_read_bridge;
+pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
+pub(crate) use p8_bridge_ops::needs_core_bridge;
+pub(crate) use repo_ops::repo_remove_stays_forwarded;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
+pub(crate) use task_review_ops::needs_task_review_bridge;
+pub(crate) use task_stop_ops::needs_task_stop_bridge;
 
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
@@ -130,6 +146,26 @@ static OPS: &[NativeOp] = &[
         call: host_read_ops::host_get_stub,
     },
     NativeOp {
+        name: "host.add",
+        call: host_mut_ops::host_add,
+    },
+    NativeOp {
+        name: "host.set",
+        call: host_mut_ops::host_set_stub,
+    },
+    NativeOp {
+        name: "host.remove",
+        call: host_mut_ops::host_remove,
+    },
+    NativeOp {
+        name: "host.repo.map",
+        call: host_mut_ops::host_repo_map,
+    },
+    NativeOp {
+        name: "host.account.add",
+        call: host_mut_ops::host_account_add,
+    },
+    NativeOp {
         name: "config.set",
         call: config_writes::config_set,
     },
@@ -210,12 +246,60 @@ static OPS: &[NativeOp] = &[
         call: lifecycle_ops::task_request_review,
     },
     NativeOp {
+        name: "task.stop",
+        call: task_stop_ops::task_stop_stub,
+    },
+    NativeOp {
+        name: "task.wait",
+        call: task_wait_ops::task_wait,
+    },
+    NativeOp {
+        name: "task.review",
+        call: task_review_ops::task_review_stub,
+    },
+    NativeOp {
         name: "task.dismiss",
         call: task_dismiss_ops::task_dismiss_stub,
     },
     NativeOp {
         name: "task.diff",
         call: task_diff_ops::task_diff_op,
+    },
+    NativeOp {
+        name: "machine.get",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "machine.set",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "machine.rotate",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "files.search",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "setup.check",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "onboarding.skip",
+        call: setup_ops::onboarding_skip,
+    },
+    NativeOp {
+        name: "repo.list",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "repo.add",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "repo.remove",
+        call: repo_ops::repo_remove,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -264,7 +348,13 @@ pub async fn call_native(
     snapshot_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     task_clean_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     host_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    core_bridge_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_stop_probe: Option<Value>,
+    task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_review_probe: Option<Value>,
+    task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
+    let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
             eprintln!("native {} {}", op.name, id);
@@ -272,7 +362,10 @@ pub async fn call_native(
             eprintln!("native {}", op.name);
         }
     }
-    if config_writes::syncs_endpoints(op.name) && endpoint_sync.is_none() {
+    if config_writes::syncs_endpoints(op.name)
+        && endpoint_sync.is_none()
+        && !(op.name == "host.set" && host_read_bridge.is_some())
+    {
         return Err(CoreError::new(
             pacer_foundation::api::Code::Unavailable,
             "endpoint synchronization bridge unavailable",
@@ -284,7 +377,26 @@ pub async fn call_native(
             "task clean bridge unavailable",
         ));
     }
-    let result = if needs_usage_broker(op.name) {
+    if needs_task_stop_bridge(op.name) && (task_stop_probe.is_none() || task_stop_effects.is_none())
+    {
+        return Err(CoreError::new(
+            pacer_foundation::api::Code::Unavailable,
+            "task stop bridge unavailable",
+        ));
+    }
+    if needs_task_review_bridge(op.name)
+        && (task_review_probe.is_none() || task_review_effects.is_none())
+    {
+        return Err(CoreError::new(
+            pacer_foundation::api::Code::Unavailable,
+            "task review bridge unavailable",
+        ));
+    }
+    let mut host_set_alias: Option<String> = None;
+    let result = if op.name == "host.set" {
+        host_set_alias = Some(host_mut_ops::host_set_write(ctx, params).await?);
+        Value::Null
+    } else if needs_usage_broker(op.name) {
         let parts = broker_sync.ok_or_else(|| {
             CoreError::new(
                 pacer_foundation::api::Code::Unavailable,
@@ -343,15 +455,18 @@ pub async fn call_native(
             _ => unreachable!("needs_config_host_bridge"),
         }
     } else if needs_host_read_bridge(op.name) {
-        let parts = host_read_sync.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "host read bridge unavailable",
-            )
-        })?;
+        let parts = host_read_bridge
+            .take()
+            .ok_or_else(|| {
+                CoreError::new(
+                    pacer_foundation::api::Code::Unavailable,
+                    "host read bridge unavailable",
+                )
+            })?
+            .await?;
         match op.name {
-            "host.list" => host_read_ops::host_list(ctx, params, parts.await?).await?,
-            "host.get" => host_read_ops::host_get(ctx, params, parts.await?).await?,
+            "host.list" => host_read_ops::host_list(ctx, params, parts).await?,
+            "host.get" => host_read_ops::host_get(ctx, params, parts).await?,
             _ => unreachable!("needs_host_read_bridge"),
         }
     } else if needs_task_clean_bridge(op.name) {
@@ -365,6 +480,49 @@ pub async fn call_native(
             "task.dismiss" => task_dismiss_ops::task_dismiss(ctx, params, clean).await?,
             _ => unreachable!("needs_task_clean_bridge"),
         }
+    } else if needs_task_stop_bridge(op.name) {
+        let probe = task_stop_probe.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "task stop bridge unavailable",
+            )
+        })?;
+        let effects = task_stop_effects.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "task stop effects bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "task.stop" => task_stop_ops::task_stop(ctx, params, probe, effects).await?,
+            _ => unreachable!("needs_task_stop_bridge"),
+        }
+    } else if needs_task_review_bridge(op.name) {
+        let probe = task_review_probe.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "task review bridge unavailable",
+            )
+        })?;
+        let effects = task_review_effects.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "task review effects bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "task.review" => task_review_ops::task_review(ctx, params, probe, effects).await?,
+            _ => unreachable!("needs_task_review_bridge"),
+        }
+    } else if needs_core_bridge(op.name) {
+        let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
+        let parts = core_bridge_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "core bridge unavailable",
+            )
+        })?;
+        parts.await?
     } else {
         (op.call)(ctx, params).await?
     };
@@ -384,6 +542,20 @@ pub async fn call_native(
             error
         })?;
     }
+    let result = if let Some(alias) = host_set_alias {
+        let parts = host_read_bridge
+            .take()
+            .ok_or_else(|| {
+                CoreError::new(
+                    pacer_foundation::api::Code::Unavailable,
+                    "host read bridge unavailable",
+                )
+            })?
+            .await?;
+        host_mut_ops::host_set_summary(parts, &alias)?
+    } else {
+        result
+    };
     config_writes::finish(ctx, op.name, &result)?;
     Ok(result)
 }
@@ -414,6 +586,11 @@ mod tests {
             "host.suggest",
             "host.list",
             "host.get",
+            "host.add",
+            "host.set",
+            "host.remove",
+            "host.repo.map",
+            "host.account.add",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -423,6 +600,8 @@ mod tests {
             "routing.status",
             "routing.route",
             "task.request_review",
+            "task.stop",
+            "task.review",
             "task.dismiss",
             "task.diff",
             "task.list",
@@ -431,6 +610,15 @@ mod tests {
             "version.get",
             "api.list",
             "api.describe",
+            "machine.get",
+            "machine.set",
+            "machine.rotate",
+            "files.search",
+            "setup.check",
+            "onboarding.skip",
+            "repo.list",
+            "repo.add",
+            "repo.remove",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -459,13 +647,16 @@ mod tests {
         assert!(registry("snapshot.get").get("snapshot.get").is_none());
         assert!(registry("snapshot.get").get("task.list").is_some());
         assert!(registry("").get("task.delegate").is_none());
-        assert!(registry("").get("task.stop").is_none());
+        assert!(registry("").get("task.stop").is_some());
+        assert!(registry("task.stop").get("task.stop").is_none());
         assert!(registry("").get("task.answer").is_none());
-        assert!(registry("").get("task.wait").is_none());
+        assert!(registry("").get("task.wait").is_some());
+        assert!(registry("task.wait").get("task.wait").is_none());
         assert!(registry("").get("task.retry").is_none());
         assert!(registry("").get("task.retry_all").is_none());
         assert!(registry("").get("task.retry_options").is_none());
-        assert!(registry("").get("task.review").is_none());
+        assert!(registry("").get("task.review").is_some());
+        assert!(registry("task.review").get("task.review").is_none());
         assert!(registry("").get("task.ask").is_none());
         assert!(registry("").get("limits.refresh").is_none());
     }
@@ -497,6 +688,11 @@ mod tests {
             "host.suggest",
             "host.list",
             "host.get",
+            "host.add",
+            "host.set",
+            "host.remove",
+            "host.repo.map",
+            "host.account.add",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -506,6 +702,8 @@ mod tests {
             "routing.status",
             "routing.route",
             "task.request_review",
+            "task.stop",
+            "task.review",
             "task.dismiss",
             "task.diff",
             "task.list",
@@ -514,6 +712,15 @@ mod tests {
             "version.get",
             "api.list",
             "api.describe",
+            "machine.get",
+            "machine.set",
+            "machine.rotate",
+            "files.search",
+            "setup.check",
+            "onboarding.skip",
+            "repo.list",
+            "repo.add",
+            "repo.remove",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");

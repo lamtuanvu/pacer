@@ -161,6 +161,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
             || (op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
             || (op.name == "routing.route" && crate::native::routing_route_stays_forwarded(&params))
+            || (op.name == "repo.remove" && crate::native::repo_remove_stays_forwarded(&ctx))
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);
@@ -168,6 +169,96 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                 .await;
         }
+        if op.name == "task.wait" {
+            let Some(id) = params
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())
+            else {
+                return native_error(CoreError::new(
+                    Code::InvalidInput,
+                    "id: Invalid input: expected string, received undefined",
+                ));
+            };
+            let core_target = state.core.target().await;
+            match crate::native::task_wait_sync::http_probe(core_target.clone(), id).await {
+                Ok(probe) if crate::native::task_wait_sync::task_wait_stays_forwarded(&probe) => {
+                    let Some(target) = core_target else {
+                        return proxy::unavailable(false);
+                    };
+                    return proxy::forward(
+                        Request::from_parts(parts, Body::from(bytes)),
+                        target,
+                        auth,
+                    )
+                    .await;
+                }
+                Ok(_) => {}
+                Err(error) => return native_error(error),
+            }
+        }
+        let task_review_probe_cache = if op.name == "task.review" {
+            if params
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|id| id.is_empty())
+            {
+                return native_error(CoreError::new(
+                    Code::InvalidInput,
+                    "id: Invalid input: expected string, received undefined",
+                ));
+            };
+            let core_target = state.core.target().await;
+            match crate::native::task_review_sync::http_probe(core_target.clone(), &params).await {
+                Ok(probe)
+                    if crate::native::task_review_sync::task_review_stays_forwarded(&probe) =>
+                {
+                    let Some(target) = core_target else {
+                        return proxy::unavailable(false);
+                    };
+                    return proxy::forward(
+                        Request::from_parts(parts, Body::from(bytes)),
+                        target,
+                        auth,
+                    )
+                    .await;
+                }
+                Ok(probe) => Some(probe),
+                Err(error) => return native_error(error),
+            }
+        } else {
+            None
+        };
+        let task_stop_probe_cache = if op.name == "task.stop" {
+            let Some(id) = params
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())
+            else {
+                return native_error(CoreError::new(
+                    Code::InvalidInput,
+                    "id: Invalid input: expected string, received undefined",
+                ));
+            };
+            let core_target = state.core.target().await;
+            match crate::native::task_stop_sync::http_probe(core_target.clone(), id).await {
+                Ok(probe) if crate::native::task_stop_sync::task_stop_stays_forwarded(&probe) => {
+                    let Some(target) = core_target else {
+                        return proxy::unavailable(false);
+                    };
+                    return proxy::forward(
+                        Request::from_parts(parts, Body::from(bytes)),
+                        target,
+                        auth,
+                    )
+                    .await;
+                }
+                Ok(probe) => Some(probe),
+                Err(error) => return native_error(error),
+            }
+        } else {
+            None
+        };
         let result = if op.name.starts_with("plugin.") {
             if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                 eprintln!("native {}", op.name);
@@ -254,8 +345,8 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            let host_read_sync = if crate::native::needs_host_read_bridge(op.name) {
-                let alias = if op.name == "host.get" {
+            let host_read_sync = if crate::native::needs_host_read_injection(op.name) {
+                let alias = if matches!(op.name, "host.get" | "host.set") {
                     params
                         .get("alias")
                         .and_then(serde_json::Value::as_str)
@@ -267,6 +358,96 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     let alias = alias.clone();
                     Box::pin(async move {
                         crate::native::host_read_sync::http(Some(target), alias.as_deref()).await
+                    }) as pacer_foundation::api::OpFuture<'_>
+                })
+            } else {
+                None
+            };
+            let core_bridge_sync = if crate::native::needs_core_bridge(op.name) {
+                match crate::native::p8_bridge_ops::bridge_params(op.name, &params) {
+                    Ok(mut bridge_params) => {
+                        if op.name == "setup.check"
+                            && let serde_json::Value::Object(map) = &mut bridge_params
+                        {
+                            map.insert("snapshotProbe".into(), serde_json::json!(false));
+                        }
+                        let op_name = op.name.to_owned();
+                        state.core.target().await.map(|target| {
+                            let bridge_params = bridge_params.clone();
+                            Box::pin(async move {
+                                crate::native::core_bridge_sync::http(
+                                    Some(target),
+                                    &op_name,
+                                    bridge_params,
+                                )
+                                .await
+                            }) as pacer_foundation::api::OpFuture<'_>
+                        })
+                    }
+                    Err(error) => return native_error(error),
+                }
+            } else {
+                None
+            };
+            let task_stop_effects = if task_stop_probe_cache.is_some() {
+                let id = params
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                let before = task_stop_probe_cache
+                    .as_ref()
+                    .and_then(|probe| probe.get("beforeState"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                state.core.target().await.map(|target| {
+                    let id = id.clone();
+                    let before = before.clone();
+                    Box::pin(async move {
+                        crate::native::task_stop_sync::http_effects(
+                            Some(target),
+                            &id,
+                            before.as_deref(),
+                        )
+                        .await
+                    }) as pacer_foundation::api::OpFuture<'_>
+                })
+            } else {
+                None
+            };
+            let task_review_effects = if task_review_probe_cache.is_some() {
+                let id = params
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                let verdict = params
+                    .get("verdict")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                let kind = params
+                    .get("kind")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                let note = params
+                    .get("note")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                state.core.target().await.map(|target| {
+                    let id = id.clone();
+                    let verdict = verdict.clone();
+                    let kind = kind.clone();
+                    let note = note.clone();
+                    Box::pin(async move {
+                        crate::native::task_review_sync::http_effects(
+                            Some(target),
+                            &id,
+                            &verdict,
+                            kind.as_deref(),
+                            note.as_deref(),
+                        )
+                        .await
                     }) as pacer_foundation::api::OpFuture<'_>
                 })
             } else {
@@ -285,6 +466,11 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 snapshot_sync,
                 task_clean_sync,
                 host_read_sync,
+                core_bridge_sync,
+                task_stop_probe_cache,
+                task_stop_effects,
+                task_review_probe_cache,
+                task_review_effects,
             )
             .await
         };

@@ -12,6 +12,10 @@ pub(crate) fn needs_host_read_bridge(op: &str) -> bool {
     matches!(op, "host.list" | "host.get")
 }
 
+pub(crate) fn needs_host_read_injection(op: &str) -> bool {
+    matches!(op, "host.list" | "host.get" | "host.set")
+}
+
 fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
