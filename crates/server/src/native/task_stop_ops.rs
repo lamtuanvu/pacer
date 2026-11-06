@@ -8,7 +8,9 @@ use pacer_read_model::tasks::task_data;
 use pacer_store::{TaskStore, publish};
 use serde_json::{Map, Value, json};
 
-use super::lifecycle_ops::{invalid, object, optional_expect_rev, project_api_task, require_string};
+use super::lifecycle_ops::{
+    invalid, object, optional_expect_rev, project_api_task, require_string,
+};
 
 pub(crate) fn needs_task_stop_bridge(op: &str) -> bool {
     matches!(op, "task.stop")

@@ -28,8 +28,7 @@ fn js_compatible(value: &Value) -> bool {
             .is_some_and(|i| i.unsigned_abs() <= 9_007_199_254_740_991),
         Value::Array(items) => items.iter().all(js_compatible),
         Value::Object(map) => map.iter().all(|(key, value)| {
-            !key
-                .parse::<u32>()
+            !key.parse::<u32>()
                 .is_ok_and(|n| n < u32::MAX && n.to_string() == *key)
                 && js_compatible(value)
         }),

@@ -1,7 +1,8 @@
 # pacer-lifecycle
 
 Layer 6. Task admission (brief validation, capacity, lineage, strategy, prepared
-admission, queue drain and revision-checked mutation) alongside P6e attention,
+admission, P6f delegate orchestration, queue drain and revision-checked mutation)
+alongside P6e attention,
 client, job, host, notification and runner-check decisions. The first served lifecycle op is store-only `task.request_review`. P6b adds
 `run_spawn` (`self_command`, `runner_log_path`, `build_run_spawn_plan`,
 `RunSpawnOwner`, `validate_run_spawn_plan`) so drain launch hooks and future
@@ -22,8 +23,8 @@ publication and mutation locks. Capacity characterization covers `slot_use`,
 strategy-derived `slot_limit` / `queue_capacity_for` (TS `slotLimit` /
 `queueCapacity`) and precomputed `queue_capacity` goldens. Machine-signal
 collection stays outside this crate; callers pass an evaluated guard snapshot.
-Its disposable `task_admission_probe` binary exercises the shared Bun/Rust
-admission boundaries in tests.
+Its disposable `task_admission_probe` and `prepared_admission_probe` binaries
+exercise the shared Bun/Rust admission boundaries in tests.
 
 The P6e modules import no runner, supervisor, transport, plugin implementation,
 filesystem, process, clock or timer code. They write no state, so their SEC-7

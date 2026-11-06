@@ -46,14 +46,10 @@ fn optional_timeout_s(params: &Map<String, Value>) -> Result<(), CoreError> {
                 ));
             }
             if n < 1.0 {
-                return Err(invalid(
-                    "timeout_s: Too small: expected number to be >=1",
-                ));
+                return Err(invalid("timeout_s: Too small: expected number to be >=1"));
             }
             if n > 3000.0 {
-                return Err(invalid(
-                    "timeout_s: Too big: expected number to be <=3000",
-                ));
+                return Err(invalid("timeout_s: Too big: expected number to be <=3000"));
             }
             Ok(())
         }
