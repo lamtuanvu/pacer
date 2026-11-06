@@ -38,6 +38,7 @@ test("record_task_stop matches taskStop store fields without signals", () => {
   const ctx = fakeCtx();
   const t = createTask(ctx, {
     brief: { goal: "g", repo: ctx.home },
+    kind: null,
     requestedExecutor: null,
     timeoutS: 60,
   });
@@ -49,6 +50,7 @@ test("record_task_stop matches taskStop store fields without signals", () => {
   const other = fakeCtx();
   const seeded = createTask(other, {
     brief: { goal: "g", repo: other.home },
+    kind: null,
     requestedExecutor: null,
     timeoutS: 60,
   });
@@ -61,6 +63,7 @@ test("record_task_stop sets stopPending for running provider tasks", () => {
   const ctx = fakeCtx();
   const t = createTask(ctx, {
     brief: { goal: "g", repo: ctx.home },
+    kind: null,
     requestedExecutor: null,
     timeoutS: 60,
   });
@@ -75,6 +78,7 @@ test("record_task_stop sets stopPending for running provider tasks", () => {
   const other = fakeCtx();
   const seeded = createTask(other, {
     brief: { goal: "g", repo: other.home },
+    kind: null,
     requestedExecutor: null,
     timeoutS: 60,
   });

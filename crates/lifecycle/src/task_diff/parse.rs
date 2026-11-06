@@ -18,7 +18,12 @@ pub fn cap_patch(output: &str, max_mb: u32) -> String {
     String::from_utf8_lossy(&bytes[..max]).into_owned()
 }
 
-pub fn parse_name_status(output: &str) -> (std::collections::HashMap<String, String>, std::collections::HashMap<String, String>) {
+pub fn parse_name_status(
+    output: &str,
+) -> (
+    std::collections::HashMap<String, String>,
+    std::collections::HashMap<String, String>,
+) {
     let mut statuses = std::collections::HashMap::new();
     let mut renamed_from = std::collections::HashMap::new();
     let names: Vec<&str> = output.split('\0').collect();
@@ -77,9 +82,20 @@ pub fn parse_numstat(
         let binary = added == "-" || removed == "-";
         files.push(DiffFile {
             path: path.clone(),
-            status: statuses.get(&path).cloned().unwrap_or_else(|| "modified".into()),
-            added: if added == "-" { 0 } else { added.parse().unwrap_or(0) },
-            removed: if removed == "-" { 0 } else { removed.parse().unwrap_or(0) },
+            status: statuses
+                .get(&path)
+                .cloned()
+                .unwrap_or_else(|| "modified".into()),
+            added: if added == "-" {
+                0
+            } else {
+                added.parse().unwrap_or(0)
+            },
+            removed: if removed == "-" {
+                0
+            } else {
+                removed.parse().unwrap_or(0)
+            },
             binary,
         });
     }

@@ -66,9 +66,9 @@ pub fn executor_context_from_value(
         .get("home")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            crate::capability::CapabilitySessionError::Malformed("executorContext home")
-        })?;
+        .ok_or(crate::capability::CapabilitySessionError::Malformed(
+            "executorContext home",
+        ))?;
     Ok(Some(ExecutorCallContext {
         home: Path::new(home).to_path_buf(),
     }))

@@ -616,8 +616,12 @@ pub fn detail(c: &Value) -> Result<Value, Error> {
             entries
                 .iter()
                 .map(|(key, path)| {
-                    let checkout = checks.iter().find(|c| s(&c["name"]) == format!("checkout {key}"));
-                    let identity = checks.iter().find(|c| s(&c["name"]) == format!("identity {key}"));
+                    let checkout = checks
+                        .iter()
+                        .find(|c| s(&c["name"]) == format!("checkout {key}"));
+                    let identity = checks
+                        .iter()
+                        .find(|c| s(&c["name"]) == format!("identity {key}"));
                     json!({
                         "key": key,
                         "path": path,
@@ -663,7 +667,10 @@ pub fn detail(c: &Value) -> Result<Value, Error> {
     );
     out.insert("checks".into(), json!(checks));
     out.insert("executors".into(), executors);
-    out.insert("doneThisWeek".into(), json!({"done": done, "accepted": accepted}));
+    out.insert(
+        "doneThisWeek".into(),
+        json!({"done": done, "accepted": accepted}),
+    );
     out.insert("repos".into(), json!(repos));
     out.insert("accounts".into(), json!(accounts));
     out.insert("worktrees".into(), json!([]));

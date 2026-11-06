@@ -163,7 +163,7 @@ fn optional_states(params: &Map<String, Value>) -> Result<Option<Vec<String>>, C
             Ok(Some(
                 values
                     .iter()
-                    .map(|v| v.as_str().unwrap().to_owned())
+                    .filter_map(|v| v.as_str().map(str::to_owned))
                     .collect::<Vec<_>>(),
             ))
         }

@@ -8,7 +8,6 @@ mod brief;
 mod capacity;
 mod dependencies;
 mod dismiss;
-mod task_diff;
 mod json;
 mod lineage;
 mod record_review;
@@ -16,6 +15,7 @@ mod record_stop;
 mod request_review;
 mod schema;
 mod semantics;
+mod task_diff;
 
 pub use brief::{AdmissionError, ExecutorResolution, ValidationContext};
 pub use capacity::{
@@ -81,10 +81,6 @@ mod mutation;
 pub use mutation::MutationError;
 mod projects;
 pub use dismiss::{DismissError, dismiss_task, dismiss_tasks};
-pub use task_diff::{
-    CommandGit, DiffFile, DiffOptions, GitRun, GitRunResult, TaskDiff, TaskDiffError,
-    progress_base, task_diff, task_diff_to_json,
-};
 pub use projects::{read_project_strategies, validate_project_strategies};
 pub use record_review::{RecordReviewError, TASK_KINDS, record_review_verdict};
 pub use record_stop::{RecordStopError, record_task_stop};
@@ -92,6 +88,10 @@ pub use request_review::{RequestReviewError, request_review};
 pub use run_spawn::{
     RUN_SPAWN_OWNER, RunSpawnOwner, RunSpawnPlan, build_run_spawn_plan, runner_log_path,
     self_command, validate_run_spawn_plan,
+};
+pub use task_diff::{
+    CommandGit, DiffFile, DiffOptions, GitRun, GitRunResult, TaskDiff, TaskDiffError,
+    progress_base, task_diff, task_diff_to_json,
 };
 pub use wait_settled::task_wait_settled;
 

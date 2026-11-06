@@ -29,7 +29,9 @@ pub(crate) async fn http(
     };
     let run = async {
         let (port, token) = target.ok_or_else(|| unavailable("pacer core is restarting"))?;
-        let body = alias.map(|a| json!({"alias": a})).unwrap_or_else(|| json!({}));
+        let body = alias
+            .map(|a| json!({"alias": a}))
+            .unwrap_or_else(|| json!({}));
         let request = axum::http::Request::builder()
             .method("POST")
             .uri(format!("http://127.0.0.1:{port}/_internal/host-read-parts"))

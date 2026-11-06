@@ -4,9 +4,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 mod parse;
-pub use parse::{
-    DiffFile, cap_patch, parse_name_status, parse_numstat, select_patch_section,
-};
+pub use parse::{DiffFile, cap_patch, parse_name_status, parse_numstat, select_patch_section};
 
 #[derive(Debug, Error)]
 pub enum TaskDiffError {
@@ -54,7 +52,9 @@ impl GitRun for CommandGit {
     fn run(&self, argv: &[String], _timeout_ms: u64) -> Result<GitRunResult, TaskDiffError> {
         use std::process::Command;
         if argv.is_empty() || argv[0] != "git" {
-            return Err(TaskDiffError::InvalidInput("argv must start with git".into()));
+            return Err(TaskDiffError::InvalidInput(
+                "argv must start with git".into(),
+            ));
         }
         let output = Command::new(&argv[0]).args(&argv[1..]).output()?;
         Ok(GitRunResult {
@@ -96,7 +96,11 @@ fn snapshot_path(pacer_home: &Path, task: &Value) -> PathBuf {
                 .map(|a| a.len() as i64)
         })
         .unwrap_or(0);
-    pacer_home.join("runs").join(id).join(attempt.to_string()).join("diff.json")
+    pacer_home
+        .join("runs")
+        .join(id)
+        .join(attempt.to_string())
+        .join("diff.json")
 }
 
 fn resolve_worktree(task: &Value) -> String {
@@ -111,7 +115,11 @@ fn resolve_worktree(task: &Value) -> String {
     if task.pointer("/run/host").and_then(Value::as_str).is_some() {
         return review
             .map(str::to_owned)
-            .or_else(|| task.pointer("/brief/repo").and_then(Value::as_str).map(str::to_owned))
+            .or_else(|| {
+                task.pointer("/brief/repo")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
             .unwrap_or_default();
     }
     task.pointer("/run/workdir")
@@ -127,7 +135,9 @@ fn worktree_accessible(worktree: &str) -> bool {
     if worktree.is_empty() {
         return false;
     }
-    std::fs::metadata(worktree).map(|m| m.is_dir()).unwrap_or(false)
+    std::fs::metadata(worktree)
+        .map(|m| m.is_dir())
+        .unwrap_or(false)
 }
 
 fn read_snapshot(path: &Path) -> Option<Value> {
@@ -196,9 +206,8 @@ pub fn task_diff<G: GitRun>(
     let base = progress_base(task);
     let host = task.pointer("/run/host").and_then(Value::as_str);
     let review_worktree = task.pointer("/result/worktree").and_then(Value::as_str);
-    let review_local = review_worktree.is_some_and(|w| {
-        host.is_none_or(|h| !w.starts_with(&format!("{h}:")))
-    });
+    let review_local =
+        review_worktree.is_some_and(|w| host.is_none_or(|h| !w.starts_with(&format!("{h}:"))));
     let state = task.get("state").and_then(Value::as_str).unwrap_or("");
     if host.is_some() && (!review_local || state == "running") {
         let host = host.unwrap_or("remote");
@@ -212,10 +221,11 @@ pub fn task_diff<G: GitRun>(
             note: Some(format!("changes are on {host} until the run ends")),
         });
     }
-    if !options.snapshot && !worktree_accessible(&worktree) {
-        if let Some(stored) = read_snapshot(&snapshot_path(pacer_home, task)) {
-            return Ok(apply_snapshot(&stored, options.path, options.summary_only));
-        }
+    if !options.snapshot
+        && !worktree_accessible(&worktree)
+        && let Some(stored) = read_snapshot(&snapshot_path(pacer_home, task))
+    {
+        return Ok(apply_snapshot(&stored, options.path, options.summary_only));
     }
     let git_cmd = |args: Vec<&str>| -> Result<String, TaskDiffError> {
         let mut argv = vec![
@@ -228,12 +238,7 @@ pub fn task_diff<G: GitRun>(
         let timeout = if options.summary_only { 250 } else { 10_000 };
         let result = git.run(&argv, timeout)?;
         if result.code != 0 {
-            let line = result
-                .stderr
-                .lines()
-                .next()
-                .unwrap_or("")
-                .trim();
+            let line = result.stderr.lines().next().unwrap_or("").trim();
             let why = if line.is_empty() {
                 format!("git exited with code {}", result.code)
             } else {
@@ -256,7 +261,13 @@ pub fn task_diff<G: GitRun>(
     let against_start = base.as_deref().unwrap_or("HEAD");
     let name_output = git_cmd({
         let mut a = diff_args.clone();
-        a.extend(["--name-status", "-z", "--end-of-options", against_start, "--"]);
+        a.extend([
+            "--name-status",
+            "-z",
+            "--end-of-options",
+            against_start,
+            "--",
+        ]);
         a
     })?;
     let stat_output = git_cmd({
@@ -272,7 +283,11 @@ pub fn task_diff<G: GitRun>(
     let untracked_output = git_cmd(untrack_args)?;
     let (statuses, renamed_from) = parse_name_status(&name_output);
     let files = parse_numstat(&stat_output, &statuses);
-    let untracked: Vec<String> = untracked_output.split('\0').filter(|s| !s.is_empty()).map(str::to_owned).collect();
+    let untracked: Vec<String> = untracked_output
+        .split('\0')
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
     if options.summary_only {
         return Ok(TaskDiff {
             base,

@@ -266,11 +266,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 state.core.target().await.map(|target| {
                     let alias = alias.clone();
                     Box::pin(async move {
-                        crate::native::host_read_sync::http(
-                            Some(target),
-                            alias.as_deref(),
-                        )
-                        .await
+                        crate::native::host_read_sync::http(Some(target), alias.as_deref()).await
                     }) as pacer_foundation::api::OpFuture<'_>
                 })
             } else {

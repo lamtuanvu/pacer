@@ -1,11 +1,23 @@
-import { diff } from "../src/core/tasks";
+import { diff, type DiffFile } from "../src/core/tasks";
+import type { WorktreeRequest } from "../src/tasks/types";
 import { beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
-import fixtureCases from "./fixtures/task-diff/file-tree-parity.json";
+import fixtureCasesRaw from "./fixtures/task-diff/file-tree-parity.json";
+
+const fixtureCases = fixtureCasesRaw as {
+  description: string;
+  cases: {
+    name: string;
+    summaryOnly?: boolean;
+    startCommit?: boolean;
+    orca?: WorktreeRequest;
+    files: DiffFile[];
+  }[];
+};
 
 const ROOT = join(import.meta.dir, "..");
 const TARGET = join(ROOT, "target");
@@ -74,7 +86,8 @@ for (const spec of fixtureCases.cases) {
       git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "task work");
       updateTask(ctx, task.id, (t) => {
         t.backend = "orca";
-        t.placement = { requested: spec.orca, mode: spec.orca, why: "test" };
+        const mode = spec.orca as "current" | "new";
+        t.placement = { requested: mode, mode, why: "test" };
         t.baseBranch = "main";
         if (spec.orca === "current") t.startSha = start;
         else t.baseSha = start;

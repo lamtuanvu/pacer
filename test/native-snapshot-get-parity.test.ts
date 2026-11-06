@@ -89,7 +89,7 @@ test.skipIf(!front)("snapshot.get matches forced forwarding over stdio", async (
   const ctx = fakeCtx();
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   mkdirSync(join(ctx.pacerHome, "link"), { recursive: true, mode: 0o700 });
-  const reference = await callOp(ctx, "snapshot.get", {});
+  const reference = (await callOp(ctx, "snapshot.get", {})) as { snapshot?: Record<string, unknown> };
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-snapshot-get-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-snapshot-get-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });

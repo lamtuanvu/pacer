@@ -1863,7 +1863,7 @@ export class PluginRegistry {
   nativeMarkReady(ctx: Ctx, id: string, protocol: string, served: string[]): void {
     const e = this.findEntry(ctx, id);
     e.pluginProtocol = protocol;
-    e.served = Object.freeze([...served]);
+    e.served = [...served];
     this.setState(ctx, e, "ready");
   }
 

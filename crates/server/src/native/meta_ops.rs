@@ -21,9 +21,14 @@ fn pacer_version() -> &'static str {
 fn catalog() -> &'static Map<String, Value> {
     static CATALOG: OnceLock<Map<String, Value>> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        let value: Value =
-            serde_json::from_str(include_str!("../op_catalog.json")).expect("op_catalog.json");
-        value.as_object().expect("op catalog object").clone()
+        let value: Value = match serde_json::from_str(include_str!("../op_catalog.json")) {
+            Ok(value) => value,
+            Err(error) => panic!("invalid op_catalog.json: {error}"),
+        };
+        match value.as_object() {
+            Some(object) => object.clone(),
+            None => panic!("op catalog must be a JSON object"),
+        }
     })
 }
 
