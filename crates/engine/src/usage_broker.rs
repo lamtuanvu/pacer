@@ -36,6 +36,20 @@ pub fn routing_status(ctx: &Ctx, strategy: &Value, parts: &Value) -> Value {
     status::compose_status(&assemble_compose_input(ctx, strategy, parts))
 }
 
+/// Pure `routing.route` rank once broker parts match a `computeStatus` snapshot.
+///
+/// Does not run the classifier (`goal`) or remote eligibility (`repo`).
+pub fn routing_route(_ctx: &Ctx, strategy: &Value, parts: &Value, params: &Value) -> Value {
+    let kind = params.get("kind").cloned().unwrap_or(Value::Null);
+    status::rank_route(&json!({
+        "strategy": strategy,
+        "providers": parts.get("providers").cloned().unwrap_or(json!([])),
+        "kind": kind,
+        "selection": Value::Null,
+        "includePlanner": false,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
