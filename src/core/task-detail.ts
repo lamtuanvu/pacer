@@ -151,23 +151,61 @@ async function gitSummary(ctx: Ctx, task: TaskRecord): Promise<GitSummary> {
   return value;
 }
 
-export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
-  const task = get(ctx, id), last = task.attempts.at(-1), work=getWork(ctx,id);
+/** Git, tokens, retry options, dispatch work, activity timeline and agent-check acceptance. */
+export async function taskDetailEnrichment(
+  ctx: Ctx,
+  id: string,
+): Promise<Partial<TaskDetail> & { omitResultAcceptance?: boolean }> {
+  const task = get(ctx, id), work = getWork(ctx, id);
   let policyError: string | undefined;
-  const [changes, retryOptions] = await Promise.all([gitSummary(ctx, task), optionsFor(ctx, task, true).catch(error => { policyError = error instanceof Error ? error.message : String(error); return []; })]);
+  const [changes, retryOptions] = await Promise.all([
+    gitSummary(ctx, task),
+    optionsFor(ctx, task, true).catch(error => {
+      policyError = error instanceof Error ? error.message : String(error);
+      return [];
+    }),
+  ]);
   const attempts = attemptsWithTokens(ctx, task.id, task.attempts);
-  const acceptance = agentChecksPending(ctx,id)?undefined:task.result?.acceptance, terminal = TERMINAL_STATES.includes(task.state);
+  const acceptance = agentChecksPending(ctx, id) ? undefined : task.result?.acceptance;
   const cmd = acceptance?.cmd ?? task.brief.acceptance ?? null;
   return {
-    ...(work ? {work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth,allowDelegation:work.options.allowDelegation,...(userStartedRoot(ctx,task)?{userStarted:true}:{})}} : {}),
+    ...(work ? { work: { rootId: work.rootId, parentId: work.parentId, depth: work.depth, allowDelegation: work.options.allowDelegation, ...(userStartedRoot(ctx, task) ? { userStarted: true } : {}) } } : {}),
     ...(policyError ? { policyError } : {}),
     ...(task.managedSkip && !work ? { managedSkip: { reason: task.managedSkip.reason } } : {}),
-    ...apiTask(ctx, task), brief: task.brief, attempts, tokens: rollupTokens(itemsOf(attempts)),
-    routing: task.pendingAttempt?.routing ?? last?.routing ?? null, cost: costFor(ctx, task),
-    acceptance: { cmd, state: acceptance ? acceptance.passed ? "passed" : "failed" : !cmd ? "none" : task.progress?.phase === "testing" ? "running" : "pending", tail: Buffer.from(acceptance?.tail ?? "").subarray(-4096).toString("utf8"), machine: acceptance?.machine ?? null, ...(acceptance?.durationS !== undefined ? { durationS: acceptance.durationS } : {}), ...(acceptance?.summary ? { summary: acceptance.summary } : {}) },
-    summary: task.result?.report ?? null, branch: changes.branch, base: task.baseBranch ?? null, machine: task.run?.host ?? null,
-    startedAt: task.attempts[0]?.startedAt ?? task.run?.startedAt ?? task.attemptStartedAt ?? null,
-    endedAt: terminal ? last?.endedAt ?? null : null, files: changes.files, retryOptions, timeline: timelineFor(ctx, task),
-    derived: {files: changes.filesState, branch: changes.branchState, retryOptions: "cached", timeline: "partial"},
+    attempts,
+    tokens: rollupTokens(itemsOf(attempts)),
+    branch: changes.branch,
+    files: changes.files,
+    retryOptions,
+    timeline: timelineFor(ctx, task),
+    derived: { files: changes.filesState, branch: changes.branchState, retryOptions: "cached", timeline: "partial" },
+    acceptance: {
+      cmd,
+      state: acceptance ? acceptance.passed ? "passed" : "failed" : !cmd ? "none" : task.progress?.phase === "testing" ? "running" : "pending",
+      tail: Buffer.from(acceptance?.tail ?? "").subarray(-4096).toString("utf8"),
+      machine: acceptance?.machine ?? null,
+      ...(acceptance?.durationS !== undefined ? { durationS: acceptance.durationS } : {}),
+      ...(acceptance?.summary ? { summary: acceptance.summary } : {}),
+    },
+    omitResultAcceptance: agentChecksPending(ctx, id),
   };
+}
+
+export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
+  const task = get(ctx, id), last = task.attempts.at(-1);
+  const enrich = await taskDetailEnrichment(ctx, id);
+  const { omitResultAcceptance: _, ...overlay } = enrich as Partial<TaskDetail> & { omitResultAcceptance?: boolean };
+  const terminal = TERMINAL_STATES.includes(task.state);
+  return {
+    ...overlay,
+    ...apiTask(ctx, task),
+    brief: task.brief,
+    routing: task.pendingAttempt?.routing ?? last?.routing ?? null,
+    cost: costFor(ctx, task),
+    summary: task.result?.report ?? null,
+    base: task.baseBranch ?? null,
+    machine: task.run?.host ?? null,
+    startedAt: task.attempts[0]?.startedAt ?? task.run?.startedAt ?? task.attemptStartedAt ?? null,
+    endedAt: terminal ? last?.endedAt ?? null : null,
+  } as TaskDetail;
 }

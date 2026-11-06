@@ -3,12 +3,16 @@
 //! Production serve keeps [`Ownership::TypeScript`] unless the P4d-1 flag path
 //! constructs [`ProcessOwner::native_for_serve`]. The native test token can hold
 //! [`PluginProcess`] children in library form without claiming serve supervision
-//! or setting `PACER_HOST_SOCKET`.
+//! or setting `PACER_HOST_SOCKET`. Flag-on calls answer `capability.*` through an
+//! installed [`crate::PluginCapabilitySession`] (P4d-6).
 
+use crate::capability::PluginCapabilitySession;
+use crate::orca_attach::SharedOrcaBridge;
 use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, SpawnSpec};
 use serde_json::Value;
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum OwnerError {
@@ -71,11 +75,14 @@ impl Ownership {
 /// [`ProcessOwner::native_for_serve`].
 pub struct ProcessOwner {
     ownership: Ownership,
+    orca_bridge: Option<SharedOrcaBridge>,
     children: HashMap<String, PluginProcess>,
     /// Plugins that completed `plugin.hello` under this owner.
     ready: HashMap<String, ()>,
     /// Optional mirror of [`Registry`] state ids without owning children.
     shadow: HashMap<String, PluginState>,
+    /// Per-plugin capability broker sessions (P4d-6). Absent → deny caps.
+    sessions: HashMap<String, Arc<Mutex<PluginCapabilitySession>>>,
 }
 
 impl ProcessOwner {
@@ -83,9 +90,11 @@ impl ProcessOwner {
     pub fn typescript() -> Self {
         Self {
             ownership: Ownership::typescript(),
+            orca_bridge: None,
             children: HashMap::new(),
             ready: HashMap::new(),
             shadow: HashMap::new(),
+            sessions: HashMap::new(),
         }
     }
 
@@ -93,9 +102,11 @@ impl ProcessOwner {
     pub fn native_for_tests() -> Self {
         Self {
             ownership: Ownership::native_for_tests(),
+            orca_bridge: None,
             children: HashMap::new(),
             ready: HashMap::new(),
             shadow: HashMap::new(),
+            sessions: HashMap::new(),
         }
     }
 
@@ -103,10 +114,20 @@ impl ProcessOwner {
     pub fn native_for_serve() -> Self {
         Self {
             ownership: Ownership::native_for_serve(),
+            orca_bridge: None,
             children: HashMap::new(),
             ready: HashMap::new(),
             shadow: HashMap::new(),
+            sessions: HashMap::new(),
         }
+    }
+
+    pub fn set_orca_bridge(&mut self, bridge: SharedOrcaBridge) {
+        self.orca_bridge = Some(bridge);
+    }
+
+    pub(crate) fn orca_bridge(&self) -> Option<&SharedOrcaBridge> {
+        self.orca_bridge.as_ref()
     }
 
     pub fn ownership(&self) -> &Ownership {
@@ -162,6 +183,23 @@ impl ProcessOwner {
         self.children.get_mut(id)
     }
 
+    /// Install or replace the capability broker session for a tracked plugin.
+    pub fn install_capability_session(
+        &mut self,
+        id: impl Into<String>,
+        session: PluginCapabilitySession,
+    ) -> Result<(), OwnerError> {
+        let id = id.into();
+        self.ensure_native_library()?;
+        self.sessions.insert(id, Arc::new(Mutex::new(session)));
+        Ok(())
+    }
+
+    /// Shared handle to a plugin's capability session, if installed.
+    pub fn capability_session(&self, id: &str) -> Option<Arc<Mutex<PluginCapabilitySession>>> {
+        self.sessions.get(id).cloned()
+    }
+
     /// Spawn and track a child. Refused while TypeScript owns the host.
     pub fn spawn(&mut self, id: impl Into<String>, spec: &SpawnSpec) -> Result<(), OwnerError> {
         let id = id.into();
@@ -171,6 +209,7 @@ impl ProcessOwner {
         }
         let child = PluginProcess::spawn(spec)?;
         self.ready.remove(&id);
+        self.sessions.remove(&id);
         self.children.insert(id, child);
         Ok(())
     }
@@ -194,6 +233,7 @@ impl ProcessOwner {
             return Err(OwnerError::AlreadyTracked(id));
         }
         self.ready.remove(&id);
+        self.sessions.remove(&id);
         self.children.insert(id, child);
         Ok(())
     }
@@ -202,6 +242,7 @@ impl ProcessOwner {
     pub async fn terminate(&mut self, id: &str) -> Result<(), OwnerError> {
         self.ensure_native_library()?;
         self.ready.remove(id);
+        self.sessions.remove(id);
         let child = self
             .children
             .remove(id)
@@ -228,6 +269,10 @@ impl ProcessOwner {
     }
 
     /// JSON-RPC request against a tracked child (`_host.plugin.call`).
+    ///
+    /// When a [`PluginCapabilitySession`] is installed, plugin-to-host
+    /// `capability.*` requests are answered through that broker; otherwise they
+    /// stay denied (pre-P4d-6 behavior).
     pub async fn call_plugin(
         &mut self,
         id: &str,
@@ -236,11 +281,23 @@ impl ProcessOwner {
         deadline: Duration,
     ) -> Result<Value, OwnerError> {
         self.ensure_native_library()?;
+        let session = self.sessions.get(id).cloned();
         let child = self
             .children
             .get_mut(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
-        Ok(child.request(method, params, deadline, None).await?)
+        match session {
+            Some(session) => Ok(child
+                .request_with_handler(method, params, deadline, None, move |cap, body, meta| {
+                    let session = session.clone();
+                    async move {
+                        let mut guard = session.lock().await;
+                        guard.answer(&cap, body, meta).await
+                    }
+                })
+                .await?),
+            None => Ok(child.request(method, params, deadline, None).await?),
+        }
     }
 
     fn ensure_native_library(&self) -> Result<(), OwnerError> {
@@ -248,6 +305,22 @@ impl ProcessOwner {
             Ownership::TypeScript => Err(OwnerError::TypeScriptOwnsHost),
             Ownership::Native { .. } => Ok(()),
         }
+    }
+
+    /// Direct JSON-RPC to a provider child for `hostRunner.*` (bypasses capability broker).
+    pub(crate) async fn call_host_runner(
+        &mut self,
+        id: &str,
+        method: &str,
+        params: serde_json::Value,
+        deadline: Duration,
+    ) -> Result<serde_json::Value, OwnerError> {
+        self.ensure_native_library()?;
+        let child = self
+            .children
+            .get_mut(id)
+            .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
+        Ok(child.request(method, params, deadline, None).await?)
     }
 }
 

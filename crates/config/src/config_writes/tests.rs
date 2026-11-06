@@ -77,3 +77,25 @@ fn selected_strategy_switch_during_edit_is_a_conflict() {
         yaml
     );
 }
+
+#[test]
+#[allow(clippy::unwrap_used)]
+fn get_routing_returns_rules_and_available_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("strategy.yaml"),
+        "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\nrouting:\n  - kinds: [docs]\n    executors: [codex]\n  - default: [claude-code, codex]\n",
+    )
+    .unwrap();
+    let got = super::get_routing(dir.path()).unwrap();
+    assert_eq!(
+        got["rules"],
+        json!([
+            {"kinds": ["docs"], "executors": ["codex"]},
+            {"executors": ["claude-code", "codex"]},
+        ])
+    );
+    let available = got["available"].as_array().unwrap();
+    assert!(available.iter().any(|v| v == "claude-code"));
+    assert!(available.iter().any(|v| v == "codex"));
+}

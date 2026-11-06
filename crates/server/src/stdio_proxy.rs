@@ -178,18 +178,182 @@ async fn forward_input<
             // Planner install and backend readiness remain on the TypeScript path.
             if !(op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
                 && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
+                && !(op.name == "routing.route"
+                    && crate::native::routing_route_stays_forwarded(&params))
             {
                 let request_ctx = ctx.at_now();
-                let result = call_native(
-                    &request_ctx,
-                    op,
-                    params,
-                    request.get("id"),
-                    Some(Box::pin(crate::native::config_sync::stdio(
-                        &mut core, sync.0, sync.1, op.name, sync.2,
-                    ))),
-                )
-                .await;
+                let result = if crate::native::needs_usage_broker(op.name) {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        Some(Box::pin(crate::native::status_sync::stdio(
+                            &mut core, sync.0, sync.1, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                } else if crate::native::needs_task_read_bridge(op.name) {
+                    let task_id = params
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::task_read_sync::stdio(
+                            &mut core, sync.0, sync.1, &task_id, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                } else if crate::native::needs_task_clean_bridge(op.name) {
+                    match crate::native::task_dismiss_ops::ids_from_params(&params) {
+                        Ok(ids) => {
+                            call_native(
+                                &request_ctx,
+                                op,
+                                params,
+                                request.get("id"),
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(Box::pin(crate::native::task_clean_sync::stdio(
+                                    &mut core, sync.0, sync.1, &ids, sync.2,
+                                ))
+                                    as pacer_foundation::api::OpFuture<'_>),
+                                None,
+                            )
+                            .await
+                        }
+                        Err(error) => Err(error),
+                    }
+                } else if crate::native::needs_snapshot_bridge(op.name) {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::snapshot_sync::stdio(
+                            &mut core, sync.0, sync.1, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                    )
+                    .await
+                } else if crate::native::needs_session_probe(op.name) {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::session_sync::stdio(
+                            &mut core, sync.0, sync.1, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                } else if crate::native::needs_config_host_bridge(op.name) {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::config_host_sync::stdio(
+                            &mut core, sync.0, sync.1, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                } else if crate::native::needs_host_read_bridge(op.name) {
+                    let alias = if op.name == "host.get" {
+                        params
+                            .get("alias")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    } else {
+                        None
+                    };
+                    let alias_ref = alias.as_deref();
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::host_read_sync::stdio(
+                            &mut core, sync.0, sync.1, alias_ref, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                    )
+                    .await
+                } else {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        Some(Box::pin(crate::native::config_sync::stdio(
+                            &mut core, sync.0, sync.1, op.name, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                };
                 if let Some(id) = request.get("id") {
                     let response = match result {
                         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),

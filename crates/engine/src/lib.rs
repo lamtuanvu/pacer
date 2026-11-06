@@ -1,9 +1,13 @@
 //! Pure engine calculations plus safe pacing-state helpers (pause, mode hold, exhausted marks).
 //! Inputs and outputs use the TypeScript JSON shapes until the M2 operation boundary introduces
-//! protocol types. Status/usage-broker ops stay forwarded until P5b.
+//! protocol types. Pacing status ops compose from [`usage_broker`] injections; selective
+//! `routing.route` params still forward for classifier and remote eligibility.
 pub mod exhausted;
 pub mod mode_hold;
 pub mod pause;
+pub mod status;
+pub mod usage_broker;
+pub mod usage_refresh;
 
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::Tz;

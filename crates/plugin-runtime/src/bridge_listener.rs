@@ -289,10 +289,24 @@ fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
     }
 }
 
+fn peer_uid(stream: &UnixStream) -> Result<u32, BridgeError> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
+        getsockopt(stream, PeerCredentials)
+            .map(|cred| cred.uid())
+            .map_err(|_| BridgeError::PeerCredUnavailable)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        nix::unistd::getpeereid(stream)
+            .map(|(uid, _)| uid.as_raw())
+            .map_err(|_| BridgeError::PeerCredUnavailable)
+    }
+}
+
 fn authorize(stream: &UnixStream, auth: &PeerAuth) -> Result<(), BridgeError> {
-    let (uid, _gid) =
-        nix::unistd::getpeereid(stream).map_err(|_| BridgeError::PeerCredUnavailable)?;
-    if uid.as_raw() != auth.allowed_uid {
+    if peer_uid(stream)? != auth.allowed_uid {
         return Err(BridgeError::UntrustedCaller);
     }
     Ok(())
@@ -569,11 +583,10 @@ async fn write_raw(stream: &mut UnixStream, value: &Value) -> Result<(), BridgeE
 /// When true, unset env enables the native plugin host; set
 /// `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape.
 ///
-/// Kept `false` until the native [`crate::ProcessOwner`] answers `capability.*`
-/// for bundled plugins and CT-11 live evidence lands (P4d-5). The disable
-/// parsing already works so cutover is a one-const flip plus validation.
+/// Flipped on after P4d-8…P4d-12 landed executor-class attach on the flag-on
+/// `ProcessOwner`. CT-11 live cutover evidence remains tracked separately.
 pub const fn serve_starts_reverse_bridge_by_default() -> bool {
-    false
+    true
 }
 
 /// Public client/TCP surfaces must never advertise private bridge methods.

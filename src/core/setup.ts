@@ -93,8 +93,8 @@ export async function agentDisconnect(ctx: Ctx, agent: AgentId) {
   } catch (e) { throw toCoreError(e); }
 }
 
-export async function version(ctx: Ctx) {
-  return {pacer: currentVersion(), protocol: PROTOCOL_VERSION, service: await serviceStatus(ctx)};
+export function version(_ctx: Ctx) {
+  return {pacer: currentVersion(), protocol: PROTOCOL_VERSION};
 }
 
 export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<ServiceBackend,"install"|"status">=serviceBackend(ctx)) {

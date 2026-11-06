@@ -127,6 +127,9 @@ impl CapabilityBroker {
         self.native_worktree = Some(worktree);
         self
     }
+    pub fn attach_worktree(&mut self, worktree: crate::NativeWorktree) {
+        self.native_worktree = Some(worktree);
+    }
     pub fn with_native_duplex(mut self, duplex: crate::NativeDuplex) -> Self {
         self.native_duplex = Some(duplex);
         self
@@ -226,8 +229,16 @@ impl CapabilityBroker {
             });
         }
         match method {
-            "capability.process.claimRun"
-            | "capability.process.startRun"
+            "capability.process.claimRun" => {
+                let attempt = p
+                    .get("attempt")
+                    .and_then(crate::js_semantics::safe_u64)
+                    .filter(|n| *n > 0)
+                    .ok_or(BrokerError::Invalid("attempt"))?;
+                self.authority
+                    .consume_executor_claim(field("taskId")?, attempt)?;
+            }
+            "capability.process.startRun"
             | "capability.process.stopRun"
             | "capability.process.inspectRun"
             | "capability.process.pollRun"
@@ -873,6 +884,17 @@ impl CapabilityBroker {
                     .map_err(|e| BrokerError::HostLease(e.to_string()))?;
                 return Ok(json!({"ok":true}));
             }
+            "capability.log" => {
+                let level = field("level")?;
+                if !["debug", "info", "warn", "error"].contains(&level) {
+                    return Err(BrokerError::Invalid("log level"));
+                }
+                let message = field("message")?;
+                if message.is_empty() || crate::js_semantics::codepoint_len(message) > 4096 {
+                    return Err(BrokerError::Invalid("log message"));
+                }
+            }
+            "capability.config.get" => {}
             _ => {
                 return Err(
                     AuthorityError::Denied("capability broker is not implemented".into()).into(),
@@ -1191,6 +1213,8 @@ fn validate_request_fields(
         ],
         "capability.hosts.fetch" => &["session", "timeoutMs", "maxBytes"],
         "capability.hosts.close" => &["session"],
+        "capability.log" => &["level", "message"],
+        "capability.config.get" => &[],
         _ => return Err(BrokerError::Invalid("unknown host method")),
     };
     if params.keys().any(|key| !allowed.contains(&key.as_str())) {

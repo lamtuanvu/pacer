@@ -328,3 +328,15 @@ test("signed radix strings stay strings through strategy save", async () => {
   for (const literal of ["+0x5","+0o5"]) expect(await compare("strategy.save",{name:"review",draft:{from:"default"},reason:"string radix parity"},
     path=>writeFileSync(join(path,"strategy.yaml"),golden.initial+`\nmisc: {value: "${literal}", "${literal}": kept}\n`))).toHaveProperty("result");
 },120_000);
+
+test("native config.get matches TypeScript with injected host fields", async () => {
+  const rs = home(), ts = home();
+  const ctx = fakeCtx({ pacerHome: ts, home: ts, now: 1_700_000_000, env: { PACER_ORCA_USER_DATA: join(ts, "orca-user-data"), PACER_AGENT: "fixture" } });
+  const { configHostParts } = await import("../src/api/config-host-bridge");
+  const hostParts = configHostParts(ctx);
+  let expected: unknown;
+  try { expected = { result: await callOp(ctx, "config.get", {}) }; } catch (error) { expected = { error: toApiError(error) }; }
+  const input = `{"op":"config.get","params":{},"home":${JSON.stringify(rs)},"now":${ctx.now},"agent":"fixture","hostParts":${JSON.stringify(hostParts)}}\n`;
+  const actual = JSON.parse(execFileSync(driver(), [], { input }).toString());
+  expect(normalize(actual, rs), JSON.stringify(actual)).toEqual(normalize(expected, ts));
+}, 120_000);

@@ -83,6 +83,42 @@ pub struct CallResources {
     pub orca_attempt: Option<crate::OrcaAttemptResource>,
     #[serde(default)]
     pub orca_live: Option<crate::OrcaLiveResource>,
+    #[serde(default)]
+    pub executor_claim: Option<ExecutorClaimResource>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutorLaunchFileResource {
+    pub name: String,
+    pub content: String,
+    pub mode: u32,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutorLaunchResource {
+    pub argv: Vec<String>,
+    pub cwd: String,
+    pub executable: String,
+    pub env: HashMap<String, String>,
+    #[serde(default)]
+    pub stdin: Option<String>,
+    #[serde(default)]
+    pub session: Option<String>,
+    #[serde(default)]
+    pub umask: Option<String>,
+    #[serde(default)]
+    pub keep_color: Option<Vec<String>>,
+    #[serde(default)]
+    pub files: Option<Vec<ExecutorLaunchFileResource>>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutorClaimResource {
+    pub task_id: String,
+    pub attempt: u64,
+    pub provider_id: String,
+    pub executor: String,
+    pub launch: ExecutorLaunchResource,
 }
 #[derive(Clone, Debug, Deserialize)]
 pub struct HttpResource {
@@ -107,6 +143,7 @@ pub struct CallAuthority {
     used_hosts: HashSet<usize>,
     worktree_used: bool,
     orca_live_used: bool,
+    executor_claim_used: bool,
 }
 
 impl CallAuthority {
@@ -123,6 +160,7 @@ impl CallAuthority {
             used_hosts: HashSet::new(),
             worktree_used: false,
             orca_live_used: false,
+            executor_claim_used: false,
         }
     }
     pub fn revoke(&mut self) {
@@ -290,6 +328,24 @@ impl CallAuthority {
             ));
         }
         self.worktree_used = true;
+        Ok(())
+    }
+    pub fn consume_executor_claim(
+        &mut self,
+        task_id: &str,
+        attempt: u64,
+    ) -> Result<(), AuthorityError> {
+        self.granted("process.spawn")?;
+        let issued =
+            self.resources.executor_claim.as_ref().ok_or_else(|| {
+                AuthorityError::Denied("executor run claim was not issued".into())
+            })?;
+        if self.executor_claim_used || issued.task_id != task_id || issued.attempt != attempt {
+            return Err(AuthorityError::Denied(
+                "executor run claim was not issued".into(),
+            ));
+        }
+        self.executor_claim_used = true;
         Ok(())
     }
     pub fn worktree(

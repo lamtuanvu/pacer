@@ -3,15 +3,39 @@ use pacer_foundation::{
     api::{CoreError, NativeOp, Registry},
 };
 use serde_json::Value;
+mod config_get_ops;
+pub(crate) mod config_host_sync;
 mod config_params;
 pub(crate) mod config_sync;
 mod config_writes;
 mod engine_ops;
+mod host_read_ops;
+pub(crate) mod host_read_sync;
+mod lifecycle_ops;
+mod meta_ops;
 pub mod plugins;
+pub(crate) mod session_ops;
+pub(crate) mod session_sync;
+mod snapshot_get_ops;
+pub(crate) mod snapshot_sync;
+pub(crate) mod status_ops;
+pub(crate) mod status_sync;
+pub(crate) mod task_clean_sync;
+mod task_diff_ops;
+pub(crate) mod task_dismiss_ops;
+mod task_get_ops;
+pub(crate) mod task_read_sync;
 mod task_reads;
 
+pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
+pub(crate) use host_read_ops::needs_host_read_bridge;
+pub(crate) use session_ops::needs_session_probe;
+pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
+pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
+pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
+pub(crate) use task_get_ops::needs_task_read_bridge;
 
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
@@ -54,6 +78,10 @@ static OPS: &[NativeOp] = &[
         call: config_writes::strategy_remove,
     },
     NativeOp {
+        name: "routing.get",
+        call: config_writes::routing_get,
+    },
+    NativeOp {
         name: "routing.set",
         call: config_writes::routing_set,
     },
@@ -86,6 +114,22 @@ static OPS: &[NativeOp] = &[
         call: config_writes::notifications_set,
     },
     NativeOp {
+        name: "config.get",
+        call: config_get_ops::config_get_stub,
+    },
+    NativeOp {
+        name: "host.suggest",
+        call: host_read_ops::host_suggest,
+    },
+    NativeOp {
+        name: "host.list",
+        call: host_read_ops::host_list_stub,
+    },
+    NativeOp {
+        name: "host.get",
+        call: host_read_ops::host_get_stub,
+    },
+    NativeOp {
         name: "config.set",
         call: config_writes::config_set,
     },
@@ -106,6 +150,30 @@ static OPS: &[NativeOp] = &[
         call: task_reads::task_restore,
     },
     NativeOp {
+        name: "task.list",
+        call: session_ops::task_list_stub,
+    },
+    NativeOp {
+        name: "task.get",
+        call: task_get_ops::task_get_stub,
+    },
+    NativeOp {
+        name: "snapshot.get",
+        call: snapshot_get_ops::snapshot_get_stub,
+    },
+    NativeOp {
+        name: "version.get",
+        call: meta_ops::version_get,
+    },
+    NativeOp {
+        name: "api.list",
+        call: meta_ops::api_list,
+    },
+    NativeOp {
+        name: "api.describe",
+        call: meta_ops::api_describe,
+    },
+    NativeOp {
         name: "delegation.pause",
         call: engine_ops::delegation_pause,
     },
@@ -124,6 +192,30 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "limits.report",
         call: engine_ops::limits_report,
+    },
+    NativeOp {
+        name: "limits.check",
+        call: status_ops::limits_check_stub,
+    },
+    NativeOp {
+        name: "routing.status",
+        call: status_ops::routing_status_stub,
+    },
+    NativeOp {
+        name: "routing.route",
+        call: status_ops::routing_route_stub,
+    },
+    NativeOp {
+        name: "task.request_review",
+        call: lifecycle_ops::task_request_review,
+    },
+    NativeOp {
+        name: "task.dismiss",
+        call: task_dismiss_ops::task_dismiss_stub,
+    },
+    NativeOp {
+        name: "task.diff",
+        call: task_diff_ops::task_diff_op,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -158,13 +250,20 @@ pub fn service_registry(forward: &str) -> Registry<'static> {
     )
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub async fn call_native(
     ctx: &Ctx,
     op: &NativeOp,
     params: Value,
     request_id: Option<&Value>,
     endpoint_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    broker_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    session_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    config_host_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    snapshot_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_clean_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    host_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
@@ -179,7 +278,96 @@ pub async fn call_native(
             "endpoint synchronization bridge unavailable",
         ));
     }
-    let result = (op.call)(ctx, params).await?;
+    if needs_task_clean_bridge(op.name) && task_clean_sync.is_none() {
+        return Err(CoreError::new(
+            pacer_foundation::api::Code::Unavailable,
+            "task clean bridge unavailable",
+        ));
+    }
+    let result = if needs_usage_broker(op.name) {
+        let parts = broker_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "usage broker bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "limits.check" => status_ops::limits_check(ctx, params, parts.await?).await?,
+            "routing.status" => status_ops::routing_status(ctx, params, parts.await?).await?,
+            "routing.route" => status_ops::routing_route(ctx, params, parts.await?).await?,
+            _ => unreachable!("needs_usage_broker"),
+        }
+    } else if needs_task_read_bridge(op.name) {
+        let parts = task_read_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "task read bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "task.get" => task_get_ops::task_get(ctx, params, parts.await?).await?,
+            _ => unreachable!("needs_task_read_bridge"),
+        }
+    } else if needs_snapshot_bridge(op.name) {
+        let parts = snapshot_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "snapshot probe bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "snapshot.get" => snapshot_get_ops::snapshot_get(ctx, params, parts.await?).await?,
+            _ => unreachable!("needs_snapshot_bridge"),
+        }
+    } else if needs_session_probe(op.name) {
+        let parts = session_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "session probe bridge unavailable",
+            )
+        })?;
+        let probe = session_ops::parse_probe_parts(parts.await?)?;
+        match op.name {
+            "task.list" => session_ops::task_list(ctx, params, probe).await?,
+            _ => unreachable!("needs_session_probe"),
+        }
+    } else if needs_config_host_bridge(op.name) {
+        let parts = config_host_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "config host bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "config.get" => config_get_ops::config_get(ctx, params, parts.await?).await?,
+            _ => unreachable!("needs_config_host_bridge"),
+        }
+    } else if needs_host_read_bridge(op.name) {
+        let parts = host_read_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "host read bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "host.list" => host_read_ops::host_list(ctx, params, parts.await?).await?,
+            "host.get" => host_read_ops::host_get(ctx, params, parts.await?).await?,
+            _ => unreachable!("needs_host_read_bridge"),
+        }
+    } else if needs_task_clean_bridge(op.name) {
+        let clean = task_clean_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "task clean bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "task.dismiss" => task_dismiss_ops::task_dismiss(ctx, params, clean).await?,
+            _ => unreachable!("needs_task_clean_bridge"),
+        }
+    } else {
+        (op.call)(ctx, params).await?
+    };
     if config_writes::syncs_endpoints(op.name)
         && let Some(sync) = endpoint_sync
     {
@@ -212,6 +400,7 @@ mod tests {
             "strategy.use",
             "strategy.save",
             "strategy.remove",
+            "routing.get",
             "routing.set",
             "runner.set",
             "runner.reorder",
@@ -220,17 +409,34 @@ mod tests {
             "runner.settings.save",
             "notifications.get",
             "notifications.set",
+            "config.get",
             "config.set",
+            "host.suggest",
+            "host.list",
+            "host.get",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
             "mode.release",
             "limits.report",
+            "limits.check",
+            "routing.status",
+            "routing.route",
+            "task.request_review",
+            "task.dismiss",
+            "task.diff",
+            "task.list",
+            "task.get",
+            "snapshot.get",
+            "version.get",
+            "api.list",
+            "api.describe",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
         }
-        assert!(registry("").get("config.get").is_none());
+        assert!(registry("").get("config.get").is_some());
+        assert!(registry("config.get").get("config.get").is_none());
         assert!(registry("").get("activity.list").is_some());
         // Stdio keeps retired install in TypeScript; HTTP registers the refuse.
         assert!(registry("").get("plugin.install").is_none());
@@ -243,13 +449,24 @@ mod tests {
         assert!(registry("task.prune").get("task.prune").is_none());
         assert!(registry("task.prune").get("task.restore").is_some());
         assert!(registry("*").names().is_empty());
-        assert!(registry("").get("task.dismiss").is_none());
-        assert!(registry("").get("task.diff").is_none());
-        assert!(registry("").get("task.get").is_none());
-        assert!(registry("").get("task.list").is_none());
-        assert!(registry("").get("routing.status").is_none());
-        assert!(registry("").get("routing.route").is_none());
-        assert!(registry("").get("limits.check").is_none());
+        assert!(registry("").get("task.dismiss").is_some());
+        assert!(registry("task.dismiss").get("task.dismiss").is_none());
+        assert!(registry("").get("task.diff").is_some());
+        assert!(registry("task.diff").get("task.diff").is_none());
+        assert!(registry("task.list").get("task.list").is_none());
+        assert!(registry("task.get").get("task.get").is_none());
+        assert!(registry("task.list").get("task.get").is_some());
+        assert!(registry("snapshot.get").get("snapshot.get").is_none());
+        assert!(registry("snapshot.get").get("task.list").is_some());
+        assert!(registry("").get("task.delegate").is_none());
+        assert!(registry("").get("task.stop").is_none());
+        assert!(registry("").get("task.answer").is_none());
+        assert!(registry("").get("task.wait").is_none());
+        assert!(registry("").get("task.retry").is_none());
+        assert!(registry("").get("task.retry_all").is_none());
+        assert!(registry("").get("task.retry_options").is_none());
+        assert!(registry("").get("task.review").is_none());
+        assert!(registry("").get("task.ask").is_none());
         assert!(registry("").get("limits.refresh").is_none());
     }
 
@@ -266,6 +483,7 @@ mod tests {
             "strategy.use",
             "strategy.save",
             "strategy.remove",
+            "routing.get",
             "routing.set",
             "runner.set",
             "runner.reorder",
@@ -274,17 +492,38 @@ mod tests {
             "runner.settings.save",
             "notifications.get",
             "notifications.set",
+            "config.get",
             "config.set",
+            "host.suggest",
+            "host.list",
+            "host.get",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
             "mode.release",
             "limits.report",
+            "limits.check",
+            "routing.status",
+            "routing.route",
+            "task.request_review",
+            "task.dismiss",
+            "task.diff",
+            "task.list",
+            "task.get",
+            "snapshot.get",
+            "version.get",
+            "api.list",
+            "api.describe",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
         }
-        assert!(super::service_registry("").get("config.get").is_none());
+        assert!(super::service_registry("").get("config.get").is_some());
+        assert!(
+            super::service_registry("config.get")
+                .get("config.get")
+                .is_none()
+        );
         // P4d-4: retired install is native HTTP refuse; stdio stays TypeScript.
         assert!(super::service_registry("").get("plugin.install").is_some());
         assert!(

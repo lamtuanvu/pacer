@@ -30,12 +30,31 @@ async fn main() -> io::Result<()> {
         let op = registry
             .get(name)
             .ok_or_else(|| io::Error::other("missing native op"))?;
+        let host_sync = if name == "config.get" {
+            let host_parts = input.get("hostParts").cloned().unwrap_or(Value::Null);
+            Some(Box::pin(async move { Ok(host_parts) }) as pacer_foundation::api::OpFuture<'_>)
+        } else {
+            None
+        };
+        let host_read_sync = if name == "host.list" || name == "host.get" {
+            let host_parts = input.get("hostParts").cloned().unwrap_or(Value::Null);
+            Some(Box::pin(async move { Ok(host_parts) }) as pacer_foundation::api::OpFuture<'_>)
+        } else {
+            None
+        };
         let result = pacer_server::native::call_native(
             &ctx,
             op,
             input["params"].clone(),
             None,
             Some(Box::pin(async { Ok(Value::Null) })),
+            None,
+            None,
+            None,
+            host_sync,
+            None,
+            None,
+            host_read_sync,
         )
         .await;
         let output = match result {

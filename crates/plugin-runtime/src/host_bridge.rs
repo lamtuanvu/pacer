@@ -18,7 +18,7 @@ pub const HOST_SOCKET_ENV: &str = "PACER_HOST_SOCKET";
 /// Together with [`crate::NATIVE_PLUGIN_HOST_ENABLE_ENV`], truthy values enable
 /// the native serve path that binds `host.sock` and exports [`HOST_SOCKET_ENV`].
 /// Falsy values (`0` / `false` / `no`) are the escape hatch once
-/// [`crate::serve_starts_reverse_bridge_by_default`] flips on (P4d-5).
+/// [`crate::serve_starts_reverse_bridge_by_default`] is true (P4d-13).
 pub const HOST_BRIDGE_ENABLE_ENV: &str = "PACER_HOST_BRIDGE";
 
 /// Socket file name under `$PACER_HOME/run/`.

@@ -1,9 +1,17 @@
 # pacer-lifecycle
 
-Layer 6, with no runtime callers or native operation registrations. The crate
-contains task admission (brief validation, capacity, lineage, strategy, prepared
+Layer 6. Task admission (brief validation, capacity, lineage, strategy, prepared
 admission, queue drain and revision-checked mutation) alongside P6e attention,
-client, job, host, notification and runner-check decisions.
+client, job, host, notification and runner-check decisions. The first served lifecycle op is store-only `task.request_review`. P6b adds
+`run_spawn` (`self_command`, `runner_log_path`, `build_run_spawn_plan`,
+`RunSpawnOwner`, `validate_run_spawn_plan`) so drain launch hooks and future
+native supervisors share the same `_run` argv/env/log contract as
+`src/tasks/api.ts`; effectful spawn remains TypeScript-owned. P6c adds
+store-only `record_review_verdict` (accept/reject SQLite fields matching
+`taskReview` without labels or gates). P6d adds store-only `record_task_stop`
+and `task_wait_settled` (matching `taskStop` store fields and the `taskWait`
+poll exit predicate without drain, supervision or signals). Runner/_run-dependent
+**operations** stay forwarded after P6d.
 
 Admission uses `pacer-store` and `pacer-foundation` for transactional task state,
 publication and mutation locks. Capacity characterization covers `slot_use`,

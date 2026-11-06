@@ -20,9 +20,11 @@ pacer-plugin-runtime = { path = "../plugin-runtime" }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 pacer-config = { path = "../config" }
 pacer-engine = { path = "../engine" }
+pacer-lifecycle = { path = "../lifecycle" }
 pacer-store = { path = "../store" }
 pacer-read-model = { path = "../read-model" }
 pacer-mdns = { path = "../mdns" }
+chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
 
 axum = { version = "0.8", features = ["ws"] }
 hyper = { version = "1", features = ["client", "http1"] }
@@ -40,6 +42,9 @@ icu_collator = { version = "=2.4.0", features = ["unstable"] }
 
 [build-dependencies]
 serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["signal"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { version = "0.31", features = ["socket", "uio", "fs", "user", "signal", "process"] }
