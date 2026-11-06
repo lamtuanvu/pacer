@@ -8,8 +8,10 @@ client, job, host, notification and runner-check decisions. The first served lif
 native supervisors share the same `_run` argv/env/log contract as
 `src/tasks/api.ts`; effectful spawn remains TypeScript-owned. P6c adds
 store-only `record_review_verdict` (accept/reject SQLite fields matching
-`taskReview` without labels or gates). Runner/_run-dependent **operations**
-stay forwarded after P6c.
+`taskReview` without labels or gates). P6d adds store-only `record_task_stop`
+and `task_wait_settled` (matching `taskStop` store fields and the `taskWait`
+poll exit predicate without drain, supervision or signals). Runner/_run-dependent
+**operations** stay forwarded after P6d.
 
 Admission uses `pacer-store` and `pacer-foundation` for transactional task state,
 publication and mutation locks. Capacity characterization covers `slot_use`,
