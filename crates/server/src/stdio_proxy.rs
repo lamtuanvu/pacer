@@ -180,16 +180,31 @@ async fn forward_input<
                 && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
             {
                 let request_ctx = ctx.at_now();
-                let result = call_native(
-                    &request_ctx,
-                    op,
-                    params,
-                    request.get("id"),
-                    Some(Box::pin(crate::native::config_sync::stdio(
-                        &mut core, sync.0, sync.1, op.name, sync.2,
-                    ))),
-                )
-                .await;
+                let result = if op.name == "limits.check" {
+                    match crate::native::status_sync::stdio(
+                        &mut core, sync.0, sync.1, sync.2,
+                    )
+                    .await
+                    {
+                        Ok(parts) => {
+                            crate::native::status_ops::limits_check(&request_ctx, params, parts)
+                                .await
+                        }
+                        Err(error) => Err(error),
+                    }
+                } else {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        Some(Box::pin(crate::native::config_sync::stdio(
+                            &mut core, sync.0, sync.1, op.name, sync.2,
+                        ))),
+                        None,
+                    )
+                    .await
+                };
                 if let Some(id) = request.get("id") {
                     let response = match result {
                         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
