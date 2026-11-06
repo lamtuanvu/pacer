@@ -1,0 +1,79 @@
+[
+  {
+    "id": "kind-change-updates-dispatch",
+    "input": {
+      "brief": { "goal": "work", "repo": "/tmp" },
+      "kind": "feature",
+      "dispatch": { "kind": "feature", "requirements": { "minTier": "medium" } },
+      "executor": "codex",
+      "worktree": "auto"
+    },
+    "amend": { "kind": "debug", "requestedExecutor": "codex", "placement": "new" },
+    "mapped": {
+      "brief": { "goal": "work", "repo": "/tmp" },
+      "kind": "debug",
+      "dispatch": { "kind": "debug", "requirements": { "minTier": "medium" } },
+      "executor": "codex",
+      "worktree": "new"
+    }
+  },
+  {
+    "id": "same-kind-keeps-input-kind",
+    "input": {
+      "brief": { "goal": "work", "repo": "/tmp" },
+      "kind": "feature",
+      "executor": "codex",
+      "worktree": "auto"
+    },
+    "amend": { "kind": "feature", "requestedExecutor": "codex", "placement": "current" },
+    "mapped": {
+      "brief": { "goal": "work", "repo": "/tmp" },
+      "kind": "feature",
+      "executor": "codex",
+      "worktree": "current"
+    }
+  },
+  {
+    "id": "dispatch-kind-baseline",
+    "input": {
+      "brief": { "goal": "work", "repo": "/tmp" },
+      "dispatch": { "kind": "tests" },
+      "executor": "codex",
+      "worktree": "auto"
+    },
+    "amend": { "kind": "tests", "requestedExecutor": "codex", "placement": "auto" },
+    "mapped": {
+      "brief": { "goal": "work", "repo": "/tmp" },
+      "dispatch": { "kind": "tests" },
+      "executor": "codex",
+      "worktree": "auto"
+    }
+  },
+  {
+    "id": "identity-receipt",
+    "brief": { "goal": "work", "repo": "$REPO" },
+    "strategy": {
+      "providers": { "codex": {} },
+      "planner": { "agent": "other", "account": "other" },
+      "accounts": {},
+      "runners": {
+        "codex": { "id": "codex", "agent": "codex", "account": "default", "host": null }
+      }
+    },
+    "accept": true
+  },
+  {
+    "id": "disabled-runner",
+    "brief": { "goal": "work", "repo": "$REPO", "executor": "codex" },
+    "strategy": {
+      "providers": { "codex": {} },
+      "planner": { "agent": "other", "account": "other" },
+      "accounts": {},
+      "runners": {
+        "codex": { "id": "codex", "agent": "codex", "account": "default", "host": null, "enabled": false }
+      }
+    },
+    "accept": false,
+    "error": "disabled"
+  }
+]
