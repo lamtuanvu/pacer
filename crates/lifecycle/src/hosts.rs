@@ -766,3 +766,46 @@ pub fn setup_plan(
     );
     Err(error)
 }
+
+/// SSH argv and title for `host.terminal`. Opening a terminal window stays on Core.
+pub fn terminal_ssh(alias: &str, ssh_target: &str, builtin: bool) -> Value {
+    let argv: Vec<&str> = if builtin {
+        vec![
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "--",
+            ssh_target,
+        ]
+    } else {
+        vec!["ssh", ssh_target]
+    };
+    json!({"argv": argv, "title": format!("SSH {alias}")})
+}
+
+#[cfg(test)]
+mod terminal_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_ssh_matches_host_terminal_argv() {
+        let open = terminal_ssh("devbox", "devbox", false);
+        assert_eq!(open["argv"], json!(["ssh", "devbox"]));
+        assert_eq!(open["title"], "SSH devbox");
+        let builtin = terminal_ssh("devbox", "devbox", true);
+        assert_eq!(
+            builtin["argv"],
+            json!([
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                "--",
+                "devbox"
+            ])
+        );
+    }
+}
