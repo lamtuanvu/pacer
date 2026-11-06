@@ -144,5 +144,5 @@ pub fn paired_layout(
 }
 
 #[cfg(test)]
-#[path = "native_bundle_tests.rs"]
+#[path = "tests/native_bundle.rs"]
 mod tests;

@@ -192,6 +192,8 @@ test('diagnostic summaries distinguish service failures and retain measured late
  expect(diagnosticSummary(check('Link latency','/v2/snapshot max 120.5 ms across 3 requests (target < 50 ms)'))).toContain('120.5 ms');
  expect(diagnosticSummary(check('Removable volume access','$HOME/repo: access denied (Operation not permitted)'))).toContain('denied access');
  expect(diagnosticSummary(check('macOS code signing','code object is not signed at all'))).toContain('no code signature');
+ expect(diagnosticSummary(check('Usage codex','CoreError: native process owner supervises plugin children'))).toBe('The check returned technical output. Open Technical details for the reported result.');
+ expect(diagnosticSummary(check('Usage codex','Error reading usage file'))).toBe('Error reading usage file');
  expect(diagnosticBucket({...check('Service','unavailable'),evidence:'unverified'})).toBe('attention');
  expect(diagnosticBucket({name:'Account',detail:'not inspected',level:'info',evidence:'unverified'})).toBe('unchecked');
  const report=diagnosticReportText({checkedAt:1,checks:[{...check('CLI example','example help is missing launch flags: --json'),fix:'Use example --help'}]});

@@ -129,3 +129,70 @@ export async function doctor(ctx: Ctx) {
   }
   catch (e) { throw toCoreError(e); }
 }
+
+/** Startup/update gate: bounded doctor view, fingerprint, and whether the full-window stage can skip. */
+export async function health(
+  ctx: Ctx,
+  params: { trigger?: "startup" | "update" | "manual" } = {},
+  options: { snapshotProbe?: boolean } = {},
+) {
+  try {
+    const { aggregateSetupHealth, fingerprintFromReport, shouldSkipFullWindow } = await import("../view-model/setup-health");
+    const {
+      readSetupHealthPass,
+      writeSetupHealthPass,
+      setupHealthRequired,
+      clearSetupHealthRequired,
+    } = await import("../install/setup-health-store");
+    const { readManifest } = await import("../install/manifest");
+    const started = Date.now();
+    const previous = readSetupHealthPass(ctx);
+    const forced = params.trigger === "update" || setupHealthRequired(ctx);
+    const trigger =
+      params.trigger === "update" || (forced && params.trigger !== "manual")
+        ? "update"
+        : (params.trigger ?? "startup");
+
+    const reportDoctor = await doctor(ctx);
+    // Removable-volume probes are Diagnostics-only; keep the gate bounded.
+    const checks = reportDoctor.checks.filter(c => !c.name.startsWith("Removable volume "));
+    const checklist = await check(ctx, options);
+    const checkedAt = ctx.now;
+    const report = aggregateSetupHealth({
+      checks,
+      checklist,
+      trigger,
+      checkedAt,
+      durationSeconds: (Date.now() - started) / 1000,
+      planner: reportDoctor.planner,
+      repairAvailable: reportDoctor.repairAvailable,
+    });
+    const version = currentVersion();
+    const integrationHashes: Record<string, string> = {};
+    for (const [key, record] of Object.entries(readManifest(ctx).planners)) {
+      integrationHashes[key] = sha256(JSON.stringify(record));
+    }
+    const versions = { appVersion: version, serviceVersion: version, integrationHashes };
+    const fingerprint = fingerprintFromReport(report, versions);
+    writeSetupHealthPass(ctx, {
+      fingerprint,
+      trigger,
+      outcome: report.outcome,
+      durationSeconds: report.durationSeconds,
+    });
+    clearSetupHealthRequired(ctx);
+    const skipFullWindow =
+      !forced &&
+      shouldSkipFullWindow(previous?.fingerprint ?? null, versions) &&
+      report.attentionCount === 0;
+    return {
+      ...report,
+      fingerprint,
+      skipFullWindow,
+      planner: reportDoctor.planner,
+      repairAvailable: reportDoctor.repairAvailable,
+    };
+  } catch (e) {
+    throw toCoreError(e);
+  }
+}

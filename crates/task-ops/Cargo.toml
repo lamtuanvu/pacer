@@ -1,0 +1,24 @@
+[package]
+name = "pacer-task-ops"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde_json.workspace = true
+pacer-foundation = { path = "../foundation" }
+pacer-config = { path = "../config" }
+pacer-store = { path = "../store" }
+pacer-lifecycle = { path = "../lifecycle" }
+pacer-read-model = { path = "../read-model" }
+chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

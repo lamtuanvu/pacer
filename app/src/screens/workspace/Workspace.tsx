@@ -185,7 +185,7 @@ export function Workspace({id,panel,query}:{id?:string;panel?:string;query:Route
  const askerName=askerAgent?agentInfo(markAgent(askerAgent)).name:'The agent';
  // The session's task can differ from the selected card (child session under a root); name it on the answer form.
  const askingTask=answerTask&&answerTask.id!==selected?answerTask.title??answerTask.goal:undefined;
- const focusFromHash=new URLSearchParams(location.hash.split('?')[1]).get('tab')==='answer';
+ const focusFromHash=new URLSearchParams(globalThis.location?.hash.split('?')[1]).get('tab')==='answer';
  const focusAnswer=focusFromHash||focusAnswerRequest;
  const detailsOpen=!!frame?.inline||frame?.details?.open!==false;
  const showChip=answerPending&&!(right==='overview'&&detailsOpen);

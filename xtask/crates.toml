@@ -76,6 +76,12 @@ layer = 2
 layer = 2
 [crates.pacer-config]
 layer = 3
+[crates.pacer-messaging-ops]
+layer = 3
+[crates.pacer-machine-ops]
+layer = 3
+[crates.pacer-discovery-ops]
+layer = 2
 [crates.pacer-sessions]
 layer = 3
 [crates.pacer-plugin-host]
@@ -84,13 +90,13 @@ heavy = ["reqwest"]
 [crates.pacer-sqlite-proof]
 layer = 2
 [crates.pacer-server]
-layer = 8
+layer = 9
 heavy = ["axum", "hyper"]
 [crates.pacer-cli]
-layer = 9
+layer = 10
 heavy = ["clap"]
 [crates.pacer]
-layer = 10
+layer = 11
 binary = true
 [crates.pacer-plugin]
 layer = "sdk"
@@ -107,6 +113,14 @@ layer = 5
 layer = 7
 [crates.pacer-lifecycle]
 layer = 6
+[crates.pacer-config-ops]
+layer = 7
+[crates.pacer-dispatch-ops]
+layer = 7
+[crates.pacer-task-ops]
+layer = 8
+[crates.pacer-assistant-ops]
+layer = 8
 
 [crates.pacer-tui]
 layer = 8

@@ -4981,6 +4981,20 @@
       "properties": {},
       "additionalProperties": false
     },
+    "SetupHealthParams": {
+      "type": "object",
+      "properties": {
+        "trigger": {
+          "type": "string",
+          "enum": [
+            "startup",
+            "update",
+            "manual"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "SetupInitParams": {
       "type": "object",
       "properties": {

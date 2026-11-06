@@ -279,9 +279,16 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       const expected = { ...installation(id), version: result.outcome === "committed" ? value.candidate?.version : installation(id).version };
       if ((Object.keys(expected) as (keyof Installation)[]).some(key => confirmed[key] !== expected[key])) throw conflict();
       known.set(id, structuredClone(confirmed));
-      persist({ ...record(id), phase: result.outcome === "committed" ? "complete" : "restored", error: null,
+      const completed = result.outcome === "committed";
+      persist({ ...record(id), phase: completed ? "complete" : "restored", error: null,
         failedVersion: result.outcome === "restored" && outcomeProof.attempted ? value.candidate?.version ?? null : value.failedVersion,
         requestId: null, requestedBy: null, requesterBootId: null });
+      if (completed) {
+        try {
+          const { markSetupHealthRequired } = await import("../../install/setup-health-store");
+          markSetupHealthRequired(ctx());
+        } catch { /* Health stamp is best-effort after a committed desktop update. */ }
+      }
       await release(id, transactionId);
       recoveryAttempts.delete(id);
     } catch (error) {
