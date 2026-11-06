@@ -10,7 +10,7 @@ const context = { route: "overview", theme: "light" };
 test.skipIf(!front)("native raw JSON decoding matches fetch and JSON.parse boundaries", async () => {
   const results: unknown[][] = [];
   for (const forward of ["", "*"]) {
-    const s = await service(forward), responses: unknown[] = [];
+    const s = await service(forward, "absolute", tsOwner), responses: unknown[] = [];
     try {
       await s.post("plugin.enable", { id: "fx-ui", grant: true });
       const raw = async (op: string, body: Uint8Array | string) => {
@@ -59,6 +59,9 @@ test.skipIf(!front)("native raw JSON decoding matches fetch and JSON.parse bound
   }
   expect(results[0]).toEqual(results[1]);
 }, 60000);
+
+// Forwarded plugin calls need TypeScript to own plugin children; the native host refuses a second owner.
+const tsOwner = { nativeHost: "0" };
 
 async function service(forward = "", homeKind = "absolute", options: { nativeHost?: string } = {}) {
   // host.sock must fit SUN_LEN (~104). Bun test redirects TMPDIR into a deep
@@ -121,7 +124,7 @@ async function service(forward = "", homeKind = "absolute", options: { nativeHos
 test.skipIf(!front)("native reads and mutations match forced TypeScript fallback", async () => {
   const results: unknown[][] = [];
   for (const forward of ["", "*"]) {
-    const s = await service(forward), actual: unknown[] = [];
+    const s = await service(forward, "absolute", tsOwner), actual: unknown[] = [];
     try {
       const fx = async () => (await s.post("plugin.list", {})).result.plugins.find((p: any) => p.id === "fx-ui");
       actual.push((await fx()).state);
@@ -205,7 +208,7 @@ test.skipIf(!front)("forwarded settings CAS and ready-plugin veto remain visible
 
 test.skipIf(!front)("native and individually forwarded UI operations share targeted invalidation", async () => {
   for (const forward of ["plugin.ui.action", "plugin.ui.render"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       await s.post("plugin.enable", { id: "fx-ui", grant: true });
       await s.post("plugin.doctor", { id: "fx-ui" });
@@ -226,7 +229,7 @@ test.skipIf(!front)("native and individually forwarded UI operations share targe
 // A release file controls the response; this tests admission, not plugin timeout speed.
 test.skipIf(!front)("pending actions leave independent plugin requests available", async () => {
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     const started = join(s.home, "started"), release = join(s.home, "release");
     let pending: Promise<any> | undefined;
     try {
@@ -266,7 +269,7 @@ test.skipIf(!front)("linked settings reads and atomic replacement match TypeScri
   for (const kind of ["symlink", "hardlink"]) {
     const results: unknown[] = [];
     for (const forward of ["", "*"]) {
-      const s = await service(forward);
+      const s = await service(forward, "absolute", tsOwner);
       try {
         await s.post("plugin.enable", { id: "fx-ui", grant: true });
         const target = join(s.home, "settings-target.json"), name = join(s.state, "plugin-settings.json");
@@ -290,7 +293,7 @@ test.skipIf(!front)("configured symlinked and relative homes match TypeScript se
   for (const kind of ["symlink", "relative", "relative-symlink"]) {
     const results: unknown[][] = [];
     for (const forward of ["", "*"]) {
-      const s = await service(forward, kind), actual: unknown[] = [];
+      const s = await service(forward, kind, tsOwner), actual: unknown[] = [];
       try {
         const enable = await s.post("plugin.enable", { id: "fx-ui", grant: true });
         expect(enable.result?.state, JSON.stringify(enable)).toBe("idle"); actual.push(enable);
@@ -312,7 +315,7 @@ test.skipIf(!front)("configured symlinked and relative homes match TypeScript se
 test.skipIf(!front)("lone UTF-16 units survive request, IPC, settings store and render", async () => {
   const results: unknown[][] = [];
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       const manifest = JSON.parse(readFileSync(join(s.plugin, "pacer-plugin.json"), "utf8"));
       manifest.contributes.ui.settings[0].schema.fields.text = { type: "string", title: "Text" };
@@ -340,7 +343,7 @@ test.skipIf(!front)("lone UTF-16 units survive request, IPC, settings store and 
 test.skipIf(!front)("deep render returns the document error and cannot serve stale cache", async () => {
   const outcomes: unknown[] = [];
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       // Return a cacheable valid response, then a deep document on a different
       // context (same surface) after the TTL. The file is read per request.
@@ -370,7 +373,7 @@ let n=0;await serve({manifest,input:stdinLines(),handlers:{'ui.render':async()=>
 test.skipIf(!front)("disconnect during disable still completes refresh and config publication", async () => {
   const { createConnection } = await import("node:net");
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       writeFileSync(join(s.plugin, "main.ts"), `#!/usr/bin/env bun
 import {serve,stdinLines} from '@pacer/plugin';import {readFileSync,writeFileSync} from 'node:fs';
@@ -408,7 +411,7 @@ test.skipIf(!front)("filesystem and strategy edit errors retain TypeScript codes
   const { renameSync, unlinkSync } = await import("node:fs");
   const results: unknown[][] = [];
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       await s.post("plugin.enable", { id: "fx-ui", grant: true });
       const dir = join(s.state, "orca"); renameSync(dir, `${dir}-original`); writeFileSync(dir, "not a directory");
@@ -428,7 +431,7 @@ test.skipIf(!front)("filesystem and strategy edit errors retain TypeScript codes
 
 test.skipIf(!front)("lock timeout names configured home rather than its canonical target", async () => {
   for (const forward of ["", "*"]) {
-    const s = await service(forward, "symlink");
+    const s = await service(forward, "symlink", tsOwner);
     try {
       await s.post("plugin.enable", { id: "fx-ui", grant: true });
       writeFileSync(join(s.state, "orca/plugin-settings.lock"), "", { mode: 0o600 });
@@ -441,7 +444,7 @@ test.skipIf(!front)("lock timeout names configured home rather than its canonica
 
 test.skipIf(!front)("lone-surrogate action lengths use Zod code-point limits", async () => {
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       writeFileSync(join(s.plugin, "fixture.json"), JSON.stringify({ actionMessage: "\ud800".repeat(200) }));
       await s.post("plugin.enable", { id: "fx-ui", grant: true });
@@ -455,7 +458,7 @@ test.skipIf(!front)("lone-surrogate action lengths use Zod code-point limits", a
 
 test.skipIf(!front)("private read bridge accepts the full public body budget including UTF8 replacement expansion", async () => {
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       const bodies = [
         Buffer.from(JSON.stringify({ ignored: "x".repeat(256 * 1024 - 20) })),
@@ -477,7 +480,7 @@ test.skipIf(!front)("private read bridge accepts the full public body budget inc
 
 test.skipIf(!front)("native listing uses authoritative TypeScript grants with deeply nested YAML config", async () => {
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       const strategy = join(s.state, "strategy.yaml");
       const deep = "[".repeat(1000) + "0" + "]".repeat(1000);
@@ -491,7 +494,7 @@ test.skipIf(!front)("native listing uses authoritative TypeScript grants with de
 
 test.skipIf(!front)("oversized prepare snapshots use TypeScript before a native read", async () => {
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       for (let i = 0; i < 9; i++) {
         const id = `fx-large-${i}`, dir = join(s.state, "plugins", id);
@@ -508,7 +511,7 @@ test.skipIf(!front)("oversized prepare snapshots use TypeScript before a native 
 
 test.skipIf(!front)("doctor ignores a deep ping payload and calls the plugin once", async () => {
   for (const forward of ["", "*"]) {
-    const s = await service(forward);
+    const s = await service(forward, "absolute", tsOwner);
     try {
       writeFileSync(join(s.plugin, "main.ts"), `#!/usr/bin/env bun
 import {serve,stdinLines} from '@pacer/plugin';

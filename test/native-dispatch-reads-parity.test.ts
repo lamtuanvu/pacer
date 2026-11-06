@@ -243,8 +243,7 @@ test.skipIf(!front)("dispatch reads refuse executor and enforcement identities l
     request(2, "dispatch.tree", { id: ids.root.id }), request(3, "dispatch.list", { limit: 0 }),
     request(4, "dispatch.events", {}), request(5, "dispatch.config.get", {}),
   ];
-  const envs: Record<string, string>[] = [{ PACER_ROLE: "executor" }, { PACER_ENFORCEMENT_TOKEN: "pet_x" }, { PACER_ENFORCEMENT_TOKEN: "", PACER_ROLE: "planner" }];
-  for (const env of envs) {
+  for (const env of [{ PACER_ROLE: "executor" }, { PACER_ENFORCEMENT_TOKEN: "pet_x" }, { PACER_ENFORCEMENT_TOKEN: "", PACER_ROLE: "planner" }] as Record<string, string>[]) {
     const native = await exchange(ctx.home, requests, false, env);
     const forwarded = await exchange(ctx.home, requests, true, env);
     expect(normalize(native)).toEqual(normalize(forwarded));

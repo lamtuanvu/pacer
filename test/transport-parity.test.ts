@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
 import { companionFile, hostTarget } from "../src/update/manifest";
 import { fakeCtx } from "./helpers";
 import { keychainStubPath } from "./keychain-stub";
@@ -13,7 +12,8 @@ import { FrameType, WireDecoder, wire } from "../src/session/framing";
 const supplied = process.env.PACER_TEST_FRONT_DOOR;
 
 test.skipIf(!supplied)("released Rust and Bun transports preserve stdio, HTTP auth, cookie, SSE and WebSocket behavior", async () => {
-  const temporary = mkdtempSync(join(tmpdir(), "pacer-transport-parity-"));
+  // host.sock must fit SUN_LEN (~104); bun test's TMPDIR is too deep for native serve.
+  const temporary = mkdtempSync("/tmp/ptp-");
   const front = join(temporary, "pacer"), core = join(temporary, "pacer-core");
   const target = hostTarget();
   if (!target || !supplied) throw Error("A compiled host release front door is required");
@@ -26,6 +26,8 @@ test.skipIf(!supplied)("released Rust and Bun transports preserve stdio, HTTP au
     const home = join(temporary, name); mkdirSync(home, { mode: 0o700 });
     return { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: keychainStubPath(home), LANG: "C", TZ: "Asia/Ho_Chi_Minh", PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1" };
   };
+  // macOS scans a freshly copied executable on first launch, which can outlast the front door's 2 s descriptor read.
+  Bun.spawnSync([core, "--pacer-component-descriptor"], { env: environment("warm-core"), stdout: "ignore", stderr: "ignore", timeout: 30000 });
   const exchange = async (binary: string, name: string) => {
     const input = [
       { jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } },

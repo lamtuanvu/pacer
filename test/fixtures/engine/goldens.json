@@ -35856,6 +35856,8 @@
                 "validUntil": 1798003600,
                 "reason": "spending_observed",
                 "value": {
+                  "creditsAvailable": null,
+                  "creditBalance": null,
                   "paidConsumption": "observed"
                 }
               }
@@ -35939,6 +35941,8 @@
                 "validUntil": 1798003600,
                 "reason": "spending_observed",
                 "value": {
+                  "creditsAvailable": null,
+                  "creditBalance": null,
                   "paidConsumption": "not_observed"
                 }
               }

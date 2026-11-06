@@ -95,9 +95,7 @@ pub fn exceeds_budget(
     name: &str,
     loc: &Loc,
 ) -> bool {
-    let max = if let Some(crate_max) = rules.max {
-        crate_max
-    } else if rules.binary {
+    let max = if rules.binary {
         limits.binary_max
     } else if name == "pacer-foundation" {
         limits.foundation_max

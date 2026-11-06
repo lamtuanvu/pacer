@@ -1,13 +1,12 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/errors";
 import { onboardingSkip } from "../src/core/setup";
 import { checkSetup } from "../src/setup/check";
-import { fakeCtx, tmpDir } from "./helpers";
-import { setIdentityPlatformForTests, clearIdentityCache } from "../src/identity/store";
+import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 const root = join(import.meta.dir, "..");
 
@@ -31,20 +30,21 @@ test("native onboarding.skip matches TypeScript", () => {
   expect(nativeResult(home, "onboarding.skip", {})).toEqual({ result: { skipped: true } });
 });
 
-test("native machine.get matches TypeScript with injected bridge", async () => {
-  setIdentityPlatformForTests("linux");
+test("native files.search matches TypeScript without a core bridge", async () => {
+  const repo = realpathSync(gitRepo());
+  mkdirSync(join(repo, "src"), { recursive: true });
+  writeFileSync(join(repo, "src", "access.ts"), "abc");
+  Bun.spawnSync(["git", "add", "src/access.ts"], { cwd: repo });
+  Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "x"], { cwd: repo });
   const home = tmpDir();
-  const ctx = fakeCtx({ home, pacerHome: home, now: 1_700_000_000 });
-  clearIdentityCache();
-  let expected: unknown;
-  try {
-    expected = { result: await callOp(ctx, "machine.get", {}) };
-  } catch (error) {
-    expected = { error: toApiError(error) };
-  }
-  const bridgeResult = "error" in (expected as any) ? undefined : (expected as any).result;
-  if (bridgeResult) {
-    expect(nativeResult(home, "machine.get", {}, bridgeResult)).toEqual(expected);
+  mkdirSync(join(home, "state"), { recursive: true });
+  writeFileSync(join(home, "state", "repos.json"), JSON.stringify({ [repo]: { key: "github.com/acme/app", path: repo, lastUsed: 1 } }));
+  const ctx = fakeCtx({ home, pacerHome: home, now: 1_700_000_000, run: realRun });
+  for (const params of [{ query: "acc" }, { query: "a", limit: 1 }, { query: "a", repo: "local:none" }, { query: "   " }, { query: "a", limit: 0, x: 1 }]) {
+    let expected: unknown;
+    try { expected = { result: await callOp(ctx, "files.search", params) }; }
+    catch (error) { expected = { error: toApiError(error) }; }
+    expect(nativeResult(home, "files.search", params)).toEqual(expected);
   }
 });
 

@@ -19,14 +19,25 @@ async fn main() -> io::Result<()> {
         if let Some(agent) = input["agent"].as_str() {
             env.insert("PACER_AGENT".into(), agent.into());
         }
+        for (key, value) in input["env"].as_object().into_iter().flatten() {
+            env.insert(key.clone(), value.as_str().unwrap_or_default().into());
+        }
         let ctx = Ctx::with(
             home.into(),
             home.into(),
             env,
             input["now"].as_f64().unwrap_or(1_700_000_000.0),
         );
+        pacer_server::native::set_identity_platform_for_tests(input["identityPlatform"].as_str());
         let registry = pacer_server::native::registry("");
         let name = input["op"].as_str().unwrap_or("");
+        if pacer_server::native::discovery_stays_forwarded(&ctx, name, &input["params"])
+            || pacer_server::native::desktop_reconcile_stays_forwarded(name)
+        {
+            serde_json::to_writer(&mut stdout, &json!({"forwarded": true}))?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
         let op = registry
             .get(name)
             .ok_or_else(|| io::Error::other("missing native op"))?;
@@ -42,16 +53,7 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
-        let core_bridge_sync = if matches!(
-            name,
-            "machine.get"
-                | "machine.set"
-                | "machine.rotate"
-                | "files.search"
-                | "setup.check"
-                | "repo.list"
-                | "repo.add"
-        ) {
+        let core_bridge_sync = if matches!(name, "setup.check" | "repo.list" | "repo.add") {
             let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)
         } else {

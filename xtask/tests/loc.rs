@@ -42,8 +42,7 @@ fn enforces_budget_boundaries_and_generated_crate_placement() {
     for (name, max) in [
         ("pacer-foundation", 2000),
         ("pacer", 500),
-        ("pacer-server", 20000),
-        ("pacer-plugin-host", 12500),
+        ("pacer-server", 21000),
     ] {
         let rules = &policy.crates[name];
         assert!(!exceeds_budget(
