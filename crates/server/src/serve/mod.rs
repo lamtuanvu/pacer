@@ -198,7 +198,24 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            call_native(&request_ctx, op, params, None, endpoint_sync, broker_sync).await
+            let session_sync = if crate::native::needs_session_probe(op.name) {
+                state.core.target().await.map(|target| {
+                    Box::pin(crate::native::session_sync::http(Some(target)))
+                        as pacer_foundation::api::OpFuture<'_>
+                })
+            } else {
+                None
+            };
+            call_native(
+                &request_ctx,
+                op,
+                params,
+                None,
+                endpoint_sync,
+                broker_sync,
+                session_sync,
+            )
+            .await
         };
         if plugin
             && crate::native::plugins::is_read(op.name)

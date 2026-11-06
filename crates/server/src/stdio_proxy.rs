@@ -189,11 +189,25 @@ async fn forward_input<
                         params,
                         request.get("id"),
                         None,
-                        Some(
-                            Box::pin(crate::native::status_sync::stdio(
-                                &mut core, sync.0, sync.1, sync.2,
-                            )) as pacer_foundation::api::OpFuture<'_>,
-                        ),
+                        Some(Box::pin(crate::native::status_sync::stdio(
+                            &mut core, sync.0, sync.1, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                    )
+                    .await
+                } else if crate::native::needs_session_probe(op.name) {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::session_sync::stdio(
+                            &mut core, sync.0, sync.1, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
                     )
                     .await
                 } else {
@@ -202,11 +216,11 @@ async fn forward_input<
                         op,
                         params,
                         request.get("id"),
-                        Some(
-                            Box::pin(crate::native::config_sync::stdio(
-                                &mut core, sync.0, sync.1, op.name, sync.2,
-                            )) as pacer_foundation::api::OpFuture<'_>,
-                        ),
+                        Some(Box::pin(crate::native::config_sync::stdio(
+                            &mut core, sync.0, sync.1, op.name, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                     )
                     .await
