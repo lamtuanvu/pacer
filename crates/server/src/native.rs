@@ -9,6 +9,7 @@ mod config_params;
 pub(crate) mod config_sync;
 mod config_writes;
 pub(crate) mod core_bridge_sync;
+mod dispatch_ops;
 mod engine_ops;
 mod host_mut_ops;
 pub(crate) mod host_mut_sync;
@@ -16,6 +17,7 @@ mod host_read_ops;
 pub(crate) mod host_read_sync;
 mod lifecycle_ops;
 mod meta_ops;
+pub(crate) mod msg_ops;
 pub(crate) mod p8_bridge_ops;
 pub mod plugins;
 mod project_messaging_ops;
@@ -44,6 +46,7 @@ pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
+pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
@@ -314,6 +317,34 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "project.messaging.remove",
         call: project_messaging_ops::project_messaging_remove,
+    },
+    NativeOp {
+        name: "msg.inbox",
+        call: msg_ops::msg_inbox,
+    },
+    NativeOp {
+        name: "msg.log",
+        call: msg_ops::msg_log,
+    },
+    NativeOp {
+        name: "msg.read",
+        call: msg_ops::msg_read,
+    },
+    NativeOp {
+        name: "dispatch.config.get",
+        call: dispatch_ops::dispatch_config_get,
+    },
+    NativeOp {
+        name: "dispatch.tree",
+        call: dispatch_ops::dispatch_tree,
+    },
+    NativeOp {
+        name: "dispatch.list",
+        call: dispatch_ops::dispatch_list,
+    },
+    NativeOp {
+        name: "dispatch.events",
+        call: dispatch_ops::dispatch_events,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -636,9 +667,31 @@ mod tests {
             "project.messaging.get",
             "project.messaging.set",
             "project.messaging.remove",
+            "msg.inbox",
+            "msg.log",
+            "msg.read",
+            "dispatch.config.get",
+            "dispatch.tree",
+            "dispatch.list",
+            "dispatch.events",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
+        }
+        for name in [
+            "dispatch.submit",
+            "dispatch.child",
+            "dispatch.wait",
+            "dispatch.review",
+            "dispatch.retry",
+            "dispatch.answer",
+            "dispatch.stop",
+            "dispatch.dependencies",
+            "dispatch.explain",
+            "dispatch.models",
+            "dispatch.enforcement",
+        ] {
+            assert!(registry("").get(name).is_none(), "{name}");
         }
         assert!(registry("").get("config.get").is_some());
         assert!(registry("config.get").get("config.get").is_none());
@@ -676,6 +729,15 @@ mod tests {
         assert!(registry("task.review").get("task.review").is_none());
         assert!(registry("").get("task.ask").is_none());
         assert!(registry("").get("limits.refresh").is_none());
+        for name in [
+            "msg.send",
+            "msg.wait",
+            "msg.confirm",
+            "msg.close",
+            "msg.policy",
+        ] {
+            assert!(registry("").get(name).is_none(), "{name}");
+        }
     }
 
     #[test]
@@ -741,6 +803,13 @@ mod tests {
             "project.messaging.get",
             "project.messaging.set",
             "project.messaging.remove",
+            "msg.inbox",
+            "msg.log",
+            "msg.read",
+            "dispatch.config.get",
+            "dispatch.tree",
+            "dispatch.list",
+            "dispatch.events",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");

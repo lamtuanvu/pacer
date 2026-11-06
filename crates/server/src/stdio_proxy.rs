@@ -187,6 +187,7 @@ async fn forward_input<
                     op.name,
                     &params,
                 )
+                && !crate::native::msg_stays_forwarded(op.name, ctx)
             {
                 let request_ctx = ctx.at_now();
                 if op.name == "task.wait" {
@@ -806,7 +807,9 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         .take()
         .ok_or_else(|| io::Error::other("missing core stdout"))?;
     let out = Mutex::new(tokio::io::stdout());
-    let ctx = Ctx::from_env();
+    let mut ctx = Ctx::from_env();
+    // Only the HTTP front door may assert how a message caller authenticated.
+    ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
     let incoming = forward_input(
         BufReader::new(tokio::io::stdin()),
         input,

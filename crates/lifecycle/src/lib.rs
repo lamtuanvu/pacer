@@ -115,6 +115,7 @@ pub mod jobs;
 mod js;
 pub mod notify;
 pub mod runner_check;
+pub mod work_reads;
 pub use js::Text as JsText;
 
 use serde::{Deserialize, Serialize};

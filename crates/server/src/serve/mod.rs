@@ -131,6 +131,23 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         && let Some(name) = req.uri().path().strip_prefix("/v3/ops/")
         && let Some(op) = state.registry.get(name)
     {
+        let ctx = if crate::native::msg_ops::is_msg_read_op(op.name) {
+            let human_session = auth == auth::AuthKind::Bearer
+                && header_value(req.headers(), "x-pacer-session").is_some_and(|session| {
+                    session.len() == 64
+                        && session
+                            .bytes()
+                            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                        && sessions::check(&ctx, &session).unwrap_or(false)
+                });
+            crate::native::msg_ops::with_http_caller(
+                ctx,
+                auth == auth::AuthKind::Cookie,
+                human_session,
+            )
+        } else {
+            ctx
+        };
         let max = 256 * 1024;
         if header_value(req.headers(), "content-length")
             .and_then(|v| v.parse::<usize>().ok())
@@ -163,6 +180,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || (op.name == "routing.route" && crate::native::routing_route_stays_forwarded(&params))
             || (op.name == "repo.remove" && crate::native::repo_remove_stays_forwarded(&ctx))
             || crate::native::project_messaging_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::msg_stays_forwarded(op.name, &ctx)
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);

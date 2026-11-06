@@ -66,22 +66,23 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `session.agent.create` | Forwarded (P7) | Independent agent spawn inside an existing task workspace; needs plugin IPC, admission and native session identity. |
 | `session.agent.list`, `session.agent.get` | Forwarded (P7) | Task-scoped agent session enumeration and attempt reads over live store and plugin state. |
 | `session.agent.end`, `session.agent.retry`, `session.agent.resume` | Forwarded (P7) | Effectful agent-session lifecycle (stop, fresh attempt, resume) with `expect_rev` orchestration; no native registration while replay/WS gate is **NO-GO**. |
-| `dispatch.config.get` | Forwarded (P5/P6) | Composes planner identity and effective dispatcher YAML (strategy override or built-in defaults) from `loadStrategy`; no native dispatch settings read yet. |
+| `dispatch.config.get` | Native (P6 dispatch reads) | `pacer-config` `load_strategy` supplies planner identity and the strategy `dispatch` block; `strategy::default_dispatch_config` is `dispatchConfigSchema.parse({})` for the built-in source. Missing or invalid strategies return the same `internal` errors as TypeScript (YAML syntax errors keep the Rust parser's wording, as in `strategy-write-parity`). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `dispatch.enforcement`, `dispatch.enforcement.probe`, `dispatch.enforcement.consent`, `dispatch.enforcement.denied` | Forwarded (P5/P6) | Native subagent control certification: policy repo resolution, observation-backed diagnostics, quota-using probe jobs, consent ledger and strict-mode denial recording (`src/api/ops.ts`; unauthenticated POST for `denied` in `src/serve/http.ts`). Needs plugin jobs and executor-native control probes. |
 | `dispatch.preview`, `dispatch.explain` | Forwarded (P5/P6) | Read-only ranking and ladder explanation over cached observations and the replaceable decision engine; needs live usage readings and `core.dispatch` / `explainDispatch` parity beyond P5d broker slices. |
 | `dispatch.submit`, `dispatch.child` | Forwarded (P6) | Root and scoped child admission: work grants, queue mutation, delegation policy, prepared admission and `launchTaskRunner` spawn (`submitWork`, `delegateChild`). P6b `run_spawn` records plans only. |
-| `dispatch.list`, `dispatch.tree`, `dispatch.events` | Forwarded (P6) | Work-store reads and timelines over managed roots (`listWork`, `scopedWorkTree`, `scopedWorkEvents`); no native work graph projection while session/task enrichment stays on TypeScript bridges. |
+| `dispatch.list`, `dispatch.tree`, `dispatch.events` | Native (P6 dispatch reads) | `pacer-lifecycle::work_reads` reads `work_*`, `attempt_usage` and task records from `state/tasks.db` (`listWork`, `scopedWorkTree`, `scopedWorkEvents`), including restart eligibility (runner PID probe, worktree, deadline, attempts, dependencies, stopped ancestors), token roll-ups, usage pools, wait totals and branch reads from worktree HEAD files. Handlers serve ungranted callers only: both front doors forward every op while `PACER_WORK_GRANT` is set, serve forwards task-grant bearers, and `PACER_ROLE=executor` / `PACER_ENFORCEMENT_TOKEN` refusals match `authorizeWorkOperation`. Records holding lone UTF-16 surrogates fail as `internal` natively (shared `serde_json` record parsing). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `dispatch.wait` | Forwarded (P6) | Polls until a work item settles via `waitWork`; needs queue drain, runner supervision and the same orchestration gap as `task.wait` (P6d). |
 | `dispatch.review`, `dispatch.retry`, `dispatch.answer`, `dispatch.stop` | Forwarded (P6) | Managed-work lifecycle at `expect_rev`: review acceptance, lineage retry, executor Q&A resume and subtree stop (`reviewWork`, `retryWork`, `answerWork`, `stopWork`); overlaps P6c/P6d task op gaps (messaging turns, spawn, `stopWork` tree). |
-| `dispatch.dependencies`, `dispatch.dependencies.waive` | Forwarded (P6) | Same-root dependency graph edits with revision checks (`setWorkDependencies`, `waiveWorkDependency`); store effects plus work-tree projection responses. |
+| `dispatch.dependencies`, `dispatch.dependencies.waive` | Forwarded (P6) | Same-root dependency graph edits with revision checks (`setWorkDependencies`, `waiveWorkDependency`) run inside `updateTask` with work-event and dependency-wait triggers; the response tree projection is native (`work_reads`), the transactional mutation is not yet. |
 | `dispatch.models`, `dispatch.refresh` | Forwarded (P5/P6) | Model inventory and observation refresh with backoff (`listDispatchModels`, `refreshObservations`); issues scoped plugin/executor observation calls. |
 | `dispatch.analytics`, `dispatch.learning.reset` | Forwarded (P5/P6) | Derived learning aggregates and per-repo reset/exclude (`dispatchAnalytics`, `resetLearning`); reads and mutates learning state beyond native routing broker. |
 | `msg.send` | Forwarded (P6) | Turn delivery: participant policy, project messaging rules, held-message guardrails and admitted-executor resume via `sendMessage` / `deliver` (delegate, route, `spawnRunner`). |
-| `msg.inbox`, `msg.read`, `msg.wait` | Forwarded (P6) | Caller-scoped message store reads; `msg.wait` blocks with polling and marks returned messages read. Work-grant authorization in `core/work.ts`. |
-| `msg.log` | Forwarded (P6) | Task thread read with tree visibility rules (`assertCanRead`, `store.thread`). |
+| `msg.inbox`, `msg.log` | Native (P6, selective) | `pacer_store::messages` reads the `messages` table and work/task parent links in `tasks.db` (`store.inbox`, `store.thread`); Rust resolves the caller participant as `callerParticipant` does (executor env or own-worktree cwd, app cookie, planner env, bearer plus valid `X-Pacer-Session`, `external:local`) and applies the `assertCanRead` root check for `msg.log`. Work-grant and enforcement-token callers, and Orca worktree cwds outside an executor session, selectively forward to TypeScript (`authorizeWorkOperation`, Orca workspace probe). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `msg.read` | Native (P6, selective) | Same caller resolution and forwards as `msg.inbox`; Rust marks receipts read in one immediate transaction (`store.markRead`, millisecond `read_at`). `human` callers selectively forward because TypeScript publishes task and attention events for read receipts (`publishTaskMessages`). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `msg.wait` | Forwarded (P6) | Blocks up to 3000 s polling the inbox and marks returned messages read; a native blocking loop would hold the stdio connection, and `human` consumption publishes task and attention events. |
 | `msg.confirm` | Forwarded (P6) | Human-only release of policy-held messages then `deliver` with runner spawn. |
 | `msg.close` | Forwarded (P6) | Sets `msgClosed`, parent/origin/human authorization and `autoCleanTask` worktree release; no review verdict. |
-| `msg.policy` | Forwarded (P6) | Effective repository guardrails and hypothetical `checkSend` evaluation (`effectivePolicy`, project messaging config). |
+| `msg.policy` | Forwarded (P6) | Effective repository guardrails and hypothetical `checkSend` evaluation (`effectivePolicy`): needs the Zod-defaulted strategy messaging config merged with project messaging rules, plus relation, rate-limit and held-message evaluation that has no Rust owner yet. |
 | `desktop.capture.register`, `desktop.capture.targets`, `desktop.capture.request`, `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.result` | Forwarded (P8/P9) | Desktop capture broker over connected authenticated desktop clients (`src/desktop/capture-broker.ts`, `src/api/ops-desktop.ts`): worker credential renewal, owned-window inventory, request/claim/complete lifecycle and PNG metadata reads. Bounded image upload stays on authenticated HTTP routes. |
 | `desktop.update.status`, `desktop.update.check`, `desktop.update.download`, `desktop.update.restart`, `desktop.update.cancel`, `desktop.update.configure`, `desktop.update.adopt`, `desktop.update.adoptCancel` | Forwarded (P8/P9) | Verified desktop OTA and service-adoption runtime (`src/api/ops-desktop-update.ts`, `src/desktop/update/`): feed checks, signed download, restart reservation, adoption handoff and public status. Snapshot probe carries update rows only; effectful install/restart stays TypeScript. |
 | `desktop.reconcile.status`, `desktop.reconcile.request`, `desktop.reconcile.cancel` | Forwarded (P8/P9) | Service reconciliation assessment and (future) native-proof request/cancel stubs (`src/api/ops-desktop-reconciliation.ts`); `request`/`cancel` remain unavailable until reconciliation is implemented. |
@@ -256,7 +257,14 @@ effectful `_run` spawn, messaging store turns, project policy, and
 `deliver`/`autoCleanTask` side effects still owned by TypeScript. This slice
 only expands the ledger with explicit Forwarded rows and residual owners; it
 does not register native handlers. Native cutover waits on P6 spawn ownership,
-P5 observation/broker bridges, and a messaging read model. v3-only `tree.status`
+P5 observation/broker bridges, and a messaging read model. The messaging read
+model has since landed for `msg.inbox`, `msg.log` and `msg.read` (see the Native
+rows above); `msg.wait`, `msg.policy`, `msg.send`, `msg.confirm` and `msg.close`
+stay Forwarded. The later P6 dispatch-reads slice registers
+`dispatch.config.get`, `dispatch.list`, `dispatch.tree` and `dispatch.events`
+over `pacer-lifecycle::work_reads` (parity:
+`test/native-dispatch-reads-parity.test.ts`); the other nineteen stay Forwarded
+for the reasons in their rows. v3-only `tree.status`
 is named in the detailed Forwarded table above; `liveness.status` remains
 MCP-only (`src/mcp/server.ts`).
 
@@ -514,12 +522,12 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **72** of 224 (60 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Ten of these selectively forward some inputs to TypeScript:
+Total native: **79** of 224 (67 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Thirteen of these selectively forward some inputs to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `repo.remove`, `task.stop`,
-`task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`
-and `project.messaging.remove`.
-Total still not native (v3 − native set): **152**.
+`task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
+`project.messaging.remove`, `msg.inbox`, `msg.log` and `msg.read`.
+Total still not native (v3 − native set): **145**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
