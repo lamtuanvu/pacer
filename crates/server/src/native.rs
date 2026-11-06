@@ -48,10 +48,9 @@ pub(crate) use pacer_messaging_ops::msg_writes;
 pub(crate) mod host_check_clean_setup_sync;
 pub(crate) mod msg_write_sync;
 pub mod plugins;
-mod repo_ops;
+mod setup_ops;
 pub(crate) mod session_ops;
 pub(crate) mod session_sync;
-mod setup_ops;
 mod snapshot_get_ops;
 pub(crate) mod snapshot_sync;
 pub(crate) mod status_ops;
@@ -62,12 +61,8 @@ pub(crate) mod task_dismiss_ops;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
-mod task_review_ops;
-pub(crate) mod task_review_sync;
-mod task_stop_ops;
 pub(crate) mod task_stop_sync;
-mod task_wait_ops;
-pub(crate) mod task_wait_sync;
+mod task_stop_ops;
 
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
@@ -174,7 +169,7 @@ pub fn status_residue_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bo
 }
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
-pub(crate) use task_review_ops::needs_task_review_bridge;
+pub(crate) use repo_ops::repo_remove_stays_forwarded;
 pub(crate) use task_stop_ops::needs_task_stop_bridge;
 
 #[cfg(feature = "test-ops")]
@@ -537,18 +532,6 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "task.stop",
         call: task_stop_ops::task_stop_stub,
-    },
-    NativeOp {
-        name: "task.send",
-        call: task_send_ops::task_send_stub,
-    },
-    NativeOp {
-        name: "task.wait",
-        call: task_wait_ops::task_wait,
-    },
-    NativeOp {
-        name: "task.review",
-        call: task_review_ops::task_review_stub,
     },
     NativeOp {
         name: "task.dismiss",
@@ -915,8 +898,6 @@ pub async fn call_native(
     core_bridge_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     task_stop_probe: Option<Value>,
     task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
-    task_review_probe: Option<Value>,
-    task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -941,19 +922,10 @@ pub async fn call_native(
             "task clean bridge unavailable",
         ));
     }
-    if needs_task_stop_bridge(op.name) && (task_stop_probe.is_none() || task_stop_effects.is_none())
-    {
+    if needs_task_stop_bridge(op.name) && (task_stop_probe.is_none() || task_stop_effects.is_none()) {
         return Err(CoreError::new(
             pacer_foundation::api::Code::Unavailable,
             "task stop bridge unavailable",
-        ));
-    }
-    if needs_task_review_bridge(op.name)
-        && (task_review_probe.is_none() || task_review_effects.is_none())
-    {
-        return Err(CoreError::new(
-            pacer_foundation::api::Code::Unavailable,
-            "task review bridge unavailable",
         ));
     }
     let mut host_set_alias: Option<String> = None;
@@ -1085,23 +1057,6 @@ pub async fn call_native(
             "task.stop" => task_stop_ops::task_stop(ctx, params, probe, effects).await?,
             _ => unreachable!("needs_task_stop_bridge"),
         }
-    } else if needs_task_review_bridge(op.name) {
-        let probe = task_review_probe.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "task review bridge unavailable",
-            )
-        })?;
-        let effects = task_review_effects.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "task review effects bridge unavailable",
-            )
-        })?;
-        match op.name {
-            "task.review" => task_review_ops::task_review(ctx, params, probe, effects).await?,
-            _ => unreachable!("needs_task_review_bridge"),
-        }
     } else if needs_core_bridge(op.name) {
         let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
         let parts = core_bridge_sync.ok_or_else(|| {
@@ -1180,7 +1135,6 @@ mod tests {
             "host.set",
             "host.remove",
             "host.repo.map",
-            "host.account.add",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -1191,7 +1145,6 @@ mod tests {
             "routing.route",
             "task.request_review",
             "task.stop",
-            "task.review",
             "task.dismiss",
             "task.diff",
             "task.list",
@@ -1240,13 +1193,11 @@ mod tests {
         assert!(registry("").get("task.stop").is_some());
         assert!(registry("task.stop").get("task.stop").is_none());
         assert!(registry("").get("task.answer").is_none());
-        assert!(registry("").get("task.wait").is_some());
-        assert!(registry("task.wait").get("task.wait").is_none());
+        assert!(registry("").get("task.wait").is_none());
         assert!(registry("").get("task.retry").is_none());
         assert!(registry("").get("task.retry_all").is_none());
         assert!(registry("").get("task.retry_options").is_none());
-        assert!(registry("").get("task.review").is_some());
-        assert!(registry("task.review").get("task.review").is_none());
+        assert!(registry("").get("task.review").is_none());
         assert!(registry("").get("task.ask").is_none());
         assert!(registry("").get("limits.refresh").is_none());
     }
@@ -1282,7 +1233,6 @@ mod tests {
             "host.set",
             "host.remove",
             "host.repo.map",
-            "host.account.add",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -1293,7 +1243,6 @@ mod tests {
             "routing.route",
             "task.request_review",
             "task.stop",
-            "task.review",
             "task.dismiss",
             "task.diff",
             "task.list",

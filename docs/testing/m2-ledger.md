@@ -80,11 +80,11 @@ Two new rows are red, each with an expected-fail test in the same file. This PR 
 | `routing.route` | Native (P5d, selective) | Broker-backed `usage_broker::routing_route` / `status::rank_route` when params omit `goal` and `repo`. Params with `goal` (classifier) or `repo` (project policy + remote eligibility) selectively forward to TypeScript. A routed id without a configured runner is excluded as `not configured`, as in TypeScript `rankExecutors`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6f+) | P6b/P6e-run `run_spawn` pins and guards the `_run` plan; P6c/P6d store-only slices; P6f adds `delegate_admission` / `prepare_delegate_admission` parity with `prepareDelegate` (amendment mapping, host snapshot, `PreparedAdmission`) without plugin policy, work grants, messaging or effectful spawn. |
+| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6e-run+) | P6b/P6e-run `run_spawn` pins and guards the `_run` plan; P6c found no native registration with parity (policy, prepared admission, work grants, messaging turns, effectful spawn). Do not register until spawn+admission parity lands. |
 | `task.stop` | Native (P6, selective) | Rust `record_task_stop` owns store CAS + task outbox publication; Core supplies runner liveness, signal/host stop, live-worker release and settle activity through `/_internal/task-stop-probe` / `/_internal/task-stop-effects` (stdio `_internal.task-stop.probe` / `.effects`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). Selectively forwards when the probe reports managed work or a live agent session / pending checks (same as TypeScript `stopWork` / agent-session gates). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.ask` | Forwarded (P6d+) | P6d library only; public op still needs messaging and supervision beyond store fields. |
-| `task.wait` | Native (P6, selective) | When `task_wait_settled` already holds (Core `taskWaitProbe`: terminal state without agent-session or pending-check holds), Rust returns the summarized task immediately via `summarize_api_task`. Active tasks forward for queue drain, runner supervision and agent waits (`/_internal/task-wait-probe`, stdio `_internal.task-wait.probe`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). `PACER_FORWARD_OPS` remains the escape hatch. |
-| `task.review` | Native (P6, selective) | Rust `record_review_verdict` owns accept/reject store CAS + task outbox publication; Core supplies labels, verdict activity and `autoCleanTask` through `/_internal/task-review-probe` / `/_internal/task-review-effects` (stdio `_internal.task-review.probe` / `.effects`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). Selectively forwards for `send_back`/`retry`, managed work, closed-mode policy plugins, and agent-session gates (same as TypeScript `review` / `taskReview`). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `task.wait` | Forwarded (P6d+) | P6d library: `task_wait_settled` mirrors the poll exit predicate only. Public op still drains the queue, supervises the runner and waits on agent sessions/checks. |
+| `task.review` | Forwarded (P6d+) | P6c library: `record_review_verdict` owns accept/reject SQLite fields only. Public op still needs policy, agent-session gates, labels/activity, messaging `send_back`, retry/delegate/`_run`, and `autoCleanTask`. |
 | `task.retry_options` | Forwarded (P5b/P6) | Needs routing/policy ranking over live readings (same broker gap as `routing.route`). |
 | `session.create` | Forwarded (P7) | Idempotent conversation start needs attachment draft claim, `prepareDelegate` admission, work grants and `launchTaskRunner` spawn. Library: `params`, `operations` (reference/summary), `plain`, file/frame/control goldens only. |
 | `session.resume` | Forwarded (P7) | Needs live session probe, executor resume capability, prepared admission consume, queue mutation and runner spawn. Native vt100 replay gate remains **NO-GO**; session WebSocket stays TypeScript. |
@@ -236,26 +236,6 @@ executors for detail. SSH-exec host ops remain forwarded. Cross-runtime coverage
 `test/ssh-config-parity.test.ts`, `test/host-read-parity.test.ts`, and
 `cargo test -p pacer-config ssh_config`.
 
-## P2-D SSH/plugin host ops triage (library + native account map)
-
-P2-D evaluated `host.account.add`, `host.check`, `host.clean`, `host.terminal`
-and `host.repo.setup` for the largest safe native registration. Only
-`host.account.add` met parity without SSH execution: Rust maps the account home
-in strategy YAML and returns the login command (`pacer-config::host::
-account_login_command`) with endpoint sync and `hosts` publication matching other
-host mutations. `host.check`, `host.repo.setup` and `host.clean` need plugin SSH
-grants, job runners, transfer gates and effectful remote git/identity/cleanup still
-owned by TypeScript; decision logic over injected probes/tasks lives in
-`pacer-lifecycle::hosts::{check,setup,clean,setup_plan,validate_clone_preview}`.
-M2 wave 2 registers `host.check`, `host.clean` and `host.repo.setup`: Rust answers
-refusals (including setup consent and repo-not-mapped) and `host.clean` dry runs and
-hands every effectful request to Core through the whole-operation host effects
-bridge (HTTP) or by forwarding it (stdio).
-`host.terminal` needs Core terminal openers; Rust owns SSH argv/title only via
-`terminal_ssh`. Cross-runtime coverage: `test/p6e-parity.test.ts` (check/setup/clean),
-`test/host-account-native-parity.test.ts`, `test/host-ssh-lib-parity.test.ts`, and
-`cargo test -p pacer-lifecycle terminal_tests`.
-
 ## P6d stop/wait triage (library + selective native stop)
 
 P6d evaluated `task.stop` and `task.wait` for the largest safe native
@@ -264,11 +244,10 @@ orchestration, queue drain and supervision for managed-work and agent-session
 paths; those cases selectively forward to TypeScript. The safe native slice is
 `pacer-lifecycle::record_task_stop` (store CAS) plus Core bridges for runner
 liveness probe, process/host signals, live-worker release and settle activity
-(pattern: `task.dismiss` auto-clean bridge). Selective native `task.wait` returns immediately when `task_wait_settled`
-already holds (Core `taskWaitProbe` over agent-session holds); active tasks
-forward for drain/supervise. Cross-runtime coverage:
+(pattern: `task.dismiss` auto-clean bridge). `task_wait_settled` remains
+library-only for `task.wait`. Cross-runtime coverage:
 `test/record-stop-parity.test.ts`, `test/native-task-stop-parity.test.ts`,
-`test/native-task-wait-parity.test.ts`, `test/task-wait-settled-parity.test.ts`, and
+`test/task-wait-settled-parity.test.ts`, and
 `cargo test -p pacer-lifecycle record_stop wait_settled`.
 
 ## P7 session ops triage (library)
