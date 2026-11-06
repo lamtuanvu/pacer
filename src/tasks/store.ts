@@ -22,7 +22,9 @@ export function taskSettledAt(task: TaskRecord): number {
 
 // Keep connections for the service's cheap change checks; bound handles for callers
 // that inspect many homes (including the test suite). Never evict a transaction.
-interface Connection { db: Database; generation: number; inode: number; directoryStamp?: string }
+// `imported` maps a JSON file name to the mtime already reconciled with SQLite, so a
+// directory change only looks up the files that changed since the last scan.
+interface Connection { db: Database; generation: number; inode: number; directoryStamp?: string; imported: Map<string, number> }
 const connections = new Map<string, Connection>();
 let generation = 0;
 const columns = "id, rev, state, created_at, updated_at, settled_at, repo, record, archived";
@@ -50,7 +52,8 @@ function importJson(ctx: Ctx, entry: Connection): void {
   const stat = statSync(dir, { bigint: true });
   const stamp = `${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`;
   if (entry.directoryStamp === stamp) return;
-  const pending: { task: TaskRecord; mtime: number }[] = [];
+  const pending: { name: string; task: TaskRecord; mtime: number }[] = [];
+  const present = new Set<string>();
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".json") || !isTaskId(name.slice(0, -5))) continue;
     const file = join(dir, name);
@@ -61,9 +64,11 @@ function importJson(ctx: Ctx, entry: Connection): void {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw error;
     }
-    const row = db.query<{ rev: number; json_mtime: number | null }, [string]>(
-      "SELECT rev, json_mtime FROM tasks WHERE id = ?").get(name.slice(0, -5));
-    if (row?.json_mtime === mtime) continue;
+    present.add(name);
+    if (entry.imported.get(name) === mtime) continue;
+    const row = db.query<{ json_mtime: number | null }, [string]>(
+      "SELECT json_mtime FROM tasks WHERE id = ?").get(name.slice(0, -5));
+    if (row?.json_mtime === mtime) { entry.imported.set(name, mtime); continue; }
     try {
       task = JSON.parse(readFileSync(file, "utf8")) as TaskRecord;
       if (!task || !isTaskId(task.id) || name !== `${task.id}.json` ||
@@ -77,8 +82,9 @@ function importJson(ctx: Ctx, entry: Connection): void {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`pacer: skipping corrupt task ${name}: ${String(error)}`);
       continue;
     }
-    pending.push({ task, mtime });
+    pending.push({ name, task, mtime });
   }
+  for (const name of entry.imported.keys()) if (!present.has(name)) entry.imported.delete(name);
   // Scanning/parsing may fault on disk or take arbitrarily long. Acquire the
   // writer only for bounded commits, and let SQL recheck revisions against
   // concurrent writers rather than trusting the scan's earlier snapshot.
@@ -99,6 +105,8 @@ function importJson(ctx: Ctx, entry: Connection): void {
         if (task.settledAt !== undefined) db.query("INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)").run(task.id, task.settledAt);
       }
     }).immediate();
+    // A row that kept a newer revision rejects the file; rescanning it cannot change that.
+    for (const { name, mtime } of batch) entry.imported.set(name, mtime);
   }
   // Keep the pre-scan stamp: an atomic write during the scan is seen next time.
   entry.directoryStamp = stamp;
@@ -178,7 +186,7 @@ function connection(ctx: Ctx) {
     if (connections.size < 32) break;
     if (!entry.db.inTransaction) { entry.db.close(); connections.delete(key); }
   }
-  const entry: Connection = { db, generation: ++generation, inode: statSync(path).ino };
+  const entry: Connection = { db, generation: ++generation, inode: statSync(path).ino, imported: new Map() };
   try { importJson(ctx, entry); } catch (error) { db.close(); throw error; }
   connections.set(path, entry);
   return entry;
@@ -210,19 +218,23 @@ export function createTask(
   ctx: Ctx, input: { title?: string; brief: Brief; kind: string | null; requestedExecutor: string | null; timeoutS: number } & Partial<Pick<TaskRecord, "interactionMode" | "conversation" | "sessionDraftId" | "requestId" | "source" | "repo" | "placement" | "baseBranch" | "baseSha" | "group" | "interactive">>,
   onCreate?: (task: TaskRecord, db: Database) => void,
 ): TaskRecord {
-  const { db } = connection(ctx);
+  const entry = connection(ctx), { db } = entry;
   const machineId = cachedMachineId(ctx);
   for (let i = 0; i < 65; i++) {
     const task: TaskRecord = { rev: 1, id: newTaskId(ctx.now), createdAt: ctx.now, ...input, ...(machineId ? { machineId } : {}), state: "queued", attempts: [] };
+    let mtime: number | undefined;
     const created = db.transaction(() => {
       const result = db.query(`INSERT OR IGNORE INTO tasks (${columns}) VALUES (${placeholders})`).run(...values(task, ctx.now));
       if (!result.changes) return false;
       onCreate?.(task, db);
-      const mtime = writeCompatibilityJson(ctx, task);
+      mtime = writeCompatibilityJson(ctx, task);
       db.query("UPDATE tasks SET json_mtime = ? WHERE id = ?").run(mtime, task.id);
       return true;
     }).immediate();
-    if (created) return task;
+    if (created) {
+      markImported(entry, task, mtime!);
+      return task;
+    }
   }
   throw new Error("could not allocate a unique task id");
 }
@@ -302,8 +314,9 @@ export function touchTask(ctx: Ctx, id: string): TaskRecord {
 
 function writeTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void, always: boolean): TaskRecord {
   return withTaskLock(ctx, id, () => {
-    const { db } = connection(ctx);
-    return db.transaction(() => {
+    const entry = connection(ctx), { db } = entry;
+    let mtime = 0;
+    const updated = db.transaction(() => {
       const t = readTask(ctx, id);
       if (!t) throw new Error(`unknown task ${id}`);
       const rev = t.rev;
@@ -317,13 +330,20 @@ function writeTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void, always
       if (!always && JSON.stringify(t) === before) return t;
       t.rev = rev + 1;
       // JSON first: a crash before SQLite commits is recovered by the next import.
-      const mtime = writeCompatibilityJson(ctx, t);
+      mtime = writeCompatibilityJson(ctx, t);
       if (t.settledAt !== undefined) db.query("INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)").run(id, t.settledAt);
       db.query(`UPDATE tasks SET rev=?, state=?, created_at=?, updated_at=?, settled_at=?, repo=?, record=?, archived=?, json_mtime=? WHERE id=?`)
         .run(...values(t, Number.isFinite(ctx.now) ? ctx.now : Date.now() / 1000).slice(1), mtime, id);
       return t;
     }).immediate();
+    markImported(entry, updated, mtime);
+    return updated;
   });
+}
+
+/** Only a committed outermost write may skip the next scan's lookup; a rollback leaves the JSON to import. */
+function markImported(entry: Connection, task: TaskRecord, mtime: number): void {
+  if (!task.archived && !entry.db.inTransaction) entry.imported.set(`${task.id}.json`, mtime);
 }
 
 export interface TaskFilter { states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number }
