@@ -6,6 +6,7 @@ import { decodeLog, encodeHeader, encodeRecord, wire, WireDecoder } from "../src
 import { SecretMasker } from "../src/session/masking";
 import { Recording, readRecording } from "../src/session/recording";
 import { Screen } from "../src/session/screen";
+import { PlainText } from "../src/session/plain";
 import { hostOlder, readSessionVersion, writeSessionVersion } from "../src/session/protocol";
 
 const golden = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/sessions/host-parity.json"), "utf8"));
@@ -117,6 +118,18 @@ test("TS checkpoint slicing and missing-log fallback preserve absolute offsets",
     expect(readRecording(dir,2)).toEqual({frames:[]});
     expect(readRecording(dir,0)).toEqual({checkpoint,frames:[]});
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test("seeded TS plain transcript corpus stays fixed", () => {
+  for (const row of corpus.plain) {
+    const plain = new PlainText();
+    const pushOut: string[] = [];
+    for (const chunk of row.chunks as string[]) {
+      pushOut.push(plain.push(Buffer.from(chunk, "hex")));
+    }
+    expect(pushOut).toEqual(row.pushOut);
+    expect(plain.flush()).toBe(row.flushOut);
+  }
 });
 
 test("seeded TS malformed-log and streaming-mask corpus stays fixed", () => {

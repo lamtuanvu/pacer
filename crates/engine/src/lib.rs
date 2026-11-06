@@ -1,5 +1,13 @@
-//! Pure engine calculations. Inputs and outputs use the TypeScript JSON shapes until
-//! the M2 operation boundary is ready to introduce protocol types.
+//! Pure engine calculations plus safe pacing-state helpers (pause, mode hold, exhausted marks).
+//! Inputs and outputs use the TypeScript JSON shapes until the M2 operation boundary introduces
+//! protocol types. Pacing status ops compose from [`usage_broker`] injections; selective
+//! `routing.route` params still forward for classifier and remote eligibility.
+pub mod exhausted;
+pub mod mode_hold;
+pub mod pause;
+pub mod status;
+pub mod usage_broker;
+
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::Tz;
 use serde_json::{Value, json};

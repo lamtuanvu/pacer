@@ -53,6 +53,56 @@ export async function runStdio(
           result = null;
           break;
         }
+        case "_internal.status-broker.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { computeStatus } = await import("../engine/status");
+          const { loadStrategy } = await import("../config/strategy");
+          const ctx = getCtx();
+          const status = await computeStatus(ctx, loadStrategy(ctx));
+          result = { accounts: status.accounts, providers: status.providers };
+          break;
+        }
+        case "_internal.session-probe.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { sessionProbeParts } = await import("./session-probe-bridge");
+          result = sessionProbeParts(getCtx());
+          break;
+        }
+        case "_internal.config-host.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { configHostParts } = await import("./config-host-bridge");
+          result = configHostParts(getCtx());
+          break;
+        }
+        case "_internal.task-read.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const id = (r.params as { id?: unknown }).id;
+          if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "id required");
+          const { taskReadParts } = await import("./task-read-bridge");
+          result = await taskReadParts(getCtx(), id);
+          break;
+        }
+        case "_internal.snapshot-probe.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { snapshotProbeParts } = await import("./snapshot-probe-bridge");
+          result = await snapshotProbeParts(getCtx());
+          break;
+        }
         case "hello": {
           const params=r.params??{};
           if(!params||typeof params!=="object"||Array.isArray(params))throw new CoreError("invalid_input","hello params must be an object");

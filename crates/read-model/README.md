@@ -51,7 +51,17 @@ counts and revision the snapshot needs are translated.
 `tasks::api_task_page`, `tasks::select_task_list` and `tasks::task_list_page`
 mirror the TypeScript `apiTaskPage` / `core.tasks.list` selection path used by
 `task.list`: per-task repo label scope, visible `needs_input` state, filter-
-before-page, and ActiveCounts for `activeAgentSessions`. They register no native
-op. A later cutover still needs a SessionProbe/alive bridge in the server and
-full `taskDetail` composition before `task.get` can go native; keep both ops
-Forwarded until then.
+before-page, and ActiveCounts for `activeAgentSessions`. Native `task.list`
+registers through `pacer-server` once Core supplies session probe parts
+(`/_internal/session-probe-parts` / `_internal.session-probe.parts`). Full
+## `task.get` composition (library only)
+
+`task_detail::task_detail_store`, `task_detail::task_detail_by_id`,
+`task_detail::executor_cost` and `task_detail::timeline_store` mirror the
+store-only slice of `src/core/task-detail.ts`: apiTask enrichment, brief,
+attempts, routing, cost overlap, acceptance, known branch, timestamps, empty
+files/retry options and `derived` markers. Git diffstat, token roll-ups, retry
+options, dispatch `work` / `managedSkip`, agent-check acceptance gating and the
+activity timeline tail remain TypeScript until their bridges exist. Native
+Native `task.get` registers through `pacer-server` with the task-read enrichment
+bridge; store-only helpers remain the Rust side of that merge.

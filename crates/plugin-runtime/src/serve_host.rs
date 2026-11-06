@@ -1,14 +1,17 @@
-//! Flag-gated native plugin-host session for serve (P4d-1 / P4d-2).
+//! Flag-gated native plugin-host session for serve (P4d-1 … P4d-5).
 //!
-//! Default serve stays TypeScript-owned. When
-//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] or [`crate::HOST_BRIDGE_ENABLE_ENV`] is
-//! explicitly enabled, serve may claim a [`ProcessOwner`], bind the reverse
-//! bridge with live call/find dispatch, and export [`crate::HOST_SOCKET_ENV`]
-//! for the Core child.
+//! Default serve owns a native [`ProcessOwner`] when
+//! [`crate::serve_starts_reverse_bridge_by_default`] is true (P4d-13). Falsy
+//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] values
+//! (`0` / `false` / `no`) escape to TypeScript ownership. Explicit truthy flags
+//! still opt in when the default is off. When enabled, serve claims a
+//! [`ProcessOwner`], binds the reverse bridge with live call/find/spawn/stop,
+//! and exports [`crate::HOST_SOCKET_ENV`] for the Core child.
 
 use crate::{
     BridgeError, BridgeHandle, HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, OwnerError, ProcessOwner,
-    ReverseBridge, SharedOwner, dark_bridge_enabled,
+    ReverseBridge, SharedOwner, dark_bridge_disabled, dark_bridge_enabled,
+    serve_starts_reverse_bridge_by_default,
 };
 use std::{
     path::{Path, PathBuf},
@@ -17,10 +20,10 @@ use std::{
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-/// Explicit opt-in for serve-owned native plugin supervision (P4d-1).
+/// Enable / escape env for serve-owned native plugin supervision (P4d-1 / P4d-5).
 ///
-/// Either this or [`HOST_BRIDGE_ENABLE_ENV`] enables the flag-on path. Default
-/// serve leaves both unset.
+/// `0` / `false` / `no` disable the path; truthy values opt in when the
+/// default const is off.
 pub const NATIVE_PLUGIN_HOST_ENABLE_ENV: &str = "PACER_NATIVE_PLUGIN_HOST";
 
 #[derive(Debug, Error)]
@@ -32,7 +35,17 @@ pub enum NativeHostError {
 }
 
 /// True when serve may own a native [`ProcessOwner`] and reverse bridge.
+///
+/// Explicit disable on either flag wins. Otherwise the path is on when
+/// [`serve_starts_reverse_bridge_by_default`] is true, or when either flag is
+/// an explicit truthy opt-in.
 pub fn native_plugin_host_enabled(native_flag: Option<&str>, bridge_flag: Option<&str>) -> bool {
+    if dark_bridge_disabled(native_flag) || dark_bridge_disabled(bridge_flag) {
+        return false;
+    }
+    if serve_starts_reverse_bridge_by_default() {
+        return true;
+    }
     dark_bridge_enabled(native_flag) || dark_bridge_enabled(bridge_flag)
 }
 
@@ -103,23 +116,33 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn flags_default_off() {
-        assert!(!native_plugin_host_enabled(None, None));
+    fn flags_default_on_with_zero_escape() {
+        assert!(serve_starts_reverse_bridge_by_default());
+        assert!(native_plugin_host_enabled(None, None));
+        assert!(!native_plugin_host_enabled(Some("0"), None));
+        assert!(!native_plugin_host_enabled(None, Some("false")));
         assert!(!native_plugin_host_enabled(Some("0"), Some("false")));
+        // Explicit disable wins over a conflicting truthy companion flag.
+        assert!(!native_plugin_host_enabled(Some("true"), Some("0")));
+        assert!(!native_plugin_host_enabled(Some("0"), Some("1")));
         assert!(native_plugin_host_enabled(Some("1"), None));
         assert!(native_plugin_host_enabled(None, Some("1")));
-        assert!(native_plugin_host_enabled(Some("true"), Some("0")));
+        assert!(native_plugin_host_enabled(Some("true"), Some("yes")));
         assert_eq!(NATIVE_PLUGIN_HOST_ENABLE_ENV, "PACER_NATIVE_PLUGIN_HOST");
     }
 
     #[test]
-    fn env_map_reads_either_flag() {
+    fn env_map_reads_either_flag_and_honors_zero() {
         let mut env = HashMap::new();
-        assert!(!native_plugin_host_enabled_from_env(&env));
+        assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
         assert!(native_plugin_host_enabled_from_env(&env));
+        env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "0".into());
+        assert!(!native_plugin_host_enabled_from_env(&env));
         env.clear();
         env.insert(HOST_BRIDGE_ENABLE_ENV.into(), "yes".into());
         assert!(native_plugin_host_enabled_from_env(&env));
+        env.insert(HOST_BRIDGE_ENABLE_ENV.into(), "no".into());
+        assert!(!native_plugin_host_enabled_from_env(&env));
     }
 }

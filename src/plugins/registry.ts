@@ -30,7 +30,8 @@ import { prepareWriteAuthority } from "./capability-write";
 import { prepareFilesystemAuthority } from "./capability-fs";
 import { prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
-import { CallAuthority, createCallAuthority, type CallResources } from "./authority";
+import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
+import { sealCallAuthority, type HostSnapshotSeal } from "./native-call-authority";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type SpawnSpec } from "./process";
@@ -146,6 +147,8 @@ export class PluginRegistry {
   private readonly hostCallerUsage = new WeakMap<CallAuthority, ConfiguredRemoteUsageGrant>();
   private readonly retiredProcesses=new Set<Promise<void>>();
   private readonly observationAdmissions=new WeakSet<CallAuthority>();
+  private readonly nativeOrcaBridges = new Map<string, { pluginId: string; authority: CallAuthority }>();
+  private readonly nativeOrcaBridgeByPlugin = new Map<string, { token: string; authority: CallAuthority }>();
   private eventTimer:ReturnType<typeof setInterval>|undefined;
   private published: Promise<unknown> = Promise.resolve();
   private readonly entries = new Map<string, Entry>();
@@ -1739,6 +1742,121 @@ export class PluginRegistry {
         grants,
       },
     };
+  }
+
+  /**
+   * Seal call-scoped CallResources for flag-on ProcessOwner (P4d-7).
+   * Auto-issues exact absolute fs.read paths and exact net.http hosts from the
+   * granted manifest; host-supplied resources are validated then echoed sealed.
+   * Glob / `$VAR` scopes still need a later host-issued concrete resource path.
+   */
+  nativeIssueCallAuthority(ctx: Ctx, id: string, options: { resources?: CallResources; ttlMs?: number; method?: string } = {}) {
+    const e = this.findEntry(ctx, id);
+    if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
+    const manifest = e.manifest!;
+    const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
+    const sealed = sealCallAuthority(ctx, manifest, grants, {
+      resources: options.resources,
+      ttlMs: options.ttlMs,
+      method: options.method,
+    });
+    let out = sealed;
+    if (sealed.resources.hosts.length && grants.includes("hosts")) {
+      out = { ...out, hostSnapshots: this.nativeHostSnapshots(ctx, e, sealed.resources.hosts) };
+    }
+    if ((sealed.resources.orcaAttempt || sealed.resources.orcaLive) && grants.includes("orca")) {
+      const statusExecutable = ctx.which?.("orca") ?? undefined;
+      out = {
+        ...out,
+        orcaContext: {
+          home: ctx.home,
+          ...(statusExecutable ? { statusExecutable, env: { PATH: ctx.env.PATH ?? "" } } : {}),
+        },
+      };
+      const bridge = this.takeNativeOrcaBridge(id);
+      if (bridge) out = { ...out, orcaBridgeToken: bridge.token };
+    }
+    if (sealed.resources.worktree && grants.includes("worktree")) {
+      const git = ctx.which?.("git");
+      if (!git) throw new CoreError("plugin_unavailable", "git is unavailable for worktree attach");
+      const base = options.resources?.worktree?.base;
+      if (typeof base !== "string" || !base || base.length > 256 || base.startsWith("-")) {
+        throw new CoreError("invalid_input", "worktree base ref is required for native attach");
+      }
+      out = {
+        ...out,
+        worktreeContext: {
+          home: ctx.pacerHome,
+          providerId: id,
+          git,
+          base,
+          env: {
+            PATH: ctx.env.PATH ?? "",
+            HOME: ctx.env.HOME ?? ctx.home,
+            GIT_CONFIG_GLOBAL: ctx.env.GIT_CONFIG_GLOBAL ?? "/dev/null",
+            GIT_CONFIG_SYSTEM: ctx.env.GIT_CONFIG_SYSTEM ?? "/dev/null",
+          },
+        },
+      };
+    }
+    if (sealed.resources.executorClaim && grants.includes("process.spawn")) {
+      out = {
+        ...out,
+        executorContext: { home: ctx.pacerHome },
+      };
+    }
+    return out;
+  }
+
+  /** Stash a live Orca bridge for the next native `call_authority` on this plugin (flag-on path). */
+  stashNativeOrcaBridge(pluginId: string, authority: CallAuthority): string {
+    const token = randomUUID();
+    this.nativeOrcaBridges.set(token, { pluginId, authority });
+    this.nativeOrcaBridgeByPlugin.set(pluginId, { token, authority });
+    return token;
+  }
+
+  nativeAnswerOrcaBridge(token: string, pluginId: string, method: string, params: Record<string, unknown>): Promise<unknown> {
+    const row = this.nativeOrcaBridges.get(token);
+    if (!row || row.pluginId !== pluginId) throw new CoreError("capability_denied", "Orca bridge token is not active");
+    return import("./orca-broker").then(({ answerOrca }) => answerOrca(row.authority, pluginId, method, params));
+  }
+
+  private takeNativeOrcaBridge(pluginId: string): { token: string } | undefined {
+    const row = this.nativeOrcaBridgeByPlugin.get(pluginId);
+    return row ? { token: row.token } : undefined;
+  }
+
+  /** Seal SSH provider snapshots for Rust ProcessOwner host attach (P4d-9). */
+  private nativeHostSnapshots(ctx: Ctx, caller: Entry, hosts: readonly HostOperationResource[]): HostSnapshotSeal[] {
+    this.refresh(ctx);
+    const callerGeneration = this.hostGeneration(ctx, caller);
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1 || providers[0] === caller.id)
+      throw new CoreError("plugin_unavailable", "one distinct SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    const providerGeneration = this.hostGeneration(ctx, provider);
+    const providerProcess = provider.process?.pid ?? 0;
+    const seen = new Set<string>();
+    const out: HostSnapshotSeal[] = [];
+    for (const op of hosts) {
+      if (seen.has(op.alias)) continue;
+      seen.add(op.alias);
+      const host = loadStrategy(ctx).hosts[op.alias];
+      if (!host || host.paused) throw new CoreError("not_found", "configured host alias is unavailable");
+      const fingerprint = op.hostFingerprint;
+      if (!fingerprint) throw new CoreError("invalid_input", "host fingerprint required");
+      out.push({
+        alias: op.alias,
+        hostFingerprint: fingerprint,
+        callerGeneration,
+        providerGeneration,
+        providerProcess,
+        providerId: provider.id,
+      });
+    }
+    return out;
   }
 
   /** Record a ProcessOwner hello without holding a local PluginProcess. */

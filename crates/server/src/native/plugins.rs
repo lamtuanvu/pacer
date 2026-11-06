@@ -3,9 +3,11 @@
 //!
 //! P4d-3 registers X3 mutation ops on HTTP via the private channel as the four
 //! reads. P4d-4 registers retired `plugin.install` (refuse parity) and, when
-//! `PACER_NATIVE_PLUGIN_HOST` is on, routes plugin RPC spawn/call/stop through
-//! the serve [`SharedOwner`] so TypeScript does not also own those children.
-//! Stdio keeps plugin ops in TypeScript (no second process owner).
+//! the native host is enabled, routes plugin RPC spawn/call/stop through the
+//! serve [`SharedOwner`] so TypeScript does not also own those children.
+//! Flag-on private IPC is prepare/spawn_spec/call_authority/ready/stop/changed/
+//! publish/log — `call` stays flag-off only (P4d-5 shrink). Stdio keeps plugin
+//! ops in TypeScript (no second process owner).
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use crate::serve::core_child::CoreChild;
 use axum::{body::Body, http::Request};
@@ -21,7 +23,11 @@ use pacer_plugin_ops::{
     mutations::{MUTATION_OPERATIONS, MutationOperations, MutationRuntime},
     public::{Entry, PublicOperations, Runtime},
 };
-use pacer_plugin_runtime::{SharedOwner, SpawnSpec};
+use pacer_plugin_runtime::{
+    SharedOwner, SpawnSpec, call_resources_from_value, host_snapshots_from_value,
+    executor_context_from_value, observation_bootstrap_from_value, orca_context_from_value,
+    session_for_call, session_from_hello, worktree_context_from_value,
+};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -77,7 +83,8 @@ pub struct Service {
     reads: PublicOperations,
     epochs: tokio::sync::Mutex<Epochs>,
     actions: Arc<Mutex<HashSet<String>>>,
-    /// Flag-on serve ProcessOwner. Absent under default TypeScript ownership.
+    /// Serve ProcessOwner when the native host is enabled. Absent under the
+    /// default TypeScript ownership path (P4d-5 keeps that default).
     native_owner: Option<SharedOwner>,
 }
 
@@ -377,6 +384,7 @@ impl Owner {
         method: &str,
         params: Value,
     ) -> Result<Value, CoreError> {
+        // Flag-off only: private `call` is retired once ProcessOwner owns RPC.
         let Some(owner) = self.native_owner.clone() else {
             return self
                 .request(json!({"kind":"call", "id":id, "method":method, "params":params}))
@@ -408,19 +416,83 @@ impl Owner {
             .get("hello")
             .cloned()
             .ok_or_else(|| internal("spawn_spec missing hello"))?;
+        // P4d-7: Core seals call-scoped CallResources before the plugin method.
+        let authority_body = self
+            .request(json!({"kind":"call_authority", "id":id, "method":method}))
+            .await?;
+        let resources = call_resources_from_value(
+            authority_body
+                .get("resources")
+                .unwrap_or(&Value::Object(Default::default())),
+        )
+        .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let grants = authority_body
+            .get("grants")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            });
+        let ttl = authority_body
+            .get("ttlMs")
+            .and_then(Value::as_u64)
+            .filter(|ms| *ms > 0)
+            .unwrap_or(30_000);
+        let call_lifetime = Duration::from_millis(ttl);
+        let observation = observation_bootstrap_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let host_attach = host_snapshots_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let orca_context = orca_context_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let worktree_context = worktree_context_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let executor_context = executor_context_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
         let spec = SpawnSpec {
             argv,
             cwd: cwd.into(),
             env,
         };
-        {
+        let result = {
             let mut guard = owner.lock().await;
             guard
                 .ensure(id, &spec)
                 .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
+            let mut session = session_for_call(
+                &hello,
+                resources,
+                grants,
+                call_lifetime,
+                observation,
+                Some(&host_attach),
+                orca_context,
+                worktree_context,
+                executor_context,
+            )
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+            session
+                .bind_process_owner_hosts(owner.clone())
+                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+            session
+                .bind_process_owner_orca(owner.clone())
+                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+            session
+                .bind_process_owner_worktree()
+                .await
+                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+            session
+                .bind_process_owner_executor()
+                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+            guard
+                .install_capability_session(id, session)
+                .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
             if !guard.is_ready(id) {
                 let hello_result = guard
-                    .call_plugin(id, "plugin.hello", hello, Duration::from_secs(5))
+                    .call_plugin(id, "plugin.hello", hello.clone(), Duration::from_secs(5))
                     .await
                     .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
                 guard.mark_ready(id);
@@ -445,15 +517,52 @@ impl Owner {
                 }))
                 .await?;
                 let mut guard = owner.lock().await;
-                return guard
+                let value = guard
                     .call_plugin(id, method, params, Duration::from_secs(30))
                     .await
                     .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
+                // Drop call-scoped natives; keep hello-only between calls.
+                if let Ok(idle) = session_from_hello(&hello, Duration::from_secs(300)) {
+                    let _ = guard.install_capability_session(id, idle);
+                }
+                value
+            } else {
+                let value = guard
+                    .call_plugin(id, method, params, Duration::from_secs(30))
+                    .await
+                    .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
+                if let Ok(idle) = session_from_hello(&hello, Duration::from_secs(300)) {
+                    let _ = guard.install_capability_session(id, idle);
+                }
+                value
             }
-            guard
-                .call_plugin(id, method, params, Duration::from_secs(30))
-                .await
-                .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))
+        };
+        self.flush_capability_logs(owner, id).await;
+        result
+    }
+
+    async fn flush_capability_logs(&mut self, owner: SharedOwner, id: &str) {
+        let logs = {
+            let guard = owner.lock().await;
+            let Some(session) = guard.capability_session(id) else {
+                return;
+            };
+            drop(guard);
+            let mut session = session.lock().await;
+            session.take_logs()
+        };
+        for (level, message) in logs {
+            let mut text = if level == "info" {
+                message
+            } else {
+                format!("[{level}] {message}")
+            };
+            if text.len() > 1000 {
+                text.truncate(1000);
+            }
+            let _ = self
+                .request(json!({"kind":"log", "id":id, "message":text}))
+                .await;
         }
     }
 

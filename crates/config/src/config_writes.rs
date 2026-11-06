@@ -100,7 +100,8 @@ fn diff(path: &str, before: &str, after: &str) -> String {
     out.join("\n")
 }
 
-pub(crate) fn resolve<'a>(strategy: &'a Value, id: &str) -> Option<&'a Value> {
+/// Resolve a runner id or alias the same way TypeScript `resolveRunner` does.
+pub fn resolve<'a>(strategy: &'a Value, id: &str) -> Option<&'a Value> {
     if let Some(runner) = strategy["runners"].get(id) {
         return Some(runner);
     }
@@ -225,6 +226,29 @@ pub(crate) fn ordered_executor_ids(strategy: &Value) -> Vec<String> {
 
 fn path(parts: &[Value]) -> &[Value] {
     parts
+}
+
+/// `routing.get` read model: routing rules plus available executor ids.
+/// Matches `src/core/routing-config.ts` `get` (no usage broker).
+pub fn get_routing(home: &Path) -> Result<Value, StrategyError> {
+    let strategy = load_strategy(home)?;
+    let rules: Vec<Value> = strategy["routing"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|rule| {
+            let executors = rule.get("executors").cloned().unwrap_or_else(|| json!([]));
+            match rule.get("kinds") {
+                Some(kinds) if !kinds.is_null() => json!({"kinds": kinds, "executors": executors}),
+                _ => json!({"executors": executors}),
+            }
+        })
+        .collect();
+    let available: Vec<Value> = strategy["runners"]
+        .as_object()
+        .map(|runners| runners.keys().map(|id| json!(id)).collect())
+        .unwrap_or_default();
+    Ok(json!({"rules": rules, "available": available}))
 }
 
 /// `routing.set` document effect. Endpoint synchronization and config event

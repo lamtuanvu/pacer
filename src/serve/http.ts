@@ -182,6 +182,70 @@ export function startServer(
             return Response.json({error: body}, {status: httpStatus(body.code)});
           }
         }
+        if (pathname === "/_internal/status-broker-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { computeStatus } = await import("../engine/status");
+            const { loadStrategy } = await import("../config/strategy");
+            const ctx = getCtx();
+            const status = await computeStatus(ctx, loadStrategy(ctx));
+            return Response.json({ result: { accounts: status.accounts, providers: status.providers } });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/session-probe-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { sessionProbeParts } = await import("../api/session-probe-bridge");
+            return Response.json({ result: sessionProbeParts(getCtx()) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/config-host-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { configHostParts } = await import("../api/config-host-bridge");
+            return Response.json({ result: configHostParts(getCtx()) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/task-read-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const id = body && typeof body === "object" && !Array.isArray(body) ? (body as { id?: unknown }).id : undefined;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            const { taskReadParts } = await import("../api/task-read-bridge");
+            return Response.json({ result: await taskReadParts(getCtx(), id) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { snapshotProbeParts } = await import("../api/snapshot-probe-bridge");
+            return Response.json({ result: await snapshotProbeParts(getCtx()) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
         if (pathname === "/_internal/discovery/config" && req.method === "POST") {
           const { buildRadioConfig } = await import("../discovery/radio");
