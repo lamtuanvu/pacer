@@ -52,6 +52,15 @@ impl RunSpawnPlan {
     }
 }
 
+/// Drain launch hooks must refuse mismatched task ids before effectful spawn.
+pub fn validate_run_spawn_plan(plan: &RunSpawnPlan, task_id: &str) -> Result<(), &'static str> {
+    match plan.task_id() {
+        Some(id) if id == task_id => Ok(()),
+        Some(_) => Err("run spawn plan task id mismatch"),
+        None => Err("run spawn plan missing _run task id"),
+    }
+}
+
 /// Build the launch plan after admission lease/task env pins are known.
 /// Does not touch the filesystem or spawn a process.
 pub fn build_run_spawn_plan(
@@ -128,5 +137,7 @@ mod tests {
         assert_eq!(plan.log_path, pacer.join("logs").join("runner.log"));
         assert!(plan.detached);
         assert_eq!(plan.owner, RunSpawnOwner::TypeScriptCore);
+        validate_run_spawn_plan(&plan, "t-20261106-000000-abcd").unwrap();
+        assert!(validate_run_spawn_plan(&plan, "other").is_err());
     }
 }
