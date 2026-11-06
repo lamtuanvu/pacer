@@ -1,4 +1,5 @@
 import { appendFileSync } from "node:fs";
+import { cliMain } from "../cli-entry";
 import { plannerPolicyApplies } from "../install/role";
 import type { Ctx } from "../types";
 
@@ -24,6 +25,6 @@ export async function sessionHook(ctx: Ctx, kind: PlannerKind, input: unknown, s
       if (line) appendFileSync(ctx.env.CLAUDE_ENV_FILE, line, { mode: 0o600 });
     }
   } catch { /* SessionStart must preserve status output when the env file cannot be written. */ }
-  const out = statusOutput ? await statusOutput() : (await (await import("../cli")).main(["status", "--hook", kind], ctx)).out;
+  const out = statusOutput ? await statusOutput() : (await (await cliMain())(["status", "--hook", kind], ctx)).out;
   return { out };
 }
