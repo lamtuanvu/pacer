@@ -79,6 +79,11 @@ pub fn load_strategy(home: &Path) -> Result<Value, StrategyError> {
         .map_err(|e| invalid(&path, vec![format!("YAML syntax error: {e}")]))?;
     validate_yaml_strategy(&raw, &path, &name)
 }
+/// `dispatchConfigSchema.parse({})`: the dispatcher configuration without a strategy override.
+pub fn default_dispatch_config() -> Value {
+    crate::sections::dispatch(&crate::yaml_value::Value::from(&json!({})))
+        .map_or(Value::Null, |config| config.to_json())
+}
 pub fn list_strategies(home: &Path) -> Result<Vec<String>, StrategyError> {
     let mut names = vec!["default".to_owned()];
     match fs::read_dir(home.join("strategies")) {

@@ -928,6 +928,7 @@ pub(crate) fn validate_strategy(
     let mut aliases = Map::new();
     let mut declarations = Map::new();
     let mut providers = Map::new();
+    let mut planner_runner = None;
     if legacy {
         let entries = root.get("providers").and_then(obj);
         if entries.is_none_or(|m| m.is_empty() && planner_agent != "opencode") {
@@ -1079,6 +1080,12 @@ pub(crate) fn validate_strategy(
             (&mut aliases, &mut declarations),
             &mut p,
         );
+        // TypeScript takes the planner identity from the runner its reference resolves to.
+        planner_runner = aliases
+            .get(&planner_id)
+            .and_then(Value::as_str)
+            .and_then(|id| runners.get(id))
+            .map(|runner| (string(&runner["agent"]), string(&runner["account"])));
         if runners.values().any(|runner| {
             runner["host"] != Value::Null
                 && runner["agent"] == planner_agent
@@ -1147,6 +1154,10 @@ pub(crate) fn validate_strategy(
                     .map(|(id, _)| id.as_str())
             })
             .unwrap_or(planner_agent)
+    };
+    let (planner_agent, planner_account) = match &planner_runner {
+        Some((agent, account)) => (agent.as_str(), account.as_str()),
+        None => (planner_agent, planner_account),
     };
     if !legacy {
         for (id, runner) in &runners {
