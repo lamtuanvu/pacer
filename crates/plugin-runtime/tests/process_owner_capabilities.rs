@@ -1,14 +1,17 @@
 #![allow(clippy::unwrap_used)]
 //! ProcessOwner answers capability.* through the plugin-host broker (P4d-6/7).
 
+use pacer_plugin_host::OrcaAttemptResource;
 use pacer_plugin_runtime::{
-    CallAuthority, CallResources, CapabilityBroker, FixtureHostProvider, LocalHostEffect,
-    PluginCapabilitySession, ProcessOwner, ProviderSnapshot, ReadResource, SpawnSpec,
-    call_resources_from_value, host_snapshots_from_value, parse_manifest,
+    CallAuthority, CallResources, CapabilityBroker, FixtureHostProvider, FixtureOrcaSession,
+    LocalHostEffect, OrcaCallContext, PluginCapabilitySession, ProcessOwner, ProviderSnapshot,
+    ReadResource, SpawnSpec, call_resources_from_value, host_snapshots_from_value, parse_manifest,
     observation_bootstrap_from_value, session_for_call, session_from_hello,
 };
+use pacer_store::TaskStore;
 use serde_json::json;
 use std::{
+    collections::HashMap,
     env, fs,
     time::{Duration, Instant},
 };
@@ -276,6 +279,7 @@ for (;;) {{
         Duration::from_secs(10),
         None,
         None,
+        None,
     )
     .unwrap();
 
@@ -377,6 +381,7 @@ for (;;) {{
         Duration::from_secs(10),
         None,
         None,
+        None,
     )
     .unwrap();
 
@@ -475,6 +480,7 @@ for (;;) {{
         Some(vec!["tasks.read".into(), "events.subscribe".into()]),
         Duration::from_secs(10),
         observation,
+        None,
         None,
     )
     .unwrap();
@@ -583,6 +589,7 @@ for (;;) {
         Duration::from_secs(10),
         None,
         Some(&host_attach),
+        None,
     )
     .unwrap();
     session.bind_hosts_fixture(
@@ -617,4 +624,134 @@ for (;;) {
         "Core-sealed hostSnapshots must answer capability.hosts.run"
     );
     owner.terminate("fx-host").await.unwrap();
+}
+
+#[tokio::test]
+async fn process_owner_answers_orca_prepare_when_core_seals_attempt() {
+    let home = TempDir::new().unwrap();
+    let task_id = "t-20261106-125719-c5fb";
+    let mut store = TaskStore::open(home.path()).unwrap();
+    store
+        .insert(
+            &json!({
+                "id": task_id,
+                "rev": 1,
+                "createdAt": 1,
+                "state": "running",
+                "attempts": [],
+                "brief": {"repo": "/synthetic"},
+            }),
+            1.0,
+        )
+        .unwrap();
+
+    let source = r#"const r = Bun.stdin.stream().getReader();
+let b = "";
+let pending;
+const send = (x) => console.log(JSON.stringify({ jsonrpc: "2.0", ...x }));
+for (;;) {
+  const { value, done } = await r.read();
+  if (done) break;
+  b += new TextDecoder().decode(value);
+  while (b.includes("\n")) {
+    const i = b.indexOf("\n");
+    const m = JSON.parse(b.slice(0, i));
+    b = b.slice(i + 1);
+    if (m.method === "plugin.hello") {
+      send({ id: m.id, result: { ok: true, protocol: "1.10.0", id: "pacer-exec-orca", version: "1.0.0", contributes: ["executor"] } });
+    } else if (m.method === "executor.run") {
+      pending = m.id;
+      send({ id: 7, method: "capability.orca.prepare", params: { taskId: "t-20261106-125719-c5fb", attempt: 1 } });
+    } else if (m.id === 7) {
+      send({ id: pending, result: { ok: true, prepared: m.result?.method === "prepare" } });
+    }
+  }
+}"#;
+
+    let hello = json!({
+        "protocol":"1.10.0","pacer":"0.2.0",
+        "manifest":{
+            "id":"pacer-exec-orca","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+            "capabilities":[{"name":"orca","scopes":["task-owned"]}],
+            "contributes":{"executor":{"backends":["orca"]}}
+        },
+        "config":{},"grants":["orca"],"features":[]
+    });
+    let grant = OrcaAttemptResource {
+        task_id: task_id.into(),
+        attempt: 1,
+        provider_id: "pacer-exec-orca".into(),
+        executor: "fx-executor".into(),
+        session: "host-only-session".into(),
+    };
+    let sealed = json!({
+        "reads":[],
+        "writes":[],
+        "commands":[],
+        "hosts":[],
+        "orcaAttempt": {
+            "taskId": task_id,
+            "attempt": 1,
+            "providerId": "pacer-exec-orca",
+            "executor": "fx-executor",
+            "session": "host-only-session",
+        }
+    });
+    let resources = call_resources_from_value(&sealed).unwrap();
+    let orca_context = OrcaCallContext {
+        home: home.path().to_path_buf(),
+        status_executable: None,
+        status_env: HashMap::new(),
+    };
+    let mut session = session_for_call(
+        &hello,
+        resources,
+        Some(vec!["orca".into()]),
+        Duration::from_secs(10),
+        None,
+        None,
+        Some(orca_context),
+    )
+    .unwrap();
+    session
+        .bind_orca_fixture(
+            home.path(),
+            grant.clone(),
+            FixtureOrcaSession {
+                session_id: grant.session.clone(),
+                task_id: grant.task_id.clone(),
+                attempt: grant.attempt,
+                executor: grant.executor.clone(),
+                response: json!({"method": "prepare"}),
+            },
+        )
+        .unwrap();
+
+    let dir = TempDir::new().unwrap();
+    let mut owner = ProcessOwner::native_for_tests();
+    owner
+        .spawn("pacer-exec-orca", &peer_script(dir.path(), source))
+        .unwrap();
+    owner
+        .install_capability_session("pacer-exec-orca", session)
+        .unwrap();
+    owner
+        .call_plugin("pacer-exec-orca", "plugin.hello", hello, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let run = owner
+        .call_plugin(
+            "pacer-exec-orca",
+            "executor.run",
+            json!({"task":{"id":task_id,"rev":1},"attempt":1,"runDir":1,"orca":{"executor":"fx-executor","model":null,"timeoutMs":60000}}),
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        run,
+        json!({"ok": true, "prepared": true}),
+        "Core-sealed orcaAttempt must answer capability.orca.prepare"
+    );
+    owner.terminate("pacer-exec-orca").await.unwrap();
 }

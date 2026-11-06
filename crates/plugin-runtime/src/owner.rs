@@ -7,6 +7,7 @@
 //! installed [`crate::PluginCapabilitySession`] (P4d-6).
 
 use crate::capability::PluginCapabilitySession;
+use crate::orca_attach::SharedOrcaBridge;
 use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, SpawnSpec};
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -74,6 +75,7 @@ impl Ownership {
 /// [`ProcessOwner::native_for_serve`].
 pub struct ProcessOwner {
     ownership: Ownership,
+    orca_bridge: Option<SharedOrcaBridge>,
     children: HashMap<String, PluginProcess>,
     /// Plugins that completed `plugin.hello` under this owner.
     ready: HashMap<String, ()>,
@@ -88,6 +90,7 @@ impl ProcessOwner {
     pub fn typescript() -> Self {
         Self {
             ownership: Ownership::typescript(),
+            orca_bridge: None,
             children: HashMap::new(),
             ready: HashMap::new(),
             shadow: HashMap::new(),
@@ -99,6 +102,7 @@ impl ProcessOwner {
     pub fn native_for_tests() -> Self {
         Self {
             ownership: Ownership::native_for_tests(),
+            orca_bridge: None,
             children: HashMap::new(),
             ready: HashMap::new(),
             shadow: HashMap::new(),
@@ -110,11 +114,20 @@ impl ProcessOwner {
     pub fn native_for_serve() -> Self {
         Self {
             ownership: Ownership::native_for_serve(),
+            orca_bridge: None,
             children: HashMap::new(),
             ready: HashMap::new(),
             shadow: HashMap::new(),
             sessions: HashMap::new(),
         }
+    }
+
+    pub fn set_orca_bridge(&mut self, bridge: SharedOrcaBridge) {
+        self.orca_bridge = Some(bridge);
+    }
+
+    pub(crate) fn orca_bridge(&self) -> Option<&SharedOrcaBridge> {
+        self.orca_bridge.as_ref()
     }
 
     pub fn ownership(&self) -> &Ownership {

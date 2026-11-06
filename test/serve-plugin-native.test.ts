@@ -94,6 +94,44 @@ test("sealCallAuthority seals observation bootstrap for policy admission methods
   ).observation).toBeUndefined();
 });
 
+test("sealCallAuthority seals orcaAttempt when host supplies executor resources", () => {
+  const ctx = fakeCtx();
+  const session = "550e8400-e29b-41d4-a716-446655440000";
+  const sealed = sealCallAuthority(
+    ctx,
+    {
+      id: "pacer-exec-orca",
+      version: "1.0.0",
+      publisher: "pacer",
+      host: ">=1.10.0",
+      capabilities: [{ name: "orca", scopes: ["task-owned"] }],
+      contributes: { executor: { backends: ["orca"] } },
+    } as any,
+    ["orca"],
+    {
+      resources: {
+        reads: [],
+        commands: [],
+        stores: [],
+        orcaAttempt: {
+          taskId: "t-20261106-125719-c5fb",
+          attempt: 1,
+          providerId: "pacer-exec-orca",
+          executor: "codex",
+          session,
+        },
+      },
+    },
+  );
+  expect(sealed.resources.orcaAttempt).toEqual({
+    taskId: "t-20261106-125719-c5fb",
+    attempt: 1,
+    providerId: "pacer-exec-orca",
+    executor: "codex",
+    session,
+  });
+});
+
 test("sealCallAuthority validates host operation resources when hosts is granted", () => {
   const ctx = fakeCtx();
   const host = {

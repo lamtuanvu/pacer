@@ -4,17 +4,24 @@
 //! NativeProcess, NativeHttp}`. Unscoped methods (`capability.log`,
 //! `capability.config.get`) are answered locally from the sealed hello. Scoped
 //! native modules answer when Core issues call-scoped [`CallResources`] (P4d-7).
-//! Lifecycle / orca stay refused until a later slice. P4d-8 wires observation
-//! bootstrap (`tasks.read` / `events.subscribe`) when Core seals it. P4d-9
-//! attaches Core-sealed host provider snapshots for `hosts` when issued.
+//! P4d-8 wires observation bootstrap (`tasks.read` / `events.subscribe`) when
+//! Core seals it. P4d-9 attaches Core-sealed host provider snapshots for
+//! `hosts` when issued. P4d-10 attaches Core-sealed Orca attempt/live resources
+//! through [`NativeOrca`] when issued.
 
 use crate::host_attach::{HostAttachSnapshot, native_hosts_for_attach};
+use crate::orca_attach::{
+    FixtureOrcaSession, OrcaAttach, OrcaAttachPlan, bind_orca_fixture, bind_process_owner_orca,
+    orca_sidecar_call,
+};
 use pacer_plugin_host::{
     AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
     CredentialBindings, HostProvider, NativeHttp, NativeHosts, NativeProcess, ObservationCall,
-    ObservationGeneration, ParsedManifest, ProviderSnapshot, ReadContext, TaskProjection,
-    parse_manifest,
+    ObservationGeneration, OrcaAttemptResource, ParsedManifest,
+    ProviderSnapshot, ReadContext, TaskProjection, parse_manifest,
 };
+
+const ORCA_PROVIDER: &str = "pacer-exec-orca";
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -134,11 +141,16 @@ enum HostSidecar {
 struct SessionEffect {
     local: LocalHostEffect,
     hosts: Option<HostSidecar>,
+    orca: Option<OrcaAttach>,
 }
 
 impl SessionEffect {
     fn new(local: LocalHostEffect) -> Self {
-        Self { local, hosts: None }
+        Self {
+            local,
+            hosts: None,
+            orca: None,
+        }
     }
 
     fn bind_process_owner_hosts(
@@ -159,6 +171,10 @@ impl SessionEffect {
         snapshots: impl IntoIterator<Item = ProviderSnapshot>,
     ) {
         self.hosts = Some(HostSidecar::Fixture(NativeHosts::new(provider, snapshots)));
+    }
+
+    fn bind_orca(&mut self, attach: OrcaAttach) {
+        self.orca = Some(attach);
     }
 }
 
@@ -181,6 +197,11 @@ impl CapabilityEffect for SessionEffect {
                 Some(HostSidecar::Process(native)) => native.call(method, params).await,
                 Some(HostSidecar::Fixture(native)) => native.call(method, params).await,
                 None => Err(BrokerError::Invalid("no host provider")),
+            }
+        } else if method.starts_with("capability.orca.") {
+            match &mut self.orca {
+                Some(native) => orca_sidecar_call(native, method, params).await,
+                None => Err(BrokerError::Invalid("no Orca owner")),
             }
         } else {
             self.local.call(method, params).await
@@ -242,6 +263,7 @@ pub struct PluginCapabilitySession {
     effect: SessionEffect,
     observation: Option<ObservationState>,
     pending_host_attach: Vec<HostAttachSnapshot>,
+    pending_orca: Option<OrcaAttachPlan>,
 }
 
 impl PluginCapabilitySession {
@@ -251,6 +273,7 @@ impl PluginCapabilitySession {
             effect: SessionEffect::new(effect),
             observation: None,
             pending_host_attach: Vec::new(),
+            pending_orca: None,
         }
     }
 
@@ -281,6 +304,31 @@ impl PluginCapabilitySession {
     ) {
         self.pending_host_attach.clear();
         self.effect.bind_hosts_fixture(provider, snapshots);
+    }
+
+    pub fn bind_process_owner_orca(
+        &mut self,
+        owner: crate::SharedOwner,
+    ) -> Result<(), CapabilitySessionError> {
+        let Some(plan) = self.pending_orca.take() else {
+            return Ok(());
+        };
+        self.effect
+            .bind_orca(bind_process_owner_orca(owner, &plan)?);
+        Ok(())
+    }
+
+    /// Attach a test Orca session fixture (library tests only).
+    pub fn bind_orca_fixture(
+        &mut self,
+        home: &std::path::Path,
+        grant: OrcaAttemptResource,
+        fixture: FixtureOrcaSession,
+    ) -> Result<(), CapabilitySessionError> {
+        self.pending_orca = None;
+        self.effect
+            .bind_orca(bind_orca_fixture(home, ORCA_PROVIDER, grant, fixture)?);
+        Ok(())
     }
 
     pub async fn answer(
@@ -478,7 +526,16 @@ pub fn session_from_hello(
         lifetime,
         None,
         None,
+        None,
     )
+}
+
+/// Core-sealed home + optional Orca status pin for ProcessOwner attach (P4d-10).
+#[derive(Clone, Debug)]
+pub struct OrcaCallContext {
+    pub home: std::path::PathBuf,
+    pub status_executable: Option<String>,
+    pub status_env: HashMap<String, String>,
 }
 
 /// Call-scoped session: Core-issued [`CallResources`] attach native fs/process/http.
@@ -492,6 +549,7 @@ pub fn session_for_call(
     lifetime: Duration,
     observation: Option<ObservationBootstrap>,
     host_attach: Option<&[HostAttachSnapshot]>,
+    orca_context: Option<OrcaCallContext>,
 ) -> Result<PluginCapabilitySession, CapabilitySessionError> {
     let (manifest, hello_grants, features, config) = hello_parts(hello)?;
     let grants = grants.unwrap_or(hello_grants);
@@ -507,6 +565,17 @@ pub fn session_for_call(
             "hostSnapshots require hosts grant".into(),
         ));
     }
+    let orca_granted = grants.iter().any(|g| g == "orca");
+    if (resources.orca_attempt.is_some() || resources.orca_live.is_some()) && !orca_granted {
+        return Err(CapabilitySessionError::Native(
+            "orca resources require orca grant".into(),
+        ));
+    }
+    if resources.orca_attempt.is_some() && manifest.id.as_str() != ORCA_PROVIDER {
+        return Err(CapabilitySessionError::Native(
+            "orcaAttempt requires the Orca executor provider".into(),
+        ));
+    }
     let authority = CallAuthority::new(
         resources.clone(),
         grants.clone(),
@@ -520,6 +589,19 @@ pub fn session_for_call(
     )?;
     let mut session = PluginCapabilitySession::new(broker, LocalHostEffect::new(config));
     session.pending_host_attach = host_rows.to_vec();
+    if resources.orca_attempt.is_some() || resources.orca_live.is_some() {
+        let ctx = orca_context.ok_or_else(|| {
+            CapabilitySessionError::Native("orca resources require Core-sealed orcaContext".into())
+        })?;
+        session.pending_orca = Some(OrcaAttachPlan {
+            attempt: resources.orca_attempt.clone(),
+            live: resources.orca_live.clone(),
+            status_executable: ctx.status_executable,
+            status_env: ctx.status_env,
+            plugin_id: manifest.id.to_string(),
+            home: ctx.home,
+        });
+    }
     if let Some(bootstrap) = observation {
         let negotiated = features.iter().any(|f| f == "policyObservations");
         let alive = Arc::new(AtomicBool::new(true));
@@ -617,6 +699,39 @@ pub fn host_snapshots_from_value(
         });
     }
     Ok(out)
+}
+
+/// Parse optional Core-sealed Orca attach context from `call_authority`.
+pub fn orca_context_from_value(
+    value: &Value,
+) -> Result<Option<OrcaCallContext>, CapabilitySessionError> {
+    let Some(raw) = value.get("orcaContext") else {
+        return Ok(None);
+    };
+    let home = raw
+        .get("home")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or(CapabilitySessionError::Malformed("orcaContext home"))?
+        .into();
+    let status_executable = raw
+        .get("statusExecutable")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let mut status_env = HashMap::new();
+    if let Some(object) = raw.get("env").and_then(Value::as_object) {
+        for (key, value) in object {
+            if let Some(text) = value.as_str() {
+                status_env.insert(key.clone(), text.to_owned());
+            }
+        }
+    }
+    Ok(Some(OrcaCallContext {
+        home,
+        status_executable,
+        status_env,
+    }))
 }
 
 pub fn observation_bootstrap_from_value(

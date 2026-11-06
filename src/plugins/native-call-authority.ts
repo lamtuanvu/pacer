@@ -41,6 +41,8 @@ type SealedResources = {
   writes: NonNullable<CallResources["writes"]>;
   commands: CallResources["commands"];
   hosts: HostOperationResource[];
+  orcaAttempt?: NonNullable<CallResources["orcaAttempt"]>;
+  orcaLive?: NonNullable<CallResources["orcaLive"]>;
   http?: { hosts: string[]; origins?: string[] };
 };
 
@@ -74,6 +76,8 @@ function autoIssueFromManifest(manifest: PluginManifest, grants: readonly string
 
 const OBSERVATION_ADMISSION_METHODS = new Set(["diagnostic.ping", "policy.before"]);
 const HOST_SCRIPT = /^[A-Z][A-Z0-9_]{0,31}$/;
+const ORCA_PROVIDER = "pacer-exec-orca";
+const ORCA_SESSION = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function sealHostOperation(resource: HostOperationResource): HostOperationResource {
   if (typeof resource.alias !== "string" || !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(resource.alias)) {
@@ -135,6 +139,46 @@ function sealProvided(resources: CallResources, grants: readonly string[]): Seal
   for (const host of resources.hosts ?? []) {
     out.hosts.push(sealHostOperation(host));
   }
+  if (resources.orcaAttempt) {
+    if (!grants.includes("orca")) return denied("orca is not granted");
+    const row = resources.orcaAttempt;
+    if (row.providerId !== ORCA_PROVIDER) return denied("orcaAttempt provider identity");
+    if (typeof row.taskId !== "string" || !row.taskId || row.taskId.length > 128) return invalid("orca taskId");
+    if (!(row.attempt > 0 && row.attempt <= 1_000_000)) return invalid("orca attempt");
+    if (typeof row.executor !== "string" || !row.executor || row.executor.length > 128) return invalid("orca executor");
+    if (typeof row.session !== "string" || !ORCA_SESSION.test(row.session)) return invalid("orca session");
+    out.orcaAttempt = {
+      taskId: row.taskId,
+      attempt: row.attempt,
+      providerId: ORCA_PROVIDER,
+      executor: row.executor,
+      session: row.session,
+    };
+  }
+  if (resources.orcaLive) {
+    if (!grants.includes("orca")) return denied("orca is not granted");
+    const row = resources.orcaLive;
+    if (row.providerId !== ORCA_PROVIDER) return denied("orcaLive provider identity");
+    if (typeof row.taskId !== "string" || !row.taskId || row.taskId.length > 128) return invalid("orca taskId");
+    if (!(row.attempt > 0 && row.attempt <= 1_000_000)) return invalid("orca attempt");
+    if (typeof row.worker !== "string" || !row.worker || row.worker.length > 256) return invalid("orca worker");
+    if (typeof row.terminal !== "string" || !row.terminal || row.terminal.length > 256) return invalid("orca terminal");
+    if (row.action !== "stop" && row.action !== "inspect") return invalid("orca live action");
+    if (row.incarnation !== undefined && (typeof row.incarnation !== "string" || row.incarnation.length > 256)) {
+      return invalid("orca incarnation");
+    }
+    if (row.why !== undefined && (typeof row.why !== "string" || row.why.length > 4096)) return invalid("orca why");
+    out.orcaLive = {
+      taskId: row.taskId,
+      attempt: row.attempt,
+      providerId: ORCA_PROVIDER,
+      worker: row.worker,
+      terminal: row.terminal,
+      action: row.action,
+      ...(row.incarnation ? { incarnation: row.incarnation } : {}),
+      ...(row.why ? { why: row.why } : {}),
+    };
+  }
   return out;
 }
 
@@ -153,6 +197,12 @@ export type HostSnapshotSeal = {
   providerId: string;
 };
 
+export type OrcaContextSeal = {
+  home: string;
+  statusExecutable?: string;
+  env?: Record<string, string>;
+};
+
 export type CallAuthoritySeal = {
   resources: SealedResources;
   grants: string[];
@@ -161,6 +211,10 @@ export type CallAuthoritySeal = {
   observation?: ObservationSeal;
   /** P4d-9: provider snapshots for flag-on ProcessOwner host attach. */
   hostSnapshots?: HostSnapshotSeal[];
+  /** P4d-10: home + optional Orca status pin for ProcessOwner attach. */
+  orcaContext?: OrcaContextSeal;
+  /** P4d-10: bridge token when Core holds the live attempt session for this call. */
+  orcaBridgeToken?: string;
 };
 
 function observationAdmission(
