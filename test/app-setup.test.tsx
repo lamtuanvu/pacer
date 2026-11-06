@@ -4,7 +4,7 @@ import type { SetupChecklist, SetupItem } from '../src/setup/checklist';
 import { ApiError, type BrowserApi } from '../app/src/data/api';
 import { TaskContext, ErrorMessage } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
-import { SetupView } from '../app/src/screens/setup/Setup';
+import { SetupView, StepDone } from '../app/src/screens/setup/Setup';
 import { SetupBanner } from '../app/src/screens/setup/SetupBanner';
 import { SetupContext } from '../app/src/screens/setup/context';
 import { bannerKey, nextOptional, performSetupAction, primaryItem, readDismissal, saveDismissal, SERVICE_CONSENT, DISMISS_KEY } from '../app/src/screens/setup/model';
@@ -30,6 +30,18 @@ test('Setup renders five steps, done values and the current panel', () => {
   expect(html).toContain('3 agents'); expect(html).toContain('Service 0.2.3');
   expect(html).not.toContain('build.123'); expect(html.match(/<h1/g)).toHaveLength(1);
   expect(html).toContain('Step 3 of 5');
+});
+test('completed setup steps reopen from the rail and finished steps show a done panel', () => {
+  const html = view({ ...check, items: [
+    { id: 'planner', title: 'Planner', status: 'done', required: true, detail: 'codex' },
+    { ...service, status: 'done' }, { ...agent, status: 'done' },
+    { id: 'executor', title: 'Executor', status: 'done', required: false, detail: 'codex' }, first,
+  ] });
+  expect(html).toMatch(/aria-current="step"[^>]*data-step="executor"/);
+  const links = [...html.matchAll(/class="[^"]*pc-setup-step-link[^"]*"[^>]*>([^<]*)</g)].map(m => m[1]);
+  expect(links).toEqual(['Planner', 'Background service', 'Connect Codex']);
+  const done = renderToString(<StepDone message="pacer is running in the background and starts at login." next={() => {}} />);
+  expect(done).toContain('role="status"'); expect(done).toContain('Continue'); expect(done).not.toContain('Install service');
 });
 test('terminal-only items show the provider command with a copy action', () => {
   const html = view({ ...check, items: [{ id: 'planner', title: 'Planner', status: 'pending', required: true, command: 'codex login' }] });

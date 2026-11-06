@@ -56,6 +56,9 @@ function FirstRun({ id, run }: { id: string; run: (work: () => Promise<unknown>,
   </>;
 }
 
+export function StepDone({ message, next }: { message: string; next: () => void }) {
+  return <><p role="status"><StatusGlyph status={{ label: 'Done', glyph: '✓', tone: 'good' }} /> {message}</p><div className="pc-setup-actions"><Button variant="primary" onClick={next}>Continue</Button></div></>;
+}
 export function SetupView({ checklist: initial }: { checklist: SetupChecklist; query: RouteQuery }) {
   const { api, state } = useTaskContext(), setup = useContext(SetupContext);
   const [checklist, setChecklist] = useState(initial);
@@ -125,14 +128,16 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
     'Summarize a short README in a scratch folder, never in your code. Review the result the way your planner will review real work.',
   ];
   function visit(id: SetupStep) { if (!busy) setCurrent(id); }
+  const next = () => visit(nextSetupStep(checklist, current, visited));
   return <Page width="full" className="pc-setup">
     <header className="pc-setup-header"><strong>Set up pacer</strong><span className="muted" role="status">{policyWords(checklist.policy)} · {count} of 5 done{checklist.complete ? ' · pacer is ready' : ''}</span></header>
     <div className="pc-setup-layout">
       <aside className="pc-setup-rail"><ol aria-label="Setup steps">{SETUP_STEPS.map((id, index) => {
         const done = checklist.items.find(i => i.id === id)?.status === 'done';
+        const label = id === 'connect' && planner ? `Connect ${plannerName}` : titles[index];
         return <li key={id} aria-current={id === current ? 'step' : undefined} data-step={id}>
           <span className="pc-setup-number">{done ? <><StatusGlyph status={{ label: 'Done', glyph: '✓', tone: 'good' }} /><span className="sr-only">Done</span></> : index + 1}</span>
-          <div><span>{id === 'connect' && planner ? `Connect ${plannerName}` : titles[index]}</span>
+          <div>{done && id !== current ? <Button variant="ghost" className="pc-setup-step-link" disabled={busy} onClick={() => visit(id)}>{label}</Button> : <span>{label}</span>}
             <div className="pc-setup-value muted">{done ? id === 'planner' ? <><AgentMark agent={runnerAgent(planner)} size={16} labelled={false} />{plannerName} · <Button variant="ghost" onClick={() => visit('planner')}>Change</Button></>
               : id === 'service' ? 'Running at login' : id === 'connect' ? 'Connected'
               : id === 'executor' ? <>{railExecutors.map(id => <AgentMark key={id} agent={runnerAgent(id)} size={16} />)}{railExecutors.length} {railExecutors.length === 1 ? 'agent' : 'agents'}</>
@@ -147,8 +152,10 @@ export function SetupView({ checklist: initial }: { checklist: SetupChecklist; q
             : item?.command && item.action !== 'setup.init' ? <Command command={item.command} /> : <p>Install Claude Code, Codex, Cursor or OpenCode to plan your work.</p>}
           {item?.status !== 'done' && item?.command && item.action !== 'setup.init' && options.length > 0 && <Command command={item.command} />}
         </>}
-        {current === 'service' && <Button variant="primary" disabled={!state.connected || busy} onClick={() => void run(() => api.call('service.install', { consent: true }), true)}>Install service</Button>}
-        {current === 'connect' && <>
+        {current === 'service' && (item?.status === 'done' ? <StepDone message="pacer is running in the background and starts at login." next={next} />
+          : <Button variant="primary" disabled={!state.connected || busy} onClick={() => void run(() => api.call('service.install', { consent: true }), true)}>Install service</Button>)}
+        {current === 'connect' && item?.status === 'done' && <StepDone message={`${plannerName} is connected and sees your budgets when a session starts.`} next={next} />}
+        {current === 'connect' && item?.status !== 'done' && <>
           {preview ? <ConnectChanges planner={planner} preview={preview} /> : <p role="status">{previewError ? 'Could not load the changes.' : 'Checking what will change…'}</p>}
           <div className="pc-setup-actions"><Button variant="primary" disabled={!state.connected || busy || !preview} onClick={() => void run(() => api.call('agent.connect', { agent: runnerAgent(planner), consent: true }), true)}>Connect {plannerName}</Button><Button variant="ghost" disabled={!state.connected || busy} onClick={() => void run(async () => {}, true, true)}>Skip for now</Button></div>
           <SetupError error={previewError} />{previewError && <Button onClick={() => reload(v => v + 1)}>Retry preview</Button>}

@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Show each setup executor on one line with the shared on/off switch, and let completed setup steps reopen from the step list with a done state instead of repeating install or connect actions.
+
 - Identify workspace session tabs by task title and additional agent tabs by owning task, executor and session ordinal; refresh existing tab labels when task data arrives.
 
 - Keep delegated tasks interactive by default without implicit headless fallbacks; preserve answerable terminals and timeout accounting across input waits and supervisor reattachment. Built-in PTYs accept live sends and answers, and Orca retains unanswered workers.
