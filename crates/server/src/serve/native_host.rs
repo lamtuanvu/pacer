@@ -1,9 +1,8 @@
 //! Optional P4d-1/P4d-4/P4d-5 native plugin-host wiring for serve.
 //!
-//! Default serve does not start this path yet (`serve_starts_reverse_bridge_by_default`
-//! stays false until executor-class resources + CT-11). Truthy `PACER_NATIVE_PLUGIN_HOST`
-//! / `PACER_HOST_BRIDGE` opt in; `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`)
-//! is the documented escape hatch once default-on lands. When enabled,
+//! Default serve starts this path (`serve_starts_reverse_bridge_by_default`, P4d-13).
+//! Set `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape to TypeScript
+//! ownership; truthy flags still opt in when the default is off. When enabled,
 //! [`maybe_start`] claims a native ProcessOwner, binds the reverse bridge with
 //! live call/find/spawn/stop, and returns Core env pairs (`PACER_HOST_SOCKET`).
 //! The shared owner is attached to the HTTP plugin service so native ops spawn
@@ -56,13 +55,15 @@ mod tests {
     use std::{fs, os::unix::fs::PermissionsExt};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn flag_off_leaves_env_and_socket_untouched() {
+    async fn default_on_sets_socket_env_and_cleans_up() {
         let home = tempfile::tempdir().unwrap();
         let mut env = HashMap::new();
         env.insert("PACER_HOME".into(), home.path().display().to_string());
-        assert!(maybe_start(home.path(), &mut env).unwrap().is_none());
-        assert!(!env.contains_key(HOST_SOCKET_ENV));
-        assert!(!home.path().join("run").join("host.sock").exists());
+        let guard = maybe_start(home.path(), &mut env).unwrap().unwrap();
+        let socket = env.get(HOST_SOCKET_ENV).cloned().unwrap();
+        assert!(Path::new(&socket).exists());
+        guard.shutdown().await;
+        assert!(!Path::new(&socket).exists());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
