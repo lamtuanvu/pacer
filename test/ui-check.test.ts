@@ -232,6 +232,13 @@ describe("UI source policy", () => {
   });
 });
 
+test("page-local side columns must use FrameSlot", () => {
+  expect(checkUiSource("app/src/screens/Tasks.tsx", '<div className="pc-tasks-page__columns" />').some(v => v.rule === "UI-28")).toBe(true);
+  expect(checkUiSource("app/src/screens/NewTask.tsx", '<div className="pc-new-task__cols" />').some(v => v.rule === "UI-28")).toBe(true);
+  expect(checkUiSource("app/src/screens/Agents.tsx", 'import { PageColumns } from "../../ds/Page"; export const V = () => <PageColumns main={<div/>} aside={<div/>} />;').some(v => v.rule === "UI-28")).toBe(true);
+  expect(checkUiSource("app/src/screens/Agents.tsx", 'import { PageColumns } from "../../ds/Page"; import { FrameSlot } from "../../shell/slots"; export const V = () => <><FrameSlot name="right"><div/></FrameSlot><PageColumns main={<div/>} aside={<div/>} /></>;')).toEqual([]);
+});
+
 test('shared spacing cannot be overridden in consumer styles, even with tokens', () => {
  for (const selector of ['.pc-detail-navigation', '.pc-stack', '.pc-stack--section', '.pc-page-body > p', '.custom .pc-page-header', '.pc-disclosure-panel > summary', '.pc-section']) {
   expect(checkUiSource('app/src/screens/example.css', `${selector}{margin-block:var(--space-3)}`).some(v=>v.rule==='UI-27')).toBe(true);

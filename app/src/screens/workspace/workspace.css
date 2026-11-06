@@ -4,7 +4,7 @@
 .pc-workspace-panels>.pc-tabs{flex:0 1 auto;min-width:0;white-space:nowrap}
 .pc-workspace-content{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:auto}
 .pc-workspace-content>.pc-terminal-view{flex:1;min-height:0}.pc-workspace-content .pc-terminal-frame{display:flex;flex-direction:column;flex:1;min-height:0;border:0;border-radius:0}.pc-workspace-content .pc-terminal-pane{height:100%;flex:1;min-height:0}
-.pc-workspace-list{display:flex;flex-direction:column;gap:0;padding:0 var(--space-2) var(--space-2);overflow:auto;min-height:0;font-size:var(--type-body-size)}
+.pc-workspace-list{display:flex;flex-direction:column;gap:0;padding:0 var(--space-2) var(--space-2);min-height:0;font-size:var(--type-body-size)}
 .pc-workspace-list__head{height:var(--size-36);display:flex;align-items:center;justify-content:space-between;padding:0 var(--space-1);flex:none}
 .pc-workspace-list__head a{font-size:var(--type-caption-size);color:var(--link)}
 /* Board 26: task selection is one head; session controls are sibling targets. */

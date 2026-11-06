@@ -21,7 +21,7 @@ import { MessageAnswer } from "../TaskResult";
 import { messageQuestion } from "../../model/task-answer";
 import { livenessNotice, type LivenessInput } from "../../model/thread";
 import { Alert } from "../../ds/Alert";
-import { PageHead } from "../../shell/slots";
+import { FrameSlot, PageHead, useFrame } from "../../shell/slots";
 import { candidateAgent, decisionCaption, executorTokenRole, childState, childTokens, tokenValue, traceCandidates, traceSteps, traceStepState, type TraceTree } from "./model";
 
 const name = (agent:string) => agentInfo(markAgent(agent)).name;
@@ -30,7 +30,7 @@ function Agent({agent,chip=false}:{agent:string;chip?:boolean}) {
 }
 /** Recorded task facts only: planning attribution and missing historical decisions remain unknown. */
 export function Trace({id,query}:{id:string;query:RouteQuery}) {
-  const {state}=useTaskContext(), viewId=useId(), visible=useViewActive();
+  const {state}=useTaskContext(), viewId=useId(), visible=useViewActive(), frame=useFrame();
   const [copied,setCopied]=useState(false);
   // Keep confirmation on the task page after a delivered question disappears.
   const [answered,setAnswered]=useState("");
@@ -66,7 +66,8 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
   }
   const tokenRows=[...groups.values()].sort((a,b)=>b.total-a.total);
   const measuredTotal=tokenRows.reduce((sum,r)=>sum+r.total,0);
-  let offset=0;
+  let barOffset=0;
+  const tokenBars=tokenRows.map(row=>{const width=measuredTotal?row.total/measuredTotal*100:0,x=barOffset;barOffset+=width;return {agent:row.agent,x,width};});
   const title=t.fullTitle?.trim()||t.goal?.trim()||t.brief.goal;
   const header=<>
     <nav aria-label="Breadcrumb" className="pc-trace__breadcrumb pc-trace__cap"><TextAction href={hrefFor(routes.tasks(query))}>Tasks</TextAction><span aria-hidden="true">/</span><span>{t.acceptance.state==="failed"?"Needs attention":["running","queued"].includes(t.state)?"Running":reviewable?"Needs your review":today?"Earlier today":day.replace(/ \d\d:\d\d$/,"")}</span><IconButton icon="notes" size="xs" variant="quiet" aria-label="Copy task ID" title={copied?"Task ID copied":"Copy task ID"} onClick={()=>void navigator.clipboard.writeText(t.id).then(()=>setCopied(true)).catch(()=>setCopied(false))}/></nav>
@@ -79,6 +80,19 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
       </div>
     </header>
   </>;
+  const aside = <div className="pc-trace__aside">
+    <section aria-labelledby={`${viewId}-tok-h`} className="pc-trace__card"><h2 id={`${viewId}-tok-h`}>Tokens by agent</h2>
+      <svg className="pc-trace__bar" viewBox="0 0 100 14" preserveAspectRatio="none" role="img" aria-label={measuredTotal?tokenRows.map(r=>`${name(r.agent)} ${tokenValue(r)} tokens`).join(", "):"Token usage not measured"}>{tokenBars.map(bar=>
+        <rect key={bar.agent} x={bar.x} y="0" width={bar.width} height="14" className={`pc-trace__color${agentSlot(bar.agent)}`}/>
+      )}</svg>
+      {tokenRows.map(row=><div className="pc-trace__token-row" key={row.agent}><span className={`pc-trace__swatch pc-trace__color${agentSlot(row.agent)}`}/><AgentMark agent={markAgent(row.agent)} size={20} labelled={false}/><span className="pc-trace__token-name"><b>{name(row.agent)}</b> <span className="pc-trace__cap">{executorTokenRole(row.agent,row.attempts,children)}</span></span><b>{tokenValue(row)}</b><span className="pc-trace__cap pc-trace__share">{!totals?.lowerBound && measuredTotal?`${Math.round(row.total/measuredTotal*100)}%`:""}</span></div>)}
+      <span className="pc-trace__cap">{attempts} {attempts===1?"attempt":"attempts"} · Planning and review tokens: Not recorded</span>
+    </section>
+    <section aria-labelledby={`${viewId}-cand-h`} className="pc-trace__candidates"><div className="pc-trace__candidate-head"><h2 id={`${viewId}-cand-h`}>Who was considered</h2>{(decision || candidates.length>0) && <span className="pc-trace__cap">{decisionCaption(decision,subtask,!!t.routing)}</span>}</div>
+      {candidates.length?candidates.map((c,index)=><div className={`pc-trace__candidate${c.verdict==="Chosen"?" pc-trace__candidate--chosen":""}`} key={`${c.agent}:${index}`}><span aria-hidden="true" className={`pc-trace__state pc-trace__state--${c.tone}`}>{c.verdict==="Skipped"?"◐":"✓"}</span><AgentMark agent={markAgent(candidateAgent(c.agent))} size={20} labelled={false}/><span className="pc-trace__candidate-copy"><b>{name(c.agent)}</b><span className="pc-trace__cap">{c.why}</span></span><Pill tone={c.tone}>{c.verdict}</Pill></div>):<p className="pc-trace__no-candidates pc-trace__cap">No alternatives were recorded for this step.</p>}
+    </section>
+    <Acceptance task={t}/>
+  </div>;
   return <div className="pc-trace">
     <PageHead>{header}</PageHead>
     {task.error && <ErrorMessage error={task.error}/>}
@@ -106,20 +120,8 @@ export function Trace({id,query}:{id:string;query:RouteQuery}) {
           </div><span className="pc-trace__cap pc-trace__right">{step.at==null || !Number.isFinite(step.at)?"Not recorded":clock(step.at,now)}<br/><b>{step.tokens}</b></span>
         </li>;})}</ol> : <EmptyState title="Not recorded" description="No task activity recorded."/>}
       </section>
-      <aside className="pc-trace__aside">
-        <section aria-labelledby={`${viewId}-tok-h`} className="pc-trace__card"><h2 id={`${viewId}-tok-h`}>Tokens by agent</h2>
-          <svg className="pc-trace__bar" viewBox="0 0 100 14" preserveAspectRatio="none" role="img" aria-label={measuredTotal?tokenRows.map(r=>`${name(r.agent)} ${tokenValue(r)} tokens`).join(", "):"Token usage not measured"}>{tokenRows.map((row,index)=>{
-            const width=measuredTotal?row.total/measuredTotal*100:0,x=offset;offset+=width;
-            return <rect key={row.agent} x={x} y="0" width={width} height="14" className={`pc-trace__color${agentSlot(row.agent)}`}/>;
-          })}</svg>
-          {tokenRows.map((row,index)=><div className="pc-trace__token-row" key={row.agent}><span className={`pc-trace__swatch pc-trace__color${agentSlot(row.agent)}`}/><AgentMark agent={markAgent(row.agent)} size={20} labelled={false}/><span className="pc-trace__token-name"><b>{name(row.agent)}</b> <span className="pc-trace__cap">{executorTokenRole(row.agent,row.attempts,children)}</span></span><b>{tokenValue(row)}</b><span className="pc-trace__cap pc-trace__share">{!totals?.lowerBound && measuredTotal?`${Math.round(row.total/measuredTotal*100)}%`:""}</span></div>)}
-          <span className="pc-trace__cap">{attempts} {attempts===1?"attempt":"attempts"} · Planning and review tokens: Not recorded</span>
-        </section>
-        <section aria-labelledby={`${viewId}-cand-h`} className="pc-trace__candidates"><div className="pc-trace__candidate-head"><h2 id={`${viewId}-cand-h`}>Who was considered</h2>{(decision || candidates.length>0) && <span className="pc-trace__cap">{decisionCaption(decision,subtask,!!t.routing)}</span>}</div>
-          {candidates.length?candidates.map((c,index)=><div className={`pc-trace__candidate${c.verdict==="Chosen"?" pc-trace__candidate--chosen":""}`} key={`${c.agent}:${index}`}><span aria-hidden="true" className={`pc-trace__state pc-trace__state--${c.tone}`}>{c.verdict==="Skipped"?"◐":"✓"}</span><AgentMark agent={markAgent(candidateAgent(c.agent))} size={20} labelled={false}/><span className="pc-trace__candidate-copy"><b>{name(c.agent)}</b><span className="pc-trace__cap">{c.why}</span></span><Pill tone={c.tone}>{c.verdict}</Pill></div>):<p className="pc-trace__no-candidates pc-trace__cap">No alternatives were recorded for this step.</p>}
-        </section>
-        <Acceptance task={t}/>
-      </aside>
+      <FrameSlot name="right">{aside}</FrameSlot>
+      {frame?.inline && aside}
     </div>
   </div>;
 }
