@@ -26,7 +26,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.log` | Native | `src/api/ops.ts` is the forward fallback; `src/api/http.ts` uses it for follow mode SSE. |
 | `task.prune`, `task.restore` | Native (P3-D) | Shared `TaskStore` retention helpers; TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. |
 | `task.dismiss` | Native (P3-D) | `pacer-lifecycle::dismiss_tasks` + P3-B activity/task publication; Core supplies `autoCleanTask` through `/_internal/task-auto-clean` / `_internal.task-auto-clean` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. |
-| `task.diff` | Forwarded | Needs the full git argv, snapshot fallback and file tree parity fixture. |
+| `task.diff` | Native (P3-D) | `pacer-lifecycle::task_diff` mirrors `src/tasks/diff.ts` git argv (`--literal-pathspecs`, merge-base, `-z` name-status/numstat, snapshot `diff.json` fallback, patch caps). Native serve/stdio runs git via `CommandGit`; TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. Path-probe `markPathUnreachable` stays TypeScript-only until a git-read bridge is needed on macOS serve. |
 | `task.list` | Native (P3) | Composed via `pacer_read_model::tasks::task_list_page` once Core supplies active sessions and runner liveness through `/_internal/session-probe-parts` (serve) or `_internal.session-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns session lifecycle and `pidAlive`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.get` | Native (P3, selective) | Composed via `pacer_read_model::task_detail` plus Core enrichment through `/_internal/task-read-parts` / `_internal.task-read.parts` (session probe, git diffstat/branch, tokens, retry options, dispatch `work` / `managedSkip`, agent-check acceptance gating, activity timeline tail). TypeScript still owns git, usage broker reads and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `snapshot.get` | Native (P8) | Composed via `pacer_read_model::ReadModel::snapshot` once Core supplies setup, policy, machine guard samples, service row, desktop updates, pairing eligibility, session probe and live `computeStatus` through `/_internal/snapshot-probe-parts` / `_internal.snapshot-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns setup probes, plugin policy, discovery pairing, status warming and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -62,6 +62,16 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
 The native `activity.list` reads the TypeScript activity JSONL, and `task.log` reads the shared SQLite task record and output files. `task.log` opens the existing adapter, which may import or migrate the store as described in P3-C. Native `task.prune` / `task.restore` use the same `TaskStore` retention helpers as the TypeScript reference, including strategy `taskRetentionDays` (default 14) and the cross-runtime retention lock. Native `task.dismiss` persists `dismissed`, appends linked verdict activity, publishes a task outbox event, then runs the Core auto-clean bridge for the requested ids.
+
+## P3-D task.diff (native + library)
+
+`pacer-lifecycle::task_diff` owns progress-base/worktree selection, remote-running notes,
+saved `diff.json` fallback, `-z` stat/name parsing and patch caps aligned with
+`src/tasks/diff.ts`. The HTTP service and stdio proxy register native `task.diff`
+and execute git with the same argv as the TypeScript reference (`CommandGit`).
+Cross-runtime coverage: `test/task-diff-parity.test.ts`,
+`test/fixtures/task-diff/file-tree-parity.json`, and
+`cargo test -p pacer-lifecycle task_diff`.
 
 ## P6b `_run` spawn seam (library)
 
