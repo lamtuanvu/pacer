@@ -65,11 +65,13 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 6 | `pacer-lifecycle` (`crates/lifecycle`) | Delegation, runner, supervision, attention, jobs, clients, pump | 3,500–4,500 | none |
 | 6 | `pacer-update` (`crates/update`) | Update, release manifest, service install | 1,500 | `reqwest` |
 | 7 | `pacer-read-model` (`crates/read-model`) | Snapshot and view model | 1,300–1,600 | none |
-| 8 | `pacer-server` (`crates/server`) | Op registry assembly, HTTP, SSE, WebSocket, stdio, MCP, bridge, embedded app assets | 2,000–2,500 | `axum`, `hyper`, `rmcp` |
+| 7 | `pacer-config-ops` (`crates/config-ops`) | Native config and host operation handlers (strategy, routing, runners, notifications, host reads and edits) | ≤ 1,500 | none |
+| 8 | `pacer-task-ops` (`crates/task-ops`) | Native task, session and snapshot operation handlers (reads, list, detail, review, stop, dismiss, diff, wait) | ≤ 2,500 | none |
 | 8 | `pacer-tui` (`crates/tui`) | Dashboard (an API client: ARCH-1) | 1,000–1,200 | `ratatui`, `crossterm` |
 | 8 | `pacer-bundled` (`crates/bundled`) | Table of bundled plugins (manifest text and entry function), from M3 plan 1 | ≤ 300 | none (depends on `plugins-rs/*`) |
-| 9 | `pacer-cli` (`crates/cli`) | Commands, renderers, status line, core exec and self-repair (M1–M2) | 3,000–3,500 | `clap` |
-| 10 | `pacer` (`crates/pacer`) | Binary | ≤ 500 | none |
+| 9 | `pacer-server` (`crates/server`) | Op registry assembly, HTTP, SSE, WebSocket, stdio, MCP, bridge, embedded app assets | 2,000–2,500 | `axum`, `hyper`, `rmcp` |
+| 10 | `pacer-cli` (`crates/cli`) | Commands, renderers, status line, core exec and self-repair (M1–M2) | 3,000–3,500 | `clap` |
+| 11 | `pacer` (`crates/pacer`) | Binary | ≤ 500 | none |
 | SDK | `pacer-plugin` (`crates/plugin-sdk`) | Rust plugin SDK; features `testing`, `install`, `exec`, `wasm`; depends on the plugin protocol crates (`pacer-plugin-protocol`, `pacer-plugin-decision-protocol`, `pacer-plugin-agent-session-protocol`) only; `pacer_plugin::types` re-exports all three | 1,200 core, 3,500–4,000 with features | `wit-bindgen` (feature `wasm`) |
 | SDK | `pacer-fixtures` (`crates/fixtures`) | Conformance fixture plugins | 300–400 | none |
 | Plugins | `plugins-rs/<id>` | One bundled plugin each | 100–2,500 each | per plugin, listed in `xtask/crates.toml` |
