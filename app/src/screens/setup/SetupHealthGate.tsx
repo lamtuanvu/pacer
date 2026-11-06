@@ -18,6 +18,23 @@ function summaryOf(report: SetupHealthReport): SetupHealthSummary {
   };
 }
 
+/** Honest hard-fail report when setup.health cannot run; used by the gate (never silent skip). */
+export function setupHealthFailureReport(trigger: SetupHealthReport["trigger"] = "startup"): SetupHealthReport {
+  const pending = pendingSetupHealthReport(trigger);
+  return {
+    ...pending,
+    checkedAt: Date.now() / 1000,
+    outcome: "hard_fail",
+    attentionCount: 1,
+    steps: pending.steps.map(step => ({
+      ...step,
+      state: step.id === "service" ? "failed" : "needs_attention",
+      detail: step.id === "service" ? "Setup checks could not finish. Open Diagnostics or continue anyway." : undefined,
+    })),
+    repairs: [{ kind: "open.diagnostics", label: "Open Diagnostics" }],
+  };
+}
+
 async function applyRepair(
   api: BrowserApi,
   repair: SetupHealthRepair,
@@ -98,18 +115,7 @@ export function SetupHealthGate({
       () => {
         if (!active) return;
         // Stay on the gate with an honest hard fail; do not silently enter the app.
-        setReport({
-          ...pendingSetupHealthReport("startup"),
-          checkedAt: Date.now() / 1000,
-          outcome: "hard_fail",
-          attentionCount: 1,
-          steps: pendingSetupHealthReport("startup").steps.map(step => ({
-            ...step,
-            state: step.id === "service" ? "failed" : "needs_attention",
-            detail: step.id === "service" ? "Setup checks could not finish. Open Diagnostics or continue anyway." : undefined,
-          })),
-          repairs: [{ kind: "open.diagnostics", label: "Open Diagnostics" }],
-        });
+        setReport(setupHealthFailureReport("startup"));
         setPhase("stage");
       },
     );
