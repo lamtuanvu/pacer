@@ -149,7 +149,10 @@ export async function reference(c: any): Promise<any> {
           ...memory,
           withLock: async (_c: any, _n: any, fn: any) => fn(),
           getLevel: () => ({ level: c.level }),
-          activeNotifier: () => c.notifier ?? null,
+          deliveryPresenters: () =>
+            c.notifier
+              ? [{ client_id: c.notifier.client_id, kind: "desktop", medium: "os" }]
+              : [],
         },
       );
       const deliveries: any[] = [],
