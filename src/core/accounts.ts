@@ -69,9 +69,20 @@ export async function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy
   await syncEndpointConfig(ctx);
   return result.diff;
 }
-/** Private post-edit hook for the four registered native document operations. */
+/** Private post-edit hook for native strategy document operations. */
 export async function finishNativeConfigEdit(ctx: Ctx, op: unknown): Promise<void> {
-  if (!["runner.set", "runner.reorder", "runner.remove", "routing.set"].includes(op as string))
+  if (
+    ![
+      "host.add",
+      "host.set",
+      "host.remove",
+      "host.repo.map",
+      "runner.set",
+      "runner.reorder",
+      "runner.remove",
+      "routing.set",
+    ].includes(op as string)
+  )
     throw new CoreError("unknown_op", "unknown operation");
   await syncEndpointConfig(ctx);
 }

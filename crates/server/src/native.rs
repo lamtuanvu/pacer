@@ -10,6 +10,8 @@ pub(crate) mod config_sync;
 mod config_writes;
 pub(crate) mod core_bridge_sync;
 mod engine_ops;
+mod host_mut_ops;
+pub(crate) mod host_mut_sync;
 mod host_read_ops;
 pub(crate) mod host_read_sync;
 mod lifecycle_ops;
@@ -34,7 +36,7 @@ mod task_reads;
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
-pub(crate) use host_read_ops::needs_host_read_bridge;
+pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
@@ -134,6 +136,22 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "host.get",
         call: host_read_ops::host_get_stub,
+    },
+    NativeOp {
+        name: "host.add",
+        call: host_mut_ops::host_add,
+    },
+    NativeOp {
+        name: "host.set",
+        call: host_mut_ops::host_set_stub,
+    },
+    NativeOp {
+        name: "host.remove",
+        call: host_mut_ops::host_remove,
+    },
+    NativeOp {
+        name: "host.repo.map",
+        call: host_mut_ops::host_repo_map,
     },
     NativeOp {
         name: "config.set",
@@ -308,6 +326,7 @@ pub async fn call_native(
     host_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     core_bridge_sync: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
+    let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
             eprintln!("native {} {}", op.name, id);
@@ -315,7 +334,10 @@ pub async fn call_native(
             eprintln!("native {}", op.name);
         }
     }
-    if config_writes::syncs_endpoints(op.name) && endpoint_sync.is_none() {
+    if config_writes::syncs_endpoints(op.name)
+        && endpoint_sync.is_none()
+        && !(op.name == "host.set" && host_read_bridge.is_some())
+    {
         return Err(CoreError::new(
             pacer_foundation::api::Code::Unavailable,
             "endpoint synchronization bridge unavailable",
@@ -327,7 +349,11 @@ pub async fn call_native(
             "task clean bridge unavailable",
         ));
     }
-    let result = if needs_usage_broker(op.name) {
+    let mut host_set_alias: Option<String> = None;
+    let result = if op.name == "host.set" {
+        host_set_alias = Some(host_mut_ops::host_set_write(ctx, params).await?);
+        Value::Null
+    } else if needs_usage_broker(op.name) {
         let parts = broker_sync.ok_or_else(|| {
             CoreError::new(
                 pacer_foundation::api::Code::Unavailable,
@@ -386,15 +412,18 @@ pub async fn call_native(
             _ => unreachable!("needs_config_host_bridge"),
         }
     } else if needs_host_read_bridge(op.name) {
-        let parts = host_read_sync.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "host read bridge unavailable",
-            )
-        })?;
+        let parts = host_read_bridge
+            .take()
+            .ok_or_else(|| {
+                CoreError::new(
+                    pacer_foundation::api::Code::Unavailable,
+                    "host read bridge unavailable",
+                )
+            })?
+            .await?;
         match op.name {
-            "host.list" => host_read_ops::host_list(ctx, params, parts.await?).await?,
-            "host.get" => host_read_ops::host_get(ctx, params, parts.await?).await?,
+            "host.list" => host_read_ops::host_list(ctx, params, parts).await?,
+            "host.get" => host_read_ops::host_get(ctx, params, parts).await?,
             _ => unreachable!("needs_host_read_bridge"),
         }
     } else if needs_task_clean_bridge(op.name) {
@@ -436,6 +465,20 @@ pub async fn call_native(
             error
         })?;
     }
+    let result = if let Some(alias) = host_set_alias {
+        let parts = host_read_bridge
+            .take()
+            .ok_or_else(|| {
+                CoreError::new(
+                    pacer_foundation::api::Code::Unavailable,
+                    "host read bridge unavailable",
+                )
+            })?
+            .await?;
+        host_mut_ops::host_set_summary(parts, &alias)?
+    } else {
+        result
+    };
     config_writes::finish(ctx, op.name, &result)?;
     Ok(result)
 }
@@ -466,6 +509,10 @@ mod tests {
             "host.suggest",
             "host.list",
             "host.get",
+            "host.add",
+            "host.set",
+            "host.remove",
+            "host.repo.map",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -558,6 +605,10 @@ mod tests {
             "host.suggest",
             "host.list",
             "host.get",
+            "host.add",
+            "host.set",
+            "host.remove",
+            "host.repo.map",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",

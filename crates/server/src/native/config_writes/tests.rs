@@ -55,6 +55,37 @@ async fn failed_endpoint_sync_keeps_saved_edit_but_does_not_publish_success() {
 }
 
 #[tokio::test]
+async fn host_add_missing_endpoint_bridge_refuses_before_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        Default::default(),
+        0.0,
+    );
+    let registry = crate::native::registry("");
+    let error = crate::native::call_native(
+        &ctx,
+        registry.get("host.add").unwrap(),
+        json!({"alias":"box","ssh":"box-ssh"}),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, Code::Unavailable);
+    assert!(!dir.path().join("strategy.yaml").exists());
+}
+
+#[tokio::test]
 async fn missing_bridge_refuses_before_mutating_the_document() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::with(

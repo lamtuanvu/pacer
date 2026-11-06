@@ -314,6 +314,16 @@ async fn forward_input<
                         None,
                     )
                     .await
+                } else if op.name == "host.set" {
+                    crate::native::host_mut_sync::call_stdio_set(
+                        &request_ctx,
+                        params,
+                        &mut core,
+                        sync.0,
+                        sync.1,
+                        sync.2,
+                    )
+                    .await
                 } else if crate::native::needs_host_read_bridge(op.name) {
                     let alias = if op.name == "host.get" {
                         params

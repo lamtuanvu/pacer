@@ -255,8 +255,8 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            let host_read_sync = if crate::native::needs_host_read_bridge(op.name) {
-                let alias = if op.name == "host.get" {
+            let host_read_sync = if crate::native::needs_host_read_injection(op.name) {
+                let alias = if matches!(op.name, "host.get" | "host.set") {
                     params
                         .get("alias")
                         .and_then(serde_json::Value::as_str)
