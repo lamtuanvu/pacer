@@ -149,6 +149,7 @@ pub(crate) async fn stdio_probe<W: tokio::io::AsyncWrite + Unpin>(
     .map_err(|_| unavailable("task review probe bridge timed out"))?
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn stdio_effects<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,

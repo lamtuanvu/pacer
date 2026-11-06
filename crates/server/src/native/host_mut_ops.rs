@@ -20,19 +20,17 @@ fn invalid(message: impl Into<String>) -> CoreError {
 }
 
 fn host_error(op: &str, message: &str) -> CoreError {
-    let code =
-        if op == "host.add" && message.starts_with("host ") && message.ends_with(" already exists")
-        {
-            Code::Conflict
-        } else if op == "host.remove" && message.contains(" is used by ") {
-            Code::Conflict
-        } else if message == "Your settings changed while they were being updated. Try again."
-            || message == "strategy changed during edit; retry"
-        {
-            Code::Conflict
-        } else {
-            Code::InvalidInput
-        };
+    let code = if (op == "host.add"
+        && message.starts_with("host ")
+        && message.ends_with(" already exists"))
+        || (op == "host.remove" && message.contains(" is used by "))
+        || message == "Your settings changed while they were being updated. Try again."
+        || message == "strategy changed during edit; retry"
+    {
+        Code::Conflict
+    } else {
+        Code::InvalidInput
+    };
     let mut error = CoreError::new(code, message);
     if op == "host.add" && code == Code::Conflict {
         error = error.hint("Choose a different alias or remove the existing host.");
