@@ -2,6 +2,8 @@
 
 The Rust registry owns only the operations listed as native below. `PACER_FORWARD_OPS` can return any native operation to the TypeScript core. The TypeScript handlers remain the reference during M2.
 
+**P7 replay gate (2026-11-06):** TypeScript `Screen` checkpoint roundtrip is **GO** on the synthetic vt100 corpus (`test/session-replay-gate.test.ts`). Native vt100 replay remains **NO-GO** (insert mode, SGR 9 strikeout, ZWJ width, disabled autowrap, and public-exporter scroll-region gaps). Keep session WebSocket and offline replay on the TypeScript host until a full native gate passes; `pacer-sessions` continues file/frame/control characterization only.
+
 | Operation | M2 P3-D route | Retained TypeScript caller or reason |
 | --- | --- | --- |
 | `config.get` | Forwarded | Rust `pacer_config::settings::get_settings` owns the pure key/source read model. Host-field bridge helpers (`compose_host_fields` / `host_fields_from_parts`) accept filtered terminal choices, machine guard/slots and planner candidates without probing; public routing stays TypeScript until a reviewed native supplier wires those injections (A5). |

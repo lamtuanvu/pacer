@@ -547,5 +547,18 @@
         "6263"
       ]
     }
+  ],
+  "plain": [
+    {
+      "name": "chunked-csi-osc-dcs",
+      "chunks": [
+        "6f6c640d6e65771b5b33",
+        "316de7958c1b5b306d0d",
+        "0a1b5d303b707269766174651b",
+        "5c76697369626c651b5069676e6f7265641b5c0a6c617374"
+      ],
+      "pushOut": ["", "", "new界\n", "visible\n"],
+      "flushOut": "last"
+    }
   ]
 }
