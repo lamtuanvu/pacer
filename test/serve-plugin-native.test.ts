@@ -167,6 +167,43 @@ test("sealCallAuthority refuses write resources in this slice", () => {
   )).toThrow(/write resources/);
 });
 
+test("sealCallAuthority seals worktree resources when worktree is granted", () => {
+  const ctx = fakeCtx();
+  const baseSha = "a".repeat(40);
+  const sealed = sealCallAuthority(
+    ctx,
+    {
+      id: "fx-executor",
+      version: "1.0.0",
+      publisher: "fixture",
+      host: ">=1.10.0",
+      capabilities: [{ name: "worktree" }],
+      contributes: { executor: { backends: ["direct"] } },
+    } as any,
+    ["worktree"],
+    {
+      resources: {
+        reads: [],
+        commands: [],
+        stores: [],
+        worktree: {
+          taskId: "t-20261106-125719-c5fb",
+          rev: 1,
+          attempt: 1,
+          providerId: "fx-executor",
+          baseSha,
+          base: "HEAD",
+        } as any,
+      },
+    },
+  );
+  expect(sealed.resources.worktree).toEqual({
+    taskId: "t-20261106-125719-c5fb",
+    attempt: 1,
+    baseSha,
+  });
+});
+
 test("private call_authority rejects unknown plugins under PACER_HOST_SOCKET", async () => {
   const out = await pluginNativeRequest(ctxWithSocket("/tmp/pacer-host.sock"), {
     kind: "call_authority",

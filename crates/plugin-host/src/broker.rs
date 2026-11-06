@@ -127,6 +127,9 @@ impl CapabilityBroker {
         self.native_worktree = Some(worktree);
         self
     }
+    pub fn attach_worktree(&mut self, worktree: crate::NativeWorktree) {
+        self.native_worktree = Some(worktree);
+    }
     pub fn with_native_duplex(mut self, duplex: crate::NativeDuplex) -> Self {
         self.native_duplex = Some(duplex);
         self

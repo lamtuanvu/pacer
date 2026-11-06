@@ -7,12 +7,14 @@ use pacer_plugin_runtime::{
     LocalHostEffect, OrcaCallContext, PluginCapabilitySession, ProcessOwner, ProviderSnapshot,
     ReadResource, SpawnSpec, call_resources_from_value, host_snapshots_from_value, parse_manifest,
     observation_bootstrap_from_value, session_for_call, session_from_hello,
+    worktree_context_from_value,
 };
 use pacer_store::TaskStore;
 use serde_json::json;
 use std::{
     collections::HashMap,
     env, fs,
+    process::Command,
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
@@ -280,6 +282,7 @@ for (;;) {{
         None,
         None,
         None,
+        None,
     )
     .unwrap();
 
@@ -382,6 +385,7 @@ for (;;) {{
         None,
         None,
         None,
+        None,
     )
     .unwrap();
 
@@ -480,6 +484,7 @@ for (;;) {{
         Some(vec!["tasks.read".into(), "events.subscribe".into()]),
         Duration::from_secs(10),
         observation,
+        None,
         None,
         None,
     )
@@ -589,6 +594,7 @@ for (;;) {
         Duration::from_secs(10),
         None,
         Some(&host_attach),
+        None,
         None,
     )
     .unwrap();
@@ -711,6 +717,7 @@ for (;;) {
         None,
         None,
         Some(orca_context),
+        None,
     )
     .unwrap();
     session
@@ -754,4 +761,157 @@ for (;;) {
         "Core-sealed orcaAttempt must answer capability.orca.prepare"
     );
     owner.terminate("pacer-exec-orca").await.unwrap();
+}
+
+#[tokio::test]
+async fn process_owner_answers_worktree_resolve_base_when_core_seals_grant() {
+    let root = TempDir::new().unwrap();
+    let home = root.path().join("home");
+    let repo = root.path().join("repo");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir(&repo).unwrap();
+    let env: HashMap<String, String> = HashMap::from([
+        ("HOME".into(), home.to_str().unwrap().into()),
+        ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
+        ("GIT_CONFIG_SYSTEM".into(), "/dev/null".into()),
+        ("PATH".into(), "/usr/bin:/bin".into()),
+    ]);
+    for args in [
+        vec!["init", "-q"],
+        vec![
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "initial",
+        ],
+    ] {
+        assert!(
+            Command::new("/usr/bin/git")
+                .args(args)
+                .current_dir(&repo)
+                .env_clear()
+                .envs(&env)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    let task_id = "t-20261106-125719-c5fb";
+    let mut store = TaskStore::open(&home).unwrap();
+    store
+        .insert(
+            &json!({
+                "id": task_id,
+                "rev": 1,
+                "createdAt": 1,
+                "state": "running",
+                "executorProvider": "fx-executor",
+                "attempts": [],
+                "brief": {"repo": repo}
+            }),
+            1.0,
+        )
+        .unwrap();
+    let base_sha = Command::new("/usr/bin/git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&repo)
+        .env_clear()
+        .envs(&env)
+        .output()
+        .unwrap()
+        .stdout;
+    let base_sha = String::from_utf8(base_sha).unwrap().trim().to_owned();
+
+    let source = r#"const r = Bun.stdin.stream().getReader();
+let b = "", pending;
+const send = (x) => console.log(JSON.stringify({ jsonrpc: "2.0", ...x }));
+for (;;) {
+  const { value, done } = await r.read();
+  if (done) break;
+  b += new TextDecoder().decode(value);
+  while (b.includes("\n")) {
+    const i = b.indexOf("\n");
+    const m = JSON.parse(b.slice(0, i));
+    b = b.slice(i + 1);
+    if (m.method === "plugin.hello") {
+      send({ id: m.id, result: { ok: true, protocol: "1.10.0", id: "fx-executor", version: "1.0.0", contributes: ["executor"] } });
+    } else if (m.method === "executor.run") {
+      pending = m.id;
+      send({ id: 7, method: "capability.worktree.resolveBase", params: { taskId: "t-20261106-125719-c5fb", attempt: 1 } });
+    } else if (m.id === 7) {
+      send({ id: pending, result: { ok: true, sha: m.result?.sha } });
+    }
+  }
+}"#;
+
+    let hello = json!({
+        "protocol":"1.10.0","pacer":"0.2.0",
+        "manifest":{
+            "id":"fx-executor","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+            "capabilities":[{"name":"worktree"}],
+            "contributes":{"executor":{"backends":["direct"]}}
+        },
+        "config":{},"grants":["worktree"],"features":[]
+    });
+    let sealed = json!({
+        "reads":[],
+        "writes":[],
+        "commands":[],
+        "hosts":[],
+        "worktree":{"taskId": task_id, "attempt": 1, "baseSha": base_sha},
+        "worktreeContext":{
+            "home": home.to_str().unwrap(),
+            "providerId":"fx-executor",
+            "git":"/usr/bin/git",
+            "base":"HEAD",
+            "env": env
+        }
+    });
+    let resources = call_resources_from_value(&sealed).unwrap();
+    let worktree_context = worktree_context_from_value(&sealed).unwrap();
+    let mut session = session_for_call(
+        &hello,
+        resources,
+        Some(vec!["worktree".into()]),
+        Duration::from_secs(30),
+        None,
+        None,
+        None,
+        worktree_context,
+    )
+    .unwrap();
+    session.bind_process_owner_worktree().await.unwrap();
+
+    let dir = TempDir::new().unwrap();
+    let mut owner = ProcessOwner::native_for_tests();
+    owner
+        .spawn("fx-executor", &peer_script(dir.path(), source))
+        .unwrap();
+    owner
+        .install_capability_session("fx-executor", session)
+        .unwrap();
+    owner
+        .call_plugin("fx-executor", "plugin.hello", hello, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let run = owner
+        .call_plugin(
+            "fx-executor",
+            "executor.run",
+            json!({"task":{"id":task_id,"rev":1},"attempt":1,"runDir":1,"owned":{"placement":"new","timeoutMs":60000}}),
+            Duration::from_secs(30),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        run["sha"].as_str().unwrap(),
+        base_sha,
+        "Core-sealed worktree must answer capability.worktree.resolveBase"
+    );
+    owner.terminate("fx-executor").await.unwrap();
 }

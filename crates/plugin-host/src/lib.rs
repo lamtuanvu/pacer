@@ -37,7 +37,7 @@ mod work_lease;
 pub use admission::{AdmissionError, CallAdmission};
 pub use authority::{
     AuthorityError, CallAuthority, CallResources, CommandResource, HostOperationResource,
-    HttpResource, ReadResource, ScopeRoots, WriteResource,
+    HttpResource, ReadResource, ScopeRoots, WorktreeResource, WriteResource,
 };
 pub use broker::{BrokerError, CapabilityBroker, CapabilityEffect};
 pub use config::{PluginGrant, PluginsConfig};

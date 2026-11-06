@@ -1776,6 +1776,29 @@ export class PluginRegistry {
       const bridge = this.takeNativeOrcaBridge(id);
       if (bridge) out = { ...out, orcaBridgeToken: bridge.token };
     }
+    if (sealed.resources.worktree && grants.includes("worktree")) {
+      const git = ctx.which?.("git");
+      if (!git) throw new CoreError("plugin_unavailable", "git is unavailable for worktree attach");
+      const base = options.resources?.worktree?.base;
+      if (typeof base !== "string" || !base || base.length > 256 || base.startsWith("-")) {
+        throw new CoreError("invalid_input", "worktree base ref is required for native attach");
+      }
+      out = {
+        ...out,
+        worktreeContext: {
+          home: ctx.pacerHome,
+          providerId: id,
+          git,
+          base,
+          env: {
+            PATH: ctx.env.PATH ?? "",
+            HOME: ctx.env.HOME ?? ctx.home,
+            GIT_CONFIG_GLOBAL: ctx.env.GIT_CONFIG_GLOBAL ?? "/dev/null",
+            GIT_CONFIG_SYSTEM: ctx.env.GIT_CONFIG_SYSTEM ?? "/dev/null",
+          },
+        },
+      };
+    }
     return out;
   }
 

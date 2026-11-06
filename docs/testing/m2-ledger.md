@@ -164,6 +164,10 @@ inventories under `.work/reviews/`.
   when Orca resources are issued; flag-on `ProcessOwner` binds `NativeOrca` (library
   prepare proof; live `orca_bridge` private IPC when Core stashes an attempt bridge).
   Full executor.run on the native owner and CT-11 remain open; default stays off.
+- **P4d-11:** Core `call_authority` seals `worktree` resources and `worktreeContext`
+  when worktree is issued; flag-on `ProcessOwner` issues `NativeWorktree` (library
+  `resolveBase` proof). `executorClaim` / process.run on the native owner and CT-11
+  remain open; default stays off.
 - **P4d-1 landed (flag-gated):** serve can claim `ProcessOwner` + reverse bridge
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against

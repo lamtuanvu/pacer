@@ -14,6 +14,7 @@ use crate::orca_attach::{
     FixtureOrcaSession, OrcaAttach, OrcaAttachPlan, bind_orca_fixture, bind_process_owner_orca,
     orca_sidecar_call,
 };
+use crate::worktree_attach::{WorktreeAttachPlan, WorktreeCallContext, issue_worktree};
 use pacer_plugin_host::{
     AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
     CredentialBindings, HostProvider, NativeHttp, NativeHosts, NativeProcess, ObservationCall,
@@ -264,6 +265,7 @@ pub struct PluginCapabilitySession {
     observation: Option<ObservationState>,
     pending_host_attach: Vec<HostAttachSnapshot>,
     pending_orca: Option<OrcaAttachPlan>,
+    pending_worktree: Option<WorktreeAttachPlan>,
 }
 
 impl PluginCapabilitySession {
@@ -274,6 +276,7 @@ impl PluginCapabilitySession {
             observation: None,
             pending_host_attach: Vec::new(),
             pending_orca: None,
+            pending_worktree: None,
         }
     }
 
@@ -328,6 +331,15 @@ impl PluginCapabilitySession {
         self.pending_orca = None;
         self.effect
             .bind_orca(bind_orca_fixture(home, ORCA_PROVIDER, grant, fixture)?);
+        Ok(())
+    }
+
+    pub async fn bind_process_owner_worktree(&mut self) -> Result<(), CapabilitySessionError> {
+        let Some(plan) = self.pending_worktree.take() else {
+            return Ok(());
+        };
+        let worktree = issue_worktree(&plan).await?;
+        self.broker.attach_worktree(worktree);
         Ok(())
     }
 
@@ -527,6 +539,7 @@ pub fn session_from_hello(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -550,6 +563,7 @@ pub fn session_for_call(
     observation: Option<ObservationBootstrap>,
     host_attach: Option<&[HostAttachSnapshot]>,
     orca_context: Option<OrcaCallContext>,
+    worktree_context: Option<WorktreeCallContext>,
 ) -> Result<PluginCapabilitySession, CapabilitySessionError> {
     let (manifest, hello_grants, features, config) = hello_parts(hello)?;
     let grants = grants.unwrap_or(hello_grants);
@@ -576,6 +590,17 @@ pub fn session_for_call(
             "orcaAttempt requires the Orca executor provider".into(),
         ));
     }
+    let worktree_granted = grants.iter().any(|g| g == "worktree");
+    if resources.worktree.is_some() && !worktree_granted {
+        return Err(CapabilitySessionError::Native(
+            "worktree resources require worktree grant".into(),
+        ));
+    }
+    if resources.worktree.is_some() && worktree_context.is_none() {
+        return Err(CapabilitySessionError::Native(
+            "worktree resources require Core-sealed worktreeContext".into(),
+        ));
+    }
     let authority = CallAuthority::new(
         resources.clone(),
         grants.clone(),
@@ -600,6 +625,13 @@ pub fn session_for_call(
             status_env: ctx.status_env,
             plugin_id: manifest.id.to_string(),
             home: ctx.home,
+        });
+    }
+    if let Some(grant) = resources.worktree.clone() {
+        let ctx = worktree_context.expect("worktree context checked above");
+        session.pending_worktree = Some(WorktreeAttachPlan {
+            grant,
+            context: ctx,
         });
     }
     if let Some(bootstrap) = observation {
