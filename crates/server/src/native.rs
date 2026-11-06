@@ -16,6 +16,7 @@ mod host_read_ops;
 pub(crate) mod host_read_sync;
 mod lifecycle_ops;
 mod meta_ops;
+pub(crate) mod msg_ops;
 pub(crate) mod p8_bridge_ops;
 pub mod plugins;
 mod project_messaging_ops;
@@ -44,6 +45,7 @@ pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
+pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
@@ -314,6 +316,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "project.messaging.remove",
         call: project_messaging_ops::project_messaging_remove,
+    },
+    NativeOp {
+        name: "msg.inbox",
+        call: msg_ops::msg_inbox,
+    },
+    NativeOp {
+        name: "msg.log",
+        call: msg_ops::msg_log,
+    },
+    NativeOp {
+        name: "msg.read",
+        call: msg_ops::msg_read,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -636,6 +650,9 @@ mod tests {
             "project.messaging.get",
             "project.messaging.set",
             "project.messaging.remove",
+            "msg.inbox",
+            "msg.log",
+            "msg.read",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -676,6 +693,15 @@ mod tests {
         assert!(registry("task.review").get("task.review").is_none());
         assert!(registry("").get("task.ask").is_none());
         assert!(registry("").get("limits.refresh").is_none());
+        for name in [
+            "msg.send",
+            "msg.wait",
+            "msg.confirm",
+            "msg.close",
+            "msg.policy",
+        ] {
+            assert!(registry("").get(name).is_none(), "{name}");
+        }
     }
 
     #[test]
@@ -741,6 +767,9 @@ mod tests {
             "project.messaging.get",
             "project.messaging.set",
             "project.messaging.remove",
+            "msg.inbox",
+            "msg.log",
+            "msg.read",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");

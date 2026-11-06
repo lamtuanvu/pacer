@@ -3,6 +3,7 @@ pub mod activity;
 mod file;
 mod locked;
 pub use locked::LockedTask;
+pub mod messages;
 pub mod outbox;
 pub mod publish;
 mod retention;
