@@ -15,6 +15,10 @@ mod log_sse;
 #[cfg(test)]
 #[path = "log_sse_tests.rs"]
 mod log_sse_tests;
+mod events_sse;
+#[cfg(test)]
+#[path = "events_sse_tests.rs"]
+mod events_sse_tests;
 #[cfg(target_os = "macos")]
 mod native_bootstrap;
 #[cfg(target_os = "macos")]
@@ -79,6 +83,7 @@ struct Listener {
     scoped_work: bool,
     plugins: crate::native::plugins::Service,
     forward_log_follow: bool,
+    forward_events: bool,
 }
 async fn forward_plugin_read(
     state: &Listener,
@@ -272,13 +277,43 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             return log_sse::follow(ctx, id.to_owned(), state.core.clone()).await;
         }
     }
+    let path = req.uri().path();
+    if !state.scoped_work
+        && !state.forward_events
+        && auth != auth::AuthKind::Task
+        && (path == "/v3/events" || path == "/v2/events")
+    {
+        if req.method() != axum::http::Method::GET {
+            return native_json(
+                StatusCode::METHOD_NOT_ALLOWED,
+                CoreError::new(Code::InvalidInput, "method not allowed").body(),
+            );
+        }
+        let protocol = if path == "/v3/events" { 3 } else { 2 };
+        let last_event_id = header_value(req.headers(), "last-event-id");
+        let since = req.uri().query().and_then(|query| {
+            form_urlencoded::parse(query.as_bytes())
+                .find(|(key, _)| key == "since")
+                .map(|(_, value)| value.into_owned())
+        });
+        if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
+            eprintln!("native http.events");
+        }
+        return events_sse::stream(
+            ctx,
+            protocol,
+            last_event_id.as_deref(),
+            since.as_deref(),
+            1_000,
+        )
+        .await;
+    }
     if let Some(response) = app_assets::route(&req) {
         return response;
     }
     let Some(target) = state.core.target().await else {
-        return proxy::unavailable(req.uri().path().starts_with("/app/"));
+        return proxy::unavailable(path.starts_with("/app/"));
     };
-    let path = req.uri().path();
     if (path.starts_with("/v2/tasks/") || path.starts_with("/v3/tasks/"))
         && path.ends_with("/session")
         && header_value(req.headers(), "upgrade")
@@ -337,6 +372,9 @@ pub async fn run_serve(
     let forward_log_follow = forward.split(',').any(|name| {
         js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.task_log_follow"
     });
+    let forward_events = forward.split(',').any(|name| {
+        js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.events"
+    });
     let token = auth::ensure_token(&ctx)?;
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
@@ -387,6 +425,7 @@ pub async fn run_serve(
         scoped_work,
         plugins,
         forward_log_follow,
+        forward_events,
     });
     let app = Router::new()
         .fallback(any(handle))
