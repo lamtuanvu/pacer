@@ -57,6 +57,49 @@ async fn failed_endpoint_sync_keeps_saved_edit_but_does_not_publish_success() {
 }
 
 #[tokio::test]
+async fn host_account_add_missing_endpoint_bridge_refuses_before_write() {
+    let dir = tempfile::tempdir().unwrap();
+    write_fixture_strategy(&dir);
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        Default::default(),
+        0.0,
+    );
+    let registry = crate::native::registry("");
+    let error = crate::native::call_native(
+        &ctx,
+        registry.get("host.account.add").unwrap(),
+        json!({"alias":"devbox","account":"team","home":"~/.codex-team"}),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, Code::Unavailable);
+    let text = std::fs::read_to_string(dir.path().join("strategy.yaml")).unwrap();
+    assert!(!text.contains("~/.codex-team"));
+}
+
+fn write_fixture_strategy(dir: &tempfile::TempDir) {
+    std::fs::write(
+        dir.path().join("strategy.yaml"),
+        "planner: codex\nproviders: {codex: {}}\naccounts: {team: {kind: codex}}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\n",
+    )
+    .unwrap();
+}
+
+#[tokio::test]
 async fn host_add_missing_endpoint_bridge_refuses_before_write() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::with(
@@ -70,6 +113,8 @@ async fn host_add_missing_endpoint_bridge_refuses_before_write() {
         &ctx,
         registry.get("host.add").unwrap(),
         json!({"alias":"box","ssh":"box-ssh"}),
+        None,
+        None,
         None,
         None,
         None,
