@@ -1,7 +1,8 @@
 //! Safe P6 lifecycle ops that do not need the runner, plugins or supervision:
 //! currently `task.request_review`. After P6c, delegate/stop/answer/wait/retry/
 //! review/ask remain forwarded: policy, spawn, supervision, messaging and session
-//! gates stay on TypeScript. P6b/`run_spawn` pins the `_run` plan; P6c adds
+//! gates stay on TypeScript. P6b/`run_spawn` pins the `_run` plan; P6e-run adds
+//! drain launch guards and a gated ProcessOwner spawn spec; P6c adds
 //! store-only `record_review_verdict` (accept/reject fields) without registering
 //! `task.review`. P6d adds `record_task_stop` and `task_wait_settled` without
 //! registering `task.stop` or `task.wait`.

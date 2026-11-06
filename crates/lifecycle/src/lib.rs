@@ -1,6 +1,7 @@
 //! Task admission contracts, safe store-only lifecycle ops, and P6e decisions.
 //! Runner/_run-dependent task ops stay forwarded after P6c; P6b records the `_run`
-//! spawn plan (`run_spawn`) while TypeScript remains the effectful owner; P6c
+//! spawn plan (`run_spawn`) while TypeScript remains the effectful owner; P6e-run
+//! adds lease resolution, drain guards and a gated ProcessOwner spawn spec; P6c
 //! adds store-only `record_review_verdict` for accept/reject fields; P6d adds
 //! `record_task_stop` and `task_wait_settled` without registering `task.stop` /
 //! `task.wait`.
@@ -86,8 +87,10 @@ pub use record_review::{RecordReviewError, TASK_KINDS, record_review_verdict};
 pub use record_stop::{RecordStopError, record_task_stop};
 pub use request_review::{RequestReviewError, request_review};
 pub use run_spawn::{
-    RUN_SPAWN_OWNER, RunSpawnOwner, RunSpawnPlan, build_run_spawn_plan, runner_log_path,
-    self_command, validate_run_spawn_plan,
+    RUN_SPAWN_OWNER, RunSpawnLaunchInput, RunSpawnOwner, RunSpawnPlan, RunSpawnStdio,
+    SupervisorRunSpawnSpec, build_run_spawn_plan, build_run_spawn_plan_for_launch,
+    drain_launch_run_spawn_plan, guard_run_spawn_plan, resolve_launch_admission_lease,
+    runner_log_path, self_command, supervisor_run_spawn_spec, validate_run_spawn_plan,
 };
 pub use task_diff::{
     CommandGit, DiffFile, DiffOptions, GitRun, GitRunResult, TaskDiff, TaskDiffError,

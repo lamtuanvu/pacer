@@ -51,6 +51,8 @@ impl AdmissionState {
     /// Explicit supervisor action. Read APIs call neither this nor its launcher.
     /// A shared drain lock serializes launch/rollback; SQLite IMMEDIATE protects
     /// capacity against other Rust and Bun writers under the shared slots lock.
+    /// `_run` launch hooks must validate plans with [`crate::drain_launch_run_spawn_plan`]
+    /// before effectful spawn while [`crate::RUN_SPAWN_OWNER`] stays TypeScript.
     pub fn drain(
         &mut self,
         now: f64,
