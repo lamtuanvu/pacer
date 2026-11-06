@@ -382,6 +382,17 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-setup-command{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
 .pc-setup-command pre{min-width:0;flex:1}
 .pc-setup-banner{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}
+.pc-setup-health-chip{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3);margin:0 0 var(--space-4)}
+.pc-setup-health-chip--attention{border-color:var(--warn-line);background:var(--warn-tint)}
+.pc-setup-health{display:flex;flex-direction:column;gap:var(--space-4);min-height:100%;padding:var(--space-10) var(--space-8);max-width:var(--size-480);margin:0 auto;box-sizing:border-box}
+.pc-setup-health__brand{margin-bottom:var(--space-2)}
+.pc-setup-health h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
+.pc-setup-health__support{margin:0;color:var(--ink-secondary)}
+.pc-setup-health__steps{list-style:none;margin:var(--space-4) 0 0;padding:0;display:grid;gap:var(--space-3)}
+.pc-setup-health__steps li{display:grid;grid-template-columns:var(--size-24) minmax(0,1fr);gap:var(--space-3);align-items:start}
+.pc-setup-health__steps strong{font-weight:var(--type-body-strong-weight)}
+.pc-setup-health__steps .muted{margin:var(--space-1) 0 0}
+.pc-setup-health__actions{display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:center;margin-top:var(--space-2)}
 .pc-setup-preview{white-space:pre;overflow-wrap:normal}
 
 /* Setup keeps the five steps visible while the current panel scrolls. */
