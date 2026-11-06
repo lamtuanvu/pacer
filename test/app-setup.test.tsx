@@ -7,6 +7,7 @@ import { initialState } from '../app/src/data/store';
 import { SetupView, StepDone } from '../app/src/screens/setup/Setup';
 import { SetupBanner } from '../app/src/screens/setup/SetupBanner';
 import { SetupContext } from '../app/src/screens/setup/context';
+import { FrameContext } from '../app/src/shell/slots';
 import { bannerKey, nextOptional, performSetupAction, primaryItem, readDismissal, saveDismissal, SERVICE_CONSENT, DISMISS_KEY } from '../app/src/screens/setup/model';
 const service: SetupItem = { id: 'service', title: 'Background service', required: true, status: 'pending', action: 'service.install' };
 const agent: SetupItem = { id: 'connect', title: 'Connect planner', required: true, status: 'pending', action: 'agent.connect', agent: 'codex' };
@@ -14,7 +15,8 @@ const first: SetupItem = { id: 'first', title: 'First delegation', required: fal
 const check: SetupChecklist = { checkedAt: 1, complete: false, ready: false, items: [service, agent, first] };
 const query = { repo: null, scope: null };
 const api = { call: async <T,>() => ({} as T) } as unknown as BrowserApi;
-const view = (checklist = check) => renderToString(<TaskContext.Provider value={{ api, state: initialState() }}><SetupView checklist={checklist} query={query} /></TaskContext.Provider>);
+const inlineFrame = { title: null, header: null, left: null, right: null, inline: true, heading: () => {}, details: { open: false, toggle: () => {} } };
+const view = (checklist = check) => renderToString(<FrameContext.Provider value={inlineFrame}><TaskContext.Provider value={{ api, state: initialState() }}><SetupView checklist={checklist} query={query} /></TaskContext.Provider></FrameContext.Provider>);
 
 test('Setup renders five steps, done values and the current panel', () => {
   const html = view({ ...check, items: [
