@@ -180,6 +180,8 @@ async fn forward_input<
                 && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
                 && !(op.name == "routing.route"
                     && crate::native::routing_route_stays_forwarded(&params))
+                && !(op.name == "task.retry_options"
+                    && crate::native::task_retry_options_stays_forwarded(&ctx.at_now()))
                 && !(op.name == "repo.remove"
                     && crate::native::repo_remove_stays_forwarded(&ctx.at_now()))
                 && !crate::native::project_messaging_stays_forwarded(
@@ -190,6 +192,7 @@ async fn forward_input<
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
                 && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::desktop_reconcile_stays_forwarded(op.name)
+                && !crate::native::assistant_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
                 if op.name == "task.wait" {

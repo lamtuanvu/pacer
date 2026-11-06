@@ -46,7 +46,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `limits.check` | Native (P5c) | Row projection via `pacer_engine::usage_broker::limits_check` once Core supplies `accounts` + `providers` through `/_internal/status-broker-parts` (serve) or `_internal.status-broker.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns `computeStatus` / plugin readings. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `limits.refresh` | Forwarded (P5b) | `refreshAccountUsage` / `refreshAllUsage` coordinator (`src/usage/refresh.ts`): per-account dedupe, 15-minute automatic throttle, outcome projection from prior/current readings. Effectful reads via `readAccountUsage(..., refresh: true)` and `readPluginUsage` (provider CLI, Ark CLI, passive Claude logs). Beyond P5c read-only status-broker injection; HTTP `usageRefreshDone` rebuilds cached status after manual refresh. Library: `pacer_engine::usage_refresh` mirrors capability/outcome rules only. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.status` | Native (P5d) | Composed via `pacer_engine::usage_broker::routing_status` with the same P5c `accounts` + `providers` bridge (`/_internal/status-broker-parts` / `_internal.status-broker.parts`). TypeScript still owns live `computeStatus`. `calendarPace` defaults in Rust until the bridge carries planner profile hints. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `routing.route` | Native (P5d, selective) | Broker-backed `usage_broker::routing_route` / `status::rank_route` when params omit `goal` and `repo`. Params with `goal` (classifier) or `repo` (project policy + remote eligibility) selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `routing.route` | Native (P5d, selective) | Broker-backed `usage_broker::routing_route` / `status::rank_route` when params omit `goal` and `repo`. Params with `goal` (classifier) or `repo` (project policy + remote eligibility) selectively forward to TypeScript. A routed id without a configured runner is excluded as `not configured`, as in TypeScript `rankExecutors`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6f+) | P6b/P6e-run `run_spawn` pins and guards the `_run` plan; P6c/P6d store-only slices; P6f adds `delegate_admission` / `prepare_delegate_admission` parity with `prepareDelegate` (amendment mapping, host snapshot, `PreparedAdmission`) without plugin policy, work grants, messaging or effectful spawn. |
@@ -54,7 +54,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.ask` | Forwarded (P6d+) | P6d library only; public op still needs messaging and supervision beyond store fields. |
 | `task.wait` | Native (P6, selective) | When `task_wait_settled` already holds (Core `taskWaitProbe`: terminal state without agent-session or pending-check holds), Rust returns the summarized task immediately via `summarize_api_task`. Active tasks forward for queue drain, runner supervision and agent waits (`/_internal/task-wait-probe`, stdio `_internal.task-wait.probe`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.review` | Native (P6, selective) | Rust `record_review_verdict` owns accept/reject store CAS + task outbox publication; Core supplies labels, verdict activity and `autoCleanTask` through `/_internal/task-review-probe` / `/_internal/task-review-effects` (stdio `_internal.task-review.probe` / `.effects`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). Selectively forwards for `send_back`/`retry`, managed work, closed-mode policy plugins, and agent-session gates (same as TypeScript `review` / `taskReview`). `PACER_FORWARD_OPS` remains the escape hatch. |
-| `task.retry_options` | Forwarded (P5b/P6) | Needs routing/policy ranking over live readings (same broker gap as `routing.route`). |
+| `task.retry_options` | Native (P5d, selective) | `pacer_read_model::retry::retry_options` reproduces `optionsFor` in Rust. It ranks the task's routing rule with `status::rank_route`, builds executor rows with `capacity::executors_without_ctx`, drops the executor that ran and picks the row, ranking or fallback reason. Live `providers` come from the same P5c bridge (`/_internal/status-broker-parts` / `_internal.status-broker.parts`), fetched only after the task resolves. The op selectively forwards to TypeScript when `project-strategies.json` exists or cannot be read (project policy needs repo identity and the allowlist), when any runner has a `host` (remote eligibility probes), or when Rust cannot load the strategy. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `session.create` | Forwarded (P7) | Idempotent conversation start needs attachment draft claim, `prepareDelegate` admission, work grants and `launchTaskRunner` spawn. Library: `params`, `operations` (reference/summary), `plain`, file/frame/control goldens only. |
 | `session.resume` | Forwarded (P7) | Needs live session probe, executor resume capability, prepared admission consume, queue mutation and runner spawn. Native vt100 replay gate remains **NO-GO**; session WebSocket stays TypeScript. |
 | `session.end` | Forwarded (P7) | Needs `taskStop` orchestration, runner supervision and conversation activity publication beyond store-only fields. |
@@ -68,7 +68,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `session.agent.end`, `session.agent.retry`, `session.agent.resume` | Forwarded (P7) | Effectful agent-session lifecycle (stop, fresh attempt, resume) with `expect_rev` orchestration; no native registration while replay/WS gate is **NO-GO**. |
 | `dispatch.config.get` | Native (P6 dispatch reads) | `pacer-config` `load_strategy` supplies planner identity and the strategy `dispatch` block; `strategy::default_dispatch_config` is `dispatchConfigSchema.parse({})` for the built-in source. Missing or invalid strategies return the same `internal` errors as TypeScript (YAML syntax errors keep the Rust parser's wording, as in `strategy-write-parity`). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `dispatch.enforcement`, `dispatch.enforcement.probe`, `dispatch.enforcement.consent`, `dispatch.enforcement.denied` | Forwarded (P5/P6) | Native subagent control certification: policy repo resolution, observation-backed diagnostics, quota-using probe jobs, consent ledger and strict-mode denial recording (`src/api/ops.ts`; unauthenticated POST for `denied` in `src/serve/http.ts`). Needs plugin jobs and executor-native control probes. |
-| `dispatch.preview`, `dispatch.explain` | Forwarded (P5/P6) | Read-only ranking and ladder explanation over cached observations and the replaceable decision engine; needs live usage readings and `core.dispatch` / `explainDispatch` parity beyond P5d broker slices. |
+| `dispatch.preview`, `dispatch.explain` | Forwarded (P5/P6) | Read-only ranking and ladder explanation over cached observations and the replaceable decision engine. Unlike `task.retry_options`, the broker parts are not enough to reproduce them: both require `repo` (repository resolution, project policy and remote eligibility), add model inventory, ladder/plugin decisions, learned fit and decision hashes, and `dispatch.preview` reads cache-only status rather than the live broker. `dispatch.explain` also runs the classifier when `kind` is omitted. |
 | `dispatch.submit`, `dispatch.child` | Forwarded (P6) | Root and scoped child admission: work grants, queue mutation, delegation policy, prepared admission and `launchTaskRunner` spawn (`submitWork`, `delegateChild`). P6b `run_spawn` records plans only. |
 | `dispatch.list`, `dispatch.tree`, `dispatch.events` | Native (P6 dispatch reads) | `pacer-lifecycle::work_reads` reads `work_*`, `attempt_usage` and task records from `state/tasks.db` (`listWork`, `scopedWorkTree`, `scopedWorkEvents`), including restart eligibility (runner PID probe, worktree, deadline, attempts, dependencies, stopped ancestors), token roll-ups, usage pools, wait totals and branch reads from worktree HEAD files. Handlers serve ungranted callers only: both front doors forward every op while `PACER_WORK_GRANT` is set, serve forwards task-grant bearers, and `PACER_ROLE=executor` / `PACER_ENFORCEMENT_TOKEN` refusals match `authorizeWorkOperation`. Records holding lone UTF-16 surrogates fail as `internal` natively (shared `serde_json` record parsing). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `dispatch.wait` | Forwarded (P6) | Polls until a work item settles via `waitWork`; needs queue drain, runner supervision and the same orchestration gap as `task.wait` (P6d). |
@@ -89,11 +89,11 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `discovery.list`, `discovery.network.get` | Forwarded (P8) | LAN discovery state reads: radio availability, found machines (cap 100), per-network advertising rows and revision counters (`src/api/ops-discovery.ts`, `src/discovery/`). Both need `currentNetwork` (route, ARP, `ipconfig`/`ip`/`nmcli` subprocess probes with per-process sighting memory) for the current network key; `list` also needs the radio status and machine identity. |
 | `discovery.set`, `discovery.respond` | Native (P8 discovery writes, selective) | Rust owns the locked (`discovery` lock) read-modify-write of `discovery/state.json`: the `readState` merge and fail-closed corrupt documents, `networksRev` conflict, `rev`/`networksRev` bumps, `JSON.stringify(…, null, 2)` bytes through the private atomic writer, then the `discovery` config publication. `respond` handles `later` (wall-clock seconds plus 7 days), `ignore` and `mute-network`. `respond` `pair` (pairing plugin hand-over) and state files Rust cannot rewrite byte-for-byte (unreadable or unparsable text, non-integer or unsafe numbers, array-index or `__proto__` keys, non-object `networks`/`silenced`/`seen`, non-number revisions, odd found-machine or network entries) selectively forward to TypeScript. Executor refusal stays in the CLI caller policy, as for TypeScript API callers. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `discovery.network.set` | Forwarded (P8) | The write is the same state-file mutation, but the result is `discovery.network.get`, which needs the `currentNetwork` probe. |
-| `assistant.status`, `assistant.candidates` | Forwarded (P7/P8) | Availability, selected endpoint account, planner pacing refusal, daily limits/usage and candidate endpoint accounts with fixed read-tool summary (`src/api/ops-assistant.ts`, `src/assistant/service.ts`). Executor sessions get `not_allowed` via caller policy. |
-| `assistant.settings.get`, `assistant.settings.set` | Forwarded (P7/P8) | Assistant SQLite settings (runner/account, limits, retention) with revision-guarded writes and config-area effects (`src/assistant/store.ts`, `saveSettings`). |
-| `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete` | Forwarded (P7/P8) | Conversation history pagination and turn reads; deletes drop text while retaining usage aggregates (`src/assistant/store.ts`). |
-| `assistant.ask`, `assistant.cancel` | Forwarded (P7/P8) | Turn lifecycle: redacted read-tool loop, bundled `pacer-assistant` plugin `respond`, checkpointing and SSE answer stream at `/v3/assistant/turns/<turnId>/stream` (`src/assistant/service.ts`, `src/api/http.ts`). Proposed actions stay client-confirmed; nothing executes from the turn itself. |
-| `assistant.card.record`, `assistant.card.refresh` | Forwarded (P7/P8) | Action-card outcome recording and task-revision refresh for proposed ops the app runs separately (`src/assistant/actions.ts`, `buildCard`). |
+| `assistant.status`, `assistant.candidates` | Native (P7/P8 assistant reads, selective) | Rust reads the assistant settings in `state/tasks.db` (`pacer-store::assistant`) and the endpoint accounts in `strategy.yaml`. `candidates` lists endpoint accounts with a model and the fixed read-tool summary. `status` is native when it reports unavailable: not set up, endpoint account missing, or the daily turn limit reached at local midnight in the process time zone. Admissible status needs the planner pacing refusal (`checkAdmission`) and forwards, as do unreadable strategies, unusable stored settings and an unresolvable time zone. |
+| `assistant.settings.get`, `assistant.settings.set` | Native (P7/P8 assistant reads, selective) | Rust owns the `assistant_settings` row: defaults, Zod `partial()` default filling, the endpoint check against the strategy and the revision-guarded `BEGIN IMMEDIATE` upsert (`src/assistant/store.ts`, `saveSettings`). Like TypeScript, writes publish no config event. Stored limits or retention that fail the schema, and `set` with an account when the strategy is unreadable, forward to TypeScript. |
+| `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete` | Native (P7/P8 assistant reads, selective) | Rust reads conversation pages and turns with usage, cards, citations and scope parsed in `JSON.parse` key order. `conversations` first enforces retention like TypeScript; deletes drop turn text, keep usage aggregates and run `wal_checkpoint(TRUNCATE)` (`src/assistant/store.ts`). `conversations` forwards when stored settings are unusable. |
+| `assistant.ask`, `assistant.cancel` | Forwarded (P7/P8) | Turn lifecycle: redacted read-tool loop, bundled `pacer-assistant` plugin `respond`, checkpointing and SSE answer stream at `/v3/assistant/turns/<turnId>/stream` (`src/assistant/service.ts`, `src/api/http.ts`). `cancel` aborts the in-process live-turn map of the TypeScript service. Proposed actions stay client-confirmed; nothing executes from the turn itself. |
+| `assistant.card.record`, `assistant.card.refresh` | Native (P7/P8 assistant reads, selective) | Rust rewrites the stored `cards` JSON in place, keeping key positions and `JSON.stringify` spelling (`src/assistant/actions.ts`). `refresh` reads the task revision from the task store; a task without a brief or title forwards because TypeScript `taskTitle` throws there. |
 | `account.list` | Forwarded (P7/P9) | Account inventory with usage/sign-in commands and no emails (`src/core/accounts.ts`). Each row needs `readAccountUsage` (usage plugin and CLI readers), endpoint-plugin rows (`endpointRow`), Orca account reads and sign-in evidence, so it is not a pure store read. |
 | `account.signin` | Forwarded (P7/P9) | Opens provider login in a terminal/tmux/Orca target or returns the command; interactive account-add/init flows share the handler (`src/api/ops.ts`, `accounts.signin`). |
 | `account.add`, `account.edit`, `account.adopt`, `account.remove` | Forwarded (P7/P9) | Strategy `accounts` mutations: Claude/Codex homes, managed endpoints and OpenCode adoption with endpoint-plugin sync, protected-path home deletion and runner references (`src/endpoints/`, `src/core/accounts.ts`). |
@@ -280,7 +280,29 @@ install probes, agent integration file effects, or the shared update job pipelin
 still owned by TypeScript. No operation is trivially pure read/write on static
 config alone. This slice only expands the ledger with explicit Forwarded rows;
 it does not register native handlers. Native cutover waits on plugin host
-ownership, usage refresh bridges, and P9 setup/service owners.
+ownership, usage refresh bridges, and P9 setup/service owners. The later
+assistant-reads slice registers ten `assistant.*` ops (see below);
+`assistant.ask` and `assistant.cancel` stay Forwarded.
+
+## P7/P8 assistant settings and history cutover (native, selective)
+
+`assistant.status`, `assistant.candidates`, `assistant.settings.get`,
+`assistant.settings.set`, `assistant.conversations`, `assistant.conversation`,
+`assistant.turn`, `assistant.delete`, `assistant.card.record` and
+`assistant.card.refresh` are registered native on stdio and HTTP. Rust opens the
+assistant tables in `state/tasks.db` with the TypeScript schema and pragmas
+(`pacer-store::assistant`) and reads and writes them directly. No op calls back
+into TypeScript to execute. Params use Zod issue text and order. The caller
+policy from `parseOpParams` runs first: the enforcement token and executor
+sessions (`PACER_ROLE=executor` or an own task worktree) get `not_allowed`, and
+Orca task worktrees forward. Inputs where only TypeScript reproduces the result
+also forward: admissible `status` (planner pacing), unreadable strategies, stored
+settings that fail the schema, an unresolvable local time zone, and card refresh
+for a task without a brief or title. `assistant.ask` and `assistant.cancel` stay
+Forwarded: they need the assistant plugin, the read-tool loop, the SSE stream
+and the in-process live-turn map. Parity: `test/native-assistant-parity.test.ts`
+compares results, error bodies and the four assistant tables against TypeScript
+`callOp`.
 
 ## P2/P6 client, project, runner, job and executor-setup triage (ledger, no new native ops)
 
@@ -541,14 +563,17 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **84** of 224 (72 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Seventeen of these selectively forward some inputs to TypeScript:
-`config.set`, `mode.hold`, `routing.route`, `repo.remove`, `task.stop`,
+Total native: **95** of 224 (83 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Twenty-eight of these selectively forward some inputs to TypeScript:
+`config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
 `project.messaging.remove`, `msg.inbox`, `msg.log`, `msg.read`,
-`discovery.set`, `discovery.respond`, `desktop.reconcile.request` and
-`desktop.reconcile.cancel`.
-Total still not native (v3 − native set): **140**.
+`discovery.set`, `discovery.respond`, `desktop.reconcile.request`,
+`desktop.reconcile.cancel`, `assistant.status`, `assistant.candidates`,
+`assistant.settings.get`, `assistant.settings.set`, `assistant.conversations`,
+`assistant.conversation`, `assistant.turn`, `assistant.delete`,
+`assistant.card.record` and `assistant.card.refresh`.
+Total still not native (v3 − native set): **129**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

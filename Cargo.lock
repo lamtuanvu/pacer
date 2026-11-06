@@ -1570,6 +1570,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "pacer-config",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-store",
  "regex",

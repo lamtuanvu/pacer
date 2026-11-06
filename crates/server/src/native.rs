@@ -3,6 +3,7 @@ use pacer_foundation::{
     api::{CoreError, NativeOp, Registry},
 };
 use serde_json::Value;
+mod assistant_ops;
 mod config_get_ops;
 pub(crate) mod config_host_sync;
 mod config_params;
@@ -47,6 +48,7 @@ pub(crate) mod task_stop_sync;
 mod task_wait_ops;
 pub(crate) mod task_wait_sync;
 
+pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
@@ -61,7 +63,9 @@ pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
-pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
+pub(crate) use status_ops::{
+    needs_usage_broker, routing_route_stays_forwarded, task_retry_options_stays_forwarded,
+};
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
 pub(crate) use task_review_ops::needs_task_review_bridge;
@@ -256,6 +260,10 @@ static OPS: &[NativeOp] = &[
         call: status_ops::routing_route_stub,
     },
     NativeOp {
+        name: "task.retry_options",
+        call: status_ops::task_retry_options_stub,
+    },
+    NativeOp {
         name: "task.request_review",
         call: lifecycle_ops::task_request_review,
     },
@@ -375,6 +383,46 @@ static OPS: &[NativeOp] = &[
         name: "desktop.reconcile.cancel",
         call: desktop_reconcile_ops::desktop_reconcile_unavailable,
     },
+    NativeOp {
+        name: "assistant.status",
+        call: assistant_ops::assistant_status,
+    },
+    NativeOp {
+        name: "assistant.settings.get",
+        call: assistant_ops::assistant_settings_get,
+    },
+    NativeOp {
+        name: "assistant.settings.set",
+        call: assistant_ops::assistant_settings_set,
+    },
+    NativeOp {
+        name: "assistant.candidates",
+        call: assistant_ops::assistant_candidates,
+    },
+    NativeOp {
+        name: "assistant.conversations",
+        call: assistant_ops::assistant_conversations,
+    },
+    NativeOp {
+        name: "assistant.conversation",
+        call: assistant_ops::assistant_conversation,
+    },
+    NativeOp {
+        name: "assistant.turn",
+        call: assistant_ops::assistant_turn,
+    },
+    NativeOp {
+        name: "assistant.delete",
+        call: assistant_ops::assistant_delete,
+    },
+    NativeOp {
+        name: "assistant.card.record",
+        call: assistant_ops::assistant_card_record,
+    },
+    NativeOp {
+        name: "assistant.card.refresh",
+        call: assistant_ops::assistant_card_refresh,
+    },
     #[cfg(feature = "test-ops")]
     NativeOp {
         name: "test.echo",
@@ -481,6 +529,7 @@ pub async fn call_native(
             "limits.check" => status_ops::limits_check(ctx, params, parts.await?).await?,
             "routing.status" => status_ops::routing_status(ctx, params, parts.await?).await?,
             "routing.route" => status_ops::routing_route(ctx, params, parts.await?).await?,
+            "task.retry_options" => status_ops::task_retry_options(ctx, params, parts).await?,
             _ => unreachable!("needs_usage_broker"),
         }
     } else if needs_task_read_bridge(op.name) {
@@ -673,6 +722,7 @@ mod tests {
             "limits.check",
             "routing.status",
             "routing.route",
+            "task.retry_options",
             "task.request_review",
             "task.stop",
             "task.review",
@@ -708,6 +758,16 @@ mod tests {
             "desktop.reconcile.status",
             "desktop.reconcile.request",
             "desktop.reconcile.cancel",
+            "assistant.status",
+            "assistant.settings.get",
+            "assistant.settings.set",
+            "assistant.candidates",
+            "assistant.conversations",
+            "assistant.conversation",
+            "assistant.turn",
+            "assistant.delete",
+            "assistant.card.record",
+            "assistant.card.refresh",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -764,11 +824,12 @@ mod tests {
         assert!(registry("task.wait").get("task.wait").is_none());
         assert!(registry("").get("task.retry").is_none());
         assert!(registry("").get("task.retry_all").is_none());
-        assert!(registry("").get("task.retry_options").is_none());
         assert!(registry("").get("task.review").is_some());
         assert!(registry("task.review").get("task.review").is_none());
         assert!(registry("").get("task.ask").is_none());
         assert!(registry("").get("limits.refresh").is_none());
+        assert!(registry("").get("assistant.ask").is_none());
+        assert!(registry("").get("assistant.cancel").is_none());
         for name in [
             "msg.send",
             "msg.wait",
@@ -820,6 +881,7 @@ mod tests {
             "limits.check",
             "routing.status",
             "routing.route",
+            "task.retry_options",
             "task.request_review",
             "task.stop",
             "task.review",
@@ -855,6 +917,16 @@ mod tests {
             "desktop.reconcile.status",
             "desktop.reconcile.request",
             "desktop.reconcile.cancel",
+            "assistant.status",
+            "assistant.settings.get",
+            "assistant.settings.set",
+            "assistant.candidates",
+            "assistant.conversations",
+            "assistant.conversation",
+            "assistant.turn",
+            "assistant.delete",
+            "assistant.card.record",
+            "assistant.card.refresh",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
