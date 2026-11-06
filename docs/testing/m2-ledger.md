@@ -29,6 +29,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.list` | Native (P3) | Composed via `pacer_read_model::tasks::task_list_page` once Core supplies active sessions and runner liveness through `/_internal/session-probe-parts` (serve) or `_internal.session-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns session lifecycle and `pidAlive`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.get` | Native (P3, selective) | Composed via `pacer_read_model::task_detail` plus Core enrichment through `/_internal/task-read-parts` / `_internal.task-read.parts` (session probe, git diffstat/branch, tokens, retry options, dispatch `work` / `managedSkip`, agent-check acceptance gating, activity timeline tail). TypeScript still owns git, usage broker reads and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `snapshot.get` | Native (P8) | Composed via `pacer_read_model::ReadModel::snapshot` once Core supplies setup, policy, machine guard samples, service row, desktop updates, pairing eligibility, session probe and live `computeStatus` through `/_internal/snapshot-probe-parts` / `_internal.snapshot-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns setup probes, plugin policy, discovery pairing, status warming and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `version.get` | Native (P9) | Package and protocol metadata from `PACER_BUILD_VERSION` / workspace `package.json` and the frozen v3 protocol string. Login-service install/running status remains on `service.status`. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `api.list`, `api.describe` | Native (P9) | Registry introspection from checked-in `op_catalog.json` (parity with TypeScript `opJsonSchemas()`). `api.list` filters match TS prefix/search semantics; `api.describe` returns captured JSON parameter schemas. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `delegation.pause`, `delegation.resume` | Native (P5) | `pacer-engine::pause` writes `state/pause.json`, publishes the `pause` event, appends activity, then publishes the `delegation` config area. No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `mode.release` | Native (P5) | Clears `state/mode-hold.json` via `pacer-engine::mode_hold` and publishes the `mode` config area. |
 | `mode.hold` | Native (P5, selective) | Explicit `until` is native. Omitting `until` selectively forwards to TypeScript so `computeStatus` can default to the planner reset window (P5b). |
@@ -279,7 +281,6 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `job.*` | 3 | P6 | e.g. `job.cancel`, `job.get`, `job.list` |
 | `machine.*` | 3 | P8 | e.g. `machine.get`, `machine.rotate`, `machine.set` |
 | `repo.*` | 3 | P2 | Registry/git probe remain Forwarded; URL `repo_key` in `pacer-config::host` |
-| `api.*` | 2 | P8 | e.g. `api.describe`, `api.list` |
 | `attention.*` | 2 | P6 | e.g. `attention.dismiss`, `attention.snooze` |
 | `issue.*` | 2 | P8 | e.g. `issue.import`, `issue.search` |
 | `onboarding.*` | 2 | P9 | e.g. `onboarding.skip`, `onboarding.try` |
@@ -289,10 +290,9 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `files.*` | 1 | P8 | e.g. `files.search` |
 | `insights.*` | 1 | P5 | e.g. `insights.summary` |
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
-| `version.*` | 1 | P9 | e.g. `version.get` |
 
-Total unregistered (not in the detailed table): **179**.
-Total still not native (v3 − native set): **193**.
+Total unregistered (not in the detailed table): **176**.
+Total still not native (v3 − native set): **190**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

@@ -380,7 +380,7 @@ export const OPS: Record<string, OpDef> = {
   "agent.preview": op({ description: "Preview agent integration files and the undo command before consenting.", params: z.object({agent}), handler: (ctx, p) => setup.agentPreview(ctx, p.agent) }),
   "agent.connect": op({ description: "Connect an agent after explicit consent to write its integration files.", params: z.object({agent, consent: z.boolean().optional(), preview_revision: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentConnect(ctx, p.agent, p)) }),
   "agent.disconnect": op({ description: "Remove an agent integration using its recorded undo actions.", params: z.object({agent}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentDisconnect(ctx, p.agent)) }),
-  "version.get": op({ description: "Pacer, protocol and service versions or status.", params: z.object({}), handler: ctx => setup.version(ctx) }),
+  "version.get": op({ description: "Pacer and protocol version metadata.", params: z.object({}), handler: ctx => setup.version(ctx) }),
   "host.list": op({ description: "Configured SSH hosts and running task counts.", params: z.object({}), handler: ctx => core.hosts.list(ctx) }),
   "host.check": op({ description: "Check SSH host prerequisites, checkouts and identity.", params: z.object({ alias: id, repo: z.string().min(1).optional() }), handler: async (ctx, p) => ({ job: await core.hosts.checkJob(ctx, p.alias, { repo: p.repo }) }) }),
   "task.get": op({ description: "One task's state and result.", params: z.object({ id }), handler: (ctx, p) => taskDetail(ctx, p.id) }),
