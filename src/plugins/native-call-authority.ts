@@ -41,6 +41,7 @@ type SealedResources = {
   writes: NonNullable<CallResources["writes"]>;
   commands: CallResources["commands"];
   hosts: HostOperationResource[];
+  worktree?: { taskId: string; attempt: number; baseSha: string };
   orcaAttempt?: NonNullable<CallResources["orcaAttempt"]>;
   orcaLive?: NonNullable<CallResources["orcaLive"]>;
   http?: { hosts: string[]; origins?: string[] };
@@ -139,6 +140,16 @@ function sealProvided(resources: CallResources, grants: readonly string[]): Seal
   for (const host of resources.hosts ?? []) {
     out.hosts.push(sealHostOperation(host));
   }
+  if (resources.worktree) {
+    if (!grants.includes("worktree")) return denied("worktree is not granted");
+    const row = resources.worktree;
+    if (typeof row.taskId !== "string" || !row.taskId || row.taskId.length > 128) return invalid("worktree taskId");
+    if (!(row.attempt > 0 && row.attempt <= 1_000_000)) return invalid("worktree attempt");
+    if (typeof row.baseSha !== "string" || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(row.baseSha)) {
+      return invalid("worktree baseSha");
+    }
+    out.worktree = { taskId: row.taskId, attempt: row.attempt, baseSha: row.baseSha };
+  }
   if (resources.orcaAttempt) {
     if (!grants.includes("orca")) return denied("orca is not granted");
     const row = resources.orcaAttempt;
@@ -203,6 +214,14 @@ export type OrcaContextSeal = {
   env?: Record<string, string>;
 };
 
+export type WorktreeContextSeal = {
+  home: string;
+  providerId: string;
+  git: string;
+  base: string;
+  env: Record<string, string>;
+};
+
 export type CallAuthoritySeal = {
   resources: SealedResources;
   grants: string[];
@@ -215,6 +234,8 @@ export type CallAuthoritySeal = {
   orcaContext?: OrcaContextSeal;
   /** P4d-10: bridge token when Core holds the live attempt session for this call. */
   orcaBridgeToken?: string;
+  /** P4d-11: home + git pin for ProcessOwner worktree attach. */
+  worktreeContext?: WorktreeContextSeal;
 };
 
 function observationAdmission(
