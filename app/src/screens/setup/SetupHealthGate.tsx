@@ -54,6 +54,17 @@ export async function loadSetupHealthGate(
   }
 }
 
+/** Map a load result to the gate commit — fail and stage never auto-enter ready. */
+export function commitSetupHealthLoad(
+  result: SetupHealthLoadResult,
+):
+  | { action: "ready"; summary: SetupHealthSummary }
+  | { action: "stage"; report: SetupHealthReport; autoEnterMs?: number } {
+  if (result.kind === "skip") return { action: "ready", summary: result.summary };
+  if (result.kind === "fail") return { action: "stage", report: result.report };
+  return { action: "stage", report: result.report, autoEnterMs: result.autoEnterMs };
+}
+
 async function applyRepair(
   api: BrowserApi,
   repair: SetupHealthRepair,
@@ -122,19 +133,20 @@ export function SetupHealthGate({
     let active = true;
     void loadSetupHealthGate(api.call).then(result => {
       if (!active) return;
-      if (result.kind === "skip") {
+      const commit = commitSetupHealthLoad(result);
+      if (commit.action === "ready") {
         setPhase("ready");
-        onReadyRef.current(result.summary);
+        onReadyRef.current(commit.summary);
         return;
       }
-      setReport(result.report);
+      setReport(commit.report);
       setPhase("stage");
-      if (result.kind === "stage" && result.autoEnterMs != null) {
+      if (commit.autoEnterMs != null) {
         enterTimer.current = window.setTimeout(() => {
           if (!active) return;
           setPhase("ready");
-          onReadyRef.current(summaryOf(result.report));
-        }, result.autoEnterMs);
+          onReadyRef.current(summaryOf(commit.report));
+        }, commit.autoEnterMs);
       }
     });
     return () => {
