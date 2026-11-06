@@ -6,7 +6,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 
 | Operation | M2 P3-D route | Retained TypeScript caller or reason |
 | --- | --- | --- |
-| `config.get` | Forwarded | Rust `pacer_config::settings::get_settings` owns the pure key/source read model. Host-field bridge helpers (`compose_host_fields` / `host_fields_from_parts`) accept filtered terminal choices, machine guard/slots and planner candidates without probing; public routing stays TypeScript until a reviewed native supplier wires those injections (A5). |
+| `config.get` | Native (P2) | Pure keys/sources via `pacer_config::settings::get_settings`; Core supplies filtered terminal choices, machine guard/slots and planner candidates through `/_internal/config-host-parts` (serve) or `_internal.config-host.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns terminal detection, slot sampling and planner discovery. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `config.set` | Native (P2-E) | Pure keys use `pacer_config::settings::set_setting` plus the P3-B publisher. `planner` and `execution.backend` selectively forward to TypeScript for install/uninstall and backend readiness. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.account.add` | Forwarded | SSH account configuration and host adapter dependencies remain in TypeScript. |
 | `host.add`, `host.set`, `host.remove`, `host.repo.map` | Forwarded (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Public ops stay forwarded until native callers also cover endpoint sync (`applyEdit`), config publication, and `host.set` activity side effects. Plugin-owned SSH execution is out of scope. |
@@ -207,12 +207,12 @@ See inventories under `.work/reviews/`.
 
 `config.set` is registered native for the 16 pure keys. The TypeScript handler
 remains the reference and `PACER_FORWARD_OPS` / selective-forward fallback.
-`config.get` stays forwarded: library bridge helpers compose filtered terminal
-choices, machine guard/slots and planner candidates from host-injected samples
-(no sysctl/PATH/task-store probing in `pacer-config`). Native registration waits
-for a reviewed supplier that feeds those injections at the op boundary. Files are
-replaced through the existing private atomic strategy writer (0600 files, 0700
-directories); native pure-key writes publish exactly one config change after success.
+`config.get` is native: `get_settings` owns the pure key/source map; host fields
+arrive through the config-host private bridge (same sealing model as session-probe).
+Library helpers (`compose_host_fields` / `host_fields_from_parts`) remain for
+tests and callers that inject samples directly. Files are replaced through the
+existing private atomic strategy writer (0600 files, 0700 directories); native
+pure-key writes publish exactly one config change after success.
 
 The complete pure setter allow-list is `execution.auto_clean`,
 `task_retention_days`, `execution.local_max_tasks`,
@@ -226,9 +226,9 @@ The complete pure setter allow-list is `execution.auto_clean`,
 | --- | --- |
 | Planner install/uninstall and rollback | All `planner` writes, including skip, selectively forward from the native registry to TypeScript `config.set`. The Rust file-effect helper refuses this key if reached directly. |
 | Backend readiness and override hints | All `execution.backend` writes selectively forward to TypeScript. Rust reads reproduce `PACER_BACKEND` precedence; the setter refuses the key if reached directly. |
-| Terminal availability | TypeScript filters detected terminal choices. Rust `filter_terminal_choices` / catalogue helpers accept the detected set without probing. Blocks native `config.get` until the server supplies detections. |
-| Machine guard and current task slots | TypeScript samples pressure/load and slot use. Rust `machine_host_fields` accepts injected signals + `used` (no sysctl). Blocks native `config.get` until the server supplies samples. |
-| Planner candidates | TypeScript discovers compatible planner accounts. Rust accepts the candidate list as a host field. Blocks native `config.get` until the server supplies candidates. |
+| Terminal availability | TypeScript filters detected terminal choices; native `config.get` reads the filtered list from the config-host bridge. Rust `filter_terminal_choices` / catalogue helpers accept the detected set without probing for library/tests. |
+| Machine guard and current task slots | TypeScript samples pressure/load and slot use; native `config.get` reads the composed `machine` row from the bridge. Rust `machine_host_fields` accepts injected signals + `used` (no sysctl) for library/tests. |
+| Planner candidates | TypeScript discovers compatible planner accounts; native `config.get` reads the list from the bridge. Rust accepts the candidate list as a host field for library/tests. |
 | App/link `terminal.open` presets | Cookie-authenticated HTTP sets `PACER_TERMINAL_PRESETS_ONLY=1` on the request context so native pure-key writes match TypeScript `terminalPresetsOnly`. |
 | `host.account.add` | The full operation, host adapter dependencies and SSH account-folder configuration remain in TypeScript. |
 | Host YAML edits (`host.add` / `set` / `remove` / `repo.map`) | Library parity lives in `pacer-config::host`; ops stay forwarded for endpoint sync, publication and activity. |
@@ -290,7 +290,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `version.*` | 1 | P9 | e.g. `version.get` |
 
 Total unregistered (not in the detailed table): **180**.
-Total still not native (v3 − native set): **194**.
+Total still not native (v3 − native set): **193**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
