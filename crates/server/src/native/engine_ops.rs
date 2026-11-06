@@ -1,6 +1,7 @@
 //! Safe P5 engine ops that do not need the usage broker: pause/resume, mode
 //! hold/release (explicit `until`), and `limits.report`. Status/route/limits.check
-//! stay forwarded until P5b.
+//! stay forwarded until a usage-broker supplier wires `pacer_engine::status`
+//! bridge injections (P5b library stubs landed).
 #![allow(clippy::result_large_err)]
 use pacer_config::{config_writes, strategy::load_strategy};
 use pacer_engine::{exhausted, mode_hold, pause};

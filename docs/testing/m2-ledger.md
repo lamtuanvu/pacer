@@ -29,9 +29,9 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `mode.release` | Native (P5) | Clears `state/mode-hold.json` via `pacer-engine::mode_hold` and publishes the `mode` config area. |
 | `mode.hold` | Native (P5, selective) | Explicit `until` is native. Omitting `until` selectively forwards to TypeScript so `computeStatus` can default to the planner reset window (P5b). |
 | `limits.report` | Native (P5) | Resolves the runner through `pacer-config`, marks `exhausted.json` + evidence via `pacer-engine::exhausted` (manual). No publish. |
-| `limits.check`, `limits.refresh` | Forwarded (P5b) | Need the usage broker / plugin readings and status composition. |
-| `routing.status`, `routing.route` | Forwarded (P5b) | Need `computeStatus`, ranking over live readings, remote eligibility and optional classifier. Pure rank/eligibility/pace remain in `pacer-engine` (P5a). |
-| `routing.get` | Forwarded (P2) | Strategy routing document read; not part of the safe engine-ops batch. |
+| `limits.check`, `limits.refresh` | Forwarded (P5b) | Need the usage broker / plugin readings. Library stubs: `pacer_engine::status::{compose_status, limits_rows_from_status, default_mode_hold_until}` accept injected parts only. |
+| `routing.status`, `routing.route` | Forwarded (P5b) | Need live readings, remote eligibility and optional classifier. Bridge stubs: `compose_status` / `rank_route` assemble once a supplier injects provider rows (P5a pure rank/eligibility/pace already in `pacer-engine`). |
+| `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6b/P6c) | Need `_run` spawn, drain launch, policy/project admission effects and executor-session guard. |
 | `task.stop`, `task.ask` | Forwarded (P6b/P6c) | Need executor/provider stop grants, live-worker release, agent-session checks and (for ask) messaging insert. |
@@ -224,7 +224,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `version.*` | 1 | P9 | e.g. `version.get` |
 
 Total unregistered (not in the detailed table): **181**.
-Total still not native (v3 − native set): **196**.
+Total still not native (v3 − native set): **195**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

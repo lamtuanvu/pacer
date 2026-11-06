@@ -196,6 +196,7 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
                 }
                 strategy_write::remove_strategy(home, name).map(|_| json!({"removed":true}))
             }
+            "routing.get" => config_writes::get_routing(home),
             "routing.set" => {
                 let rules = p["rules"].as_array().cloned().unwrap_or_default();
                 // Keep the TS operation's actionable hints at the API boundary.
@@ -297,7 +298,7 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
 macro_rules! handler {
     ($($name:ident => $op:literal),* $(,)?) => {$(pub(super) fn $name(ctx: &Ctx, params: Value) -> OpFuture<'_> { run(ctx,$op,params) })*};
 }
-handler! { strategy_list => "strategy.list", strategy_show => "strategy.show", strategy_use => "strategy.use", strategy_save => "strategy.save", strategy_remove => "strategy.remove", routing_set => "routing.set", runner_set => "runner.set", runner_reorder => "runner.reorder", runner_remove => "runner.remove", runner_settings_get => "runner.settings.get", runner_settings_save => "runner.settings.save", notifications_get => "notifications.get", notifications_set => "notifications.set", config_set => "config.set" }
+handler! { strategy_list => "strategy.list", strategy_show => "strategy.show", strategy_use => "strategy.use", strategy_save => "strategy.save", strategy_remove => "strategy.remove", routing_get => "routing.get", routing_set => "routing.set", runner_set => "runner.set", runner_reorder => "runner.reorder", runner_remove => "runner.remove", runner_settings_get => "runner.settings.get", runner_settings_save => "runner.settings.save", notifications_get => "notifications.get", notifications_set => "notifications.set", config_set => "config.set" }
 
 #[cfg(test)]
 mod tests;
