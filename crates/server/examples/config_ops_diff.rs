@@ -36,6 +36,12 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
+        let host_read_sync = if name == "host.list" || name == "host.get" {
+            let host_parts = input.get("hostParts").cloned().unwrap_or(Value::Null);
+            Some(Box::pin(async move { Ok(host_parts) }) as pacer_foundation::api::OpFuture<'_>)
+        } else {
+            None
+        };
         let result = pacer_server::native::call_native(
             &ctx,
             op,
@@ -47,6 +53,8 @@ async fn main() -> io::Result<()> {
             None,
             host_sync,
             None,
+            None,
+            host_read_sync,
         )
         .await;
         let output = match result {

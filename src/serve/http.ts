@@ -218,6 +218,24 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/host-read-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => ({}));
+            const alias = body && typeof body === "object" && !Array.isArray(body)
+              ? (body as { alias?: unknown }).alias
+              : undefined;
+            const { hostReadParts, hostReadDetailParts } = await import("../api/host-read-bridge");
+            const result = typeof alias === "string" && alias
+              ? await hostReadDetailParts(getCtx(), alias)
+              : hostReadParts(getCtx());
+            return Response.json({ result });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/task-read-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -229,6 +247,23 @@ export function startServer(
             }
             const { taskReadParts } = await import("../api/task-read-bridge");
             return Response.json({ result: await taskReadParts(getCtx(), id) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/task-auto-clean" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const ids = body && typeof body === "object" && !Array.isArray(body) ? (body as { ids?: unknown }).ids : undefined;
+            if (!Array.isArray(ids) || ids.some(id => typeof id !== "string")) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "ids required");
+            }
+            const { taskAutoCleanBridge } = await import("../api/task-clean-bridge");
+            return Response.json({ result: await taskAutoCleanBridge(getCtx(), ids) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);

@@ -197,6 +197,8 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                        None,
+                        None,
                     )
                     .await
                 } else if crate::native::needs_task_read_bridge(op.name) {
@@ -219,8 +221,36 @@ async fn forward_input<
                             as pacer_foundation::api::OpFuture<'_>),
                         None,
                         None,
+                        None,
+                        None,
                     )
                     .await
+                } else if crate::native::needs_task_clean_bridge(op.name) {
+                    let ids = crate::native::task_dismiss_ops::ids_from_params(&params);
+                    let result = match ids {
+                        Ok(ids) => {
+                            call_native(
+                                &request_ctx,
+                                op,
+                                params,
+                                request.get("id"),
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(Box::pin(crate::native::task_clean_sync::stdio(
+                                    &mut core, sync.0, sync.1, &ids, sync.2,
+                                ))
+                                    as pacer_foundation::api::OpFuture<'_>),
+                                None,
+                            )
+                            .await
+                        }
+                        Err(error) => Err(error),
+                    };
+                    result
                 } else if crate::native::needs_snapshot_bridge(op.name) {
                     call_native(
                         &request_ctx,
@@ -236,6 +266,8 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
                     )
                     .await
                 } else if crate::native::needs_session_probe(op.name) {
@@ -250,6 +282,8 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
                         None,
                         None,
                         None,
@@ -270,6 +304,36 @@ async fn forward_input<
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
                         None,
+                        None,
+                        None,
+                    )
+                    .await
+                } else if crate::native::needs_host_read_bridge(op.name) {
+                    let alias = if op.name == "host.get" {
+                        params
+                            .get("alias")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    } else {
+                        None
+                    };
+                    let alias_ref = alias.as_deref();
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::host_read_sync::stdio(
+                            &mut core, sync.0, sync.1, alias_ref, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
                     )
                     .await
                 } else {
@@ -282,6 +346,8 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, op.name, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
                         None,
                         None,
                         None,

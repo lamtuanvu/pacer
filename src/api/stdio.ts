@@ -83,6 +83,20 @@ export async function runStdio(
           result = configHostParts(getCtx());
           break;
         }
+        case "_internal.host-read.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const alias = (r.params as { alias?: unknown }).alias;
+          const { hostReadParts, hostReadDetailParts } = await import("./host-read-bridge");
+          if (typeof alias === "string" && alias) {
+            result = await hostReadDetailParts(getCtx(), alias);
+          } else {
+            result = hostReadParts(getCtx());
+          }
+          break;
+        }
         case "_internal.task-read.parts": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -101,6 +115,17 @@ export async function runStdio(
           }
           const { snapshotProbeParts } = await import("./snapshot-probe-bridge");
           result = await snapshotProbeParts(getCtx());
+          break;
+        }
+        case "_internal.task-auto-clean": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const ids = (r.params as { ids?: unknown }).ids;
+          if (!Array.isArray(ids) || ids.some(id => typeof id !== "string")) throw new CoreError("invalid_input", "ids required");
+          const { taskAutoCleanBridge } = await import("./task-clean-bridge");
+          result = await taskAutoCleanBridge(getCtx(), ids);
           break;
         }
         case "hello": {

@@ -1,11 +1,16 @@
-//! Native host read ops that do not need SSH execution or live runtime bridges.
+//! Native host read ops; list/get compose lifecycle hosts over injected snapshots.
 #![allow(clippy::result_large_err)]
 use pacer_config::{ssh_config::suggest_hosts, strategy::load_strategy};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
+use pacer_lifecycle::hosts;
 use serde_json::{Map, Value};
+
+pub(crate) fn needs_host_read_bridge(op: &str) -> bool {
+    matches!(op, "host.list" | "host.get")
+}
 
 fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
@@ -62,5 +67,67 @@ pub(super) fn host_suggest(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         let used_ssh = used_ssh_from_strategy(&strategy);
         let used: Vec<&str> = used_ssh.iter().map(String::as_str).collect();
         Ok(suggest_hosts(&ctx.home, &used, details))
+    })
+}
+
+pub(super) fn host_list_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        Err(CoreError::new(
+            Code::Unavailable,
+            "host.list requires the host read bridge",
+        ))
+    })
+}
+
+pub(super) fn host_get_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        Err(CoreError::new(
+            Code::Unavailable,
+            "host.get requires the host read bridge",
+        ))
+    })
+}
+
+fn parse_alias(params: &Value) -> Result<&str, CoreError> {
+    let map = object(params)?;
+    let value = map.get("alias").ok_or_else(|| invalid("alias: Required"))?;
+    let text = value.as_str().ok_or_else(|| {
+        invalid(format!(
+            "alias: Invalid input: expected string, received {}",
+            type_name(value)
+        ))
+    })?;
+    if text.is_empty() {
+        return Err(invalid(
+            "alias: Too small: expected string to have >=1 characters",
+        ));
+    }
+    if text.encode_utf16().count() > 128 {
+        return Err(invalid(
+            "alias: Too big: expected string to have <=128 characters",
+        ));
+    }
+    Ok(text)
+}
+
+pub(crate) async fn host_list(_: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
+    let map = object(&params)?;
+    if !map.is_empty() {
+        return Err(invalid("params: Unrecognized key(s) in object"));
+    }
+    Ok(hosts::list(&parts))
+}
+
+pub(crate) async fn host_get(_: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
+    let alias = parse_alias(&params)?;
+    if parts.get("alias").and_then(Value::as_str) != Some(alias) {
+        return Err(invalid(format!("unknown host {alias}")));
+    }
+    hosts::detail(&parts).map_err(|error| {
+        if error.code == "invalid_input" {
+            CoreError::new(Code::InvalidInput, error.message)
+        } else {
+            CoreError::new(Code::Internal, error.message)
+        }
     })
 }
