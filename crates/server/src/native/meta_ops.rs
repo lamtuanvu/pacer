@@ -165,7 +165,9 @@ pub(super) fn api_list(_: &Ctx, params: Value) -> OpFuture<'_> {
             let entry = &catalog()[name];
             let description = entry["description"].as_str().unwrap_or("");
             if search_needle.as_ref().is_some_and(|needle| {
-                !format!("{name} {description}").to_lowercase().contains(needle)
+                !format!("{name} {description}")
+                    .to_lowercase()
+                    .contains(needle)
             }) {
                 continue;
             }
@@ -233,15 +235,14 @@ mod tests {
     fn api_list_filters_prefix_and_search() {
         let all = call(api_list, json!({}));
         assert!(all["ops"].as_array().unwrap().len() > 10);
-        let filtered = call(
-            api_list,
-            json!({"prefix": "runner.", "search": "SETTINGS"}),
+        let filtered = call(api_list, json!({"prefix": "runner.", "search": "SETTINGS"}));
+        assert!(
+            filtered["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|row| row["name"].as_str().unwrap().starts_with("runner."))
         );
-        assert!(filtered["ops"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|row| row["name"].as_str().unwrap().starts_with("runner.")));
         let empty = call(api_list, json!({"search": "no-such-capability-xyz"}));
         assert_eq!(empty["ops"], json!([]));
     }

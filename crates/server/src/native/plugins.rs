@@ -24,8 +24,8 @@ use pacer_plugin_ops::{
     public::{Entry, PublicOperations, Runtime},
 };
 use pacer_plugin_runtime::{
-    SharedOwner, SpawnSpec, call_resources_from_value, host_snapshots_from_value,
-    executor_context_from_value, observation_bootstrap_from_value, orca_context_from_value,
+    SharedOwner, SpawnSpec, call_resources_from_value, executor_context_from_value,
+    host_snapshots_from_value, observation_bootstrap_from_value, orca_context_from_value,
     session_for_call, session_from_hello, worktree_context_from_value,
 };
 use serde_json::{Value, json};
