@@ -254,6 +254,28 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
+            let host_read_sync = if crate::native::needs_host_read_bridge(op.name) {
+                let alias = if op.name == "host.get" {
+                    params
+                        .get("alias")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                } else {
+                    None
+                };
+                state.core.target().await.map(|target| {
+                    let alias = alias.clone();
+                    Box::pin(async move {
+                        crate::native::host_read_sync::http(
+                            Some(target),
+                            alias.as_deref(),
+                        )
+                        .await
+                    }) as pacer_foundation::api::OpFuture<'_>
+                })
+            } else {
+                None
+            };
             call_native(
                 &request_ctx,
                 op,
@@ -266,6 +288,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 config_host_sync,
                 snapshot_sync,
                 task_clean_sync,
+                host_read_sync,
             )
             .await
         };
