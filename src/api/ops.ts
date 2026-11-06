@@ -360,6 +360,11 @@ export const OPS: Record<string, OpDef> = {
   "machine.rotate": op({ description: "Replace this machine's key and id. Paired machines must be told or pair again. An unavailable error with data.rotationPending true (and data.oldId, data.newId) means the new key is already in place but finishing the rotation failed; it completes the next time pacer loads the machine identity.", params: z.object({}),
     handler: ctx => mutation(ctx, "machine", async () => { const { rotateIdentity } = await import("../identity"); const r = await rotateIdentity(ctx); return { oldId: r.oldId, newId: r.newId }; }) }),
   "doctor.run": op({ description: "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.", params: z.object({}), handler: (ctx) => setup.doctor(ctx) }),
+  "setup.health": op({
+    description: "Run the startup Checking setup gate: bounded doctor and setup checks as fixed steps, persist a last-pass fingerprint, and say whether the full-window stage can skip. Removable-volume probes stay out of the gate. trigger update forces the stage after an update.",
+    params: z.object({ trigger: z.enum(["startup", "update", "manual"]).optional() }),
+    handler: (ctx, p, deps) => setup.health(ctx, { trigger: p.trigger }, { snapshotProbe: deps.snapshotProbe }),
+  }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: (ctx, _p, deps) => setup.check(ctx, {snapshotProbe:deps.snapshotProbe}) }),
   "setup.init": op({ description: "Create a missing strategy and select a planner without connecting agents.", params: z.object({planner: id}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.init(ctx, p.planner)) }),
   "service.install": op({ description: "Run pacer in the background at login to keep budgets fresh and run delegated tasks, after explicit consent.", params: z.object({consent: z.literal(true)}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.serviceInstall(ctx, p.consent)) }),

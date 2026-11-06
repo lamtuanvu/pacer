@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { isObj } from "../util";
 import type { SetupHealthFingerprint, SetupHealthOutcome, SetupHealthStepId, SetupHealthStepState, SetupHealthTrigger } from "../view-model/setup-health";
@@ -109,4 +110,28 @@ export function writeSetupHealthPass(ctx: { pacerHome: string }, record: Omit<Se
     ...(record.durationSeconds !== undefined ? { durationSeconds: record.durationSeconds } : {}),
   };
   writeInstallFile(setupHealthPath(ctx), `${JSON.stringify(full, null, 2)}\n`, 0o600);
+}
+
+/** After an update, stamp that the next connect must show Checking setup. */
+export function markSetupHealthRequired(ctx: { pacerHome: string }): void {
+  writeInstallFile(join(ctx.pacerHome, "setup-health.required"), "1\n", 0o600);
+}
+
+/** True when a post-update (or forced) health pass is still owed. */
+export function setupHealthRequired(ctx: { pacerHome: string }): boolean {
+  try {
+    return readInstallFile(join(ctx.pacerHome, "setup-health.required")) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** Clear the forced-pass stamp after a completed health run. */
+export function clearSetupHealthRequired(ctx: { pacerHome: string }): void {
+  const path = join(ctx.pacerHome, "setup-health.required");
+  try {
+    if (readInstallFile(path) !== null) rmSync(path);
+  } catch {
+    /* absent or unreadable stamp is fine */
+  }
 }
