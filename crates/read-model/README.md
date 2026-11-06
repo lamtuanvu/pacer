@@ -63,4 +63,5 @@ attempts, routing, cost overlap, acceptance, known branch, timestamps, empty
 files/retry options and `derived` markers. Git diffstat, token roll-ups, retry
 options, dispatch `work` / `managedSkip`, agent-check acceptance gating and the
 activity timeline tail remain TypeScript until their bridges exist. Native
-`task.get` registers through `pacer-server` once those slices match parity.
+Native `task.get` registers through `pacer-server` with the task-read enrichment
+bridge; store-only helpers remain the Rust side of that merge.

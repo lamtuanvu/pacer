@@ -207,6 +207,23 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/task-read-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const id = body && typeof body === "object" && !Array.isArray(body) ? (body as { id?: unknown }).id : undefined;
+            if (typeof id !== "string" || !id) {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "id required");
+            }
+            const { taskReadParts } = await import("../api/task-read-bridge");
+            return Response.json({ result: await taskReadParts(getCtx(), id) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
         if (pathname === "/_internal/discovery/config" && req.method === "POST") {
           const { buildRadioConfig } = await import("../discovery/radio");

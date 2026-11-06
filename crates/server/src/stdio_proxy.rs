@@ -194,6 +194,27 @@ async fn forward_input<
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
                         None,
+                        None,
+                    )
+                    .await
+                } else if crate::native::needs_task_read_bridge(op.name) {
+                    let task_id = params
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::task_read_sync::stdio(
+                            &mut core, sync.0, sync.1, &task_id, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
                     )
                     .await
                 } else if crate::native::needs_session_probe(op.name) {
@@ -208,6 +229,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                     )
                     .await
                 } else {
@@ -220,6 +242,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, op.name, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                         None,
                     )
