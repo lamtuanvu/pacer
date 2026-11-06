@@ -222,6 +222,7 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
             ("reason", String(1, None), false),
             ("overwrite", Bool, true),
         ]),
+        "routing.get" => object(vec![]),
         "routing.set" => object(vec![(
             "rules",
             array(object(vec![
