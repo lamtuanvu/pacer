@@ -110,8 +110,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `client.register`, `client.heartbeat`, `client.list` | Forwarded (P6) | Client registry with 45-second lease renewal and connected instance listing (`src/api/client.ts`). |
 | `client.control.enroll`, `client.control.targets`, `client.control.request`, `client.control.result` | Forwarded (P6/P8) | App-page control worker enrollment, allowlisted navigation/window/tray/quit requests and polled outcomes (`src/api/ops-client-control.ts`). |
 | `client.control.claim`, `client.control.complete` | Forwarded (P6/P8) | Worker-side claim/complete loop for distributed UI actions; worker credentials stay page-private. |
-| `project.messaging.get`, `project.messaging.set`, `project.messaging.remove` | Forwarded (P6) | Repository messaging guardrails with revision checks and config publication (`src/api/ops-msg.ts`, `src/messaging/project-policy.ts`). |
-| `project.strategy.list`, `project.strategy.get`, `project.strategy.set`, `project.strategy.remove` | Forwarded (P2) | Per-repo executor ordering overrides (`src/api/ops.ts`, `src/config/project-strategies.ts`). |
+| `project.messaging.get`, `project.messaging.set`, `project.messaging.remove` | Native (P6, selective) | `pacer-config::project_messaging` owns `project-messaging.json` reads, Zod-order normalization, revision checks and atomic writes under the shared `project-messaging` lock; set/remove publish the `project-messaging` config area via the P3-B publisher. Repository keys are native. Absolute checkout paths (Core repository probe), an unreadable or schema-invalid policy file (Node read errors and Zod issue text) and set params with invalid nested `rules` items or `liveness` selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `project.strategy.list`, `project.strategy.get`, `project.strategy.set`, `project.strategy.remove` | Forwarded (P2) | Per-repo executor ordering overrides (`src/api/ops.ts`, `src/core/project-strategies.ts`). Every op, including repository-key input, returns a `repo` reference from `listRepos` (registry plus the in-memory path-probe cache, `unreachable` flags, stale filtering and recent-task keys), and non-policy keys go through `resolveRepoInput`, which can prune the registry. Absolute paths need git identity, and set resolves executor aliases with `resolveRunner`. These are the same TypeScript-owned repository dependencies that keep `repo.list` / `repo.add` on the Core bridge. The file layer is not the blocker: `pacer-lifecycle` already validates `project-strategies.json`. |
 | `job.list`, `job.get`, `job.cancel` | Forwarded (P6) | Shared async job store reads and cancellation for host checks, runner checks, updates and similar targets (`src/jobs/`). |
 | `executor.setup.candidates`, `executor.setup.models`, `executor.setup.connect` | Forwarded (P6/P9) | OpenCode executor onboarding: candidate discovery, model lists and provider connect hand-off (`src/opencode/setup.ts`, endpoint plugin). |
 | `attention.dismiss`, `attention.snooze` | Forwarded (P6) | Attention item mutations that feed notify derivation (`src/attention/`). |
@@ -282,6 +282,20 @@ project messaging/strategy config effects, interactive runner add/check jobs,
 shared job cancellation, or OpenCode endpoint onboarding still owned by
 TypeScript. This slice only expands the ledger with explicit Forwarded rows; it
 does not register native handlers.
+
+## P6 project messaging cutover (native, selective)
+
+`project.messaging.*` is registered native on stdio and HTTP. Rust validates the
+operation params with Zod issue text and order, then reads and writes
+`project-messaging.json` directly. Stored entries are rewritten in Zod schema key
+order with integral numbers, as TypeScript `JSON.stringify` writes them. The
+`project_messaging_stays_forwarded` predicate sends an input to TypeScript when
+it names an absolute checkout path, when the policy file cannot be read or fails
+the schema, or when `set` carries an invalid nested rule or liveness object.
+`project.strategy.*` stays Forwarded: the residual is the TypeScript repository
+listing and resolution described in its row, not the policy file.
+`test/native-project-messaging-parity.test.ts` compares results, errors, file
+bytes and outbox events against the TypeScript handlers.
 
 ## P5/P8 insights, issue and setup residual triage (ledger, no new native ops)
 
@@ -500,11 +514,12 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **69** of 224 (57 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Seven of these selectively forward some inputs to TypeScript:
+Total native: **72** of 224 (60 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Ten of these selectively forward some inputs to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `repo.remove`, `task.stop`,
-`task.wait` and `task.review`.
-Total still not native (v3 − native set): **155**.
+`task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`
+and `project.messaging.remove`.
+Total still not native (v3 − native set): **152**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

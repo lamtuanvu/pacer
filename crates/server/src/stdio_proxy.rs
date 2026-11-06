@@ -182,6 +182,11 @@ async fn forward_input<
                     && crate::native::routing_route_stays_forwarded(&params))
                 && !(op.name == "repo.remove"
                     && crate::native::repo_remove_stays_forwarded(&ctx.at_now()))
+                && !crate::native::project_messaging_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
             {
                 let request_ctx = ctx.at_now();
                 if op.name == "task.wait" {
