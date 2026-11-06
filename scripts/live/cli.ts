@@ -9,6 +9,7 @@ import { cleanupOta, exerciseOta, prepareOta } from "./ota";
 import { buildOtaFixtures } from "./ota-build";
 import { desktop, tui } from "./surfaces";
 import { executorRefusal } from "./guard";
+import { exerciseStrictGuard } from "./strict-guard";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
 import { exerciseNativeStdio } from "./native-stdio";
@@ -45,6 +46,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   arm one scoped pacer-ssh RPC fault in this sandbox
   env                             print sandbox export lines
   pacer -- <args...>               run guarded checkout CLI in sandbox repo
+  strict-guard                      exercise fixed native executor hook frames in the sandbox
   login [--screen <screen>]        print fresh single-use app login URL
   tui start|keys <keys...>|capture [--out <name>]|stop
   desktop [--app <path>]           launch built macOS app
@@ -216,6 +218,11 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
       process.stdout.write(result.stdout);
       process.stderr.write(result.stderr);
       return result.code;
+    }
+    case "strict-guard": {
+      if (forwarded.length || positionals.length || session.frontDoor !== "rust") throw Error("strict-guard requires a Rust sandbox and no extra arguments");
+      await exerciseStrictGuard(session, outer);
+      break;
     }
     case "tui": console.log(await tui(session, positionals[0], positionals.slice(1), options.get("--out"))); break;
     case "desktop": console.log(desktop(session, options.get("--app"))); break;
