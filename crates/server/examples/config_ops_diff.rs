@@ -38,6 +38,7 @@ async fn main() -> io::Result<()> {
             Some(Box::pin(async { Ok(Value::Null) })),
             None,
             None,
+            None,
         )
         .await;
         let output = match result {

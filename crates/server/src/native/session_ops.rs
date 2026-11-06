@@ -193,8 +193,8 @@ fn optional_states(params: &Map<String, Value>) -> Result<Option<Vec<String>>, C
 }
 
 pub(crate) struct SessionProbeParts {
-    active: ActiveCounts,
-    alive_pids: HashSet<i64>,
+    pub(crate) active: ActiveCounts,
+    pub(crate) alive_pids: HashSet<i64>,
 }
 
 pub(crate) fn parse_probe_parts(value: Value) -> Result<SessionProbeParts, CoreError> {
