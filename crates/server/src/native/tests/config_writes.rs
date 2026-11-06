@@ -87,7 +87,6 @@ async fn host_account_add_missing_endpoint_bridge_refuses_before_write() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap_err();
