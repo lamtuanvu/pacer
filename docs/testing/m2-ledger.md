@@ -141,9 +141,12 @@ inventories under `.work/reviews/`.
 - **P4d-8:** Core `call_authority` seals observation bootstrap for
   `diagnostic.ping` / `policy.before` when `tasks.read` / `events.subscribe` are
   granted; ProcessOwner routes `capability.tasks.*` / `capability.events.subscribe`
-  through `ObservationGeneration` (list proof; Core task projection bridge and
-  host provider snapshots still open). Host `HostOperationResource` sealing
-  validates exact issued ops; `with_hosts` attach remains deferred.
+  through `ObservationGeneration` (list proof; Core task projection bridge still
+  open). Host `HostOperationResource` sealing validates exact issued ops.
+- **P4d-9:** Core `call_authority` seals `hostSnapshots` when `hosts` resources
+  are issued; flag-on ProcessOwner binds `with_hosts` + `NativeHosts` (library
+  PROBE proof; live `hostRunner` bridge via ProcessOwner when snapshots present).
+  Orca/worktree/executor-class resources and CT-11 remain open; default stays off.
 - **P4d-1 landed (flag-gated):** serve can claim `ProcessOwner` + reverse bridge
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against
