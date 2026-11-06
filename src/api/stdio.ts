@@ -151,6 +151,42 @@ export async function runStdio(
           result = await taskStopAfterStore(getCtx(), id, typeof beforeState === "string" ? beforeState : null);
           break;
         }
+        case "_internal.task-review.probe": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const probeParams = (r.params as { params?: unknown }).params;
+          if (!probeParams || typeof probeParams !== "object" || Array.isArray(probeParams)) {
+            throw new CoreError("invalid_input", "params required");
+          }
+          const id = (probeParams as { id?: unknown }).id;
+          if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "id required");
+          const { taskReviewProbe } = await import("./task-review-bridge");
+          result = taskReviewProbe(getCtx(), id, probeParams as { verdict?: unknown; expect_state?: unknown });
+          break;
+        }
+        case "_internal.task-review.effects": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const id = (r.params as { id?: unknown }).id;
+          const verdict = (r.params as { verdict?: unknown }).verdict;
+          const kind = (r.params as { kind?: unknown }).kind;
+          const note = (r.params as { note?: unknown }).note;
+          if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "id required");
+          if (verdict !== "accept" && verdict !== "reject") throw new CoreError("invalid_input", "verdict required");
+          const { taskReviewAfterStore } = await import("./task-review-bridge");
+          result = await taskReviewAfterStore(
+            getCtx(),
+            id,
+            verdict,
+            typeof kind === "string" ? kind : undefined,
+            typeof note === "string" ? note : undefined,
+          );
+          break;
+        }
         case "_internal.task-auto-clean": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
