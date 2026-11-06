@@ -1,6 +1,7 @@
 //! Safe P6 lifecycle ops that do not need the runner, plugins or supervision:
 //! currently `task.request_review`. Delegate/stop/answer/wait/retry/review/ask
-//! stay forwarded until P6b/P6c.
+//! stay forwarded until P6c; P6b records the `_run` spawn plan in
+//! `pacer-lifecycle::run_spawn` while TypeScript keeps effectful spawn.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
