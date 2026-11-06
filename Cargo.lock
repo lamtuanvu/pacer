@@ -1609,6 +1609,7 @@ dependencies = [
  "pacer-read-model",
  "pacer-store",
  "rand 0.9.5",
+ "ring",
  "ryu-js",
  "security-framework",
  "serde",
