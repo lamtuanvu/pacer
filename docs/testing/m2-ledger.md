@@ -58,6 +58,22 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `session.agent.create` | Forwarded (P7) | Independent agent spawn inside an existing task workspace; needs plugin IPC, admission and native session identity. |
 | `session.agent.list`, `session.agent.get` | Forwarded (P7) | Task-scoped agent session enumeration and attempt reads over live store and plugin state. |
 | `session.agent.end`, `session.agent.retry`, `session.agent.resume` | Forwarded (P7) | Effectful agent-session lifecycle (stop, fresh attempt, resume) with `expect_rev` orchestration; no native registration while replay/WS gate is **NO-GO**. |
+| `dispatch.config.get` | Forwarded (P5/P6) | Composes planner identity and effective dispatcher YAML (strategy override or built-in defaults) from `loadStrategy`; no native dispatch settings read yet. |
+| `dispatch.enforcement`, `dispatch.enforcement.probe`, `dispatch.enforcement.consent`, `dispatch.enforcement.denied` | Forwarded (P5/P6) | Native subagent control certification: policy repo resolution, observation-backed diagnostics, quota-using probe jobs, consent ledger and strict-mode denial recording (`src/api/ops.ts`; unauthenticated POST for `denied` in `src/serve/http.ts`). Needs plugin jobs and executor-native control probes. |
+| `dispatch.preview`, `dispatch.explain` | Forwarded (P5/P6) | Read-only ranking and ladder explanation over cached observations and the replaceable decision engine; needs live usage readings and `core.dispatch` / `explainDispatch` parity beyond P5d broker slices. |
+| `dispatch.submit`, `dispatch.child` | Forwarded (P6) | Root and scoped child admission: work grants, queue mutation, delegation policy, prepared admission and `launchTaskRunner` spawn (`submitWork`, `delegateChild`). P6b `run_spawn` records plans only. |
+| `dispatch.list`, `dispatch.tree`, `dispatch.events` | Forwarded (P6) | Work-store reads and timelines over managed roots (`listWork`, `scopedWorkTree`, `scopedWorkEvents`); no native work graph projection while session/task enrichment stays on TypeScript bridges. |
+| `dispatch.wait` | Forwarded (P6) | Polls until a work item settles via `waitWork`; needs queue drain, runner supervision and the same orchestration gap as `task.wait` (P6d). |
+| `dispatch.review`, `dispatch.retry`, `dispatch.answer`, `dispatch.stop` | Forwarded (P6) | Managed-work lifecycle at `expect_rev`: review acceptance, lineage retry, executor Q&A resume and subtree stop (`reviewWork`, `retryWork`, `answerWork`, `stopWork`); overlaps P6c/P6d task op gaps (messaging turns, spawn, `stopWork` tree). |
+| `dispatch.dependencies`, `dispatch.dependencies.waive` | Forwarded (P6) | Same-root dependency graph edits with revision checks (`setWorkDependencies`, `waiveWorkDependency`); store effects plus work-tree projection responses. |
+| `dispatch.models`, `dispatch.refresh` | Forwarded (P5/P6) | Model inventory and observation refresh with backoff (`listDispatchModels`, `refreshObservations`); issues scoped plugin/executor observation calls. |
+| `dispatch.analytics`, `dispatch.learning.reset` | Forwarded (P5/P6) | Derived learning aggregates and per-repo reset/exclude (`dispatchAnalytics`, `resetLearning`); reads and mutates learning state beyond native routing broker. |
+| `msg.send` | Forwarded (P6) | Turn delivery: participant policy, project messaging rules, held-message guardrails and admitted-executor resume via `sendMessage` / `deliver` (delegate, route, `spawnRunner`). |
+| `msg.inbox`, `msg.read`, `msg.wait` | Forwarded (P6) | Caller-scoped message store reads; `msg.wait` blocks with polling and marks returned messages read. Work-grant authorization in `core/work.ts`. |
+| `msg.log` | Forwarded (P6) | Task thread read with tree visibility rules (`assertCanRead`, `store.thread`). |
+| `msg.confirm` | Forwarded (P6) | Human-only release of policy-held messages then `deliver` with runner spawn. |
+| `msg.close` | Forwarded (P6) | Sets `msgClosed`, parent/origin/human authorization and `autoCleanTask` worktree release; no review verdict. |
+| `msg.policy` | Forwarded (P6) | Effective repository guardrails and hypothetical `checkSend` evaluation (`effectivePolicy`, project messaging config). |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
@@ -126,6 +142,20 @@ characterization goldens. Cross-runtime coverage: `test/session-params-parity.te
 session ops waits on a full native vt100 replay **GO**, a session host owner, and
 the P6 spawn/policy bridges. Session WebSocket and `/v3/.../session` routes remain
 forwarded; do not register them while the replay gate is **NO-GO**.
+
+## P6e dispatch and messaging triage (ledger, no new native ops)
+
+P6e evaluated all twenty-three public `dispatch.*` and eight `msg.*`
+operations for native registration. None met parity without the managed work
+graph (`src/dispatch/work.ts`, `src/core/work.ts`), observation refresh and
+learning stores, enforcement probe jobs, usage-broker-backed preview/explain,
+effectful `_run` spawn, messaging store turns, project policy, and
+`deliver`/`autoCleanTask` side effects still owned by TypeScript. This slice
+only expands the ledger with explicit Forwarded rows and residual owners; it
+does not register native handlers. Native cutover waits on P6 spawn ownership,
+P5 observation/broker bridges, and a messaging read model. v3-only `tree.status`
+and `liveness.status` (`src/api/ops-msg.ts`) remain under the `tree.*` prefix
+row until separately triaged.
 
 PR #585 adds the native `/v3/tasks/<id>/log?follow=1` SSE route. It retains a read-only SQLite connection, detects database replacement, and drains bounded output chunks before `done`. When a read needs a legacy JSON import, an older schema migration, or malformed-record semantics, it calls the existing TypeScript `task.log` fallback with the current byte offsets. That core read performs the shared durable import; no per-stream import cache or new Rust state writer is used. The same fallback applies after a stream connects. All other `/v2` routes remain forwarded.
 
@@ -302,14 +332,12 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 
 | Prefix | Count | Owner stream | Notes |
 | --- | ---: | --- | --- |
-| `dispatch.*` | 23 | P5/P6 | e.g. `dispatch.analytics`, `dispatch.answer`, `dispatch.child` (+20 more) |
 | `desktop.*` | 17 | P8/P9 | e.g. `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.register` (+14 more) |
 | `task.*` | 12 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+9 more); `list` and `request_review` native above |
 | `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
 | `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
 | `account.*` | 9 | P7/P9 | e.g. `account.add`, `account.adopt`, `account.edit` (+6 more) |
 | `client.*` | 9 | P6 | e.g. `client.control.claim`, `client.control.complete`, `client.control.enroll` (+6 more) |
-| `msg.*` | 8 | P6 | e.g. `msg.close`, `msg.confirm`, `msg.inbox` (+5 more) |
 | `project.*` | 7 | P2 | e.g. `project.messaging.get`, `project.messaging.remove`, `project.messaging.set` (+4 more) |
 | `runner.*` | 5 | P2 | `add`/`block`/`unblock`/`check`/`list` stay TS (`set`/`reorder`/`remove`/`settings.*` native above) |
 | `discovery.*` | 5 | P8 | e.g. `discovery.list`, `discovery.network.get`, `discovery.network.set` (+2 more) |
@@ -331,7 +359,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `insights.*` | 1 | P5 | e.g. `insights.summary` |
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 
-Total unregistered (not in the detailed table): **162**.
+Total unregistered (not in the detailed table): **131**.
 Total still not native (v3 − native set): **190**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
