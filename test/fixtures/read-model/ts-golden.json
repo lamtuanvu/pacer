@@ -96,6 +96,11 @@
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
         "notifier": null
       },
       "planner": {
@@ -449,6 +454,11 @@
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
         "notifier": null
       },
       "planner": {
@@ -778,6 +788,11 @@
         "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
         "notifier": null
       },
       "planner": {
@@ -1643,6 +1658,11 @@
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
         "notifier": null
       },
       "planner": {
@@ -2072,6 +2092,11 @@
         "protocol": "2.8.0",
         "pid": 0,
         "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
         "notifier": null
       },
       "planner": {
@@ -2564,6 +2589,11 @@
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
         "notifier": null,
         "starting": true
       },
@@ -3041,6 +3071,11 @@
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
         "notifier": null
       },
       "planner": {
@@ -3517,6 +3552,11 @@
         "protocol": "3.0.0",
         "pid": 0,
         "startedAt": 0,
+        "notifiers": {
+          "os": null,
+          "terminal": null,
+          "browser": null
+        },
         "notifier": null
       },
       "planner": {
