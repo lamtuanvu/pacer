@@ -101,7 +101,7 @@ browserTest('workspace watches until explicit control, preserves history/selecti
   } finally { await browser.close(); }
 }, 60_000);
 
-browserTest('occupied workspace sessions keep normal font and scroll, preserve lease and share a dark terminal palette in both themes', async () => {
+browserTest('occupied workspace sessions share the fill-pane layout, preserve lease and share a dark terminal palette in both themes', async () => {
   const source = await bundle();
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   const phase = process.env.PACER_CAPTURE_BASELINE ? 'before' : 'after';
@@ -131,23 +131,24 @@ browserTest('occupied workspace sessions keep normal font and scroll, preserve l
           const rect = node.getBoundingClientRect(), outer = right.getBoundingClientRect();
           return rect.width > 0 && (rect.right > outer.right + 1 || rect.left < outer.left - 1);
         }).length : 0;
+        const paneBox = pane.getBoundingClientRect(), mountBox = mount.getBoundingClientRect();
         return {
           stripBottom: document.querySelector('.pc-terminal-strip')!.getBoundingClientRect().bottom,
           workspaceBottom: document.querySelector('.pc-workspace')!.getBoundingClientRect().bottom,
           transform: getComputedStyle(mount).transform,
           background: getComputedStyle(pane).backgroundColor,
           overflow: getComputedStyle(pane).overflow,
-          scroll: pane.scrollWidth > pane.clientWidth,
-          screen: screen.getBoundingClientRect().width, mount: mount.getBoundingClientRect().width,
+          fits: mountBox.width <= paneBox.width + 1 && mountBox.height <= paneBox.height + 1,
+          screen: screen.getBoundingClientRect().width, mount: mountBox.width,
           documentWidth: document.documentElement.scrollWidth, viewport: innerWidth,
           actions: [...topbar.querySelectorAll('button,a,.pc-workspace-panel-details b,.pc-workspace-panel-details span')].filter(node => node.getBoundingClientRect().width > 0).map(node => ({label:node.getAttribute('aria-label')??node.textContent,left:node.getBoundingClientRect().left,right:node.getBoundingClientRect().right})),
           topbar: topbar.getBoundingClientRect().right, right: right?.getBoundingClientRect().right, escaped,
         };
       });
       expect(metrics.stripBottom).toBeLessThanOrEqual(metrics.workspaceBottom);
-      expect(metrics.transform).toBe('none');
-      expect(metrics.scroll).toBe(true);
-      expect(metrics.overflow).toBe('auto');
+      expect(metrics.transform).not.toBe('none');
+      expect(metrics.fits).toBe(true);
+      expect(metrics.overflow).toBe('hidden');
       expect(metrics.background).toBe('rgb(0, 0, 0)');
       expect(metrics.documentWidth).toBe(metrics.viewport);
       expect(metrics.topbar).toBeLessThanOrEqual(viewport.width);
@@ -169,6 +170,21 @@ browserTest('occupied workspace sessions keep normal font and scroll, preserve l
       await page.getByRole('dialog').getByRole('button', { name: 'Take control', exact: true }).click();
       await page.getByRole('button', { name: 'Hand back', exact: true }).waitFor();
       expect(await page.evaluate(() => (window as any).terminalSockets[0].sent.filter((f: any) => f.type === 'take'))).toEqual([{ type: 'take', force: true }]);
+      const driving = await page.evaluate(() => {
+        const pane = document.querySelector<HTMLElement>('.pc-terminal-pane')!;
+        const mount = document.querySelector<HTMLElement>('.pc-terminal-mount')!;
+        const paneBox = pane.getBoundingClientRect(), mountBox = mount.getBoundingClientRect();
+        return {
+          transform: getComputedStyle(mount).transform,
+          overflow: getComputedStyle(pane).overflow,
+          fits: mountBox.width <= paneBox.width + 1 && mountBox.height <= paneBox.height + 1,
+          you: document.querySelector('.pc-terminal-view')?.getAttribute('data-session-control') === 'true',
+        };
+      });
+      expect(driving.you).toBe(true);
+      expect(driving.transform).toBe('none');
+      expect(driving.overflow).toBe('hidden');
+      expect(driving.fits).toBe(true);
       await page.screenshot({ path: `${evidence}/${phase}/${viewport.width}-${theme}-driving.png`, fullPage: true });
       await page.close();
     }

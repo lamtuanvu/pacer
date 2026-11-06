@@ -418,7 +418,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           const ids = ranking.ranked.map(e => e.id);
           applicableIds = ids;
           const paused = readPause(ctx);
-          if (task.interactionMode === "conversation" && req && !ids.includes(req) && !full.has(req)) {
+          if (task.interactionMode === "conversation" && req && !tried.has(req) && !ids.includes(req) && !full.has(req)) {
             task = updateTask(ctx, id, t => {
               routeAdmission!.revalidate();
               t.state = "queued";

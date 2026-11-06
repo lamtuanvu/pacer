@@ -86,7 +86,7 @@ fn io_error(error: impl std::fmt::Display) -> CoreError {
     CoreError::new(Code::InvalidInput, error.to_string())
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 pub fn remove_repo(ctx: &Ctx, key: &str) -> Result<Value, CoreError> {
     if key.is_empty() {
         return Err(CoreError::new(

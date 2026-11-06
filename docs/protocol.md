@@ -8524,7 +8524,7 @@ Params JSON Schema:
 
 ### `version.get`
 
-Pacer, protocol and service versions or status.
+Pacer and protocol version metadata.
 
 Params JSON Schema:
 

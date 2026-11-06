@@ -3,6 +3,22 @@ use pacer_config::settings::{CONFIG_KEYS, get_settings, set_setting};
 use serde_json::{Value, json};
 use std::fs;
 
+// Workspace builds unify serde_json's arbitrary_precision feature, which compares numbers by spelling.
+fn canonical_numbers(value: Value) -> Value {
+    match value {
+        Value::Number(n) if n.as_i64().is_none() && n.as_u64().is_none() => {
+            n.as_f64().map_or(Value::Number(n), |f| json!(f))
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(canonical_numbers).collect()),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(k, v)| (k, canonical_numbers(v)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 #[test]
 fn all_pure_settings_match_typescript_results_errors_and_edits() {
     let cases: Value = serde_json::from_str(include_str!(
@@ -45,11 +61,12 @@ fn all_pure_settings_match_typescript_results_errors_and_edits() {
             )
             .unwrap()
         };
-        let actual = normalize(actual);
+        let actual = canonical_numbers(normalize(actual));
         let mut expected = c["expected"].clone();
         if let Some(index) = expected.get("keys").and_then(Value::as_u64) {
             expected["keys"] = cases["views"][index as usize].clone();
         }
+        let expected = canonical_numbers(expected);
         if actual != expected {
             failures.push(format!(
                 "{}\nactual: {actual}\nexpected: {}",

@@ -23735,7 +23735,7 @@
         }
       },
       "version.get": {
-        "description": "Pacer, protocol and service versions or status.",
+        "description": "Pacer and protocol version metadata.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -26519,7 +26519,7 @@
         }
       },
       "version.get": {
-        "description": "Pacer, protocol and service versions or status.",
+        "description": "Pacer and protocol version metadata.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
