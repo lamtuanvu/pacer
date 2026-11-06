@@ -74,7 +74,7 @@ fn summary_row(parts: &Value, alias: &str) -> Result<Value, CoreError> {
     })))
 }
 
-pub(super) fn host_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn host_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = config_params::parse("host.add", params)?;
         let alias = p["alias"].as_str().unwrap_or("");
@@ -87,7 +87,7 @@ pub(super) fn host_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn host_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn host_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = config_params::parse("host.remove", params)?;
         let alias = p["alias"].as_str().unwrap_or("");
@@ -99,7 +99,7 @@ pub(super) fn host_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn host_account_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn host_account_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = config_params::parse("host.account.add", params)?;
         let alias = p["alias"].as_str().unwrap_or("");
@@ -139,7 +139,7 @@ pub(super) fn host_account_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn host_repo_map(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn host_repo_map(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = config_params::parse("host.repo.map", params)?;
         let alias = p["alias"].as_str().unwrap_or("");
@@ -164,7 +164,7 @@ pub(super) fn host_repo_map(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn host_set_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn host_set_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
@@ -173,7 +173,7 @@ pub(super) fn host_set_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 
-pub(crate) async fn host_set_write(ctx: &Ctx, params: Value) -> Result<String, CoreError> {
+pub async fn host_set_write(ctx: &Ctx, params: Value) -> Result<String, CoreError> {
     let p = config_params::parse("host.set", params)?;
     let alias = p["alias"].as_str().unwrap_or("").to_owned();
     let strategy =
@@ -211,7 +211,7 @@ pub(crate) async fn host_set_write(ctx: &Ctx, params: Value) -> Result<String, C
     Ok(alias)
 }
 
-pub(crate) fn host_set_summary(parts: Value, alias: &str) -> Result<Value, CoreError> {
+pub fn host_set_summary(parts: Value, alias: &str) -> Result<Value, CoreError> {
     if parts.get("alias").and_then(Value::as_str) != Some(alias) {
         return Err(invalid(format!("unknown host {alias}")));
     }

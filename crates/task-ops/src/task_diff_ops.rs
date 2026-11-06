@@ -73,7 +73,7 @@ fn map_error(id: &str, error: TaskDiffError) -> CoreError {
     }
 }
 
-pub(crate) fn task_diff_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn task_diff_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     let ctx = ctx.clone();
     Box::pin(async move {
         tokio::task::spawn_blocking(move || task_diff_native(&ctx, params))
@@ -82,7 +82,7 @@ pub(crate) fn task_diff_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(crate) fn task_diff_native(ctx: &Ctx, params: Value) -> Result<Value, CoreError> {
+pub fn task_diff_native(ctx: &Ctx, params: Value) -> Result<Value, CoreError> {
     let (id, path) = parse_params(&params)?;
     let mut store = TaskStore::open(&ctx.pacer_home)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;

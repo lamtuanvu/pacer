@@ -56,7 +56,7 @@ fn optional_timeout_s(params: &Map<String, Value>) -> Result<(), CoreError> {
     }
 }
 
-pub(crate) fn task_wait(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn task_wait(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = object(&params)?;
         let id = require_task_id(p, "id")?;

@@ -367,5 +367,5 @@ fn core_category(value: u8) -> Option<&'static str> {
     })
 }
 #[cfg(test)]
-#[path = "native_helper_diagnostics_tests.rs"]
+#[path = "tests/native_helper_diagnostics.rs"]
 mod tests;

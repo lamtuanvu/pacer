@@ -108,13 +108,13 @@ fn request(bytes: &[u8], home: &Path) -> io::Result<Request> {
 }
 
 #[cfg(test)]
-#[path = "native_helper_receipt_copy_tests.rs"]
+#[path = "tests/native_helper_receipt_copy.rs"]
 mod receipt_copy_tests;
 #[cfg(test)]
-#[path = "native_helper_receipt_tests.rs"]
+#[path = "tests/native_helper_receipt.rs"]
 mod receipt_tests;
 #[cfg(test)]
-#[path = "native_helper_tests.rs"]
+#[path = "tests/native_helper.rs"]
 mod tests;
 fn cdhash(bytes: &[u8]) -> io::Result<String> {
     let text = std::str::from_utf8(bytes).map_err(|_| denied())?;

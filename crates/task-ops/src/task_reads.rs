@@ -235,7 +235,7 @@ fn valid_entry(entry: &Value) -> bool {
             .all(|key| entry.get(*key).is_none_or(Value::is_string))
 }
 
-pub(super) fn activity_list(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn activity_list(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let params = if params.is_null() { json!({}) } else { params };
         let p = object(&params)?;
@@ -367,7 +367,7 @@ fn finite_js_number(text: &str) -> bool {
     text.parse::<f64>().is_ok_and(f64::is_finite)
 }
 
-pub(super) fn task_log(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn task_log(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let params = if params.is_null() { json!({}) } else { params };
         let p = object(&params)?;
@@ -510,7 +510,7 @@ fn visible_state(task: &Value) -> Value {
     }
 }
 
-pub(super) fn summarize_api_task(task: &Value) -> Value {
+pub fn summarize_api_task(task: &Value) -> Value {
     let goal = task
         .pointer("/brief/goal")
         .and_then(Value::as_str)
@@ -582,7 +582,7 @@ fn prune_result_json(result: pacer_store::PruneResult) -> Value {
     })
 }
 
-pub(super) fn task_prune(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn task_prune(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let params = if params.is_null() { json!({}) } else { params };
         let p = object(&params)?;
@@ -600,7 +600,7 @@ pub(super) fn task_prune(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn task_restore(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn task_restore(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let params = if params.is_null() { json!({}) } else { params };
         let p = object(&params)?;

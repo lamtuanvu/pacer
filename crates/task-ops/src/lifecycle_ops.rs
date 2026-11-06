@@ -20,11 +20,11 @@ use pacer_read_model::{ActiveCounts, tasks as read_tasks};
 use pacer_store::TaskStore;
 use serde_json::{Map, Value, json};
 
-pub(super) fn invalid(message: impl Into<String>) -> CoreError {
+pub fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-pub(super) fn type_name(value: &Value) -> &'static str {
+pub fn type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -35,7 +35,7 @@ pub(super) fn type_name(value: &Value) -> &'static str {
     }
 }
 
-pub(super) fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
+pub fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
     params.as_object().ok_or_else(|| {
         invalid(format!(
             "params: Invalid input: expected object, received {}",
@@ -44,7 +44,7 @@ pub(super) fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
     })
 }
 
-pub(super) fn require_string<'a>(
+pub fn require_string<'a>(
     params: &'a Map<String, Value>,
     name: &str,
 ) -> Result<&'a str, CoreError> {
@@ -60,7 +60,7 @@ pub(super) fn require_string<'a>(
     }
 }
 
-pub(super) fn optional_expect_rev(params: &Map<String, Value>) -> Result<Option<f64>, CoreError> {
+pub fn optional_expect_rev(params: &Map<String, Value>) -> Result<Option<f64>, CoreError> {
     match params.get("expect_rev") {
         None => Ok(None),
         Some(Value::Null) => Ok(None),
@@ -92,7 +92,7 @@ pub(super) fn optional_expect_rev(params: &Map<String, Value>) -> Result<Option<
     }
 }
 
-pub(super) fn project_api_task(
+pub fn project_api_task(
     ctx: &Ctx,
     store: &mut TaskStore,
     task: &Value,
@@ -134,7 +134,7 @@ fn map_error(ctx: &Ctx, store: &mut TaskStore, error: RequestReviewError) -> Cor
     }
 }
 
-pub(super) fn task_request_review(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn task_request_review(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = object(&params)?;
         let id = require_string(p, "id")?;

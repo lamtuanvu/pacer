@@ -425,5 +425,5 @@ async fn connected_listener_observes_legacy_update_and_database_replacement() {
     }
 }
 
-#[path = "log_sse_compat_tests.rs"]
+#[path = "log_sse_compat.rs"]
 mod compatibility;

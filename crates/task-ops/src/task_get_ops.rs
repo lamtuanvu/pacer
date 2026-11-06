@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 
 use super::session_ops::{SessionProbeParts, parse_probe_parts};
 
-pub(crate) fn needs_task_read_bridge(op: &str) -> bool {
+pub fn needs_task_read_bridge(op: &str) -> bool {
     matches!(op, "task.get")
 }
 
@@ -67,7 +67,7 @@ fn merge_enrichment(detail: &mut Map<String, Value>, enrichment: &Value) {
     }
 }
 
-pub(super) fn task_get_stub(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
+pub fn task_get_stub(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
@@ -76,11 +76,7 @@ pub(super) fn task_get_stub(_: &Ctx, _: Value) -> pacer_foundation::api::OpFutur
     })
 }
 
-pub(crate) async fn task_get(
-    ctx: &Ctx,
-    params: Value,
-    read_parts: Value,
-) -> Result<Value, CoreError> {
+pub async fn task_get(ctx: &Ctx, params: Value, read_parts: Value) -> Result<Value, CoreError> {
     let id = parse_id(&params)?;
     let probe = parse_probe_parts(read_parts.clone())?;
     let enrichment = read_parts.get("enrichment").cloned().unwrap_or(Value::Null);

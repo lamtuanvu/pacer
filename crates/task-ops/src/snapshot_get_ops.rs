@@ -27,7 +27,7 @@ fn type_name(value: &Value) -> &'static str {
     }
 }
 
-pub(crate) fn needs_snapshot_bridge(op: &str) -> bool {
+pub fn needs_snapshot_bridge(op: &str) -> bool {
     matches!(op, "snapshot.get")
 }
 
@@ -52,13 +52,13 @@ fn array(value: &Value) -> Vec<Value> {
     value.as_array().cloned().unwrap_or_default()
 }
 
-pub(crate) struct SnapshotBridgeParts {
-    pub(crate) probes: Probes,
-    pub(crate) status: StatusInput,
-    pub(crate) alive_pids: HashSet<i64>,
+pub struct SnapshotBridgeParts {
+    pub probes: Probes,
+    pub status: StatusInput,
+    pub alive_pids: HashSet<i64>,
 }
 
-pub(crate) fn parse_snapshot_parts(value: Value) -> Result<SnapshotBridgeParts, CoreError> {
+pub fn parse_snapshot_parts(value: Value) -> Result<SnapshotBridgeParts, CoreError> {
     let map = value
         .as_object()
         .ok_or_else(|| invalid("snapshot probe bridge returned a non-object payload"))?;
@@ -169,7 +169,7 @@ fn local_zone(ctx: &Ctx) -> chrono_tz::Tz {
         .unwrap_or(chrono_tz::UTC)
 }
 
-pub(super) fn snapshot_get_stub(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
+pub fn snapshot_get_stub(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
@@ -178,11 +178,7 @@ pub(super) fn snapshot_get_stub(_: &Ctx, _: Value) -> pacer_foundation::api::OpF
     })
 }
 
-pub(crate) async fn snapshot_get(
-    ctx: &Ctx,
-    params: Value,
-    parts: Value,
-) -> Result<Value, CoreError> {
+pub async fn snapshot_get(ctx: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
     parse_params(&params)?;
     let bridge = parse_snapshot_parts(parts)?;
     let alive_pids = bridge.alive_pids;

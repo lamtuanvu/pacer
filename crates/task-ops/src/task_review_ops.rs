@@ -12,11 +12,11 @@ use super::lifecycle_ops::{
     invalid, object, optional_expect_rev, project_api_task, require_string, type_name,
 };
 
-pub(crate) fn needs_task_review_bridge(op: &str) -> bool {
+pub fn needs_task_review_bridge(op: &str) -> bool {
     matches!(op, "task.review")
 }
 
-pub(crate) fn task_review_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn task_review_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
@@ -114,7 +114,7 @@ fn map_review_error(ctx: &Ctx, store: &mut TaskStore, error: RecordReviewError) 
     }
 }
 
-pub(crate) fn task_review<'a>(
+pub fn task_review<'a>(
     ctx: &'a Ctx,
     params: Value,
     _probe: Value,

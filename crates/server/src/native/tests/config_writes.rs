@@ -182,7 +182,7 @@ fn empty_xdg_config_home_uses_relative_orca_directory_on_linux() {
         0.0,
     );
     assert_eq!(
-        super::legacy_dir_for_platform(&ctx, false),
+        crate::native::config_writes::legacy_dir_for_platform(&ctx, false),
         std::path::PathBuf::from("orca/plugins-data/lamtuanvu.pacer")
     );
 }
@@ -284,13 +284,13 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
 
 #[test]
 fn planner_and_backend_keys_stay_on_the_forward_path() {
-    assert!(super::config_set_stays_forwarded(
+    assert!(crate::native::config_writes::config_set_stays_forwarded(
         &json!({"key":"planner","value":"codex"})
     ));
-    assert!(super::config_set_stays_forwarded(
+    assert!(crate::native::config_writes::config_set_stays_forwarded(
         &json!({"key":"execution.backend","value":"orca"})
     ));
-    assert!(!super::config_set_stays_forwarded(
+    assert!(!crate::native::config_writes::config_set_stays_forwarded(
         &json!({"key":"update_check","value":false})
     ));
 }

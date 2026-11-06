@@ -23,7 +23,7 @@ const LIST_STATES: &[&str] = &[
     "needs_input",
 ];
 
-pub(crate) fn needs_session_probe(op: &str) -> bool {
+pub fn needs_session_probe(op: &str) -> bool {
     matches!(op, "task.list")
 }
 
@@ -192,12 +192,12 @@ fn optional_states(params: &Map<String, Value>) -> Result<Option<Vec<String>>, C
     }
 }
 
-pub(crate) struct SessionProbeParts {
-    pub(crate) active: ActiveCounts,
-    pub(crate) alive_pids: HashSet<i64>,
+pub struct SessionProbeParts {
+    pub active: ActiveCounts,
+    pub alive_pids: HashSet<i64>,
 }
 
-pub(crate) fn parse_probe_parts(value: Value) -> Result<SessionProbeParts, CoreError> {
+pub fn parse_probe_parts(value: Value) -> Result<SessionProbeParts, CoreError> {
     let map = value
         .as_object()
         .ok_or_else(|| invalid("session probe bridge returned a non-object payload"))?;
@@ -246,7 +246,7 @@ fn broker_unavailable(message: &str) -> OpFuture<'_> {
     Box::pin(async move { Err(CoreError::new(Code::Unavailable, message)) })
 }
 
-pub(super) fn task_list_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn task_list_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     broker_unavailable("task.list requires the session probe bridge")
 }
 
@@ -331,7 +331,7 @@ fn parse_options(params: &Value) -> Result<ParsedListOptions, CoreError> {
     })
 }
 
-pub(crate) async fn task_list(
+pub async fn task_list(
     ctx: &Ctx,
     params: Value,
     probe: SessionProbeParts,

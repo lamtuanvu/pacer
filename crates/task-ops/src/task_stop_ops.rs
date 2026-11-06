@@ -12,11 +12,11 @@ use super::lifecycle_ops::{
     invalid, object, optional_expect_rev, project_api_task, require_string,
 };
 
-pub(crate) fn needs_task_stop_bridge(op: &str) -> bool {
+pub fn needs_task_stop_bridge(op: &str) -> bool {
     matches!(op, "task.stop")
 }
 
-pub(crate) fn task_stop_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn task_stop_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
@@ -71,7 +71,7 @@ fn map_stop_error(ctx: &Ctx, store: &mut TaskStore, error: RecordStopError) -> C
     }
 }
 
-pub(crate) fn task_stop<'a>(
+pub fn task_stop<'a>(
     ctx: &'a Ctx,
     params: Value,
     probe: Value,

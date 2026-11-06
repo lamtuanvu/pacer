@@ -10,7 +10,7 @@ use pacer_foundation::{
 };
 use serde_json::{Map, Value, json};
 
-pub(crate) fn needs_config_host_bridge(op: &str) -> bool {
+pub fn needs_config_host_bridge(op: &str) -> bool {
     matches!(op, "config.get")
 }
 
@@ -42,11 +42,11 @@ fn broker_unavailable(message: &str) -> OpFuture<'_> {
     Box::pin(async move { Err(CoreError::new(Code::Unavailable, message)) })
 }
 
-pub(super) fn config_get_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn config_get_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     broker_unavailable("config.get requires the config host bridge")
 }
 
-pub(crate) fn host_fields_for_settings(parts: Value) -> Result<Value, CoreError> {
+pub fn host_fields_for_settings(parts: Value) -> Result<Value, CoreError> {
     let map = parts
         .as_object()
         .ok_or_else(|| invalid("config host bridge returned a non-object payload"))?;
@@ -62,7 +62,7 @@ pub(crate) fn host_fields_for_settings(parts: Value) -> Result<Value, CoreError>
     }))
 }
 
-pub(crate) async fn config_get(ctx: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
+pub async fn config_get(ctx: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
     let map = object(&params)?;
     if !map.is_empty() {
         return Err(invalid("params: Unrecognized key(s) in object"));

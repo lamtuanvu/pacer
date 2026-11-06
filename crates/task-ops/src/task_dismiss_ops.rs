@@ -10,11 +10,11 @@ use serde_json::{Map, Value, json};
 
 use super::lifecycle_ops::{invalid, object, optional_expect_rev, project_api_task, type_name};
 
-pub(crate) fn needs_task_clean_bridge(op: &str) -> bool {
+pub fn needs_task_clean_bridge(op: &str) -> bool {
     matches!(op, "task.dismiss")
 }
 
-pub(crate) fn ids_from_params(params: &Value) -> Result<Vec<String>, CoreError> {
+pub fn ids_from_params(params: &Value) -> Result<Vec<String>, CoreError> {
     let p = object(params)?;
     let ids_value = p
         .get("ids")
@@ -38,7 +38,7 @@ pub(crate) fn ids_from_params(params: &Value) -> Result<Vec<String>, CoreError> 
     Ok(ids)
 }
 
-pub(crate) fn task_dismiss_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn task_dismiss_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
@@ -113,7 +113,7 @@ fn publish_report(report: pacer_store::PublishReport) {
     }
 }
 
-pub(crate) fn task_dismiss<'a>(ctx: &'a Ctx, params: Value, clean: OpFuture<'a>) -> OpFuture<'a> {
+pub fn task_dismiss<'a>(ctx: &'a Ctx, params: Value, clean: OpFuture<'a>) -> OpFuture<'a> {
     Box::pin(async move {
         let p = object(&params)?;
         let expect_rev = optional_expect_rev(p)?;

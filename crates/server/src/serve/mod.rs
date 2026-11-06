@@ -4,20 +4,20 @@ pub mod auth;
 pub mod core_child;
 pub mod discovery;
 #[cfg(test)]
-#[path = "discovery_tests.rs"]
+#[path = "tests/discovery.rs"]
 mod discovery_tests;
 mod events_sse;
 #[cfg(test)]
-#[path = "events_sse_tests.rs"]
+#[path = "tests/events_sse.rs"]
 mod events_sse_tests;
 pub mod heartbeat;
 mod js_trim;
 #[cfg(test)]
-#[path = "listener_tests.rs"]
+#[path = "tests/listener.rs"]
 mod listener_tests;
 mod log_sse;
 #[cfg(test)]
-#[path = "log_sse_tests.rs"]
+#[path = "tests/log_sse.rs"]
 mod log_sse_tests;
 #[cfg(target_os = "macos")]
 mod native_bootstrap;
