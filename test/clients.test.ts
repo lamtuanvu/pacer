@@ -113,16 +113,27 @@ test("client operations reject invalid parameters and unknown ids", async () => 
   await expect(callOp(ctx, "client.heartbeat", { client_id: "" })).rejects.toMatchObject({ code: "invalid_input" });
 });
 
-test("snapshot service exposes only the live notifier identity", async()=>{
+test("snapshot service exposes per-medium notifiers and compat os notifier", async()=>{
  const {buildReadModel}=await import("../src/api/read-model");
  const {capacityFixture}=await import("./read-model-helpers");
  const ctx=fakeCtx(),{s,st}=capacityFixture();
  const model=()=>buildReadModel(ctx,{status:st,strategy:s,tasks:[],setup:{checkedAt:ctx.now,complete:true,ready:false,items:[]},hosts:[]});
+ const emptyNotifiers={os:null,terminal:null,browser:null};
  expect(model().service).toHaveProperty("notifier",null);
- const a=register(ctx,{kind:"orca",version:"1",notifier:true});
- expect(model().service).toHaveProperty("notifier",{client_id:a.client_id,kind:"orca"});
+ expect(model().service).toHaveProperty("notifiers",emptyNotifiers);
+ const desktop=register(ctx,{kind:"desktop",version:"1",notifier:true});
+ ctx.now+=1;
+ const tui=register(ctx,{kind:"tui",version:"1",notifier:true});
+ const notifiers={
+  os:{client_id:desktop.client_id,kind:"desktop" as const},
+  terminal:{client_id:tui.client_id,kind:"tui" as const},
+  browser:null,
+ };
+ expect(model().service.notifiers).toEqual(notifiers);
+ expect(model().service.notifier).toEqual(notifiers.os);
  ctx.now+=46;
  expect(model().service).toHaveProperty("notifier",null);
+ expect(model().service).toHaveProperty("notifiers",emptyNotifiers);
 });
 
 test("only desktop capture opt-in issues an ephemeral instance credential", async () => {

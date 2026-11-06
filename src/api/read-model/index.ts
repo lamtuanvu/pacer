@@ -11,7 +11,7 @@ import { machineGuardState } from "../../engine/machine";
 import { cachedPath, schedulePathRefresh, waitingIO } from "../../core/path-probe";
 import { redactEndpointError } from "../../endpoints/state";
 import { readPause } from "../../core/pause";
-import { activeNotifier } from "../../clients/registry";
+import { deliveryPresenters } from "../../clients/registry";
 import { applyStore } from "../../attention/store";
 import { deriveTaskItems } from "../../core/task-attention";
 import { discoveryRuleInput } from "../../discovery/prompts";
@@ -28,7 +28,7 @@ import { listRepos, labelsFor } from "../../core/repos";
 import { PROTOCOL_VERSION } from "../protocol";
 import { buildExecutors, buildAccounts, buildPlanner } from "./capacity";
 import { buildCounts, buildToday, buildHosts, buildSetup } from "./summary";
-import type { ApiTask, ReadModelFields } from "./types";
+import type { ApiTask, ReadModelFields, ServiceNotifiers } from "./types";
 export type * from "./types";
 const machineOS = (() => {
  if (platform() !== "darwin") return platform();
@@ -58,10 +58,18 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  const repos=[...listRepos(ctx,recent.map(t=>t.repo))],known=new Set(repos.map(r=>r.key));
  for(const t of recent)if(!known.has(t.repo.key)){repos.push(t.repo);known.add(t.repo.key);}
  const labels=labelsFor(repos);
- const notifier=activeNotifier(ctx);
+ const notifiers=serviceNotifiers(ctx);
  const exec = validateExecution(strategy.execution);
  const machine = {agentSessionsRevision:agentSessionsRevision(ctx),os: machineOS, arch: arch(), used: tasks.filter(t => t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy,t.executor)?.host : null))).length+activeAgentSessions(ctx).length, ...machineCap(exec.localMaxTasks ?? null), ...machineGuardState(exec)};
- return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifier:notifier?{client_id:notifier.client_id,kind:notifier.kind}:null,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
+ return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifiers,notifier:notifiers.os,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
+}
+
+function serviceNotifiers(ctx: Ctx): ServiceNotifiers {
+ const notifiers: ServiceNotifiers = { os: null, terminal: null, browser: null };
+ for (const presenter of deliveryPresenters(ctx)) {
+  notifiers[presenter.medium] = { client_id: presenter.client_id, kind: presenter.kind };
+ }
+ return notifiers;
 }
 
 /** A repo-path call stuck for ten seconds or more, e.g. behind a macOS removable-volume prompt. */
