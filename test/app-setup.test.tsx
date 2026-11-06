@@ -4,9 +4,10 @@ import type { SetupChecklist, SetupItem } from '../src/setup/checklist';
 import { ApiError, type BrowserApi } from '../app/src/data/api';
 import { TaskContext, ErrorMessage } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
-import { SetupView } from '../app/src/screens/setup/Setup';
+import { SetupView, StepDone } from '../app/src/screens/setup/Setup';
 import { SetupBanner } from '../app/src/screens/setup/SetupBanner';
 import { SetupContext } from '../app/src/screens/setup/context';
+import { FrameContext } from '../app/src/shell/slots';
 import { bannerKey, nextOptional, performSetupAction, primaryItem, readDismissal, saveDismissal, SERVICE_CONSENT, DISMISS_KEY } from '../app/src/screens/setup/model';
 const service: SetupItem = { id: 'service', title: 'Background service', required: true, status: 'pending', action: 'service.install' };
 const agent: SetupItem = { id: 'connect', title: 'Connect planner', required: true, status: 'pending', action: 'agent.connect', agent: 'codex' };
@@ -14,7 +15,8 @@ const first: SetupItem = { id: 'first', title: 'First delegation', required: fal
 const check: SetupChecklist = { checkedAt: 1, complete: false, ready: false, items: [service, agent, first] };
 const query = { repo: null, scope: null };
 const api = { call: async <T,>() => ({} as T) } as unknown as BrowserApi;
-const view = (checklist = check) => renderToString(<TaskContext.Provider value={{ api, state: initialState() }}><SetupView checklist={checklist} query={query} /></TaskContext.Provider>);
+const inlineFrame = { title: null, header: null, left: null, right: null, inline: true, heading: () => {}, details: { open: false, toggle: () => {} } };
+const view = (checklist = check) => renderToString(<FrameContext.Provider value={inlineFrame}><TaskContext.Provider value={{ api, state: initialState() }}><SetupView checklist={checklist} query={query} /></TaskContext.Provider></FrameContext.Provider>);
 
 test('Setup renders five steps, done values and the current panel', () => {
   const html = view({ ...check, items: [
@@ -30,6 +32,18 @@ test('Setup renders five steps, done values and the current panel', () => {
   expect(html).toContain('3 agents'); expect(html).toContain('Service 0.2.3');
   expect(html).not.toContain('build.123'); expect(html.match(/<h1/g)).toHaveLength(1);
   expect(html).toContain('Step 3 of 5');
+});
+test('completed setup steps reopen from the rail and finished steps show a done panel', () => {
+  const html = view({ ...check, items: [
+    { id: 'planner', title: 'Planner', status: 'done', required: true, detail: 'codex' },
+    { ...service, status: 'done' }, { ...agent, status: 'done' },
+    { id: 'executor', title: 'Executor', status: 'done', required: false, detail: 'codex' }, first,
+  ] });
+  expect(html).toMatch(/aria-current="step"[^>]*data-step="executor"/);
+  const links = [...html.matchAll(/class="[^"]*pc-setup-step-link[^"]*"[^>]*>([^<]*)</g)].map(m => m[1]);
+  expect(links).toEqual(['Planner', 'Background service', 'Connect Codex']);
+  const done = renderToString(<StepDone message="pacer is running in the background and starts at login." next={() => {}} />);
+  expect(done).toContain('role="status"'); expect(done).toContain('Continue'); expect(done).not.toContain('Install service');
 });
 test('terminal-only items show the provider command with a copy action', () => {
   const html = view({ ...check, items: [{ id: 'planner', title: 'Planner', status: 'pending', required: true, command: 'codex login' }] });
@@ -211,6 +225,7 @@ test('executor controls block indefinitely, unblock and reorder through the API'
   await controls.find(n => n.props?.['aria-label'] === 'Use OpenCode with Ollama' && n.props.onChange).props.onChange({ currentTarget: { checked: true } });
   await controls.find(n => n.props?.['aria-label'] === 'Move Codex down').props.onClick();
   expect(h.calls).toEqual([['runner.block', { id: 'codex' }], ['runner.unblock', { id: 'opencode#ollama' }], ['runner.reorder', { ids: ['opencode#ollama', 'codex', 'agy'] }]]);
+  expect(renderToString(tree)).toContain('pc-switch--sm');
   let text = renderToString(tree), previous;
   do { previous = text; text = text.replace(/<[^>]*>/g, ''); } while (text !== previous);
   for (const id of ['claude-code', 'opencode#ollama', 'agy']) expect(text).not.toContain(id);

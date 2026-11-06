@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Show each setup executor on one line with the shared on/off switch, and let completed setup steps reopen from the step list with a done state instead of repeating install or connect actions.
+
 - Own Trace's detail column, Setup's step rail and Settings › Agents detail as shell side panels (`FrameSlot` left/right, with in-page fallbacks when panels cannot show), keep Settings navigation and Dispatch scope at the shared 272px panel width, and remove nested scrollers inside Dispatch and Workspace panel bodies so each panel has one scroller. See [ADR 0022](docs/decisions/0022-shell-owned-page-regions.md).
 
 - Make Diagnostics attention-first with status filters, search and collapsible categories. Keep specific causes and recovery steps visible, preserve original technical evidence, and remove empty progress spacing and unmeasured timing placeholders.

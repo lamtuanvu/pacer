@@ -7,7 +7,7 @@ import { executorStatus, paceStatus, taskStatus } from '../../../../src/view-mod
 import { AgentMark } from '../../ds/AgentMark';
 import { Button } from '../../ds/Button';
 import { Pill } from '../../ds/Pill';
-import { Checkbox, Disclosure, Radio } from '../../ds/Controls';
+import { Disclosure, Radio, Switch } from '../../ds/Controls';
 import { StatusGlyph } from '../../ds/StatusGlyph';
 import { SectionHeading } from '../../ds/SectionHeading';
 import { needsReview } from '../../model/tasks';
@@ -73,11 +73,13 @@ export function ExecutorList({ runners, providers, busy, change, reorder }: {
   return <ol className="pc-setup-executors" aria-label="Executor priority">{runners.map((row, index) => {
     const name = setupAgentName(row.id);
     const status = executorStatus(row.state === 'ok' ? 'ready' : row.state === 'broken' ? 'down' : row.state);
+    const budget = budgetLine(providers.find(p => p.id === row.id));
     return <li key={row.id}>
-      <span className="muted">{index + 1}</span><AgentMark agent={runnerAgent(row.id)} size={32} labelled={false} />
-      <div className="pc-setup-executor-name"><strong>{name}</strong><span className="muted">{budgetLine(providers.find(p => p.id === row.id))}</span></div>
+      <span className="muted">{index + 1}</span>
+      <Switch size="sm" aria-label={`Use ${name}`} checked={row.state !== 'blocked'} disabled={busy} onChange={e => change(row.id, e.currentTarget.checked)} />
+      <AgentMark agent={runnerAgent(row.id)} size={24} labelled={false} />
+      <div className="pc-setup-executor-name"><strong title={name}>{name}</strong><span className="muted" title={budget}>{budget}</span></div>
       <Pill tone={status.tone}><StatusGlyph status={status} /> {status.label}</Pill>
-      <Checkbox label={<>Use {name}</>} aria-label={`Use ${name}`} checked={row.state !== 'blocked'} disabled={busy} onChange={e => change(row.id, e.currentTarget.checked)} />
       <div className="pc-setup-move">
         {index > 0 && <Button variant="ghost" aria-label={`Move ${name} up`} disabled={busy} onClick={() => move(index, -1)}>↑</Button>}
         {index < runners.length - 1 && <Button variant="ghost" aria-label={`Move ${name} down`} disabled={busy} onClick={() => move(index, 1)}>↓</Button>}
