@@ -16367,6 +16367,14 @@
   ],
   "hello": {
     "input": {
+      "coreBuild": {
+        "schemaVersion": 1,
+        "releaseVersion": "0.14.0",
+        "buildId": "development-uncompiled",
+        "role": "core",
+        "targetOs": "darwin",
+        "targetArch": "arm64"
+      },
       "protocol": "3.0.0",
       "previous": "2.8.0",
       "pacer": "0.14.0",
@@ -16420,6 +16428,9 @@
         "desktop.capture.request",
         "desktop.capture.result",
         "desktop.capture.targets",
+        "desktop.reconcile.cancel",
+        "desktop.reconcile.request",
+        "desktop.reconcile.status",
         "desktop.update.adopt",
         "desktop.update.adoptCancel",
         "desktop.update.cancel",
@@ -16539,6 +16550,12 @@
         "service.install",
         "service.status",
         "service.work",
+        "session.agent.create",
+        "session.agent.end",
+        "session.agent.get",
+        "session.agent.list",
+        "session.agent.resume",
+        "session.agent.retry",
         "session.attachment.prepare",
         "session.context",
         "session.create",
@@ -18432,6 +18449,71 @@
       },
       "desktop.capture.targets": {
         "description": "List owned windows reported by connected authenticated desktop capture workers.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "desktop.reconcile.cancel": {
+        "description": "Cancel reconciliation; unavailable until reconciliation is implemented.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "candidateId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+            },
+            "expectRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "requestId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+            }
+          },
+          "required": [
+            "candidateId",
+            "expectRevision",
+            "requestId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "desktop.reconcile.request": {
+        "description": "Request reconciliation of an inspected candidate; unavailable until native proof and implementation exist.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "candidateId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+            },
+            "expectRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "requestId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+            }
+          },
+          "required": [
+            "candidateId",
+            "expectRevision",
+            "requestId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "desktop.reconcile.status": {
+        "description": "Read bounded service reconciliation assessment; claims do not constitute native proof.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -21993,6 +22075,164 @@
           "additionalProperties": false
         }
       },
+      "session.agent.create": {
+        "description": "Start an idempotent independent interactive agent in an existing task workspace, without creating another task.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            },
+            "request_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            },
+            "executor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "request": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200000
+            }
+          },
+          "required": [
+            "task_id",
+            "request_id",
+            "executor",
+            "request"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "session.agent.end": {
+        "description": "End only the selected agent session, retaining its output and workspace.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "task_id",
+            "id",
+            "expect_rev"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "session.agent.get": {
+        "description": "Read one task-owned interactive agent session and its current attempt.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "task_id",
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "session.agent.list": {
+        "description": "List independently controlled interactive agents belonging to tasks.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "session.agent.resume": {
+        "description": "Resume the selected native conversation with its original executor and account.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "task_id",
+            "id",
+            "expect_rev"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "session.agent.retry": {
+        "description": "Start a fresh native conversation for an ended agent session, retaining earlier attempts.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            },
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "task_id",
+            "id",
+            "expect_rev"
+          ],
+          "additionalProperties": false
+        }
+      },
       "session.attachment.prepare": {
         "description": "Claim a later attachment and prepare explicit delivery without submitting agent input.",
         "params": {
@@ -23476,7 +23716,7 @@
         }
       },
       "version.get": {
-        "description": "Pacer, protocol and service versions or status.",
+        "description": "Pacer and protocol version metadata.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -26260,7 +26500,7 @@
         }
       },
       "version.get": {
-        "description": "Pacer, protocol and service versions or status.",
+        "description": "Pacer and protocol version metadata.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",

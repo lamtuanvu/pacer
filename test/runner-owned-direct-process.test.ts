@@ -42,7 +42,7 @@ test("a detached runner launches a local claude-code attempt through the direct 
 
   const log = existsSync(runnerLogPath(ctx)) ? readFileSync(runnerLogPath(ctx), "utf8") : "";
   const done = readTask(ctx, task.id)!;
-  expect({ state: done.state, log }).toEqual({ state: "done", log: expect.not.stringContaining("attempt failed") });
+  expect({ state: done.state, log }, JSON.stringify({ result: done.result, attempt: done.attempts.at(-1) ?? null })).toEqual({ state: "done", log: expect.not.stringContaining("attempt failed") });
   expect(done.executorProvider).toBe("pacer-exec-direct");
   expect(done.attempts).toHaveLength(1);
   expect(readFileSync(join(done.run!.workdir, "greeting.txt"), "utf8").trim()).toBe("hello");

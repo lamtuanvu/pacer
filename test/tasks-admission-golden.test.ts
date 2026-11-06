@@ -18,6 +18,8 @@ interface Golden {
   input?: Record<string, unknown>;
   error?: string;
 }
+// The preload pins these readers; restoring the system readers would leak host load into later files.
+const restoreReaders = () => setMachineReaders({pressure: () => 1, load: () => ({avg1: 0, cores: 1})});
 const goldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/brief-goldens.json", import.meta.url), "utf8")) as Golden[];
 const strategy = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: {} } }, "test");
 
@@ -70,7 +72,7 @@ for (const row of strategyCapacityGoldens) test(`strategy capacity golden: ${row
     expect(queueCapacity(s, row.executor, row.use) ?? null).toEqual(row.expected);
   } finally {
     s.execution.local_memory_pressure_limit = originalPressure;
-    setMachineReaders();
+    restoreReaders();
   }
 });
 
@@ -85,7 +87,7 @@ for (const row of capacityBranches) test(`capacity branch golden: ${row.id}`, ()
     setMachineReaders({pressure: () => 2, load: () => null});
   } else setMachineReaders({pressure: () => null, load: () => null});
   try { expect(queueCapacity(s, row.executor, row.use) ?? null).toEqual(row.expected as Exclude<ReturnType<typeof queueCapacity>, undefined> | null); }
-  finally { setMachineReaders(); }
+  finally { restoreReaders(); }
 });
 
 const validationGoldens = JSON.parse(readFileSync(new URL("./fixtures/task-admission/validation-goldens.json", import.meta.url), "utf8")) as Array<{id:string;input:unknown;problems:string[]}>;

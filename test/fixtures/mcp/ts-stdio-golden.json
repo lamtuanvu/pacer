@@ -7275,7 +7275,7 @@
           "content": [
             {
               "type": "text",
-              "text": "{\n \"work\": {\n  \"rootId\": \"task-fixture\",\n  \"parentId\": null,\n  \"depth\": 0,\n  \"allowDelegation\": true\n },\n \"id\": \"task-fixture\",\n \"title\": \"golden task\",\n \"state\": \"running\",\n \"goal\": \"golden task\",\n \"executor\": null,\n \"backend\": null,\n \"worktree\": null,\n \"updatedAt\": 1900000000,\n \"acceptanceState\": \"none\",\n \"runnerAlive\": false,\n \"fullTitle\": \"golden task\",\n \"rev\": 2,\n \"queue\": null,\n \"repo\": {\n  \"key\": \"local:fixture\",\n  \"label\": \"t-fixture-home\",\n  \"path\": \"$HOME\",\n  \"identityUnverified\": true\n },\n \"kind\": \"feature\",\n \"host\": null,\n \"brief\": {\n  \"goal\": \"golden task\",\n  \"repo\": \"$HOME\"\n },\n \"attempts\": [],\n \"tokens\": {\n  \"total\": 0,\n  \"input\": 0,\n  \"cacheRead\": 0,\n  \"cacheWrite\": 0,\n  \"output\": 0,\n  \"reported\": {\n   \"input\": false,\n   \"output\": false,\n   \"cacheRead\": false,\n   \"cacheWrite\": false\n  },\n  \"complete\": {\n   \"input\": false,\n   \"output\": false,\n   \"cacheRead\": false,\n   \"cacheWrite\": false\n  },\n  \"measuredAttempts\": 0,\n  \"partialAttempts\": 0,\n  \"unknownAttempts\": 0,\n  \"lowerBound\": false,\n  \"byExecutor\": [],\n  \"planner\": {\n   \"coverage\": \"unknown\"\n  },\n  \"decision\": {\n   \"coverage\": \"unknown\"\n  }\n },\n \"routing\": null,\n \"cost\": {\n  \"executor\": null,\n  \"planner\": null\n },\n \"acceptance\": {\n  \"cmd\": null,\n  \"state\": \"none\",\n  \"tail\": \"\",\n  \"machine\": null\n },\n \"summary\": null,\n \"branch\": null,\n \"base\": null,\n \"machine\": null,\n \"startedAt\": null,\n \"endedAt\": null,\n \"files\": [],\n \"retryOptions\": [\n  {\n   \"id\": \"claude-code\",\n   \"state\": \"ready\",\n   \"reason\": \"planner\"\n  },\n  {\n   \"id\": \"codex\",\n   \"state\": \"down\",\n   \"reason\": \"signed out — run codex login\"\n  },\n  {\n   \"id\": \"cursor\",\n   \"state\": \"down\",\n   \"reason\": \"signed out — run cursor-agent login\"\n  }\n ],\n \"timeline\": [],\n \"derived\": {\n  \"files\": \"unavailable\",\n  \"branch\": \"unavailable\",\n  \"retryOptions\": \"cached\",\n  \"timeline\": \"partial\"\n }\n}"
+              "text": "{\n \"work\": {\n  \"rootId\": \"task-fixture\",\n  \"parentId\": null,\n  \"depth\": 0,\n  \"allowDelegation\": true\n },\n \"attempts\": [],\n \"tokens\": {\n  \"total\": 0,\n  \"input\": 0,\n  \"cacheRead\": 0,\n  \"cacheWrite\": 0,\n  \"output\": 0,\n  \"reported\": {\n   \"input\": false,\n   \"output\": false,\n   \"cacheRead\": false,\n   \"cacheWrite\": false\n  },\n  \"complete\": {\n   \"input\": false,\n   \"output\": false,\n   \"cacheRead\": false,\n   \"cacheWrite\": false\n  },\n  \"measuredAttempts\": 0,\n  \"partialAttempts\": 0,\n  \"unknownAttempts\": 0,\n  \"lowerBound\": false,\n  \"byExecutor\": [],\n  \"planner\": {\n   \"coverage\": \"unknown\"\n  },\n  \"decision\": {\n   \"coverage\": \"unknown\"\n  }\n },\n \"branch\": null,\n \"files\": [],\n \"retryOptions\": [\n  {\n   \"id\": \"claude-code\",\n   \"state\": \"ready\",\n   \"reason\": \"planner\"\n  },\n  {\n   \"id\": \"codex\",\n   \"state\": \"down\",\n   \"reason\": \"signed out — run codex login\"\n  },\n  {\n   \"id\": \"cursor\",\n   \"state\": \"down\",\n   \"reason\": \"signed out — run cursor-agent login\"\n  }\n ],\n \"timeline\": [],\n \"derived\": {\n  \"files\": \"unavailable\",\n  \"branch\": \"unavailable\",\n  \"retryOptions\": \"cached\",\n  \"timeline\": \"partial\"\n },\n \"acceptance\": {\n  \"cmd\": null,\n  \"state\": \"none\",\n  \"tail\": \"\",\n  \"machine\": null\n },\n \"id\": \"task-fixture\",\n \"title\": \"golden task\",\n \"state\": \"running\",\n \"goal\": \"golden task\",\n \"executor\": null,\n \"backend\": null,\n \"worktree\": null,\n \"updatedAt\": 1900000000,\n \"acceptanceState\": \"none\",\n \"runnerAlive\": false,\n \"fullTitle\": \"golden task\",\n \"rev\": 2,\n \"queue\": null,\n \"repo\": {\n  \"key\": \"local:fixture\",\n  \"label\": \"t-fixture-home\",\n  \"path\": \"$HOME\",\n  \"identityUnverified\": true\n },\n \"kind\": \"feature\",\n \"host\": null,\n \"brief\": {\n  \"goal\": \"golden task\",\n  \"repo\": \"$HOME\"\n },\n \"routing\": null,\n \"cost\": {\n  \"executor\": null,\n  \"planner\": null\n },\n \"summary\": null,\n \"base\": null,\n \"machine\": null,\n \"startedAt\": null,\n \"endedAt\": null\n}"
             }
           ],
           "structuredContent": {
@@ -7284,31 +7284,6 @@
               "parentId": null,
               "depth": 0,
               "allowDelegation": true
-            },
-            "id": "task-fixture",
-            "title": "golden task",
-            "state": "running",
-            "goal": "golden task",
-            "executor": null,
-            "backend": null,
-            "worktree": null,
-            "updatedAt": 1900000000,
-            "acceptanceState": "none",
-            "runnerAlive": false,
-            "fullTitle": "golden task",
-            "rev": 2,
-            "queue": null,
-            "repo": {
-              "key": "local:fixture",
-              "label": "t-fixture-home",
-              "path": "$HOME",
-              "identityUnverified": true
-            },
-            "kind": "feature",
-            "host": null,
-            "brief": {
-              "goal": "golden task",
-              "repo": "$HOME"
             },
             "attempts": [],
             "tokens": {
@@ -7341,23 +7316,7 @@
                 "coverage": "unknown"
               }
             },
-            "routing": null,
-            "cost": {
-              "executor": null,
-              "planner": null
-            },
-            "acceptance": {
-              "cmd": null,
-              "state": "none",
-              "tail": "",
-              "machine": null
-            },
-            "summary": null,
             "branch": null,
-            "base": null,
-            "machine": null,
-            "startedAt": null,
-            "endedAt": null,
             "files": [],
             "retryOptions": [
               {
@@ -7382,7 +7341,48 @@
               "branch": "unavailable",
               "retryOptions": "cached",
               "timeline": "partial"
-            }
+            },
+            "acceptance": {
+              "cmd": null,
+              "state": "none",
+              "tail": "",
+              "machine": null
+            },
+            "id": "task-fixture",
+            "title": "golden task",
+            "state": "running",
+            "goal": "golden task",
+            "executor": null,
+            "backend": null,
+            "worktree": null,
+            "updatedAt": 1900000000,
+            "acceptanceState": "none",
+            "runnerAlive": false,
+            "fullTitle": "golden task",
+            "rev": 2,
+            "queue": null,
+            "repo": {
+              "key": "local:fixture",
+              "label": "t-fixture-home",
+              "path": "$HOME",
+              "identityUnverified": true
+            },
+            "kind": "feature",
+            "host": null,
+            "brief": {
+              "goal": "golden task",
+              "repo": "$HOME"
+            },
+            "routing": null,
+            "cost": {
+              "executor": null,
+              "planner": null
+            },
+            "summary": null,
+            "base": null,
+            "machine": null,
+            "startedAt": null,
+            "endedAt": null
           }
         }
       },

@@ -2,7 +2,6 @@ import { request as httpRequest } from "node:http";
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 
 import golden from "./fixtures/config-writes-goldens.json";
 
@@ -10,7 +9,8 @@ const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const productionFront = process.env.PACER_TEST_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 function setup() {
-  const home = mkdtempSync(join(tmpdir(), "pacer-native-dispatch-"));
+  // host.sock must fit SUN_LEN (~104); bun test's TMPDIR is too deep for native serve.
+  const home = mkdtempSync("/tmp/pnd-");
   mkdirSync(join(home, ".pacer"), { mode: 0o700 });
   const env = { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
     PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" };
@@ -42,7 +42,7 @@ test.skipIf(!front)("test binary exposes only its feature-gated native operation
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(exit, stderr).toBe(0);
     const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
-    expect(replies[1].result).toEqual(["_debug.native", "activity.list", "config.get", "config.set", "notifications.get", "notifications.set", "routing.set", "runner.remove", "runner.reorder", "runner.set", "strategy.list", "strategy.remove", "strategy.save", "strategy.show", "strategy.use", "task.dismiss", "task.log", "task.prune", "task.restore", "test.echo"]);
+    expect(replies[1].result).toEqual(["_debug.native", "activity.list", "api.describe", "api.list", "config.get", "config.set", "delegation.pause", "delegation.resume", "dispatch.config.get", "dispatch.events", "dispatch.list", "dispatch.tree", "files.search", "host.account.add", "host.add", "host.get", "host.list", "host.remove", "host.repo.map", "host.set", "host.suggest", "limits.check", "limits.report", "machine.get", "machine.rotate", "machine.set", "mode.hold", "mode.release", "msg.inbox", "msg.log", "msg.read", "notifications.get", "notifications.set", "onboarding.skip", "project.messaging.get", "project.messaging.remove", "project.messaging.set", "repo.add", "repo.list", "repo.remove", "routing.get", "routing.route", "routing.set", "routing.status", "runner.remove", "runner.reorder", "runner.set", "runner.settings.get", "runner.settings.save", "setup.check", "snapshot.get", "strategy.list", "strategy.remove", "strategy.save", "strategy.show", "strategy.use", "task.diff", "task.dismiss", "task.get", "task.list", "task.log", "task.prune", "task.request_review", "task.restore", "task.review", "task.stop", "task.wait", "test.echo", "version.get"]);
     expect(stderr).toContain("native _debug.native");
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);

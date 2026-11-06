@@ -28,7 +28,7 @@ test("late guard honors paid permission but never a user block", () => {
   expect(executorExclusion(ctx,strategy(true),"codex")).toBe("Blocked by you");
 });
 
-test("late guard does not promote unscoped, stale or wrong-scope marks into exclusions", () => {
+test("late guard does not promote unscoped or wrong-scope marks into exclusions", () => {
   const ctx=fakeCtx(),s=strategy(),scope=accountEvidenceScope(s.accounts.codex,s.hosts);
   markExhausted(ctx,"codex",ctx.now+3600);
   expect(executorExclusion(ctx,s,"codex")).toBeUndefined();
@@ -36,8 +36,9 @@ test("late guard does not promote unscoped, stale or wrong-scope marks into excl
     markExhausted(ctx,"codex",ctx.now+3600,{scope:other});
     expect(executorExclusion(ctx,s,"codex")).toBeUndefined();
   }
+  // An older observation still excludes while its until remains in the future.
   markExhausted({...ctx,now:ctx.now-90000},"codex",ctx.now+3600,{scope});
-  expect(executorExclusion(ctx,s,"codex")).toBeUndefined();
+  expect(executorExclusion(ctx,s,"codex")).toBe("exhausted");
 });
 
 test("late guard ignores an execution marker from a retired account lifetime", () => {

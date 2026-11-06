@@ -78,5 +78,5 @@
 .pc-task-acceptance{display:flex;flex-direction:column;gap:var(--space-2)}
 
 .pc-task-now__terminal{min-width:0;border-top:1px solid var(--line);background:var(--surface-page)}
-.pc-task-now__terminal .pc-terminal-pane{height:var(--size-320);overflow:auto}
+.pc-task-now__terminal .pc-terminal-pane{height:var(--size-320);overflow:hidden}
 .pc-task-now__terminal .pc-terminal-frame{border:0;border-radius:0}

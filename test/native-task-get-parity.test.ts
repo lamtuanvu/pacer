@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
@@ -59,7 +59,7 @@ function normalize(value: unknown): unknown {
 test.skipIf(!front)("task.get matches forced forwarding with task read enrichment", async () => {
   const ctx = fakeCtx();
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
-  const task = createTask(ctx, { brief: { goal: "Goal", repo: ctx.home }, kind: null, requestedExecutor: "cursor", timeoutS: 60 });
+  const task = createTask(ctx, { brief: { goal: "Goal", repo: realpathSync(ctx.home) }, kind: null, requestedExecutor: "cursor", timeoutS: 60 });
   updateTask(ctx, task.id, row => {
     row.state = "done";
     row.executor = "cursor";

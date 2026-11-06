@@ -7,6 +7,8 @@ import { fakeCtx } from "./helpers";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
+// Agent detection must not depend on what the host has installed; keep the preload's keychain stub first.
+const agentFreePath = `${join(process.env.HOME!, "bin")}:/usr/bin:/bin`;
 
 async function exchange(home: string, forward: boolean) {
   const request = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "snapshot.get", params: {} });
@@ -14,7 +16,7 @@ async function exchange(home: string, forward: boolean) {
     env: {
       HOME: home,
       PACER_HOME: join(home, ".pacer"),
-      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      PATH: agentFreePath,
       PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1",
       PACER_NO_SELF_REPAIR: "1",
@@ -86,7 +88,7 @@ function stripVolatile(snapshot: Record<string, unknown>) {
 }
 
 test.skipIf(!front)("snapshot.get matches forced forwarding over stdio", async () => {
-  const ctx = fakeCtx();
+  const ctx = fakeCtx({ which: () => null });
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   mkdirSync(join(ctx.pacerHome, "link"), { recursive: true, mode: 0o700 });
   const reference = (await callOp(ctx, "snapshot.get", {})) as { snapshot?: Record<string, unknown> };

@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
 import { terminal } from "../src/remote/hosts";
+import type { TerminalOptions } from "../src/terminal/open";
 import { fakeCtx, tmpDir } from "./helpers";
 
 const root = join(import.meta.dir, "..");
@@ -31,12 +32,16 @@ test("host.terminal SSH argv matches Rust terminal_ssh helper", async () => {
     { mode: 0o600 },
   );
   const ctx = fakeCtx({ home: pacerHome, pacerHome });
-  const capture = async (_ctx: unknown, options: { argv: string[]; title: string }) => options;
-  const interactive = await terminal(ctx, "devbox", capture);
+  const opened: TerminalOptions[] = [];
+  const capture = async (_ctx: typeof ctx, options: TerminalOptions) => {
+    opened.push(options);
+    return { opened: true, target: "terminal" as const, command: options.argv.join(" ") };
+  };
+  await terminal(ctx, "devbox", capture);
   const rust = decisionsLine({ op: "host.terminal", alias: "devbox", ssh: "devbox", builtin: false });
-  expect(rust).toEqual({ argv: interactive.argv, title: interactive.title });
+  expect(rust).toEqual({ argv: opened[0]!.argv, title: opened[0]!.title });
 
-  const builtin = await terminal(ctx, "devbox", capture, { builtin: true });
+  await terminal(ctx, "devbox", capture, { builtin: true });
   const rustBuiltin = decisionsLine({ op: "host.terminal", alias: "devbox", ssh: "devbox", builtin: true });
-  expect(rustBuiltin).toEqual({ argv: builtin.argv, title: builtin.title });
+  expect(rustBuiltin).toEqual({ argv: opened[1]!.argv, title: opened[1]!.title });
 });

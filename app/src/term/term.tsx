@@ -100,10 +100,17 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',
    // A hidden pane (another tab is open) measures 0×0; fitting it would shrink the agent's PTY.
    if(!pane.current.clientWidth||!pane.current.clientHeight)return;
    if(client.current?.state.you){mount.current.style.transform='';mount.current.style.width='100%';mount.current.style.height='100%';if(resizeRef.current&&viewRef.current.control&&viewRef.current.live){fit.fit();client.current.resize(term.cols,term.rows);}return;}
-   // Followers preserve authoritative PTY geometry and scroll at the normal font size.
+   // Followers keep authoritative PTY geometry and share the same fill-pane chrome via CSS scale.
    mount.current.style.width=`${term.cols*term.options.fontSize!*0.61}px`;mount.current.style.height=`${term.rows*term.options.fontSize!*1.2}px`;
    const screen=mount.current.querySelector<HTMLElement>('.xterm-screen');
-   if(screen){mount.current.style.width=`${screen.offsetWidth}px`;mount.current.style.height=`${screen.offsetHeight}px`;mount.current.style.transform='';}
+   if(screen){mount.current.style.width=`${screen.offsetWidth}px`;mount.current.style.height=`${screen.offsetHeight}px`;}
+   const width=Math.max(1,mount.current.offsetWidth),height=Math.max(1,mount.current.offsetHeight);
+   // Fit the content box: clientWidth includes padding that the mount does not occupy.
+   const pad=getComputedStyle(pane.current);
+   const availW=Math.max(1,pane.current.clientWidth-parseFloat(pad.paddingLeft)-parseFloat(pad.paddingRight));
+   const availH=Math.max(1,pane.current.clientHeight-parseFloat(pad.paddingTop)-parseFloat(pad.paddingBottom));
+   const factor=Math.min(availW/width,availH/height);
+   mount.current.style.transform=factor===1?'':`scale(${factor})`;
   };
   const connection=runtime;
   const renderer={reset:(cols:number,rows:number)=>{term.reset();term.resize(cols,rows);},write:(bytes:Uint8Array)=>term.write(bytes),state:(s:SessionState)=>{setState(s);if(s.status==='exited')setExitAt(clock(Date.now()/1000,Date.now()/1000));if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}};
@@ -153,7 +160,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',
   {shell&&state.status!=='live'&&<div className="pc-terminal-connection" role="status">{mode}{['error','reconnecting'].includes(state.status)&&<Button size="sm" variant="quiet" onClick={reconnect}>Retry</Button>}</div>}
   {shell&&state.status==='live'&&!state.you&&<div className="pc-terminal-connection"><Button size="sm" variant="quiet" onClick={toggleControl}>Take control</Button></div>}
 
-  <div className={`pc-terminal-frame${state.you?' pc-terminal-frame--control':''}${footer?' pc-terminal-frame--fill':''}`}><div className="pc-terminal-pane" ref={pane} tabIndex={preview?0:undefined} role={preview?'region':undefined} aria-label={preview?'Scrollable terminal output':undefined}><div ref={mount} className="pc-terminal-mount"/></div>
+  <div className={`pc-terminal-frame${state.you?' pc-terminal-frame--control':''}${footer?' pc-terminal-frame--fill':''}`}><div className="pc-terminal-pane" ref={pane} tabIndex={preview?0:undefined} role={preview?'region':undefined} aria-label={preview?'Terminal output':undefined}><div ref={mount} className="pc-terminal-mount"/></div>
    {!footer&&!shell&&<div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{hint}</span><span>{state.cols}×{state.rows}</span>{readerToggle}</div>}
   </div>
   {shell?<>{error&&<span role="alert">{error}</span>}</>:footer?createPortal(<div className={`pc-session-control${state.you?' pc-session-control--driving':''}`}>
