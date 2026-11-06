@@ -18,7 +18,15 @@ const availability = (value: "ready" | "unavailable", validUntil: number | null 
 const budget = (usedPct: number | null, observedAt = now - 100, id = `budget-${usedPct}`) =>
   ({ id, scope, source: "provider-cli" as const, observedAt, validUntil: null, reason: "quota_observed", value: window(usedPct) });
 const spending = (paidConsumption: "observed" | "not_observed", id = `spending-${paidConsumption}`) =>
-  ({ id, scope, source: "provider-cli" as const, observedAt: now - 100, validUntil: now + 3600, reason: "spending_observed", value: { paidConsumption } });
+  ({
+    id,
+    scope,
+    source: "provider-cli" as const,
+    observedAt: now - 100,
+    validUntil: now + 3600,
+    reason: "spending_observed",
+    value: { creditsAvailable: null, creditBalance: null, paidConsumption },
+  });
 const evidence = (
   availabilityFacts: ReturnType<typeof availability>[],
   budgetFacts: ReturnType<typeof budget>[],

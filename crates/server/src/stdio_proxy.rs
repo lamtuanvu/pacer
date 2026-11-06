@@ -224,8 +224,7 @@ async fn forward_input<
                     )
                     .await
                 } else if crate::native::needs_task_clean_bridge(op.name) {
-                    let ids = crate::native::task_dismiss_ops::ids_from_params(&params);
-                    let result = match ids {
+                    match crate::native::task_dismiss_ops::ids_from_params(&params) {
                         Ok(ids) => {
                             call_native(
                                 &request_ctx,
@@ -246,8 +245,7 @@ async fn forward_input<
                             .await
                         }
                         Err(error) => Err(error),
-                    };
-                    result
+                    }
                 } else if crate::native::needs_snapshot_bridge(op.name) {
                     call_native(
                         &request_ctx,

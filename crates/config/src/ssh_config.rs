@@ -247,6 +247,7 @@ pub fn suggest_hosts(home: &Path, used_ssh: &[&str], details: bool) -> Value {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::fs;

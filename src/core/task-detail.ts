@@ -152,7 +152,10 @@ async function gitSummary(ctx: Ctx, task: TaskRecord): Promise<GitSummary> {
 }
 
 /** Git, tokens, retry options, dispatch work, activity timeline and agent-check acceptance. */
-export async function taskDetailEnrichment(ctx: Ctx, id: string): Promise<Partial<TaskDetail>> {
+export async function taskDetailEnrichment(
+  ctx: Ctx,
+  id: string,
+): Promise<Partial<TaskDetail> & { omitResultAcceptance?: boolean }> {
   const task = get(ctx, id), work = getWork(ctx, id);
   let policyError: string | undefined;
   const [changes, retryOptions] = await Promise.all([
