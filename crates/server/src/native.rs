@@ -59,6 +59,8 @@ pub(crate) mod task_read_sync;
 mod task_reads;
 pub(crate) mod task_stop_sync;
 mod task_stop_ops;
+pub(crate) mod task_wait_sync;
+mod task_wait_ops;
 
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
@@ -525,6 +527,10 @@ static OPS: &[NativeOp] = &[
         call: task_stop_ops::task_stop_stub,
     },
     NativeOp {
+        name: "task.wait",
+        call: task_wait_ops::task_wait,
+    },
+    NativeOp {
         name: "task.dismiss",
         call: task_dismiss_ops::task_dismiss_stub,
     },
@@ -986,7 +992,8 @@ mod tests {
         assert!(registry("").get("task.stop").is_some());
         assert!(registry("task.stop").get("task.stop").is_none());
         assert!(registry("").get("task.answer").is_none());
-        assert!(registry("").get("task.wait").is_none());
+        assert!(registry("").get("task.wait").is_some());
+        assert!(registry("task.wait").get("task.wait").is_none());
         assert!(registry("").get("task.retry").is_none());
         assert!(registry("").get("task.retry_all").is_none());
         assert!(registry("").get("task.retry_options").is_none());
