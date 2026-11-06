@@ -1,6 +1,6 @@
 import type { Check } from "../install/doctor";
 import type { SetupChecklist } from "../setup/checklist";
-import { diagnosticRepair, diagnosticSetupLink } from "./diagnostics";
+import { diagnosticRepair, diagnosticSetupLink, diagnosticSummary } from "./diagnostics";
 
 /** Fixed startup gate steps from the setup-health design. */
 export type SetupHealthStepId =
@@ -163,8 +163,9 @@ function attentionCount(steps: SetupHealthStep[]): number {
 
 function detailFor(id: SetupHealthStepId, checks: Check[], checklist?: SetupChecklist): string | undefined {
   if (id === "service") {
-    return checks.find(c => c.name === "Service")?.detail ??
-      checklist?.items.find(i => i.id === "service")?.detail;
+    const check = checks.find(c => c.name === "Service");
+    if (check) return diagnosticSummary(check);
+    return checklist?.items.find(i => i.id === "service")?.detail;
   }
   if (id === "detect_agents") {
     const binaries = checks.filter(c => c.name.startsWith("Binary "));
@@ -176,10 +177,15 @@ function detailFor(id: SetupHealthStepId, checks: Check[], checklist?: SetupChec
       (c.level === "warn" || c.level === "fail") &&
       (/^(Install|Skill) /.test(c.name) || c.name.startsWith("Claude ") || c.name.startsWith("Integration freshness ")),
     );
-    return bad?.detail;
+    return bad ? diagnosticSummary(bad) : undefined;
   }
   if (id === "usage_eligibility") {
-    return checklist?.items.find(i => i.id === "executor")?.detail;
+    const usage = checks.find(c => (c.level === "warn" || c.level === "fail") && c.name.startsWith("Usage "));
+    if (usage) return diagnosticSummary(usage);
+    const executor = checklist?.items.find(i => i.id === "executor");
+    if (!executor?.detail) return executor?.detail;
+    // Checklist executor detail is already product copy when present.
+    return /[#/=]|installed:|running:/.test(executor.detail) ? undefined : executor.detail;
   }
   return undefined;
 }

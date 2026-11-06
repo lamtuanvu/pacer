@@ -91,6 +91,22 @@ describe("aggregateSetupHealth", () => {
     expect(report.outcome).toBe("hard_fail");
   });
 
+  test("service detail uses diagnosticSummary instead of raw status tuples", () => {
+    const report = aggregateSetupHealth({
+      checks: [{
+        name: "Service",
+        level: "warn",
+        detail: "installed: true; running: true; healthy: false; binary matches current: false",
+      }],
+      checklist: checklist(),
+      trigger: "startup",
+      checkedAt: 1,
+    });
+    const detail = report.steps.find(s => s.id === "service")?.detail ?? "";
+    expect(detail).not.toContain("installed: true");
+    expect(detail.length).toBeGreaterThan(0);
+  });
+
   test("timed-out steps become needs_attention", () => {
     const report = aggregateSetupHealth({
       checks: [{ name: "Service", level: "ok", detail: "ok" }],

@@ -97,8 +97,20 @@ export function SetupHealthGate({
       },
       () => {
         if (!active) return;
-        setPhase("ready");
-        onReadyRef.current(null);
+        // Stay on the gate with an honest hard fail; do not silently enter the app.
+        setReport({
+          ...pendingSetupHealthReport("startup"),
+          checkedAt: Date.now() / 1000,
+          outcome: "hard_fail",
+          attentionCount: 1,
+          steps: pendingSetupHealthReport("startup").steps.map(step => ({
+            ...step,
+            state: step.id === "service" ? "failed" : "needs_attention",
+            detail: step.id === "service" ? "Setup checks could not finish. Open Diagnostics or continue anyway." : undefined,
+          })),
+          repairs: [{ kind: "open.diagnostics", label: "Open Diagnostics" }],
+        });
+        setPhase("stage");
       },
     );
     return () => { active = false; };

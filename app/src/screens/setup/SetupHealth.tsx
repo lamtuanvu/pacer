@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "preact/hooks";
 import type { SetupHealthRepair, SetupHealthReport, SetupHealthStep, SetupHealthStepState } from "../../../../src/view-model/setup-health";
 import { Alert } from "../../ds/Alert";
 import { Button } from "../../ds/Button";
@@ -55,7 +56,7 @@ export function SetupHealthChip({
   }
   if (attentionCount <= 0) return null;
   const label = `${attentionCount} fix${attentionCount === 1 ? "" : "es"} recommended`;
-  return <aside className="pc-notice pc-setup-health-chip pc-setup-health-chip--attention" aria-label="Setup needs attention">
+  return <aside className="pc-notice pc-setup-health-chip pc-setup-health-chip--attention" aria-label="Setup needs attention" role="status">
     <span>Setup · {label}</span>
     {onOpen
       ? <Button size="sm" onClick={onOpen}>Review</Button>
@@ -82,8 +83,12 @@ export function SetupHealthStage({
   const hardFail = report.outcome === "hard_fail";
   const done = !busy && report.checkedAt > 0;
   const live = report.steps.map(s => `${s.title}: ${glyph(s.state).label}`).join(". ");
+  const main = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!busy && done) main.current?.focus({ preventScroll: true });
+  }, [busy, done, report.outcome]);
 
-  return <main className="pc-setup-health" aria-busy={busy || undefined}>
+  return <main ref={main} className="pc-setup-health" aria-busy={busy || undefined} tabIndex={-1}>
     <div className="pc-setup-health__brand"><Mark size={28} /></div>
     {report.eyebrow && <p className="pc-setup-eyebrow">{report.eyebrow}</p>}
     <h1>{report.title}</h1>
