@@ -510,7 +510,7 @@ fn visible_state(task: &Value) -> Value {
     }
 }
 
-fn summarize_task(task: &Value) -> Value {
+pub(super) fn summarize_api_task(task: &Value) -> Value {
     let goal = task
         .pointer("/brief/goal")
         .and_then(Value::as_str)
@@ -619,7 +619,7 @@ pub(super) fn task_restore(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         };
         let mut store = TaskStore::open(&ctx.pacer_home).map_err(store_error)?;
         let task = store.restore(id, ctx.now).map_err(store_error)?;
-        Ok(summarize_task(&task))
+        Ok(summarize_api_task(&task))
     })
 }
 
