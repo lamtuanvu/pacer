@@ -8,7 +8,9 @@ use pacer_read_model::tasks::task_data;
 use pacer_store::{TaskStore, publish};
 use serde_json::{Map, Value, json};
 
-use super::lifecycle_ops::{invalid, object, optional_expect_rev, project_api_task, require_string, type_name};
+use super::lifecycle_ops::{
+    invalid, object, optional_expect_rev, project_api_task, require_string, type_name,
+};
 
 pub(crate) fn needs_task_review_bridge(op: &str) -> bool {
     matches!(op, "task.review")
@@ -133,7 +135,10 @@ pub(crate) fn task_review<'a>(
                 .read(&id)
                 .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
             let Some(task) = current else {
-                return Err(CoreError::new(Code::UnknownTask, format!("unknown task {id}")));
+                return Err(CoreError::new(
+                    Code::UnknownTask,
+                    format!("unknown task {id}"),
+                ));
             };
             let state = task.get("state").and_then(Value::as_str).unwrap_or("");
             if state != expected.as_str() {
@@ -150,13 +155,7 @@ pub(crate) fn task_review<'a>(
         let kind_ref = kind.as_deref();
         let note_ref = note.as_deref();
         let task = match record_review_verdict(
-            &mut store,
-            &id,
-            accepted,
-            kind_ref,
-            note_ref,
-            expect_rev,
-            ctx.now,
+            &mut store, &id, accepted, kind_ref, note_ref, expect_rev, ctx.now,
         ) {
             Ok(task) => task,
             Err(error) => return Err(map_review_error(ctx, &mut store, error)),

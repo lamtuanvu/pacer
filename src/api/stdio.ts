@@ -229,7 +229,7 @@ export async function runStdio(
           }
           const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
           const { setupCheckBridge } = await import("./setup-check-bridge");
-          result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : undefined);
+          result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false);
           break;
         }
         case "_internal.repo.bridge": {

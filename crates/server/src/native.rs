@@ -32,10 +32,10 @@ pub(crate) mod task_dismiss_ops;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
-mod task_stop_ops;
-pub(crate) mod task_stop_sync;
 mod task_review_ops;
 pub(crate) mod task_review_sync;
+mod task_stop_ops;
+pub(crate) mod task_stop_sync;
 mod task_wait_ops;
 pub(crate) mod task_wait_sync;
 
@@ -50,8 +50,8 @@ pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
-pub(crate) use task_stop_ops::needs_task_stop_bridge;
 pub(crate) use task_review_ops::needs_task_review_bridge;
+pub(crate) use task_stop_ops::needs_task_stop_bridge;
 
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
