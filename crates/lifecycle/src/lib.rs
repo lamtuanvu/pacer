@@ -67,8 +67,8 @@ pub use lineage::work_node;
 mod drain;
 mod prepared;
 mod run_spawn;
-mod wait_settled;
 mod state;
+mod wait_settled;
 pub use drain::{DrainOptions, DrainRoute, RouteAdmission, queue_preflight};
 pub use prepared::{AdmissionLifetime, PreparedAdmission};
 pub use state::AdmissionState;
@@ -81,12 +81,12 @@ mod projects;
 pub use projects::{read_project_strategies, validate_project_strategies};
 pub use record_review::{RecordReviewError, TASK_KINDS, record_review_verdict};
 pub use record_stop::{RecordStopError, record_task_stop};
-pub use wait_settled::task_wait_settled;
 pub use request_review::{RequestReviewError, request_review};
 pub use run_spawn::{
     RUN_SPAWN_OWNER, RunSpawnOwner, RunSpawnPlan, build_run_spawn_plan, runner_log_path,
     self_command, validate_run_spawn_plan,
 };
+pub use wait_settled::task_wait_settled;
 
 // Unactivated P6e decisions take snapshots and effect results; these modules
 // perform no filesystem, process or plugin work.

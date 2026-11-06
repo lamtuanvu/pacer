@@ -19,7 +19,12 @@ pub const TASK_KINDS: [&str; 11] = [
 ];
 
 const TERMINAL_STATES: [&str; 6] = [
-    "done", "partial", "failed", "limit", "stopped", "needs_input",
+    "done",
+    "partial",
+    "failed",
+    "limit",
+    "stopped",
+    "needs_input",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -167,7 +172,9 @@ mod tests {
                 now,
             )
             .unwrap();
-        let task = store.update(id, 1, now, |t| t["state"] = json!(state)).unwrap();
+        let task = store
+            .update(id, 1, now, |t| t["state"] = json!(state))
+            .unwrap();
         assert_eq!(task["rev"], 2);
         (dir, store, id.into())
     }

@@ -100,7 +100,8 @@ test.skipIf(!front)("snapshot.get matches forced forwarding over stdio", async (
     const norm = (reply: { result?: { snapshot?: Record<string, unknown> } }) =>
       normalize({ ...reply?.result, snapshot: stripVolatile(reply?.result?.snapshot ?? {}) });
     expect(norm(native)).toEqual(norm(forwarded));
-    expect(norm(native)).toEqual(normalize({ ...reference, snapshot: stripVolatile(reference.snapshot as Record<string, unknown>) }));
+    const referenceResult = reference as { snapshot?: Record<string, unknown> };
+    expect(norm(native)).toEqual(normalize({ ...referenceResult, snapshot: stripVolatile(referenceResult.snapshot ?? {}) }));
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });

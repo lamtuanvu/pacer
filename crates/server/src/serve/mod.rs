@@ -6,6 +6,10 @@ pub mod discovery;
 #[cfg(test)]
 #[path = "discovery_tests.rs"]
 mod discovery_tests;
+mod events_sse;
+#[cfg(test)]
+#[path = "events_sse_tests.rs"]
+mod events_sse_tests;
 pub mod heartbeat;
 mod js_trim;
 #[cfg(test)]
@@ -15,10 +19,6 @@ mod log_sse;
 #[cfg(test)]
 #[path = "log_sse_tests.rs"]
 mod log_sse_tests;
-mod events_sse;
-#[cfg(test)]
-#[path = "events_sse_tests.rs"]
-mod events_sse_tests;
 #[cfg(target_os = "macos")]
 mod native_bootstrap;
 #[cfg(target_os = "macos")]
@@ -219,9 +219,9 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     .to_owned();
                 state.core.target().await.map(|target| {
                     let id = id.clone();
-                    Box::pin(async move {
-                        crate::native::task_read_sync::http(Some(target), &id).await
-                    }) as pacer_foundation::api::OpFuture<'_>
+                    Box::pin(
+                        async move { crate::native::task_read_sync::http(Some(target), &id).await },
+                    ) as pacer_foundation::api::OpFuture<'_>
                 })
             } else {
                 None
@@ -406,9 +406,9 @@ pub async fn run_serve(
     let forward_log_follow = forward.split(',').any(|name| {
         js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.task_log_follow"
     });
-    let forward_events = forward.split(',').any(|name| {
-        js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.events"
-    });
+    let forward_events = forward
+        .split(',')
+        .any(|name| js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.events");
     let token = auth::ensure_token(&ctx)?;
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();

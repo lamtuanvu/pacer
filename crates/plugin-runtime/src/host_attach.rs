@@ -35,11 +35,7 @@ impl OwnerHostProvider {
         }
     }
 
-    async fn invoke_provider(
-        &mut self,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, BrokerError> {
+    async fn invoke_provider(&mut self, method: &str, params: Value) -> Result<Value, BrokerError> {
         let mut guard = self.owner.lock().await;
         if let Some(expected) = self.snapshots.values().next() {
             let current_pid = guard.find_plugin(&self.provider_id);
@@ -81,4 +77,3 @@ pub(crate) fn native_hosts_for_attach(
     let issued = attach.iter().map(|row| row.snapshot.clone());
     NativeHosts::new(OwnerHostProvider::new(owner, attach), issued)
 }
-

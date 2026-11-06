@@ -40,21 +40,20 @@ function rustRecord(
 }
 
 test("TASK_KINDS stays aligned with strategy KINDS", () => {
-  expect([...KINDS].sort()).toEqual(
-    [
-      "boilerplate",
-      "tests",
-      "docs",
-      "rename",
-      "migration",
-      "feature",
-      "debug",
-      "refactor",
-      "performance",
-      "unfamiliar-code",
-      "research",
-    ].sort(),
-  );
+  const expected = [
+    "boilerplate",
+    "tests",
+    "docs",
+    "rename",
+    "migration",
+    "feature",
+    "debug",
+    "refactor",
+    "performance",
+    "unfamiliar-code",
+    "research",
+  ] as const;
+  expect([...KINDS].sort()).toEqual([...expected].sort());
 });
 
 test("record_review_verdict matches taskReview store fields", () => {

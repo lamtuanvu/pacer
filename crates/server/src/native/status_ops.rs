@@ -113,7 +113,9 @@ fn parse_route_params(params: &Value) -> Result<Option<String>, CoreError> {
         None => Ok(None),
         Some(Value::Null) => Ok(None),
         Some(Value::String(kind)) if TASK_KINDS.contains(&kind.as_str()) => Ok(Some(kind.clone())),
-        Some(Value::String(kind)) => Err(invalid(format!("kind: Invalid enum value. Expected 'boilerplate' | 'tests' | 'docs' | 'rename' | 'migration' | 'feature' | 'debug' | 'refactor' | 'performance' | 'unfamiliar-code' | 'research', received '{kind}'"))),
+        Some(Value::String(kind)) => Err(invalid(format!(
+            "kind: Invalid enum value. Expected 'boilerplate' | 'tests' | 'docs' | 'rename' | 'migration' | 'feature' | 'debug' | 'refactor' | 'performance' | 'unfamiliar-code' | 'research', received '{kind}'"
+        ))),
         Some(other) => Err(invalid(format!(
             "kind: Invalid input: expected string, received {}",
             type_name(other)

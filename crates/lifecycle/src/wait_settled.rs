@@ -2,7 +2,12 @@
 use serde_json::Value;
 
 const TERMINAL_STATES: [&str; 6] = [
-    "done", "partial", "failed", "limit", "stopped", "needs_input",
+    "done",
+    "partial",
+    "failed",
+    "limit",
+    "stopped",
+    "needs_input",
 ];
 
 fn terminal(task: &Value) -> bool {
@@ -14,7 +19,11 @@ fn terminal(task: &Value) -> bool {
 /// Returns true when `taskWait` would return the current record (ignoring deadline
 /// and missing-task cases). Agent-session inputs mirror `agentChecksPending` and
 /// `activeAgentSessions(...).some(s => s.task_id === id)`.
-pub fn task_wait_settled(task: &Value, agent_checks_pending: bool, agent_session_active: bool) -> bool {
+pub fn task_wait_settled(
+    task: &Value,
+    agent_checks_pending: bool,
+    agent_session_active: bool,
+) -> bool {
     terminal(task) && !agent_checks_pending && !agent_session_active
 }
 

@@ -330,15 +330,17 @@ impl CallAuthority {
         self.worktree_used = true;
         Ok(())
     }
-    pub fn consume_executor_claim(&mut self, task_id: &str, attempt: u64) -> Result<(), AuthorityError> {
+    pub fn consume_executor_claim(
+        &mut self,
+        task_id: &str,
+        attempt: u64,
+    ) -> Result<(), AuthorityError> {
         self.granted("process.spawn")?;
-        let issued = self.resources.executor_claim.as_ref().ok_or_else(|| {
-            AuthorityError::Denied("executor run claim was not issued".into())
-        })?;
-        if self.executor_claim_used
-            || issued.task_id != task_id
-            || issued.attempt != attempt
-        {
+        let issued =
+            self.resources.executor_claim.as_ref().ok_or_else(|| {
+                AuthorityError::Denied("executor run claim was not issued".into())
+            })?;
+        if self.executor_claim_used || issued.task_id != task_id || issued.attempt != attempt {
             return Err(AuthorityError::Denied(
                 "executor run claim was not issued".into(),
             ));
