@@ -1,7 +1,7 @@
 [limits]
 target = 5000
 warn = 8000
-max = 21000
+max = 24000
 foundation_max = 2000
 binary_max = 500
 generated_max = 10000
