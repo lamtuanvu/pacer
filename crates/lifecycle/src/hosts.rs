@@ -478,6 +478,37 @@ pub fn clean(c: &Value) -> Value {
         json!({"removed":removed,"kept":kept})
     }
 }
+/// Configured host summaries from strategy hosts plus injected runtime snapshots.
+pub fn list(c: &Value) -> Value {
+    let Some(hosts) = c["hosts"].as_object() else {
+        return json!([]);
+    };
+    let mut rows = Vec::with_capacity(hosts.len());
+    for (alias, host) in hosts {
+        let reachability = c["reachabilityByAlias"]
+            .get(alias)
+            .or_else(|| c.get("reachability"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let stored = c["storedByAlias"]
+            .get(alias)
+            .or_else(|| c.get("stored"))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        rows.push(summary(&json!({
+            "alias": alias,
+            "host": host,
+            "reachability": reachability,
+            "stored": stored,
+            "jobs": c["jobs"],
+            "runners": c["runners"],
+            "repos": c["repos"],
+            "tasks": c["tasks"],
+        })));
+    }
+    json!(rows)
+}
+
 pub fn summary(c: &Value) -> Value {
     let host = &c["host"];
     let alias = &c["alias"];
