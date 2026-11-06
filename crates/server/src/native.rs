@@ -159,6 +159,10 @@ static OPS: &[NativeOp] = &[
         call: host_mut_ops::host_repo_map,
     },
     NativeOp {
+        name: "host.account.add",
+        call: host_mut_ops::host_account_add,
+    },
+    NativeOp {
         name: "config.set",
         call: config_writes::config_set,
     },
@@ -552,6 +556,7 @@ mod tests {
             "host.set",
             "host.remove",
             "host.repo.map",
+            "host.account.add",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -651,6 +656,7 @@ mod tests {
             "host.set",
             "host.remove",
             "host.repo.map",
+            "host.account.add",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",

@@ -2,7 +2,7 @@
 //! stay on the shared P2-C bridge. `host.set` composes its summary via the host-read bridge.
 #![allow(clippy::result_large_err)]
 use pacer_config::{
-    host::{HostEdit, save_host},
+    host::{HostEdit, account_login_command, save_host},
     strategy::{load_strategy, strategy_path},
 };
 use pacer_foundation::{
@@ -99,6 +99,46 @@ pub(super) fn host_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         save_host(&path, &name, HostEdit::Remove { alias })
             .map_err(|e| host_error("host.remove", &e.to_string()))?;
         Ok(json!({"removed": true}))
+    })
+}
+
+pub(super) fn host_account_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        let p = config_params::parse("host.account.add", params)?;
+        let alias = p["alias"].as_str().unwrap_or("");
+        let account = p["account"].as_str().unwrap_or("");
+        let home = p["home"].as_str().unwrap_or("").trim();
+        if home.is_empty() {
+            return Err(invalid("home is required"));
+        }
+        let strategy = load_strategy(&ctx.pacer_home)
+            .map_err(|e| host_error("host.account.add", &e.to_string()))?;
+        host_cfg(&strategy, alias)?;
+        let kind = strategy["accounts"]
+            .get(account)
+            .and_then(|a| a.get("kind"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !matches!(kind, "codex" | "claude") {
+            return Err(invalid(
+                "host account must be a configured codex or claude account",
+            ));
+        }
+        let command = account_login_command(kind, home)
+            .ok_or_else(|| invalid("host account must be a configured codex or claude account"))?;
+        let (strategy_path, name) = strategy_path(&ctx.pacer_home)
+            .map_err(|e| host_error("host.account.add", &e.to_string()))?;
+        save_host(
+            &strategy_path,
+            &name,
+            HostEdit::MapAccount {
+                alias,
+                account,
+                home,
+            },
+        )
+        .map_err(|e| host_error("host.account.add", &e.to_string()))?;
+        Ok(json!({"command": command}))
     })
 }
 

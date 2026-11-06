@@ -275,6 +275,11 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
             ("key", id(), false),
             ("path", String(1, None), false),
         ]),
+        "host.account.add" => object(vec![
+            ("alias", id(), false),
+            ("account", id(), false),
+            ("home", String(1, None), false),
+        ]),
         "host.set" => object(vec![
             ("alias", id(), false),
             ("max_tasks", IntegerBounds(1.0, 16.0), true),

@@ -8,11 +8,12 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | --- | --- | --- |
 | `config.get` | Native (P2) | Pure keys/sources via `pacer_config::settings::get_settings`; Core supplies filtered terminal choices, machine guard/slots and planner candidates through `/_internal/config-host-parts` (serve) or `_internal.config-host.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns terminal detection, slot sampling and planner discovery. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `config.set` | Native (P2-E) | Pure keys use `pacer_config::settings::set_setting` plus the P3-B publisher. `planner` and `execution.backend` selectively forward to TypeScript for install/uninstall and backend readiness. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `host.account.add` | Forwarded | SSH account configuration and host adapter dependencies remain in TypeScript. |
+| `host.account.add` | Native (P2-D) | `pacer-config::host` maps `hosts.<alias>.accounts.<account>.home` and returns the login command (`account_login_command`); native callers retain endpoint sync and `hosts` publication. No SSH or host-adapter I/O. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.add`, `host.set`, `host.remove`, `host.repo.map` | Native (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Native callers retain the private TypeScript endpoint-plugin synchronization bridge (`finishNativeConfigEdit`), publish the `hosts` area, and record `host.set` pause activity in Rust. `host.set` composes its summary via the host-read bridge after sync. Plugin-owned SSH execution stays forwarded. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.suggest` | Native (P2-D) | `pacer-config::ssh_config` reads `~/.ssh` aliases (Includes, HostName, no shell execution) and filters configured host `ssh` targets from `load_strategy`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.list`, `host.get` | Native (P2-D) | `pacer-lifecycle::hosts::list` / `detail` compose summaries and detail rows once Core supplies reachability, check caches, jobs, runners, repos and tasks through `/_internal/host-read-parts` (serve) or `_internal.host-read.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns live task/job/reachability reads and read-model executors for `host.get`. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `host.check`, `host.clean`, `host.terminal`, `host.repo.setup` | Forwarded (P2-D) | Plugin-owned SSH execution, clone/identity/cleanup grants and jobs remain in TypeScript. |
+| `host.check`, `host.clean`, `host.repo.setup` | Forwarded (P2-D) | Plugin SSH grants, job orchestration and effectful clone/identity/cleanup stay in TypeScript. Library: `pacer-lifecycle::hosts::{check,setup,clean,setup_plan,validate_clone_preview}` over injected probe/task snapshots (no shell). |
+| `host.terminal` | Forwarded (P2-D) | Terminal open (`openInTerminal` / builtin registry) stays in TypeScript. Library: `pacer-lifecycle::hosts::terminal_ssh` owns SSH argv/title only; it does not open a session. |
 | `runner.settings.get`, `runner.settings.save` | Native (P2-D) | Native callers use `pacer-config::executor_settings` under the shared `executor-settings` lock; saves publish the `runners` area via the P3-B publisher (matching TS `mutation(..., "runners", ...)`). No endpoint-plugin sync (unlike `runner.set` / `remove`). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `repo.list`, `repo.add` | Native (P2-D) | Rust validates params; registry listing with branch reads and git registration stay on Core through `/_internal/repo-bridge` / `_internal.repo.bridge` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns path-probe, git identity and branch listing. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `repo.remove` | Native (P2-D, selective) | `pacer-config::repos::remove_repo` owns registry/alias file effects under the shared `repos` lock when the on-disk JSON matches the supported shape. Legacy or unusual registries selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -180,6 +181,22 @@ TypeScript still supplies live task/job/reachability/check reads and read-model
 executors for detail. SSH-exec host ops remain forwarded. Cross-runtime coverage:
 `test/ssh-config-parity.test.ts`, `test/host-read-parity.test.ts`, and
 `cargo test -p pacer-config ssh_config`.
+
+## P2-D SSH/plugin host ops triage (library + native account map)
+
+P2-D evaluated `host.account.add`, `host.check`, `host.clean`, `host.terminal`
+and `host.repo.setup` for the largest safe native registration. Only
+`host.account.add` met parity without SSH execution: Rust maps the account home
+in strategy YAML and returns the login command (`pacer-config::host::
+account_login_command`) with endpoint sync and `hosts` publication matching other
+host mutations. `host.check`, `host.repo.setup` and `host.clean` need plugin SSH
+grants, job runners, transfer gates and effectful remote git/identity/cleanup still
+owned by TypeScript; decision logic over injected probes/tasks lives in
+`pacer-lifecycle::hosts::{check,setup,clean,setup_plan,validate_clone_preview}`.
+`host.terminal` needs Core terminal openers; Rust owns SSH argv/title only via
+`terminal_ssh`. Cross-runtime coverage: `test/p6e-parity.test.ts` (check/setup/clean),
+`test/host-account-native-parity.test.ts`, `test/host-ssh-lib-parity.test.ts`, and
+`cargo test -p pacer-lifecycle terminal_tests`.
 
 ## P6d stop/wait triage (library + selective native stop)
 
@@ -436,7 +453,7 @@ The complete pure setter allow-list is `execution.auto_clean`,
 | Machine guard and current task slots | TypeScript samples pressure/load and slot use; native `config.get` reads the composed `machine` row from the bridge. Rust `machine_host_fields` accepts injected signals + `used` (no sysctl) for library/tests. |
 | Planner candidates | TypeScript discovers compatible planner accounts; native `config.get` reads the list from the bridge. Rust accepts the candidate list as a host field for library/tests. |
 | App/link `terminal.open` presets | Cookie-authenticated HTTP sets `PACER_TERMINAL_PRESETS_ONLY=1` on the request context so native pure-key writes match TypeScript `terminalPresetsOnly`. |
-| `host.account.add` | The full operation, host adapter dependencies and SSH account-folder configuration remain in TypeScript. |
+| `host.account.add` | Native YAML map + login command; no SSH or host-adapter probes. |
 | Host YAML edits (`host.add` / `set` / `remove` / `repo.map`) | Native: `pacer-config::host` plus P2-C endpoint sync, `hosts` publication and pause activity (`host.set` summary via host-read bridge). |
 | `runner.settings.*` | Native: library CAS + `executor-settings` lock + `runners` publication. Endpoint sync is not required for these ops. |
 | `repo.list` / `repo.add` | Native param validation; path probe, git identity and branch listing stay on Core via the repo bridge. |
