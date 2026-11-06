@@ -19,6 +19,8 @@ pub(crate) mod host_mut_sync;
 mod host_read_ops;
 pub(crate) mod host_read_sync;
 mod lifecycle_ops;
+mod machine_identity;
+mod machine_ops;
 mod meta_ops;
 pub(crate) mod msg_ops;
 pub(crate) mod p8_bridge_ops;
@@ -51,6 +53,8 @@ pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
+#[doc(hidden)]
+pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
@@ -277,15 +281,15 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "machine.get",
-        call: p8_bridge_ops::bridge_stub,
+        call: machine_ops::machine_get,
     },
     NativeOp {
         name: "machine.set",
-        call: p8_bridge_ops::bridge_stub,
+        call: machine_ops::machine_set,
     },
     NativeOp {
         name: "machine.rotate",
-        call: p8_bridge_ops::bridge_stub,
+        call: machine_ops::machine_rotate,
     },
     NativeOp {
         name: "files.search",
