@@ -3,7 +3,8 @@
 //! review/ask remain forwarded: policy, spawn, supervision, messaging and session
 //! gates stay on TypeScript. P6b/`run_spawn` pins the `_run` plan; P6c adds
 //! store-only `record_review_verdict` (accept/reject fields) without registering
-//! `task.review`.
+//! `task.review`. P6d adds `record_task_stop` and `task_wait_settled` without
+//! registering `task.stop` or `task.wait`.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
