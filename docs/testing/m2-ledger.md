@@ -86,6 +86,22 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `desktop.reconcile.status`, `desktop.reconcile.request`, `desktop.reconcile.cancel` | Forwarded (P8/P9) | Service reconciliation assessment and (future) native-proof request/cancel stubs (`src/api/ops-desktop-reconciliation.ts`); `request`/`cancel` remain unavailable until reconciliation is implemented. |
 | `discovery.list`, `discovery.network.get` | Forwarded (P8) | LAN discovery state reads: radio availability, found machines (cap 100), per-network advertising rows and revision counters (`src/api/ops-discovery.ts`, `src/discovery/`). |
 | `discovery.set`, `discovery.respond`, `discovery.network.set` | Forwarded (P8) | Machine-local discovery mutations with `expect_rev`, config publication and attention re-derivation; `respond` pair may hand over to a pairing plugin (`src/discovery/handover.ts`). Executor sessions refuse set/respond/network.set via caller policy. |
+| `assistant.status`, `assistant.candidates` | Forwarded (P7/P8) | Availability, selected endpoint account, planner pacing refusal, daily limits/usage and candidate endpoint accounts with fixed read-tool summary (`src/api/ops-assistant.ts`, `src/assistant/service.ts`). Executor sessions get `not_allowed` via caller policy. |
+| `assistant.settings.get`, `assistant.settings.set` | Forwarded (P7/P8) | Assistant SQLite settings (runner/account, limits, retention) with revision-guarded writes and config-area effects (`src/assistant/store.ts`, `saveSettings`). |
+| `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete` | Forwarded (P7/P8) | Conversation history pagination and turn reads; deletes drop text while retaining usage aggregates (`src/assistant/store.ts`). |
+| `assistant.ask`, `assistant.cancel` | Forwarded (P7/P8) | Turn lifecycle: redacted read-tool loop, bundled `pacer-assistant` plugin `respond`, checkpointing and SSE answer stream at `/v3/assistant/turns/<turnId>/stream` (`src/assistant/service.ts`, `src/api/http.ts`). Proposed actions stay client-confirmed; nothing executes from the turn itself. |
+| `assistant.card.record`, `assistant.card.refresh` | Forwarded (P7/P8) | Action-card outcome recording and task-revision refresh for proposed ops the app runs separately (`src/assistant/actions.ts`, `buildCard`). |
+| `account.list` | Forwarded (P7/P9) | Account inventory with usage/sign-in commands and no emails (`src/core/accounts.ts`). |
+| `account.signin` | Forwarded (P7/P9) | Opens provider login in a terminal/tmux/Orca target or returns the command; interactive account-add/init flows share the handler (`src/api/ops.ts`, `accounts.signin`). |
+| `account.add`, `account.edit`, `account.adopt`, `account.remove` | Forwarded (P7/P9) | Strategy `accounts` mutations: Claude/Codex homes, managed endpoints and OpenCode adoption with endpoint-plugin sync, protected-path home deletion and runner references (`src/endpoints/`, `src/core/accounts.ts`). |
+| `account.models`, `account.test` | Forwarded (P7/P9) | Supplied-key or stored-key model discovery and isolated endpoint test tasks in a temporary git repo (`endpoints.listModels`, `testEndpoint`). |
+| `account.usage.check` | Forwarded (P5/P9) | Quota-consuming usage observation jobs per account (Claude consent gate), plugin/CLI reads and warmed status via `usageRefreshDone` (`src/core/account-usage-check.ts`, `src/usage/`). |
+| `terminal.list`, `terminal.create`, `terminal.rename`, `terminal.close` | Forwarded (P7) | Built-in workspace terminal tabs: idempotent shell spawn, revision-guarded rename/close and live state reads (`src/api/ops-terminal.ts`, `src/terminal/workspace.ts`). Refused for executor sessions. |
+| `agent.detect`, `agent.preview` | Forwarded (P9) | Agent CLI detection and integration preview/undo command before consent (`src/setup/`, `detectAgents`). |
+| `agent.connect`, `agent.disconnect` | Forwarded (P9) | Consent-gated integration file writes and recorded undo disconnect under the `setup` config area (`setup.agentConnect`, `agentDisconnect`). |
+| `service.install`, `service.status` | Forwarded (P9) | Login-item/service install with explicit consent and install/running/pid status probes (`src/setup/service.ts`). |
+| `service.handover`, `service.work` | Forwarded (P9) | Post-upgrade runner handover wait and running-task/session version inventory for reopen prompts (`src/setup/service.ts`, owner-only handover). |
+| `update.check`, `update.apply` | Forwarded (P9) | Release feed check (optional force) and shared `update.apply` job with download/verify/replace/refuse package-manager and source installs (`src/api/ops.ts`, update preflight). |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
@@ -192,6 +208,19 @@ does not register native handlers. Native cutover waits on P6 spawn ownership,
 P5 observation/broker bridges, and a messaging read model. v3-only `tree.status`
 and `liveness.status` (`src/api/ops-msg.ts`) remain under the `tree.*` prefix
 row until separately triaged.
+
+## P7/P9 assistant, account, terminal, agent, service and update triage (ledger, no new native ops)
+
+This slice evaluated all twelve public `assistant.*`, nine `account.*`, four
+`terminal.*`, four `agent.*`, four `service.*`, and two `update.*` operations
+for native registration. None met parity without the assistant plugin respond
+path and read-tool whitelist, endpoint-plugin synchronization and key handling,
+usage observation jobs, workspace terminal spawn/supervision, setup/service
+install probes, agent integration file effects, or the shared update job pipeline
+still owned by TypeScript. No operation is trivially pure read/write on static
+config alone. This slice only expands the ledger with explicit Forwarded rows;
+it does not register native handlers. Native cutover waits on plugin host
+ownership, usage refresh bridges, and P9 setup/service owners.
 
 ## P5b usage refresh triage (library, no new native ops)
 
@@ -399,16 +428,11 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | Prefix | Count | Owner stream | Notes |
 | --- | ---: | --- | --- |
 | `task.*` | 12 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+9 more); `list` and `request_review` native above |
-| `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
 | `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
-| `account.*` | 9 | P7/P9 | e.g. `account.add`, `account.adopt`, `account.edit` (+6 more) |
 | `client.*` | 9 | P6 | e.g. `client.control.claim`, `client.control.complete`, `client.control.enroll` (+6 more) |
 | `project.*` | 7 | P2 | e.g. `project.messaging.get`, `project.messaging.remove`, `project.messaging.set` (+4 more) |
 | `runner.*` | 5 | P2 | `add`/`block`/`unblock`/`check`/`list` stay TS (`set`/`reorder`/`remove`/`settings.*` native above) |
-| `agent.*` | 4 | P9 | e.g. `agent.connect`, `agent.detect`, `agent.disconnect` (+1 more) |
-| `service.*` | 4 | P9 | e.g. `service.handover`, `service.install`, `service.status` (+1 more) |
 | `strategy.*` | 4 | P2 | e.g. `strategy.build`, `strategy.list`, `strategy.preview` (+1 more) |
-| `terminal.*` | 4 | P7 | e.g. `terminal.close`, `terminal.create`, `terminal.list` (+1 more) |
 | `executor.*` | 3 | P6 | e.g. `executor.setup.candidates`, `executor.setup.connect`, `executor.setup.models` |
 | `job.*` | 3 | P6 | e.g. `job.cancel`, `job.get`, `job.list` |
 | `machine.*` | 0 | P8 | native above |
@@ -417,13 +441,12 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `issue.*` | 2 | P8 | e.g. `issue.import`, `issue.search` |
 | `onboarding.*` | 1 | P9 | `onboarding.try` stays forwarded |
 | `setup.*` | 1 | P9 | `setup.init` stays forwarded |
-| `update.*` | 2 | P9 | e.g. `update.apply`, `update.check` |
 | `doctor.*` | 1 | P9 | `doctor.run` forwarded (see table) |
 | `files.*` | 0 | P8 | native above |
 | `insights.*` | 1 | P5 | e.g. `insights.summary` |
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 
-Total unregistered (not in the detailed table): **103**.
+Total unregistered (not in the detailed table): **68**.
 Total still not native (v3 − native set): **184**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
