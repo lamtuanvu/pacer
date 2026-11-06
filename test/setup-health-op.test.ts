@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp, opNames } from "../src/api/ops";
 import { V3_ONLY_OPS } from "../src/api/v2-compat";
-import { readSetupHealthPass, writeSetupHealthPass } from "../src/install/setup-health-store";
+import { markSetupHealthRequired, readSetupHealthPass, writeSetupHealthPass } from "../src/install/setup-health-store";
 import { currentVersion } from "../src/update/version";
 import type { SetupHealthFingerprint } from "../src/view-model/setup-health";
 import { fakeCtx } from "./helpers";
@@ -116,4 +116,18 @@ test("setup.health skipFullWindow requires a matching previous pass and zero att
   expect(forced.skipFullWindow).toBe(false);
   expect(forced.trigger).toBe("update");
   expect(forced.eyebrow).toBe("After update · checking setup");
+});
+
+test("setup.health respects a post-update required stamp without an explicit update trigger", async () => {
+  const ctx = fakeCtx({ which: () => null });
+  strategy(ctx);
+  markSetupHealthRequired(ctx);
+  const result = await callOp(ctx, "setup.health", { trigger: "startup" }) as {
+    skipFullWindow: boolean;
+    trigger: string;
+    eyebrow?: string;
+  };
+  expect(result.skipFullWindow).toBe(false);
+  expect(result.trigger).toBe("update");
+  expect(result.eyebrow).toBe("After update · checking setup");
 });
