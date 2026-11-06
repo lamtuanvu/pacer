@@ -1,11 +1,13 @@
 //! Task admission contracts, safe store-only lifecycle ops, and P6e decisions.
-//! Runner/_run-dependent task ops stay forwarded until P6c; P6b records the `_run`
-//! spawn plan (`run_spawn`) while TypeScript remains the effectful owner.
+//! Runner/_run-dependent task ops stay forwarded after P6c; P6b records the `_run`
+//! spawn plan (`run_spawn`) while TypeScript remains the effectful owner; P6c
+//! adds store-only `record_review_verdict` for accept/reject fields.
 mod brief;
 mod capacity;
 mod dependencies;
 mod json;
 mod lineage;
+mod record_review;
 mod request_review;
 mod schema;
 mod semantics;
@@ -73,10 +75,11 @@ mod mutation;
 pub use mutation::MutationError;
 mod projects;
 pub use projects::{read_project_strategies, validate_project_strategies};
+pub use record_review::{RecordReviewError, TASK_KINDS, record_review_verdict};
 pub use request_review::{RequestReviewError, request_review};
 pub use run_spawn::{
     RUN_SPAWN_OWNER, RunSpawnOwner, RunSpawnPlan, build_run_spawn_plan, runner_log_path,
-    self_command,
+    self_command, validate_run_spawn_plan,
 };
 
 // Unactivated P6e decisions take snapshots and effect results; these modules
