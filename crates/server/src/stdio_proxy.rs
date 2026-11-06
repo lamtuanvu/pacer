@@ -341,34 +341,6 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
-                && !crate::native::msg_answer_stays_forwarded(op.name, ctx, &params)
-                && !crate::native::repo_registry_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::desktop_reconcile_stays_forwarded(op.name)
-                && !crate::native::assistant_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::dependencies_waive_stays_forwarded(op.name, &params)
-                && !crate::native::insights_stays_forwarded(op.name, &params)
-                && !crate::native::planning_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::dispatch_lifecycle_stays_forwarded(
-                    &ctx.at_now(),
-                    op.name,
-                    &params,
-                )
-                && !crate::native::job_strategy_setup_stays_forwarded(
-                    &ctx.at_now(),
-                    op.name,
-                    &params,
-                )
-                && !crate::native::runner_attention_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::service_agent_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::account_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::host_stays_forwarded(&ctx.at_now(), op.name, &params)
-                && !crate::native::strategy_settings_stays_forwarded(
-                    &ctx.at_now(),
-                    op.name,
-                    &params,
-                )
-                && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
                 if crate::native::msg_writes::uses_bridge(op.name) {
@@ -1120,78 +1092,54 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         env: &env,
         value: tokio::sync::OnceCell::new(),
     };
+    let mut child = Command::new(program)
+        .args(prefix)
+        .args(["api", "--stdio"])
+        .envs(&env)
+        .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()?;
+    let input = child
+        .stdin
+        .take()
+        .ok_or_else(|| io::Error::other("missing core stdin"))?;
+    let output = child
+        .stdout
+        .take()
+        .ok_or_else(|| io::Error::other("missing core stdout"))?;
+    let out = Mutex::new(tokio::io::stdout());
     let mut ctx = Ctx::from_env();
     // Only the HTTP front door may assert how a message caller authenticated.
     ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
-    // The core child's env fixes who owns plugin processes for this connection.
-    let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work).await?;
-    let (link, frames) = PluginLink::new(&sync_id, &sync_key);
-    if let Some(reports) = ownership.crash_reports() {
-        let ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> = link.clone();
-        tokio::spawn(crate::native::plugins::deliver_crashes(
-            reports,
-            move || {
-                let ipc = ipc.clone();
-                async move { Some((ipc, String::new())) }
-            },
-        ));
-    }
-    let mut plugins = Plugins {
-        service: std::sync::Arc::clone(&ownership.service),
-        link,
-        frames,
-        tasks: tokio::task::JoinSet::new(),
-        ids: HashMap::new(),
-    };
-    let session = async {
-        let mut command = Command::new(program);
-        let mut child = host_socket
-            .apply(command.args(prefix).args(["api", "--stdio"]).envs(&env))
-            .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()?;
-        let input = child
-            .stdin
-            .take()
-            .ok_or_else(|| io::Error::other("missing core stdin"))?;
-        let output = child
-            .stdout
-            .take()
-            .ok_or_else(|| io::Error::other("missing core stdout"))?;
-        let out = Mutex::new(tokio::io::stdout());
-        let link = std::sync::Arc::clone(&plugins.link);
-        let incoming = forward_input(
-            BufReader::new(tokio::io::stdin()),
-            input,
-            &out,
-            &ctx,
-            &registry,
-            (&sync_id, &sync_key, &mut sync_rx),
-            &core_build,
-            &mut plugins,
-        );
-        let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx, &link);
-        tokio::pin!(incoming, outgoing);
-        let mut input_done = false;
-        let mut output_done = false;
-        loop {
-            tokio::select! {
-                result = &mut incoming, if !input_done => {
-                    result?;
-                    input_done = true;
-                }
-                result = &mut outgoing, if !output_done => {
-                    result?;
-                    output_done = true;
-                }
-                status = child.wait() => {
-                    if !output_done {
-                        outgoing.await?;
-                    }
-                    return Ok(status?.code().unwrap_or(1));
+    let incoming = forward_input(
+        BufReader::new(tokio::io::stdin()),
+        input,
+        &out,
+        &ctx,
+        &registry,
+        (&sync_id, &sync_key, &mut sync_rx),
+        &core_build,
+    );
+    let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx);
+    tokio::pin!(incoming, outgoing);
+    let mut input_done = false;
+    let mut output_done = false;
+    loop {
+        tokio::select! {
+            result = &mut incoming, if !input_done => {
+                result?;
+                input_done = true;
+            }
+            result = &mut outgoing, if !output_done => {
+                result?;
+                output_done = true;
+            }
+            status = child.wait() => {
+                if !output_done {
+                    outgoing.await?;
                 }
             }
         }
