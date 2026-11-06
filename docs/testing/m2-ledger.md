@@ -48,7 +48,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `routing.route` | Native (P5d, selective) | Broker-backed `usage_broker::routing_route` / `status::rank_route` when params omit `goal` and `repo`. Params with `goal` (classifier) or `repo` (project policy + remote eligibility) selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6e-run+) | P6b/P6e-run `run_spawn` pins and guards the `_run` plan; P6c found no native registration with parity (policy, prepared admission, work grants, messaging turns, effectful spawn). Do not register until spawn+admission parity lands. |
+| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6f+) | P6b/P6e-run `run_spawn` pins and guards the `_run` plan; P6c/P6d store-only slices; P6f adds `delegate_admission` / `prepare_delegate_admission` parity with `prepareDelegate` (amendment mapping, host snapshot, `PreparedAdmission`) without plugin policy, work grants, messaging or effectful spawn. |
 | `task.stop` | Native (P6, selective) | Rust `record_task_stop` owns store CAS + task outbox publication; Core supplies runner liveness, signal/host stop, live-worker release and settle activity through `/_internal/task-stop-probe` / `/_internal/task-stop-effects` (stdio `_internal.task-stop.probe` / `.effects`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). Selectively forwards when the probe reports managed work or a live agent session / pending checks (same as TypeScript `stopWork` / agent-session gates). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.ask` | Forwarded (P6d+) | P6d library only; public op still needs messaging and supervision beyond store fields. |
 | `task.wait` | Native (P6, selective) | When `task_wait_settled` already holds (Core `taskWaitProbe`: terminal state without agent-session or pending-check holds), Rust returns the summarized task immediately via `summarize_api_task`. Active tasks forward for queue drain, runner supervision and agent waits (`/_internal/task-wait-probe`, stdio `_internal.task-wait.probe`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -211,6 +211,23 @@ characterization goldens. Cross-runtime coverage: `test/session-params-parity.te
 session ops waits on a full native vt100 replay **GO**, a session host owner, and
 the P6 spawn/policy bridges. Session WebSocket and `/v3/.../session` routes remain
 forwarded; do not register them while the replay gate is **NO-GO**.
+
+## P6f prepared delegate admission (library, no new native ops)
+
+P6f evaluated `task.delegate` for native registration after P6b–P6d. Public
+cutover still needs live plugin `policy.before`, work-grant and work-sync
+validation, `commitDelegate` store/queue mutation, `launchTaskRunner` effectful
+spawn and messaging turns owned by TypeScript. The incremental library step is
+`pacer-lifecycle::delegate_admission`: `map_policy_amendment` and
+`DelegateAdmissionSnapshot` mirror `prepareDelegate` / `prepareCreationAdmission`
+host snapshot and amendment mapping; `prepare_delegate_admission` composes brief
+parse, `validate_current`, runner resolution and `PreparedAdmission::prepare_delegate`
+with injected policy. Cross-runtime coverage:
+`test/prepared-admission-parity.test.ts`,
+`test/fixtures/task-admission/prepared-admission-goldens.json`, and
+`cargo test -p pacer-lifecycle prepared_admission`. Native registration waits on
+host snapshot bridges (repo identity, exclusions, parent/work lineage), work-sync
+grants and a NativeSupervisor `_run` owner.
 
 ## P6e dispatch and messaging triage (ledger, no new native ops)
 

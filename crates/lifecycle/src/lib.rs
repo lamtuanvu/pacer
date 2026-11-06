@@ -1,4 +1,6 @@
 //! Task admission contracts, safe store-only lifecycle ops, and P6e decisions.
+//! P6f adds prepared-delegate orchestration (`delegate_admission`) aligned with
+//! `prepareDelegate` / `prepareCreationAdmission` without registering `task.delegate`.
 //! Runner/_run-dependent task ops stay forwarded after P6c; P6b records the `_run`
 //! spawn plan (`run_spawn`) while TypeScript remains the effectful owner; P6e-run
 //! adds lease resolution, drain guards and a gated ProcessOwner spawn spec; P6c
@@ -68,11 +70,16 @@ pub fn validate_input_json(
 pub use dependencies::pending_dependencies;
 pub use lineage::work_node;
 mod drain;
+mod delegate_admission;
 mod prepared;
 mod run_spawn;
 mod state;
 mod wait_settled;
 pub use drain::{DrainOptions, DrainRoute, RouteAdmission, queue_preflight};
+pub use delegate_admission::{
+    DelegateAdmissionSnapshot, PolicyAmendment, admission_context_same, map_policy_amendment,
+    prepare_delegate_admission,
+};
 pub use prepared::{AdmissionLifetime, PreparedAdmission};
 pub use state::AdmissionState;
 mod strategy;
