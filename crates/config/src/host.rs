@@ -124,8 +124,8 @@ pub fn shell_quote(value: &str) -> String {
 
 /// Login command returned by `host.account.add`; no SSH or host adapter I/O.
 pub fn account_login_command(kind: &str, home: &str) -> Option<String> {
-    let folder = if home.starts_with("~/") {
-        format!("~/{}", shell_quote(&home[2..]))
+    let folder = if let Some(rest) = home.strip_prefix("~/") {
+        format!("~/{}", shell_quote(rest))
     } else {
         shell_quote(home)
     };

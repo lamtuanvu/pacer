@@ -31,12 +31,16 @@ test("host.terminal SSH argv matches Rust terminal_ssh helper", async () => {
     { mode: 0o600 },
   );
   const ctx = fakeCtx({ home: pacerHome, pacerHome });
-  const capture = async (_ctx: unknown, options: { argv: string[]; title: string }) => options;
-  const interactive = await terminal(ctx, "devbox", capture);
+  let captured: { argv: string[]; title: string } | undefined;
+  const capture = async (_ctx: unknown, options: { argv: string[]; title: string }) => {
+    captured = options;
+    return { opened: true, target: "none" as const, command: options.argv.join(" ") };
+  };
+  await terminal(ctx, "devbox", capture as typeof import("../src/terminal/open").openInTerminal);
   const rust = decisionsLine({ op: "host.terminal", alias: "devbox", ssh: "devbox", builtin: false });
-  expect(rust).toEqual({ argv: interactive.argv, title: interactive.title });
+  expect(rust).toEqual(captured);
 
-  const builtin = await terminal(ctx, "devbox", capture, { builtin: true });
+  await terminal(ctx, "devbox", capture as typeof import("../src/terminal/open").openInTerminal, { builtin: true });
   const rustBuiltin = decisionsLine({ op: "host.terminal", alias: "devbox", ssh: "devbox", builtin: true });
-  expect(rustBuiltin).toEqual({ argv: builtin.argv, title: builtin.title });
+  expect(rustBuiltin).toEqual(captured);
 });
