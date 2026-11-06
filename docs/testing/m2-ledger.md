@@ -63,11 +63,6 @@ Two new rows are red, each with an expected-fail test in the same file. This PR 
 | `task.list` | Native (P3) | Composed via `pacer_read_model::tasks::task_list_page` once Core supplies active sessions and runner liveness through `/_internal/session-probe-parts` (serve) or `_internal.session-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns session lifecycle and `pidAlive`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.get` | Native (P3) | Composed via `pacer_read_model::task_detail` plus Core enrichment through `/_internal/task-read-parts` / `_internal.task-read.parts` (session probe, git diffstat/branch, tokens, retry options, dispatch `work` / `managedSkip`, agent-check acceptance gating, activity timeline tail). TypeScript still owns git, usage broker reads and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `snapshot.get` | Native (P8) | Composed via `pacer_read_model::ReadModel::snapshot` once Core supplies setup, policy, machine guard samples, service row, desktop updates, pairing eligibility, session probe and live `computeStatus` through `/_internal/snapshot-probe-parts` / `_internal.snapshot-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns setup probes, plugin policy, discovery pairing, status warming and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `machine.get`, `machine.set`, `machine.rotate` | Native (P8) | Rust owns the identity store (`crates/server/src/native/machine_identity.rs`): load/create, clone detection, rename, crash-safe rotation and recovery, signature audit, the rotation activity line and `machine` entity event, and the `machine` config publication. It shares `identity/` files, Keychain items (via `security`), the install salt and the `identity` lock with `src/identity/`. No Core bridge. Cross-runtime coverage: `test/native-machine-parity.test.ts` and `cargo test -p pacer-server machine`. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `files.search` | Native (P8) | `pacer-lifecycle::files_search` owns the whole operation with no Core bridge: zod-equivalent validation, the executor/work-grant refusal (`isExecutorSession` including Orca worktree names from the active strategy), the read-only registry listing with its own stale-while-revalidate path probe, bounded `git ls-files` / running-task `git diff --name-only` with the scrubbed git environment, 5 s listing caches, UTF-16 matching/ranking, and symlink-safe sizes. The path probe starts cold per process, so a missing repository reads as `error` until a probe has seen it, as on a fresh TypeScript core. When several running tasks change one path, `changedBy` follows task id order (TypeScript follows git completion order). `test/files-search-parity.test.ts` compares both runtimes byte for byte. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `setup.check` | Native (P9) | Rust validates empty params; service/link/status probes stay on Core through `/_internal/setup-check` / `_internal.setup.check` (stdio, sealed). Serve passes `snapshotProbe: false` like the HTTP op deps. `PACER_FORWARD_OPS` remains the escape hatch. M2 re-evaluation: converting it to Rust ownership needs cache-only `computeStatus` (in-process status cache and plugin readings), `policySummary` over plugin registry metadata and the service backend status, so it stays on the bridge. |
-| `onboarding.skip` | Native (P9) | Writes `onboarding/skipped` and publishes the `setup` config area via `pacer_store`; TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. |
-| `doctor.run` | Forwarded (P9) | Setup/service/account/handler diagnostics and isolated Claude probes remain in TypeScript (`runDoctor`); not registered natively. M2 re-evaluation: the report needs the planner plugin's `planner.check`/`planner.plan` through the in-process plugin registry, in-process probes of the TypeScript build's Claude hook handlers (`probeClaudeHandlers`) and `computeStatus` over live plugin usage readers, so no input has a pure native path. |
 | `version.get` | Native (P9) | Package and protocol metadata from `PACER_BUILD_VERSION` / workspace `package.json` and the frozen v3 protocol string. Login-service install/running status remains on `service.status`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `api.list`, `api.describe` | Native (P9) | Registry introspection from checked-in `op_catalog.json` (parity with TypeScript `opJsonSchemas()`). `api.list` filters match TS prefix/search semantics; `api.describe` returns captured JSON parameter schemas. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `delegation.pause`, `delegation.resume` | Native (P5) | `pacer-engine::pause` writes `state/pause.json`, publishes the `pause` event, appends activity, then publishes the `delegation` config area. No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -677,17 +672,40 @@ the table above are omitted here. Owner streams follow
 `docs/specs/2026-10-20-rust-host-migration-design.md` §2 and the 2026-11-01
 reconcile plans. Counts are op prefixes, not reviewable PR slices.
 
-No prefix aggregates remain: every v3 public op in `stdio_hello.json` is named
-in the detailed Native or Forwarded table above (including HTTP-native plugin
-ops and selective forwards such as `mode.hold` without `until`).
+| Prefix | Count | Owner stream | Notes |
+| --- | ---: | --- | --- |
+| `dispatch.*` | 23 | P5/P6 | e.g. `dispatch.analytics`, `dispatch.answer`, `dispatch.child` (+20 more) |
+| `desktop.*` | 17 | P8/P9 | e.g. `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.register` (+14 more) |
+| `session.*` | 14 | P7 | e.g. `session.agent.create`, `session.agent.end`, `session.agent.get` (+11 more) |
+| `task.*` | 12 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+9 more); `list` and `request_review` native above |
+| `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
+| `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
+| `account.*` | 9 | P7/P9 | e.g. `account.add`, `account.adopt`, `account.edit` (+6 more) |
+| `client.*` | 9 | P6 | e.g. `client.control.claim`, `client.control.complete`, `client.control.enroll` (+6 more) |
+| `msg.*` | 8 | P6 | e.g. `msg.close`, `msg.confirm`, `msg.inbox` (+5 more) |
+| `project.*` | 7 | P2 | e.g. `project.messaging.get`, `project.messaging.remove`, `project.messaging.set` (+4 more) |
+| `runner.*` | 5 | P2 | `add`/`block`/`unblock`/`check`/`list` stay TS (`set`/`reorder`/`remove`/`settings.*` native above) |
+| `discovery.*` | 5 | P8 | e.g. `discovery.list`, `discovery.network.get`, `discovery.network.set` (+2 more) |
+| `agent.*` | 4 | P9 | e.g. `agent.connect`, `agent.detect`, `agent.disconnect` (+1 more) |
+| `service.*` | 4 | P9 | e.g. `service.handover`, `service.install`, `service.status` (+1 more) |
+| `strategy.*` | 4 | P2 | e.g. `strategy.build`, `strategy.list`, `strategy.preview` (+1 more) |
+| `terminal.*` | 4 | P7 | e.g. `terminal.close`, `terminal.create`, `terminal.list` (+1 more) |
+| `executor.*` | 3 | P6 | e.g. `executor.setup.candidates`, `executor.setup.connect`, `executor.setup.models` |
+| `job.*` | 3 | P6 | e.g. `job.cancel`, `job.get`, `job.list` |
+| `machine.*` | 3 | P8 | e.g. `machine.get`, `machine.rotate`, `machine.set` |
+| `repo.*` | 3 | P2 | Registry/git probe remain Forwarded; URL `repo_key` in `pacer-config::host` |
+| `attention.*` | 2 | P6 | e.g. `attention.dismiss`, `attention.snooze` |
+| `issue.*` | 2 | P8 | e.g. `issue.import`, `issue.search` |
+| `onboarding.*` | 2 | P9 | e.g. `onboarding.skip`, `onboarding.try` |
+| `setup.*` | 2 | P9 | e.g. `setup.check`, `setup.init` |
+| `update.*` | 2 | P9 | e.g. `update.apply`, `update.check` |
+| `doctor.*` | 1 | P9 | e.g. `doctor.run` |
+| `files.*` | 1 | P8 | e.g. `files.search` |
+| `insights.*` | 1 | P5 | e.g. `insights.summary` |
+| `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 
-Total unregistered (not in the detailed table): **0**.
-Total native: **75** of 224 (63 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Thirteen of these selectively forward some inputs to TypeScript:
-`config.set`, `mode.hold`, `routing.route`, `repo.remove`, `task.stop`,
-`task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
-`project.messaging.remove`, `msg.inbox`, `msg.log` and `msg.read`.
-Total still not native (v3 − native set): **149**.
+Total unregistered (not in the detailed table): **176**.
+Total still not native (v3 − native set): **190**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

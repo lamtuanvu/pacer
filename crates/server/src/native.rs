@@ -44,23 +44,16 @@ mod meta_ops;
 pub(crate) mod msg_ops;
 pub(crate) mod p8_bridge_ops;
 pub mod plugins;
-mod setup_ops;
 pub(crate) mod session_ops;
 pub(crate) mod session_sync;
-mod snapshot_get_ops;
-pub(crate) mod snapshot_sync;
 pub(crate) mod status_ops;
 pub(crate) mod status_sync;
-pub(crate) mod task_clean_sync;
-mod task_diff_ops;
-pub(crate) mod task_dismiss_ops;
+mod meta_ops;
+mod snapshot_get_ops;
+pub(crate) mod snapshot_sync;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
-pub(crate) mod task_stop_sync;
-mod task_stop_ops;
-pub(crate) mod task_wait_sync;
-mod task_wait_ops;
 
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
@@ -459,8 +452,20 @@ static OPS: &[NativeOp] = &[
         call: snapshot_get_ops::snapshot_get_stub,
     },
     NativeOp {
-        name: "attention.dismiss",
-        call: attention_ops::attention_stub,
+        name: "version.get",
+        call: meta_ops::version_get,
+    },
+    NativeOp {
+        name: "api.list",
+        call: meta_ops::api_list,
+    },
+    NativeOp {
+        name: "api.describe",
+        call: meta_ops::api_describe,
+    },
+    NativeOp {
+        name: "delegation.pause",
+        call: engine_ops::delegation_pause,
     },
     NativeOp {
         name: "attention.snooze",
@@ -921,13 +926,6 @@ mod tests {
             "notifications.set",
             "config.get",
             "config.set",
-            "host.suggest",
-            "host.list",
-            "host.get",
-            "host.add",
-            "host.set",
-            "host.remove",
-            "host.repo.map",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -937,30 +935,12 @@ mod tests {
             "routing.status",
             "routing.route",
             "task.request_review",
-            "task.stop",
-            "task.dismiss",
-            "task.diff",
             "task.list",
             "task.get",
             "snapshot.get",
             "version.get",
             "api.list",
             "api.describe",
-            "machine.get",
-            "machine.set",
-            "machine.rotate",
-            "files.search",
-            "setup.check",
-            "onboarding.skip",
-            "repo.list",
-            "repo.add",
-            "repo.remove",
-            "project.messaging.get",
-            "project.messaging.set",
-            "project.messaging.remove",
-            "msg.inbox",
-            "msg.log",
-            "msg.read",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -979,21 +959,17 @@ mod tests {
         assert!(registry("task.prune").get("task.prune").is_none());
         assert!(registry("task.prune").get("task.restore").is_some());
         assert!(registry("*").names().is_empty());
-        assert!(registry("").get("task.dismiss").is_some());
-        assert!(registry("task.dismiss").get("task.dismiss").is_none());
-        assert!(registry("").get("task.diff").is_some());
-        assert!(registry("task.diff").get("task.diff").is_none());
+        assert!(registry("").get("task.dismiss").is_none());
+        assert!(registry("").get("task.diff").is_none());
         assert!(registry("task.list").get("task.list").is_none());
         assert!(registry("task.get").get("task.get").is_none());
         assert!(registry("task.list").get("task.get").is_some());
         assert!(registry("snapshot.get").get("snapshot.get").is_none());
         assert!(registry("snapshot.get").get("task.list").is_some());
         assert!(registry("").get("task.delegate").is_none());
-        assert!(registry("").get("task.stop").is_some());
-        assert!(registry("task.stop").get("task.stop").is_none());
+        assert!(registry("").get("task.stop").is_none());
         assert!(registry("").get("task.answer").is_none());
-        assert!(registry("").get("task.wait").is_some());
-        assert!(registry("task.wait").get("task.wait").is_none());
+        assert!(registry("").get("task.wait").is_none());
         assert!(registry("").get("task.retry").is_none());
         assert!(registry("").get("task.retry_all").is_none());
         assert!(registry("").get("task.retry_options").is_none());
@@ -1035,13 +1011,6 @@ mod tests {
             "notifications.set",
             "config.get",
             "config.set",
-            "host.suggest",
-            "host.list",
-            "host.get",
-            "host.add",
-            "host.set",
-            "host.remove",
-            "host.repo.map",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -1051,30 +1020,12 @@ mod tests {
             "routing.status",
             "routing.route",
             "task.request_review",
-            "task.stop",
-            "task.dismiss",
-            "task.diff",
             "task.list",
             "task.get",
             "snapshot.get",
             "version.get",
             "api.list",
             "api.describe",
-            "machine.get",
-            "machine.set",
-            "machine.rotate",
-            "files.search",
-            "setup.check",
-            "onboarding.skip",
-            "repo.list",
-            "repo.add",
-            "repo.remove",
-            "project.messaging.get",
-            "project.messaging.set",
-            "project.messaging.remove",
-            "msg.inbox",
-            "msg.log",
-            "msg.read",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");

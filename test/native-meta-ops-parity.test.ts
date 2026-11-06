@@ -1,4 +1,3 @@
-import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +12,8 @@ async function exchange(home: string, method: string, params: unknown, forward?:
   const request = JSON.stringify({ jsonrpc: "2.0", id: 2, method, params });
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
-      ...childEnv(home),
+      HOME: home,
+      PACER_HOME: join(home, ".pacer"),
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1",
@@ -82,9 +82,7 @@ test("native version.get, api.list and api.describe match TypeScript", async () 
       expect(reply.error).toBeUndefined();
       expect(normalize(reply.result)).toEqual(normalize(reference));
     }
-    const describe = (await callOp(ctx, "api.describe", { name: "runner.settings.save" })) as {
-      params: unknown;
-    };
+    const describe = await callOp(ctx, "api.describe", { name: "runner.settings.save" });
     expect(describe.params).toEqual(opJsonSchemas()["runner.settings.save"].params);
   } finally {
     rmSync(home, { recursive: true, force: true });
