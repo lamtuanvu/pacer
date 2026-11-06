@@ -504,6 +504,10 @@ fn default_executors(strategy: &Value, kind: &Value) -> Vec<String> {
         },
     )
 }
+/// Executors of the routing rule for `kind` (TS `executorsFor`), in rule order.
+pub fn executors_for(strategy: &Value, kind: &Value) -> Vec<String> {
+    default_executors(strategy, kind)
+}
 fn group(strategy: &Value, id: &str) -> String {
     format!(
         "{}:{}",
@@ -566,28 +570,29 @@ pub fn rank_executors(input: &Value) -> Value {
         } else {
             account_id.clone()
         };
-        let exclude_reason = if !include_planner && !configured(strategy, id, false) {
-            Some("planner".to_string())
-        } else if runner["enabled"] == false {
-            Some("disabled".to_string())
-        } else if status.is_null()
-            || runner.is_null()
-            || strategy["accounts"][string(account_id)].is_null()
-        {
-            Some("not configured".to_string())
-        } else if !status["unavailableReason"].is_null() {
-            Some(string(&status["unavailableReason"]).to_string())
-        } else if !status["blockedReason"].is_null() {
-            Some("Blocked by you".to_string())
-        } else if !status["brokenReason"].is_null() {
-            Some(format!("Not working · {}", string(&status["brokenReason"])))
-        } else if !truth(&status["installed"]) {
-            Some("not installed".to_string())
-        } else if !status["signedOutReason"].is_null() {
-            Some(string(&status["signedOutReason"]).to_string())
-        } else {
-            None
-        };
+        let exclude_reason =
+            if !include_planner && !runner.is_null() && !configured(strategy, id, false) {
+                Some("planner".to_string())
+            } else if runner["enabled"] == false {
+                Some("disabled".to_string())
+            } else if status.is_null()
+                || runner.is_null()
+                || strategy["accounts"][string(account_id)].is_null()
+            {
+                Some("not configured".to_string())
+            } else if !status["unavailableReason"].is_null() {
+                Some(string(&status["unavailableReason"]).to_string())
+            } else if !status["blockedReason"].is_null() {
+                Some("Blocked by you".to_string())
+            } else if !status["brokenReason"].is_null() {
+                Some(format!("Not working · {}", string(&status["brokenReason"])))
+            } else if !truth(&status["installed"]) {
+                Some("not installed".to_string())
+            } else if !status["signedOutReason"].is_null() {
+                Some(string(&status["signedOutReason"]).to_string())
+            } else {
+                None
+            };
         if let Some(reason) = exclude_reason {
             let mut value = json!({"id": id, "reason": reason, "eligibility": restriction(field(status, "eligibility"), Some(if reason == "planner" { "planner" } else { "unavailable" }))});
             if !account_field.is_null() {
@@ -890,5 +895,56 @@ mod tests {
         assert_eq!(planner_mode("ON_PACE"), "normal");
         assert_eq!(planner_mode("UNKNOWN"), "normal");
         assert_eq!(planner_mode("OK"), "normal");
+    }
+
+    fn two_runner_strategy() -> Value {
+        json!({
+            "planner": {"agent": "claude-code", "account": "claude"},
+            "accounts": {"claude": {"name": "claude", "kind": "claude"}},
+            "runners": {
+                "claude-code": {"id": "claude-code", "agent": "claude-code", "account": "claude"},
+                "codex": {"id": "codex", "agent": "codex", "account": "codex"},
+            },
+            "runnerAliases": {"cx": "codex"},
+            "routing": [
+                {"kinds": ["docs"], "executors": ["claude-code"]},
+                {"kinds": null, "executors": ["cx", "claude-code"]},
+            ],
+        })
+    }
+
+    #[test]
+    fn executors_for_uses_the_kind_rule_then_the_default_rule() {
+        let mut s = two_runner_strategy();
+        assert_eq!(executors_for(&s, &json!("docs")), ["claude-code"]);
+        assert_eq!(executors_for(&s, &json!("tests")), ["codex", "claude-code"]);
+        assert_eq!(executors_for(&s, &Value::Null), ["codex", "claude-code"]);
+        s["routing"] = json!([]);
+        assert_eq!(executors_for(&s, &json!("docs")), ["claude-code", "codex"]);
+    }
+
+    #[test]
+    fn unknown_routing_ids_are_not_configured_rather_than_planner() {
+        let mut s = two_runner_strategy();
+        s["routing"] = json!([{"kinds": null, "executors": ["agy", "claude-code"]}]);
+        let ranking = rank_executors(&json!({"strategy": s, "statuses": {}, "kind": null}));
+        assert_eq!(ranking["excluded"][0]["id"], "agy");
+        assert_eq!(ranking["excluded"][0]["reason"], "not configured");
+        assert_eq!(ranking["excluded"][1]["reason"], "planner");
+    }
+
+    #[test]
+    fn planner_runner_id_spells_only_non_default_accounts() {
+        use crate::status::planner_runner_id;
+        let mut s = two_runner_strategy();
+        assert_eq!(planner_runner_id(&s), "claude-code");
+        s["accounts"]["work"] = json!({"name": "work", "kind": "claude"});
+        assert_eq!(planner_runner_id(&s), "claude-code#claude");
+        s["accounts"]["work"]["home"] = json!("/elsewhere");
+        assert_eq!(planner_runner_id(&s), "claude-code");
+        s["planner"] = json!({"agent": "opencode", "account": "gw"});
+        assert_eq!(planner_runner_id(&s), "opencode");
+        s["accounts"]["gw"] = json!({"name": "gw", "kind": "endpoint"});
+        assert_eq!(planner_runner_id(&s), "opencode#gw");
     }
 }

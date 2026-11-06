@@ -6,6 +6,7 @@ pub mod capacity;
 mod consoles;
 pub mod events;
 pub mod js;
+pub mod retry;
 mod snapshot;
 mod summary;
 pub mod task_detail;

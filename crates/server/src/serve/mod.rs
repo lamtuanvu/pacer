@@ -178,6 +178,8 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
             || (op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
             || (op.name == "routing.route" && crate::native::routing_route_stays_forwarded(&params))
+            || (op.name == "task.retry_options"
+                && crate::native::task_retry_options_stays_forwarded(&ctx))
             || (op.name == "repo.remove" && crate::native::repo_remove_stays_forwarded(&ctx))
             || crate::native::project_messaging_stays_forwarded(&ctx, op.name, &params)
             || crate::native::msg_stays_forwarded(op.name, &ctx)

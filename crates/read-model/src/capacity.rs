@@ -273,6 +273,14 @@ pub(crate) fn jobs(ctx: &Ctx) -> Vec<Value> {
     }
     out
 }
+/// Facts `buildExecutors` reads only when it is given a `ctx`.
+#[derive(Clone, Copy)]
+struct CtxFacts<'a> {
+    active: &'a ActiveCounts,
+    jobs: &'a [Value],
+    checks: &'a Value,
+    now: f64,
+}
 pub fn executors(
     ctx: &Ctx,
     active: &ActiveCounts,
@@ -280,6 +288,27 @@ pub fn executors(
     s: &Value,
     tasks: &[Value],
 ) -> Vec<Value> {
+    let jobs = jobs(ctx);
+    let checks = read(ctx, "state/runner-checks.json");
+    let facts = CtxFacts {
+        active,
+        jobs: &jobs,
+        checks: &checks,
+        now: ctx.now,
+    };
+    executor_rows(&facts, st, s, tasks)
+}
+/// `buildExecutors` called without `ctx`: no runner checks, jobs or agent-session slots.
+pub fn executors_without_ctx(st: &Value, s: &Value, tasks: &[Value], now: f64) -> Vec<Value> {
+    let facts = CtxFacts {
+        active: &ActiveCounts::default(),
+        jobs: &[],
+        checks: &Value::Null,
+        now,
+    };
+    executor_rows(&facts, st, s, tasks)
+}
+fn executor_rows(facts: &CtxFacts<'_>, st: &Value, s: &Value, tasks: &[Value]) -> Vec<Value> {
     let planner_id = text(&st["planner"]);
     let planner_id = runner(s, planner_id)["id"].as_str().unwrap_or(planner_id);
     let ids: Vec<String> = values(&s["runners"])
@@ -311,12 +340,11 @@ pub fn executors(
             order.push(id);
         }
     }
-    let jobs = jobs(ctx);
     let mut rows: Vec<_> = order
         .iter()
         .filter(|id| !id.is_empty())
         .enumerate()
-        .map(|(index, id)| executor(ctx, active, st, s, tasks, &jobs, planner_id, id, index))
+        .map(|(index, id)| executor(facts, st, s, tasks, planner_id, id, index))
         .collect();
     if let Some(id) = array(&st["executors"]["ranked"])
         .iter()
@@ -334,18 +362,21 @@ pub fn executors(
     }
     rows
 }
-#[allow(clippy::too_many_arguments)]
 fn executor(
-    ctx: &Ctx,
-    active: &ActiveCounts,
+    facts: &CtxFacts<'_>,
     st: &Value,
     s: &Value,
     tasks: &[Value],
-    jobs: &[Value],
     planner_id: &str,
     id: &str,
     index: usize,
 ) -> Value {
+    let CtxFacts {
+        active,
+        jobs,
+        checks,
+        now,
+    } = *facts;
     let r = runner(s, id);
     let p = array(&st["providers"])
         .iter()
@@ -365,16 +396,14 @@ fn executor(
     let max = r["maxTasks"].as_f64().or(host_max).unwrap_or(1.0);
     let shared = host_max.or_else(|| local_cap(s));
     let enabled = r["enabled"] != false;
-    let mut check = read(ctx, "state/runner-checks.json")[id].clone();
+    let mut check = checks[id].clone();
     let failures = tasks
         .iter()
         .filter(|t| {
-            t["executor"] == id
-                && t["state"] == "failed"
-                && num(&t["updatedAt"]) >= ctx.now - 86400.0
+            t["executor"] == id && t["state"] == "failed" && num(&t["updatedAt"]) >= now - 86400.0
         })
         .count();
-    let assessment = eligibility(&p["eligibility"], ctx.now);
+    let assessment = eligibility(&p["eligibility"], now);
     let block = if used as f64 >= max {
         Some(format!(
             "{} busy ({used}/{})",

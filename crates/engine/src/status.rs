@@ -98,6 +98,51 @@ pub fn default_mode_hold_until(status: &Value, planner_account: &str, now: f64) 
         .unwrap_or(now + 7.0 * 86400.0)
 }
 
+/// The `planner` runner id `computeStatus` reports (`src/engine/status.ts`):
+/// the planner's agent, plus `#account` unless it is that agent's only default
+/// account. OpenCode never has a default account.
+pub fn planner_runner_id(strategy: &Value) -> String {
+    let agent = string(&strategy["planner"]["agent"]);
+    let account = string(&strategy["planner"]["account"]);
+    if agent == "opencode" && strategy["accounts"][account].is_null() {
+        return "opencode".into();
+    }
+    let kind = match agent {
+        "claude-code" => "claude",
+        "codex" => "codex",
+        "cursor" => "cursor",
+        "agy" => "agy",
+        _ => "",
+    };
+    let defaults: Vec<&str> = strategy["accounts"]
+        .as_object()
+        .into_iter()
+        .flat_map(|accounts| accounts.values())
+        .filter(|a| {
+            !kind.is_empty()
+                && a["kind"] == kind
+                && !js_truthy(&a["home"])
+                && !js_truthy(&a["orcaAccount"])
+        })
+        .map(|a| string(&a["name"]))
+        .collect();
+    let default = (defaults.len() == 1).then(|| defaults[0]);
+    if account.is_empty() || Some(account) == default {
+        agent.to_string()
+    } else {
+        format!("{agent}#{account}")
+    }
+}
+
+fn js_truthy(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
 fn providers_by_id(providers: &Value) -> Map<String, Value> {
     let mut map = Map::new();
     match providers {
