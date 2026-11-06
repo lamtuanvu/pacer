@@ -27,6 +27,9 @@ pub struct CratePolicy {
     pub generated: bool,
     #[serde(default)]
     pub binary: bool,
+    /// Optional CRATE-1 hard cap override (decisions.md exception required when above global max).
+    #[serde(default)]
+    pub max: Option<usize>,
     #[serde(default)]
     pub heavy: Vec<String>,
 }

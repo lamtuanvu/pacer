@@ -30,10 +30,28 @@ own evidence; no public release or remote deployment is authorized by this entry
 Expiry: completion of this PR's first local deployment, or 2026-11-10 at 23:59 UTC,
 whichever occurs first. It cannot authorize subsequent changes or deployments.
 
+## Scoped exception: pacer-server and pacer-plugin-host CRATE-1 size (2026-11-06)
+
+Authority: recorded to restore Rust CI after main tip landed native host and
+plugin-host growth past the 12,000 LOC hard cap; CI `cargo xtask loc --check`
+failed on every Rust-affected PR that merged those tips.
+
+Scope: `pacer-server` may remain up to **17,000** LOC and `pacer-plugin-host`
+up to **12,500** LOC via per-crate `max` in `xtask/crates.toml`. This does not
+raise the workspace default max, waive CRATE-1 for other crates, or convert
+warn/above-target status into OK.
+
+Follow-up: split each crate (or shrink below 12,000) before the exception
+expires; the next PR that grows either crate past its override must lower the
+override or complete the split.
+
+Expiry: milestone M2 close, or **2026-12-31**, whichever is first.
+
 ## Log
 
 | Date | Decision | Rules affected | Decided by | Source |
 |------|----------|----------------|------------|--------|
+| 2026-11-06 | Temporary CRATE-1 hard-cap overrides: `pacer-server` ≤ 17,000 LOC and `pacer-plugin-host` ≤ 12,500 LOC in `xtask/crates.toml`, so Rust CI can pass while those crates remain above the workspace 12,000 max. Split or shrink before expiry. | CRATE-1 | @lamtuanvu (CI unblock on #750; recorded for maintainer confirmation) | This section; #750 |
 | 2026-11-05 | Proposed amendment 0.21.0: UI-28 — screens fill shell `FrameSlot` left/right for side content; page-local side columns are forbidden. | UI-28; constitution 0.21.0 | Proposed; adopted by maintainer merge | [ADR 0022](../docs/decisions/0022-shell-owned-page-regions.md) |
 | 2026-11-03 | Amendment 0.20.0 extended: pull requests run only OS-independent logic tests on Linux. `Test (macos-latest)` stays as a required name but runs as an Ubuntu no-op on PRs; Rust runs only on Linux; macOS e2e and Linux service survival run on main pushes, schedule and dispatch. Security scans, DCO, title, CodeQL and release gates are unchanged. | Constitution 0.20.0; CT-1/3/5 | Maintainer decision | [CI selection](../docs/testing/ci-selection.md) |
 | 2026-11-02 | Proposed amendment 0.20.0: mapped CI/workflow changes and audited PR source modifications use focused tests and artifact smoke; scheduled/manual runs remain full, with full fallback for unmapped changes. | Constitution 0.20.0; CT-1/3/5; SEC-9; REL-2/3 | Maintainer request; adoption on merge | [CI selection](../docs/testing/ci-selection.md) |

@@ -80,11 +80,15 @@ layer = 3
 layer = 3
 [crates.pacer-plugin-host]
 layer = 4
+# CRATE-1 exception: see .project/decisions.md (2026-11-06 server/plugin-host size).
+max = 12500
 heavy = ["reqwest"]
 [crates.pacer-sqlite-proof]
 layer = 2
 [crates.pacer-server]
 layer = 8
+# CRATE-1 exception: see .project/decisions.md (2026-11-06 server/plugin-host size).
+max = 17000
 heavy = ["axum", "hyper"]
 [crates.pacer-cli]
 layer = 9
