@@ -22,6 +22,7 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
         "machine.get" | "machine.set" | "machine.rotate" => Ok("/_internal/machine-bridge"),
         "files.search" => Ok("/_internal/files-search"),
         "setup.check" => Ok("/_internal/setup-check"),
+        "repo.list" | "repo.add" => Ok("/_internal/repo-bridge"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -31,13 +32,16 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
         "machine.get" | "machine.set" | "machine.rotate" => Ok("_internal.machine.bridge"),
         "files.search" => Ok("_internal.files.search"),
         "setup.check" => Ok("_internal.setup.check"),
+        "repo.list" | "repo.add" => Ok("_internal.repo.bridge"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
 
 pub(crate) fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
-        "machine.get" | "machine.set" | "machine.rotate" => Ok(json!({"op": op, "params": params})),
+        "machine.get" | "machine.set" | "machine.rotate" | "repo.list" | "repo.add" => {
+            Ok(json!({"op": op, "params": params}))
+        }
         "files.search" | "setup.check" => Ok(params.clone()),
         _ => Err(unavailable("core bridge unavailable")),
     }

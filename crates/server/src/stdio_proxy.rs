@@ -180,6 +180,8 @@ async fn forward_input<
                 && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
                 && !(op.name == "routing.route"
                     && crate::native::routing_route_stays_forwarded(&params))
+                && !(op.name == "repo.remove"
+                    && crate::native::repo_remove_stays_forwarded(&ctx.at_now()))
             {
                 let request_ctx = ctx.at_now();
                 let result = if crate::native::needs_usage_broker(op.name) {
