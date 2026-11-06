@@ -164,6 +164,8 @@ export async function health(
       trigger,
       checkedAt,
       durationSeconds: (Date.now() - started) / 1000,
+      planner: reportDoctor.planner,
+      repairAvailable: reportDoctor.repairAvailable,
     });
     const version = currentVersion();
     const integrationHashes: Record<string, string> = {};

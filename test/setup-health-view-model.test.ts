@@ -3,6 +3,7 @@ import type { Check } from "../src/install/doctor";
 import type { SetupChecklist } from "../src/setup/checklist";
 import {
   aggregateSetupHealth,
+  setupHealthRepairs,
   shouldSkipFullWindow,
   type SetupHealthFingerprint,
 } from "../src/view-model/setup-health";
@@ -157,5 +158,78 @@ describe("shouldSkipFullWindow", () => {
       serviceVersion: "0.14.0",
       integrationHashes: {},
     })).toBe(false);
+  });
+});
+
+describe("setupHealthRepairs", () => {
+  test("maps drifted hooks and freshness to agent.reconnect with honesty", () => {
+    const checks: Check[] = [
+      { name: "Claude hook configuration", level: "warn", detail: "SessionStart missing", evidence: "configured" },
+      { name: "Integration freshness cursor", level: "warn", detail: "managed files changed" },
+      { name: "Claude config folder", level: "warn", detail: "Selected account settings: /tmp/a vs /tmp/b", evidence: "configured" },
+    ];
+    expect(setupHealthRepairs(checks, { planner: "claude-code", repairAvailable: true })).toEqual([
+      {
+        kind: "agent.reconnect",
+        label: "Fix integration",
+        agent: "claude-code",
+        honesty: "Wiring OK · live enforcement unverified",
+      },
+    ]);
+    expect(setupHealthRepairs(
+      [{ name: "Integration freshness cursor", level: "warn", detail: "changed" }],
+      { planner: "cursor", repairAvailable: true },
+    )).toEqual([{
+      kind: "agent.reconnect",
+      label: "Fix integration",
+      agent: "cursor",
+      honesty: "Wiring OK · live enforcement unverified",
+    }]);
+    expect(setupHealthRepairs(
+      [{ name: "Install codex#work", level: "warn", detail: "changed" }],
+      { planner: "codex#work", repairAvailable: true },
+    )).toEqual([{
+      kind: "agent.reconnect",
+      label: "Fix integration",
+      agent: "codex",
+      honesty: "Wiring OK · live enforcement unverified",
+    }]);
+  });
+
+  test("does not reconnect without repairAvailable or for exhausted quota", () => {
+    expect(setupHealthRepairs(
+      [{ name: "Install cursor", level: "warn", detail: "changed" }],
+      { planner: "cursor", repairAvailable: false },
+    )).toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics" }]);
+    expect(setupHealthRepairs(
+      [{ name: "Usage codex", level: "warn", detail: "EXHAUSTED" }],
+      { planner: "codex", repairAvailable: true },
+    )).toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics" }]);
+  });
+
+  test("maps stale usage and missing binaries to refresh / executor setup", () => {
+    expect(setupHealthRepairs(
+      [{ name: "Usage codex", level: "warn", detail: "stale usage" }],
+    )).toEqual([{ kind: "limits.refresh", label: "Refresh usage" }]);
+    expect(setupHealthRepairs(
+      [{ name: "Binary cursor", level: "fail", detail: "not found" }],
+    )).toEqual([{ kind: "open.add_executor", label: "Open executor setup" }]);
+  });
+
+  test("aggregateSetupHealth includes repairs when planner can reconnect", () => {
+    const report = aggregateSetupHealth({
+      checks: [{ name: "Install opencode", level: "warn", detail: "changed" }],
+      checklist: checklist(),
+      trigger: "startup",
+      checkedAt: 1,
+      planner: "opencode",
+      repairAvailable: true,
+    });
+    expect(report.repairs).toEqual([{
+      kind: "agent.reconnect",
+      label: "Fix integration",
+      agent: "opencode",
+      honesty: "Wiring OK · live enforcement unverified",
+    }]);
   });
 });
