@@ -77,6 +77,7 @@ pub(super) fn area(op: &str) -> Option<&'static str> {
         "runner.set" | "runner.reorder" | "runner.remove" | "runner.settings.save" => {
             Some("runners")
         }
+        "host.add" | "host.set" | "host.remove" | "host.repo.map" => Some("hosts"),
         "routing.set" => Some("routing"),
         "notifications.set" | "config.set" => Some("config"),
         "delegation.pause" | "delegation.resume" => Some("delegation"),
@@ -88,12 +89,19 @@ pub(super) fn area(op: &str) -> Option<&'static str> {
 pub(super) fn syncs_endpoints(op: &str) -> bool {
     matches!(
         op,
-        "runner.set" | "runner.reorder" | "runner.remove" | "routing.set"
+        "host.add"
+            | "host.set"
+            | "host.remove"
+            | "host.repo.map"
+            | "runner.set"
+            | "runner.reorder"
+            | "runner.remove"
+            | "routing.set"
     )
 }
 
 #[allow(clippy::result_large_err)]
-pub(super) fn finish(ctx: &Ctx, op: &str, result: &Value) -> Result<(), CoreError> {
+pub(crate) fn finish(ctx: &Ctx, op: &str, result: &Value) -> Result<(), CoreError> {
     if op == "strategy.use" {
         let name = result["name"].as_str().unwrap_or("");
         report(pacer_store::publish(

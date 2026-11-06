@@ -10,6 +10,7 @@ enum Schema {
     /// Inclusive min/max with Zod `.min(n).max(m)` messages (`>=` / `<=`).
     IntegerBounds(f64, f64),
     Level,
+    HostSession,
     Json,
     Array(Box<Schema>),
     Object(Vec<(&'static str, Schema, bool)>),
@@ -82,6 +83,15 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
                 .is_some_and(|v| ["off", "important", "all"].contains(&v))
             {
                 issue("Invalid option: expected one of \"off\"|\"important\"|\"all\"".into());
+            }
+            return value.cloned().unwrap_or(Value::Null);
+        }
+        Schema::HostSession => {
+            if !value
+                .and_then(Value::as_str)
+                .is_some_and(|v| matches!(v, "recording" | "full"))
+            {
+                issue("Invalid option: expected one of \"recording\"|\"full\"".into());
             }
             return value.cloned().unwrap_or(Value::Null);
         }
@@ -255,6 +265,19 @@ pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
             ),
         ]),
         "notifications.set" => object(vec![("level", Level, false)]),
+        "host.add" => object(vec![("alias", id(), false), ("ssh", String(1, None), false)]),
+        "host.remove" => object(vec![("alias", id(), false)]),
+        "host.repo.map" => object(vec![
+            ("alias", id(), false),
+            ("key", id(), false),
+            ("path", String(1, None), false),
+        ]),
+        "host.set" => object(vec![
+            ("alias", id(), false),
+            ("max_tasks", IntegerBounds(1.0, 16.0), true),
+            ("paused", Bool, true),
+            ("session", HostSession, true),
+        ]),
         "config.set" => {
             return parse_config_set(params);
         }
