@@ -56,7 +56,7 @@ test.skipIf(!front)("native task.stop matches TypeScript for a non-managed task"
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   const task = createTask(ctx, { brief: { goal: "Stop me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const rev = readTask(ctx, task.id)!.rev;
-  const reference = await callOp(ctx, "task.stop", { id: task.id, expect_rev: rev });
+  const reference = await callOp(ctx, "task.stop", { id: task.id, expect_rev: rev }) as { state: string };
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-task-stop-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-task-stop-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });
