@@ -293,15 +293,15 @@ fn peer_uid(stream: &UnixStream) -> Result<u32, BridgeError> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
-        let cred =
-            getsockopt(stream, PeerCredentials).map_err(|_| BridgeError::PeerCredUnavailable)?;
-        return Ok(cred.uid());
+        getsockopt(stream, PeerCredentials)
+            .map(|cred| cred.uid())
+            .map_err(|_| BridgeError::PeerCredUnavailable)
     }
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
-        let (uid, _) =
-            nix::unistd::getpeereid(stream).map_err(|_| BridgeError::PeerCredUnavailable)?;
-        Ok(uid.as_raw())
+        nix::unistd::getpeereid(stream)
+            .map(|(uid, _)| uid.as_raw())
+            .map_err(|_| BridgeError::PeerCredUnavailable)
     }
 }
 
