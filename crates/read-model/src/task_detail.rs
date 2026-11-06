@@ -2,15 +2,10 @@
 //! Git diffstat/branch probes, token roll-ups, retry options, dispatch `work` /
 //! `managedSkip`, agent-check acceptance gating and the activity timeline tail
 //! stay on TypeScript until their bridges exist.
-use crate::{
-    js::truth,
-    snapshot::ActiveCounts,
-    tasks::api_task_page,
-    Error,
-};
+use crate::{Error, js::truth, snapshot::ActiveCounts, tasks::api_task_page};
 use pacer_foundation::Ctx;
 use pacer_store::{TaskFilter, TaskStore};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const TERMINAL: &[&str] = &[
     "done",
@@ -108,18 +103,16 @@ pub fn executor_cost(task: &Value, peers: &[Value], now: f64) -> Value {
                 until,
             )
     });
-    let comparable = end
-        .filter(|e| e.is_object())
-        .is_some_and(|e| {
-            start["account"] == e["account"]
-                && start["window"] == e["window"]
-                && start["usedPct"].as_f64().is_some()
-                && e["usedPct"].as_f64().is_some_and(|end_pct| {
-                    start["usedPct"]
-                        .as_f64()
-                        .is_some_and(|start_pct| end_pct >= start_pct)
-                })
-        });
+    let comparable = end.filter(|e| e.is_object()).is_some_and(|e| {
+        start["account"] == e["account"]
+            && start["window"] == e["window"]
+            && start["usedPct"].as_f64().is_some()
+            && e["usedPct"].as_f64().is_some_and(|end_pct| {
+                start["usedPct"]
+                    .as_f64()
+                    .is_some_and(|start_pct| end_pct >= start_pct)
+            })
+    });
     let reason = if shared {
         Some("shared")
     } else if comparable {
@@ -233,11 +226,7 @@ fn acceptance_detail(task: &Value, omit_result: bool) -> Value {
     };
     let cmd = acceptance
         .and_then(|a| a.get("cmd").cloned())
-        .or_else(|| {
-            task["brief"]["acceptance"]
-                .as_str()
-                .map(|s| json!(s))
-        })
+        .or_else(|| task["brief"]["acceptance"].as_str().map(|s| json!(s)))
         .unwrap_or(Value::Null);
     let state = if let Some(a) = acceptance {
         if a.get("passed").is_some_and(|v| v.as_bool() == Some(true)) {
@@ -326,15 +315,9 @@ pub fn task_detail_store(
         "acceptance".into(),
         acceptance_detail(task, omit_result_acceptance),
     );
-    detail.insert(
-        "summary".into(),
-        task["result"]["report"].clone(),
-    );
+    detail.insert("summary".into(), task["result"]["report"].clone());
     detail.insert("branch".into(), branch.clone().unwrap_or(Value::Null));
-    detail.insert(
-        "base".into(),
-        task["baseBranch"].clone(),
-    );
+    detail.insert("base".into(), task["baseBranch"].clone());
     detail.insert("machine".into(), task["run"]["host"].clone());
     detail.insert(
         "startedAt".into(),

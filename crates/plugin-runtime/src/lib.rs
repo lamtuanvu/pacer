@@ -16,13 +16,13 @@
 
 mod bridge_listener;
 mod capability;
+mod executor_attach;
 mod host_attach;
 mod host_bridge;
 mod orca_attach;
 mod owner;
 mod serve_host;
 mod worktree_attach;
-mod executor_attach;
 
 pub use bridge_listener::{
     BRIDGE_MAX_LINE_BYTES, BridgeDispatch, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,
@@ -31,17 +31,17 @@ pub use bridge_listener::{
 pub use capability::{
     CapabilitySessionError, FixtureHostProvider, LocalHostEffect, ObservationBootstrap,
     OrcaCallContext, PluginCapabilitySession, call_resources_from_value, host_snapshots_from_value,
-    observation_bootstrap_from_value, orca_context_from_value, session_for_call, session_from_hello,
+    observation_bootstrap_from_value, orca_context_from_value, session_for_call,
+    session_from_hello,
 };
-pub use worktree_attach::{WorktreeCallContext, worktree_context_from_value};
 pub use executor_attach::{ExecutorCallContext, executor_context_from_value};
-pub use orca_attach::{FixtureOrcaSession, OrcaBridge, SharedOrcaBridge};
 pub use host_attach::HostAttachSnapshot;
 pub use host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
     METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, dark_bridge_disabled,
     dark_bridge_enabled, host_socket_path, prepare_host_run_dir,
 };
+pub use orca_attach::{FixtureOrcaSession, OrcaBridge, SharedOrcaBridge};
 pub use owner::{OwnerError, Ownership, ProcessOwner};
 pub use pacer_plugin_host::{
     CallAuthority, CallResources, CapabilityBroker, NativeHttp, NativeProcess, NativeRead,
@@ -52,3 +52,4 @@ pub use serve_host::{
     NATIVE_PLUGIN_HOST_ENABLE_ENV, NativeHostError, NativeHostSession, native_plugin_host_enabled,
     native_plugin_host_enabled_from_env,
 };
+pub use worktree_attach::{WorktreeCallContext, worktree_context_from_value};

@@ -146,11 +146,7 @@ async fn authenticated_listener_dispatch_and_fallback() {
             Method::GET,
             StatusCode::BAD_GATEWAY,
         ),
-        (
-            "/v3/events?since=0".into(),
-            Method::GET,
-            StatusCode::OK,
-        ),
+        ("/v3/events?since=0".into(), Method::GET, StatusCode::OK),
         (path.clone(), Method::POST, StatusCode::METHOD_NOT_ALLOWED),
         (
             "/v3/tasks/missing/log?follow=1".into(),

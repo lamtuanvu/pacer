@@ -67,7 +67,8 @@ pub(crate) async fn config_get(ctx: &Ctx, params: Value, parts: Value) -> Result
     if !map.is_empty() {
         return Err(invalid("params: Unrecognized key(s) in object"));
     }
-    let (path, name) = strategy_path(&ctx.pacer_home).map_err(|error| invalid(error.to_string()))?;
+    let (path, name) =
+        strategy_path(&ctx.pacer_home).map_err(|error| invalid(error.to_string()))?;
     let backend = ctx.env.get("PACER_BACKEND").map(|s| s.as_str());
     let host_fields = host_fields_for_settings(parts)?;
     get_settings(&path, &name, backend, &host_fields).map_err(map_settings_error)
@@ -117,10 +118,7 @@ mod tests {
             "planners": ["claude-code"],
         });
         let result = config_get(&ctx, json!({}), parts).await.unwrap();
-        assert_eq!(
-            result["keys"]["planner"]["value"],
-            json!("claude-code")
-        );
+        assert_eq!(result["keys"]["planner"]["value"], json!("claude-code"));
         assert_eq!(result["planners"], json!(["claude-code"]));
     }
 }

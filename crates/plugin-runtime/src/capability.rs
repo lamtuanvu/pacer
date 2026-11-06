@@ -10,16 +10,16 @@
 //! through [`NativeOrca`] when issued. P4d-12 attaches Core-sealed
 //! `executorClaim` through [`NativeRun`] when issued.
 
+use crate::executor_attach::{ExecutorAttachPlan, ExecutorCallContext, issue_executor};
 use crate::host_attach::{HostAttachSnapshot, native_hosts_for_attach};
 use crate::orca_attach::{
     FixtureOrcaSession, OrcaAttach, OrcaAttachPlan, bind_orca_fixture, bind_process_owner_orca,
     orca_sidecar_call,
 };
-use crate::executor_attach::{ExecutorAttachPlan, ExecutorCallContext, issue_executor};
 use crate::worktree_attach::{WorktreeAttachPlan, WorktreeCallContext, issue_worktree};
 use pacer_plugin_host::{
     AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-    CredentialBindings, HostProvider, NativeHttp, NativeHosts, NativeProcess, NativeRun,
+    CredentialBindings, HostProvider, NativeHosts, NativeHttp, NativeProcess, NativeRun,
     ObservationCall, ObservationGeneration, OrcaAttemptResource, ParsedManifest, ProviderSnapshot,
     ReadContext, TaskProjection, parse_manifest,
 };
@@ -394,9 +394,7 @@ impl PluginCapabilitySession {
     ) -> Result<Value, Value> {
         if matches!(
             method,
-            "capability.tasks.read"
-                | "capability.tasks.list"
-                | "capability.events.subscribe"
+            "capability.tasks.read" | "capability.tasks.list" | "capability.events.subscribe"
         ) {
             return self.answer_observation(method, params, metadata).await;
         }
@@ -656,11 +654,8 @@ pub fn session_for_call(
             "executorClaim resources require Core-sealed executorContext".into(),
         ));
     }
-    let authority = CallAuthority::new(
-        resources.clone(),
-        grants.clone(),
-        Instant::now() + lifetime,
-    );
+    let authority =
+        CallAuthority::new(resources.clone(), grants.clone(), Instant::now() + lifetime);
     let broker = attach_natives(
         CapabilityBroker::new(manifest.clone(), authority, features.clone()),
         &resources,
@@ -756,19 +751,25 @@ pub fn host_snapshots_from_value(
             .get("hostFingerprint")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .ok_or(CapabilitySessionError::Malformed("hostSnapshots hostFingerprint"))?
+            .ok_or(CapabilitySessionError::Malformed(
+                "hostSnapshots hostFingerprint",
+            ))?
             .to_owned();
         let caller_generation = item
             .get("callerGeneration")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .ok_or(CapabilitySessionError::Malformed("hostSnapshots callerGeneration"))?
+            .ok_or(CapabilitySessionError::Malformed(
+                "hostSnapshots callerGeneration",
+            ))?
             .to_owned();
         let provider_generation = item
             .get("providerGeneration")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .ok_or(CapabilitySessionError::Malformed("hostSnapshots providerGeneration"))?
+            .ok_or(CapabilitySessionError::Malformed(
+                "hostSnapshots providerGeneration",
+            ))?
             .to_owned();
         let provider_process = item
             .get("providerProcess")
@@ -779,7 +780,9 @@ pub fn host_snapshots_from_value(
             .get("providerId")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
-            .ok_or(CapabilitySessionError::Malformed("hostSnapshots providerId"))?
+            .ok_or(CapabilitySessionError::Malformed(
+                "hostSnapshots providerId",
+            ))?
             .to_owned();
         out.push(HostAttachSnapshot {
             snapshot: ProviderSnapshot {

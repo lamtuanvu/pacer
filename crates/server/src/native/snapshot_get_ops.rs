@@ -122,10 +122,7 @@ pub(crate) fn parse_snapshot_parts(value: Value) -> Result<SnapshotBridgeParts, 
         map.get("desktopUpdates")
             .ok_or_else(|| invalid("snapshot probe bridge missing desktopUpdates"))?,
     );
-    let service_installed = map
-        .get("serviceInstalled")
-        .map(truth)
-        .unwrap_or(false);
+    let service_installed = map.get("serviceInstalled").map(truth).unwrap_or(false);
     let can_pair = map.get("canPair").map(truth).unwrap_or(false);
     let status = if let Some(message) = map.get("statusError").and_then(Value::as_str) {
         StatusInput::Failure(message.into())

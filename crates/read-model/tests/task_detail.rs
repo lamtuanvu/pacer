@@ -1,11 +1,11 @@
 #![allow(clippy::unwrap_used)]
 use pacer_foundation::{Ctx, fsutil::write_json_atomic};
 use pacer_read_model::{
-    task_detail::{executor_cost, task_detail_by_id, timeline_store},
     ActiveCounts,
+    task_detail::{executor_cost, task_detail_by_id, timeline_store},
 };
 use pacer_store::TaskStore;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{collections::HashMap, fs};
 
 fn alive(_: i64) -> bool {
@@ -34,9 +34,7 @@ fn write_task(ctx: &Ctx, task: &Value) {
 
 #[test]
 fn executor_cost_matches_shared_and_comparable_readings() {
-    let usage = |pct: f64| {
-        json!({"account": "team", "usedPct": pct, "window": "week", "at": 1.0})
-    };
+    let usage = |pct: f64| json!({"account": "team", "usedPct": pct, "window": "week", "at": 1.0});
     let done = json!({
         "id": "t-done",
         "state": "done",
@@ -94,10 +92,12 @@ fn timeline_store_orders_routing_and_terminal_state() {
         "progress": {"phase": "testing", "updatedAt": 6.0, "commits": 2.0, "lastChangeAt": 5.0},
     });
     let timeline = timeline_store(&task);
-    assert!(timeline.first().unwrap()["text"]
-        .as_str()
-        .unwrap()
-        .starts_with("Routed to Codex"));
+    assert!(
+        timeline.first().unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("Routed to Codex")
+    );
     assert_eq!(timeline.last().unwrap()["text"], "done");
 }
 
@@ -129,7 +129,15 @@ fn task_detail_by_id_composes_api_slice_and_derived_markers() {
     });
     write_task(&ctx, &task);
     let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
-    let detail = task_detail_by_id(&ctx, &ActiveCounts::default(), &mut store, "t-20260101-000001-aaaa", &alive, false).unwrap();
+    let detail = task_detail_by_id(
+        &ctx,
+        &ActiveCounts::default(),
+        &mut store,
+        "t-20260101-000001-aaaa",
+        &alive,
+        false,
+    )
+    .unwrap();
     assert_eq!(detail["id"], task["id"]);
     assert_eq!(detail["summary"], "Added tests");
     assert_eq!(detail["acceptance"]["state"], "passed");

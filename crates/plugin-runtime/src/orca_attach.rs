@@ -2,8 +2,8 @@
 
 use crate::SharedOwner;
 use pacer_plugin_host::{
-    BrokerError, CapabilityEffect, NativeOrca, NativeOrcaLive, NativeOrcaStatus, OrcaAttemptResource,
-    OrcaLiveControl, OrcaLiveResource, OrcaSessionOwner,
+    BrokerError, CapabilityEffect, NativeOrca, NativeOrcaLive, NativeOrcaStatus,
+    OrcaAttemptResource, OrcaLiveControl, OrcaLiveResource, OrcaSessionOwner,
 };
 use serde_json::Value;
 use std::{future::Future, path::Path, pin::Pin, sync::Arc, time::Instant};
@@ -148,7 +148,13 @@ fn json_with_method(method: &str, template: &Value) -> Value {
     if template.is_object() {
         let mut out = template.clone();
         if let Some(obj) = out.as_object_mut() {
-            obj.insert("method".into(), method.strip_prefix("capability.orca.").unwrap_or(method).into());
+            obj.insert(
+                "method".into(),
+                method
+                    .strip_prefix("capability.orca.")
+                    .unwrap_or(method)
+                    .into(),
+            );
         }
         out
     } else {

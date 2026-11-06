@@ -2,13 +2,16 @@
 
 //! Vectors captured by test/session-params-parity.test.ts from TypeScript Zod.
 use pacer_sessions::params::{
-    bounded_unicode, valid_agent_uuid, valid_draft_uuid, valid_expect_rev, valid_session_id,
-    MAX_ATTACHMENTS, MAX_EXECUTOR_LEN, MAX_SESSION_REQUEST,
+    MAX_ATTACHMENTS, MAX_EXECUTOR_LEN, MAX_SESSION_REQUEST, bounded_unicode, valid_agent_uuid,
+    valid_draft_uuid, valid_expect_rev, valid_session_id,
 };
 use serde_json::Value;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../test/fixtures/session-ops/params.json")).unwrap()
+    serde_json::from_str(include_str!(
+        "../../../test/fixtures/session-ops/params.json"
+    ))
+    .unwrap()
 }
 
 #[test]

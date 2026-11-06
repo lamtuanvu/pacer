@@ -43,10 +43,14 @@ fn parse_id(params: &Value) -> Result<&str, CoreError> {
         ))
     })?;
     if text.is_empty() {
-        return Err(invalid("id: Too small: expected string to have >=1 characters"));
+        return Err(invalid(
+            "id: Too small: expected string to have >=1 characters",
+        ));
     }
     if text.encode_utf16().count() > 128 {
-        return Err(invalid("id: Too big: expected string to have <=128 characters"));
+        return Err(invalid(
+            "id: Too big: expected string to have <=128 characters",
+        ));
     }
     Ok(text)
 }
@@ -126,7 +130,10 @@ mod tests {
 
     #[test]
     fn merge_enrichment_overlays_git_and_tokens() {
-        let mut detail = json!({"id": "t-1", "files": []}).as_object().unwrap().clone();
+        let mut detail = json!({"id": "t-1", "files": []})
+            .as_object()
+            .unwrap()
+            .clone();
         merge_enrichment(
             &mut detail,
             &json!({

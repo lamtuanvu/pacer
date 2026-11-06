@@ -28,9 +28,7 @@ async fn listener(home: &std::path::Path, forwarded: bool) -> (u16, tokio::task:
         forward_log_follow: false,
         forward_events: forwarded,
     });
-    let app = Router::new()
-        .fallback(any(handle))
-        .with_state(state);
+    let app = Router::new().fallback(any(handle)).with_state(state);
     let server = tokio::spawn(async move {
         axum::serve(socket, app).await.unwrap();
     });

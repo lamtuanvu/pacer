@@ -5,9 +5,9 @@ use pacer_plugin_host::OrcaAttemptResource;
 use pacer_plugin_runtime::{
     CallAuthority, CallResources, CapabilityBroker, FixtureHostProvider, FixtureOrcaSession,
     LocalHostEffect, OrcaCallContext, PluginCapabilitySession, ProcessOwner, ProviderSnapshot,
-    ReadResource, SpawnSpec, call_resources_from_value, host_snapshots_from_value, parse_manifest,
-    observation_bootstrap_from_value, session_for_call, session_from_hello,
-    executor_context_from_value, worktree_context_from_value,
+    ReadResource, SpawnSpec, call_resources_from_value, executor_context_from_value,
+    host_snapshots_from_value, observation_bootstrap_from_value, parse_manifest, session_for_call,
+    session_from_hello, worktree_context_from_value,
 };
 use pacer_store::TaskStore;
 use serde_json::json;
@@ -283,7 +283,7 @@ for (;;) {{
         None,
         None,
         None,
-        None
+        None,
     )
     .unwrap();
 
@@ -387,7 +387,7 @@ for (;;) {{
         None,
         None,
         None,
-        None
+        None,
     )
     .unwrap();
 
@@ -489,7 +489,7 @@ for (;;) {{
         None,
         None,
         None,
-        None
+        None,
     )
     .unwrap();
 
@@ -497,9 +497,7 @@ for (;;) {{
     owner
         .spawn("fx-obs", &peer_script(dir.path(), &source))
         .unwrap();
-    owner
-        .install_capability_session("fx-obs", session)
-        .unwrap();
+    owner.install_capability_session("fx-obs", session).unwrap();
     owner
         .call_plugin("fx-obs", "plugin.hello", hello, Duration::from_secs(5))
         .await
@@ -599,7 +597,7 @@ for (;;) {
         Some(&host_attach),
         None,
         None,
-        None
+        None,
     )
     .unwrap();
     session.bind_hosts_fixture(
@@ -722,7 +720,7 @@ for (;;) {
         None,
         Some(orca_context),
         None,
-        None
+        None,
     )
     .unwrap();
     session
@@ -748,7 +746,12 @@ for (;;) {
         .install_capability_session("pacer-exec-orca", session)
         .unwrap();
     owner
-        .call_plugin("pacer-exec-orca", "plugin.hello", hello, Duration::from_secs(5))
+        .call_plugin(
+            "pacer-exec-orca",
+            "plugin.hello",
+            hello,
+            Duration::from_secs(5),
+        )
         .await
         .unwrap();
     let run = owner

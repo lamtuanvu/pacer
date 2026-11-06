@@ -4,7 +4,12 @@ use pacer_store::{StoreError, TaskStore, is_task_id};
 use serde_json::{Value, json};
 
 const TERMINAL_STATES: [&str; 6] = [
-    "done", "partial", "failed", "limit", "stopped", "needs_input",
+    "done",
+    "partial",
+    "failed",
+    "limit",
+    "stopped",
+    "needs_input",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -59,8 +64,14 @@ fn remote_transfer_blocks(task: &Value) -> bool {
     let Some(intent) = task.get("remoteTransferIntent").and_then(Value::as_object) else {
         return false;
     };
-    intent.get("attempt").zip(run.get("attempt")).is_some_and(|(a, b)| a == b)
-        && intent.get("dir").zip(run.get("dir")).is_some_and(|(a, b)| a == b)
+    intent
+        .get("attempt")
+        .zip(run.get("attempt"))
+        .is_some_and(|(a, b)| a == b)
+        && intent
+            .get("dir")
+            .zip(run.get("dir"))
+            .is_some_and(|(a, b)| a == b)
         && intent
             .get("startedAt")
             .zip(run.get("startedAt"))
@@ -100,10 +111,7 @@ fn stop_pending(task: &Value, now: f64) -> Value {
                 .map(|attempts| json!(attempts.len() + 1))
         })
         .unwrap_or_else(|| json!(1));
-    let provider = task
-        .get("executorProvider")
-        .cloned()
-        .unwrap_or(Value::Null);
+    let provider = task.get("executorProvider").cloned().unwrap_or(Value::Null);
     json!({
         "attempt": attempt,
         "requestedAt": now,
