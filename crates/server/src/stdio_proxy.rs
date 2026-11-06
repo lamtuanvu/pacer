@@ -190,6 +190,7 @@ async fn forward_input<
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
                 && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::desktop_reconcile_stays_forwarded(op.name)
+                && !crate::native::assistant_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
                 if op.name == "task.wait" {
