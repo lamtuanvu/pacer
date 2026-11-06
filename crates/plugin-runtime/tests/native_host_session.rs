@@ -17,8 +17,12 @@ use tokio::{
     net::UnixStream,
 };
 
+// The bridge narrows the process-wide umask while binding; reset the mode a parallel bind may have stripped.
 fn temp_home() -> tempfile::TempDir {
-    tempfile::tempdir().unwrap()
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    fs::set_permissions(home.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    home
 }
 
 fn peer(script: &str) -> SpawnSpec {
