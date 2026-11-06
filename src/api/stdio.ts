@@ -117,6 +117,29 @@ export async function runStdio(
           result = await snapshotProbeParts(getCtx());
           break;
         }
+        case "_internal.task-stop.probe": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const id = (r.params as { id?: unknown }).id;
+          if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "id required");
+          const { taskStopProbe } = await import("./task-stop-bridge");
+          result = taskStopProbe(getCtx(), id);
+          break;
+        }
+        case "_internal.task-stop.effects": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const id = (r.params as { id?: unknown }).id;
+          const beforeState = (r.params as { beforeState?: unknown }).beforeState;
+          if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "id required");
+          const { taskStopAfterStore } = await import("./task-stop-bridge");
+          result = await taskStopAfterStore(getCtx(), id, typeof beforeState === "string" ? beforeState : null);
+          break;
+        }
         case "_internal.task-auto-clean": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {

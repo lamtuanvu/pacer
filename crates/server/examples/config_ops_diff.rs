@@ -71,6 +71,8 @@ async fn main() -> io::Result<()> {
             None,
             host_read_sync,
             core_bridge_sync,
+            None,
+            None,
         )
         .await;
         let output = match result {
