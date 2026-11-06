@@ -55,6 +55,10 @@ static OPS: &[NativeOp] = &[
         call: config_writes::strategy_remove,
     },
     NativeOp {
+        name: "routing.get",
+        call: config_writes::routing_get,
+    },
+    NativeOp {
         name: "routing.set",
         call: config_writes::routing_set,
     },
@@ -217,6 +221,7 @@ mod tests {
             "strategy.use",
             "strategy.save",
             "strategy.remove",
+            "routing.get",
             "routing.set",
             "runner.set",
             "runner.reorder",
@@ -281,6 +286,7 @@ mod tests {
             "strategy.use",
             "strategy.save",
             "strategy.remove",
+            "routing.get",
             "routing.set",
             "runner.set",
             "runner.reorder",
