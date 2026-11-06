@@ -16,9 +16,9 @@ pub(crate) fn needs_task_clean_bridge(op: &str) -> bool {
 
 pub(crate) fn ids_from_params(params: &Value) -> Result<Vec<String>, CoreError> {
     let p = object(params)?;
-    let ids_value = p.get("ids").ok_or_else(|| {
-        invalid("ids: Invalid input: expected array, received undefined")
-    })?;
+    let ids_value = p
+        .get("ids")
+        .ok_or_else(|| invalid("ids: Invalid input: expected array, received undefined"))?;
     let Some(ids_array) = ids_value.as_array() else {
         return Err(invalid(format!(
             "ids: Invalid input: expected array, received {}",
@@ -113,17 +113,13 @@ fn publish_report(report: pacer_store::PublishReport) {
     }
 }
 
-pub(crate) fn task_dismiss<'a>(
-    ctx: &'a Ctx,
-    params: Value,
-    clean: OpFuture<'a>,
-) -> OpFuture<'a> {
+pub(crate) fn task_dismiss<'a>(ctx: &'a Ctx, params: Value, clean: OpFuture<'a>) -> OpFuture<'a> {
     Box::pin(async move {
         let p = object(&params)?;
         let expect_rev = optional_expect_rev(p)?;
-        let ids_value = p.get("ids").ok_or_else(|| {
-            invalid("ids: Invalid input: expected array, received undefined")
-        })?;
+        let ids_value = p
+            .get("ids")
+            .ok_or_else(|| invalid("ids: Invalid input: expected array, received undefined"))?;
         let Some(ids_array) = ids_value.as_array() else {
             return Err(invalid(format!(
                 "ids: Invalid input: expected array, received {}",
@@ -131,9 +127,7 @@ pub(crate) fn task_dismiss<'a>(
             )));
         };
         if ids_array.is_empty() || ids_array.len() > 100 {
-            return Err(invalid(
-                "ids: Invalid input: expected array length 1–100",
-            ));
+            return Err(invalid("ids: Invalid input: expected array length 1–100"));
         }
         let mut ids = Vec::with_capacity(ids_array.len());
         for (index, value) in ids_array.iter().enumerate() {

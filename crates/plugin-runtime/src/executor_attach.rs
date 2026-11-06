@@ -1,8 +1,6 @@
 //! Executor run claim attach for flag-on [`crate::ProcessOwner`] (P4d-12).
 
-use pacer_plugin_host::{
-    ExecutorClaimResource, NativeRun, RunLaunch, RunLaunchFile,
-};
+use pacer_plugin_host::{ExecutorClaimResource, NativeRun, RunLaunch, RunLaunchFile};
 use std::{path::Path, time::Instant};
 
 /// Core-sealed home for ProcessOwner executor run attach.
@@ -35,11 +33,7 @@ pub(crate) fn issue_executor(
         })
         .unwrap_or_default();
     let run_launch = RunLaunch {
-        home: plan
-            .context
-            .home
-            .to_string_lossy()
-            .into_owned(),
+        home: plan.context.home.to_string_lossy().into_owned(),
         umask: launch.umask.clone(),
         keep_color: launch.keep_color.clone().unwrap_or_default(),
         argv: launch.argv.clone(),

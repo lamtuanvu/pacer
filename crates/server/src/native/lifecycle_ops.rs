@@ -85,7 +85,11 @@ pub(super) fn optional_expect_rev(params: &Map<String, Value>) -> Result<Option<
     }
 }
 
-pub(super) fn project_api_task(ctx: &Ctx, store: &mut TaskStore, task: &Value) -> Result<Value, CoreError> {
+pub(super) fn project_api_task(
+    ctx: &Ctx,
+    store: &mut TaskStore,
+    task: &Value,
+) -> Result<Value, CoreError> {
     let rows = read_tasks::api_tasks(
         ctx,
         &ActiveCounts::default(),

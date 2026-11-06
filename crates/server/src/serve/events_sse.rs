@@ -50,10 +50,7 @@ fn pid_alive(_pid: i64) -> bool {
 }
 
 fn cursor_error() -> CoreError {
-    CoreError::new(
-        Code::InvalidInput,
-        "since must be a non-negative integer",
-    )
+    CoreError::new(Code::InvalidInput, "since must be a non-negative integer")
 }
 
 fn store_error(error: StoreError) -> CoreError {
@@ -110,16 +107,7 @@ pub async fn stream(
                 if let Some(frame) = pending.pop() {
                     return Some((
                         Ok::<Bytes, std::io::Error>(Bytes::from(frame)),
-                        (
-                            ctx,
-                            store,
-                            cursor,
-                            zone,
-                            pending,
-                            now_ms,
-                            first,
-                            tail,
-                        ),
+                        (ctx, store, cursor, zone, pending, now_ms, first, tail),
                     ));
                 }
                 if cursor.is_closed() {

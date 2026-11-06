@@ -79,9 +79,12 @@ pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core.flush()
         .await
         .map_err(|_| unavailable("task read channel closed"))?;
-    tokio::time::timeout(std::time::Duration::from_secs(120), receive(replies, &req_id))
-        .await
-        .map_err(|_| unavailable("task read bridge timed out"))?
+    tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        receive(replies, &req_id),
+    )
+    .await
+    .map_err(|_| unavailable("task read bridge timed out"))?
 }
 
 async fn receive(

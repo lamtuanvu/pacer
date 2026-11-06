@@ -24,7 +24,10 @@ pub fn valid_draft_uuid(text: &str) -> bool {
     {
         return false;
     }
-    if !text.bytes().all(|byte| byte == b'-' || byte.is_ascii_hexdigit()) {
+    if !text
+        .bytes()
+        .all(|byte| byte == b'-' || byte.is_ascii_hexdigit())
+    {
         return false;
     }
     if text == "00000000-0000-0000-0000-000000000000"
@@ -34,10 +37,7 @@ pub fn valid_draft_uuid(text: &str) -> bool {
     }
     let bytes = text.as_bytes();
     matches!(bytes[14], b'1'..=b'8')
-        && matches!(
-            bytes[19].to_ascii_lowercase(),
-            b'8' | b'9' | b'a' | b'b'
-        )
+        && matches!(bytes[19].to_ascii_lowercase(), b'8' | b'9' | b'a' | b'b')
 }
 
 /// Agent session record id (`z.string().uuid()` — any RFC variant/version).
@@ -52,7 +52,10 @@ pub fn valid_agent_uuid(text: &str) -> bool {
         return false;
     }
     let bytes = text.as_bytes();
-    if !bytes.iter().all(|byte| byte.is_ascii_hexdigit() || *byte == b'-') {
+    if !bytes
+        .iter()
+        .all(|byte| byte.is_ascii_hexdigit() || *byte == b'-')
+    {
         return false;
     }
     matches!(bytes[19].to_ascii_lowercase(), b'8' | b'9' | b'a' | b'b')
@@ -70,8 +73,5 @@ pub fn bounded_unicode(text: &str, min: usize, max: usize) -> bool {
 
 /// Positive safe integer (`z.number().int().positive()` with JS max).
 pub fn valid_expect_rev(value: f64) -> bool {
-    value.is_finite()
-        && value.fract() == 0.0
-        && value >= 1.0
-        && value <= MAX_SAFE_INTEGER as f64
+    value.is_finite() && value.fract() == 0.0 && value >= 1.0 && value <= MAX_SAFE_INTEGER as f64
 }

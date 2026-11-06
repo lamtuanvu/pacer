@@ -37,11 +37,7 @@ fn expect_matches(task: &Value, expect_rev: Option<f64>) -> bool {
 fn revision(task: &Value) -> Result<i64, StoreError> {
     task.get("rev")
         .and_then(Value::as_i64)
-        .or_else(|| {
-            task.get("rev")
-                .and_then(Value::as_f64)
-                .map(|n| n as i64)
-        })
+        .or_else(|| task.get("rev").and_then(Value::as_f64).map(|n| n as i64))
         .ok_or(StoreError::InvalidRecord)
 }
 
@@ -162,11 +158,7 @@ mod tests {
         let (_dir, mut store, id) = seed(10.0);
         let batch = dismiss_tasks(
             &mut store,
-            &[
-                "missing-1".into(),
-                id.clone(),
-                "missing-2".into(),
-            ],
+            &["missing-1".into(), id.clone(), "missing-2".into()],
             None,
             10.0,
         )

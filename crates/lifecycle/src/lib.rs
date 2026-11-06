@@ -7,11 +7,11 @@
 mod brief;
 mod capacity;
 mod dependencies;
+mod dismiss;
 mod json;
 mod lineage;
 mod record_review;
 mod record_stop;
-mod dismiss;
 mod request_review;
 mod schema;
 mod semantics;
@@ -68,8 +68,8 @@ pub use lineage::work_node;
 mod drain;
 mod prepared;
 mod run_spawn;
-mod wait_settled;
 mod state;
+mod wait_settled;
 pub use drain::{DrainOptions, DrainRoute, RouteAdmission, queue_preflight};
 pub use prepared::{AdmissionLifetime, PreparedAdmission};
 pub use state::AdmissionState;
@@ -79,16 +79,16 @@ pub use strategy::{project_selection, resolve_runner, validate_current, validate
 mod mutation;
 pub use mutation::MutationError;
 mod projects;
+pub use dismiss::{DismissError, dismiss_task, dismiss_tasks};
 pub use projects::{read_project_strategies, validate_project_strategies};
 pub use record_review::{RecordReviewError, TASK_KINDS, record_review_verdict};
 pub use record_stop::{RecordStopError, record_task_stop};
-pub use wait_settled::task_wait_settled;
-pub use dismiss::{DismissError, dismiss_task, dismiss_tasks};
 pub use request_review::{RequestReviewError, request_review};
 pub use run_spawn::{
     RUN_SPAWN_OWNER, RunSpawnOwner, RunSpawnPlan, build_run_spawn_plan, runner_log_path,
     self_command, validate_run_spawn_plan,
 };
+pub use wait_settled::task_wait_settled;
 
 // Unactivated P6e decisions take snapshots and effect results; these modules
 // perform no filesystem, process or plugin work.

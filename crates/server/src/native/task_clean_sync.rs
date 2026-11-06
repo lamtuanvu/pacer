@@ -17,7 +17,10 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
         .ok_or_else(|| unavailable("invalid task clean response"))
 }
 
-pub(crate) async fn http(target: Option<(u16, String)>, ids: &[String]) -> Result<Value, CoreError> {
+pub(crate) async fn http(
+    target: Option<(u16, String)>,
+    ids: &[String],
+) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::BodyExt;
     use hyper_util::{
@@ -79,9 +82,12 @@ pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core.flush()
         .await
         .map_err(|_| unavailable("task clean channel closed"))?;
-    tokio::time::timeout(std::time::Duration::from_secs(120), receive(replies, &req_id))
-        .await
-        .map_err(|_| unavailable("task clean bridge timed out"))?
+    tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        receive(replies, &req_id),
+    )
+    .await
+    .map_err(|_| unavailable("task clean bridge timed out"))?
 }
 
 async fn receive(
