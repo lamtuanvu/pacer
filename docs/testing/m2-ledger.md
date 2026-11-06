@@ -102,6 +102,23 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `service.install`, `service.status` | Forwarded (P9) | Login-item/service install with explicit consent and install/running/pid status probes (`src/setup/service.ts`). |
 | `service.handover`, `service.work` | Forwarded (P9) | Post-upgrade runner handover wait and running-task/session version inventory for reopen prompts (`src/setup/service.ts`, owner-only handover). |
 | `update.check`, `update.apply` | Forwarded (P9) | Release feed check (optional force) and shared `update.apply` job with download/verify/replace/refuse package-manager and source installs (`src/api/ops.ts`, update preflight). |
+| `task.attach`, `task.session`, `task.takeover` | Forwarded (P6/P7) | Live session viewers, session-host metadata and headless-to-interactive takeover (`src/api/ops-session.ts`, `src/tasks/session.ts`, `takeoverTask`). Shares the attach/viewer path with `session.*`; native vt100 replay gate remains **NO-GO**. |
+| `task.send` | Forwarded (P6) | Injects text into an interactive lane's live worker with driving-lease and `expect_rev` rules (`sendMessage` in `src/tasks/send.ts`); does not create attempts. |
+| `runner.add`, `runner.block`, `runner.unblock`, `runner.check`, `runner.list` | Forwarded (P2/P6) | Executor inventory, manual blocks and scratch check jobs (`src/api/ops.ts`, `src/core/runners.ts`, `checkRunner`). Distinct from native `runner.set` / `reorder` / `remove` / `settings.*`. |
+| `strategy.build`, `strategy.preview` | Forwarded (P2) | Opens a terminal strategy-builder session and validates drafts without writes (`buildStrategy`, `strategy.preview`). Native strategy reads/writes are listed above. |
+| `client.register`, `client.heartbeat`, `client.list` | Forwarded (P6) | Client registry with 45-second lease renewal and connected instance listing (`src/api/client.ts`). |
+| `client.control.enroll`, `client.control.targets`, `client.control.request`, `client.control.result` | Forwarded (P6/P8) | App-page control worker enrollment, allowlisted navigation/window/tray/quit requests and polled outcomes (`src/api/ops-client-control.ts`). |
+| `client.control.claim`, `client.control.complete` | Forwarded (P6/P8) | Worker-side claim/complete loop for distributed UI actions; worker credentials stay page-private. |
+| `project.messaging.get`, `project.messaging.set`, `project.messaging.remove` | Forwarded (P6) | Repository messaging guardrails with revision checks and config publication (`src/api/ops-msg.ts`, `src/messaging/project-policy.ts`). |
+| `project.strategy.list`, `project.strategy.get`, `project.strategy.set`, `project.strategy.remove` | Forwarded (P2) | Per-repo executor ordering overrides (`src/api/ops.ts`, `src/config/project-strategies.ts`). |
+| `job.list`, `job.get`, `job.cancel` | Forwarded (P6) | Shared async job store reads and cancellation for host checks, runner checks, updates and similar targets (`src/jobs/`). |
+| `executor.setup.candidates`, `executor.setup.models`, `executor.setup.connect` | Forwarded (P6/P9) | OpenCode executor onboarding: candidate discovery, model lists and provider connect hand-off (`src/opencode/setup.ts`, endpoint plugin). |
+| `attention.dismiss`, `attention.snooze` | Forwarded (P6) | Attention item mutations that feed notify derivation (`src/attention/`). |
+| `issue.import`, `issue.search` | Forwarded (P8) | GitHub issue read/search via the user's `gh` login for registered repositories (`src/issues/`). |
+| `insights.summary` | Forwarded (P5/P6) | Period analytics over task attempts, tokens and ladder/skip cohorts (`src/insights/`). |
+| `onboarding.try` | Forwarded (P9) | Scratch-repo onboarding delegation via setup mutation (`setup.onboardingTry` in `src/setup/`). |
+| `setup.init` | Forwarded (P9) | Creates missing strategy YAML and selects a planner without agent connect (`setup.init`); distinct from native `setup.check`. |
+| `tree.status` | Forwarded (P5/P6) | Task-tree turn state over the messaging store and optional work graph (`tree.status` in `src/api/ops-msg.ts`); work-grant authorized. v3-only public op (`liveness.status` remains MCP-only). |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
@@ -206,8 +223,8 @@ effectful `_run` spawn, messaging store turns, project policy, and
 only expands the ledger with explicit Forwarded rows and residual owners; it
 does not register native handlers. Native cutover waits on P6 spawn ownership,
 P5 observation/broker bridges, and a messaging read model. v3-only `tree.status`
-and `liveness.status` (`src/api/ops-msg.ts`) remain under the `tree.*` prefix
-row until separately triaged.
+is named in the detailed Forwarded table above; `liveness.status` remains
+MCP-only (`src/mcp/server.ts`).
 
 ## P7/P9 assistant, account, terminal, agent, service and update triage (ledger, no new native ops)
 
@@ -221,6 +238,25 @@ still owned by TypeScript. No operation is trivially pure read/write on static
 config alone. This slice only expands the ledger with explicit Forwarded rows;
 it does not register native handlers. Native cutover waits on plugin host
 ownership, usage refresh bridges, and P9 setup/service owners.
+
+## P2/P6 client, project, runner, job and executor-setup triage (ledger, no new native ops)
+
+This slice evaluated the remaining public `client.*`, `project.*`, `runner.*`,
+`job.*` and `executor.setup.*` operations for native registration. None met
+parity without client registry liveness, distributed UI control workers,
+project messaging/strategy config effects, interactive runner add/check jobs,
+shared job cancellation, or OpenCode endpoint onboarding still owned by
+TypeScript. This slice only expands the ledger with explicit Forwarded rows; it
+does not register native handlers.
+
+## P5/P8 insights, issue and setup residual triage (ledger, no new native ops)
+
+This slice evaluated `insights.summary`, `issue.import`, `issue.search`,
+`onboarding.try` and `setup.init` for native registration. None met parity
+without task-store analytics, user `gh` subprocess reads, onboarding delegation
+spawn, or setup strategy initialization still owned by TypeScript. Native
+`setup.check` and `onboarding.skip` remain the only P9 setup/onboarding native
+ops. This slice only expands the ledger; it does not register native handlers.
 
 ## P5b usage refresh triage (library, no new native ops)
 
@@ -425,28 +461,11 @@ the table above are omitted here. Owner streams follow
 `docs/specs/2026-10-20-rust-host-migration-design.md` §2 and the 2026-11-01
 reconcile plans. Counts are op prefixes, not reviewable PR slices.
 
-| Prefix | Count | Owner stream | Notes |
-| --- | ---: | --- | --- |
-| `task.*` | 12 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+9 more); `list` and `request_review` native above |
-| `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
-| `client.*` | 9 | P6 | e.g. `client.control.claim`, `client.control.complete`, `client.control.enroll` (+6 more) |
-| `project.*` | 7 | P2 | e.g. `project.messaging.get`, `project.messaging.remove`, `project.messaging.set` (+4 more) |
-| `runner.*` | 5 | P2 | `add`/`block`/`unblock`/`check`/`list` stay TS (`set`/`reorder`/`remove`/`settings.*` native above) |
-| `strategy.*` | 4 | P2 | e.g. `strategy.build`, `strategy.list`, `strategy.preview` (+1 more) |
-| `executor.*` | 3 | P6 | e.g. `executor.setup.candidates`, `executor.setup.connect`, `executor.setup.models` |
-| `job.*` | 3 | P6 | e.g. `job.cancel`, `job.get`, `job.list` |
-| `machine.*` | 0 | P8 | native above |
-| `repo.*` | 0 | P2 | native above |
-| `attention.*` | 2 | P6 | e.g. `attention.dismiss`, `attention.snooze` |
-| `issue.*` | 2 | P8 | e.g. `issue.import`, `issue.search` |
-| `onboarding.*` | 1 | P9 | `onboarding.try` stays forwarded |
-| `setup.*` | 1 | P9 | `setup.init` stays forwarded |
-| `doctor.*` | 1 | P9 | `doctor.run` forwarded (see table) |
-| `files.*` | 0 | P8 | native above |
-| `insights.*` | 1 | P5 | e.g. `insights.summary` |
-| `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
+No prefix aggregates remain: every v3 public op in `stdio_hello.json` is named
+in the detailed Native or Forwarded table above (including HTTP-native plugin
+ops and selective forwards such as `mode.hold` without `until`).
 
-Total unregistered (not in the detailed table): **68**.
+Total unregistered (not in the detailed table): **0**.
 Total still not native (v3 − native set): **184**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
