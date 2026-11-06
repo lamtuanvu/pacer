@@ -25,8 +25,9 @@ pub use bridge_listener::{
     SharedOwner, bridge_methods_are_private, serve_starts_reverse_bridge_by_default,
 };
 pub use capability::{
-    CapabilitySessionError, LocalHostEffect, PluginCapabilitySession, call_resources_from_value,
-    session_for_call, session_from_hello,
+    CapabilitySessionError, LocalHostEffect, ObservationBootstrap, PluginCapabilitySession,
+    call_resources_from_value, observation_bootstrap_from_value, session_for_call,
+    session_from_hello,
 };
 pub use host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
