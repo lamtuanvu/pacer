@@ -330,10 +330,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 ));
             };
             let core_target = state.core.target().await;
-            match crate::native::task_review_sync::http_probe(core_target.clone(), &params).await {
-                Ok(probe)
-                    if crate::native::task_review_sync::task_review_stays_forwarded(&probe) =>
-                {
+            match crate::native::task_review_sync::http_probe(core_target.clone(), &params)
+                .await
+            {
+                Ok(probe) if crate::native::task_review_sync::task_review_stays_forwarded(&probe) => {
                     let Some(target) = core_target else {
                         return proxy::unavailable(false);
                     };
@@ -625,7 +625,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 task_stop_effects,
                 task_review_probe_cache,
                 task_review_effects,
-                host_effects_sync,
             )
             .await
         };
