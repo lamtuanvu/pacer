@@ -42,6 +42,15 @@ type SealedResources = {
   commands: CallResources["commands"];
   hosts: HostOperationResource[];
   worktree?: { taskId: string; attempt: number; baseSha: string };
+  executorClaim?: {
+    taskId: string; attempt: number; providerId: string; executor: string;
+    launch: {
+      argv: string[]; cwd: string; executable: string;
+      env: Record<string, string>; stdin?: string; session?: "interactive";
+      umask?: string; keepColor?: string[];
+      files?: { name: string; content: string; mode: number }[];
+    };
+  };
   orcaAttempt?: NonNullable<CallResources["orcaAttempt"]>;
   orcaLive?: NonNullable<CallResources["orcaLive"]>;
   http?: { hosts: string[]; origins?: string[] };
@@ -150,6 +159,61 @@ function sealProvided(resources: CallResources, grants: readonly string[]): Seal
     }
     out.worktree = { taskId: row.taskId, attempt: row.attempt, baseSha: row.baseSha };
   }
+  if (resources.executorClaim) {
+    if (!grants.includes("process.spawn")) return denied("process.spawn is not granted");
+    const row = resources.executorClaim;
+    if (typeof row.taskId !== "string" || !row.taskId || row.taskId.length > 128) return invalid("executorClaim taskId");
+    if (!(row.attempt > 0 && row.attempt <= 1_000_000)) return invalid("executorClaim attempt");
+    if (typeof row.providerId !== "string" || !row.providerId || row.providerId.length > 128) {
+      return invalid("executorClaim providerId");
+    }
+    if (typeof row.executor !== "string" || !row.executor || row.executor.length > 128) {
+      return invalid("executorClaim executor");
+    }
+    const launch = row.launch;
+    if (!Array.isArray(launch.argv) || launch.argv.length === 0 || launch.argv.length > 32) {
+      return invalid("executorClaim launch argv");
+    }
+    for (const arg of launch.argv) {
+      if (typeof arg !== "string" || !arg || arg.includes("\0") || arg.length > 4096) return invalid("executorClaim argv");
+    }
+    if (!isExactIssuedPath(launch.executable)) return invalid("executorClaim executable");
+    if (!isExactIssuedPath(launch.cwd)) return invalid("executorClaim cwd");
+    if (!launch.env || typeof launch.env !== "object") return invalid("executorClaim env");
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(launch.env)) {
+      if (typeof value !== "string" || key.includes("\0") || value.includes("\0")) return invalid("executorClaim env");
+      env[key] = value;
+    }
+    if (launch.stdin !== undefined && (typeof launch.stdin !== "string" || launch.stdin.length > 262144)) {
+      return invalid("executorClaim stdin");
+    }
+    if (launch.session !== undefined && launch.session !== "interactive") return invalid("executorClaim session");
+    out.executorClaim = {
+      taskId: row.taskId,
+      attempt: row.attempt,
+      providerId: row.providerId,
+      executor: row.executor,
+      launch: {
+        argv: [...launch.argv],
+        cwd: resolve(launch.cwd),
+        executable: resolve(launch.executable),
+        env,
+        ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }),
+        ...(launch.session === undefined ? {} : { session: launch.session }),
+        ...(launch.umask === undefined ? {} : { umask: launch.umask }),
+        ...(launch.keepColor === undefined ? {} : { keepColor: [...launch.keepColor] }),
+        ...(launch.files === undefined ? {} : {
+          files: launch.files.map(file => {
+            if (typeof file.name !== "string" || !file.name || file.name.length > 128) return invalid("executorClaim file name");
+            if (typeof file.content !== "string" || file.content.length > 262144) return invalid("executorClaim file content");
+            if (!(file.mode > 0 && file.mode <= 0o777)) return invalid("executorClaim file mode");
+            return { name: file.name, content: file.content, mode: file.mode };
+          }),
+        }),
+      },
+    };
+  }
   if (resources.orcaAttempt) {
     if (!grants.includes("orca")) return denied("orca is not granted");
     const row = resources.orcaAttempt;
@@ -236,6 +300,8 @@ export type CallAuthoritySeal = {
   orcaBridgeToken?: string;
   /** P4d-11: home + git pin for ProcessOwner worktree attach. */
   worktreeContext?: WorktreeContextSeal;
+  /** P4d-12: home pin for ProcessOwner executor run attach. */
+  executorContext?: { home: string };
 };
 
 function observationAdmission(

@@ -7,19 +7,21 @@
 //! P4d-8 wires observation bootstrap (`tasks.read` / `events.subscribe`) when
 //! Core seals it. P4d-9 attaches Core-sealed host provider snapshots for
 //! `hosts` when issued. P4d-10 attaches Core-sealed Orca attempt/live resources
-//! through [`NativeOrca`] when issued.
+//! through [`NativeOrca`] when issued. P4d-12 attaches Core-sealed
+//! `executorClaim` through [`NativeRun`] when issued.
 
 use crate::host_attach::{HostAttachSnapshot, native_hosts_for_attach};
 use crate::orca_attach::{
     FixtureOrcaSession, OrcaAttach, OrcaAttachPlan, bind_orca_fixture, bind_process_owner_orca,
     orca_sidecar_call,
 };
+use crate::executor_attach::{ExecutorAttachPlan, ExecutorCallContext, issue_executor};
 use crate::worktree_attach::{WorktreeAttachPlan, WorktreeCallContext, issue_worktree};
 use pacer_plugin_host::{
     AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-    CredentialBindings, HostProvider, NativeHttp, NativeHosts, NativeProcess, ObservationCall,
-    ObservationGeneration, OrcaAttemptResource, ParsedManifest,
-    ProviderSnapshot, ReadContext, TaskProjection, parse_manifest,
+    CredentialBindings, HostProvider, NativeHttp, NativeHosts, NativeProcess, NativeRun,
+    ObservationCall, ObservationGeneration, OrcaAttemptResource, ParsedManifest, ProviderSnapshot,
+    ReadContext, TaskProjection, parse_manifest,
 };
 
 const ORCA_PROVIDER: &str = "pacer-exec-orca";
@@ -143,6 +145,7 @@ struct SessionEffect {
     local: LocalHostEffect,
     hosts: Option<HostSidecar>,
     orca: Option<OrcaAttach>,
+    run: Option<NativeRun>,
 }
 
 impl SessionEffect {
@@ -151,7 +154,12 @@ impl SessionEffect {
             local,
             hosts: None,
             orca: None,
+            run: None,
         }
+    }
+
+    fn bind_run(&mut self, run: NativeRun) {
+        self.run = Some(run);
     }
 
     fn bind_process_owner_hosts(
@@ -180,6 +188,13 @@ impl SessionEffect {
 }
 
 impl CapabilityEffect for SessionEffect {
+    fn owns_lifecycle(&self, method: &str, plugin_id: &str, scopes: &[String]) -> bool {
+        if let Some(run) = &self.run {
+            return CapabilityEffect::owns_lifecycle(run, method, plugin_id, scopes);
+        }
+        false
+    }
+
     fn native_host_sessions(&self) -> bool {
         self.hosts.is_some()
     }
@@ -203,6 +218,22 @@ impl CapabilityEffect for SessionEffect {
             match &mut self.orca {
                 Some(native) => orca_sidecar_call(native, method, params).await,
                 None => Err(BrokerError::Invalid("no Orca owner")),
+            }
+        } else if method.starts_with("capability.process.")
+            && matches!(
+                method,
+                "capability.process.claimRun"
+                    | "capability.process.startRun"
+                    | "capability.process.stopRun"
+                    | "capability.process.inspectRun"
+                    | "capability.process.pollRun"
+                    | "capability.process.readRunOutput"
+                    | "capability.process.completeReportedRun"
+            )
+        {
+            match &mut self.run {
+                Some(native) => native.call(method, params).await,
+                None => Err(BrokerError::Invalid("no executor run owner")),
             }
         } else {
             self.local.call(method, params).await
@@ -266,6 +297,7 @@ pub struct PluginCapabilitySession {
     pending_host_attach: Vec<HostAttachSnapshot>,
     pending_orca: Option<OrcaAttachPlan>,
     pending_worktree: Option<WorktreeAttachPlan>,
+    pending_executor: Option<ExecutorAttachPlan>,
 }
 
 impl PluginCapabilitySession {
@@ -277,6 +309,7 @@ impl PluginCapabilitySession {
             pending_host_attach: Vec::new(),
             pending_orca: None,
             pending_worktree: None,
+            pending_executor: None,
         }
     }
 
@@ -340,6 +373,16 @@ impl PluginCapabilitySession {
         };
         let worktree = issue_worktree(&plan).await?;
         self.broker.attach_worktree(worktree);
+        Ok(())
+    }
+
+    pub fn bind_process_owner_executor(&mut self) -> Result<(), CapabilitySessionError> {
+        let Some(plan) = self.pending_executor.take() else {
+            return Ok(());
+        };
+        let deadline = self.broker.authority().deadline();
+        let run = issue_executor(&plan, deadline)?;
+        self.effect.bind_run(run);
         Ok(())
     }
 
@@ -540,6 +583,7 @@ pub fn session_from_hello(
         None,
         None,
         None,
+        None,
     )
 }
 
@@ -564,6 +608,7 @@ pub fn session_for_call(
     host_attach: Option<&[HostAttachSnapshot]>,
     orca_context: Option<OrcaCallContext>,
     worktree_context: Option<WorktreeCallContext>,
+    executor_context: Option<ExecutorCallContext>,
 ) -> Result<PluginCapabilitySession, CapabilitySessionError> {
     let (manifest, hello_grants, features, config) = hello_parts(hello)?;
     let grants = grants.unwrap_or(hello_grants);
@@ -601,6 +646,16 @@ pub fn session_for_call(
             "worktree resources require Core-sealed worktreeContext".into(),
         ));
     }
+    if resources.executor_claim.is_some() && !grants.iter().any(|g| g == "process.spawn") {
+        return Err(CapabilitySessionError::Native(
+            "executorClaim resources require process.spawn grant".into(),
+        ));
+    }
+    if resources.executor_claim.is_some() && executor_context.is_none() {
+        return Err(CapabilitySessionError::Native(
+            "executorClaim resources require Core-sealed executorContext".into(),
+        ));
+    }
     let authority = CallAuthority::new(
         resources.clone(),
         grants.clone(),
@@ -630,6 +685,13 @@ pub fn session_for_call(
     if let Some(grant) = resources.worktree.clone() {
         let ctx = worktree_context.expect("worktree context checked above");
         session.pending_worktree = Some(WorktreeAttachPlan {
+            grant,
+            context: ctx,
+        });
+    }
+    if let Some(grant) = resources.executor_claim.clone() {
+        let ctx = executor_context.expect("executor context checked above");
+        session.pending_executor = Some(ExecutorAttachPlan {
             grant,
             context: ctx,
         });

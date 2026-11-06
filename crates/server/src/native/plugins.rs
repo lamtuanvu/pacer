@@ -25,8 +25,8 @@ use pacer_plugin_ops::{
 };
 use pacer_plugin_runtime::{
     SharedOwner, SpawnSpec, call_resources_from_value, host_snapshots_from_value,
-    observation_bootstrap_from_value, orca_context_from_value, session_for_call,
-    session_from_hello, worktree_context_from_value,
+    executor_context_from_value, observation_bootstrap_from_value, orca_context_from_value,
+    session_for_call, session_from_hello, worktree_context_from_value,
 };
 use serde_json::{Value, json};
 use std::{
@@ -450,6 +450,8 @@ impl Owner {
             .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
         let worktree_context = worktree_context_from_value(&authority_body)
             .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let executor_context = executor_context_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
         let spec = SpawnSpec {
             argv,
             cwd: cwd.into(),
@@ -469,6 +471,7 @@ impl Owner {
                 Some(&host_attach),
                 orca_context,
                 worktree_context,
+                executor_context,
             )
             .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
             session
@@ -480,6 +483,9 @@ impl Owner {
             session
                 .bind_process_owner_worktree()
                 .await
+                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+            session
+                .bind_process_owner_executor()
                 .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
             guard
                 .install_capability_session(id, session)

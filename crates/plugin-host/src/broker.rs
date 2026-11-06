@@ -229,8 +229,16 @@ impl CapabilityBroker {
             });
         }
         match method {
-            "capability.process.claimRun"
-            | "capability.process.startRun"
+            "capability.process.claimRun" => {
+                let attempt = p
+                    .get("attempt")
+                    .and_then(crate::js_semantics::safe_u64)
+                    .filter(|n| *n > 0)
+                    .ok_or(BrokerError::Invalid("attempt"))?;
+                self.authority
+                    .consume_executor_claim(field("taskId")?, attempt)?;
+            }
+            "capability.process.startRun"
             | "capability.process.stopRun"
             | "capability.process.inspectRun"
             | "capability.process.pollRun"

@@ -1799,6 +1799,12 @@ export class PluginRegistry {
         },
       };
     }
+    if (sealed.resources.executorClaim && grants.includes("process.spawn")) {
+      out = {
+        ...out,
+        executorContext: { home: ctx.pacerHome },
+      };
+    }
     return out;
   }
 

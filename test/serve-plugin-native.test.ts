@@ -204,6 +204,58 @@ test("sealCallAuthority seals worktree resources when worktree is granted", () =
   });
 });
 
+test("sealCallAuthority seals executorClaim when process.spawn is granted", () => {
+  const ctx = fakeCtx();
+  const executable = join(ctx.home, "bin", "tool");
+  mkdirSync(join(ctx.home, "bin"), { recursive: true });
+  writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
+  const sealed = sealCallAuthority(
+    ctx,
+    {
+      id: "fx-executor",
+      version: "1.0.0",
+      publisher: "fixture",
+      host: ">=1.10.0",
+      capabilities: [{ name: "process.spawn", scopes: ["tool"] }],
+      contributes: { executor: { backends: ["direct"] } },
+    } as any,
+    ["process.spawn"],
+    {
+      resources: {
+        reads: [],
+        commands: [],
+        stores: [],
+        executorClaim: {
+          taskId: "t-20261106-125719-c5fb",
+          attempt: 1,
+          providerId: "fx-executor",
+          executor: "codex",
+          workdir: ctx.home,
+          launch: {
+            argv: ["tool", "run"],
+            cwd: ctx.home,
+            executable,
+            executableIdentity: { dev: 1, ino: 1, size: 1, mtimeMs: 1, mode: 0o755 },
+            env: { PATH: "/usr/bin" },
+          },
+        },
+      } as any,
+    },
+  );
+  expect(sealed.resources.executorClaim).toEqual({
+    taskId: "t-20261106-125719-c5fb",
+    attempt: 1,
+    providerId: "fx-executor",
+    executor: "codex",
+    launch: {
+      argv: ["tool", "run"],
+      cwd: ctx.home,
+      executable,
+      env: { PATH: "/usr/bin" },
+    },
+  });
+});
+
 test("private call_authority rejects unknown plugins under PACER_HOST_SOCKET", async () => {
   const out = await pluginNativeRequest(ctxWithSocket("/tmp/pacer-host.sock"), {
     kind: "call_authority",
