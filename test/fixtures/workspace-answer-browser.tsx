@@ -23,10 +23,16 @@ const task = { ...detail, state: options.state ?? "running", question: null,
 const root = { ...task, id: "root-task", title: "Selected root", executor: null, messages: { unreadForHuman: 1, question: { id: "m-root", text: "Wrong root question" } } };
 const messages = () => question ? { unreadForHuman: 1, question } : undefined;
 let snapshotQuestion = question;
-const tasks = () => options.retained ? [root, { ...task, messages: snapshotQuestion ? { unreadForHuman: 1, question: snapshotQuestion } : undefined }] : [task];
+const tasks = () => options.retained
+  ? [root, { ...task, messages: snapshotQuestion ? { unreadForHuman: 1, question: snapshotQuestion } : undefined }]
+  : [{ ...task, messages: messages() }];
 let sends = 0;
-const api = { async call(op: string, params: any): Promise<any> {
+const hello = async () => ({ version: "test", protocol: "3.0", features: {} });
+const api = {
+  hello,
+  async call(op: string, params: any): Promise<any> {
   calls.push({ op, params });
+  if (op === "hello" || op === "api.hello") return hello();
   if (op === "task.get") {
     await new Promise(resolve => setTimeout(resolve, 30));
     resolved.push(params.id);
@@ -44,9 +50,16 @@ const api = { async call(op: string, params: any): Promise<any> {
     if (options.failOnce && sends === 1) throw new ApiError("conflict", "Refused", undefined, 409, { reason: "confirmation_required" });
     return { delivery: options.delivery ?? "turn_started", hold: { reason: "confirmation_required" } };
   }
-  if (op === "msg.read") { question = undefined; return { read: 1 }; }
+  if (op === "msg.read") {
+    question = undefined;
+    snapshotQuestion = undefined;
+    bump();
+    return { read: 1 };
+  }
   return {};
-} };
+} ,
+};
+let bump = () => {};
 const store = { ...initialState(), connected: true, snapshot: { ...snapshot, tasks: tasks() } as any,
   features: { readModel: true, ops: new Set(["task.review", "dispatch.review"]) } };
 const runner = createActionRunner({ call: api.call as any, waitFor: async () => true,
@@ -59,6 +72,7 @@ function currentRoute(): Route {
 function App() {
   const [route, setRoute] = useState(currentRoute);
   const [revision, setRevision] = useState(0);
+  bump = () => setRevision(n => n + 1);
   (window as any).PUBLISH_QUESTION = () => {
     question = { id: "m-workspace", text: "Which provider should the flow use?" };
     snapshotQuestion = question;
@@ -75,8 +89,10 @@ function App() {
     addEventListener("hashchange", update);
     return () => removeEventListener("hashchange", update);
   }, []);
+  // Inline frame hosts the workspace right panel (answer composer) the same way the narrow shell does.
+  const frame = { inline: true, title: null, actions: null, header: null, left: null, right: null, details: { open: true, toggle() {} }, heading() {} };
   return <TaskContext.Provider value={{ api: api as any, state: { ...store, snapshot: { ...store.snapshot, seq: revision, tasks: tasks() } as any } }}><ActionContext.Provider value={runner}>
-    <NavigationProvider route={route}><FrameContext.Provider value={options.retained ? { inline: true, title: null, actions: null, header: null, left: null, right: null, heading() {} } : null}><Screen route={route}/></FrameContext.Provider></NavigationProvider>
+    <NavigationProvider route={route}><FrameContext.Provider value={frame}><Screen route={route}/></FrameContext.Provider></NavigationProvider>
   </ActionContext.Provider></TaskContext.Provider>;
 }
 render(<App/>, document.getElementById("app")!);

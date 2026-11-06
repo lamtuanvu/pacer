@@ -17,13 +17,13 @@ export function AnswerPanel({ id, close }: { id: string; close: () => void }) {
   const agent = markAgent(task?.executor ?? "codex"), name = agentInfo(agent).name;
   const question = task?.question as (NonNullable<TaskDetail["question"]> & { options?: string[] }) | undefined;
   const available = task?.state === "needs_input" && question && question.answer === undefined && !task.retriedBy;
-  const session = `#/workspace?task=${encodeURIComponent(id)}&panel=session`;
+  const session = `#/workspace?task=${encodeURIComponent(id)}&panel=session&tab=answer`;
   const send = () => {
     if (!text.trim() || text.length > 2000 || !available || action.busy) return;
     void action.run("task.answer", { id, text: text.trim(), expect_rev: task.rev }, () => { setText(""); close(); });
   };
   return <SideDialog title={`${name} asks`} mark={<AgentMark agent={agent} size={20} labelled={false} />} close={close} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); send(); } }} footer={<>
-    <span className="ny-cap ny-resume">{name} resumes on send · ⌘↵</span><ButtonLink href={session}>Answer in the terminal</ButtonLink><Button variant="primary" busy={action.busy} onClick={send} disabled={!!action.unavailable || !available || !text.trim() || text.length > 2000} title={action.unavailable}>Send answer</Button>
+    <span className="ny-cap ny-resume">{name} resumes on send · ⌘↵</span><ButtonLink href={session}>Answer in workspace</ButtonLink><Button variant="primary" busy={action.busy} onClick={send} disabled={!!action.unavailable || !available || !text.trim() || text.length > 2000} title={action.unavailable}>Send answer</Button>
   </>}>
     {loading && <span role="status">Loading question…</span>}<ErrorMessage error={error} />
     {task && <>

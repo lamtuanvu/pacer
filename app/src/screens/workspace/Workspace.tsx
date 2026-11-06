@@ -1,15 +1,16 @@
 import { useUniqueId as useId } from '../../ds/useUniqueId';
 
 import { useWorkspaceKey, useWorkspaceState, useViewActive, ViewActive } from '../../workspace/state';
+import { workspaceManager } from '../../workspace/manager';
 import { sessionRuntime, sessionRuntimes } from "../../term/runtime";
 import { createPortal } from 'preact/compat';
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { TaskDetail } from '../../../../src/core/task-detail';
 import type { ClientTask as ApiTask } from '../../../../src/view-model/snapshot';
 import type { SessionInfo } from '../../../../src/session/service';
 import type { SessionFileResult } from '../../../../src/session/files';
 import type { TerminalRecord } from '../../../../src/terminal/workspace';
-import { markAgent } from '../../../../src/view-model/agents';
+import { agentInfo, markAgent } from '../../../../src/view-model/agents';
 import { agentSessionLabel, executorLabel, taskPageStatus as taskStatus } from '../../../../src/view-model/words';
 import { AgentMark } from '../../ds/AgentMark';
 import { Icon } from '../../ds/icons';
@@ -47,8 +48,10 @@ import { machineWaitWords } from '../../../../src/view-model/capacity';
 import { answerSteps, userStartedRoot, withManagedFallback } from '../../../../src/view-model/managed-root';
 import { Alert } from '../../ds/Alert';
 import { CountBadge } from '../../ds/CountBadge';
+import { SectionHeading } from '../../ds/SectionHeading';
 import { LazyThread } from '../session/LazyThread';
 import { livenessNotice, type LivenessInput } from '../../model/thread';
+import { QuestionChip } from './QuestionChip';
 
 interface Panel { id:string; task:string; kind:'session'|'agent'|'shell'|'file'|'diff'|'attempt'; agent?:AgentSession; title:string; shell?:TerminalRecord; file?:SessionFileResult; reference?:string; attempt?:number }
 export function workspaceTasks(tasks:ApiTask[], now:number, selected?:string) {
@@ -84,11 +87,38 @@ export function Workspace({id,panel,query}:{id?:string;panel?:string;query:Route
  }, [menu]);
  const openAgent=(agent:AgentSession)=>open({id:`agent:${agent.id}`,task:agent.task_id,kind:'agent',agent,title:workspaceAgentLabel(tasks.find(task=>task.id===agent.task_id)??agent.ownerTask,agent)});
  const shells=useQuery<TerminalRecord[]>('terminal.list',{});
- const detail=useQuery<TaskDetail>('task.get',{id:selected??''},'',true,!!selected);
- const selectedTree=useQuery<TraceTree>('dispatch.tree',{id:selected??''},'',false,!!selected);
  const details=useRef(new Map<string,TaskDetail>());
+ const current=panels.find(p=>p.id===active);
+ const [selectedDetail,setSelectedDetail]=useState<TaskDetail|undefined>();
+ const selectedTree=useQuery<TraceTree>('dispatch.tree',{id:selected??''},'',false,!!selected);
+ const [selectedError,setSelectedError]=useState<unknown>();
+ const [selectedLoading,setSelectedLoading]=useState(false);
+ // Load the selected card directly: workspace selection can change without remounting useQuery listeners.
+ // Match task.get invalidation — only this task's rev/state/messages, not every snapshot seq bump (child publish/remove).
+ const selectedLive=state.snapshot?.tasks.find(task=>task.id===selected);
+ const selectedRevision=selected?JSON.stringify([selectedLive?.rev,selectedLive?.state,selectedLive?.updatedAt,selectedLive?.messages,state.invalidations[`msg:${selected}`]??0,state.invalidations['project-strategies']]):'';
+ const loadedSelection=useRef<string>();
+ useLayoutEffect(()=>{
+  if(!selected){setSelectedDetail(undefined);setSelectedError(undefined);return;}
+  let cancelled=false;
+  const load=()=>{
+   loadedSelection.current=selected;
+   setSelectedLoading(true);setSelectedError(undefined);
+   void api.call<TaskDetail>('task.get',{id:selected}).then(data=>{
+    if(cancelled)return;
+    details.current.set(data.id,data);
+    setSelectedDetail(data);
+    setSelectedLoading(false);
+   }).catch(error=>{if(!cancelled){setSelectedError(error);setSelectedLoading(false);}});
+  };
+  // A new selection loads now; event bursts for the same task settle once, as useQuery does.
+  if(loadedSelection.current!==selected){load();return()=>{cancelled=true;};}
+  const timer=setTimeout(load,150);
+  return()=>{cancelled=true;clearTimeout(timer);};
+ },[selected,api,selectedRevision]);
+ const detail={data:selectedDetail&&selectedDetail.id===selected?selectedDetail:details.current.get(selected??''),error:selectedError,loading:selectedLoading,reload:()=>{if(!selected)return;void api.call<TaskDetail>('task.get',{id:selected}).then(data=>{details.current.set(data.id,data);setSelectedDetail(data);}).catch(setSelectedError);}};
  if(detail.data)details.current.set(detail.data.id,detail.data);
- const current=panels.find(p=>p.id===active),t=detail.data;
+ const t=detail.data;
  const open=(p:Panel)=>{setPanels(previous=>previous.some(x=>x.id===p.id)?previous:[...previous,p]);setActive(p.id);setMenu(false);};
  const sessionPanel=(task:ApiTask)=>{const members=membersFor(task);const member=task.executor?task:members.find(t=>t.executor&&['running','queued','needs_input'].includes(t.state))??members.find(t=>t.executor)??task;open({id:`session:${member.id}`,task:member.id,kind:'session',title:workspaceSessionLabel(member)});};
  useEffect(()=>{if(id&&!panels.length){setSelected(id);setExpanded(p=>({...p,[id]:true}));sessionPanel(tasks.find(t=>t.id===id)??{id,executor:null} as ApiTask);}},[id]);
@@ -134,15 +164,72 @@ export function Workspace({id,panel,query}:{id?:string;panel?:string;query:Route
 
  const newAgent=()=>{setMenu(false);setAgentPrompt(true);};
  useFrameHeading(null);
+ const [answered,setAnswered]=useState('');
+ const [focusAnswerRequest,setFocusAnswerRequest]=useState(false);
+ const [answerLoadError,setAnswerLoadError]=useState<unknown>();
+ const [,answerTick]=useState(0);
+ const rememberDetail=useCallback((task:TaskDetail)=>{
+  const previous=details.current.get(task.id);
+  details.current.set(task.id,task);
+  if(!previous||previous.rev!==task.rev||JSON.stringify(previous.messages)!==JSON.stringify(task.messages))answerTick(n=>n+1);
+ },[]);
+ const answerTaskId=current?.kind==='session'?current.task:selected;
+ const answerLive=state.snapshot?.tasks.find(task=>task.id===answerTaskId);
+ const answerBase=answerTaskId===selected?detail.data:(answerTaskId?details.current.get(answerTaskId):undefined);
+ // Snapshot messages move first (including when another client clears them); fall back to detail only when the task is absent from the snapshot.
+ const answerTask=answerBase||answerLive?{...(answerBase??{id:answerTaskId!} as TaskDetail),...(answerBase??{}),state:(answerLive?.state??answerBase?.state??'running') as TaskDetail['state'],messages:answerLive?answerLive.messages:answerBase?.messages} as TaskDetail:undefined;
+ const messaging=answerTask?messageQuestion(answerTask):undefined;
+ const answerPending=!!answerTask&&(!!messaging||answerTask.state==='needs_input');
+ const chipText=messaging?.text??answerTask?.question?.text??'The agent needs your answer';
+ const askerAgent=answerBase?.executor??answerLive?.executor??undefined;
+ const askerName=askerAgent?agentInfo(markAgent(askerAgent)).name:'The agent';
+ // The session's task can differ from the selected card (child session under a root); name it on the answer form.
+ const askingTask=answerTask&&answerTask.id!==selected?answerTask.title??answerTask.goal:undefined;
+ const focusFromHash=new URLSearchParams(location.hash.split('?')[1]).get('tab')==='answer';
+ const focusAnswer=focusFromHash||focusAnswerRequest;
+ const detailsOpen=!!frame?.inline||frame?.details?.open!==false;
+ const showChip=answerPending&&!(right==='overview'&&detailsOpen);
+ const openAnswer=()=>{
+  setRight('overview');
+  if(frame?.details&&!frame.details.open)frame.details.toggle();
+  setFocusAnswerRequest(true);
+ };
+ useEffect(()=>{if(!answerPending)setFocusAnswerRequest(false);},[answerPending]);
+ // Clear the chip's one-shot focus request once the person leaves the answer field (UI-2).
+ useEffect(()=>{
+  if(!focusAnswerRequest)return;
+  const onFocusIn=(event:FocusEvent)=>{
+   const target=event.target as HTMLElement|null;
+   if(target?.closest?.('[data-focus-id^="message-answer:"],[data-focus-id^="workspace-answer:"]'))return;
+   setFocusAnswerRequest(false);
+  };
+  document.addEventListener('focusin',onFocusIn);
+  return()=>document.removeEventListener('focusin',onFocusIn);
+ },[focusAnswerRequest]);
+ useLayoutEffect(()=>{if(focusFromHash&&answerPending)openAnswer();},[focusFromHash,answerPending,frame?.details?.open]);
+ // Prefer the Overview answer control when deep-linking, so view activation restores it instead of the page heading.
+ useLayoutEffect(()=>{
+  if(!focusAnswer||!answerPending||!answerTaskId||right!=='overview')return;
+  const focusId=messaging?`message-answer:${answerTaskId}`:`workspace-answer:${answerTaskId}`;
+  const previous=workspaceManager.get<{scroll:Record<string,unknown>;focus?:string}>(key,'position',{scroll:{}});
+  if(previous.focus!==focusId)workspaceManager.set(key,'position',{...previous,focus:focusId});
+ },[focusAnswer,answerPending,answerTaskId,messaging,right,key]);
+ const reloadAnswer=()=>{
+  if(!answerTaskId)return;
+  setAnswerLoadError(undefined);
+  if(answerTaskId===selected)detail.reload();
+  else void api.call<TaskDetail>('task.get',{id:answerTaskId}).then(rememberDetail).catch(error=>setAnswerLoadError(error));
+ };
  const cardNodes=workspaceTaskNodes(tasks,work.data?.tasks??[],state.snapshot?needsYou(state.snapshot,{repo:query.repo}):undefined,Date.now()/1000);
  const left=<div data-scroll-id="pc-workspace-list" className="pc-workspace-list"><div className="pc-workspace-list__head"><b>Workspace</b><AppLink to={routes.tasks(query)}>All tasks</AppLink></div><ErrorMessage error={history.error}/>{visible.map(task=><WorkspaceCard key={task.id} task={task} activePanel={active} node={cardNodes.find(n=>n.id===task.id)!} detail={details.current.get(task.id)} tokens={work.data?.tasks.find(w=>w.id===task.id)?.tokens} members={membersFor(task)} agents={(agents.data??[]).filter(s=>s.task_id===task.id||membersFor(task).some(m=>m.id===s.task_id))} onAgent={openAgent} selected={selected===task.id||membersFor(task).some(t=>t.id===selected)} expanded={!!expanded[task.id]} shells={(shells.data??[]).filter(s=>shellFor(task,s))} onSelect={()=>{setSelected(task.id);setRight('overview');sessionPanel(task);}} onToggle={()=>setExpanded(p=>({...p,[task.id]:!p[task.id]}))} onSession={sessionPanel} onShell={s=>open({id:s.id,task:task.id,kind:'shell',title:`Your shell · ${s.title}`,shell:s})} onAttempt={(n,label)=>{setSelected(task.id);open({id:`attempt:${task.id}:${n}`,task:task.id,kind:'attempt',attempt:n,title:label});}}/>)}</div>;
  // The snapshot moves first when a message arrives; the detail catches up on its own refresh.
  const unread=(state.snapshot?.tasks.find(x=>x.id===t?.id)??t)?.messages?.unreadForHuman??0;
+ const overviewAnswer=answerTask&&answerPending?<WorkspaceOverviewAnswer task={answerTask} asker={askerName} askingTask={askingTask} focus={focusAnswer} query={query} reload={reloadAnswer} onSent={text=>{setAnswered(text);reloadAnswer();}}/>:null;
  const rightPanel=<div className="pc-workspace-task"><Tabs id={`${viewId}-workspace-task`} label="Task details" value={right} onChange={setRight} options={[{value:'overview',label:'Overview'},{value:'changes',label:'Changes'},{value:'notes',label:'Notes'},{value:'messages',label:<>Messages{!!unread&&<CountBadge count={unread} label={unread===1?'unread message':'unread messages'}/>}</>,buttonProps:{title:'Messages'}}]}/><ErrorMessage error={detail.error}/>{t?<><div className="pc-workspace-task__title"><AppLink to={routes.task(t.id)}>{t.title??t.goal}</AppLink><span className="pc-trace__cap">{[t.repo.label,t.branch].filter(Boolean).join(' · ')}</span></div><div data-scroll-id="pc-workspace-task__body" className="pc-workspace-task__body" role="tabpanel" id={`${viewId}-workspace-task-${right}-panel`} aria-labelledby={`${viewId}-workspace-task-${right}-tab`}>
- {right==='overview'?<><CostTiles task={t} tokens={selectedTree.data?.totals.tokens??t.tokens} agentsUsed={selectedTree.data?.nodes.some(n=>n.attempts.length)?new Set(selectedTree.data.nodes.flatMap(n=>n.attempts.map(a=>markAgent(a.executor)))).size:undefined} compact/><Disclosure summary="Recent decisions"><RecentDecisions task={t} tree={selectedTree.data}/></Disclosure>{['running','needs_input'].includes(t.state)&&<Acceptance task={t} compact/>}<AppButtonLink to={routes.task(t.id)}>Task history</AppButtonLink></>:right==='changes'?<>{hasTaskExecution(t)&&t.files.map(f=><Button key={f.path} variant="quiet" className="pc-workspace-file" title={f.path} onClick={()=>open({id:`diff:${t.id}:${f.path}`,task:t.id,kind:'diff',title:f.path.split('/').at(-1)!,reference:f.path})}><span>{f.path}</span><span className="pc-trace__good">+{f.added}</span><span>−{f.removed}</span></Button>)}{(!hasTaskExecution(t)||!t.files.length)&&<p className="pc-trace__cap">{!hasTaskExecution(t)?'No task changes yet. Changes appear after this task starts.':t.derived?.files==='unavailable'?'Changes unavailable. The worktree could not be read.':'No changed files recorded.'}</p>}</>:right==='messages'?<LazyThread key={t.id} id={t.id} closed={!!t.review||!!t.dismissed||t.state==='stopped'} notice={livenessNotice(t as LivenessInput)}/>:<><section><h2>Brief</h2><p>{t.brief.goal}</p>{t.brief.constraints&&<p>{t.brief.constraints}</p>}</section><section><h2>Summary</h2><p>{t.summary??'No summary recorded.'}</p></section></>}
+ {right==='overview'?<>{overviewAnswer}<ErrorMessage error={answerLoadError}/>{answered&&<p role="status" aria-live="polite">{answered}</p>}<CostTiles task={t} tokens={selectedTree.data?.totals.tokens??t.tokens} agentsUsed={selectedTree.data?.nodes.some(n=>n.attempts.length)?new Set(selectedTree.data.nodes.flatMap(n=>n.attempts.map(a=>markAgent(a.executor)))).size:undefined} compact/><Disclosure summary="Recent decisions"><RecentDecisions task={t} tree={selectedTree.data}/></Disclosure>{['running','needs_input'].includes(t.state)&&<Acceptance task={t} compact/>}<AppButtonLink to={routes.task(t.id)}>Task history</AppButtonLink></>:right==='changes'?<>{hasTaskExecution(t)&&t.files.map(f=><Button key={f.path} variant="quiet" className="pc-workspace-file" title={f.path} onClick={()=>open({id:`diff:${t.id}:${f.path}`,task:t.id,kind:'diff',title:f.path.split('/').at(-1)!,reference:f.path})}><span>{f.path}</span><span className="pc-trace__good">+{f.added}</span><span>−{f.removed}</span></Button>)}{(!hasTaskExecution(t)||!t.files.length)&&<p className="pc-trace__cap">{!hasTaskExecution(t)?'No task changes yet. Changes appear after this task starts.':t.derived?.files==='unavailable'?'Changes unavailable. The worktree could not be read.':'No changed files recorded.'}</p>}</>:right==='messages'?<LazyThread key={t.id} id={t.id} closed={!!t.review||!!t.dismissed||t.state==='stopped'} notice={livenessNotice(t as LivenessInput)}/>:<><section><h2>Brief</h2><p>{t.brief.goal}</p>{t.brief.constraints&&<p>{t.brief.constraints}</p>}</section><section><h2>Summary</h2><p>{t.summary??'No summary recorded.'}</p></section></>}
 
  </div></>:(selected?!detail.error&&<Skeleton layout="rows" label="Loading the task"/>:<EmptyState title="Select a task" description="Choose a task on the left to see its details."/>)}</div>;
- return <div className={`pc-workspace${frame?.inline?' pc-workspace--inline':''}`}><FrameSlot name="left">{left}</FrameSlot><FrameSlot name="right">{rightPanel}</FrameSlot>{frame?.inline&&<>{left}</>}{dialogs.dialog}{agentPrompt&&t&&<Dialog title="New agent session" close={()=>setAgentPrompt(false)}><NewAgentSession key={t.id} task={t} onStarted={agent=>{agents.reload();setAgentPrompt(false);openAgent(agent);}}/></Dialog>}
+ return <div className={`pc-workspace${frame?.inline?' pc-workspace--inline':''}`}><p className="sr-only" role="status" aria-live="polite">{answerPending?`${askerName} asks: ${chipText}`:''}</p><FrameSlot name="left">{left}</FrameSlot><FrameSlot name="right">{rightPanel}</FrameSlot>{frame?.inline&&<>{left}</>}{dialogs.dialog}{agentPrompt&&t&&<Dialog title="New agent session" close={()=>setAgentPrompt(false)}><NewAgentSession key={t.id} task={t} onStarted={agent=>{agents.reload();setAgentPrompt(false);openAgent(agent);}}/></Dialog>}
  <div className="pc-workspace-center"><div className="pc-workspace-panels"><Tabs variant="terminal" id={`${viewId}-workspace-panels`} label="Workspace panels" value={active} onChange={setActive} options={panels.map(p=>{const title=panelTitle(p);return {value:p.id,label:title,leading:(p.kind==='session'||p.kind==='agent')?<AgentMark agent={markAgent((p.kind==='agent'?p.agent?.executor:panelTask(p)?.executor)??'unknown')} size={16} labelled={p.kind!=='agent'}/>:undefined,buttonProps:{title},trailing:<IconButton className="pc-terminal-tab-kill" size="sm" variant="quiet" aria-label={`Close ${title}`} title={`Close ${title}`} onClick={()=>close(p)}>×</IconButton>};})}/><div className="pc-terminal-menu-anchor"><IconButton geometry="panel" ref={menuTrigger} icon="plus" size="sm" variant="quiet" aria-haspopup="menu" aria-label="New panel" title="New panel" aria-expanded={menu} onClick={()=>setMenu(!menu)}/>{menu&&createPortal(<div ref={menuRoot} className="pc-terminal-menu" role="menu" aria-label="New panel" onKeyDown={event => {
 
   if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return; }
@@ -154,8 +241,8 @@ export function Workspace({id,panel,query}:{id?:string;panel?:string;query:Route
   const at = items.indexOf(document.activeElement as HTMLButtonElement);
   items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (at + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
  }}><Button variant="quiet" role="menuitem" disabled={!!serviceAction.unavailable} title={serviceAction.unavailable} onClick={()=>void newShell()}>New shell in this worktree</Button>{t&&<Button variant="quiet" role="menuitem" onClick={newAgent}>New agent session…</Button>}<Button variant="quiet" role="menuitem" onClick={()=>{setMenu(false);setFilePrompt(true);}}>Open a file…</Button></div>, document.body)}</div></div>
- <ErrorMessage error={error??serviceAction.error}/>{panels.map(p=><FrameContext.Provider key={p.id} value={active===p.id?frame:frame?{...frame,title:null,actions:null}:null}><ViewActive.Provider value={viewActive && active===p.id}><div hidden={active!==p.id} inert={active!==p.id ? true : undefined} data-scroll-id={`workspace-panel:${p.id}`} className="pc-workspace-content" role="tabpanel" id={`${viewId}-workspace-panels-${p.id}-panel`} aria-labelledby={`${viewId}-workspace-panels-${p.id}-tab`}>
- {p.kind==='agent'&&p.agent?<TaskAgentPanel session={p.agent} onChanged={agents.reload} openFile={reference=>void openFile(reference,p.task)}/>:p.kind==='session'?<AgentPanel id={p.task} detail={details.current.get(p.task)} work={!!work.data?.tasks.some(w=>w.id===p.task)} openFile={reference=>void openFile(reference,p.task)} selected={selected===p.task} reload={detail.reload} query={query} active={viewActive && active===p.id}/>:p.kind==='shell'&&p.shell?<ShellPanel panel={p}/>:p.kind==='file'?<FilePanel panel={p} detail={details.current.get(p.task)} close={()=>close(p)} refresh={()=>void openFile(p.reference!,p.task)} openFile={r=>void openFile(r,p.task)}/>:p.kind==='diff'?<DiffPanel panel={p}/>:<AttemptPanel panel={p} task={details.current.get(p.task)}/>}</div></ViewActive.Provider></FrameContext.Provider>)}{!current&&<EmptyState title="Open a session, shell or file" description="Select a session on the left, or use + to open a panel."/>}
+ <div className="pc-workspace-stage">{showChip&&answerTask&&<QuestionChip agent={askerAgent} text={chipText} onOpen={openAnswer}/>}<ErrorMessage error={error??serviceAction.error}/>{panels.map(p=><FrameContext.Provider key={p.id} value={active===p.id?frame:frame?{...frame,title:null,actions:null}:null}><ViewActive.Provider value={viewActive && active===p.id}><div hidden={active!==p.id} inert={active!==p.id ? true : undefined} data-scroll-id={`workspace-panel:${p.id}`} className="pc-workspace-content" role="tabpanel" id={`${viewId}-workspace-panels-${p.id}-panel`} aria-labelledby={`${viewId}-workspace-panels-${p.id}-tab`}>
+ {p.kind==='agent'&&p.agent?<TaskAgentPanel session={p.agent} onChanged={agents.reload} openFile={reference=>void openFile(reference,p.task)}/>:p.kind==='session'?<AgentPanel id={p.task} detail={details.current.get(p.task)} work={!!work.data?.tasks.some(w=>w.id===p.task)} openFile={reference=>void openFile(reference,p.task)} selected={selected===p.task} reload={detail.reload} query={query} active={viewActive && active===p.id} onDetail={rememberDetail}/>:p.kind==='shell'&&p.shell?<ShellPanel panel={p}/>:p.kind==='file'?<FilePanel panel={p} detail={details.current.get(p.task)} close={()=>close(p)} refresh={()=>void openFile(p.reference!,p.task)} openFile={r=>void openFile(r,p.task)}/>:p.kind==='diff'?<DiffPanel panel={p}/>:<AttemptPanel panel={p} task={details.current.get(p.task)}/>}</div></ViewActive.Provider></FrameContext.Provider>)}{!current&&<EmptyState title="Open a session, shell or file" description="Select a session on the left, or use + to open a panel."/>}</div>
 
  </div>{frame?.inline&&rightPanel}{filePrompt&&<Dialog title="Open a file" close={()=>setFilePrompt(false)}><form className="pc-form" onSubmit={e=>{e.preventDefault();void openFile(path);}}><Field label="Path in this task’s worktree"><TextInput autoFocus required value={path} onInput={e=>setPath(e.currentTarget.value)}/></Field><Button type="submit" busy={busy}>Open file</Button><ErrorMessage error={error}/></form></Dialog>}</div>;
 }
@@ -172,7 +259,7 @@ function WorkspaceCard({task,activePanel,node,detail,tokens,members,selected,exp
  <div className={`pc-workspace-card__sessions${expanded?' pc-workspace-card__sessions--expanded':''}`}><div className="pc-workspace-card__session-head">{expanded?<span className="grow">Sessions</span>:<span className="pc-workspace-session-icons">{sessions.map(s=><Tooltip key={s.id} text={`${s.name} · ${s.state}`}><IconButton className="pc-workspace-session-icon" size="sm" variant="quiet" aria-label={`${s.name} · ${s.state}`} onClick={s.open}>{s.shell?<span aria-hidden="true">⌘</span>:<AgentMark agent={s.agent} size={16}/>}<span aria-hidden="true" className={`pc-workspace-dot pc-workspace-dot--${s.state==='Live'?'info':'neutral'}${s.state==='Live'?' pc-status-dot__dot--live':''}`}/></IconButton></Tooltip>)}</span>}{toggle}</div>{expanded&&<div className="pc-workspace-session-rows">{sessions.map(s=><Button key={s.id} className={`pc-workspace-session-row${activePanel===s.id?' pc-workspace-session-row--selected':''}`} aria-pressed={activePanel===s.id} variant="quiet" onClick={s.open}>{s.shell?<span aria-hidden="true">⌘</span>:<AgentMark agent={s.agent} size={16}/>}<span>{s.name}</span><span aria-hidden="true" className={`pc-workspace-dot pc-workspace-dot--${s.state==='Live'?'info':'neutral'}${s.state==='Live'?' pc-status-dot__dot--live':''}`}/><span>{s.state}</span></Button>)}</div>}</div></article>;
 }
 function RecentDecisions({task,tree}:{task:TaskDetail;tree?:TraceTree}) {return <section><h2>Recent decisions</h2>{traceSteps(task,tree).slice(-3).map((s,n)=><p key={n} className="pc-trace__cap">✓ {s.title}</p>)}</section>;}
-function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query,active}:{id:string;detail?:TaskDetail;work:boolean;openFile:(r:string)=>void;selected:boolean;reload:()=>void;query:RouteQuery;active:boolean}) {
+function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query,active,onDetail}:{id:string;detail?:TaskDetail;work:boolean;openFile:(r:string)=>void;selected:boolean;reload:()=>void;query:RouteQuery;active:boolean;onDetail?:(task:TaskDetail)=>void}) {
  const {api,state}=useTaskContext(),reasonId=useId();
  const liveTask=state.snapshot?.tasks.find(task=>task.id===id);
  const [ownRequested,setOwnRequested]=useState(false);
@@ -184,6 +271,7 @@ function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query,
  // Fresh own detail wins at the same revision after msg.read, even while the snapshot lags.
  const retainedDetail=ownDetail.data&&(!cachedDetail||ownDetail.data.rev>=cachedDetail.rev)?ownDetail.data:cachedDetail;
  const detail=selected?cachedDetail:retainedDetail;
+ useEffect(()=>{if(detail)onDetail?.(detail);},[detail,onDetail]);
  const reloadDetail=selected?reload:()=>{setOwnRequested(true);ownDetail.reload();};
  const task=liveTask??detail;
  const session=useQuery<SessionInfo>('task.session',{id},'',false,!!task&&task.state!=='queued');
@@ -220,18 +308,14 @@ function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query,
  const [stoppedAt,setStoppedAt]=useState<string>();
  const taskRevision=JSON.stringify([task?.rev,task?.state]);
  const stopped=stoppedAt===taskRevision;
- const [answered,setAnswered]=useState('');
  const t=stopped&&task?{...task,state:'stopped' as const}:task,s=session.data,live=!!s?.live&&!!t&&['running','queued','needs_input'].includes(t.state);
- const messageTask=detail&&t?{...detail,state:t.state}:undefined;
- const question=messageTask&&messageQuestion(messageTask);
- const focusAnswer=active&&new URLSearchParams(location.hash.split('?')[1]).get('tab')==='answer';
  const mode=t?.state==='queued'?'Waiting to start':t&&!['running','needs_input'].includes(t.state)?'Ended · read-only':!s?session.error?'Session unavailable':undefined:s.host==='none'?'Output · read-only':driving?'You control this session':'Watching · read-only';
  // The header is the session's name. Repo and branch live in the side panel; only a mode that changes what you can do is spelled out.
  const metadata=mode==='You control this session'||mode==='Session unavailable'?mode:'';
  // Stalled conversations and a live delivery waiting on this viewer's control are named beside the session.
  const notice=t&&['running','needs_input'].includes(t.state)?livenessNotice({...detail,...t} as LivenessInput):null;
  const end=async()=>{if(!await dialogs.confirm('Stop this task? The output and changes are kept.','Stop task','Stop task'))return;try{if(t?.interactionMode==='conversation')await changeConversation(api,id,'end');else await api.call(work||detail?.work?'dispatch.stop':'task.stop',{id,expect_rev:t?.rev});setStoppedAt(taskRevision);handBack();session.reload();}catch(e){setError(e);}};
- return <>{dialogs.dialog}<FrameSlot name="title"><div className="pc-workspace-panel-details">{t?.executor&&<AgentMark agent={markAgent(t.executor)} size={18}/>}<div><b title={t?.title??t?.goal}>{t?.title??t?.goal}</b>{metadata&&<span title={metadata}>{metadata}</span>}</div>{t&&<Pill tone={taskStatus(t).tone}>{taskStatus(t).label}</Pill>}</div></FrameSlot><FrameSlot name="actions">{!state.connected&&<span id={reasonId} className="muted">Reconnecting… Session controls are paused.</span>}{t&&['running','queued','needs_input'].includes(t.state)&&<>{driving?<IconButton geometry="board" variant="quiet" icon="hand-back" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} aria-label="Hand back" title="Hand back" onClick={handBack}/>:(t.state!=='queued'&&(s?.takeover.available||s?.host==='builtin'&&live))&&<Button variant="secondary" size="sm" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} title={!state.connected?"Reconnecting… Take control when pacer reconnects.":undefined} busy={busy} onClick={()=>void take()}>Take control</Button>}<IconButton geometry="board" variant="quiet" tone="bad" icon="stop-session" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} aria-label="Stop task" title="Stop task" onClick={()=>void end()}/></>}</FrameSlot><ErrorMessage error={error??ownDetail.error??session.error}/>{question&&messageTask&&<section className="pc-workspace-state" aria-label="Task question"><h2>The agent needs your answer</h2><MessageAnswer key={`${id}:${question.id}`} task={messageTask} question={question} focus={focusAnswer} onSent={text=>{setAnswered(text);reloadDetail();}}/></section>}{answered&&<p role="status" aria-live="polite">{answered}</p>}{notice&&<div className="pc-workspace-notice"><Alert tone="warning" compact title={notice} announce={false}/></div>}{!t?<Skeleton layout="rows" label="Loading task"/>:t.state==='queued'?<WaitingTask task={t}/>:!['running','needs_input'].includes(t.state)?detail?<WorkspaceResult task={{...detail,state:t.state}} query={query} reload={reloadDetail}/>:<Skeleton layout="rows" label="Loading result"/>:<>{t.state==='needs_input'&&detail&&!question&&<WorkspaceQuestion task={{...detail,...t}} query={query} reload={reloadDetail}/>}{!s?session.error?<Button onClick={session.reload}>Retry session</Button>:<Skeleton layout="rows" label="Loading session"/>:s.host==='builtin'?<LazyTerminal id={id} url={s.attach.ws} cols={s.cols} rows={s.rows} live={live} control={live} resize={live} attempt={s.attempt} autoControl={false} externalControls takeRequested={takeRequested}  onActions={a=>{controls.current=a;}} onOpenFile={openFile}/>:s.host==='orca'?<p>This session runs in Orca. Open workspace output from the original host.</p>:<PlainLog id={id}/>}</>}</>;
+ return <>{dialogs.dialog}<FrameSlot name="title"><div className="pc-workspace-panel-details">{t?.executor&&<AgentMark agent={markAgent(t.executor)} size={18}/>}<div><b title={t?.title??t?.goal}>{t?.title??t?.goal}</b>{metadata&&<span title={metadata}>{metadata}</span>}</div>{t&&<Pill tone={taskStatus(t).tone}>{taskStatus(t).label}</Pill>}</div></FrameSlot><FrameSlot name="actions">{!state.connected&&<span id={reasonId} className="muted">Reconnecting… Session controls are paused.</span>}{t&&['running','queued','needs_input'].includes(t.state)&&<>{driving?<IconButton geometry="board" variant="quiet" icon="hand-back" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} aria-label="Hand back" title="Hand back" onClick={handBack}/>:(t.state!=='queued'&&(s?.takeover.available||s?.host==='builtin'&&live))&&<Button variant="secondary" size="sm" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} title={!state.connected?"Reconnecting… Take control when pacer reconnects.":undefined} busy={busy} onClick={()=>void take()}>Take control</Button>}<IconButton geometry="board" variant="quiet" tone="bad" icon="stop-session" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} aria-label="Stop task" title="Stop task" onClick={()=>void end()}/></>}</FrameSlot><ErrorMessage error={error??ownDetail.error??session.error}/>{notice&&<div className="pc-workspace-notice"><Alert tone="warning" compact title={notice} announce={false}/></div>}{!t?<Skeleton layout="rows" label="Loading task"/>:t.state==='queued'?<WaitingTask task={t}/>:!['running','needs_input'].includes(t.state)?detail?<WorkspaceResult task={{...detail,state:t.state}} query={query} reload={reloadDetail}/>:<Skeleton layout="rows" label="Loading result"/>:!s?session.error?<Button onClick={session.reload}>Retry session</Button>:<Skeleton layout="rows" label="Loading session"/>:s.host==='builtin'?<LazyTerminal id={id} url={s.attach.ws} cols={s.cols} rows={s.rows} live={live} control={live} resize={live} attempt={s.attempt} autoControl={false} externalControls takeRequested={takeRequested}  onActions={a=>{controls.current=a;}} onOpenFile={openFile}/>:s.host==='orca'?<p>This session runs in Orca. Open workspace output from the original host.</p>:<PlainLog id={id}/>}</>;
 }
 
 export function workspaceWait(task:Pick<ApiTask,'queue'>) {
@@ -244,9 +328,19 @@ function WaitingTask({task}:{task:ApiTask}) {
  const wait=workspaceWait(task);
  return <section className="pc-workspace-state" aria-label="Waiting to start" aria-live="polite"><h2>Waiting to start</h2><p>{wait.reason}</p><p>{wait.next}</p></section>;
 }
-function WorkspaceQuestion({task,query,reload}:{task:TaskDetail;query:RouteQuery;reload:()=>void}) {
+function AnswerHeading({asker,askingTask}:{asker:string;askingTask?:string}) {
+ return <><SectionHeading>{asker} needs your answer</SectionHeading>{askingTask&&<p className="pc-trace__cap" title={askingTask}>For {askingTask}</p>}</>;
+}
+function WorkspaceOverviewAnswer({task,asker,askingTask,focus,query,reload,onSent}:{task:TaskDetail;asker:string;askingTask?:string;focus:boolean;query:RouteQuery;reload:()=>void;onSent:(text:string)=>void}) {
+ const messaging=messageQuestion(task);
+ if(messaging)return <section className="pc-action-panel" aria-label="Task question"><AnswerHeading asker={asker} askingTask={askingTask}/><MessageAnswer key={`${task.id}:${messaging.id}`} task={task} question={messaging} focus={focus} onSent={onSent}/></section>;
+ if(task.state!=='needs_input')return null;
+ return <WorkspaceQuestion task={task} asker={asker} askingTask={askingTask} query={query} reload={reload} focus={focus}/>;
+}
+function WorkspaceQuestion({task,asker,askingTask,query,reload,focus=false}:{task:TaskDetail;asker:string;askingTask?:string;query:RouteQuery;reload:()=>void;focus?:boolean}) {
  const {api,state}=useTaskContext(),action=useAction(),[text,setText]=useWorkspaceState(useWorkspaceKey(task.id),'draft:composer',''),[sending,setSending]=useState(false),[managedError,setManagedError]=useState<unknown>();
  const answerId=useId();
+ const input=useRef<HTMLTextAreaElement>(null);
  const question=task.question,available=question&&question.answer===undefined&&!task.retriedBy;
  // A work root a person started answers through task.answer, which continues its session; without one the service
  // names dispatch.answer and the managed step runs with a stable request id.
@@ -256,7 +350,14 @@ function WorkspaceQuestion({task,query,reload}:{task:TaskDetail;query:RouteQuery
   try{await withManagedFallback((op,params)=>api.call(op,params),{op:'task.answer',params:{id:task.id,text:text.trim(),expect_rev:task.rev}},answerSteps(task.id,task.rev,text.trim()));setText('');reload();}
   catch(e){setManagedError(e);}finally{setSending(false);}
  };
- return <section className="pc-workspace-state" aria-label="Question"><h2>The agent needs your answer</h2>{question?<p>{question.text}</p>:<p>Read the session output for the question. Take control to answer in the session.</p>}{available&&<>{action.unavailable&&<p id={`${answerId}-reason`} className="muted">{action.unavailable}</p>}<Field label="Your answer"><TextArea id={answerId} data-focus-id={`workspace-answer:${task.id}`} value={text} rows={3} maxLength={2000} onInput={e=>setText(e.currentTarget.value)}/></Field><Button variant="primary" busy={action.busy||sending} disabled={!state.connected || !text.trim()} aria-describedby={action.unavailable?`${answerId}-reason`:undefined} title={action.unavailable} onClick={()=>void(userRoot?answerManaged():action.run<{retry?:{id?:string}}>(task.work?'dispatch.answer':'task.answer',{id:task.id,text:text.trim(),expect_rev:task.rev,...(task.work?{requestId:`${task.id}.${task.rev}.answer`}:{})},result=>{setText('');if(result.retry?.id)location.hash=hrefFor(routes.workspace(result.retry.id),query);else reload();}))}>Send answer</Button></>}<ErrorMessage error={action.error??managedError}/></section>;
+ useLayoutEffect(()=>{
+  if(!focus||!input.current)return;
+  if(document.activeElement!==input.current)input.current.focus();
+  const node=input.current;
+  const frame=requestAnimationFrame(()=>{if(document.activeElement===document.body||document.activeElement===null)node.focus();});
+  return()=>cancelAnimationFrame(frame);
+ },[focus,task.id]);
+ return <section className="pc-action-panel" aria-label="Task question"><AnswerHeading asker={asker} askingTask={askingTask}/>{question?<p>{question.text}</p>:<p>Read the session output for the question. Take control to answer in the session.</p>}{available&&<>{action.unavailable&&<p id={`${answerId}-reason`} className="muted">{action.unavailable}</p>}<Field label="Your answer"><TextArea id={answerId} ref={input} data-focus-id={`workspace-answer:${task.id}`} value={text} rows={3} maxLength={2000} autoFocus={focus} onInput={e=>setText(e.currentTarget.value)}/></Field><Button variant="primary" busy={action.busy||sending} disabled={!state.connected || !text.trim()} aria-describedby={action.unavailable?`${answerId}-reason`:undefined} title={action.unavailable} onClick={()=>void(userRoot?answerManaged():action.run<{retry?:{id?:string}}>(task.work?'dispatch.answer':'task.answer',{id:task.id,text:text.trim(),expect_rev:task.rev,...(task.work?{requestId:`${task.id}.${task.rev}.answer`}:{})},result=>{setText('');if(result.retry?.id)location.hash=hrefFor(routes.workspace(result.retry.id),query);else reload();}))}>Send answer</Button></>}<ErrorMessage error={action.error??managedError}/></section>;
 }
 function WorkspaceResult({task,query,reload}:{task:TaskDetail;query:RouteQuery;reload:()=>void}) {
  return <section className="pc-workspace-state" aria-label="Task result"><NowCard task={task} compact/>{task.summary&&<section><h2>Result</h2><p>{task.summary}</p></section>}<Acceptance task={task} compact/><TaskActions task={task} query={query} reload={reload} embedded/><p className="pc-trace__cap">Open Changes to inspect files, or Task history for the full report.</p></section>;

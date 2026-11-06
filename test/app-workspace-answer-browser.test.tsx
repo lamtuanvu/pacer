@@ -30,13 +30,16 @@ for (const scenario of [
     await box.waitFor();
     await page.waitForFunction(() => document.activeElement?.tagName === "TEXTAREA");
     expect(page.url()).toContain("repo=demo&scope=task");
+    // Answer lives in the right Overview panel, not stacked above the terminal.
+    expect(await question.evaluate(node => !!node.closest(".pc-workspace-task"))).toBe(true);
+    expect(await page.locator(".pc-workspace-content .pc-workspace-state[aria-label='Task question'], .pc-workspace-content .pc-action-panel[aria-label='Task question']").count()).toBe(0);
     if (scenario.state === "running" || scenario.state === "queued") expect(await page.getByRole("button", { name: /Accept result|Reject/ }).count()).toBe(0);
     await box.fill("  Use Stripe  ");
     await question.getByRole("button", { name: "Send answer" }).click();
     const held = scenario.delivery === "held";
     const status = page.getByRole("status").filter({ hasText: held ? "Answer held, not delivered yet" : "Answer sent." });
     await status.waitFor();
-    await page.waitForFunction(() => (window as any).CALLS.filter((call: any) => call.op === "task.get").length >= 2 && (window as any).REFETCHES >= 1);
+    await page.waitForFunction(() => (window as any).CALLS.filter((call: any) => call.op === "task.get").length >= 2);
     const calls = await page.evaluate(() => (window as any).CALLS);
     const sent = calls.find((call: any) => call.op === "msg.send");
     expect(sent.params).toMatchObject({ to: "task:t-0412", kind: "answer", reply_to: "m-workspace", body: "Use Stripe" });
@@ -77,11 +80,14 @@ browserTest("Workspace answer failure retains text, focus and retry request id; 
     const box = page.getByRole("textbox", { name: "Your answer" });await box.fill("Use Stripe");
     const button = page.getByRole("button", { name: "Send answer" });
     await button.evaluate(element => { (element as HTMLButtonElement).click();(element as HTMLButtonElement).click(); });
-    await page.waitForFunction(() => document.activeElement?.tagName === "TEXTAREA" && !!document.querySelector('[aria-invalid="true"]'));
-    expect(await box.inputValue()).toBe("Use Stripe");
+    const pending = page.getByRole("article", { name: "Your pending message" });
+    await pending.waitFor();
+    expect(await pending.textContent()).toContain("Use Stripe");
+    const retry = pending.getByRole("button", { name: "Retry", exact: true });
+    await retry.waitFor();
     expect(await page.evaluate(() => (window as any).CALLS.filter((call: any) => call.op === "msg.send").length)).toBe(1);
     expect(await page.evaluate(() => (window as any).CALLS.some((call: any) => call.op === "msg.read"))).toBe(false);
-    await button.click();await page.getByRole("status").filter({ hasText: "Answer sent." }).waitFor();
+    await retry.click();await page.getByRole("status").filter({ hasText: "Answer sent." }).waitFor();
     const calls = await page.evaluate(() => (window as any).CALLS);
     const sends = calls.filter((call: any) => call.op === "msg.send");
     expect(sends.length).toBe(2);expect(sends[1].params.request_id).toBe(sends[0].params.request_id);
@@ -101,9 +107,32 @@ browserTest("Workspace closed questions and ordinary navigation do not steal foc
       if (options.state === "running") {
         const box = page.getByRole("textbox", { name: "Your answer" });await box.waitFor();
         expect(await box.evaluate(element => document.activeElement === element)).toBe(false);
+        expect(await page.getByRole("button", { name: /asks:.*Open answer panel/ }).count()).toBe(0);
       } else expect(await page.getByRole("textbox", { name: "Your answer" }).count()).toBe(0);
       await page.close();
     }
+  } finally { await browser.close(); }
+}, 15000);
+
+browserTest("Workspace question chip opens Overview answer when the right tab is not Overview", async () => {
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage();page.setDefaultTimeout(3000);
+    await mount(page, "#/workspace?task=t-0412&panel=changes", { state: "running", work: true });
+    await page.locator(".pc-workspace").waitFor();
+    const chip = page.getByRole("button", { name: /asks:.*Open answer panel/ });
+    await chip.waitFor();
+    expect(await page.getByRole("region", { name: "Task question", exact: true }).count()).toBe(0);
+    expect(await page.getByRole("status").filter({ hasText: /asks: Which provider should the flow use\?/ }).count()).toBe(1);
+    expect(await page.getByRole("status").filter({ hasText: /unknown/i }).count()).toBe(0);
+    expect(await chip.getAttribute("aria-label")).not.toMatch(/unknown/i);
+    await chip.click();
+    const question = page.getByRole("region", { name: "Task question", exact: true });
+    await question.waitFor();
+    expect(await question.evaluate(node => !!node.closest(".pc-workspace-task"))).toBe(true);
+    expect(await question.getByText(/^Codex needs your answer$/).count()).toBe(1);
+    await page.waitForFunction(() => document.activeElement?.tagName === "TEXTAREA");
+    await page.getByRole("textbox", { name: "Your answer" }).waitFor();
   } finally { await browser.close(); }
 }, 15000);
 
@@ -123,11 +152,14 @@ for (const delivery of ["turn_started", "held"]) browserTest(`retained child rec
     await box.waitFor();await page.waitForFunction(() => document.activeElement?.tagName === "TEXTAREA");
     expect(await page.evaluate(() => (window as any).CALLS.filter((c: any) => c.op === "task.get" && c.params.id === "t-0412").length)).toBeGreaterThan(before);
     expect(await page.getByText("Wrong root question", { exact: true }).count()).toBe(0);
+    expect(await page.getByRole("region", { name: "Task question", exact: true }).getByText("For Fix flaky retry test in the payments client", { exact: true }).count()).toBe(1);
     // Another client reads the question before this panel sends anything. The task
     // stays at the original rev/state and its snapshot messages become empty again.
     await page.evaluate(() => (window as any).REMOVE_QUESTION());
     await box.waitFor({ state: "detached" });
     expect(await page.evaluate(() => (window as any).CALLS.some((c: any) => c.op === "msg.send" || c.op === "msg.read"))).toBe(false);
+    // Snapshot clears the composer immediately; AgentPanel's own task.get settles after useQuery's burst delay.
+    await page.waitForFunction(n => (window as any).CALLS.filter((c: any) => c.op === "task.get" && c.params.id === "t-0412").length > n, before + 1);
     const afterRemoval = await page.evaluate(() => (window as any).CALLS.filter((c: any) => c.op === "task.get" && c.params.id === "t-0412").length);
     expect(afterRemoval).toBeGreaterThan(before + 1);
     await page.evaluate(() => (window as any).PUBLISH_QUESTION());

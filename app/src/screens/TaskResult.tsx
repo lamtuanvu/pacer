@@ -2,7 +2,7 @@ import { useUniqueId as useId } from '../ds/useUniqueId';
 
 import { useWorkspaceKey, useWorkspaceState, useViewActive } from '../workspace/state';
 import type { ComponentChildren } from "preact";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { answerSteps, sendBackSteps, userStartedRoot, withManagedFallback } from "../../../src/view-model/managed-root";
 import type { TaskDetail } from "../../../src/core/task-detail";
 import type { ApiTask } from "../../../src/api/read-model/types";
@@ -102,7 +102,17 @@ export function MessageAnswer({ task, question, focus = false, onSent }: { task:
   });
   const log = useQuery<{ messages: ThreadMessage[] }>("msg.log", { task: task.id }, "", false, !!pending.item);
   useEffect(() => { if (log.data) pending.reconcile(log.data.messages); }, [pending, log.data]);
-  useEffect(() => { if (focus) input.current?.focus(); }, [focus]);
+  useLayoutEffect(() => {
+    if (!focus) return;
+    const node = input.current ?? document.querySelector<HTMLTextAreaElement>(`[data-focus-id="message-answer:${task.id}"]`);
+    if (!node) return;
+    // Focus once when deep-link / chip asks for it. Do not reclaim focus if the person tabs away.
+    if (document.activeElement !== node) node.focus();
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement === document.body || document.activeElement === null) node.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focus, question.id, task.id]);
   useEffect(() => { if (state.connected && pending.item?.status === "uncertain") void pending.check(); }, [pending, state.connected, state.connectionRevision]);
   function send() {
     if (!state.connected || pending.item || !answer.trim()) return;
@@ -114,7 +124,7 @@ export function MessageAnswer({ task, question, focus = false, onSent }: { task:
     <PendingSendFeedback item={pending.item} sent={sentAnswer} offline={!state.connected} onRetry={() => { if (state.connected) void pending.retry(); }} onCheck={() => void pending.check()}
       onDiscard={() => { const text = pending.discard(); if (text !== undefined) { setAnswer(current => current ? `${current}\n${text}` : text); input.current?.focus(); } }}/>
     {!state.connected && <p id={`${answerId}-reason`} className="muted">Reconnecting… Send when pacer reconnects.</p>}
-    <Field label="Your answer"><TextArea id={answerId} data-focus-id={`message-answer:${task.id}`} ref={input} value={answer} rows={4} onInput={e => setAnswer(e.currentTarget.value)} /></Field>
+    <Field label="Your answer"><TextArea id={answerId} data-focus-id={`message-answer:${task.id}`} ref={input} value={answer} rows={4} autoFocus={focus} onInput={e => setAnswer(e.currentTarget.value)} /></Field>
     <Button variant="primary" busy={!!pending.item} disabled={!state.connected || !answer.trim()} aria-describedby={!state.connected ? `${answerId}-reason` : undefined} onClick={send}>Send answer</Button>
   </>;
 }
