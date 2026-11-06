@@ -46,9 +46,9 @@ fn all_pure_settings_match_typescript_results_errors_and_edits() {
                         .map(Value::Number)
                         .unwrap_or(Value::Number(n)),
                     Value::Array(items) => Value::Array(items.into_iter().map(canon).collect()),
-                    Value::Object(map) => Value::Object(
-                        map.into_iter().map(|(k, v)| (k, canon(v))).collect(),
-                    ),
+                    Value::Object(map) => {
+                        Value::Object(map.into_iter().map(|(k, v)| (k, canon(v))).collect())
+                    }
                     other => other,
                 }
             }
