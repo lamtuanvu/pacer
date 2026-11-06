@@ -38,7 +38,10 @@ pub fn map_policy_amendment(input: &Value, amend: &PolicyAmendment) -> Value {
     if changed {
         if let Some(kind) = next_kind {
             mapped["kind"] = kind.clone();
-        } else if mapped.as_object_mut().is_some_and(|m| m.remove("kind").is_some()) {
+        } else if mapped
+            .as_object_mut()
+            .is_some_and(|m| m.remove("kind").is_some())
+        {
         } else {
             mapped["kind"] = Value::Null;
         }
@@ -63,8 +66,10 @@ pub fn map_policy_amendment(input: &Value, amend: &PolicyAmendment) -> Value {
 
 /// ECMAScript snapshot equality for admission context (strategy order matters).
 pub fn admission_context_same(a: &Value, b: &Value) -> Result<bool, AdmissionError> {
-    Ok(crate::semantics::stringify(&crate::semantics::js_numbers(a))?
-        == crate::semantics::stringify(&crate::semantics::js_numbers(b))?)
+    Ok(
+        crate::semantics::stringify(&crate::semantics::js_numbers(a))?
+            == crate::semantics::stringify(&crate::semantics::js_numbers(b))?,
+    )
 }
 
 /// Host-owned snapshot fields consumed by `PreparedAdmission::prepare_delegate`.

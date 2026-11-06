@@ -62,10 +62,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         "prepare-file" => {
             let fixture = fs::read_to_string(args.next().ok_or("fixture path")?)?;
             let case: Value = serde_json::from_str(&fixture)?;
-            let repo = std::env::temp_dir().join(format!(
-                "pacer-prepared-admission-{}",
-                std::process::id()
-            ));
+            let repo = std::env::temp_dir()
+                .join(format!("pacer-prepared-admission-{}", std::process::id()));
             fs::create_dir_all(&repo)?;
             let brief = case["brief"].clone();
             let strategy = case["strategy"].clone();
@@ -88,7 +86,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             );
             match (result, case["accept"].as_bool()) {
                 (Ok(receipt), Some(true)) => {
-                    println!("{}", serde_json::to_string(&json!({"ok":true,"input":receipt.input()}))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string(&json!({"ok":true,"input":receipt.input()}))?
+                    );
                 }
                 (Err(error), Some(false)) => {
                     println!(

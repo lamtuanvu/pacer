@@ -69,17 +69,17 @@ pub fn validate_input_json(
 
 pub use dependencies::pending_dependencies;
 pub use lineage::work_node;
-mod drain;
 mod delegate_admission;
+mod drain;
 mod prepared;
 mod run_spawn;
 mod state;
 mod wait_settled;
-pub use drain::{DrainOptions, DrainRoute, RouteAdmission, queue_preflight};
 pub use delegate_admission::{
     DelegateAdmissionSnapshot, PolicyAmendment, admission_context_same, map_policy_amendment,
     prepare_delegate_admission,
 };
+pub use drain::{DrainOptions, DrainRoute, RouteAdmission, queue_preflight};
 pub use prepared::{AdmissionLifetime, PreparedAdmission};
 pub use state::AdmissionState;
 mod strategy;

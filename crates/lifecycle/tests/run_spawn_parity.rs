@@ -87,14 +87,16 @@ fn run_spawn_launch_parity_matches_typescript() {
     assert_eq!(plan.env.get("PACER_ADMISSION_LEASE").unwrap(), "inherited");
     assert!(supervisor_run_spawn_spec(&plan).is_err());
     env.insert("PACER_ADMISSION_TASK".into(), "other".into());
-    assert!(build_run_spawn_plan_for_launch(RunSpawnLaunchInput {
-        exec_path: "/bin/pacer",
-        argv1: None,
-        home: Path::new("/home"),
-        pacer_home: Path::new("/home/.pacer"),
-        base_env: &env,
-        task_id: "t-a",
-        admitted_lease: None,
-    })
-    .is_err());
+    assert!(
+        build_run_spawn_plan_for_launch(RunSpawnLaunchInput {
+            exec_path: "/bin/pacer",
+            argv1: None,
+            home: Path::new("/home"),
+            pacer_home: Path::new("/home/.pacer"),
+            base_env: &env,
+            task_id: "t-a",
+            admitted_lease: None,
+        })
+        .is_err()
+    );
 }
