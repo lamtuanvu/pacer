@@ -17,11 +17,11 @@ pub(crate) mod host_read_sync;
 mod lifecycle_ops;
 mod meta_ops;
 pub(crate) mod p8_bridge_ops;
-mod repo_ops;
 pub mod plugins;
-mod setup_ops;
+mod repo_ops;
 pub(crate) mod session_ops;
 pub(crate) mod session_sync;
+mod setup_ops;
 mod snapshot_get_ops;
 pub(crate) mod snapshot_sync;
 pub(crate) mod status_ops;
@@ -32,22 +32,22 @@ pub(crate) mod task_dismiss_ops;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
-pub(crate) mod task_stop_sync;
 mod task_stop_ops;
-pub(crate) mod task_wait_sync;
+pub(crate) mod task_stop_sync;
 mod task_wait_ops;
+pub(crate) mod task_wait_sync;
 
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub(crate) use p8_bridge_ops::needs_core_bridge;
+pub(crate) use repo_ops::repo_remove_stays_forwarded;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
-pub(crate) use repo_ops::repo_remove_stays_forwarded;
 pub(crate) use task_stop_ops::needs_task_stop_bridge;
 
 #[cfg(feature = "test-ops")]
@@ -364,7 +364,8 @@ pub async fn call_native(
             "task clean bridge unavailable",
         ));
     }
-    if needs_task_stop_bridge(op.name) && (task_stop_probe.is_none() || task_stop_effects.is_none()) {
+    if needs_task_stop_bridge(op.name) && (task_stop_probe.is_none() || task_stop_effects.is_none())
+    {
         return Err(CoreError::new(
             pacer_foundation::api::Code::Unavailable,
             "task stop bridge unavailable",

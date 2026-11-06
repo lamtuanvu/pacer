@@ -20,18 +20,19 @@ fn invalid(message: impl Into<String>) -> CoreError {
 }
 
 fn host_error(op: &str, message: &str) -> CoreError {
-    let code = if op == "host.add" && message.starts_with("host ") && message.ends_with(" already exists")
-    {
-        Code::Conflict
-    } else if op == "host.remove" && message.contains(" is used by ") {
-        Code::Conflict
-    } else if message == "Your settings changed while they were being updated. Try again."
-        || message == "strategy changed during edit; retry"
-    {
-        Code::Conflict
-    } else {
-        Code::InvalidInput
-    };
+    let code =
+        if op == "host.add" && message.starts_with("host ") && message.ends_with(" already exists")
+        {
+            Code::Conflict
+        } else if op == "host.remove" && message.contains(" is used by ") {
+            Code::Conflict
+        } else if message == "Your settings changed while they were being updated. Try again."
+            || message == "strategy changed during edit; retry"
+        {
+            Code::Conflict
+        } else {
+            Code::InvalidInput
+        };
     let mut error = CoreError::new(code, message);
     if op == "host.add" && code == Code::Conflict {
         error = error.hint("Choose a different alias or remove the existing host.");
@@ -81,13 +82,10 @@ pub(super) fn host_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         let p = config_params::parse("host.add", params)?;
         let alias = p["alias"].as_str().unwrap_or("");
         let ssh = p["ssh"].as_str().unwrap_or("");
-        let (path, name) = strategy_path(&ctx.pacer_home).map_err(|e| host_error("host.add", &e.to_string()))?;
-        save_host(
-            &path,
-            &name,
-            HostEdit::Add { alias, ssh },
-        )
-        .map_err(|e| host_error("host.add", &e.to_string()))?;
+        let (path, name) =
+            strategy_path(&ctx.pacer_home).map_err(|e| host_error("host.add", &e.to_string()))?;
+        save_host(&path, &name, HostEdit::Add { alias, ssh })
+            .map_err(|e| host_error("host.add", &e.to_string()))?;
         Ok(json!({"alias": alias}))
     })
 }
@@ -96,14 +94,10 @@ pub(super) fn host_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = config_params::parse("host.remove", params)?;
         let alias = p["alias"].as_str().unwrap_or("");
-        let (path, name) =
-            strategy_path(&ctx.pacer_home).map_err(|e| host_error("host.remove", &e.to_string()))?;
-        save_host(
-            &path,
-            &name,
-            HostEdit::Remove { alias },
-        )
-        .map_err(|e| host_error("host.remove", &e.to_string()))?;
+        let (path, name) = strategy_path(&ctx.pacer_home)
+            .map_err(|e| host_error("host.remove", &e.to_string()))?;
+        save_host(&path, &name, HostEdit::Remove { alias })
+            .map_err(|e| host_error("host.remove", &e.to_string()))?;
         Ok(json!({"removed": true}))
     })
 }
@@ -114,10 +108,11 @@ pub(super) fn host_repo_map(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         let alias = p["alias"].as_str().unwrap_or("");
         let key = p["key"].as_str().unwrap_or("").to_ascii_lowercase();
         let repo_path = p["path"].as_str().unwrap_or("");
-        let strategy = load_strategy(&ctx.pacer_home).map_err(|e| host_error("host.repo.map", &e.to_string()))?;
+        let strategy = load_strategy(&ctx.pacer_home)
+            .map_err(|e| host_error("host.repo.map", &e.to_string()))?;
         host_cfg(&strategy, alias)?;
-        let (strategy_path, name) =
-            strategy_path(&ctx.pacer_home).map_err(|e| host_error("host.repo.map", &e.to_string()))?;
+        let (strategy_path, name) = strategy_path(&ctx.pacer_home)
+            .map_err(|e| host_error("host.repo.map", &e.to_string()))?;
         save_host(
             &strategy_path,
             &name,
@@ -144,10 +139,15 @@ pub(super) fn host_set_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
 pub(crate) async fn host_set_write(ctx: &Ctx, params: Value) -> Result<String, CoreError> {
     let p = config_params::parse("host.set", params)?;
     let alias = p["alias"].as_str().unwrap_or("").to_owned();
-    let strategy = load_strategy(&ctx.pacer_home).map_err(|e| host_error("host.set", &e.to_string()))?;
+    let strategy =
+        load_strategy(&ctx.pacer_home).map_err(|e| host_error("host.set", &e.to_string()))?;
     let before = host_cfg(&strategy, &alias)?;
-    let paused_before = before.get("paused").and_then(Value::as_bool).unwrap_or(false);
-    let (path, name) = strategy_path(&ctx.pacer_home).map_err(|e| host_error("host.set", &e.to_string()))?;
+    let paused_before = before
+        .get("paused")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let (path, name) =
+        strategy_path(&ctx.pacer_home).map_err(|e| host_error("host.set", &e.to_string()))?;
     save_host(
         &path,
         &name,
