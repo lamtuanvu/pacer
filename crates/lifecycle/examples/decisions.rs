@@ -74,6 +74,7 @@ pub fn run(c: &Value) -> Result<String, serde_json::Error> {
         "host.clean" => encoded(hosts::clean(c)),
         "host.summary" => encoded(hosts::summary(c)),
         "host.list" => encoded(hosts::list(c)),
+        "host.detail" => encoded(hosts::detail(c).unwrap_or_else(|e| e.value())),
         "runner.check" => encoded(runner_check::check(c)),
         op if op.starts_with("job.") => encoded(scenarios::jobs(c)),
         _ => encoded(json!({"error":"unknown fixture operation"})),

@@ -218,6 +218,24 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/host-read-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => ({}));
+            const alias = body && typeof body === "object" && !Array.isArray(body)
+              ? (body as { alias?: unknown }).alias
+              : undefined;
+            const { hostReadParts, hostReadDetailParts } = await import("../api/host-read-bridge");
+            const result = typeof alias === "string" && alias
+              ? await hostReadDetailParts(getCtx(), alias)
+              : hostReadParts(getCtx());
+            return Response.json({ result });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/task-read-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

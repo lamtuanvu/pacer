@@ -509,6 +509,167 @@ pub fn list(c: &Value) -> Value {
     json!(rows)
 }
 
+fn task_done_at(task: &Value) -> Option<f64> {
+    task.get("updatedAt")
+        .and_then(Value::as_f64)
+        .or_else(|| {
+            task.get("review")
+                .and_then(|r| r.get("at"))
+                .and_then(Value::as_f64)
+        })
+        .or_else(|| {
+            task.get("attempts")
+                .and_then(Value::as_array)
+                .and_then(|a| a.last())
+                .and_then(|a| a.get("endedAt"))
+                .and_then(Value::as_f64)
+        })
+        .or_else(|| task.get("createdAt").and_then(Value::as_f64))
+}
+
+fn repo_origin(checkout: Option<&Value>) -> &'static str {
+    let Some(check) = checkout else {
+        return "unknown";
+    };
+    if s(&check["detail"]) == "skipped" {
+        return "unknown";
+    }
+    if truth(&check["ok"]) {
+        return "matches";
+    }
+    if s(&check["detail"]) == "origin mismatch" {
+        return "differs";
+    }
+    "no_checkout"
+}
+
+fn repo_identity(identity: Option<&Value>) -> &'static str {
+    let Some(check) = identity else {
+        return "unknown";
+    };
+    if s(&check["detail"]) == "skipped" {
+        return "unknown";
+    }
+    if truth(&check["ok"]) {
+        "matches"
+    } else {
+        "differs"
+    }
+}
+
+/// Host detail row from strategy host plus injected runtime snapshots and enrichment.
+pub fn detail(c: &Value) -> Result<Value, Error> {
+    let alias = s(&c["alias"]);
+    let Some(hosts) = c["hosts"].as_object() else {
+        return Err(Error::new("invalid_input", "missing hosts snapshot"));
+    };
+    let Some(host) = hosts.get(alias) else {
+        return Err(Error::new("invalid_input", format!("unknown host {alias}")));
+    };
+    let reachability = c["reachabilityByAlias"]
+        .get(alias)
+        .or_else(|| c.get("reachability"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let stored = c["storedByAlias"]
+        .get(alias)
+        .or_else(|| c.get("stored"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let row = summary(&json!({
+        "alias": alias,
+        "host": host,
+        "reachability": reachability,
+        "stored": stored,
+        "jobs": c["jobs"],
+        "runners": c["runners"],
+        "repos": c["repos"],
+        "tasks": c["tasks"],
+    }));
+    let checks = stored
+        .get("checks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let now = n(&c["now"]);
+    let week_start = now - 7.0 * 86400.0;
+    let mut done = 0usize;
+    let mut accepted = 0usize;
+    for task in a(&c["tasks"]) {
+        if task["state"] != "done" || task["run"]["host"] != alias {
+            continue;
+        }
+        let Some(at) = task_done_at(task) else {
+            continue;
+        };
+        if !(at >= week_start && at <= now) {
+            continue;
+        }
+        done += 1;
+        if truth(&task["review"]["accepted"]) {
+            accepted += 1;
+        }
+    }
+    let repos = host["repos"]
+        .as_object()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|(key, path)| {
+                    let checkout = checks.iter().find(|c| s(&c["name"]) == format!("checkout {key}"));
+                    let identity = checks.iter().find(|c| s(&c["name"]) == format!("identity {key}"));
+                    json!({
+                        "key": key,
+                        "path": path,
+                        "origin": repo_origin(checkout),
+                        "identity": repo_identity(identity),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let accounts = host["accounts"]
+        .as_object()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|(name, cfg)| {
+                    json!({
+                        "name": name,
+                        "home": cfg["home"].clone(),
+                        "signedIn": Value::Null,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let executors = c
+        .get("enrichment")
+        .and_then(|e| e.get("executors"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let mut out = row.as_object().cloned().unwrap_or_default();
+    out.insert(
+        "checkedAt".into(),
+        stored.get("at").cloned().unwrap_or(Value::Null),
+    );
+    out.insert(
+        "reachableAt".into(),
+        reachability.get("at").cloned().unwrap_or(Value::Null),
+    );
+    out.insert(
+        "facts".into(),
+        stored.get("facts").cloned().unwrap_or(Value::Null),
+    );
+    out.insert("checks".into(), json!(checks));
+    out.insert("executors".into(), executors);
+    out.insert("doneThisWeek".into(), json!({"done": done, "accepted": accepted}));
+    out.insert("repos".into(), json!(repos));
+    out.insert("accounts".into(), json!(accounts));
+    out.insert("worktrees".into(), json!([]));
+    Ok(Value::Object(out))
+}
+
 pub fn summary(c: &Value) -> Value {
     let host = &c["host"];
     let alias = &c["alias"];
