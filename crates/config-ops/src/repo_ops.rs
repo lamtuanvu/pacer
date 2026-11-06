@@ -7,9 +7,9 @@ use pacer_foundation::{
 };
 use serde_json::Value;
 
-use super::lifecycle_ops::{invalid, object, type_name};
+use crate::params::{invalid, object, type_name};
 
-pub(crate) fn repo_remove_stays_forwarded(ctx: &Ctx) -> bool {
+pub fn repo_remove_stays_forwarded(ctx: &Ctx) -> bool {
     repos::requires_core_repo_parser(ctx)
 }
 
@@ -35,7 +35,7 @@ fn parse_key(params: &Value) -> Result<&str, CoreError> {
     Ok(text)
 }
 
-pub(super) fn repo_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn repo_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let key = parse_key(&params)?;
         repos::remove_repo(ctx, key)

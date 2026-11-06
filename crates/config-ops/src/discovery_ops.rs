@@ -19,7 +19,7 @@ use pacer_foundation::{
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 
-use super::lifecycle_ops::{invalid, type_name};
+use crate::params::{invalid, type_name};
 
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 const SILENCE_LATER_S: i64 = 7 * 24 * 3600;
@@ -300,7 +300,7 @@ fn done(issues: Vec<String>) -> Result<(), CoreError> {
     }
 }
 
-pub(super) fn discovery_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn discovery_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         authorize(ctx)?;
         let p = object(&params)?;
@@ -331,7 +331,7 @@ pub(super) fn discovery_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 }
 
 /// `later`, `ignore` and `mute-network`; `pair` stays forwarded.
-pub(super) fn discovery_respond(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn discovery_respond(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         authorize(ctx)?;
         let p = object(&params)?;
@@ -431,5 +431,4 @@ pub(super) fn discovery_respond(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 }
 
 #[cfg(test)]
-#[path = "discovery_ops_tests.rs"]
 mod tests;

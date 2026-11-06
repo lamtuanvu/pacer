@@ -173,20 +173,6 @@ async fn missing_bridge_refuses_before_mutating_the_document() {
     assert!(!dir.path().join("strategy.yaml").exists());
 }
 
-#[test]
-fn empty_xdg_config_home_uses_relative_orca_directory_on_linux() {
-    let ctx = Ctx::with(
-        "/fixture".into(),
-        "/fixture".into(),
-        [("XDG_CONFIG_HOME".into(), "".into())].into(),
-        0.0,
-    );
-    assert_eq!(
-        super::legacy_dir_for_platform(&ctx, false),
-        std::path::PathBuf::from("orca/plugins-data/lamtuanvu.pacer")
-    );
-}
-
 #[tokio::test]
 async fn strategy_list_and_show_read_named_files_without_publishing() {
     let dir = tempfile::tempdir().unwrap();
@@ -280,19 +266,6 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         Some("Use strategy.list to choose a strategy and strategy.preview to validate a draft.")
     );
     assert!(!home.join("link/outbox.jsonl").exists());
-}
-
-#[test]
-fn planner_and_backend_keys_stay_on_the_forward_path() {
-    assert!(super::config_set_stays_forwarded(
-        &json!({"key":"planner","value":"codex"})
-    ));
-    assert!(super::config_set_stays_forwarded(
-        &json!({"key":"execution.backend","value":"orca"})
-    ));
-    assert!(!super::config_set_stays_forwarded(
-        &json!({"key":"update_check","value":false})
-    ));
 }
 
 #[tokio::test]

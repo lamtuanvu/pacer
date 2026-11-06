@@ -19,6 +19,7 @@ pacer-plugin-ops = { path = "../plugin-ops" }
 pacer-plugin-runtime = { path = "../plugin-runtime" }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 pacer-config = { path = "../config" }
+pacer-config-ops = { path = "../config-ops" }
 pacer-engine = { path = "../engine" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-store = { path = "../store" }
@@ -38,7 +39,6 @@ sha2 = "0.10"
 hex = "0.4"
 rand = "0.9"
 base64 = "0.22"
-ring = "0.17"
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
 
 [build-dependencies]

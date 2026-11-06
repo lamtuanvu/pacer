@@ -6,13 +6,13 @@ use pacer_foundation::{
 };
 use serde_json::Value;
 
-use super::lifecycle_ops::{invalid, object, type_name};
+use crate::params::{invalid, object, type_name};
 
 pub fn needs_core_bridge(op: &str) -> bool {
     matches!(op, "setup.check" | "repo.list" | "repo.add")
 }
 
-pub(super) fn bridge_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn bridge_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async move {
         Err(pacer_foundation::api::CoreError::new(
             pacer_foundation::api::Code::Unavailable,
@@ -58,7 +58,7 @@ fn parse_repo_add(params: &Value) -> Result<Value, CoreError> {
     Ok(serde_json::json!({"path": text}))
 }
 
-pub(crate) fn bridge_params(op: &str, params: &Value) -> Result<Value, CoreError> {
+pub fn bridge_params(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
         "setup.check" | "repo.list" => {
             empty_object(params)?;

@@ -14,7 +14,7 @@ use pacer_foundation::{
 use serde_json::{Value, json};
 
 /// Planner install and backend readiness stay on the TypeScript `config.set` path.
-pub(crate) fn config_set_stays_forwarded(params: &Value) -> bool {
+pub fn config_set_stays_forwarded(params: &Value) -> bool {
     matches!(
         params.get("key").and_then(Value::as_str),
         Some("planner" | "execution.backend")
@@ -71,7 +71,7 @@ fn settings_error(error: SettingsError) -> CoreError {
     out
 }
 
-pub(super) fn area(op: &str) -> Option<&'static str> {
+pub fn area(op: &str) -> Option<&'static str> {
     match op {
         "strategy.use" | "strategy.save" | "strategy.remove" => Some("strategy"),
         "runner.set" | "runner.reorder" | "runner.remove" | "runner.settings.save" => {
@@ -90,7 +90,7 @@ pub(super) fn area(op: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-pub(super) fn syncs_endpoints(op: &str) -> bool {
+pub fn syncs_endpoints(op: &str) -> bool {
     matches!(
         op,
         "host.add"
@@ -106,7 +106,7 @@ pub(super) fn syncs_endpoints(op: &str) -> bool {
 }
 
 #[allow(clippy::result_large_err)]
-pub(crate) fn finish(ctx: &Ctx, op: &str, result: &Value) -> Result<(), CoreError> {
+pub fn finish(ctx: &Ctx, op: &str, result: &Value) -> Result<(), CoreError> {
     if op == "strategy.use" {
         let name = result["name"].as_str().unwrap_or("");
         report(pacer_store::publish(
@@ -156,7 +156,7 @@ fn legacy_dir_for_platform(ctx: &Ctx, macos: bool) -> std::path::PathBuf {
 
 fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
     Box::pin(async move {
-        let p = super::config_params::parse(op, params)?;
+        let p = crate::config_params::parse(op, params)?;
         let name = p["name"].as_str().unwrap_or("");
         let id = p["id"].as_str().unwrap_or("");
         let home = &ctx.pacer_home;
@@ -310,9 +310,39 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
     })
 }
 macro_rules! handler {
-    ($($name:ident => $op:literal),* $(,)?) => {$(pub(super) fn $name(ctx: &Ctx, params: Value) -> OpFuture<'_> { run(ctx,$op,params) })*};
+    ($($name:ident => $op:literal),* $(,)?) => {$(pub fn $name(ctx: &Ctx, params: Value) -> OpFuture<'_> { run(ctx,$op,params) })*};
 }
 handler! { strategy_list => "strategy.list", strategy_show => "strategy.show", strategy_use => "strategy.use", strategy_save => "strategy.save", strategy_remove => "strategy.remove", routing_get => "routing.get", routing_set => "routing.set", runner_set => "runner.set", runner_reorder => "runner.reorder", runner_remove => "runner.remove", runner_settings_get => "runner.settings.get", runner_settings_save => "runner.settings.save", notifications_get => "notifications.get", notifications_set => "notifications.set", config_set => "config.set" }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use pacer_foundation::Ctx;
+    use serde_json::json;
+
+    #[test]
+    fn empty_xdg_config_home_uses_relative_orca_directory_on_linux() {
+        let ctx = Ctx::with(
+            "/fixture".into(),
+            "/fixture".into(),
+            [("XDG_CONFIG_HOME".into(), "".into())].into(),
+            0.0,
+        );
+        assert_eq!(
+            super::legacy_dir_for_platform(&ctx, false),
+            std::path::PathBuf::from("orca/plugins-data/lamtuanvu.pacer")
+        );
+    }
+
+    #[test]
+    fn planner_and_backend_keys_stay_on_the_forward_path() {
+        assert!(super::config_set_stays_forwarded(
+            &json!({"key":"planner","value":"codex"})
+        ));
+        assert!(super::config_set_stays_forwarded(
+            &json!({"key":"execution.backend","value":"orca"})
+        ));
+        assert!(!super::config_set_stays_forwarded(
+            &json!({"key":"update_check","value":false})
+        ));
+    }
+}

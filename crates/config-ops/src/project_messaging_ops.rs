@@ -13,7 +13,7 @@ use std::path::Path;
 
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 
-pub(crate) fn project_messaging_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+pub fn project_messaging_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     if !op.starts_with("project.messaging.") {
         return false;
     }
@@ -194,14 +194,14 @@ fn repo_key(params: &Map<String, Value>) -> Result<&str, CoreError> {
     }
 }
 
-pub(super) fn project_messaging_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn project_messaging_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = parse("project.messaging.get", params)?;
         project_messaging::get(&ctx.pacer_home, repo_key(&p)?)
     })
 }
 
-pub(super) fn project_messaging_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn project_messaging_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let mut p = parse("project.messaging.set", params)?;
         let repo = repo_key(&p)?.to_owned();
@@ -216,7 +216,7 @@ pub(super) fn project_messaging_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn project_messaging_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn project_messaging_remove(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = parse("project.messaging.remove", params)?;
         let expect_rev = p["expect_rev"].as_i64().unwrap_or(-1);

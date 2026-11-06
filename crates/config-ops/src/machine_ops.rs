@@ -6,8 +6,8 @@ use pacer_foundation::{
 };
 use serde_json::{Map, Value};
 
-use super::lifecycle_ops::{invalid, object, type_name};
-use super::machine_identity::{self as identity, Env};
+use crate::machine_identity::{self as identity, Env};
+use crate::params::{invalid, object, type_name};
 
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 
@@ -94,7 +94,7 @@ async fn blocking(
         .map_err(|e| CoreError::new(Code::Internal, e.to_string()))?
 }
 
-pub(super) fn machine_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn machine_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         params_object(&params)?;
         let ctx = ctx.clone();
@@ -102,7 +102,7 @@ pub(super) fn machine_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn machine_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn machine_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let (name, expect_rev) = parse_machine_set(&params)?;
         let ctx = ctx.clone();
@@ -110,7 +110,7 @@ pub(super) fn machine_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn machine_rotate(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn machine_rotate(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         params_object(&params)?;
         let ctx = ctx.clone();

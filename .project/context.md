@@ -45,6 +45,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
 | `crates/plugin-ops` | `pacer-plugin-ops`: native plugin list/diagnostic/UI-list/settings reads and JSON compatibility; layer 5, target ≤ 5,000 LOC ([ADR 0020](../docs/decisions/0020-native-plugin-read-operations-crate.md)) |
+| `crates/config-ops` | `pacer-config-ops`: native strategy, routing, runner, notification, config, host, repository, machine-identity, project-messaging, discovery-state, setup and file-search handlers, plus shared parameter errors; layer 7, target ≤ 5,000 LOC ([ADR 0023](../docs/decisions/0023-native-config-operations-crate.md)) |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |

@@ -209,7 +209,7 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
     value.clone()
 }
 #[allow(clippy::result_large_err)]
-pub(super) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
+pub(crate) fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
     pacer_config::normalize_json(&mut params);
     use Schema::*;
     let schema = match op {

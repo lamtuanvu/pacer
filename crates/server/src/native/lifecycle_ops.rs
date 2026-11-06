@@ -20,29 +20,7 @@ use pacer_read_model::{ActiveCounts, tasks as read_tasks};
 use pacer_store::TaskStore;
 use serde_json::{Map, Value, json};
 
-pub(super) fn invalid(message: impl Into<String>) -> CoreError {
-    CoreError::new(Code::InvalidInput, message)
-}
-
-pub(super) fn type_name(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-    }
-}
-
-pub(super) fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
-    params.as_object().ok_or_else(|| {
-        invalid(format!(
-            "params: Invalid input: expected object, received {}",
-            type_name(params)
-        ))
-    })
-}
+pub(super) use pacer_config_ops::params::{invalid, object, type_name};
 
 pub(super) fn require_string<'a>(
     params: &'a Map<String, Value>,

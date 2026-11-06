@@ -1304,6 +1304,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-config-ops"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "hex",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "pacer-store",
+ "rand 0.9.5",
+ "ring",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-desktop-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1601,6 +1620,7 @@ dependencies = [
  "libproc",
  "nix",
  "pacer-config",
+ "pacer-config-ops",
  "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
@@ -1610,7 +1630,6 @@ dependencies = [
  "pacer-read-model",
  "pacer-store",
  "rand 0.9.5",
- "ring",
  "ryu-js",
  "security-framework",
  "serde",

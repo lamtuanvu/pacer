@@ -8,11 +8,11 @@ use pacer_foundation::{
 use pacer_lifecycle::hosts;
 use serde_json::{Map, Value};
 
-pub(crate) fn needs_host_read_bridge(op: &str) -> bool {
+pub fn needs_host_read_bridge(op: &str) -> bool {
     matches!(op, "host.list" | "host.get")
 }
 
-pub(crate) fn needs_host_read_injection(op: &str) -> bool {
+pub fn needs_host_read_injection(op: &str) -> bool {
     matches!(op, "host.list" | "host.get" | "host.set")
 }
 
@@ -49,7 +49,7 @@ fn used_ssh_from_strategy(strategy: &Value) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn host_suggest(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn host_suggest(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let map = object(&params)?;
         let details = match map.get("details") {
@@ -74,7 +74,7 @@ pub(super) fn host_suggest(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn host_list_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn host_list_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
@@ -83,7 +83,7 @@ pub(super) fn host_list_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn host_get_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn host_get_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async move {
         Err(CoreError::new(
             Code::Unavailable,
@@ -114,7 +114,7 @@ fn parse_alias(params: &Value) -> Result<&str, CoreError> {
     Ok(text)
 }
 
-pub(crate) async fn host_list(_: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
+pub async fn host_list(_: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
     let map = object(&params)?;
     if !map.is_empty() {
         return Err(invalid("params: Unrecognized key(s) in object"));
@@ -122,7 +122,7 @@ pub(crate) async fn host_list(_: &Ctx, params: Value, parts: Value) -> Result<Va
     Ok(hosts::list(&parts))
 }
 
-pub(crate) async fn host_get(_: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
+pub async fn host_get(_: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
     let alias = parse_alias(&params)?;
     if parts.get("alias").and_then(Value::as_str) != Some(alias) {
         return Err(invalid(format!("unknown host {alias}")));
