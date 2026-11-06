@@ -4,20 +4,21 @@ use pacer_foundation::{
 };
 use serde_json::Value;
 mod config_get_ops;
-mod config_params;
 pub(crate) mod config_host_sync;
+mod config_params;
 pub(crate) mod config_sync;
 mod config_writes;
 mod engine_ops;
+mod host_read_ops;
 mod lifecycle_ops;
+mod meta_ops;
 pub mod plugins;
 pub(crate) mod session_ops;
 pub(crate) mod session_sync;
-pub(crate) mod status_ops;
-pub(crate) mod status_sync;
-mod meta_ops;
 mod snapshot_get_ops;
 pub(crate) mod snapshot_sync;
+pub(crate) mod status_ops;
+pub(crate) mod status_sync;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
@@ -26,8 +27,8 @@ pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use session_ops::needs_session_probe;
-pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
+pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
 pub(crate) use task_get_ops::needs_task_read_bridge;
 
 #[cfg(feature = "test-ops")]
@@ -109,6 +110,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "config.get",
         call: config_get_ops::config_get_stub,
+    },
+    NativeOp {
+        name: "host.suggest",
+        call: host_read_ops::host_suggest,
     },
     NativeOp {
         name: "config.set",
@@ -353,6 +358,7 @@ mod tests {
             "notifications.set",
             "config.get",
             "config.set",
+            "host.suggest",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -429,6 +435,7 @@ mod tests {
             "notifications.set",
             "config.get",
             "config.set",
+            "host.suggest",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
