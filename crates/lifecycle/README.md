@@ -6,7 +6,11 @@ client, job, host, notification and runner-check decisions. The first served lif
 `run_spawn` (`self_command`, `runner_log_path`, `build_run_spawn_plan`,
 `RunSpawnOwner`, `validate_run_spawn_plan`) so drain launch hooks and future
 native supervisors share the same `_run` argv/env/log contract as
-`src/tasks/api.ts`; effectful spawn remains TypeScript-owned. P6c adds
+`src/tasks/api.ts`; effectful spawn remains TypeScript-owned. P6e-run adds
+`resolve_launch_admission_lease`, `build_run_spawn_plan_for_launch`,
+`drain_launch_run_spawn_plan`, `guard_run_spawn_plan` and a gated
+`SupervisorRunSpawnSpec` for ProcessOwner cutover without registering
+`task.delegate`. P6c adds
 store-only `record_review_verdict` (accept/reject SQLite fields matching
 `taskReview` without labels or gates). P6d adds store-only `record_task_stop`
 and `task_wait_settled` (matching `taskStop` store fields and the `taskWait`
@@ -73,6 +77,9 @@ Validation:
   invokes Bun to check revisions, descendant budgets and slot contention.
 - `bun run test test/p6e-parity.test.ts` checks Rust output against the goldens and
   verifies their freshness against current TS source and fixture inputs.
+- `bun run test test/run-spawn-parity.test.ts` and
+  `test/run-spawn-launch-parity.test.ts` keep P6b/P6e-run `_run` plans aligned
+  with Rust `run_spawn`.
 
 CT-11 runtime coverage is **UNVERIFIED** under the 2026-11-01 unreachable-library
 exception in `.project/decisions.md`. The first runtime cutover must exercise all
