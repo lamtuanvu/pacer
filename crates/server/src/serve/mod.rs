@@ -226,6 +226,14 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
+            let config_host_sync = if crate::native::needs_config_host_bridge(op.name) {
+                state.core.target().await.map(|target| {
+                    Box::pin(crate::native::config_host_sync::http(Some(target)))
+                        as pacer_foundation::api::OpFuture<'_>
+                })
+            } else {
+                None
+            };
             call_native(
                 &request_ctx,
                 op,
@@ -235,6 +243,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 broker_sync,
                 session_sync,
                 task_read_sync,
+                config_host_sync,
             )
             .await
         };

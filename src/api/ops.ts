@@ -343,12 +343,10 @@ export const OPS: Record<string, OpDef> = {
   "host.clean": op({ description: "Preview host branch fates or clean worktrees as a job.", params: z.object({alias: id, dry_run: z.boolean().optional()}), handler: async (ctx, p) => p.dry_run ? core.hosts.clean(ctx, p.alias, {dryRun: true}) : {job: await core.hosts.cleanJob(ctx, p.alias)} }),
   "host.terminal": op({ description: "Open an SSH terminal for a host.", params: z.object({alias: id,request_id:z.uuid().optional()}), handler: (ctx, p, deps) => core.hosts.terminal(ctx, p.alias, appTerminal(deps,p.request_id),{builtin:!!deps.appAuthenticated}) }),
   "host.remove": op({ description: "Remove an SSH host unless a runner uses it; local is reserved.", params: z.object({alias: id}), handler: (ctx, p) => mutation(ctx, "hosts", () => core.hosts.remove(ctx, p.alias)) }),
-  "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: ctx => {
-    const result = config.get(ctx);
-    const apps: Record<string, string> = { ghostty: "Ghostty", iterm: "iTerm", "terminal-app": "Terminal" };
-    return { ...result, terminalChoices: result.terminalChoices.filter(choice => choice.value === "auto" || (process.platform === "darwin"
-      ? ["/Applications", join(ctx.home, "Applications"), "/System/Applications/Utilities"].some(root => existsSync(join(root, `${apps[choice.value]}.app`)))
-      : !!ctx.which(choice.value))) };
+  "config.get": op({ description: "Allow-listed settings with their sources and compatible planner candidates.", params: z.object({}), handler: async ctx => {
+    const base = config.get(ctx);
+    const { configHostParts } = await import("./config-host-bridge");
+    return { ...base, ...configHostParts(ctx) };
   } }),
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly, backendReady: async (...a) => (await import("../exec/backend")).backendAvailable(...a)}); return result; } }),
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
