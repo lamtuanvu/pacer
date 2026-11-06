@@ -10,6 +10,7 @@ pub(crate) mod config_sync;
 mod config_writes;
 mod engine_ops;
 mod host_read_ops;
+pub(crate) mod host_read_sync;
 mod lifecycle_ops;
 mod meta_ops;
 pub mod plugins;
@@ -32,6 +33,7 @@ pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
+pub(crate) use host_read_ops::needs_host_read_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
 
 #[cfg(feature = "test-ops")]
@@ -117,6 +119,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "host.suggest",
         call: host_read_ops::host_suggest,
+    },
+    NativeOp {
+        name: "host.list",
+        call: host_read_ops::host_list_stub,
+    },
+    NativeOp {
+        name: "host.get",
+        call: host_read_ops::host_get_stub,
     },
     NativeOp {
         name: "config.set",
@@ -248,6 +258,7 @@ pub async fn call_native(
     config_host_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     snapshot_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     task_clean_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    host_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
@@ -326,6 +337,18 @@ pub async fn call_native(
             "config.get" => config_get_ops::config_get(ctx, params, parts.await?).await?,
             _ => unreachable!("needs_config_host_bridge"),
         }
+    } else if needs_host_read_bridge(op.name) {
+        let parts = host_read_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "host read bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "host.list" => host_read_ops::host_list(ctx, params, parts.await?).await?,
+            "host.get" => host_read_ops::host_get(ctx, params, parts.await?).await?,
+            _ => unreachable!("needs_host_read_bridge"),
+        }
     } else if needs_task_clean_bridge(op.name) {
         let clean = task_clean_sync.ok_or_else(|| {
             CoreError::new(
@@ -384,6 +407,8 @@ mod tests {
             "config.get",
             "config.set",
             "host.suggest",
+            "host.list",
+            "host.get",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
@@ -463,6 +488,8 @@ mod tests {
             "config.get",
             "config.set",
             "host.suggest",
+            "host.list",
+            "host.get",
             "delegation.pause",
             "delegation.resume",
             "mode.hold",
