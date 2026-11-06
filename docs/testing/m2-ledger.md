@@ -168,7 +168,11 @@ inventories under `.work/reviews/`.
 - **P4d-11:** Core `call_authority` seals `worktree` resources and `worktreeContext`
   when worktree is issued; flag-on `ProcessOwner` issues `NativeWorktree` (library
   `resolveBase` proof). `executorClaim` / process.run on the native owner and CT-11
-  remain open; default stays off.
+  remained open; default stayed off.
+- **P4d-12:** Core `call_authority` seals `executorClaim` and `executorContext`
+  when a host-issued run claim is present; flag-on `ProcessOwner` binds `NativeRun`
+  (library `claimRun` proof). Live Core `executor.run` stashing, full process.run
+  lifecycle on the native owner, and CT-11 remain open; default stays off.
 - **P4d-1 landed (flag-gated):** serve can claim `ProcessOwner` + reverse bridge
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against
