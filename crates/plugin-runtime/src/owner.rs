@@ -275,11 +275,11 @@ impl ProcessOwner {
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
         match session {
             Some(session) => Ok(child
-                .request_with_handler(method, params, deadline, None, move |cap, body, _| {
+                .request_with_handler(method, params, deadline, None, move |cap, body, meta| {
                     let session = session.clone();
                     async move {
                         let mut guard = session.lock().await;
-                        guard.answer(&cap, body).await
+                        guard.answer(&cap, body, meta).await
                     }
                 })
                 .await?),

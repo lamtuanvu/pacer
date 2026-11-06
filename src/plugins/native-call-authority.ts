@@ -1,7 +1,8 @@
-/** Core-sealed call-scoped CallResources for flag-on ProcessOwner (P4d-7). */
+/** Core-sealed call-scoped CallResources for flag-on ProcessOwner (P4d-7/8). */
+import { randomUUID } from "node:crypto";
 import { isAbsolute, resolve } from "node:path";
 import { CoreError } from "../core/errors";
-import type { CallResources } from "./authority";
+import type { CallResources, HostOperationResource } from "./authority";
 import type { Ctx } from "../types";
 import type { PluginManifest } from "./protocol";
 
@@ -39,7 +40,7 @@ type SealedResources = {
   reads: { path: string; kind: "file" | "codex-logs" }[];
   writes: NonNullable<CallResources["writes"]>;
   commands: CallResources["commands"];
-  hosts: NonNullable<CallResources["hosts"]>;
+  hosts: HostOperationResource[];
   http?: { hosts: string[]; origins?: string[] };
 };
 
@@ -71,6 +72,32 @@ function autoIssueFromManifest(manifest: PluginManifest, grants: readonly string
   return out;
 }
 
+const OBSERVATION_ADMISSION_METHODS = new Set(["diagnostic.ping", "policy.before"]);
+const HOST_SCRIPT = /^[A-Z][A-Z0-9_]{0,31}$/;
+
+function sealHostOperation(resource: HostOperationResource): HostOperationResource {
+  if (typeof resource.alias !== "string" || !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(resource.alias)) {
+    return invalid("host alias");
+  }
+  if (typeof resource.hostFingerprint !== "string" || !resource.hostFingerprint || resource.hostFingerprint.length > 128) {
+    return invalid("host fingerprint");
+  }
+  if (typeof resource.script !== "string" || !HOST_SCRIPT.test(resource.script)) return invalid("host script");
+  if (!Array.isArray(resource.args) || resource.args.some(arg => typeof arg !== "string" || arg.length > 512)) {
+    return invalid("host args");
+  }
+  if (!(resource.timeoutMs > 0 && resource.timeoutMs <= 120_000)) return invalid("host timeoutMs");
+  if (!(resource.maxBytes > 0 && resource.maxBytes <= 524_288)) return invalid("host maxBytes");
+  return {
+    alias: resource.alias,
+    hostFingerprint: resource.hostFingerprint,
+    script: resource.script,
+    args: [...resource.args],
+    timeoutMs: resource.timeoutMs,
+    maxBytes: resource.maxBytes,
+  };
+}
+
 function sealProvided(resources: CallResources, grants: readonly string[]): SealedResources {
   const out = emptyResources();
   if (resources.reads.length && !grants.includes("fs.read")) return denied("fs.read is not granted");
@@ -79,7 +106,7 @@ function sealProvided(resources: CallResources, grants: readonly string[]): Seal
   }
   if (resources.http && !grants.includes("net.http")) return denied("net.http is not granted");
   if (resources.writes?.length) return denied("call_authority does not issue write resources in this slice");
-  if (resources.hosts?.length) return denied("call_authority does not issue hosts resources in this slice");
+  if ((resources.hosts?.length ?? 0) > 0 && !grants.includes("hosts")) return denied("hosts is not granted");
   for (const read of resources.reads) {
     if (read.kind !== "file" && read.kind !== "codex-logs") return invalid("unsupported read resource kind");
     out.reads.push({ path: absoluteResourcePath(read.path), kind: read.kind });
@@ -105,21 +132,45 @@ function sealProvided(resources: CallResources, grants: readonly string[]): Seal
       ...(resources.http.origins?.length ? { origins: [...resources.http.origins] } : {}),
     };
   }
+  for (const host of resources.hosts ?? []) {
+    out.hosts.push(sealHostOperation(host));
+  }
   return out;
 }
+
+export type ObservationSeal = {
+  callToken: string;
+  bootstrap: boolean;
+  readContext: { home: string; pacerHome: string; now: number };
+};
 
 export type CallAuthoritySeal = {
   resources: SealedResources;
   grants: string[];
   ttlMs: number;
+  /** P4d-8: policy/doctor observation bootstrap for tasks.read / events.subscribe. */
+  observation?: ObservationSeal;
+  /** Host provider snapshots for ProcessOwner attach land in a follow-up slice. */
+  hostSnapshots?: never;
 };
+
+function observationAdmission(
+  method: string | undefined,
+  grants: readonly string[],
+  manifest: PluginManifest,
+): boolean {
+  if (!method || !OBSERVATION_ADMISSION_METHODS.has(method)) return false;
+  const declared = manifest.capabilities.some(c => c.name === "tasks.read" || c.name === "events.subscribe");
+  const granted = grants.some(g => g === "tasks.read" || g === "events.subscribe");
+  return declared && granted;
+}
 
 /** Seal call-scoped resources Core hands to Rust ProcessOwner for one plugin call. */
 export function sealCallAuthority(
-  _ctx: Ctx,
+  ctx: Ctx,
   manifest: PluginManifest,
   grants: readonly string[],
-  options: { resources?: CallResources; ttlMs?: number } = {},
+  options: { resources?: CallResources; ttlMs?: number; method?: string } = {},
 ): CallAuthoritySeal {
   const ttlMs = options.ttlMs && options.ttlMs > 0 && options.ttlMs <= 600_000
     ? Math.floor(options.ttlMs)
@@ -127,5 +178,12 @@ export function sealCallAuthority(
   const sealed = options.resources
     ? sealProvided(options.resources, grants)
     : autoIssueFromManifest(manifest, grants);
-  return { resources: sealed, grants: [...grants], ttlMs };
+  const observation = observationAdmission(options.method, grants, manifest)
+    ? {
+      callToken: randomUUID(),
+      bootstrap: true,
+      readContext: { home: ctx.home, pacerHome: ctx.pacerHome, now: ctx.now },
+    }
+    : undefined;
+  return { resources: sealed, grants: [...grants], ttlMs, ...(observation ? { observation } : {}) };
 }

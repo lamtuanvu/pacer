@@ -4,7 +4,7 @@
 use pacer_plugin_runtime::{
     CallAuthority, CallResources, CapabilityBroker, LocalHostEffect, PluginCapabilitySession,
     ProcessOwner, ReadResource, SpawnSpec, call_resources_from_value, parse_manifest,
-    session_for_call, session_from_hello,
+    observation_bootstrap_from_value, session_for_call, session_from_hello,
 };
 use serde_json::json;
 use std::{
@@ -273,6 +273,7 @@ for (;;) {{
         resources,
         Some(vec!["fs.read".into()]),
         Duration::from_secs(10),
+        None,
     )
     .unwrap();
 
@@ -372,6 +373,7 @@ for (;;) {{
         resources,
         Some(vec!["process.spawn".into()]),
         Duration::from_secs(10),
+        None,
     )
     .unwrap();
 
@@ -404,4 +406,99 @@ for (;;) {{
         "unexpected spawn stdout: {ping}"
     );
     owner.terminate("fx-spawn").await.unwrap();
+}
+
+#[tokio::test]
+async fn process_owner_answers_observation_tasks_list_when_core_seals_bootstrap() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().to_str().unwrap().to_owned();
+    let pacer_home = dir.path().join("state");
+    fs::create_dir_all(&pacer_home).unwrap();
+    let state = pacer_home.to_str().unwrap().to_owned();
+    let token = "obs-call-token-fixture";
+
+    let source = format!(
+        r#"const token = {token:?};
+const r = Bun.stdin.stream().getReader();
+let b = "";
+let pending;
+const send = (x) => console.log(JSON.stringify({{ jsonrpc: "2.0", ...x }}));
+for (;;) {{
+  const {{ value, done }} = await r.read();
+  if (done) break;
+  b += new TextDecoder().decode(value);
+  while (b.includes("\n")) {{
+    const i = b.indexOf("\n");
+    const m = JSON.parse(b.slice(0, i));
+    b = b.slice(i + 1);
+    if (m.method === "plugin.hello") {{
+      send({{ id: m.id, result: {{ ok: true, protocol: "1.10.0", id: "fx-obs", version: "1.0.0", contributes: ["diagnostic"] }} }});
+    }} else if (m.method === "diagnostic.ping") {{
+      pending = m.id;
+      send({{ id: 7, method: "capability.tasks.list", params: {{}}, _meta: {{ capabilityCall: token }} }});
+    }} else if (m.id === 7) {{
+      send({{ id: pending, result: {{ ok: true, tasks: m.result?.tasks ?? null }} }});
+    }}
+  }}
+}}
+"#
+    );
+
+    let hello = json!({
+        "protocol":"1.10.0","pacer":"0.2.0",
+        "manifest":{
+            "id":"fx-obs","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+            "capabilities":[{"name":"tasks.read"},{"name":"events.subscribe"}],
+            "contributes":{"policy":{}}
+        },
+        "config":{},"grants":["tasks.read","events.subscribe"],"features":["policyObservations"]
+    });
+    let sealed = json!({
+        "reads":[],
+        "writes":[],
+        "commands":[],
+        "hosts":[],
+        "observation":{
+            "callToken":token,
+            "bootstrap":true,
+            "readContext":{"home":home,"pacerHome":state,"now":1.0}
+        }
+    });
+    let observation = observation_bootstrap_from_value(&sealed).unwrap();
+    let resources = call_resources_from_value(&sealed).unwrap();
+    let session = session_for_call(
+        &hello,
+        resources,
+        Some(vec!["tasks.read".into(), "events.subscribe".into()]),
+        Duration::from_secs(10),
+        observation,
+    )
+    .unwrap();
+
+    let mut owner = ProcessOwner::native_for_tests();
+    owner
+        .spawn("fx-obs", &peer_script(dir.path(), &source))
+        .unwrap();
+    owner
+        .install_capability_session("fx-obs", session)
+        .unwrap();
+    owner
+        .call_plugin("fx-obs", "plugin.hello", hello, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let ping = owner
+        .call_plugin(
+            "fx-obs",
+            "diagnostic.ping",
+            json!({}),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        ping,
+        json!({"ok": true, "tasks": []}),
+        "Core-sealed observation bootstrap must answer capability.tasks.list"
+    );
+    owner.terminate("fx-obs").await.unwrap();
 }
