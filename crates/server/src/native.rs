@@ -8,6 +8,7 @@ pub(crate) mod config_host_sync;
 pub(crate) mod config_sync;
 use pacer_config_ops::config_writes;
 pub(crate) mod core_bridge_sync;
+use pacer_dispatch_ops::dispatch_ops;
 mod engine_ops;
 use pacer_config_ops::host_mut_ops;
 pub(crate) mod host_mut_sync;
@@ -327,6 +328,22 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "msg.read",
         call: msg_ops::msg_read,
+    },
+    NativeOp {
+        name: "dispatch.config.get",
+        call: dispatch_ops::dispatch_config_get,
+    },
+    NativeOp {
+        name: "dispatch.tree",
+        call: dispatch_ops::dispatch_tree,
+    },
+    NativeOp {
+        name: "dispatch.list",
+        call: dispatch_ops::dispatch_list,
+    },
+    NativeOp {
+        name: "dispatch.events",
+        call: dispatch_ops::dispatch_events,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {

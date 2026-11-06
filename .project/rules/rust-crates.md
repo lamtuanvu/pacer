@@ -67,6 +67,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 6 | `pacer-update` (`crates/update`) | Update, release manifest, service install | 1,500 | `reqwest` |
 | 7 | `pacer-read-model` (`crates/read-model`) | Snapshot and view model | 1,300–1,600 | none |
 | 7 | `pacer-config-ops` (`crates/config-ops`) | Native config and host operation handlers (strategy, routing, runners, notifications, host reads and edits) | ≤ 1,500 | none |
+| 7 | `pacer-dispatch-ops` (`crates/dispatch-ops`) | Native dispatch work-graph read operation handlers (`dispatch.config.get`, `dispatch.tree`, `dispatch.list`, `dispatch.events`) | ≤ 1,000 | none |
 | 8 | `pacer-task-ops` (`crates/task-ops`) | Native task, session and snapshot operation handlers (reads, list, detail, review, stop, dismiss, diff, wait) | ≤ 2,500 | none |
 | 8 | `pacer-tui` (`crates/tui`) | Dashboard (an API client: ARCH-1) | 1,000–1,200 | `ratatui`, `crossterm` |
 | 8 | `pacer-bundled` (`crates/bundled`) | Table of bundled plugins (manifest text and entry function), from M3 plan 1 | ≤ 300 | none (depends on `plugins-rs/*`) |

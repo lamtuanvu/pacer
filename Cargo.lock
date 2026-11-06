@@ -1336,6 +1336,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-dispatch-ops"
+version = "0.0.0"
+dependencies = [
+ "nix",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-dispatch-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1624,6 +1637,7 @@ dependencies = [
  "nix",
  "pacer-config",
  "pacer-config-ops",
+ "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",

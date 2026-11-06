@@ -111,6 +111,8 @@ layer = 7
 layer = 6
 [crates.pacer-config-ops]
 layer = 7
+[crates.pacer-dispatch-ops]
+layer = 7
 [crates.pacer-task-ops]
 layer = 8
 

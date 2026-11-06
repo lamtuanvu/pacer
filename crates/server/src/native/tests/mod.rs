@@ -62,9 +62,28 @@ fn forward_override_removes_only_selected_native_ops() {
         "msg.inbox",
         "msg.log",
         "msg.read",
+        "dispatch.config.get",
+        "dispatch.tree",
+        "dispatch.list",
+        "dispatch.events",
     ] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
+    }
+    for name in [
+        "dispatch.submit",
+        "dispatch.child",
+        "dispatch.wait",
+        "dispatch.review",
+        "dispatch.retry",
+        "dispatch.answer",
+        "dispatch.stop",
+        "dispatch.dependencies",
+        "dispatch.explain",
+        "dispatch.models",
+        "dispatch.enforcement",
+    ] {
+        assert!(registry("").get(name).is_none(), "{name}");
     }
     assert!(registry("").get("config.get").is_some());
     assert!(registry("config.get").get("config.get").is_none());
@@ -179,6 +198,10 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "msg.inbox",
         "msg.log",
         "msg.read",
+        "dispatch.config.get",
+        "dispatch.tree",
+        "dispatch.list",
+        "dispatch.events",
     ] {
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry(name).get(name).is_none(), "{name}");

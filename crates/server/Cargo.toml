@@ -26,6 +26,7 @@ pacer-read-model = { path = "../read-model" }
 pacer-task-ops = { path = "../task-ops" }
 pacer-config-ops = { path = "../config-ops" }
 pacer-messaging-ops = { path = "../messaging-ops" }
+pacer-dispatch-ops = { path = "../dispatch-ops" }
 pacer-mdns = { path = "../mdns" }
 chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
 

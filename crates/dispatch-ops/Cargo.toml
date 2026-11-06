@@ -1,0 +1,23 @@
+[package]
+name = "pacer-dispatch-ops"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+pacer-foundation = { path = "../foundation" }
+pacer-config = { path = "../config" }
+pacer-lifecycle = { path = "../lifecycle" }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["signal"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio.workspace = true
+
+[lints]
+workspace = true
