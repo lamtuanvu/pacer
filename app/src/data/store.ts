@@ -163,15 +163,15 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
   const dispatch = (action: StoreAction) => { if (["disconnected", "session-ended"].includes(action.type)) invalidateQueryCache(api); state = reduceStore(state, action); if (state.snapshot && acknowledgedReviews.size) state = {...state,snapshot:withoutReviewedAttention(state.snapshot,acknowledgedReviews)}; if (action.type === "disconnected") platform.setConnectionStatus("reconnecting"); else if (action.type === "reconnected") platform.setConnectionStatus("connected"); else if (action.type === "session-ended") platform.setConnectionStatus("disconnected"); for (const listener of listeners) listener(); };
   const endSession = () => { stopServiceNotifier(); stream?.close(); clearTimeout(timer); clearTimeout(offlineTimer); api.setConnected?.(false); dispatch({ type: "session-ended" }); };
   const api = injectedApi ?? createApi(endSession);
-  const ensureServiceNotifier = (version: string) => {
-    if (platform.desktop) return;
+  const ensureServiceNotifier = (version: string): Promise<void> => {
+    if (platform.desktop) return Promise.resolve();
     serviceNotifier ??= createServiceNotifier({
       call: (op, params) => api.call(op, params ?? {}),
       notify: (title, options) => platform.notify(title, options),
       desktop: false,
       version: version || "0.0.0-dev",
     });
-    void serviceNotifier.start();
+    return serviceNotifier.start();
   };
   const pollWaiting = async () => {
     if (stopped || !state.connected || waitingRead) return;
@@ -209,6 +209,9 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
       cursorReset = false;
       dispatch({ type: "hello", hello });
       dispatch({ type: "snapshot", snapshot: { ...result.snapshot, seq: result.seq } });
+      // Register before subscribing so a notify cannot be committed before this client id exists.
+      await ensureServiceNotifier(hello.pacer);
+      if (stopped || current !== generation) return;
       const eventPath = `${hello.protocol.split(".")[0] === "3" ? "/v3/events?since=" : "/v2/events?since="}${result.seq}`;
       const source = stream = (Events ? new Events(eventPath) : platform.subscribeEvents(eventPath));
       const active = () => !stopped && stream === source && !state.sessionEnded;
@@ -231,7 +234,6 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
         // EventSource does not expose HTTP status. A normal request detects expired cookies.
         void api.hello().catch(error => { if (active() && error instanceof ApiError && error.status === 401) endSession(); });
       });
-      ensureServiceNotifier(hello.pacer);
       for (const type of new Set<string>([...V1_EVENTS, ...hello.events])) source.addEventListener(type, event => {
         if (!active()) return;
         try {

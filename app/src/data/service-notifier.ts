@@ -72,7 +72,9 @@ function pageVisible(): boolean {
 
 /**
  * Register this browser tab as a delivery client and present notify events addressed to it.
- * The desktop shell owns OS delivery, so `desktop` never registers. A missed heartbeat lapses the lease.
+ * The desktop shell owns OS delivery, so `desktop` never registers.
+ * `start` resolves after the first register attempt, so callers can open the event stream only then.
+ * A missed heartbeat keeps the last client id. Only `stop` forgets it.
  */
 export function createServiceNotifier(deps: {
   call: NotifierCall;
@@ -85,9 +87,9 @@ export function createServiceNotifier(deps: {
 }): ServiceNotifier {
   const clock = deps.clock ?? defaultClock;
   let clientId: string | undefined;
-  let started = false;
   let stopped = false;
   let timer: { unref?: () => void } | undefined;
+  let pending: Promise<void> | undefined;
 
   const permission = () => {
     try { return deps.permission?.() ?? browserNotificationPermission(); }
@@ -106,35 +108,35 @@ export function createServiceNotifier(deps: {
   }
 
   function beat(): void {
-    if (stopped || !visible()) return;
-    if (!clientId) {
-      void register().catch(() => {});
-      return;
-    }
+    if (stopped || !visible() || !clientId) return;
     const id = clientId;
     try {
       void Promise.resolve(deps.call("client.heartbeat", { client_id: id })).catch(() => {
-        if (clientId === id) clientId = undefined;
+        // Keep the id. A failed renew does not mean this client should drop notices.
       });
     } catch {
-      if (clientId === id) clientId = undefined;
+      // A thrown heartbeat must not take the page down.
     }
   }
 
-  async function start(): Promise<void> {
-    if (deps.desktop || started || stopped) return;
-    started = true;
-    try {
-      await register();
-      if (stopped) return;
-      if (!clientId) { started = false; return; }
-      const next = clock.setInterval(beat, HEARTBEAT_MS);
-      next.unref?.();
-      timer = next;
-      if (stopped) clock.clearInterval(next);
-    } catch {
-      if (!stopped) started = false;
-    }
+  function start(): Promise<void> {
+    if (deps.desktop || stopped || clientId) return Promise.resolve();
+    if (pending) return pending;
+    pending = (async () => {
+      try {
+        await register();
+        if (stopped || !clientId) return;
+        const next = clock.setInterval(beat, HEARTBEAT_MS);
+        next.unref?.();
+        timer = next;
+        if (stopped) clock.clearInterval(next);
+      } catch {
+        // The next authenticated refresh can retry. Notices stay closed until an id exists.
+      } finally {
+        if (!clientId) pending = undefined;
+      }
+    })();
+    return pending;
   }
 
   function stop() {

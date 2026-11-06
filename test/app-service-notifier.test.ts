@@ -63,14 +63,14 @@ test("browser notifier registers, heartbeats, and stops", async () => {
   beat!();
   await Promise.resolve();
   await Promise.resolve();
-  expect(calls[2]).toEqual({ op: "client.register", params: { kind: "app", version: "1.2.3", notifier: true } });
+  expect(calls[2]).toEqual({ op: "client.heartbeat", params: { client_id: mine } });
   notifier.stop();
   expect(cleared).toEqual([timer]);
   beat!();
   await Promise.resolve();
-  expect(calls.filter(call => call.op === "client.heartbeat")).toHaveLength(1);
+  expect(calls.filter(call => call.op === "client.heartbeat")).toHaveLength(2);
   await notifier.start();
-  expect(calls.filter(call => call.op === "client.register")).toHaveLength(2);
+  expect(calls.filter(call => call.op === "client.register")).toHaveLength(1);
 });
 
 test("desktop notifier does not register", async () => {
@@ -107,6 +107,31 @@ test("a hidden page skips the heartbeat", async () => {
   beat!();
   await Promise.resolve();
   expect(calls).toEqual(["client.register"]);
+});
+
+test("a failed heartbeat keeps the client id and still presents", async () => {
+  const calls: string[] = [];
+  const notes: string[] = [];
+  let beat: (() => void) | undefined;
+  const notifier = createServiceNotifier({
+    desktop: false,
+    version: "1.2.3",
+    permission: () => "granted",
+    visible: () => true,
+    clock: { setInterval(handler) { beat = handler; return {}; }, clearInterval() {} },
+    notify: async title => { notes.push(title); return true; },
+    call: async op => {
+      calls.push(op);
+      if (op === "client.heartbeat") throw new Error("down");
+      return { client_id: mine };
+    },
+  });
+  await notifier.start();
+  beat!();
+  await Promise.resolve();
+  notifier.event({ type: "notify", data: { recipients: [mine], title: "Still", body: "Here" } });
+  expect(notes).toEqual(["Still"]);
+  expect(calls).toEqual(["client.register", "client.heartbeat"]);
 });
 
 test("notify events present only for this client when permission is granted", async () => {
@@ -177,6 +202,52 @@ test("the browser store registers after hello and presents this client's notific
     stream.emit("notify", { recipients: ["other"], client_id: mine, title: "Nope", body: "Elsewhere" }, "7");
     expect(shown).toEqual([{ title: "Ready", options: { body: "Detail" } }]);
     expect(store.getState().snapshot?.seq).toBe(7);
+  } finally {
+    stop();
+    if (previousNotification) Object.defineProperty(globalThis, "Notification", previousNotification);
+    else Reflect.deleteProperty(globalThis, "Notification");
+    if (previousTauri) host.__TAURI__ = previousTauri;
+    else delete host.__TAURI__;
+    expect(platform.desktop).toBe(!!host.__TAURI__);
+  }
+});
+
+test("the browser store opens the event stream only after register resolves", async () => {
+  const previousTauri = host.__TAURI__;
+  const previousNotification = Object.getOwnPropertyDescriptor(globalThis, "Notification");
+  delete host.__TAURI__;
+  expect(platform.desktop).toBe(false);
+  const shown: { title: string; options?: NotificationOptions }[] = [];
+  class FakeNotification {
+    static permission: NotificationPermission = "granted";
+    constructor(title: string, options?: NotificationOptions) { shown.push({ title, options }); }
+  }
+  Object.defineProperty(globalThis, "Notification", { configurable: true, writable: true, value: FakeNotification });
+  FakeEvents.instances = [];
+  let release: () => void = () => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const calls: string[] = [];
+  const api = {
+    hello: async () => ({ protocol: "3.0.0", pacer: "1.2.3", ops: ["client.register"], events: ["notify", "attention"] }),
+    snapshot: async () => ({ protocol: "3.0.0", seq: 5, snapshot: { ...emptySnapshot(), seq: 5 } }),
+    call: async (op: string) => {
+      calls.push(op);
+      if (op === "client.register") { await gate; return { client_id: mine, lease_s: 45 }; }
+      return { ok: true };
+    },
+  };
+  const store = createStore(api, FakeEvents as unknown as typeof EventSource);
+  const stop = store.start();
+  try {
+    await flush();
+    expect(calls).toEqual(["client.register"]);
+    expect(FakeEvents.instances).toHaveLength(0);
+    expect(store.getState().snapshot?.seq).toBe(5);
+    release();
+    await flush();
+    expect(FakeEvents.instances).toHaveLength(1);
+    FakeEvents.instances[0]!.emit("notify", { recipients: [mine], client_id: "primary", title: "Ready", body: "Detail" }, "6");
+    expect(shown).toEqual([{ title: "Ready", options: { body: "Detail" } }]);
   } finally {
     stop();
     if (previousNotification) Object.defineProperty(globalThis, "Notification", previousNotification);
