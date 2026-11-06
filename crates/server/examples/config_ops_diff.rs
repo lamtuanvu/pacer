@@ -36,6 +36,7 @@ async fn main() -> io::Result<()> {
             input["params"].clone(),
             None,
             Some(Box::pin(async { Ok(Value::Null) })),
+            None,
         )
         .await;
         let output = match result {

@@ -189,7 +189,15 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Box::pin(crate::native::config_sync::http(Some(target), op.name))
                     as pacer_foundation::api::OpFuture<'_>
             });
-            call_native(&request_ctx, op, params, None, endpoint_sync).await
+            let broker_sync = if op.name == "limits.check" {
+                state.core.target().await.map(|target| {
+                    Box::pin(crate::native::status_sync::http(Some(target)))
+                        as pacer_foundation::api::OpFuture<'_>
+                })
+            } else {
+                None
+            };
+            call_native(&request_ctx, op, params, None, endpoint_sync, broker_sync).await
         };
         if plugin
             && crate::native::plugins::is_read(op.name)
