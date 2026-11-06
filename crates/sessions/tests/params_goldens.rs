@@ -8,7 +8,10 @@ use pacer_sessions::params::{
 use serde_json::Value;
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../test/fixtures/session-ops/params.json")).unwrap()
+    serde_json::from_str(include_str!(
+        "../../../test/fixtures/session-ops/params.json"
+    ))
+    .unwrap()
 }
 
 #[test]
