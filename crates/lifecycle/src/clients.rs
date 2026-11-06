@@ -79,10 +79,10 @@ pub fn presenters(rows: &[Value], now: f64) -> Value {
     if let Some(r) = terminal {
         out.push(json!({"client_id": r["client_id"], "kind": r["kind"], "medium": "terminal"}));
     }
-    if os.is_none() {
-        if let Some(r) = browser {
-            out.push(json!({"client_id": r["client_id"], "kind": r["kind"], "medium": "browser"}));
-        }
+    if os.is_none()
+        && let Some(r) = browser
+    {
+        out.push(json!({"client_id": r["client_id"], "kind": r["kind"], "medium": "browser"}));
     }
     Value::Array(out)
 }

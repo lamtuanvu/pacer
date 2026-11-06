@@ -3,6 +3,7 @@ import { h, options } from "preact";
 import { renderToString } from "preact-render-to-string";
 import { emptySnapshot } from "../src/link/envelope";
 import { platform } from "../app/src/platform";
+import type { BrowserApi } from "../app/src/data/api";
 import { createStore, initialState } from "../app/src/data/store";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { SettingsGeneral } from "../app/src/screens/settings/General";
@@ -278,7 +279,7 @@ test("the browser store registers after hello and presents this client's notific
       return op === "client.register" ? { client_id: mine, lease_s: 45 } : { ok: true };
     },
   };
-  const store = createStore(api, FakeEvents as unknown as typeof EventSource);
+  const store = createStore(api as BrowserApi, FakeEvents as unknown as typeof EventSource);
   const stop = store.start();
   try {
     await flush();
@@ -322,7 +323,7 @@ test("the browser store opens the event stream only after register resolves", as
       return { ok: true };
     },
   };
-  const store = createStore(api, FakeEvents as unknown as typeof EventSource);
+  const store = createStore(api as BrowserApi, FakeEvents as unknown as typeof EventSource);
   const stop = store.start();
   try {
     await flush();
@@ -368,7 +369,7 @@ test("the browser store opens the stream when the first register is offline, the
       return op === "client.register" ? { client_id: mine, lease_s: 45 } : { ok: true };
     },
   };
-  const store = createStore(api, FakeEvents as unknown as typeof EventSource);
+  const store = createStore(api as BrowserApi, FakeEvents as unknown as typeof EventSource);
   const stop = store.start();
   try {
     await flush();
@@ -401,7 +402,7 @@ test("the desktop store does not register a browser notifier", async () => {
     snapshot: async () => ({ protocol: "3.0.0", seq: 5, snapshot: { ...emptySnapshot(), seq: 5 } }),
     call: async (op: string) => { calls.push(op); return { client_id: mine }; },
   };
-  const store = createStore(api, FakeEvents as unknown as typeof EventSource);
+  const store = createStore(api as BrowserApi, FakeEvents as unknown as typeof EventSource);
   const stop = store.start();
   try {
     await flush();

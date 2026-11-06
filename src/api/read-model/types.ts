@@ -45,7 +45,7 @@ export interface HostSummary { alias: string; ssh: string; state: "unknown" | "p
 export interface SetupSummary { policy?: import("../../view-model/words").PolicySummary; complete: boolean; ready?: boolean; open: number; items: import("../../setup/checklist").SetupItem[] }
 export type PresenterRef = { client_id: string; kind: import("../../clients/registry").ClientEntry["kind"] };
 export type ServiceNotifiers = { os: PresenterRef | null; terminal: PresenterRef | null; browser: PresenterRef | null };
-export interface ServiceInfo { projectStrategyError?: string; version: string; protocol: string; pid: number; startedAt: number; starting?: true; waiting?: import("../../core/path-probe").Waiting; notifiers: ServiceNotifiers; notifier: PresenterRef | null }
+export interface ServiceInfo { projectStrategyError?: string; version: string; protocol: string; pid: number; startedAt: number; starting?: true; waiting?: import("../../core/path-probe").Waiting; /** Additive; absent on older snapshots and fixtures. Production always sets it. */ notifiers?: ServiceNotifiers; notifier: PresenterRef | null }
 export interface ReadModelFields {
  policy: import("../../view-model/words").PolicySummary;
  desktopUpdates?: import("../../update/desktop/types").UpdateStatus[];
