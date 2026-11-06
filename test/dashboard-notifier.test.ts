@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
 import { currentVersion } from "../src/update/version";
 import {
-  HTTP_REPLAY_GRACE_MS,
-  INPROCESS_REPLAY_GRACE_MS,
   HEARTBEAT_MS,
   openTerminalNotifications,
   presentTerminalNotify,
@@ -85,31 +83,22 @@ test("registerTuiNotifier registers, heartbeats, and stop clears the timer", asy
   expect(cleared).toEqual([timer]);
 });
 
-test("terminal notifications skip the subscribe replay, then present a later addressed event", () => {
+test("terminal notifications present each addressed notify the subscription delivers", () => {
   const chunks: string[] = [];
   const lines: string[] = [];
-  let arm: (() => void) | undefined;
-  let grace = 0;
+  let clientId: string | undefined;
   const notes = openTerminalNotifications({
     stdout: { write: chunk => { chunks.push(chunk); } },
-    clientId: () => mine,
+    clientId: () => clientId,
     report: line => { lines.push(line); },
     env: { TERM: "dumb" },
-    schedule(fn, ms) {
-      grace = ms;
-      arm = fn;
-      return { stop() { arm = undefined; } };
-    },
   });
-  notes.start(INPROCESS_REPLAY_GRACE_MS);
-  notes.event({ type: "notify", seq: 4, data: { client_id: mine, title: "Old", body: "backlog" } });
-  expect(chunks).toEqual([]);
-  expect(grace).toBe(INPROCESS_REPLAY_GRACE_MS);
-  arm!();
-  notes.event({ type: "notify", seq: 4, data: { client_id: mine, title: "Old", body: "backlog" } });
-  notes.event({ type: "notify", seq: 5, data: { recipients: ["other"], client_id: mine, title: "Nope", body: "x" } });
-  notes.event({ type: "notify", seq: 6, data: { recipients: [mine], client_id: "primary", title: "Ready", body: "Detail" } });
-  expect(chunks).toEqual(["\x07"]);
-  expect(lines).toEqual(["Ready: Detail"]);
-  expect(HTTP_REPLAY_GRACE_MS).toBeLessThan(INPROCESS_REPLAY_GRACE_MS);
+  notes.event({ type: "notify", data: { client_id: mine, title: "Early", body: "before register" } });
+  clientId = mine;
+  notes.event({ type: "notify", data: { client_id: mine, title: "Old", body: "backlog" } });
+  notes.event({ type: "task", data: { client_id: mine, title: "Task", body: "x" } });
+  notes.event({ type: "notify", data: { recipients: ["other"], client_id: mine, title: "Nope", body: "x" } });
+  notes.event({ type: "notify", data: { recipients: [mine], client_id: "primary", title: "Ready", body: "Detail" } });
+  expect(chunks).toEqual(["\x07", "\x07"]);
+  expect(lines).toEqual(["Old: backlog", "Ready: Detail"]);
 });

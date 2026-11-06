@@ -5,13 +5,6 @@ export const HEARTBEAT_MS = 30_000;
 /** iTerm2 OSC 9 payload, after control characters are removed. */
 export const NOTIFY_OSC_MAX = 200;
 export const NOTIFY_LINE_MAX = 160;
-/**
- * The dashboard event subscription replays the outbox. HTTP replays immediately;
- * the in-process client replays on its first 1s poll. Notifications in this
- * window are treated as replay and are not presented again.
- */
-export const HTTP_REPLAY_GRACE_MS = 300;
-export const INPROCESS_REPLAY_GRACE_MS = 1500;
 
 export type NotifierCall = (op: string, params?: unknown) => Promise<unknown>;
 
@@ -36,20 +29,7 @@ export interface NotifySink {
 
 export interface NotifyEvent {
   type: string;
-  seq: number;
   data: unknown;
-}
-
-interface Cancel {
-  stop(): void;
-}
-
-type Schedule = (fn: () => void, ms: number) => Cancel;
-
-export interface TerminalNotifications {
-  start(graceMs: number): void;
-  event(event: NotifyEvent): void;
-  stop(): void;
 }
 
 /**
@@ -101,47 +81,22 @@ export function terminalNotifyLine(data: unknown): string {
   return clip(line, NOTIFY_LINE_MAX);
 }
 
+/** Present each notify the subscription delivers for this client. The subscription cursor is the snapshot seq. */
 export function openTerminalNotifications(deps: {
   stdout: NotifySink;
   clientId: () => string | undefined;
   report?: (line: string) => void;
   env?: NodeJS.ProcessEnv;
-  schedule?: Schedule;
-}): TerminalNotifications {
-  let armed = false;
-  let cursor = -1;
-  let timer: Cancel | undefined;
-  const schedule = deps.schedule ?? defaultSchedule;
+}): { event(event: NotifyEvent): void } {
   return {
-    start(graceMs) {
-      timer?.stop();
-      timer = schedule(() => { armed = true; }, graceMs);
-    },
     event(event) {
-      const seq = event.seq;
-      if (!armed) {
-        if (seq > cursor) cursor = seq;
-        return;
-      }
       const clientId = deps.clientId();
-      if (event.type === "notify" && seq > cursor && clientId && shouldPresentNotify(event.data, clientId)) {
-        presentTerminalNotify(deps.stdout, event.data, deps.env);
-        const line = terminalNotifyLine(event.data);
-        if (line) deps.report?.(line);
-      }
-      if (seq > cursor) cursor = seq;
-    },
-    stop() {
-      timer?.stop();
-      timer = undefined;
+      if (event.type !== "notify" || !clientId || !shouldPresentNotify(event.data, clientId)) return;
+      presentTerminalNotify(deps.stdout, event.data, deps.env);
+      const line = terminalNotifyLine(event.data);
+      if (line) deps.report?.(line);
     },
   };
-}
-
-function defaultSchedule(fn: () => void, ms: number): Cancel {
-  const timer = setTimeout(fn, ms);
-  timer.unref?.();
-  return { stop: () => clearTimeout(timer) };
 }
 
 function clientIdOf(result: unknown): string | undefined {

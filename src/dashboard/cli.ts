@@ -8,7 +8,7 @@ import type { Result } from "../commands/types";
 import { dashboardClient } from "./client";
 import { withFallback } from "./data";
 import { Dashboard } from "./controller";
-import { HTTP_REPLAY_GRACE_MS, INPROCESS_REPLAY_GRACE_MS, openTerminalNotifications, registerTuiNotifier } from "./notifier";
+import { openTerminalNotifications, registerTuiNotifier } from "./notifier";
 import { Keys } from "./input";
 import type { ScreenId } from "./state";
 import { detectTheme } from "./theme";
@@ -134,8 +134,6 @@ export async function runDashboard(args: string[], ctx: Ctx): Promise<Result> {
         if (!closed) dash.reportError(error);
       }
       if (closed) return;
-      // Client id is known before the replay, so a notify in that backlog can be filtered without ringing.
-      notifications?.start(client.kind === "inprocess" ? INPROCESS_REPLAY_GRACE_MS : HTTP_REPLAY_GRACE_MS);
       unsubscribe = client.subscribe(dash.snapshot.seq, event => {
         notifications?.event(event);
         void dash.event(event);
@@ -146,7 +144,7 @@ export async function runDashboard(args: string[], ctx: Ctx): Promise<Result> {
     if (theme.motion) spinner = setInterval(() => dash.tick(), 120);
     return { code: await done, out: "", err: exitError };
   } finally {
-    closed = true; notifierStop?.(); notifications?.stop(); unsubscribe?.(); client.close(); localClient.close();
+    closed = true; notifierStop?.(); unsubscribe?.(); client.close(); localClient.close();
     clearInterval(timer); clearInterval(spinner); clearTimeout(escapeTimer);
     process.stdin.off("data", input); process.stdin.off("end", quit); process.stdin.pause(); process.stdout.off("resize", redraw);
     process.off("SIGINT", interrupt); process.off("SIGTERM", terminate); process.off("SIGHUP", hangup);
