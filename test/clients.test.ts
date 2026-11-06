@@ -1,9 +1,35 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { activeNotifier, heartbeat, list, register } from "../src/clients/registry";
+import { activeNotifier, deliveryPresenters, heartbeat, list, mediumFor, register } from "../src/clients/registry";
 import { callOp, opNames } from "../src/api/ops";
 import { fakeCtx } from "./helpers";
+
+test("deliveryPresenters picks one per medium and suppresses browser when os is live", () => {
+  const ctx = fakeCtx();
+  register(ctx, { kind: "app", version: "1", notifier: true });
+  ctx.now += 1;
+  register(ctx, { kind: "tui", version: "1", notifier: true });
+  ctx.now += 1;
+  register(ctx, { kind: "desktop", version: "1", notifier: true });
+  const media = new Set(deliveryPresenters(ctx).map(p => p.medium));
+  expect(media).toEqual(new Set(["os", "terminal"]));
+});
+
+test("deliveryPresenters includes browser when only app is live", () => {
+  const ctx = fakeCtx();
+  const a = register(ctx, { kind: "app", version: "1", notifier: true });
+  expect(deliveryPresenters(ctx)).toEqual([
+    { client_id: a.client_id, kind: "app", medium: "browser" },
+  ]);
+});
+
+test("mediumFor maps only desktop/tui/app", () => {
+  expect(mediumFor("desktop")).toBe("os");
+  expect(mediumFor("tui")).toBe("terminal");
+  expect(mediumFor("app")).toBe("browser");
+  expect(mediumFor("orca")).toBeNull();
+});
 
 test("the newest live notifier wins, falling back when leases lapse", () => {
   const ctx = fakeCtx();
