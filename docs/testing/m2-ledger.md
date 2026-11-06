@@ -14,7 +14,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `host.list`, `host.get` | Native (P2-D) | `pacer-lifecycle::hosts::list` / `detail` compose summaries and detail rows once Core supplies reachability, check caches, jobs, runners, repos and tasks through `/_internal/host-read-parts` (serve) or `_internal.host-read.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns live task/job/reachability reads and read-model executors for `host.get`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.check`, `host.clean`, `host.terminal`, `host.repo.setup` | Forwarded (P2-D) | Plugin-owned SSH execution, clone/identity/cleanup grants and jobs remain in TypeScript. |
 | `runner.settings.get`, `runner.settings.save` | Native (P2-D) | Native callers use `pacer-config::executor_settings` under the shared `executor-settings` lock; saves publish the `runners` area via the P3-B publisher (matching TS `mutation(..., "runners", ...)`). No endpoint-plugin sync (unlike `runner.set` / `remove`). `PACER_FORWARD_OPS` remains the escape hatch. |
-| `repo.add`, `repo.list`, `repo.remove` | Forwarded (P2-D) | Registry/path-probe/git identity and branch reads stay in TypeScript; only `repo_key` URL canonicalization is in the Rust host library. |
+| `repo.list`, `repo.add` | Native (P2-D) | Rust validates params; registry listing with branch reads and git registration stay on Core through `/_internal/repo-bridge` / `_internal.repo.bridge` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns path-probe, git identity and branch listing. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `repo.remove` | Native (P2-D, selective) | `pacer-config::repos::remove_repo` owns registry/alias file effects under the shared `repos` lock when the on-disk JSON matches the supported shape. Legacy or unusual registries selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
 | `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
 | `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3…P4d-7) | X3 `MutationOperations` over Core private IPC. Escape (`PACER_NATIVE_PLUGIN_HOST=0`): `/_internal/plugins` prepare/`call`/`stop`/`changed`/`publish`/`log` with TS child spawn. **Default-on (P4d-13):** serve `ProcessOwner` starts/supervises children when flags are unset; Core supplies sealed `spawn_spec` + `call_authority` + hello bookkeeping (`ready`) and refuses local spawn when `PACER_HOST_SOCKET` is set; private `call` is retired on that path. **P4d-6/7** install a hello-sealed `PluginCapabilitySession` and bind Core-issued call-scoped `CallResources` so `capability.log` / `config.get` and fixture fs/process/http natives answer. Bridge adds `_host.plugin.spawn` / `stop`. Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the op escape hatch. |
@@ -358,7 +359,8 @@ The complete pure setter allow-list is `execution.auto_clean`,
 | `host.account.add` | The full operation, host adapter dependencies and SSH account-folder configuration remain in TypeScript. |
 | Host YAML edits (`host.add` / `set` / `remove` / `repo.map`) | Library parity lives in `pacer-config::host`; ops stay forwarded for endpoint sync, publication and activity. |
 | `runner.settings.*` | Native: library CAS + `executor-settings` lock + `runners` publication. Endpoint sync is not required for these ops. |
-| `repo.*` registry | Path probe, git identity and branch listing stay in TypeScript; Rust owns URL `repo_key` only. |
+| `repo.list` / `repo.add` | Native param validation; path probe, git identity and branch listing stay on Core via the repo bridge. |
+| `repo.remove` | Native file effects when registry JSON is compatible; legacy shapes forward to TypeScript. URL `repo_key` remains in `pacer-config::host`. |
 
 `test/config-settings-parity.test.ts` regenerates and verifies the shared
 `test/fixtures/config-settings/settings.json` corpus from the TypeScript reference.
@@ -395,7 +397,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `executor.*` | 3 | P6 | e.g. `executor.setup.candidates`, `executor.setup.connect`, `executor.setup.models` |
 | `job.*` | 3 | P6 | e.g. `job.cancel`, `job.get`, `job.list` |
 | `machine.*` | 0 | P8 | native above |
-| `repo.*` | 3 | P2 | Registry/git probe remain Forwarded; URL `repo_key` in `pacer-config::host` |
+| `repo.*` | 0 | P2 | native above |
 | `attention.*` | 2 | P6 | e.g. `attention.dismiss`, `attention.snooze` |
 | `issue.*` | 2 | P8 | e.g. `issue.import`, `issue.search` |
 | `onboarding.*` | 1 | P9 | `onboarding.try` stays forwarded |
