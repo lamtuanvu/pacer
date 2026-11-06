@@ -76,7 +76,8 @@ test("setup.health returns ordered steps, excludes removable-volume gate checks,
   // Removable-volume probes may still run inside doctor, but must not appear as gate step details flood.
   const doctor = await callOp(ctx, "doctor.run", {}) as { checks: { name: string }[] };
   const removable = doctor.checks.filter(c => c.name.startsWith("Removable volume "));
-  expect(removable.length).toBeGreaterThan(0);
+  // Doctor probes removable volumes only on macOS.
+  if (process.platform === "darwin") expect(removable.length).toBeGreaterThan(0);
   expect(JSON.stringify(result.steps)).not.toContain("Removable volume");
 });
 
