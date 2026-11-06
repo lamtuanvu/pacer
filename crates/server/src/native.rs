@@ -8,12 +8,15 @@ pub(crate) mod config_host_sync;
 mod config_params;
 pub(crate) mod config_sync;
 mod config_writes;
+pub(crate) mod core_bridge_sync;
 mod engine_ops;
 mod host_read_ops;
 pub(crate) mod host_read_sync;
 mod lifecycle_ops;
 mod meta_ops;
+pub(crate) mod p8_bridge_ops;
 pub mod plugins;
+mod setup_ops;
 pub(crate) mod session_ops;
 pub(crate) mod session_sync;
 mod snapshot_get_ops;
@@ -31,6 +34,7 @@ pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::needs_host_read_bridge;
+pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
@@ -217,6 +221,30 @@ static OPS: &[NativeOp] = &[
         name: "task.diff",
         call: task_diff_ops::task_diff_op,
     },
+    NativeOp {
+        name: "machine.get",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "machine.set",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "machine.rotate",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "files.search",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "setup.check",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "onboarding.skip",
+        call: setup_ops::onboarding_skip,
+    },
     #[cfg(feature = "test-ops")]
     NativeOp {
         name: "test.echo",
@@ -264,6 +292,7 @@ pub async fn call_native(
     snapshot_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     task_clean_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     host_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    core_bridge_sync: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
@@ -365,6 +394,15 @@ pub async fn call_native(
             "task.dismiss" => task_dismiss_ops::task_dismiss(ctx, params, clean).await?,
             _ => unreachable!("needs_task_clean_bridge"),
         }
+    } else if needs_core_bridge(op.name) {
+        let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
+        let parts = core_bridge_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "core bridge unavailable",
+            )
+        })?;
+        parts.await?
     } else {
         (op.call)(ctx, params).await?
     };
@@ -431,6 +469,12 @@ mod tests {
             "version.get",
             "api.list",
             "api.describe",
+            "machine.get",
+            "machine.set",
+            "machine.rotate",
+            "files.search",
+            "setup.check",
+            "onboarding.skip",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -514,6 +558,12 @@ mod tests {
             "version.get",
             "api.list",
             "api.describe",
+            "machine.get",
+            "machine.set",
+            "machine.rotate",
+            "files.search",
+            "setup.check",
+            "onboarding.skip",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");

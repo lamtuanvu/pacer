@@ -199,6 +199,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                        None,
                     )
                     .await
                 } else if crate::native::needs_task_read_bridge(op.name) {
@@ -219,6 +220,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, &task_id, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                         None,
                         None,
@@ -244,6 +246,7 @@ async fn forward_input<
                                 ))
                                     as pacer_foundation::api::OpFuture<'_>),
                                 None,
+                                None,
                             )
                             .await
                         }
@@ -266,6 +269,7 @@ async fn forward_input<
                             as pacer_foundation::api::OpFuture<'_>),
                         None,
                         None,
+                        None,
                     )
                     .await
                 } else if crate::native::needs_session_probe(op.name) {
@@ -280,6 +284,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                         None,
                         None,
@@ -301,6 +306,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                         None,
                         None,
@@ -332,8 +338,40 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, alias_ref, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                     )
                     .await
+                } else if crate::native::needs_core_bridge(op.name) {
+                    match crate::native::p8_bridge_ops::bridge_params(op.name, &params) {
+                        Ok(bridge_params) => {
+                            let op_name = op.name.to_owned();
+                            call_native(
+                                &request_ctx,
+                                op,
+                                params,
+                                request.get("id"),
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(Box::pin(crate::native::core_bridge_sync::stdio(
+                                    &mut core,
+                                    sync.0,
+                                    sync.1,
+                                    &op_name,
+                                    bridge_params,
+                                    sync.2,
+                                ))
+                                    as pacer_foundation::api::OpFuture<'_>),
+                            )
+                            .await
+                        }
+                        Err(error) => Err(error),
+                    }
                 } else {
                     call_native(
                         &request_ctx,
@@ -344,6 +382,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, op.name, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                         None,
                         None,

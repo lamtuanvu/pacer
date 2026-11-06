@@ -81,6 +81,7 @@ pub(super) fn area(op: &str) -> Option<&'static str> {
         "notifications.set" | "config.set" => Some("config"),
         "delegation.pause" | "delegation.resume" => Some("delegation"),
         "mode.hold" | "mode.release" => Some("mode"),
+        "machine.set" | "machine.rotate" => Some("machine"),
         _ => None,
     }
 }

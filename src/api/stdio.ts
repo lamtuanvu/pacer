@@ -128,6 +128,40 @@ export async function runStdio(
           result = await taskAutoCleanBridge(getCtx(), ids);
           break;
         }
+        case "_internal.machine.bridge": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const op = (r.params as { op?: unknown }).op;
+          const bridgeParams = (r.params as { params?: unknown }).params;
+          if (typeof op !== "string" || !op.startsWith("machine.") || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
+            throw new CoreError("invalid_input", "invalid machine bridge params");
+          }
+          const { machineBridge } = await import("./machine-bridge");
+          result = await machineBridge(getCtx(), op as "machine.get" | "machine.set" | "machine.rotate", bridgeParams as Record<string, unknown>);
+          break;
+        }
+        case "_internal.files.search": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { key: _k, ...searchParams } = r.params as Record<string, unknown>;
+          const { filesSearchBridge } = await import("./files-search-bridge");
+          result = await filesSearchBridge(getCtx(), searchParams as { query: string; repo?: string; limit?: number });
+          break;
+        }
+        case "_internal.setup.check": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
+          const { setupCheckBridge } = await import("./setup-check-bridge");
+          result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : undefined);
+          break;
+        }
         case "hello": {
           const params=r.params??{};
           if(!params||typeof params!=="object"||Array.isArray(params))throw new CoreError("invalid_input","hello params must be an object");
