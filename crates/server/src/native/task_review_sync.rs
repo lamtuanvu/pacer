@@ -18,7 +18,10 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
 }
 
 pub(crate) fn task_review_stays_forwarded(probe: &Value) -> bool {
-    probe.get("forward").and_then(Value::as_bool).unwrap_or(true)
+    probe
+        .get("forward")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 pub(crate) async fn http_probe(
@@ -35,7 +38,9 @@ pub(crate) async fn http_probe(
         let (port, token) = target.ok_or_else(|| unavailable("pacer core is restarting"))?;
         let request = axum::http::Request::builder()
             .method("POST")
-            .uri(format!("http://127.0.0.1:{port}/_internal/task-review-probe"))
+            .uri(format!(
+                "http://127.0.0.1:{port}/_internal/task-review-probe"
+            ))
             .header("authorization", format!("Bearer {token}"))
             .header("content-type", "application/json")
             .body(Body::from(params.to_string()))
@@ -84,7 +89,9 @@ pub(crate) async fn http_effects(
         });
         let request = axum::http::Request::builder()
             .method("POST")
-            .uri(format!("http://127.0.0.1:{port}/_internal/task-review-effects"))
+            .uri(format!(
+                "http://127.0.0.1:{port}/_internal/task-review-effects"
+            ))
             .header("authorization", format!("Bearer {token}"))
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))
