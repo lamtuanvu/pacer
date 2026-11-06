@@ -221,10 +221,11 @@ pub fn task_diff<G: GitRun>(
             note: Some(format!("changes are on {host} until the run ends")),
         });
     }
-    if !options.snapshot && !worktree_accessible(&worktree) {
-        if let Some(stored) = read_snapshot(&snapshot_path(pacer_home, task)) {
-            return Ok(apply_snapshot(&stored, options.path, options.summary_only));
-        }
+    if !options.snapshot
+        && !worktree_accessible(&worktree)
+        && let Some(stored) = read_snapshot(&snapshot_path(pacer_home, task))
+    {
+        return Ok(apply_snapshot(&stored, options.path, options.summary_only));
     }
     let git_cmd = |args: Vec<&str>| -> Result<String, TaskDiffError> {
         let mut argv = vec![
