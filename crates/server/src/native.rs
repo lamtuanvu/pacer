@@ -250,7 +250,7 @@ pub fn service_registry(forward: &str) -> Registry<'static> {
     )
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub async fn call_native(
     ctx: &Ctx,
     op: &NativeOp,

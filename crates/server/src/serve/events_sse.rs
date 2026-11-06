@@ -19,10 +19,10 @@ use std::{
 };
 
 fn local_zone(ctx: &Ctx) -> chrono_tz::Tz {
-    if let Some(name) = ctx.env.get("TZ") {
-        if let Ok(zone) = name.parse() {
-            return zone;
-        }
+    if let Some(name) = ctx.env.get("TZ")
+        && let Ok(zone) = name.parse()
+    {
+        return zone;
     }
     std::env::var("TZ")
         .ok()
@@ -128,20 +128,21 @@ pub async fn stream(
                 let store_for_poll = store.clone();
                 let mut cursor_for_poll = cursor;
                 let polled = tokio::task::spawn_blocking(move || {
-                    let mut store = store_for_poll.lock().unwrap();
+                    let mut store = store_for_poll.lock().ok()?;
                     cursor_for_poll
                         .poll(&ctx_for_poll, &mut store, zone, &pid_alive)
+                        .ok()
                         .map(|frames| (cursor_for_poll, frames))
                 })
                 .await;
                 cursor = match polled {
-                    Ok(Ok((next, frames))) => {
+                    Ok(Some((next, frames))) => {
                         if !frames.is_empty() {
                             pending.push(frames);
                         }
                         next
                     }
-                    Ok(Err(_)) | Err(_) => return None,
+                    Ok(None) | Err(_) => return None,
                 };
                 if !pending.is_empty() {
                     continue;

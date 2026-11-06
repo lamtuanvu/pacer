@@ -175,6 +175,7 @@ fn take_valid_utf8(buf: &mut Vec<u8>) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
 
     fn hex(s: &str) -> Vec<u8> {

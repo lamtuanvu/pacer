@@ -21,9 +21,13 @@ fn pacer_version() -> &'static str {
 fn catalog() -> &'static Map<String, Value> {
     static CATALOG: OnceLock<Map<String, Value>> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        let value: Value =
-            serde_json::from_str(include_str!("../op_catalog.json")).expect("op_catalog.json");
-        value.as_object().expect("op catalog object").clone()
+        // Embedded catalog is checked into the tree; parse failure is a build bug.
+        #[allow(clippy::expect_used)]
+        {
+            let value: Value =
+                serde_json::from_str(include_str!("../op_catalog.json")).expect("op_catalog.json");
+            value.as_object().expect("op catalog object").clone()
+        }
     })
 }
 
