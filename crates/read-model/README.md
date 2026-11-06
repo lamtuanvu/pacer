@@ -54,4 +54,13 @@ mirror the TypeScript `apiTaskPage` / `core.tasks.list` selection path used by
 before-page, and ActiveCounts for `activeAgentSessions`. Native `task.list`
 registers through `pacer-server` once Core supplies session probe parts
 (`/_internal/session-probe-parts` / `_internal.session-probe.parts`). Full
-`taskDetail` composition for native `task.get` remains a later slice.
+## `task.get` composition (library only)
+
+`task_detail::task_detail_store`, `task_detail::task_detail_by_id`,
+`task_detail::executor_cost` and `task_detail::timeline_store` mirror the
+store-only slice of `src/core/task-detail.ts`: apiTask enrichment, brief,
+attempts, routing, cost overlap, acceptance, known branch, timestamps, empty
+files/retry options and `derived` markers. Git diffstat, token roll-ups, retry
+options, dispatch `work` / `managedSkip`, agent-check acceptance gating and the
+activity timeline tail remain TypeScript until their bridges exist. Native
+`task.get` registers through `pacer-server` once those slices match parity.
