@@ -22,6 +22,10 @@ icu_collator = { version = "=2.4.0", features = ["unstable"] }
 name = "task_diff_probe"
 path = "src/bin/task_diff_probe.rs"
 
+[[bin]]
+name = "files_search_probe"
+path = "src/bin/files_search_probe.rs"
+
 [dev-dependencies]
 tempfile = "3"
 

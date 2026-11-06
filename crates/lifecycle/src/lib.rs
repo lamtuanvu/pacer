@@ -11,6 +11,7 @@ mod brief;
 mod capacity;
 mod dependencies;
 mod dismiss;
+pub mod files_search;
 mod json;
 mod lineage;
 mod record_review;
