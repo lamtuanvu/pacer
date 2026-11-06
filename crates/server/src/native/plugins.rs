@@ -25,7 +25,8 @@ use pacer_plugin_ops::{
 };
 use pacer_plugin_runtime::{
     SharedOwner, SpawnSpec, call_resources_from_value, host_snapshots_from_value,
-    observation_bootstrap_from_value, session_for_call, session_from_hello,
+    observation_bootstrap_from_value, orca_context_from_value, session_for_call,
+    session_from_hello,
 };
 use serde_json::{Value, json};
 use std::{
@@ -445,6 +446,8 @@ impl Owner {
             .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
         let host_attach = host_snapshots_from_value(&authority_body)
             .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let orca_context = orca_context_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
         let spec = SpawnSpec {
             argv,
             cwd: cwd.into(),
@@ -462,10 +465,14 @@ impl Owner {
                 call_lifetime,
                 observation,
                 Some(&host_attach),
+                orca_context,
             )
             .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
             session
                 .bind_process_owner_hosts(owner.clone())
+                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+            session
+                .bind_process_owner_orca(owner.clone())
                 .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
             guard
                 .install_capability_session(id, session)

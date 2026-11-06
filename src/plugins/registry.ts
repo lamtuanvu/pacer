@@ -147,6 +147,8 @@ export class PluginRegistry {
   private readonly hostCallerUsage = new WeakMap<CallAuthority, ConfiguredRemoteUsageGrant>();
   private readonly retiredProcesses=new Set<Promise<void>>();
   private readonly observationAdmissions=new WeakSet<CallAuthority>();
+  private readonly nativeOrcaBridges = new Map<string, { pluginId: string; authority: CallAuthority }>();
+  private readonly nativeOrcaBridgeByPlugin = new Map<string, { token: string; authority: CallAuthority }>();
   private eventTimer:ReturnType<typeof setInterval>|undefined;
   private published: Promise<unknown> = Promise.resolve();
   private readonly entries = new Map<string, Entry>();
@@ -1758,8 +1760,42 @@ export class PluginRegistry {
       ttlMs: options.ttlMs,
       method: options.method,
     });
-    if (!sealed.resources.hosts.length || !grants.includes("hosts")) return sealed;
-    return { ...sealed, hostSnapshots: this.nativeHostSnapshots(ctx, e, sealed.resources.hosts) };
+    let out = sealed;
+    if (sealed.resources.hosts.length && grants.includes("hosts")) {
+      out = { ...out, hostSnapshots: this.nativeHostSnapshots(ctx, e, sealed.resources.hosts) };
+    }
+    if ((sealed.resources.orcaAttempt || sealed.resources.orcaLive) && grants.includes("orca")) {
+      const statusExecutable = ctx.which?.("orca") ?? undefined;
+      out = {
+        ...out,
+        orcaContext: {
+          home: ctx.home,
+          ...(statusExecutable ? { statusExecutable, env: { PATH: ctx.env.PATH ?? "" } } : {}),
+        },
+      };
+      const bridge = this.takeNativeOrcaBridge(id);
+      if (bridge) out = { ...out, orcaBridgeToken: bridge.token };
+    }
+    return out;
+  }
+
+  /** Stash a live Orca bridge for the next native `call_authority` on this plugin (flag-on path). */
+  stashNativeOrcaBridge(pluginId: string, authority: CallAuthority): string {
+    const token = randomUUID();
+    this.nativeOrcaBridges.set(token, { pluginId, authority });
+    this.nativeOrcaBridgeByPlugin.set(pluginId, { token, authority });
+    return token;
+  }
+
+  nativeAnswerOrcaBridge(token: string, pluginId: string, method: string, params: Record<string, unknown>): Promise<unknown> {
+    const row = this.nativeOrcaBridges.get(token);
+    if (!row || row.pluginId !== pluginId) throw new CoreError("capability_denied", "Orca bridge token is not active");
+    return import("./orca-broker").then(({ answerOrca }) => answerOrca(row.authority, pluginId, method, params));
+  }
+
+  private takeNativeOrcaBridge(pluginId: string): { token: string } | undefined {
+    const row = this.nativeOrcaBridgeByPlugin.get(pluginId);
+    return row ? { token: row.token } : undefined;
   }
 
   /** Seal SSH provider snapshots for Rust ProcessOwner host attach (P4d-9). */

@@ -147,6 +147,10 @@ inventories under `.work/reviews/`.
   are issued; flag-on ProcessOwner binds `with_hosts` + `NativeHosts` (library
   PROBE proof; live `hostRunner` bridge via ProcessOwner when snapshots present).
   Orca/worktree/executor-class resources and CT-11 remain open; default stays off.
+- **P4d-10:** Core `call_authority` seals `orcaAttempt` / `orcaLive` and `orcaContext`
+  when Orca resources are issued; flag-on `ProcessOwner` binds `NativeOrca` (library
+  prepare proof; live `orca_bridge` private IPC when Core stashes an attempt bridge).
+  Full executor.run on the native owner and CT-11 remain open; default stays off.
 - **P4d-1 landed (flag-gated):** serve can claim `ProcessOwner` + reverse bridge
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against
