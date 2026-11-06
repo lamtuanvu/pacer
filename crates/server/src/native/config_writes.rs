@@ -86,6 +86,7 @@ pub(super) fn area(op: &str) -> Option<&'static str> {
         "mode.hold" | "mode.release" => Some("mode"),
         "machine.set" | "machine.rotate" => Some("machine"),
         "project.messaging.set" | "project.messaging.remove" => Some("project-messaging"),
+        "discovery.set" | "discovery.respond" => Some("discovery"),
         _ => None,
     }
 }

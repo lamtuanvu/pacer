@@ -19,6 +19,9 @@ async fn main() -> io::Result<()> {
         if let Some(agent) = input["agent"].as_str() {
             env.insert("PACER_AGENT".into(), agent.into());
         }
+        for (key, value) in input["env"].as_object().into_iter().flatten() {
+            env.insert(key.clone(), value.as_str().unwrap_or_default().into());
+        }
         let ctx = Ctx::with(
             home.into(),
             home.into(),
@@ -27,6 +30,13 @@ async fn main() -> io::Result<()> {
         );
         let registry = pacer_server::native::registry("");
         let name = input["op"].as_str().unwrap_or("");
+        if pacer_server::native::discovery_stays_forwarded(&ctx, name, &input["params"])
+            || pacer_server::native::desktop_reconcile_stays_forwarded(name)
+        {
+            serde_json::to_writer(&mut stdout, &json!({"forwarded": true}))?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
         let op = registry
             .get(name)
             .ok_or_else(|| io::Error::other("missing native op"))?;
