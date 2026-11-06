@@ -18,7 +18,10 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
 }
 
 pub(crate) fn task_stop_stays_forwarded(probe: &Value) -> bool {
-    probe.get("forward").and_then(Value::as_bool).unwrap_or(true)
+    probe
+        .get("forward")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 pub(crate) async fn http_probe(
@@ -78,7 +81,9 @@ pub(crate) async fn http_effects(
         let body = json!({"id": id, "beforeState": before_state});
         let request = axum::http::Request::builder()
             .method("POST")
-            .uri(format!("http://127.0.0.1:{port}/_internal/task-stop-effects"))
+            .uri(format!(
+                "http://127.0.0.1:{port}/_internal/task-stop-effects"
+            ))
             .header("authorization", format!("Bearer {token}"))
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))

@@ -18,7 +18,10 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
 }
 
 pub(crate) fn task_wait_stays_forwarded(probe: &Value) -> bool {
-    probe.get("forward").and_then(Value::as_bool).unwrap_or(true)
+    probe
+        .get("forward")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 pub(crate) async fn http_probe(

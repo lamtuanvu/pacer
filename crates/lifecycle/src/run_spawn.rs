@@ -121,8 +121,7 @@ pub fn drain_launch_run_spawn_plan(
     plan: RunSpawnPlan,
     task_id: &str,
 ) -> Result<RunSpawnPlan, AdmissionError> {
-    validate_run_spawn_plan(&plan, task_id)
-        .map_err(|message| AdmissionError(message.into()))?;
+    validate_run_spawn_plan(&plan, task_id).map_err(|message| AdmissionError(message.into()))?;
     guard_run_spawn_plan(&plan)?;
     Ok(plan)
 }
@@ -141,12 +140,8 @@ pub struct RunSpawnLaunchInput<'a> {
 pub fn build_run_spawn_plan_for_launch(
     input: RunSpawnLaunchInput<'_>,
 ) -> Result<RunSpawnPlan, AdmissionError> {
-    let lease = resolve_launch_admission_lease(
-        input.base_env,
-        input.task_id,
-        input.admitted_lease,
-    )
-    .ok_or_else(|| AdmissionError("run spawn missing admission lease".into()))?;
+    let lease = resolve_launch_admission_lease(input.base_env, input.task_id, input.admitted_lease)
+        .ok_or_else(|| AdmissionError("run spawn missing admission lease".into()))?;
     let plan = build_run_spawn_plan(
         input.exec_path,
         input.argv1,
@@ -162,7 +157,9 @@ pub fn build_run_spawn_plan_for_launch(
 
 /// Map a guarded plan into ProcessOwner spawn fields. Returns an error while
 /// [`RUN_SPAWN_OWNER`] remains [`RunSpawnOwner::TypeScriptCore`].
-pub fn supervisor_run_spawn_spec(plan: &RunSpawnPlan) -> Result<SupervisorRunSpawnSpec, AdmissionError> {
+pub fn supervisor_run_spawn_spec(
+    plan: &RunSpawnPlan,
+) -> Result<SupervisorRunSpawnSpec, AdmissionError> {
     guard_run_spawn_plan(plan)?;
     if plan.owner == RunSpawnOwner::NativeSupervisor {
         return Ok(SupervisorRunSpawnSpec {
@@ -268,19 +265,13 @@ mod tests {
             resolve_launch_admission_lease(&env, "t-a", None).as_deref(),
             Some("inherited")
         );
-        assert_eq!(
-            resolve_launch_admission_lease(&env, "t-b", None),
-            None
-        );
+        assert_eq!(resolve_launch_admission_lease(&env, "t-b", None), None);
         assert_eq!(
             resolve_launch_admission_lease(&env, "t-a", Some("explicit")).as_deref(),
             Some("explicit")
         );
         env.insert("PACER_ADMISSION_TASK".into(), "other".into());
-        assert_eq!(
-            resolve_launch_admission_lease(&env, "t-a", None),
-            None
-        );
+        assert_eq!(resolve_launch_admission_lease(&env, "t-a", None), None);
     }
 
     #[test]

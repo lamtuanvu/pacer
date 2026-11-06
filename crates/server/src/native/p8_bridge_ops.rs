@@ -45,9 +45,9 @@ fn parse_machine_set(params: &Value) -> Result<Value, CoreError> {
             return Err(invalid("params: Unrecognized key(s) in object"));
         }
     }
-    let name = map.get("name").ok_or_else(|| {
-        invalid("name: Invalid input: expected string, received undefined")
-    })?;
+    let name = map
+        .get("name")
+        .ok_or_else(|| invalid("name: Invalid input: expected string, received undefined"))?;
     let text = name.as_str().ok_or_else(|| {
         invalid(format!(
             "name: Invalid input: expected string, received {}",
@@ -64,9 +64,9 @@ fn parse_machine_set(params: &Value) -> Result<Value, CoreError> {
             "name: Too big: expected string to have <=256 characters",
         ));
     }
-    let expect = map.get("expect_rev").ok_or_else(|| {
-        invalid("expect_rev: Invalid input: expected number, received undefined")
-    })?;
+    let expect = map
+        .get("expect_rev")
+        .ok_or_else(|| invalid("expect_rev: Invalid input: expected number, received undefined"))?;
     let rev = expect.as_i64().ok_or_else(|| {
         invalid(format!(
             "expect_rev: Invalid input: expected number, received {}",
@@ -88,9 +88,9 @@ fn parse_files_search(params: &Value) -> Result<Value, CoreError> {
             return Err(invalid("params: Unrecognized key(s) in object"));
         }
     }
-    let query = map.get("query").ok_or_else(|| {
-        invalid("query: Invalid input: expected string, received undefined")
-    })?;
+    let query = map
+        .get("query")
+        .ok_or_else(|| invalid("query: Invalid input: expected string, received undefined"))?;
     let text = query.as_str().ok_or_else(|| {
         invalid(format!(
             "query: Invalid input: expected string, received {}",
@@ -153,9 +153,9 @@ fn parse_repo_add(params: &Value) -> Result<Value, CoreError> {
             return Err(invalid("params: Unrecognized key(s) in object"));
         }
     }
-    let path = map.get("path").ok_or_else(|| {
-        invalid("path: Invalid input: expected string, received undefined")
-    })?;
+    let path = map
+        .get("path")
+        .ok_or_else(|| invalid("path: Invalid input: expected string, received undefined"))?;
     let text = path.as_str().ok_or_else(|| {
         invalid(format!(
             "path: Invalid input: expected string, received {}",
