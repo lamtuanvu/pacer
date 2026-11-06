@@ -36,10 +36,10 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `routing.route` | Native (P5d, selective) | Broker-backed `usage_broker::routing_route` / `status::rank_route` when params omit `goal` and `repo`. Params with `goal` (classifier) or `repo` (project policy + remote eligibility) selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6c+) | P6b `run_spawn` pins the `_run` argv/env/log plan; P6c found no native registration with parity (policy, prepared admission, work grants, messaging turns, effectful spawn). |
-| `task.stop`, `task.ask` | Forwarded (P6c+) | Need executor/provider stop grants, live-worker release, agent-session checks and (for ask) messaging insert. |
-| `task.wait` | Forwarded (P6c+) | Poll loop drains the queue, supervises the runner and waits on agent sessions/checks. |
-| `task.review` | Forwarded (P6c+) | P6c library: `record_review_verdict` owns accept/reject SQLite fields only. Public op still needs policy, agent-session gates, labels/activity, messaging `send_back`, retry/delegate/`_run`, and `autoCleanTask`. |
+| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6d+) | P6b `run_spawn` pins the `_run` argv/env/log plan; P6c found no native registration with parity (policy, prepared admission, work grants, messaging turns, effectful spawn). |
+| `task.stop`, `task.ask` | Forwarded (P6d+) | P6d library: `record_task_stop` owns store-only `taskStop` fields (incl. `stopPending` and remote-transfer refusal) without agent sessions, signals, live-worker release or host stop. Public op still needs those effectful sides and `expect_rev`/`stopWork` orchestration. |
+| `task.wait` | Forwarded (P6d+) | P6d library: `task_wait_settled` mirrors the poll exit predicate only. Public op still drains the queue, supervises the runner and waits on agent sessions/checks. |
+| `task.review` | Forwarded (P6d+) | P6c library: `record_review_verdict` owns accept/reject SQLite fields only. Public op still needs policy, agent-session gates, labels/activity, messaging `send_back`, retry/delegate/`_run`, and `autoCleanTask`. |
 | `task.retry_options` | Forwarded (P5b/P6) | Needs routing/policy ranking over live readings (same broker gap as `routing.route`). |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
@@ -68,6 +68,18 @@ TypeScript. The incremental library step is `pacer-lifecycle::record_review_verd
 `test/record-review-parity.test.ts` and `cargo test -p pacer-lifecycle record_review`.
 Native registration for the forwarded ops remains a later slice (session probe,
 spawn owner, policy bridge).
+
+## P6d stop/wait triage (library, no new native ops)
+
+P6d evaluated `task.stop` and `task.wait` for the largest safe native
+registration. Neither met parity without agent-session gates, executor/provider
+stop grants, live-worker release, remote host stop, process signals, queue drain,
+supervision or `stopWork` tree orchestration still owned by TypeScript. The
+incremental library step is `pacer-lifecycle::record_task_stop` (store-only
+`taskStop` aligned with `{ signal: false }` and no agent-session branch) and
+`task_wait_settled` (the `taskWait` poll exit predicate). Cross-runtime coverage:
+`test/record-stop-parity.test.ts`, `test/task-wait-settled-parity.test.ts`, and
+`cargo test -p pacer-lifecycle record_stop wait_settled`.
 
 PR #585 adds the native `/v3/tasks/<id>/log?follow=1` SSE route. It retains a read-only SQLite connection, detects database replacement, and drains bounded output chunks before `done`. When a read needs a legacy JSON import, an older schema migration, or malformed-record semantics, it calls the existing TypeScript `task.log` fallback with the current byte offsets. That core read performs the shared durable import; no per-stream import cache or new Rust state writer is used. The same fallback applies after a stream connects. All `/v2` routes and `/v3/events` remain forwarded.
 
