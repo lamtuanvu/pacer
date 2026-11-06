@@ -1,4 +1,5 @@
 //! File-backed repository registry removal during TypeScript coexistence.
+#![allow(clippy::result_large_err)]
 
 #![allow(clippy::result_large_err)]
 

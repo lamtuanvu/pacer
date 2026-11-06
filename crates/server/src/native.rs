@@ -18,6 +18,7 @@ mod lifecycle_ops;
 mod meta_ops;
 pub(crate) mod p8_bridge_ops;
 pub mod plugins;
+mod project_messaging_ops;
 mod repo_ops;
 pub(crate) mod session_ops;
 pub(crate) mod session_sync;
@@ -44,6 +45,7 @@ pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub(crate) use p8_bridge_ops::needs_core_bridge;
+pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
@@ -300,6 +302,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "repo.remove",
         call: repo_ops::repo_remove,
+    },
+    NativeOp {
+        name: "project.messaging.get",
+        call: project_messaging_ops::project_messaging_get,
+    },
+    NativeOp {
+        name: "project.messaging.set",
+        call: project_messaging_ops::project_messaging_set,
+    },
+    NativeOp {
+        name: "project.messaging.remove",
+        call: project_messaging_ops::project_messaging_remove,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -619,6 +633,9 @@ mod tests {
             "repo.list",
             "repo.add",
             "repo.remove",
+            "project.messaging.get",
+            "project.messaging.set",
+            "project.messaging.remove",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -721,6 +738,9 @@ mod tests {
             "repo.list",
             "repo.add",
             "repo.remove",
+            "project.messaging.get",
+            "project.messaging.set",
+            "project.messaging.remove",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
