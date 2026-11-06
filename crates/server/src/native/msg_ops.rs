@@ -46,7 +46,7 @@ enum Caller {
     Forward,
 }
 
-fn current_dir() -> Option<String> {
+pub(super) fn current_dir() -> Option<String> {
     std::env::current_dir()
         .ok()
         .and_then(|p| p.to_str().map(str::to_owned))
@@ -96,7 +96,7 @@ fn forbidden(message: &str, layer: &str) -> CoreError {
 }
 
 /// `<pacerHome>/worktrees/<repo>/<taskId>` from `isExecutorSession`.
-fn own_worktree(ctx: &Ctx, cwd: &str) -> bool {
+pub(super) fn own_worktree(ctx: &Ctx, cwd: &str) -> bool {
     let own = format!(
         "{}/",
         Path::new(&ctx.pacer_home).join("worktrees").display()
@@ -107,7 +107,7 @@ fn own_worktree(ctx: &Ctx, cwd: &str) -> bool {
 }
 
 /// `/orca/workspaces/<ws>/pacer-<taskId>-<provider>`; TypeScript confirms the provider.
-fn orca_worktree(cwd: &str) -> bool {
+pub(super) fn orca_worktree(cwd: &str) -> bool {
     const MARK: &str = "/orca/workspaces/";
     cwd.match_indices(MARK).any(|(at, _)| {
         let rest = &cwd[at + MARK.len()..];

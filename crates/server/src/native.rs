@@ -9,6 +9,8 @@ mod config_params;
 pub(crate) mod config_sync;
 mod config_writes;
 pub(crate) mod core_bridge_sync;
+mod desktop_reconcile_ops;
+mod discovery_ops;
 mod dispatch_ops;
 mod engine_ops;
 mod files_search_ops;
@@ -45,6 +47,8 @@ pub(crate) mod task_wait_sync;
 
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
+pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
+pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub(crate) use msg_ops::msg_stays_forwarded;
@@ -346,6 +350,26 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.events",
         call: dispatch_ops::dispatch_events,
+    },
+    NativeOp {
+        name: "discovery.set",
+        call: discovery_ops::discovery_set,
+    },
+    NativeOp {
+        name: "discovery.respond",
+        call: discovery_ops::discovery_respond,
+    },
+    NativeOp {
+        name: "desktop.reconcile.status",
+        call: desktop_reconcile_ops::desktop_reconcile_status,
+    },
+    NativeOp {
+        name: "desktop.reconcile.request",
+        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+    },
+    NativeOp {
+        name: "desktop.reconcile.cancel",
+        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -675,6 +699,11 @@ mod tests {
             "dispatch.tree",
             "dispatch.list",
             "dispatch.events",
+            "discovery.set",
+            "discovery.respond",
+            "desktop.reconcile.status",
+            "desktop.reconcile.request",
+            "desktop.reconcile.cancel",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -691,6 +720,12 @@ mod tests {
             "dispatch.explain",
             "dispatch.models",
             "dispatch.enforcement",
+            "discovery.list",
+            "discovery.network.get",
+            "discovery.network.set",
+            "desktop.update.status",
+            "desktop.capture.targets",
+            "account.list",
         ] {
             assert!(registry("").get(name).is_none(), "{name}");
         }
@@ -811,6 +846,11 @@ mod tests {
             "dispatch.tree",
             "dispatch.list",
             "dispatch.events",
+            "discovery.set",
+            "discovery.respond",
+            "desktop.reconcile.status",
+            "desktop.reconcile.request",
+            "desktop.reconcile.cancel",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
