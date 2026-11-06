@@ -88,7 +88,7 @@ layer = 2
 [crates.pacer-server]
 layer = 8
 # CRATE-1 exception: see .project/decisions.md (2026-11-06 server/plugin-host size).
-max = 17000
+max = 18000
 heavy = ["axum", "hyper"]
 [crates.pacer-cli]
 layer = 9
