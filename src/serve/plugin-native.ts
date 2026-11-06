@@ -16,14 +16,39 @@ const operation = z.enum([
 /**
  * Private `/_internal/plugins` kinds.
  *
- * Flag-on (`PACER_HOST_SOCKET` set): prepare, spawn_spec, ready, stop, changed,
- * publish, log. ProcessOwner owns plugin RPC, so `call` is refused (P4d-5).
- * Flag-off: the same surface plus `call` for diagnostic/UI plugin methods.
+ * Flag-on (`PACER_HOST_SOCKET` set): prepare, spawn_spec, call_authority, ready,
+ * stop, changed, publish, log. ProcessOwner owns plugin RPC, so `call` is
+ * refused (P4d-5). Flag-off: the same surface plus `call` for diagnostic/UI
+ * plugin methods.
  */
+const callResources = z.object({
+  reads: z.array(z.object({ path: z.string(), kind: z.enum(["file", "codex-logs"]) }).strict()).default([]),
+  commands: z.array(z.object({
+    argv: z.array(z.string()).min(1),
+    timeoutMs: z.number().positive(),
+    cwd: z.string().optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    stdin: z.string().optional(),
+    suppressOutput: z.boolean().optional(),
+  }).passthrough()).default([]),
+  stores: z.array(z.unknown()).default([]),
+  http: z.object({
+    hosts: z.array(z.string()),
+    origins: z.array(z.string()).optional(),
+  }).strict().optional(),
+}).passthrough();
+
 const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("prepare"), op: operation, params: z.unknown() }).strict(),
   z.object({ kind: z.literal("call"), id: z.string(), method: z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]), params: z.unknown() }).strict(),
   z.object({ kind: z.literal("spawn_spec"), id: z.string() }).strict(),
+  z.object({
+    kind: z.literal("call_authority"),
+    id: z.string(),
+    method: z.string().min(1),
+    resources: callResources.optional(),
+    ttlMs: z.number().positive().max(600_000).optional(),
+  }).strict(),
   z.object({ kind: z.literal("ready"), id: z.string(), protocol: z.string(), served: z.array(z.string()) }).strict(),
   z.object({ kind: z.literal("stop"), id: z.string() }).strict(),
   z.object({ kind: z.literal("changed"), id: z.string(), reset: z.boolean(), invalidate: z.boolean() }).strict(),
@@ -44,6 +69,14 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown) {
       case "spawn_spec":
         // Flag-on ProcessOwner builds the OS child; Core only seals argv/hello.
         value = reg.nativeSpawnSpec(ctx, p.id);
+        break;
+      case "call_authority":
+        // P4d-7: Core seals call-scoped CallResources for ProcessOwner natives.
+        value = reg.nativeIssueCallAuthority(ctx, p.id, {
+          method: p.method,
+          resources: p.resources as import("../plugins/authority").CallResources | undefined,
+          ttlMs: p.ttlMs,
+        });
         break;
       case "ready":
         reg.nativeMarkReady(ctx, p.id, p.protocol, p.served);

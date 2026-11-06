@@ -3,16 +3,19 @@
 //! Reuses `pacer-plugin-host::{CapabilityBroker, NativeRead, NativeWrite,
 //! NativeProcess, NativeHttp}`. Unscoped methods (`capability.log`,
 //! `capability.config.get`) are answered locally from the sealed hello. Scoped
-//! native modules answer when the caller attaches resources; otherwise the
-//! broker denies them. Lifecycle / hosts / orca / observations stay refused
-//! until a later slice issues Core-owned authority.
+//! native modules answer when Core issues call-scoped [`CallResources`] (P4d-7).
+//! Lifecycle / hosts / orca / observations stay refused until a later slice.
 
 use pacer_plugin_host::{
     AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-    ParsedManifest, parse_manifest,
+    CredentialBindings, NativeHttp, NativeProcess, ParsedManifest, parse_manifest,
 };
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    path::Path,
+    time::{Duration, Instant},
+};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -21,6 +24,10 @@ pub enum CapabilitySessionError {
     Malformed(&'static str),
     #[error("capability session manifest: {0}")]
     Manifest(String),
+    #[error("capability session resources: {0}")]
+    Resources(String),
+    #[error("capability session native attach: {0}")]
+    Native(String),
 }
 
 /// Local effects for hello-sealed unscoped capabilities. Scoped native modules
@@ -114,13 +121,9 @@ impl PluginCapabilitySession {
     }
 }
 
-/// Build a session from the sealed `plugin.hello` params Core put on spawn_spec.
-/// Empty [`CallResources`]: native fs/process/http modules are not attached until
-/// a later slice can issue call-scoped resources from Core.
-pub fn session_from_hello(
+fn hello_parts(
     hello: &Value,
-    lifetime: Duration,
-) -> Result<PluginCapabilitySession, CapabilitySessionError> {
+) -> Result<(ParsedManifest, Vec<String>, Vec<String>, Value), CapabilitySessionError> {
     let manifest_value = hello
         .get("manifest")
         .cloned()
@@ -150,10 +153,101 @@ pub fn session_from_hello(
         })
         .unwrap_or_default();
     let config = hello.get("config").cloned().unwrap_or_else(|| json!({}));
-    let authority = CallAuthority::new(CallResources::default(), grants, Instant::now() + lifetime);
-    let broker = CapabilityBroker::new(manifest, authority, features);
+    Ok((manifest, grants, features, config))
+}
+
+/// Core seals absolute argv[0]; NativeProcess requires bare names + selected pins.
+fn normalize_commands(
+    mut resources: CallResources,
+) -> Result<(CallResources, HashMap<String, String>), CapabilitySessionError> {
+    let mut selected = HashMap::new();
+    if resources.commands.is_empty() {
+        return Ok((resources, selected));
+    }
+    let mut commands = Vec::with_capacity(resources.commands.len());
+    for command in resources.commands.drain(..) {
+        let Some(exe) = command.argv.first() else {
+            return Err(CapabilitySessionError::Native("empty command argv".into()));
+        };
+        if !Path::new(exe).is_absolute() {
+            return Err(CapabilitySessionError::Native(
+                "process commands require absolute argv[0] pins from Core".into(),
+            ));
+        }
+        let absolute = exe.clone();
+        let name = Path::new(&absolute)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| CapabilitySessionError::Native("command argv[0] file name".into()))?
+            .to_owned();
+        let mut rewritten = command;
+        rewritten.argv[0] = name.clone();
+        selected.insert(name, absolute);
+        commands.push(rewritten);
+    }
+    resources.commands = commands;
+    Ok((resources, selected))
+}
+
+fn attach_natives(
+    mut broker: CapabilityBroker,
+    resources: &CallResources,
+    selected: &HashMap<String, String>,
+) -> Result<CapabilityBroker, CapabilitySessionError> {
+    if !resources.reads.is_empty() {
+        broker = broker
+            .with_native_read(&resources.reads)
+            .map_err(|error| CapabilitySessionError::Native(error.to_string()))?;
+    }
+    if !resources.commands.is_empty() {
+        let process = NativeProcess::prepare(&resources.commands, selected, &HashMap::new())
+            .map_err(|error| CapabilitySessionError::Native(error.to_string()))?;
+        broker = broker.with_native_process(process);
+    }
+    if resources.http.is_some() {
+        let http = NativeHttp::new(CredentialBindings::default())
+            .map_err(|error| CapabilitySessionError::Native(error.to_string()))?;
+        broker = broker.with_native_http(http);
+    }
+    Ok(broker)
+}
+
+/// Build a session from the sealed `plugin.hello` params Core put on spawn_spec.
+/// Empty [`CallResources`]: native fs/process/http modules are not attached.
+pub fn session_from_hello(
+    hello: &Value,
+    lifetime: Duration,
+) -> Result<PluginCapabilitySession, CapabilitySessionError> {
+    session_for_call(hello, CallResources::default(), None, lifetime)
+}
+
+/// Call-scoped session: Core-issued [`CallResources`] attach native fs/process/http.
+///
+/// `grants` overrides hello grants when Core seals a call-authority response;
+/// otherwise hello grants are reused.
+pub fn session_for_call(
+    hello: &Value,
+    resources: CallResources,
+    grants: Option<Vec<String>>,
+    lifetime: Duration,
+) -> Result<PluginCapabilitySession, CapabilitySessionError> {
+    let (manifest, hello_grants, features, config) = hello_parts(hello)?;
+    let grants = grants.unwrap_or(hello_grants);
+    let (resources, selected) = normalize_commands(resources)?;
+    let authority = CallAuthority::new(resources.clone(), grants, Instant::now() + lifetime);
+    let broker = attach_natives(
+        CapabilityBroker::new(manifest, authority, features),
+        &resources,
+        &selected,
+    )?;
     Ok(PluginCapabilitySession::new(
         broker,
         LocalHostEffect::new(config),
     ))
+}
+
+/// Parse Core-sealed call-authority `resources` JSON into [`CallResources`].
+pub fn call_resources_from_value(value: &Value) -> Result<CallResources, CapabilitySessionError> {
+    serde_json::from_value(value.clone())
+        .map_err(|error| CapabilitySessionError::Resources(error.to_string()))
 }
