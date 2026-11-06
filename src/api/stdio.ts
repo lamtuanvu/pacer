@@ -117,6 +117,40 @@ export async function runStdio(
           result = await snapshotProbeParts(getCtx());
           break;
         }
+        case "_internal.task-wait.probe": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const id = (r.params as { id?: unknown }).id;
+          if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "id required");
+          const { taskWaitProbe } = await import("./task-wait-bridge");
+          result = taskWaitProbe(getCtx(), id);
+          break;
+        }
+        case "_internal.task-stop.probe": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const id = (r.params as { id?: unknown }).id;
+          if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "id required");
+          const { taskStopProbe } = await import("./task-stop-bridge");
+          result = taskStopProbe(getCtx(), id);
+          break;
+        }
+        case "_internal.task-stop.effects": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const id = (r.params as { id?: unknown }).id;
+          const beforeState = (r.params as { beforeState?: unknown }).beforeState;
+          if (typeof id !== "string" || !id) throw new CoreError("invalid_input", "id required");
+          const { taskStopAfterStore } = await import("./task-stop-bridge");
+          result = await taskStopAfterStore(getCtx(), id, typeof beforeState === "string" ? beforeState : null);
+          break;
+        }
         case "_internal.task-auto-clean": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -126,6 +160,54 @@ export async function runStdio(
           if (!Array.isArray(ids) || ids.some(id => typeof id !== "string")) throw new CoreError("invalid_input", "ids required");
           const { taskAutoCleanBridge } = await import("./task-clean-bridge");
           result = await taskAutoCleanBridge(getCtx(), ids);
+          break;
+        }
+        case "_internal.machine.bridge": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const op = (r.params as { op?: unknown }).op;
+          const bridgeParams = (r.params as { params?: unknown }).params;
+          if (typeof op !== "string" || !op.startsWith("machine.") || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
+            throw new CoreError("invalid_input", "invalid machine bridge params");
+          }
+          const { machineBridge } = await import("./machine-bridge");
+          result = await machineBridge(getCtx(), op as "machine.get" | "machine.set" | "machine.rotate", bridgeParams as Record<string, unknown>);
+          break;
+        }
+        case "_internal.files.search": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { key: _k, ...searchParams } = r.params as Record<string, unknown>;
+          const { filesSearchBridge } = await import("./files-search-bridge");
+          result = await filesSearchBridge(getCtx(), searchParams as { query: string; repo?: string; limit?: number });
+          break;
+        }
+        case "_internal.setup.check": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
+          const { setupCheckBridge } = await import("./setup-check-bridge");
+          result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : undefined);
+          break;
+        }
+        case "_internal.repo.bridge": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const op = (r.params as { op?: unknown }).op;
+          const bridgeParams = (r.params as { params?: unknown }).params;
+          if (typeof op !== "string" || (op !== "repo.list" && op !== "repo.add") || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
+            throw new CoreError("invalid_input", "invalid repo bridge params");
+          }
+          const { repoBridge } = await import("./repo-bridge");
+          result = await repoBridge(getCtx(), op, bridgeParams as Record<string, unknown>);
           break;
         }
         case "hello": {

@@ -9,19 +9,20 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `config.get` | Native (P2) | Pure keys/sources via `pacer_config::settings::get_settings`; Core supplies filtered terminal choices, machine guard/slots and planner candidates through `/_internal/config-host-parts` (serve) or `_internal.config-host.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns terminal detection, slot sampling and planner discovery. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `config.set` | Native (P2-E) | Pure keys use `pacer_config::settings::set_setting` plus the P3-B publisher. `planner` and `execution.backend` selectively forward to TypeScript for install/uninstall and backend readiness. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.account.add` | Forwarded | SSH account configuration and host adapter dependencies remain in TypeScript. |
-| `host.add`, `host.set`, `host.remove`, `host.repo.map` | Forwarded (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Public ops stay forwarded until native callers also cover endpoint sync (`applyEdit`), config publication, and `host.set` activity side effects. Plugin-owned SSH execution is out of scope. |
+| `host.add`, `host.set`, `host.remove`, `host.repo.map` | Native (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Native callers retain the private TypeScript endpoint-plugin synchronization bridge (`finishNativeConfigEdit`), publish the `hosts` area, and record `host.set` pause activity in Rust. `host.set` composes its summary via the host-read bridge after sync. Plugin-owned SSH execution stays forwarded. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.suggest` | Native (P2-D) | `pacer-config::ssh_config` reads `~/.ssh` aliases (Includes, HostName, no shell execution) and filters configured host `ssh` targets from `load_strategy`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.list`, `host.get` | Native (P2-D) | `pacer-lifecycle::hosts::list` / `detail` compose summaries and detail rows once Core supplies reachability, check caches, jobs, runners, repos and tasks through `/_internal/host-read-parts` (serve) or `_internal.host-read.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns live task/job/reachability reads and read-model executors for `host.get`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.check`, `host.clean`, `host.terminal`, `host.repo.setup` | Forwarded (P2-D) | Plugin-owned SSH execution, clone/identity/cleanup grants and jobs remain in TypeScript. |
 | `runner.settings.get`, `runner.settings.save` | Native (P2-D) | Native callers use `pacer-config::executor_settings` under the shared `executor-settings` lock; saves publish the `runners` area via the P3-B publisher (matching TS `mutation(..., "runners", ...)`). No endpoint-plugin sync (unlike `runner.set` / `remove`). `PACER_FORWARD_OPS` remains the escape hatch. |
-| `repo.add`, `repo.list`, `repo.remove` | Forwarded (P2-D) | Registry/path-probe/git identity and branch reads stay in TypeScript; only `repo_key` URL canonicalization is in the Rust host library. |
+| `repo.list`, `repo.add` | Native (P2-D) | Rust validates params; registry listing with branch reads and git registration stay on Core through `/_internal/repo-bridge` / `_internal.repo.bridge` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns path-probe, git identity and branch listing. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `repo.remove` | Native (P2-D, selective) | `pacer-config::repos::remove_repo` owns registry/alias file effects under the shared `repos` lock when the on-disk JSON matches the supported shape. Legacy or unusual registries selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
 | `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
 | `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3…P4d-7) | X3 `MutationOperations` over Core private IPC. Escape (`PACER_NATIVE_PLUGIN_HOST=0`): `/_internal/plugins` prepare/`call`/`stop`/`changed`/`publish`/`log` with TS child spawn. **Default-on (P4d-13):** serve `ProcessOwner` starts/supervises children when flags are unset; Core supplies sealed `spawn_spec` + `call_authority` + hello bookkeeping (`ready`) and refuses local spawn when `PACER_HOST_SOCKET` is set; private `call` is retired on that path. **P4d-6/7** install a hello-sealed `PluginCapabilitySession` and bind Core-issued call-scoped `CallResources` so `capability.log` / `config.get` and fixture fs/process/http natives answer. Bridge adds `_host.plugin.spawn` / `stop`. Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the op escape hatch. |
 | `plugin.install` | Native HTTP (P4d-4) | Retired Orca install refusal registered on the HTTP service registry (X3 parity). Stdio remains TypeScript. |
 | `strategy.list`, `strategy.show` | Native (P2-B) | `src/api/ops.ts` remains the reference and forward fallback via `PACER_FORWARD_OPS`; reads reuse `pacer-config` `list_strategy_reads` / `show_strategy`. |
 | `strategy.use`, `strategy.save`, `strategy.remove` | Native (P2-C) | `src/api/ops.ts` remains the reference and forward fallback; native effects use `pacer-config` and the P3-B publisher. |
-| `routing.set`, `runner.set`, `runner.reorder`, `runner.remove` | Native (P2-C) | Native document effects retain the private TypeScript endpoint-plugin synchronization bridge before publishing config changes. |
+| `routing.set`, `runner.set`, `runner.reorder`, `runner.remove` | Native (P2-C) | Native document effects retain the private TypeScript endpoint-plugin synchronization bridge before publishing config changes. Host YAML mutations share the same bridge. |
 | `notifications.get`, `notifications.set` | Native (P2-C) | Native settings migration and writes; TypeScript remains the forward fallback. |
 | `task.log` | Native | `src/api/ops.ts` is the forward fallback; `src/api/http.ts` uses it for follow mode SSE. |
 | `task.prune`, `task.restore` | Native (P3-D) | Shared `TaskStore` retention helpers; TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. |
@@ -30,6 +31,11 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.list` | Native (P3) | Composed via `pacer_read_model::tasks::task_list_page` once Core supplies active sessions and runner liveness through `/_internal/session-probe-parts` (serve) or `_internal.session-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns session lifecycle and `pidAlive`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.get` | Native (P3, selective) | Composed via `pacer_read_model::task_detail` plus Core enrichment through `/_internal/task-read-parts` / `_internal.task-read.parts` (session probe, git diffstat/branch, tokens, retry options, dispatch `work` / `managedSkip`, agent-check acceptance gating, activity timeline tail). TypeScript still owns git, usage broker reads and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `snapshot.get` | Native (P8) | Composed via `pacer_read_model::ReadModel::snapshot` once Core supplies setup, policy, machine guard samples, service row, desktop updates, pairing eligibility, session probe and live `computeStatus` through `/_internal/snapshot-probe-parts` / `_internal.snapshot-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns setup probes, plugin policy, discovery pairing, status warming and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `machine.get`, `machine.set`, `machine.rotate` | Native (P8) | Rust validates params and publishes the `machine` config area on mutations; identity load, keychain, rotation and entity events stay on Core through `/_internal/machine-bridge` / `_internal.machine.bridge` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `files.search` | Native (P8) | Rust validates query bounds; git listing and running-task attribution stay on Core through `/_internal/files-search` / `_internal.files.search` (stdio, sealed). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `setup.check` | Native (P9) | Rust validates empty params; service/link/status probes stay on Core through `/_internal/setup-check` / `_internal.setup.check` (stdio, sealed). Serve passes `snapshotProbe: false` like the HTTP op deps. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `onboarding.skip` | Native (P9) | Writes `onboarding/skipped` and publishes the `setup` config area via `pacer_store`; TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. |
+| `doctor.run` | Forwarded (P9) | Setup/service/account/handler diagnostics and isolated Claude probes remain in TypeScript (`runDoctor`); not registered natively. |
 | `version.get` | Native (P9) | Package and protocol metadata from `PACER_BUILD_VERSION` / workspace `package.json` and the frozen v3 protocol string. Login-service install/running status remains on `service.status`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `api.list`, `api.describe` | Native (P9) | Registry introspection from checked-in `op_catalog.json` (parity with TypeScript `opJsonSchemas()`). `api.list` filters match TS prefix/search semantics; `api.describe` returns captured JSON parameter schemas. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `delegation.pause`, `delegation.resume` | Native (P5) | `pacer-engine::pause` writes `state/pause.json`, publishes the `pause` event, appends activity, then publishes the `delegation` config area. No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -42,9 +48,10 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `routing.route` | Native (P5d, selective) | Broker-backed `usage_broker::routing_route` / `status::rank_route` when params omit `goal` and `repo`. Params with `goal` (classifier) or `repo` (project policy + remote eligibility) selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6d+) | P6b `run_spawn` pins the `_run` argv/env/log plan; P6c found no native registration with parity (policy, prepared admission, work grants, messaging turns, effectful spawn). |
-| `task.stop`, `task.ask` | Forwarded (P6d+) | P6d library: `record_task_stop` owns store-only `taskStop` fields (incl. `stopPending` and remote-transfer refusal) without agent sessions, signals, live-worker release or host stop. Public op still needs those effectful sides and `expect_rev`/`stopWork` orchestration. |
-| `task.wait` | Forwarded (P6d+) | P6d library: `task_wait_settled` mirrors the poll exit predicate only. Public op still drains the queue, supervises the runner and waits on agent sessions/checks. |
+| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6e-run+) | P6b/P6e-run `run_spawn` pins and guards the `_run` plan; P6c found no native registration with parity (policy, prepared admission, work grants, messaging turns, effectful spawn). Do not register until spawn+admission parity lands. |
+| `task.stop` | Native (P6, selective) | Rust `record_task_stop` owns store CAS + task outbox publication; Core supplies runner liveness, signal/host stop, live-worker release and settle activity through `/_internal/task-stop-probe` / `/_internal/task-stop-effects` (stdio `_internal.task-stop.probe` / `.effects`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). Selectively forwards when the probe reports managed work or a live agent session / pending checks (same as TypeScript `stopWork` / agent-session gates). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `task.ask` | Forwarded (P6d+) | P6d library only; public op still needs messaging and supervision beyond store fields. |
+| `task.wait` | Native (P6, selective) | When `task_wait_settled` already holds (Core `taskWaitProbe`: terminal state without agent-session or pending-check holds), Rust returns the summarized task immediately via `summarize_api_task`. Active tasks forward for queue drain, runner supervision and agent waits (`/_internal/task-wait-probe`, stdio `_internal.task-wait.probe`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.review` | Forwarded (P6d+) | P6c library: `record_review_verdict` owns accept/reject SQLite fields only. Public op still needs policy, agent-session gates, labels/activity, messaging `send_back`, retry/delegate/`_run`, and `autoCleanTask`. |
 | `task.retry_options` | Forwarded (P5b/P6) | Needs routing/policy ranking over live readings (same broker gap as `routing.route`). |
 | `session.create` | Forwarded (P7) | Idempotent conversation start needs attachment draft claim, `prepareDelegate` admission, work grants and `launchTaskRunner` spawn. Library: `params`, `operations` (reference/summary), `plain`, file/frame/control goldens only. |
@@ -79,6 +86,39 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `desktop.reconcile.status`, `desktop.reconcile.request`, `desktop.reconcile.cancel` | Forwarded (P8/P9) | Service reconciliation assessment and (future) native-proof request/cancel stubs (`src/api/ops-desktop-reconciliation.ts`); `request`/`cancel` remain unavailable until reconciliation is implemented. |
 | `discovery.list`, `discovery.network.get` | Forwarded (P8) | LAN discovery state reads: radio availability, found machines (cap 100), per-network advertising rows and revision counters (`src/api/ops-discovery.ts`, `src/discovery/`). |
 | `discovery.set`, `discovery.respond`, `discovery.network.set` | Forwarded (P8) | Machine-local discovery mutations with `expect_rev`, config publication and attention re-derivation; `respond` pair may hand over to a pairing plugin (`src/discovery/handover.ts`). Executor sessions refuse set/respond/network.set via caller policy. |
+| `assistant.status`, `assistant.candidates` | Forwarded (P7/P8) | Availability, selected endpoint account, planner pacing refusal, daily limits/usage and candidate endpoint accounts with fixed read-tool summary (`src/api/ops-assistant.ts`, `src/assistant/service.ts`). Executor sessions get `not_allowed` via caller policy. |
+| `assistant.settings.get`, `assistant.settings.set` | Forwarded (P7/P8) | Assistant SQLite settings (runner/account, limits, retention) with revision-guarded writes and config-area effects (`src/assistant/store.ts`, `saveSettings`). |
+| `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete` | Forwarded (P7/P8) | Conversation history pagination and turn reads; deletes drop text while retaining usage aggregates (`src/assistant/store.ts`). |
+| `assistant.ask`, `assistant.cancel` | Forwarded (P7/P8) | Turn lifecycle: redacted read-tool loop, bundled `pacer-assistant` plugin `respond`, checkpointing and SSE answer stream at `/v3/assistant/turns/<turnId>/stream` (`src/assistant/service.ts`, `src/api/http.ts`). Proposed actions stay client-confirmed; nothing executes from the turn itself. |
+| `assistant.card.record`, `assistant.card.refresh` | Forwarded (P7/P8) | Action-card outcome recording and task-revision refresh for proposed ops the app runs separately (`src/assistant/actions.ts`, `buildCard`). |
+| `account.list` | Forwarded (P7/P9) | Account inventory with usage/sign-in commands and no emails (`src/core/accounts.ts`). |
+| `account.signin` | Forwarded (P7/P9) | Opens provider login in a terminal/tmux/Orca target or returns the command; interactive account-add/init flows share the handler (`src/api/ops.ts`, `accounts.signin`). |
+| `account.add`, `account.edit`, `account.adopt`, `account.remove` | Forwarded (P7/P9) | Strategy `accounts` mutations: Claude/Codex homes, managed endpoints and OpenCode adoption with endpoint-plugin sync, protected-path home deletion and runner references (`src/endpoints/`, `src/core/accounts.ts`). |
+| `account.models`, `account.test` | Forwarded (P7/P9) | Supplied-key or stored-key model discovery and isolated endpoint test tasks in a temporary git repo (`endpoints.listModels`, `testEndpoint`). |
+| `account.usage.check` | Forwarded (P5/P9) | Quota-consuming usage observation jobs per account (Claude consent gate), plugin/CLI reads and warmed status via `usageRefreshDone` (`src/core/account-usage-check.ts`, `src/usage/`). |
+| `terminal.list`, `terminal.create`, `terminal.rename`, `terminal.close` | Forwarded (P7) | Built-in workspace terminal tabs: idempotent shell spawn, revision-guarded rename/close and live state reads (`src/api/ops-terminal.ts`, `src/terminal/workspace.ts`). Refused for executor sessions. |
+| `agent.detect`, `agent.preview` | Forwarded (P9) | Agent CLI detection and integration preview/undo command before consent (`src/setup/`, `detectAgents`). |
+| `agent.connect`, `agent.disconnect` | Forwarded (P9) | Consent-gated integration file writes and recorded undo disconnect under the `setup` config area (`setup.agentConnect`, `agentDisconnect`). |
+| `service.install`, `service.status` | Forwarded (P9) | Login-item/service install with explicit consent and install/running/pid status probes (`src/setup/service.ts`). |
+| `service.handover`, `service.work` | Forwarded (P9) | Post-upgrade runner handover wait and running-task/session version inventory for reopen prompts (`src/setup/service.ts`, owner-only handover). |
+| `update.check`, `update.apply` | Forwarded (P9) | Release feed check (optional force) and shared `update.apply` job with download/verify/replace/refuse package-manager and source installs (`src/api/ops.ts`, update preflight). |
+| `task.attach`, `task.session`, `task.takeover` | Forwarded (P6/P7) | Live session viewers, session-host metadata and headless-to-interactive takeover (`src/api/ops-session.ts`, `src/tasks/session.ts`, `takeoverTask`). Shares the attach/viewer path with `session.*`; native vt100 replay gate remains **NO-GO**. |
+| `task.send` | Forwarded (P6) | Injects text into an interactive lane's live worker with driving-lease and `expect_rev` rules (`sendMessage` in `src/tasks/send.ts`); does not create attempts. |
+| `runner.add`, `runner.block`, `runner.unblock`, `runner.check`, `runner.list` | Forwarded (P2/P6) | Executor inventory, manual blocks and scratch check jobs (`src/api/ops.ts`, `src/core/runners.ts`, `checkRunner`). Distinct from native `runner.set` / `reorder` / `remove` / `settings.*`. |
+| `strategy.build`, `strategy.preview` | Forwarded (P2) | Opens a terminal strategy-builder session and validates drafts without writes (`buildStrategy`, `strategy.preview`). Native strategy reads/writes are listed above. |
+| `client.register`, `client.heartbeat`, `client.list` | Forwarded (P6) | Client registry with 45-second lease renewal and connected instance listing (`src/api/client.ts`). |
+| `client.control.enroll`, `client.control.targets`, `client.control.request`, `client.control.result` | Forwarded (P6/P8) | App-page control worker enrollment, allowlisted navigation/window/tray/quit requests and polled outcomes (`src/api/ops-client-control.ts`). |
+| `client.control.claim`, `client.control.complete` | Forwarded (P6/P8) | Worker-side claim/complete loop for distributed UI actions; worker credentials stay page-private. |
+| `project.messaging.get`, `project.messaging.set`, `project.messaging.remove` | Forwarded (P6) | Repository messaging guardrails with revision checks and config publication (`src/api/ops-msg.ts`, `src/messaging/project-policy.ts`). |
+| `project.strategy.list`, `project.strategy.get`, `project.strategy.set`, `project.strategy.remove` | Forwarded (P2) | Per-repo executor ordering overrides (`src/api/ops.ts`, `src/config/project-strategies.ts`). |
+| `job.list`, `job.get`, `job.cancel` | Forwarded (P6) | Shared async job store reads and cancellation for host checks, runner checks, updates and similar targets (`src/jobs/`). |
+| `executor.setup.candidates`, `executor.setup.models`, `executor.setup.connect` | Forwarded (P6/P9) | OpenCode executor onboarding: candidate discovery, model lists and provider connect hand-off (`src/opencode/setup.ts`, endpoint plugin). |
+| `attention.dismiss`, `attention.snooze` | Forwarded (P6) | Attention item mutations that feed notify derivation (`src/attention/`). |
+| `issue.import`, `issue.search` | Forwarded (P8) | GitHub issue read/search via the user's `gh` login for registered repositories (`src/issues/`). |
+| `insights.summary` | Forwarded (P5/P6) | Period analytics over task attempts, tokens and ladder/skip cohorts (`src/insights/`). |
+| `onboarding.try` | Forwarded (P9) | Scratch-repo onboarding delegation via setup mutation (`setup.onboardingTry` in `src/setup/`). |
+| `setup.init` | Forwarded (P9) | Creates missing strategy YAML and selects a planner without agent connect (`setup.init`); distinct from native `setup.check`. |
+| `tree.status` | Forwarded (P5/P6) | Task-tree turn state over the messaging store and optional work graph (`tree.status` in `src/api/ops-msg.ts`); work-grant authorized. v3-only public op (`liveness.status` remains MCP-only). |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
@@ -103,6 +143,17 @@ Queue drain in Rust already accepts a launch callback returning `Option<u32>`; P
 documents that the callback must honor `RunSpawnPlan` (`validate_run_spawn_plan`)
 before a future native supervisor performs effectful spawn. Cross-runtime coverage:
 `test/run-spawn-parity.test.ts` and `cargo test -p pacer-lifecycle run_spawn`.
+
+## P6e-run `_run` launch guards (library, no new native ops)
+
+P6e-run deepens P6b without registering `task.delegate` or activating
+`RunSpawnOwner::NativeSupervisor`. `resolve_launch_admission_lease` and
+`build_run_spawn_plan_for_launch` mirror `launchTaskRunner` lease inheritance;
+`drain_launch_run_spawn_plan` and `guard_run_spawn_plan` are the required drain
+hook checks before effectful spawn; `SupervisorRunSpawnSpec` maps a guarded plan
+into ProcessOwner fields but returns an error while `RUN_SPAWN_OWNER` remains
+TypeScript. Cross-runtime coverage: `test/run-spawn-launch-parity.test.ts` and
+`cargo test -p pacer-lifecycle run_spawn`.
 
 ## P6c delegate lifecycle triage (library, no new native ops)
 
@@ -130,16 +181,19 @@ executors for detail. SSH-exec host ops remain forwarded. Cross-runtime coverage
 `test/ssh-config-parity.test.ts`, `test/host-read-parity.test.ts`, and
 `cargo test -p pacer-config ssh_config`.
 
-## P6d stop/wait triage (library, no new native ops)
+## P6d stop/wait triage (library + selective native stop)
 
 P6d evaluated `task.stop` and `task.wait` for the largest safe native
-registration. Neither met parity without agent-session gates, executor/provider
-stop grants, live-worker release, remote host stop, process signals, queue drain,
-supervision or `stopWork` tree orchestration still owned by TypeScript. The
-incremental library step is `pacer-lifecycle::record_task_stop` (store-only
-`taskStop` aligned with `{ signal: false }` and no agent-session branch) and
-`task_wait_settled` (the `taskWait` poll exit predicate). Cross-runtime coverage:
-`test/record-stop-parity.test.ts`, `test/task-wait-settled-parity.test.ts`, and
+registration. Full parity still needs agent-session gates, `stopWork` subtree
+orchestration, queue drain and supervision for managed-work and agent-session
+paths; those cases selectively forward to TypeScript. The safe native slice is
+`pacer-lifecycle::record_task_stop` (store CAS) plus Core bridges for runner
+liveness probe, process/host signals, live-worker release and settle activity
+(pattern: `task.dismiss` auto-clean bridge). Selective native `task.wait` returns immediately when `task_wait_settled`
+already holds (Core `taskWaitProbe` over agent-session holds); active tasks
+forward for drain/supervise. Cross-runtime coverage:
+`test/record-stop-parity.test.ts`, `test/native-task-stop-parity.test.ts`,
+`test/native-task-wait-parity.test.ts`, `test/task-wait-settled-parity.test.ts`, and
 `cargo test -p pacer-lifecycle record_stop wait_settled`.
 
 ## P7 session ops triage (library, no new native ops)
@@ -169,8 +223,40 @@ effectful `_run` spawn, messaging store turns, project policy, and
 only expands the ledger with explicit Forwarded rows and residual owners; it
 does not register native handlers. Native cutover waits on P6 spawn ownership,
 P5 observation/broker bridges, and a messaging read model. v3-only `tree.status`
-and `liveness.status` (`src/api/ops-msg.ts`) remain under the `tree.*` prefix
-row until separately triaged.
+is named in the detailed Forwarded table above; `liveness.status` remains
+MCP-only (`src/mcp/server.ts`).
+
+## P7/P9 assistant, account, terminal, agent, service and update triage (ledger, no new native ops)
+
+This slice evaluated all twelve public `assistant.*`, nine `account.*`, four
+`terminal.*`, four `agent.*`, four `service.*`, and two `update.*` operations
+for native registration. None met parity without the assistant plugin respond
+path and read-tool whitelist, endpoint-plugin synchronization and key handling,
+usage observation jobs, workspace terminal spawn/supervision, setup/service
+install probes, agent integration file effects, or the shared update job pipeline
+still owned by TypeScript. No operation is trivially pure read/write on static
+config alone. This slice only expands the ledger with explicit Forwarded rows;
+it does not register native handlers. Native cutover waits on plugin host
+ownership, usage refresh bridges, and P9 setup/service owners.
+
+## P2/P6 client, project, runner, job and executor-setup triage (ledger, no new native ops)
+
+This slice evaluated the remaining public `client.*`, `project.*`, `runner.*`,
+`job.*` and `executor.setup.*` operations for native registration. None met
+parity without client registry liveness, distributed UI control workers,
+project messaging/strategy config effects, interactive runner add/check jobs,
+shared job cancellation, or OpenCode endpoint onboarding still owned by
+TypeScript. This slice only expands the ledger with explicit Forwarded rows; it
+does not register native handlers.
+
+## P5/P8 insights, issue and setup residual triage (ledger, no new native ops)
+
+This slice evaluated `insights.summary`, `issue.import`, `issue.search`,
+`onboarding.try` and `setup.init` for native registration. None met parity
+without task-store analytics, user `gh` subprocess reads, onboarding delegation
+spawn, or setup strategy initialization still owned by TypeScript. Native
+`setup.check` and `onboarding.skip` remain the only P9 setup/onboarding native
+ops. This slice only expands the ledger; it does not register native handlers.
 
 ## P5b usage refresh triage (library, no new native ops)
 
@@ -270,7 +356,7 @@ See inventories under `.work/reviews/`.
 | Service (`pacer serve`) | Rust `ProcessOwner` (default, P4d-13); TypeScript Core when `PACER_NATIVE_PLUGIN_HOST=0` | ProcessOwner starts/supervises children for native HTTP plugin RPC and bridge spawn/call/find/stop; answers hello-sealed `capability.log`/`config.get` and Core-sealed call-scoped fs/process/http (P4d-6/7); Core seals spawn_spec/`call_authority` and refuses local spawn; private `call` retired. `=0` / `false` / `no` escapes to TS child ownership. |
 | Stdio (`pacer-core api --stdio`) | TypeScript | Unchanged (P8) |
 | CLI one-shots | TypeScript | Unchanged |
-| `_run` runners | TypeScript (effectful) | P6b: Rust `run_spawn` records the launch plan and `RunSpawnOwner::TypeScriptCore`; `AdmissionState::drain` launch hooks still call injected spawners. Native supervisor spawn is reserved (`RunSpawnOwner::NativeSupervisor`, post-P6c). |
+| `_run` runners | TypeScript (effectful) | P6b/P6e-run: Rust `run_spawn` records and guards the launch plan with `RunSpawnOwner::TypeScriptCore`; drain hooks must call `drain_launch_run_spawn_plan` before injected spawners. ProcessOwner spawn via `SupervisorRunSpawnSpec` stays gated until `RUN_SPAWN_OWNER` cutover. |
 
 ## X3 / P4d-3 / P4d-4 / P4d-5 mutation status and remaining deferred work
 
@@ -351,9 +437,10 @@ The complete pure setter allow-list is `execution.auto_clean`,
 | Planner candidates | TypeScript discovers compatible planner accounts; native `config.get` reads the list from the bridge. Rust accepts the candidate list as a host field for library/tests. |
 | App/link `terminal.open` presets | Cookie-authenticated HTTP sets `PACER_TERMINAL_PRESETS_ONLY=1` on the request context so native pure-key writes match TypeScript `terminalPresetsOnly`. |
 | `host.account.add` | The full operation, host adapter dependencies and SSH account-folder configuration remain in TypeScript. |
-| Host YAML edits (`host.add` / `set` / `remove` / `repo.map`) | Library parity lives in `pacer-config::host`; ops stay forwarded for endpoint sync, publication and activity. |
+| Host YAML edits (`host.add` / `set` / `remove` / `repo.map`) | Native: `pacer-config::host` plus P2-C endpoint sync, `hosts` publication and pause activity (`host.set` summary via host-read bridge). |
 | `runner.settings.*` | Native: library CAS + `executor-settings` lock + `runners` publication. Endpoint sync is not required for these ops. |
-| `repo.*` registry | Path probe, git identity and branch listing stay in TypeScript; Rust owns URL `repo_key` only. |
+| `repo.list` / `repo.add` | Native param validation; path probe, git identity and branch listing stay on Core via the repo bridge. |
+| `repo.remove` | Native file effects when registry JSON is compatible; legacy shapes forward to TypeScript. URL `repo_key` remains in `pacer-config::host`. |
 
 `test/config-settings-parity.test.ts` regenerates and verifies the shared
 `test/fixtures/config-settings/settings.json` corpus from the TypeScript reference.
@@ -374,35 +461,12 @@ the table above are omitted here. Owner streams follow
 `docs/specs/2026-10-20-rust-host-migration-design.md` §2 and the 2026-11-01
 reconcile plans. Counts are op prefixes, not reviewable PR slices.
 
-| Prefix | Count | Owner stream | Notes |
-| --- | ---: | --- | --- |
-| `task.*` | 12 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+9 more); `list` and `request_review` native above |
-| `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
-| `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
-| `account.*` | 9 | P7/P9 | e.g. `account.add`, `account.adopt`, `account.edit` (+6 more) |
-| `client.*` | 9 | P6 | e.g. `client.control.claim`, `client.control.complete`, `client.control.enroll` (+6 more) |
-| `project.*` | 7 | P2 | e.g. `project.messaging.get`, `project.messaging.remove`, `project.messaging.set` (+4 more) |
-| `runner.*` | 5 | P2 | `add`/`block`/`unblock`/`check`/`list` stay TS (`set`/`reorder`/`remove`/`settings.*` native above) |
-| `agent.*` | 4 | P9 | e.g. `agent.connect`, `agent.detect`, `agent.disconnect` (+1 more) |
-| `service.*` | 4 | P9 | e.g. `service.handover`, `service.install`, `service.status` (+1 more) |
-| `strategy.*` | 4 | P2 | e.g. `strategy.build`, `strategy.list`, `strategy.preview` (+1 more) |
-| `terminal.*` | 4 | P7 | e.g. `terminal.close`, `terminal.create`, `terminal.list` (+1 more) |
-| `executor.*` | 3 | P6 | e.g. `executor.setup.candidates`, `executor.setup.connect`, `executor.setup.models` |
-| `job.*` | 3 | P6 | e.g. `job.cancel`, `job.get`, `job.list` |
-| `machine.*` | 3 | P8 | e.g. `machine.get`, `machine.rotate`, `machine.set` |
-| `repo.*` | 3 | P2 | Registry/git probe remain Forwarded; URL `repo_key` in `pacer-config::host` |
-| `attention.*` | 2 | P6 | e.g. `attention.dismiss`, `attention.snooze` |
-| `issue.*` | 2 | P8 | e.g. `issue.import`, `issue.search` |
-| `onboarding.*` | 2 | P9 | e.g. `onboarding.skip`, `onboarding.try` |
-| `setup.*` | 2 | P9 | e.g. `setup.check`, `setup.init` |
-| `update.*` | 2 | P9 | e.g. `update.apply`, `update.check` |
-| `doctor.*` | 1 | P9 | e.g. `doctor.run` |
-| `files.*` | 1 | P8 | e.g. `files.search` |
-| `insights.*` | 1 | P5 | e.g. `insights.summary` |
-| `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
+No prefix aggregates remain: every v3 public op in `stdio_hello.json` is named
+in the detailed Native or Forwarded table above (including HTTP-native plugin
+ops and selective forwards such as `mode.hold` without `until`).
 
-Total unregistered (not in the detailed table): **109**.
-Total still not native (v3 − native set): **190**.
+Total unregistered (not in the detailed table): **0**.
+Total still not native (v3 − native set): **184**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

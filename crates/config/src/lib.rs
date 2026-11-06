@@ -4,6 +4,7 @@ pub mod config_writes;
 pub mod doc;
 pub mod executor_settings;
 pub mod host;
+pub mod repos;
 mod js_semantics;
 mod notification_json;
 pub mod notifications;

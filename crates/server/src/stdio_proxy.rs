@@ -180,8 +180,144 @@ async fn forward_input<
                 && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
                 && !(op.name == "routing.route"
                     && crate::native::routing_route_stays_forwarded(&params))
+                && !(op.name == "repo.remove"
+                    && crate::native::repo_remove_stays_forwarded(&ctx.at_now()))
             {
                 let request_ctx = ctx.at_now();
+                if op.name == "task.wait" {
+                    let task_id = params
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    if task_id.is_empty() {
+                        if let Some(id) = request.get("id") {
+                            let error = CoreError::new(
+                                Code::InvalidInput,
+                                "id: Invalid input: expected string, received undefined",
+                            );
+                            let response = json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
+                            let mut bytes = serde_json::to_vec(&response)?;
+                            bytes.push(b'\n');
+                            write_line(out, &bytes).await?;
+                        }
+                        continue;
+                    }
+                    match crate::native::task_wait_sync::stdio_probe(
+                        &mut core, sync.0, sync.1, &task_id, sync.2,
+                    )
+                    .await
+                    {
+                        Ok(probe)
+                            if crate::native::task_wait_sync::task_wait_stays_forwarded(&probe) =>
+                        {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                            continue;
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            if let Some(id) = request.get("id") {
+                                let response =
+                                    json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
+                                let mut bytes = serde_json::to_vec(&response)?;
+                                bytes.push(b'\n');
+                                write_line(out, &bytes).await?;
+                            }
+                            continue;
+                        }
+                    }
+                }
+                if op.name == "task.stop" {
+                    let task_id = params
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    if task_id.is_empty() {
+                        if let Some(id) = request.get("id") {
+                            let error = CoreError::new(
+                                Code::InvalidInput,
+                                "id: Invalid input: expected string, received undefined",
+                            );
+                            let response = json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
+                            let mut bytes = serde_json::to_vec(&response)?;
+                            bytes.push(b'\n');
+                            write_line(out, &bytes).await?;
+                        }
+                        continue;
+                    }
+                    match crate::native::task_stop_sync::stdio_probe(
+                        &mut core, sync.0, sync.1, &task_id, sync.2,
+                    )
+                    .await
+                    {
+                        Ok(probe)
+                            if crate::native::task_stop_sync::task_stop_stays_forwarded(&probe) =>
+                        {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                            continue;
+                        }
+                        Ok(probe) => {
+                            let before = probe
+                                .get("beforeState")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned);
+                            let task_id = task_id.clone();
+                            let result = call_native(
+                                &request_ctx,
+                                op,
+                                params,
+                                request.get("id"),
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(probe),
+                                Some(Box::pin(crate::native::task_stop_sync::stdio_effects(
+                                    &mut core,
+                                    sync.0,
+                                    sync.1,
+                                    &task_id,
+                                    before.as_deref(),
+                                    sync.2,
+                                ))
+                                    as pacer_foundation::api::OpFuture<'_>),
+                            )
+                            .await;
+                            if let Some(id) = request.get("id") {
+                                let response = match result {
+                                    Ok(value) => {
+                                        json!({"jsonrpc":"2.0", "id":id, "result":value})
+                                    }
+                                    Err(error) => {
+                                        json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()})
+                                    }
+                                };
+                                let mut bytes = serde_json::to_vec(&response)?;
+                                bytes.push(b'\n');
+                                write_line(out, &bytes).await?;
+                            }
+                            continue;
+                        }
+                        Err(error) => {
+                            if let Some(id) = request.get("id") {
+                                let response =
+                                    json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()});
+                                let mut bytes = serde_json::to_vec(&response)?;
+                                bytes.push(b'\n');
+                                write_line(out, &bytes).await?;
+                            }
+                            continue;
+                        }
+                    }
+                }
                 let result = if crate::native::needs_usage_broker(op.name) {
                     call_native(
                         &request_ctx,
@@ -193,6 +329,9 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
                         None,
                         None,
                         None,
@@ -223,6 +362,9 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                        None,
+                        None,
+                        None,
                     )
                     .await
                 } else if crate::native::needs_task_clean_bridge(op.name) {
@@ -243,6 +385,9 @@ async fn forward_input<
                                     &mut core, sync.0, sync.1, &ids, sync.2,
                                 ))
                                     as pacer_foundation::api::OpFuture<'_>),
+                                None,
+                                None,
+                                None,
                                 None,
                             )
                             .await
@@ -266,6 +411,9 @@ async fn forward_input<
                             as pacer_foundation::api::OpFuture<'_>),
                         None,
                         None,
+                        None,
+                        None,
+                        None,
                     )
                     .await
                 } else if crate::native::needs_session_probe(op.name) {
@@ -280,6 +428,9 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
                         None,
                         None,
                         None,
@@ -304,6 +455,19 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                } else if op.name == "host.set" {
+                    crate::native::host_mut_sync::call_stdio_set(
+                        &request_ctx,
+                        params,
+                        &mut core,
+                        sync.0,
+                        sync.1,
+                        sync.2,
                     )
                     .await
                 } else if crate::native::needs_host_read_bridge(op.name) {
@@ -332,8 +496,44 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, alias_ref, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
                     )
                     .await
+                } else if crate::native::needs_core_bridge(op.name) {
+                    match crate::native::p8_bridge_ops::bridge_params(op.name, &params) {
+                        Ok(bridge_params) => {
+                            let op_name = op.name.to_owned();
+                            call_native(
+                                &request_ctx,
+                                op,
+                                params,
+                                request.get("id"),
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some(Box::pin(crate::native::core_bridge_sync::stdio(
+                                    &mut core,
+                                    sync.0,
+                                    sync.1,
+                                    &op_name,
+                                    bridge_params,
+                                    sync.2,
+                                ))
+                                    as pacer_foundation::api::OpFuture<'_>),
+                                None,
+                                None,
+                            )
+                            .await
+                        }
+                        Err(error) => Err(error),
+                    }
                 } else {
                     call_native(
                         &request_ctx,
@@ -344,6 +544,9 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, op.name, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
                         None,
                         None,
                         None,
