@@ -22,6 +22,7 @@ pub(crate) mod status_ops;
 pub(crate) mod status_sync;
 pub(crate) mod task_clean_sync;
 pub(crate) mod task_dismiss_ops;
+mod task_diff_ops;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
@@ -211,6 +212,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "task.dismiss",
         call: task_dismiss_ops::task_dismiss_stub,
+    },
+    NativeOp {
+        name: "task.diff",
+        call: task_diff_ops::task_diff_op,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -419,6 +424,7 @@ mod tests {
             "routing.route",
             "task.request_review",
             "task.dismiss",
+            "task.diff",
             "task.list",
             "task.get",
             "snapshot.get",
@@ -445,7 +451,8 @@ mod tests {
         assert!(registry("*").names().is_empty());
         assert!(registry("").get("task.dismiss").is_some());
         assert!(registry("task.dismiss").get("task.dismiss").is_none());
-        assert!(registry("").get("task.diff").is_none());
+        assert!(registry("").get("task.diff").is_some());
+        assert!(registry("task.diff").get("task.diff").is_none());
         assert!(registry("task.list").get("task.list").is_none());
         assert!(registry("task.get").get("task.get").is_none());
         assert!(registry("task.list").get("task.get").is_some());
@@ -500,6 +507,7 @@ mod tests {
             "routing.route",
             "task.request_review",
             "task.dismiss",
+            "task.diff",
             "task.list",
             "task.get",
             "snapshot.get",
