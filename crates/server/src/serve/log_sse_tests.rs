@@ -42,6 +42,7 @@ async fn listener_with_core(
         scoped_work: false,
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: forwarded,
+        forward_events: false,
     });
     let app = Router::new()
         .fallback(any(handle))
@@ -148,7 +149,7 @@ async fn authenticated_listener_dispatch_and_fallback() {
         (
             "/v3/events?since=0".into(),
             Method::GET,
-            StatusCode::BAD_GATEWAY,
+            StatusCode::OK,
         ),
         (path.clone(), Method::POST, StatusCode::METHOD_NOT_ALLOWED),
         (

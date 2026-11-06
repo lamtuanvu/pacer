@@ -39,6 +39,7 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         scoped_work: false,
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: false,
+        forward_events: false,
     });
     let server = tokio::spawn(async move {
         axum::serve(
@@ -141,6 +142,7 @@ async fn public_listener_forwards_to_available_core() {
         scoped_work: false,
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: false,
+        forward_events: false,
     });
     let server = tokio::spawn(async move {
         axum::serve(
