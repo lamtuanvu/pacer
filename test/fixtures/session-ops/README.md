@@ -34,9 +34,12 @@ length plus end excerpts for repeated boundary inputs.
 
 `inputs.json` describes the pure syntax/summary corpus. `pure.json` is generated
 from actual TS file reads and report reads/writes, and consumed by
-`crates/sessions/tests/ops_goldens.rs`. Rust implements only reference syntax and
-summary cleaning/validation, with UTF-16 input to preserve lone surrogates and
-JavaScript length/trim behavior. It opens no files and writes no state.
+`crates/sessions/tests/ops_goldens.rs`. `params.json` captures Zod param bounds
+from `test/session-params-parity.test.ts` and is consumed by
+`crates/sessions/tests/params_goldens.rs`. Rust implements only reference syntax,
+summary cleaning/validation and param bounds, with UTF-16 input to preserve lone
+surrogates and JavaScript length/trim behavior. It opens no files and writes no
+state.
 
 All create/resume/admission/attachment/report persistence and `msg.*` turn effects
 remain TS-owned. M2-06 owns lifecycle/admission and messaging handoff; this slice

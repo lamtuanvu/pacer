@@ -8,6 +8,7 @@ mod json_number;
 pub mod masking;
 pub mod offset;
 pub mod operations;
+pub mod params;
 pub mod plain;
 pub mod recording;
 pub mod session_args;

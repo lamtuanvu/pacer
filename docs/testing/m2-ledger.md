@@ -44,6 +44,17 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.wait` | Forwarded (P6d+) | P6d library: `task_wait_settled` mirrors the poll exit predicate only. Public op still drains the queue, supervises the runner and waits on agent sessions/checks. |
 | `task.review` | Forwarded (P6d+) | P6c library: `record_review_verdict` owns accept/reject SQLite fields only. Public op still needs policy, agent-session gates, labels/activity, messaging `send_back`, retry/delegate/`_run`, and `autoCleanTask`. |
 | `task.retry_options` | Forwarded (P5b/P6) | Needs routing/policy ranking over live readings (same broker gap as `routing.route`). |
+| `session.create` | Forwarded (P7) | Idempotent conversation start needs attachment draft claim, `prepareDelegate` admission, work grants and `launchTaskRunner` spawn. Library: `params`, `operations` (reference/summary), `plain`, file/frame/control goldens only. |
+| `session.resume` | Forwarded (P7) | Needs live session probe, executor resume capability, prepared admission consume, queue mutation and runner spawn. Native vt100 replay gate remains **NO-GO**; session WebSocket stays TypeScript. |
+| `session.end` | Forwarded (P7) | Needs `taskStop` orchestration, runner supervision and conversation activity publication beyond store-only fields. |
+| `session.context` | Forwarded (P7) | Read model over task store, private attachment draft metadata and revision-scoped conversation fields. |
+| `session.prepare` | Forwarded (P7) | Executor capability discovery, repo/workspace validation and plugin-backed preparation. |
+| `session.draft.create` | Forwarded (P7) | Attachment store mutation with 24-hour expiry policy. |
+| `session.file.read` | Forwarded (P7) | Secure workspace reader, attempt-scoped paths and revision conflicts; `file_reference` owns syntax only. |
+| `session.attachment.prepare` | Forwarded (P7) | Running-session gate, attachment claim and agent-specific delivery preparation. |
+| `session.agent.create` | Forwarded (P7) | Independent agent spawn inside an existing task workspace; needs plugin IPC, admission and native session identity. |
+| `session.agent.list`, `session.agent.get` | Forwarded (P7) | Task-scoped agent session enumeration and attempt reads over live store and plugin state. |
+| `session.agent.end`, `session.agent.retry`, `session.agent.resume` | Forwarded (P7) | Effectful agent-session lifecycle (stop, fresh attempt, resume) with `expect_rev` orchestration; no native registration while replay/WS gate is **NO-GO**. |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
@@ -83,6 +94,22 @@ incremental library step is `pacer-lifecycle::record_task_stop` (store-only
 `task_wait_settled` (the `taskWait` poll exit predicate). Cross-runtime coverage:
 `test/record-stop-parity.test.ts`, `test/task-wait-settled-parity.test.ts`, and
 `cargo test -p pacer-lifecycle record_stop wait_settled`.
+
+## P7 session ops triage (library, no new native ops)
+
+P7 evaluated all fourteen public `session.*` operations for native
+registration. None met parity without attachment store effects, prepared
+admission/work grants, runner spawn, live session WebSocket routes, offline
+vt100 replay, plugin agent IPC or agent-session lifecycle still owned by
+TypeScript. The incremental library steps are `pacer-sessions::params` (Zod-aligned
+id/uuid/unicode-length/`expect_rev` bounds), existing `operations` reference and
+summary helpers, `plain` stdout transcript streaming (#734), and file/frame/control
+characterization goldens. Cross-runtime coverage: `test/session-params-parity.test.ts`,
+`test/session-ops-parity.test.ts`, `test/session-replay-gate.test.ts`, and
+`cargo test -p pacer-sessions`. Native registration for conversation and agent
+session ops waits on a full native vt100 replay **GO**, a session host owner, and
+the P6 spawn/policy bridges. Session WebSocket and `/v3/.../session` routes remain
+forwarded; do not register them while the replay gate is **NO-GO**.
 
 PR #585 adds the native `/v3/tasks/<id>/log?follow=1` SSE route. It retains a read-only SQLite connection, detects database replacement, and drains bounded output chunks before `done`. When a read needs a legacy JSON import, an older schema migration, or malformed-record semantics, it calls the existing TypeScript `task.log` fallback with the current byte offsets. That core read performs the shared durable import; no per-stream import cache or new Rust state writer is used. The same fallback applies after a stream connects. All other `/v2` routes remain forwarded.
 
@@ -261,7 +288,6 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | --- | ---: | --- | --- |
 | `dispatch.*` | 23 | P5/P6 | e.g. `dispatch.analytics`, `dispatch.answer`, `dispatch.child` (+20 more) |
 | `desktop.*` | 17 | P8/P9 | e.g. `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.register` (+14 more) |
-| `session.*` | 14 | P7 | e.g. `session.agent.create`, `session.agent.end`, `session.agent.get` (+11 more) |
 | `task.*` | 12 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+9 more); `list` and `request_review` native above |
 | `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
 | `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
@@ -291,7 +317,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 | `version.*` | 1 | P9 | e.g. `version.get` |
 
-Total unregistered (not in the detailed table): **179**.
+Total unregistered (not in the detailed table): **165**.
 Total still not native (v3 − native set): **193**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
