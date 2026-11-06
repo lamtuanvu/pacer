@@ -597,6 +597,7 @@ pub struct OrcaCallContext {
 ///
 /// `grants` overrides hello grants when Core seals a call-authority response;
 /// otherwise hello grants are reused.
+#[allow(clippy::too_many_arguments)] // Call-scoped attach needs discrete sealed contexts.
 pub fn session_for_call(
     hello: &Value,
     resources: CallResources,
@@ -678,14 +679,22 @@ pub fn session_for_call(
         });
     }
     if let Some(grant) = resources.worktree.clone() {
-        let ctx = worktree_context.expect("worktree context checked above");
+        let ctx = worktree_context.ok_or_else(|| {
+            CapabilitySessionError::Native(
+                "worktree resources require Core-sealed worktreeContext".into(),
+            )
+        })?;
         session.pending_worktree = Some(WorktreeAttachPlan {
             grant,
             context: ctx,
         });
     }
     if let Some(grant) = resources.executor_claim.clone() {
-        let ctx = executor_context.expect("executor context checked above");
+        let ctx = executor_context.ok_or_else(|| {
+            CapabilitySessionError::Native(
+                "executorClaim resources require Core-sealed executorContext".into(),
+            )
+        })?;
         session.pending_executor = Some(ExecutorAttachPlan {
             grant,
             context: ctx,

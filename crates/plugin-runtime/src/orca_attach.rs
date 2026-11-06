@@ -18,7 +18,7 @@ pub trait OrcaBridge: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<Value, BrokerError>> + Send + '_>>;
 }
 
-struct OwnerOrcaSession {
+pub(crate) struct OwnerOrcaSession {
     owner: SharedOwner,
     plugin_id: String,
     grant: OrcaAttemptResource,
@@ -54,7 +54,7 @@ impl OrcaSessionOwner for OwnerOrcaSession {
     }
 }
 
-struct OwnerOrcaLiveControl {
+pub(crate) struct OwnerOrcaLiveControl {
     owner: SharedOwner,
     plugin_id: String,
     grant: OrcaLiveResource,

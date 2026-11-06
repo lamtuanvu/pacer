@@ -44,30 +44,30 @@ pub fn worktree_context_from_value(
         .get("home")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            crate::capability::CapabilitySessionError::Malformed("worktreeContext home")
-        })?;
+        .ok_or(crate::capability::CapabilitySessionError::Malformed(
+            "worktreeContext home",
+        ))?;
     let provider_id = raw
         .get("providerId")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            crate::capability::CapabilitySessionError::Malformed("worktreeContext providerId")
-        })?;
+        .ok_or(crate::capability::CapabilitySessionError::Malformed(
+            "worktreeContext providerId",
+        ))?;
     let git = raw
         .get("git")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            crate::capability::CapabilitySessionError::Malformed("worktreeContext git")
-        })?;
+        .ok_or(crate::capability::CapabilitySessionError::Malformed(
+            "worktreeContext git",
+        ))?;
     let base = raw
         .get("base")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            crate::capability::CapabilitySessionError::Malformed("worktreeContext base")
-        })?;
+        .ok_or(crate::capability::CapabilitySessionError::Malformed(
+            "worktreeContext base",
+        ))?;
     let mut env = HashMap::new();
     if let Some(object) = raw.get("env").and_then(|v| v.as_object()) {
         for (key, value) in object {
