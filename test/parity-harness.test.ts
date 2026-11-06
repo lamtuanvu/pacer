@@ -149,5 +149,5 @@ test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("real forwarded operation
   await expect(parity({ fixture, reference: [process.execPath, join(import.meta.dir, "../src/cli.ts"), "api", "--stdio"],
     candidate: [process.env.PACER_TEST_NATIVE_FRONT_DOOR!, "api", "--stdio"],
     candidateEnv: { PACER_CORE_ARGV: coreArgv, PACER_DEBUG_NATIVE: "1" },
-    native: ["version.get"], steps: [{ op: "version.get", expect: "ok" }] })).rejects.toThrow("native execution evidence unavailable");
+    native: ["client.list"], steps: [{ op: "client.list", expect: "ok" }] })).rejects.toThrow("native execution evidence unavailable");
 });

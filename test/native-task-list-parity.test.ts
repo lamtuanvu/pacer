@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
@@ -59,7 +59,7 @@ test.skipIf(!front)("task.list matches forced forwarding with session probe inje
   const ctx = fakeCtx();
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   for (let i = 0; i < 5; i++) {
-    const task = createTask({ ...ctx, now: ctx.now + i }, { brief: { goal: String(i), repo: ctx.home }, kind: null, requestedExecutor: "cursor", timeoutS: 60 });
+    const task = createTask({ ...ctx, now: ctx.now + i }, { brief: { goal: String(i), repo: realpathSync(ctx.home) }, kind: null, requestedExecutor: "cursor", timeoutS: 60 });
     updateTask(ctx, task.id, row => {
       row.state = i === 0 ? "failed" : "done";
       row.executor = "cursor";
