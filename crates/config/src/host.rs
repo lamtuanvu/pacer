@@ -7,7 +7,8 @@ use crate::{
 use serde_json::{Value, json};
 use std::{fs, path::Path};
 
-fn canonical(key: &str) -> bool {
+/// Match `canonical` in `src/config/hosts.ts`: a host/owner/repo identity.
+pub fn canonical(key: &str) -> bool {
     let mut parts = key.split('/');
     let (Some(host), Some(owner), Some(repo), None) =
         (parts.next(), parts.next(), parts.next(), parts.next())

@@ -1304,6 +1304,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-config-ops"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "pacer-store",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-desktop-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1600,6 +1614,7 @@ dependencies = [
  "libproc",
  "nix",
  "pacer-config",
+ "pacer-config-ops",
  "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
@@ -1608,6 +1623,7 @@ dependencies = [
  "pacer-plugin-runtime",
  "pacer-read-model",
  "pacer-store",
+ "pacer-task-ops",
  "rand 0.9.5",
  "ryu-js",
  "security-framework",
@@ -1663,6 +1679,22 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "pacer-task-ops"
+version = "0.0.0"
+dependencies = [
+ "chrono-tz",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "pacer-read-model",
+ "pacer-store",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

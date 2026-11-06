@@ -20,12 +20,13 @@ fn invalid(message: impl Into<String>) -> CoreError {
 }
 
 fn host_error(op: &str, message: &str) -> CoreError {
-    let conflict =
-        (op == "host.add" && message.starts_with("host ") && message.ends_with(" already exists"))
-            || (op == "host.remove" && message.contains(" is used by "))
-            || message == "Your settings changed while they were being updated. Try again."
-            || message == "strategy changed during edit; retry";
-    let code = if conflict {
+    let code = if (op == "host.add"
+        && message.starts_with("host ")
+        && message.ends_with(" already exists"))
+        || (op == "host.remove" && message.contains(" is used by "))
+        || message == "Your settings changed while they were being updated. Try again."
+        || message == "strategy changed during edit; retry"
+    {
         Code::Conflict
     } else {
         Code::InvalidInput

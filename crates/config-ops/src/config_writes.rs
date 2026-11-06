@@ -85,6 +85,7 @@ pub fn area(op: &str) -> Option<&'static str> {
         "delegation.pause" | "delegation.resume" => Some("delegation"),
         "mode.hold" | "mode.release" => Some("mode"),
         "machine.set" | "machine.rotate" => Some("machine"),
+        "project.messaging.set" | "project.messaging.remove" => Some("project-messaging"),
         _ => None,
     }
 }

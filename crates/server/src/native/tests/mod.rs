@@ -56,6 +56,9 @@ fn forward_override_removes_only_selected_native_ops() {
         "repo.list",
         "repo.add",
         "repo.remove",
+        "project.messaging.get",
+        "project.messaging.set",
+        "project.messaging.remove",
     ] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
@@ -158,6 +161,9 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "repo.list",
         "repo.add",
         "repo.remove",
+        "project.messaging.get",
+        "project.messaging.set",
+        "project.messaging.remove",
     ] {
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry(name).get(name).is_none(), "{name}");
