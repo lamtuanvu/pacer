@@ -11049,6 +11049,106 @@ impl ::std::default::Default for SetupCheckParams {
         Self {}
     }
 }
+///`SetupHealthParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "trigger": {
+///      "type": "string",
+///      "enum": [
+///        "startup",
+///        "update",
+///        "manual"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SetupHealthParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub trigger: ::std::option::Option<SetupHealthParamsTrigger>,
+}
+impl ::std::default::Default for SetupHealthParams {
+    fn default() -> Self {
+        Self {
+            trigger: Default::default(),
+        }
+    }
+}
+///`SetupHealthParamsTrigger`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "startup",
+///    "update",
+///    "manual"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum SetupHealthParamsTrigger {
+    #[serde(rename = "startup")]
+    Startup,
+    #[serde(rename = "update")]
+    Update,
+    #[serde(rename = "manual")]
+    Manual,
+}
+impl ::std::convert::From<&Self> for SetupHealthParamsTrigger {
+    fn from(value: &SetupHealthParamsTrigger) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for SetupHealthParamsTrigger {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Startup => f.write_str("startup"),
+            Self::Update => f.write_str("update"),
+            Self::Manual => f.write_str("manual"),
+        }
+    }
+}
+impl ::std::str::FromStr for SetupHealthParamsTrigger {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "startup" => Ok(Self::Startup),
+            "update" => Ok(Self::Update),
+            "manual" => Ok(Self::Manual),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for SetupHealthParamsTrigger {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`SetupInitParams`
 ///
 /// <details><summary>JSON schema</summary>
