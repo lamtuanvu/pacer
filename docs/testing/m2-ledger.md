@@ -24,7 +24,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.prune`, `task.restore` | Native (P3-D) | Shared `TaskStore` retention helpers; TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. |
 | `task.dismiss` | Forwarded | Needs linked activity publication, task event and `autoCleanTask` side effects. |
 | `task.diff` | Forwarded | Needs the full git argv, snapshot fallback and file tree parity fixture. |
-| `task.get`, `task.list` | Forwarded | Library now has `api_task_page` / `select_task_list` / `task_list_page` (per-task labels, visible `needs_input`, ActiveCounts). Native registration still waits on a SessionProbe/alive bridge for list and full `taskDetail` (git summary, cost, retry options, timeline, tokens, work/managedSkip) for get. |
+| `task.list` | Native (P3) | Composed via `pacer_read_model::tasks::task_list_page` once Core supplies active sessions and runner liveness through `/_internal/session-probe-parts` (serve) or `_internal.session-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns session lifecycle and `pidAlive`. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `task.get` | Forwarded | Full `taskDetail` still needs git summary, cost overlap, retry options (engine/capacity), timeline, tokens, and work/managedSkip beyond the list read-model slice. |
 | `delegation.pause`, `delegation.resume` | Native (P5) | `pacer-engine::pause` writes `state/pause.json`, publishes the `pause` event, appends activity, then publishes the `delegation` config area. No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `mode.release` | Native (P5) | Clears `state/mode-hold.json` via `pacer-engine::mode_hold` and publishes the `mode` config area. |
 | `mode.hold` | Native (P5, selective) | Explicit `until` is native. Omitting `until` selectively forwards to TypeScript so `computeStatus` can default to the planner reset window (P5b). |
@@ -242,7 +243,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `dispatch.*` | 23 | P5/P6 | e.g. `dispatch.analytics`, `dispatch.answer`, `dispatch.child` (+20 more) |
 | `desktop.*` | 17 | P8/P9 | e.g. `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.register` (+14 more) |
 | `session.*` | 14 | P7 | e.g. `session.agent.create`, `session.agent.end`, `session.agent.get` (+11 more) |
-| `task.*` | 13 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+10 more); `request_review` native above |
+| `task.*` | 12 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+9 more); `list` and `request_review` native above |
 | `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
 | `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
 | `account.*` | 9 | P7/P9 | e.g. `account.add`, `account.adopt`, `account.edit` (+6 more) |
@@ -272,8 +273,8 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 | `version.*` | 1 | P9 | e.g. `version.get` |
 
-Total unregistered (not in the detailed table): **181**.
-Total still not native (v3 − native set): **195**.
+Total unregistered (not in the detailed table): **180**.
+Total still not native (v3 − native set): **194**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
