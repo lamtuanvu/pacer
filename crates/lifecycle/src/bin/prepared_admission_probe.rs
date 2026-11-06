@@ -78,7 +78,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             let strategy = strategy.clone();
             let result = prepare_delegate_admission(
                 &raw,
-                repo.to_str().unwrap(),
+                repo.to_str()
+                    .ok_or("repo path is not valid UTF-8")?,
                 &[],
                 None,
                 || Ok(snapshot(&strategy)),

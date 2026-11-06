@@ -52,13 +52,13 @@ pub fn map_policy_amendment(input: &Value, amend: &PolicyAmendment) -> Value {
     if let Some(placement) = &amend.placement {
         mapped["worktree"] = placement.clone();
     }
-    if changed {
-        if let Some(dispatch) = mapped.get_mut("dispatch").and_then(Value::as_object_mut) {
-            if let Some(kind) = next_kind.filter(|k| !k.is_null()) {
-                dispatch.insert("kind".into(), kind.clone());
-            } else {
-                dispatch.remove("kind");
-            }
+    if changed
+        && let Some(dispatch) = mapped.get_mut("dispatch").and_then(Value::as_object_mut)
+    {
+        if let Some(kind) = next_kind.filter(|k| !k.is_null()) {
+            dispatch.insert("kind".into(), kind.clone());
+        } else {
+            dispatch.remove("kind");
         }
     }
     mapped
