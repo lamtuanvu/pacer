@@ -48,7 +48,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `routing.route` | Native (P5d, selective) | Broker-backed `usage_broker::routing_route` / `status::rank_route` when params omit `goal` and `repo`. Params with `goal` (classifier) or `repo` (project policy + remote eligibility) selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6d+) | P6b `run_spawn` pins the `_run` argv/env/log plan; P6c found no native registration with parity (policy, prepared admission, work grants, messaging turns, effectful spawn). |
+| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6e-run+) | P6b/P6e-run `run_spawn` pins and guards the `_run` plan; P6c found no native registration with parity (policy, prepared admission, work grants, messaging turns, effectful spawn). Do not register until spawn+admission parity lands. |
 | `task.stop`, `task.ask` | Forwarded (P6d+) | P6d library: `record_task_stop` owns store-only `taskStop` fields (incl. `stopPending` and remote-transfer refusal) without agent sessions, signals, live-worker release or host stop. Public op still needs those effectful sides and `expect_rev`/`stopWork` orchestration. |
 | `task.wait` | Forwarded (P6d+) | P6d library: `task_wait_settled` mirrors the poll exit predicate only. Public op still drains the queue, supervises the runner and waits on agent sessions/checks. |
 | `task.review` | Forwarded (P6d+) | P6c library: `record_review_verdict` owns accept/reject SQLite fields only. Public op still needs policy, agent-session gates, labels/activity, messaging `send_back`, retry/delegate/`_run`, and `autoCleanTask`. |
@@ -109,6 +109,17 @@ Queue drain in Rust already accepts a launch callback returning `Option<u32>`; P
 documents that the callback must honor `RunSpawnPlan` (`validate_run_spawn_plan`)
 before a future native supervisor performs effectful spawn. Cross-runtime coverage:
 `test/run-spawn-parity.test.ts` and `cargo test -p pacer-lifecycle run_spawn`.
+
+## P6e-run `_run` launch guards (library, no new native ops)
+
+P6e-run deepens P6b without registering `task.delegate` or activating
+`RunSpawnOwner::NativeSupervisor`. `resolve_launch_admission_lease` and
+`build_run_spawn_plan_for_launch` mirror `launchTaskRunner` lease inheritance;
+`drain_launch_run_spawn_plan` and `guard_run_spawn_plan` are the required drain
+hook checks before effectful spawn; `SupervisorRunSpawnSpec` maps a guarded plan
+into ProcessOwner fields but returns an error while `RUN_SPAWN_OWNER` remains
+TypeScript. Cross-runtime coverage: `test/run-spawn-launch-parity.test.ts` and
+`cargo test -p pacer-lifecycle run_spawn`.
 
 ## P6c delegate lifecycle triage (library, no new native ops)
 
@@ -276,7 +287,7 @@ See inventories under `.work/reviews/`.
 | Service (`pacer serve`) | Rust `ProcessOwner` (default, P4d-13); TypeScript Core when `PACER_NATIVE_PLUGIN_HOST=0` | ProcessOwner starts/supervises children for native HTTP plugin RPC and bridge spawn/call/find/stop; answers hello-sealed `capability.log`/`config.get` and Core-sealed call-scoped fs/process/http (P4d-6/7); Core seals spawn_spec/`call_authority` and refuses local spawn; private `call` retired. `=0` / `false` / `no` escapes to TS child ownership. |
 | Stdio (`pacer-core api --stdio`) | TypeScript | Unchanged (P8) |
 | CLI one-shots | TypeScript | Unchanged |
-| `_run` runners | TypeScript (effectful) | P6b: Rust `run_spawn` records the launch plan and `RunSpawnOwner::TypeScriptCore`; `AdmissionState::drain` launch hooks still call injected spawners. Native supervisor spawn is reserved (`RunSpawnOwner::NativeSupervisor`, post-P6c). |
+| `_run` runners | TypeScript (effectful) | P6b/P6e-run: Rust `run_spawn` records and guards the launch plan with `RunSpawnOwner::TypeScriptCore`; drain hooks must call `drain_launch_run_spawn_plan` before injected spawners. ProcessOwner spawn via `SupervisorRunSpawnSpec` stays gated until `RUN_SPAWN_OWNER` cutover. |
 
 ## X3 / P4d-3 / P4d-4 / P4d-5 mutation status and remaining deferred work
 
