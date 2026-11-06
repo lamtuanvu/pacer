@@ -92,7 +92,7 @@ pub fn dismiss_tasks(
             "ids: Invalid input: expected array length 1–100".into(),
         ));
     }
-    let mut lock_order: Vec<String> = ids.iter().cloned().collect();
+    let mut lock_order: Vec<String> = ids.to_vec();
     lock_order.sort();
     lock_order.dedup();
     for id in &lock_order {
