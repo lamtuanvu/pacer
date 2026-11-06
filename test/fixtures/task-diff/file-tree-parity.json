@@ -1,0 +1,36 @@
+{
+  "description": "Expected file trees for task.diff parity (aligned with test/core-tasks-diff.test.ts scenarios).",
+  "cases": [
+    {
+      "name": "default-fixture",
+      "summaryOnly": false,
+      "files": [
+        { "path": "added.txt", "status": "added", "added": 1, "removed": 0, "binary": false },
+        { "path": "modified.txt", "status": "modified", "added": 1, "removed": 1, "binary": false },
+        { "path": "renamed.txt", "status": "renamed", "added": 0, "removed": 0, "binary": false }
+      ]
+    },
+    {
+      "name": "in-place-start-sha",
+      "summaryOnly": true,
+      "startCommit": true,
+      "files": [
+        { "path": "added.txt", "status": "added", "added": 1, "removed": 0, "binary": false },
+        { "path": "modified.txt", "status": "modified", "added": 1, "removed": 1, "binary": false },
+        { "path": "renamed.txt", "status": "renamed", "added": 0, "removed": 0, "binary": false }
+      ]
+    },
+    {
+      "name": "orca-current-task-only",
+      "summaryOnly": true,
+      "orca": "current",
+      "files": [{ "path": "task-only.txt", "status": "added", "added": 1, "removed": 0, "binary": false }]
+    },
+    {
+      "name": "orca-new-task-only",
+      "summaryOnly": true,
+      "orca": "new",
+      "files": [{ "path": "task-only.txt", "status": "added", "added": 1, "removed": 0, "binary": false }]
+    }
+  ]
+}
