@@ -36,6 +36,7 @@ fn forward_override_removes_only_selected_native_ops() {
         "limits.check",
         "routing.status",
         "routing.route",
+        "task.retry_options",
         "task.request_review",
         "task.stop",
         "task.review",
@@ -137,7 +138,6 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("task.wait").get("task.wait").is_none());
     assert!(registry("").get("task.retry").is_none());
     assert!(registry("").get("task.retry_all").is_none());
-    assert!(registry("").get("task.retry_options").is_none());
     assert!(registry("").get("task.review").is_some());
     assert!(registry("task.review").get("task.review").is_none());
     assert!(registry("").get("task.ask").is_none());
@@ -195,6 +195,7 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "limits.check",
         "routing.status",
         "routing.route",
+        "task.retry_options",
         "task.request_review",
         "task.stop",
         "task.review",

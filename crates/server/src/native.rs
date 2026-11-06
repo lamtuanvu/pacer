@@ -62,7 +62,9 @@ pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
-pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
+pub(crate) use status_ops::{
+    needs_usage_broker, routing_route_stays_forwarded, task_retry_options_stays_forwarded,
+};
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
 pub(crate) use task_review_ops::needs_task_review_bridge;
@@ -255,6 +257,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "routing.route",
         call: status_ops::routing_route_stub,
+    },
+    NativeOp {
+        name: "task.retry_options",
+        call: status_ops::task_retry_options_stub,
     },
     NativeOp {
         name: "task.request_review",
@@ -522,6 +528,7 @@ pub async fn call_native(
             "limits.check" => status_ops::limits_check(ctx, params, parts.await?).await?,
             "routing.status" => status_ops::routing_status(ctx, params, parts.await?).await?,
             "routing.route" => status_ops::routing_route(ctx, params, parts.await?).await?,
+            "task.retry_options" => status_ops::task_retry_options(ctx, params, parts).await?,
             _ => unreachable!("needs_usage_broker"),
         }
     } else if needs_task_read_bridge(op.name) {

@@ -10,6 +10,7 @@ publish = false
 pacer-foundation = { path = "../foundation" }
 pacer-store = { path = "../store" }
 pacer-config = { path = "../config" }
+pacer-engine = { path = "../engine" }
 serde_json.workspace = true
 thiserror.workspace = true
 rusqlite = { version = "0.41", features = ["bundled"] }
