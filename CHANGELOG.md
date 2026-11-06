@@ -8,6 +8,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Client-owned notification delivery: the service selects per-medium presenters (`desktop` → OS, `tui` → terminal, standalone `app` → browser; browser omitted while desktop is live), publishes `notify` events with additive `recipients`, and exposes `service.notifiers` on the snapshot (`service.notifier` stays the `os` presenter for older clients). The bundled notifier plugin (`pacer-notify` / `osascript` / `notify-send`) runs only when no delivery client is live. See [ADR 2026-11-06](docs/decisions/2026-11-06-client-notification-delivery.md).
 
+- Move Workspace agent questions out of the center terminal column into a floating idle mini-card and the right-panel Overview answer composer, so the terminal stays the main middle UI. See [workspace question support UI](docs/specs/2026-11-06-workspace-question-support-ui-design.md).
+
 - Own Trace's detail column, Setup's step rail and Settings › Agents detail as shell side panels (`FrameSlot` left/right, with in-page fallbacks when panels cannot show), keep Settings navigation and Dispatch scope at the shared 272px panel width, and remove nested scrollers inside Dispatch and Workspace panel bodies so each panel has one scroller. See [ADR 0022](docs/decisions/0022-shell-owned-page-regions.md).
 
 - Make Diagnostics attention-first with status filters, search and collapsible categories. Keep specific causes and recovery steps visible, preserve original technical evidence, and remove empty progress spacing and unmeasured timing placeholders.

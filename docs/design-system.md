@@ -914,6 +914,24 @@ Desktop geometry uses generated tokens; live status respects reduced motion.
 Workspace control glyphs (`take-over`, `hand-back`, `stop-session`) follow the approved
 board 26 SVG paths. Board IconButton geometry has no border and uses a 16px glyph.
 
+Workspace questions are support UI ([design](specs/2026-11-06-workspace-question-support-ui-design.md)).
+`QuestionChip` (`screens/workspace/QuestionChip.tsx`, used only by Workspace) is a
+retained specialized overlay: one quiet shared `Button` positioned over the top-right
+of the center stage, so the terminal never reflows. Props are `agent` (runner id, or
+none), `text` (the question) and `onOpen`. An unknown agent reads "The agent". Its
+screen CSS owns placement, the card surface (border, `--surface-card`, `--shadow-popover`,
+`--radius-lg`, `--surface-lane` hover), padding, caption type, a two-line clamp and auto
+height; every value is a generated token. `min-height:0` replaces the button minimum
+because the title line plus at least one question line keeps the target above 44px.
+It has no extra states or keys: Tab reaches it like any button and Enter or Space
+activates it, with the shared focus ring.
+Its accessible name carries the agent, the full question and "Open answer panel".
+Activating it selects Overview, opens a collapsed details panel and focuses the answer
+field once. The chip hides while Overview is visible. The answer form stays in the
+Overview region; its heading names the asking agent and, when the session belongs to
+a task other than the selected card, a "For <task>" caption. A polite visually hidden
+status announces a newly pending question. Original project code; no upstream source.
+
 Plugin settings removal and reorder actions use the shared `IconButton geometry="board"` contract: 28px on desktop, 44px on coarse pointers and narrow screens, 6px corners. This follows the SettingsPluginPage board's `.ib` rule; its ordered rows have 8px vertical padding plus borders (46px on desktop). Empty reorder slots retain the same width. File-viewer Search and Copy actions keep the FileViewer board's 28px desktop square, with 44px narrow/coarse targets.
 
 ### Terminal palette and authoritative geometry
