@@ -3,6 +3,7 @@ use pacer_foundation::{
     api::{CoreError, NativeOp, Registry},
 };
 use serde_json::Value;
+mod assistant_ops;
 mod config_get_ops;
 pub(crate) mod config_host_sync;
 mod config_params;
@@ -47,6 +48,7 @@ pub(crate) mod task_stop_sync;
 mod task_wait_ops;
 pub(crate) mod task_wait_sync;
 
+pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
@@ -374,6 +376,46 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "desktop.reconcile.cancel",
         call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+    },
+    NativeOp {
+        name: "assistant.status",
+        call: assistant_ops::assistant_status,
+    },
+    NativeOp {
+        name: "assistant.settings.get",
+        call: assistant_ops::assistant_settings_get,
+    },
+    NativeOp {
+        name: "assistant.settings.set",
+        call: assistant_ops::assistant_settings_set,
+    },
+    NativeOp {
+        name: "assistant.candidates",
+        call: assistant_ops::assistant_candidates,
+    },
+    NativeOp {
+        name: "assistant.conversations",
+        call: assistant_ops::assistant_conversations,
+    },
+    NativeOp {
+        name: "assistant.conversation",
+        call: assistant_ops::assistant_conversation,
+    },
+    NativeOp {
+        name: "assistant.turn",
+        call: assistant_ops::assistant_turn,
+    },
+    NativeOp {
+        name: "assistant.delete",
+        call: assistant_ops::assistant_delete,
+    },
+    NativeOp {
+        name: "assistant.card.record",
+        call: assistant_ops::assistant_card_record,
+    },
+    NativeOp {
+        name: "assistant.card.refresh",
+        call: assistant_ops::assistant_card_refresh,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -708,6 +750,16 @@ mod tests {
             "desktop.reconcile.status",
             "desktop.reconcile.request",
             "desktop.reconcile.cancel",
+            "assistant.status",
+            "assistant.settings.get",
+            "assistant.settings.set",
+            "assistant.candidates",
+            "assistant.conversations",
+            "assistant.conversation",
+            "assistant.turn",
+            "assistant.delete",
+            "assistant.card.record",
+            "assistant.card.refresh",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -769,6 +821,8 @@ mod tests {
         assert!(registry("task.review").get("task.review").is_none());
         assert!(registry("").get("task.ask").is_none());
         assert!(registry("").get("limits.refresh").is_none());
+        assert!(registry("").get("assistant.ask").is_none());
+        assert!(registry("").get("assistant.cancel").is_none());
         for name in [
             "msg.send",
             "msg.wait",
@@ -855,6 +909,16 @@ mod tests {
             "desktop.reconcile.status",
             "desktop.reconcile.request",
             "desktop.reconcile.cancel",
+            "assistant.status",
+            "assistant.settings.get",
+            "assistant.settings.set",
+            "assistant.candidates",
+            "assistant.conversations",
+            "assistant.conversation",
+            "assistant.turn",
+            "assistant.delete",
+            "assistant.card.record",
+            "assistant.card.refresh",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");

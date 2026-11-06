@@ -89,11 +89,11 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `discovery.list`, `discovery.network.get` | Forwarded (P8) | LAN discovery state reads: radio availability, found machines (cap 100), per-network advertising rows and revision counters (`src/api/ops-discovery.ts`, `src/discovery/`). Both need `currentNetwork` (route, ARP, `ipconfig`/`ip`/`nmcli` subprocess probes with per-process sighting memory) for the current network key; `list` also needs the radio status and machine identity. |
 | `discovery.set`, `discovery.respond` | Native (P8 discovery writes, selective) | Rust owns the locked (`discovery` lock) read-modify-write of `discovery/state.json`: the `readState` merge and fail-closed corrupt documents, `networksRev` conflict, `rev`/`networksRev` bumps, `JSON.stringify(…, null, 2)` bytes through the private atomic writer, then the `discovery` config publication. `respond` handles `later` (wall-clock seconds plus 7 days), `ignore` and `mute-network`. `respond` `pair` (pairing plugin hand-over) and state files Rust cannot rewrite byte-for-byte (unreadable or unparsable text, non-integer or unsafe numbers, array-index or `__proto__` keys, non-object `networks`/`silenced`/`seen`, non-number revisions, odd found-machine or network entries) selectively forward to TypeScript. Executor refusal stays in the CLI caller policy, as for TypeScript API callers. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `discovery.network.set` | Forwarded (P8) | The write is the same state-file mutation, but the result is `discovery.network.get`, which needs the `currentNetwork` probe. |
-| `assistant.status`, `assistant.candidates` | Forwarded (P7/P8) | Availability, selected endpoint account, planner pacing refusal, daily limits/usage and candidate endpoint accounts with fixed read-tool summary (`src/api/ops-assistant.ts`, `src/assistant/service.ts`). Executor sessions get `not_allowed` via caller policy. |
-| `assistant.settings.get`, `assistant.settings.set` | Forwarded (P7/P8) | Assistant SQLite settings (runner/account, limits, retention) with revision-guarded writes and config-area effects (`src/assistant/store.ts`, `saveSettings`). |
-| `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete` | Forwarded (P7/P8) | Conversation history pagination and turn reads; deletes drop text while retaining usage aggregates (`src/assistant/store.ts`). |
-| `assistant.ask`, `assistant.cancel` | Forwarded (P7/P8) | Turn lifecycle: redacted read-tool loop, bundled `pacer-assistant` plugin `respond`, checkpointing and SSE answer stream at `/v3/assistant/turns/<turnId>/stream` (`src/assistant/service.ts`, `src/api/http.ts`). Proposed actions stay client-confirmed; nothing executes from the turn itself. |
-| `assistant.card.record`, `assistant.card.refresh` | Forwarded (P7/P8) | Action-card outcome recording and task-revision refresh for proposed ops the app runs separately (`src/assistant/actions.ts`, `buildCard`). |
+| `assistant.status`, `assistant.candidates` | Native (P7/P8 assistant reads, selective) | Rust reads the assistant settings in `state/tasks.db` (`pacer-store::assistant`) and the endpoint accounts in `strategy.yaml`. `candidates` lists endpoint accounts with a model and the fixed read-tool summary. `status` is native when it reports unavailable: not set up, endpoint account missing, or the daily turn limit reached at local midnight in the process time zone. Admissible status needs the planner pacing refusal (`checkAdmission`) and forwards, as do unreadable strategies, unusable stored settings and an unresolvable time zone. |
+| `assistant.settings.get`, `assistant.settings.set` | Native (P7/P8 assistant reads, selective) | Rust owns the `assistant_settings` row: defaults, Zod `partial()` default filling, the endpoint check against the strategy and the revision-guarded `BEGIN IMMEDIATE` upsert (`src/assistant/store.ts`, `saveSettings`). Like TypeScript, writes publish no config event. Stored limits or retention that fail the schema, and `set` with an account when the strategy is unreadable, forward to TypeScript. |
+| `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete` | Native (P7/P8 assistant reads, selective) | Rust reads conversation pages and turns with usage, cards, citations and scope parsed in `JSON.parse` key order. `conversations` first enforces retention like TypeScript; deletes drop turn text, keep usage aggregates and run `wal_checkpoint(TRUNCATE)` (`src/assistant/store.ts`). `conversations` forwards when stored settings are unusable. |
+| `assistant.ask`, `assistant.cancel` | Forwarded (P7/P8) | Turn lifecycle: redacted read-tool loop, bundled `pacer-assistant` plugin `respond`, checkpointing and SSE answer stream at `/v3/assistant/turns/<turnId>/stream` (`src/assistant/service.ts`, `src/api/http.ts`). `cancel` aborts the in-process live-turn map of the TypeScript service. Proposed actions stay client-confirmed; nothing executes from the turn itself. |
+| `assistant.card.record`, `assistant.card.refresh` | Native (P7/P8 assistant reads, selective) | Rust rewrites the stored `cards` JSON in place, keeping key positions and `JSON.stringify` spelling (`src/assistant/actions.ts`). `refresh` reads the task revision from the task store; a task without a brief or title forwards because TypeScript `taskTitle` throws there. |
 | `account.list` | Forwarded (P7/P9) | Account inventory with usage/sign-in commands and no emails (`src/core/accounts.ts`). Each row needs `readAccountUsage` (usage plugin and CLI readers), endpoint-plugin rows (`endpointRow`), Orca account reads and sign-in evidence, so it is not a pure store read. |
 | `account.signin` | Forwarded (P7/P9) | Opens provider login in a terminal/tmux/Orca target or returns the command; interactive account-add/init flows share the handler (`src/api/ops.ts`, `accounts.signin`). |
 | `account.add`, `account.edit`, `account.adopt`, `account.remove` | Forwarded (P7/P9) | Strategy `accounts` mutations: Claude/Codex homes, managed endpoints and OpenCode adoption with endpoint-plugin sync, protected-path home deletion and runner references (`src/endpoints/`, `src/core/accounts.ts`). |
@@ -280,7 +280,29 @@ install probes, agent integration file effects, or the shared update job pipelin
 still owned by TypeScript. No operation is trivially pure read/write on static
 config alone. This slice only expands the ledger with explicit Forwarded rows;
 it does not register native handlers. Native cutover waits on plugin host
-ownership, usage refresh bridges, and P9 setup/service owners.
+ownership, usage refresh bridges, and P9 setup/service owners. The later
+assistant-reads slice registers ten `assistant.*` ops (see below);
+`assistant.ask` and `assistant.cancel` stay Forwarded.
+
+## P7/P8 assistant settings and history cutover (native, selective)
+
+`assistant.status`, `assistant.candidates`, `assistant.settings.get`,
+`assistant.settings.set`, `assistant.conversations`, `assistant.conversation`,
+`assistant.turn`, `assistant.delete`, `assistant.card.record` and
+`assistant.card.refresh` are registered native on stdio and HTTP. Rust opens the
+assistant tables in `state/tasks.db` with the TypeScript schema and pragmas
+(`pacer-store::assistant`) and reads and writes them directly. No op calls back
+into TypeScript to execute. Params use Zod issue text and order. The caller
+policy from `parseOpParams` runs first: the enforcement token and executor
+sessions (`PACER_ROLE=executor` or an own task worktree) get `not_allowed`, and
+Orca task worktrees forward. Inputs where only TypeScript reproduces the result
+also forward: admissible `status` (planner pacing), unreadable strategies, stored
+settings that fail the schema, an unresolvable local time zone, and card refresh
+for a task without a brief or title. `assistant.ask` and `assistant.cancel` stay
+Forwarded: they need the assistant plugin, the read-tool loop, the SSE stream
+and the in-process live-turn map. Parity: `test/native-assistant-parity.test.ts`
+compares results, error bodies and the four assistant tables against TypeScript
+`callOp`.
 
 ## P2/P6 client, project, runner, job and executor-setup triage (ledger, no new native ops)
 
@@ -541,14 +563,17 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **84** of 224 (72 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Seventeen of these selectively forward some inputs to TypeScript:
+Total native: **94** of 224 (82 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Twenty-seven of these selectively forward some inputs to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
 `project.messaging.remove`, `msg.inbox`, `msg.log`, `msg.read`,
-`discovery.set`, `discovery.respond`, `desktop.reconcile.request` and
-`desktop.reconcile.cancel`.
-Total still not native (v3 − native set): **140**.
+`discovery.set`, `discovery.respond`, `desktop.reconcile.request`,
+`desktop.reconcile.cancel`, `assistant.status`, `assistant.candidates`,
+`assistant.settings.get`, `assistant.settings.set`, `assistant.conversations`,
+`assistant.conversation`, `assistant.turn`, `assistant.delete`,
+`assistant.card.record` and `assistant.card.refresh`.
+Total still not native (v3 − native set): **130**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

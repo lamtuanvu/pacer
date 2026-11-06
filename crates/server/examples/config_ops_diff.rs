@@ -41,6 +41,11 @@ async fn main() -> io::Result<()> {
         let op = registry
             .get(name)
             .ok_or_else(|| io::Error::other("missing native op"))?;
+        if pacer_server::native::assistant_stays_forwarded(&ctx, name, &input["params"]) {
+            serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
         let host_sync = if name == "config.get" {
             let host_parts = input.get("hostParts").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(host_parts) }) as pacer_foundation::api::OpFuture<'_>)
