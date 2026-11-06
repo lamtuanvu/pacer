@@ -8,6 +8,7 @@ pub mod events;
 pub mod js;
 mod snapshot;
 mod summary;
+pub mod task_detail;
 pub mod tasks;
 pub mod wire;
 use pacer_foundation::Ctx;
