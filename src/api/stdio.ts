@@ -94,6 +94,15 @@ export async function runStdio(
           result = await taskReadParts(getCtx(), id);
           break;
         }
+        case "_internal.snapshot-probe.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { snapshotProbeParts } = await import("./snapshot-probe-bridge");
+          result = await snapshotProbeParts(getCtx());
+          break;
+        }
         case "hello": {
           const params=r.params??{};
           if(!params||typeof params!=="object"||Array.isArray(params))throw new CoreError("invalid_input","hello params must be an object");

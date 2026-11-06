@@ -117,6 +117,7 @@ SOURCE_TESTS = {
     "src/setup/checklist.ts": ("test/setup-checklist.test.ts",),
     "src/setup/git-isolation.ts": ("test/setup-git-isolation.test.ts",),
     "src/setup/snapshot.ts": ("test/setup-snapshot-probe.test.ts",),
+    "src/api/snapshot-probe-bridge.ts": ("test/native-snapshot-get-parity.test.ts",),
     "src/host/clean.ts": ("test/host-clean.test.ts",),
     "src/commands/account.ts": ("test/commands-account-picker.test.ts",),
     "src/short-title.ts": ("test/short-title.test.ts",),

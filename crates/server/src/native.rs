@@ -15,6 +15,8 @@ pub(crate) mod session_ops;
 pub(crate) mod session_sync;
 pub(crate) mod status_ops;
 pub(crate) mod status_sync;
+mod snapshot_get_ops;
+pub(crate) mod snapshot_sync;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
@@ -24,6 +26,7 @@ pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
+pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
 
 #[cfg(feature = "test-ops")]
@@ -135,6 +138,10 @@ static OPS: &[NativeOp] = &[
         call: task_get_ops::task_get_stub,
     },
     NativeOp {
+        name: "snapshot.get",
+        call: snapshot_get_ops::snapshot_get_stub,
+    },
+    NativeOp {
         name: "delegation.pause",
         call: engine_ops::delegation_pause,
     },
@@ -214,6 +221,7 @@ pub async fn call_native(
     session_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     task_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     config_host_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    snapshot_sync: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
@@ -251,6 +259,17 @@ pub async fn call_native(
         match op.name {
             "task.get" => task_get_ops::task_get(ctx, params, parts.await?).await?,
             _ => unreachable!("needs_task_read_bridge"),
+        }
+    } else if needs_snapshot_bridge(op.name) {
+        let parts = snapshot_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "snapshot probe bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "snapshot.get" => snapshot_get_ops::snapshot_get(ctx, params, parts.await?).await?,
+            _ => unreachable!("needs_snapshot_bridge"),
         }
     } else if needs_session_probe(op.name) {
         let parts = session_sync.ok_or_else(|| {
@@ -332,6 +351,7 @@ mod tests {
             "task.request_review",
             "task.list",
             "task.get",
+            "snapshot.get",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -355,6 +375,8 @@ mod tests {
         assert!(registry("task.list").get("task.list").is_none());
         assert!(registry("task.get").get("task.get").is_none());
         assert!(registry("task.list").get("task.get").is_some());
+        assert!(registry("snapshot.get").get("snapshot.get").is_none());
+        assert!(registry("snapshot.get").get("task.list").is_some());
         assert!(registry("").get("task.delegate").is_none());
         assert!(registry("").get("task.stop").is_none());
         assert!(registry("").get("task.answer").is_none());
@@ -402,6 +424,7 @@ mod tests {
             "task.request_review",
             "task.list",
             "task.get",
+            "snapshot.get",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");

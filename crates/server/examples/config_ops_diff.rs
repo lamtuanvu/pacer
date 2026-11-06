@@ -46,6 +46,7 @@ async fn main() -> io::Result<()> {
             None,
             None,
             host_sync,
+            None,
         )
         .await;
         let output = match result {
