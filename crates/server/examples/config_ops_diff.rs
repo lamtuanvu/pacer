@@ -44,7 +44,13 @@ async fn main() -> io::Result<()> {
         };
         let core_bridge_sync = if matches!(
             name,
-            "machine.get" | "machine.set" | "machine.rotate" | "files.search" | "setup.check"
+            "machine.get"
+                | "machine.set"
+                | "machine.rotate"
+                | "files.search"
+                | "setup.check"
+                | "repo.list"
+                | "repo.add"
         ) {
             let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)

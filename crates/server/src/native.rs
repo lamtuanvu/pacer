@@ -15,6 +15,7 @@ pub(crate) mod host_read_sync;
 mod lifecycle_ops;
 mod meta_ops;
 pub(crate) mod p8_bridge_ops;
+mod repo_ops;
 pub mod plugins;
 mod setup_ops;
 pub(crate) mod session_ops;
@@ -40,6 +41,7 @@ pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
+pub(crate) use repo_ops::repo_remove_stays_forwarded;
 
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
@@ -244,6 +246,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "onboarding.skip",
         call: setup_ops::onboarding_skip,
+    },
+    NativeOp {
+        name: "repo.list",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "repo.add",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "repo.remove",
+        call: repo_ops::repo_remove,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -475,6 +489,9 @@ mod tests {
             "files.search",
             "setup.check",
             "onboarding.skip",
+            "repo.list",
+            "repo.add",
+            "repo.remove",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -564,6 +581,9 @@ mod tests {
             "files.search",
             "setup.check",
             "onboarding.skip",
+            "repo.list",
+            "repo.add",
+            "repo.remove",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
