@@ -21,8 +21,8 @@ pub(crate) mod snapshot_sync;
 pub(crate) mod status_ops;
 pub(crate) mod status_sync;
 pub(crate) mod task_clean_sync;
-pub(crate) mod task_dismiss_ops;
 mod task_diff_ops;
+pub(crate) mod task_dismiss_ops;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
@@ -30,11 +30,11 @@ mod task_reads;
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
+pub(crate) use host_read_ops::needs_host_read_bridge;
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
-pub(crate) use host_read_ops::needs_host_read_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
 
 #[cfg(feature = "test-ops")]

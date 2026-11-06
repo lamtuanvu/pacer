@@ -3,9 +3,7 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
-use pacer_lifecycle::{
-    CommandGit, DiffOptions, TaskDiffError, task_diff, task_diff_to_json,
-};
+use pacer_lifecycle::{CommandGit, DiffOptions, TaskDiffError, task_diff, task_diff_to_json};
 use pacer_store::TaskStore;
 use serde_json::Value;
 
@@ -26,10 +24,14 @@ fn parse_params(params: &Value) -> Result<(String, Option<String>), CoreError> {
         ))
     })?;
     if id.is_empty() {
-        return Err(invalid("id: Too small: expected string to have >=1 characters"));
+        return Err(invalid(
+            "id: Too small: expected string to have >=1 characters",
+        ));
     }
     if id.encode_utf16().count() > 128 {
-        return Err(invalid("id: Too big: expected string to have <=128 characters"));
+        return Err(invalid(
+            "id: Too big: expected string to have <=128 characters",
+        ));
     }
     let path = match map.get("path") {
         None => None,
@@ -41,10 +43,14 @@ fn parse_params(params: &Value) -> Result<(String, Option<String>), CoreError> {
                 ))
             })?;
             if text.is_empty() {
-                return Err(invalid("path: Too small: expected string to have >=1 characters"));
+                return Err(invalid(
+                    "path: Too small: expected string to have >=1 characters",
+                ));
             }
             if text.encode_utf16().count() > 4096 {
-                return Err(invalid("path: Too big: expected string to have <=4096 characters"));
+                return Err(invalid(
+                    "path: Too big: expected string to have <=4096 characters",
+                ));
             }
             if text.contains('\0') {
                 return Err(invalid("path: path must not contain NUL"));
@@ -57,7 +63,9 @@ fn parse_params(params: &Value) -> Result<(String, Option<String>), CoreError> {
 
 fn map_error(id: &str, error: TaskDiffError) -> CoreError {
     match error {
-        TaskDiffError::NotFound => CoreError::new(Code::NotFound, format!("task \"{id}\" not found")),
+        TaskDiffError::NotFound => {
+            CoreError::new(Code::NotFound, format!("task \"{id}\" not found"))
+        }
         TaskDiffError::InvalidInput(message) => invalid(message),
         TaskDiffError::Git(message) => invalid(message),
         TaskDiffError::Io(error) => CoreError::new(Code::Internal, error.to_string()),

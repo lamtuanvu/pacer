@@ -1,4 +1,5 @@
 //! Cross-runtime driver for `task_diff`; opens only the given PACER_HOME + repo path.
+#![allow(clippy::expect_used)]
 use pacer_lifecycle::{CommandGit, DiffOptions, task_diff, task_diff_to_json};
 use pacer_store::TaskStore;
 use std::{env, path::PathBuf};
@@ -16,5 +17,8 @@ fn main() {
         snapshot: false,
     };
     let diff = task_diff(&home, &task, options, &CommandGit).expect("task_diff");
-    println!("{}", serde_json::to_string(&task_diff_to_json(&diff)).expect("json"));
+    println!(
+        "{}",
+        serde_json::to_string(&task_diff_to_json(&diff)).expect("json")
+    );
 }
