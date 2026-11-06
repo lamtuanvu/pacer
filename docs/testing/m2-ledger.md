@@ -500,7 +500,11 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total still not native (v3 − native set): **184**.
+Total native: **69** of 224 (57 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Seven of these selectively forward some inputs to TypeScript:
+`config.set`, `mode.hold`, `routing.route`, `repo.remove`, `task.stop`,
+`task.wait` and `task.review`.
+Total still not native (v3 − native set): **155**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
