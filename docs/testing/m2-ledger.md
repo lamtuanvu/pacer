@@ -28,6 +28,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.diff` | Forwarded | Needs the full git argv, snapshot fallback and file tree parity fixture. |
 | `task.list` | Native (P3) | Composed via `pacer_read_model::tasks::task_list_page` once Core supplies active sessions and runner liveness through `/_internal/session-probe-parts` (serve) or `_internal.session-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns session lifecycle and `pidAlive`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.get` | Native (P3, selective) | Composed via `pacer_read_model::task_detail` plus Core enrichment through `/_internal/task-read-parts` / `_internal.task-read.parts` (session probe, git diffstat/branch, tokens, retry options, dispatch `work` / `managedSkip`, agent-check acceptance gating, activity timeline tail). TypeScript still owns git, usage broker reads and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `snapshot.get` | Native (P8) | Composed via `pacer_read_model::ReadModel::snapshot` once Core supplies setup, policy, machine guard samples, service row, desktop updates, pairing eligibility, session probe and live `computeStatus` through `/_internal/snapshot-probe-parts` / `_internal.snapshot-probe.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns setup probes, plugin policy, discovery pairing, status warming and session lifecycle. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `delegation.pause`, `delegation.resume` | Native (P5) | `pacer-engine::pause` writes `state/pause.json`, publishes the `pause` event, appends activity, then publishes the `delegation` config area. No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `mode.release` | Native (P5) | Clears `state/mode-hold.json` via `pacer-engine::mode_hold` and publishes the `mode` config area. |
 | `mode.hold` | Native (P5, selective) | Explicit `until` is native. Omitting `until` selectively forwards to TypeScript so `computeStatus` can default to the planner reset window (P5b). |
@@ -86,6 +87,8 @@ incremental library step is `pacer-lifecycle::record_task_stop` (store-only
 PR #585 adds the native `/v3/tasks/<id>/log?follow=1` SSE route. It retains a read-only SQLite connection, detects database replacement, and drains bounded output chunks before `done`. When a read needs a legacy JSON import, an older schema migration, or malformed-record semantics, it calls the existing TypeScript `task.log` fallback with the current byte offsets. That core read performs the shared durable import; no per-stream import cache or new Rust state writer is used. The same fallback applies after a stream connects. All other `/v2` routes remain forwarded.
 
 **P8 (HTTP events):** native `/v2/events` and `/v3/events` SSE replay the shared link outbox through `pacer-read-model::events::SseCursor` (cursor validation, retention `reset`, v2/v3 conversion, task enrichment, 15 s keepalive). Stdio `subscribe` stays TypeScript. `PACER_FORWARD_OPS=http.events` or `*` forwards the route to the core reference. No second publisher.
+
+**P8 (snapshot.get):** native stdio `snapshot.get` composes the v3 snapshot through `pacer-read-model::ReadModel::snapshot` with the snapshot-probe bridge (session revision/active, runner liveness, deferred setup checklist, policy summary, machine guard samples, service metadata, desktop update rows, pairing eligibility and status or warming failure). Cross-runtime coverage: `test/native-snapshot-get-parity.test.ts` and `cargo test -p pacer-server snapshot_get`.
 
 Like the TypeScript reference, follow mode resets the stderr byte offset to zero
 when a task has no run record. If a later poll sees a restored run, its stderr
@@ -285,11 +288,10 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `doctor.*` | 1 | P9 | e.g. `doctor.run` |
 | `files.*` | 1 | P8 | e.g. `files.search` |
 | `insights.*` | 1 | P5 | e.g. `insights.summary` |
-| `snapshot.*` | 1 | P8 | e.g. `snapshot.get` |
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 | `version.*` | 1 | P9 | e.g. `version.get` |
 
-Total unregistered (not in the detailed table): **180**.
+Total unregistered (not in the detailed table): **179**.
 Total still not native (v3 − native set): **193**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native

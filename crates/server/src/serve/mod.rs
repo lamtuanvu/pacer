@@ -234,6 +234,14 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
+            let snapshot_sync = if crate::native::needs_snapshot_bridge(op.name) {
+                state.core.target().await.map(|target| {
+                    Box::pin(crate::native::snapshot_sync::http(Some(target)))
+                        as pacer_foundation::api::OpFuture<'_>
+                })
+            } else {
+                None
+            };
             call_native(
                 &request_ctx,
                 op,
@@ -244,6 +252,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 session_sync,
                 task_read_sync,
                 config_host_sync,
+                snapshot_sync,
             )
             .await
         };
