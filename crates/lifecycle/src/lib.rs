@@ -1,10 +1,11 @@
-//! Task admission contracts and P6e lifecycle decisions.
-//! No served operation calls this crate yet.
+//! Task admission contracts, safe store-only lifecycle ops, and P6e decisions.
+//! Runner/_run-dependent task ops stay forwarded until P6b/P6c cutover.
 mod brief;
 mod capacity;
 mod dependencies;
 mod json;
 mod lineage;
+mod request_review;
 mod schema;
 mod semantics;
 
@@ -70,6 +71,7 @@ mod mutation;
 pub use mutation::MutationError;
 mod projects;
 pub use projects::{read_project_strategies, validate_project_strategies};
+pub use request_review::{RequestReviewError, request_review};
 
 // Unactivated P6e decisions take snapshots and effect results; these modules
 // perform no filesystem, process or plugin work.

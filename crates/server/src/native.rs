@@ -7,6 +7,7 @@ mod config_params;
 pub(crate) mod config_sync;
 mod config_writes;
 mod engine_ops;
+mod lifecycle_ops;
 pub mod plugins;
 mod task_reads;
 
@@ -52,6 +53,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "strategy.remove",
         call: config_writes::strategy_remove,
+    },
+    NativeOp {
+        name: "routing.get",
+        call: config_writes::routing_get,
     },
     NativeOp {
         name: "routing.set",
@@ -124,6 +129,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "limits.report",
         call: engine_ops::limits_report,
+    },
+    NativeOp {
+        name: "task.request_review",
+        call: lifecycle_ops::task_request_review,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -212,6 +221,7 @@ mod tests {
             "strategy.use",
             "strategy.save",
             "strategy.remove",
+            "routing.get",
             "routing.set",
             "runner.set",
             "runner.reorder",
@@ -226,6 +236,7 @@ mod tests {
             "mode.hold",
             "mode.release",
             "limits.report",
+            "task.request_review",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -247,6 +258,15 @@ mod tests {
         assert!(registry("").get("task.diff").is_none());
         assert!(registry("").get("task.get").is_none());
         assert!(registry("").get("task.list").is_none());
+        assert!(registry("").get("task.delegate").is_none());
+        assert!(registry("").get("task.stop").is_none());
+        assert!(registry("").get("task.answer").is_none());
+        assert!(registry("").get("task.wait").is_none());
+        assert!(registry("").get("task.retry").is_none());
+        assert!(registry("").get("task.retry_all").is_none());
+        assert!(registry("").get("task.retry_options").is_none());
+        assert!(registry("").get("task.review").is_none());
+        assert!(registry("").get("task.ask").is_none());
         assert!(registry("").get("routing.status").is_none());
         assert!(registry("").get("routing.route").is_none());
         assert!(registry("").get("limits.check").is_none());
@@ -266,6 +286,7 @@ mod tests {
             "strategy.use",
             "strategy.save",
             "strategy.remove",
+            "routing.get",
             "routing.set",
             "runner.set",
             "runner.reorder",
@@ -280,6 +301,7 @@ mod tests {
             "mode.hold",
             "mode.release",
             "limits.report",
+            "task.request_review",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");

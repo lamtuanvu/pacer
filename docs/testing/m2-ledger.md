@@ -14,7 +14,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `repo.add`, `repo.list`, `repo.remove` | Forwarded (P2-D) | Registry/path-probe/git identity and branch reads stay in TypeScript; only `repo_key` URL canonicalization is in the Rust host library. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
 | `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
-| `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3/P4d-4/P4d-5) | X3 `MutationOperations` over Core private IPC. Flag-off: `/_internal/plugins` prepare/`call`/`stop`/`changed`/`publish`/`log` with TS child spawn. Flag-on (`PACER_NATIVE_PLUGIN_HOST=1`): serve `ProcessOwner` starts/supervises children; Core supplies sealed `spawn_spec` + hello bookkeeping (`ready`) and refuses local spawn when `PACER_HOST_SOCKET` is set; private `call` is retired on that path. **Default serve stays flag-off** until the native owner answers `capability.*` for bundled plugins and CT-11 lands; `PACER_NATIVE_PLUGIN_HOST=0` is the documented escape for the future default-on flip (`serve_starts_reverse_bridge_by_default`). Bridge adds `_host.plugin.spawn` / `stop`. Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the op escape hatch. |
+| `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3…P4d-7) | X3 `MutationOperations` over Core private IPC. Flag-off: `/_internal/plugins` prepare/`call`/`stop`/`changed`/`publish`/`log` with TS child spawn. Flag-on (`PACER_NATIVE_PLUGIN_HOST=1`): serve `ProcessOwner` starts/supervises children; Core supplies sealed `spawn_spec` + `call_authority` + hello bookkeeping (`ready`) and refuses local spawn when `PACER_HOST_SOCKET` is set; private `call` is retired on that path. **P4d-6/7** install a hello-sealed `PluginCapabilitySession` and bind Core-issued call-scoped `CallResources` so `capability.log` / `config.get` and fixture fs/process/http natives answer. **Default serve stays flag-off** until executor-class resources, observation/hosts/orca brokers, and CT-11 land; `PACER_NATIVE_PLUGIN_HOST=0` is the documented escape for the future default-on flip (`serve_starts_reverse_bridge_by_default`). Bridge adds `_host.plugin.spawn` / `stop`. Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the op escape hatch. |
 | `plugin.install` | Native HTTP (P4d-4) | Retired Orca install refusal registered on the HTTP service registry (X3 parity). Stdio remains TypeScript. |
 | `strategy.list`, `strategy.show` | Native (P2-B) | `src/api/ops.ts` remains the reference and forward fallback via `PACER_FORWARD_OPS`; reads reuse `pacer-config` `list_strategy_reads` / `show_strategy`. |
 | `strategy.use`, `strategy.save`, `strategy.remove` | Native (P2-C) | `src/api/ops.ts` remains the reference and forward fallback; native effects use `pacer-config` and the P3-B publisher. |
@@ -29,9 +29,15 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `mode.release` | Native (P5) | Clears `state/mode-hold.json` via `pacer-engine::mode_hold` and publishes the `mode` config area. |
 | `mode.hold` | Native (P5, selective) | Explicit `until` is native. Omitting `until` selectively forwards to TypeScript so `computeStatus` can default to the planner reset window (P5b). |
 | `limits.report` | Native (P5) | Resolves the runner through `pacer-config`, marks `exhausted.json` + evidence via `pacer-engine::exhausted` (manual). No publish. |
-| `limits.check`, `limits.refresh` | Forwarded (P5b) | Need the usage broker / plugin readings and status composition. |
-| `routing.status`, `routing.route` | Forwarded (P5b) | Need `computeStatus`, ranking over live readings, remote eligibility and optional classifier. Pure rank/eligibility/pace remain in `pacer-engine` (P5a). |
-| `routing.get` | Forwarded (P2) | Strategy routing document read; not part of the safe engine-ops batch. |
+| `limits.check`, `limits.refresh` | Forwarded (P5b) | Need the usage broker / plugin readings. Library stubs: `pacer_engine::status::{compose_status, limits_rows_from_status, default_mode_hold_until}` accept injected parts only. |
+| `routing.status`, `routing.route` | Forwarded (P5b) | Need live readings, remote eligibility and optional classifier. Bridge stubs: `compose_status` / `rank_route` assemble once a supplier injects provider rows (P5a pure rank/eligibility/pace already in `pacer-engine`). |
+| `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6b/P6c) | Need `_run` spawn, drain launch, policy/project admission effects and executor-session guard. |
+| `task.stop`, `task.ask` | Forwarded (P6b/P6c) | Need executor/provider stop grants, live-worker release, agent-session checks and (for ask) messaging insert. |
+| `task.wait` | Forwarded (P6b/P6c) | Poll loop still drains the queue, supervises the runner and waits on agent sessions/checks. |
+| `task.review` | Forwarded (P6c) | Accept/reject need agent-session/check gates and labels; `send_back`/`retry` need delegate/`_run`. |
+| `task.retry_options` | Forwarded (P5b/P6) | Needs routing/policy ranking over live readings (same broker gap as `routing.route`). |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
@@ -66,7 +72,7 @@ files are left intact. Mutation nesting failures do not replay. Oversized aggreg
 any diagnostic call; successful diagnostic payloads are discarded because TS
 ignores them. No operation is replayed after a diagnostic RPC. The bound is not a public JSON/schema rejection.
 
-## P4d path scaffolding (X1 / X1b / X1c / P4d-1 / P4d-2 / P4d-3 / P4d-4 / P4d-5)
+## P4d path scaffolding (X1 / X1b / X1c / P4d-1 … P4d-6)
 
 `pacer-plugin-runtime` names the process-owner gate and the private
 `PACER_HOST_SOCKET` / `$PACER_HOME/run/host.sock` contract. X1b lets a native
@@ -85,17 +91,22 @@ registers `plugin.install` refuse on HTTP, and has Core refuse local spawn when
 `PACER_HOST_SOCKET` is set so one plugin id cannot have two live owners.
 **P4d-5** lands the `PACER_NATIVE_PLUGIN_HOST=0` escape semantics and retires
 private `call` on the flag-on path, but **keeps default serve TypeScript-owned**
-(`serve_starts_reverse_bridge_by_default = false`) because the native owner does
-not yet answer `capability.*` for bundled plugins and CT-11 live cutover is
-still open. Flipping that const plus live evidence is the remaining default-on
-slice. Stdio native plugin ops and further `/_internal/plugins` deletion remain
-later. See inventories under `.work/reviews/`.
+(`serve_starts_reverse_bridge_by_default = false`). **P4d-6/7** wire
+`PluginCapabilitySession` on the flag-on `ProcessOwner`: hello-sealed
+`capability.log` / `capability.config.get`, plus Core `call_authority` that
+seals exact-path `fs.read` / exact-host `net.http` (and host-supplied
+reads/commands/http) so native modules attach for fixture plugin calls.
+Default stays off because executor-class resources (usage/orca/worktree),
+observation/hosts brokers are unfinished, and CT-11 live cutover is still open.
+Flipping that const plus live evidence is the remaining default-on slice. Stdio
+native plugin ops and further `/_internal/plugins` deletion remain later. See
+inventories under `.work/reviews/`.
 
-### Per-scope plugin process owner (P4d-1 … P4d-5)
+### Per-scope plugin process owner (P4d-1 … P4d-7)
 
 | Scope | Owner today | Notes |
 | --- | --- | --- |
-| Service (`pacer serve`) | TypeScript Core (default); Rust `ProcessOwner` when flag on | Flag-on: ProcessOwner starts/supervises children for native HTTP plugin RPC and bridge spawn/call/find/stop; Core seals spawn_spec and refuses local spawn; private `call` retired. Default stays off; `=0` escape ready for default-on. |
+| Service (`pacer serve`) | TypeScript Core (default); Rust `ProcessOwner` when flag on | Flag-on: ProcessOwner starts/supervises children for native HTTP plugin RPC and bridge spawn/call/find/stop; answers hello-sealed `capability.log`/`config.get` and Core-sealed call-scoped fs/process/http (P4d-6/7); Core seals spawn_spec/`call_authority` and refuses local spawn; private `call` retired. Default stays off; `=0` escape ready for default-on. |
 | Stdio (`pacer-core api --stdio`) | TypeScript | Unchanged (P8) |
 | CLI one-shots | TypeScript | Unchanged |
 | `_run` runners | TypeScript | Unchanged (P6b) |
@@ -109,16 +120,29 @@ later. See inventories under `.work/reviews/`.
 - **P4d-4 Native HTTP:** `plugin.install` (retired refuse). Flag-on ProcessOwner
   child spawn for native plugin RPC + bridge `spawn`/`stop`.
 - **P4d-5:** `PACER_NATIVE_PLUGIN_HOST=0` escape parsing; private `call` retired
-  when `PACER_HOST_SOCKET` is set; default remains off (capability broker +
-  CT-11). Flag-on surface is prepare/spawn_spec/ready/stop/changed/publish/log.
+  when `PACER_HOST_SOCKET` is set; default remains off. Flag-on surface is
+  prepare/spawn_spec/ready/stop/changed/publish/log (+ `call_authority` in P4d-7).
+- **P4d-6:** hello-sealed `PluginCapabilitySession` on flag-on ProcessOwner;
+  `capability.log` / `capability.config.get`; native fs/process/http modules
+  reusable with issued `CallResources` (library proof).
+- **P4d-7:** Core→Rust `call_authority` seals call-scoped `CallResources`;
+  ProcessOwner binds natives for the call (fixture fs/process/http). Default
+  remains off (executor-class resources + observation/hosts/orca + CT-11).
+- **P4d-8:** Core `call_authority` seals observation bootstrap for
+  `diagnostic.ping` / `policy.before` when `tasks.read` / `events.subscribe` are
+  granted; ProcessOwner routes `capability.tasks.*` / `capability.events.subscribe`
+  through `ObservationGeneration` (list proof; Core task projection bridge and
+  host provider snapshots still open). Host `HostOperationResource` sealing
+  validates exact issued ops; `with_hosts` attach remains deferred.
 - **P4d-1 landed (flag-gated):** serve can claim `ProcessOwner` + reverse bridge
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against
   serve-owned children.
 - **Blocked on later P4d:** flipping `serve_starts_reverse_bridge_by_default`,
   deleting remaining `/_internal/plugins` kinds (still needed for
-  prepare/spawn_spec/ready/changed/publish/log), stdio native plugin ops,
-  full capability broker on the native owner, and CT-11 live evidence.
+  prepare/spawn_spec/call_authority/ready/changed/publish/log), stdio native
+  plugin ops, executor-class call resources, observation/hosts/orca on the
+  native owner, and CT-11 live evidence.
 - **Still deferred:** Rust signed archive inspection/extraction and publisher
   trust (crypto dependency tree). TypeScript archive/publisher remain.
 
@@ -178,7 +202,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `dispatch.*` | 23 | P5/P6 | e.g. `dispatch.analytics`, `dispatch.answer`, `dispatch.child` (+20 more) |
 | `desktop.*` | 17 | P8/P9 | e.g. `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.register` (+14 more) |
 | `session.*` | 14 | P7 | e.g. `session.agent.create`, `session.agent.end`, `session.agent.get` (+11 more) |
-| `task.*` | 14 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+11 more) |
+| `task.*` | 13 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+10 more); `request_review` native above |
 | `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
 | `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
 | `account.*` | 9 | P7/P9 | e.g. `account.add`, `account.adopt`, `account.edit` (+6 more) |
@@ -208,8 +232,8 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 | `version.*` | 1 | P9 | e.g. `version.get` |
 
-Total unregistered (not in the detailed table): **182**.
-Total still not native (v3 − native set): **197**.
+Total unregistered (not in the detailed table): **181**.
+Total still not native (v3 − native set): **195**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

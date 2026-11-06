@@ -569,9 +569,11 @@ async fn write_raw(stream: &mut UnixStream, value: &Value) -> Result<(), BridgeE
 /// When true, unset env enables the native plugin host; set
 /// `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape.
 ///
-/// Kept `false` until the native [`crate::ProcessOwner`] answers `capability.*`
-/// for bundled plugins and CT-11 live evidence lands (P4d-5). The disable
-/// parsing already works so cutover is a one-const flip plus validation.
+/// Kept `false` until executor-class call resources, observation/hosts/orca
+/// brokers, and CT-11 live evidence land. P4d-7 lets Core seal call-scoped
+/// `CallResources` so fixture fs/process/http attach under flag-on ProcessOwner;
+/// default-on stays blocked. The disable parsing already works so cutover is a
+/// one-const flip plus validation.
 pub const fn serve_starts_reverse_bridge_by_default() -> bool {
     false
 }

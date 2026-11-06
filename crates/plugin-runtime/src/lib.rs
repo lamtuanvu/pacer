@@ -9,9 +9,13 @@
 //! `find` / `spawn` / `stop`, and exports [`HOST_SOCKET_ENV`] for Core.
 //! Falsy values (`0` / `false` / `no`) are the P4d-5 escape hatch for the
 //! future default-on cutover. Flag-on serve routes native plugin RPC through
-//! that owner so TypeScript does not also spawn the same plugin id.
+//! that owner so TypeScript does not also spawn the same plugin id. P4d-6/7
+//! installs a [`PluginCapabilitySession`] so the owner answers `capability.*`
+//! via `pacer-plugin-host` (log/config.get always; native fs/process/http when
+//! Core issues call-scoped resources). Default-on stays off until CT-11.
 
 mod bridge_listener;
+mod capability;
 mod host_bridge;
 mod owner;
 mod serve_host;
@@ -20,13 +24,22 @@ pub use bridge_listener::{
     BRIDGE_MAX_LINE_BYTES, BridgeDispatch, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,
     SharedOwner, bridge_methods_are_private, serve_starts_reverse_bridge_by_default,
 };
+pub use capability::{
+    CapabilitySessionError, LocalHostEffect, ObservationBootstrap, PluginCapabilitySession,
+    call_resources_from_value, observation_bootstrap_from_value, session_for_call,
+    session_from_hello,
+};
 pub use host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
     METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, dark_bridge_disabled,
     dark_bridge_enabled, host_socket_path, prepare_host_run_dir,
 };
 pub use owner::{OwnerError, Ownership, ProcessOwner};
-pub use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, SpawnSpec};
+pub use pacer_plugin_host::{
+    CallAuthority, CallResources, CapabilityBroker, NativeHttp, NativeProcess, NativeRead,
+    NativeWrite, PluginProcess, PluginState, ProcessError, ReadResource, Registry, SpawnSpec,
+    WriteResource, parse_manifest,
+};
 pub use serve_host::{
     NATIVE_PLUGIN_HOST_ENABLE_ENV, NativeHostError, NativeHostSession, native_plugin_host_enabled,
     native_plugin_host_enabled_from_env,

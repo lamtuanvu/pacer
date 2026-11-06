@@ -31,6 +31,7 @@ import { prepareFilesystemAuthority } from "./capability-fs";
 import { prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources } from "./authority";
+import { sealCallAuthority } from "./native-call-authority";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type SpawnSpec } from "./process";
@@ -1739,6 +1740,24 @@ export class PluginRegistry {
         grants,
       },
     };
+  }
+
+  /**
+   * Seal call-scoped CallResources for flag-on ProcessOwner (P4d-7).
+   * Auto-issues exact absolute fs.read paths and exact net.http hosts from the
+   * granted manifest; host-supplied resources are validated then echoed sealed.
+   * Glob / `$VAR` scopes still need a later host-issued concrete resource path.
+   */
+  nativeIssueCallAuthority(ctx: Ctx, id: string, options: { resources?: CallResources; ttlMs?: number; method?: string } = {}) {
+    const e = this.findEntry(ctx, id);
+    if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
+    const manifest = e.manifest!;
+    const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
+    return sealCallAuthority(ctx, manifest, grants, {
+      resources: options.resources,
+      ttlMs: options.ttlMs,
+      method: options.method,
+    });
   }
 
   /** Record a ProcessOwner hello without holding a local PluginProcess. */
