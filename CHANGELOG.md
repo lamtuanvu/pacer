@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Own Trace's detail column, Setup's step rail and Settings › Agents detail as shell side panels (`FrameSlot` left/right, with in-page fallbacks when panels cannot show), keep Settings navigation and Dispatch scope at the shared 272px panel width, and remove nested scrollers inside Dispatch and Workspace panel bodies so each panel has one scroller. See [ADR 0022](docs/decisions/0022-shell-owned-page-regions.md).
+
 - Make Diagnostics attention-first with status filters, search and collapsible categories. Keep specific causes and recovery steps visible, preserve original technical evidence, and remove empty progress spacing and unmeasured timing placeholders.
 
 - Identify workspace session tabs by task title and additional agent tabs by owning task, executor and session ordinal; refresh existing tab labels when task data arrives.

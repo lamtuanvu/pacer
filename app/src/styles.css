@@ -389,7 +389,9 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 /* Padding and rule come from `.pc-page-head`; keep this as a title row only. */
 .pc-setup-header{display:flex;justify-content:space-between;gap:var(--space-4);align-items:center;padding:0;border:0}
 .pc-setup-layout{display:grid;grid-template-columns:var(--size-300) minmax(0,1fr)}
+.pc-setup-layout--framed{grid-template-columns:minmax(0,1fr)}
 .pc-setup-rail{border-right:1px solid var(--line);padding:var(--space-5);position:sticky;top:0;align-self:start}
+.pc-side-panel .pc-setup-rail{border-right:0;position:static;padding:var(--space-3) var(--space-3) var(--space-4)}
 .pc-setup-rail ol{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-1)}
 .pc-setup-rail li{display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3);border:1px solid transparent;border-radius:var(--radius-lg)}
 .pc-setup-rail li[aria-current]{background:var(--surface-card);border-color:var(--line)}

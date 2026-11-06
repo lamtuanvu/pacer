@@ -20,7 +20,7 @@ import { Dialog } from '../../ds/Dialog';
 import { StatusPill } from '../../ds/StatusPill';
 import { Pill } from '../../ds/Pill';
 import { UsageMeter } from '../../ds/UsageMeter';
-import { Card, ListRow, NavTabs, PageColumns } from '../../ds/Patterns';
+import { Card, ListRow, NavTabs } from '../../ds/Patterns';
 import { SectionHeading } from '../../ds/SectionHeading';
 import { Icon } from '../../ds/icons';
 import { SettingRow } from '../../ds/SettingRow';

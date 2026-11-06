@@ -213,6 +213,7 @@
 .pc-page-columns--agents{grid-template-columns:minmax(0,1fr) minmax(var(--size-340),var(--size-400));gap:var(--space-6)}
 .pc-page-columns--agents:not(:has(.pc-page-columns__aside)){grid-template-columns:minmax(0,1fr)}
 .pc-page-columns--agents>.pc-page-columns__aside{align-self:stretch;background:var(--surface-card);border-left:1px solid var(--line);padding:var(--space-7) var(--space-6)}
+.pc-side-panel .u3-agent-detail{padding:var(--space-4) var(--space-3) var(--space-5);display:flex;flex-direction:column;gap:var(--space-4)}
 .pc-radio-choices{display:inline-flex;flex-wrap:wrap;gap:var(--space-half);padding:var(--space-half);border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface-card)}
 .pc-radio-choices label{display:inline-flex;align-items:center;gap:var(--space-1);padding:var(--space-1) var(--space-3);border-radius:var(--radius-sm);font-weight:var(--type-body-strong-weight);cursor:pointer}
 .pc-radio-choices label:has(:checked){background:var(--surface-lane)}

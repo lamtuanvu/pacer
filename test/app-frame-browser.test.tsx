@@ -718,7 +718,7 @@ browserTest("Tasks and New task fill the right panel through the frame, not a pa
     await page.evaluate(() => { location.hash = "#/tasks/new"; });
     const newTaskInspector = page.getByRole("complementary", { name: "Inspector" });
     await newTaskInspector.getByText("Will go to", { exact: true }).waitFor();
-    expect(await page.locator(".pc-new-task__cols .pc-new-task__aside").count()).toBe(0);
+    expect(await page.locator(".pc-new-task__body .pc-new-task__aside").count()).toBe(0);
   } finally { await browser.close(); }
 }, 20_000);
 
@@ -740,6 +740,35 @@ browserTest("New task's Inspector toggle actually opens and closes the panel", a
     await expect(toggle.getAttribute("aria-pressed")).resolves.toBe("true");
   } finally { await browser.close(); }
 }, 20_000);
+
+browserTest("Trace, Setup and Agents fill shell panels through FrameSlot", async () => {
+  const built = await allPagesFrame();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openAllPages(page, built, "#/tasks/t-0412");
+    await page.getByRole("heading", { level: 1, name: /Fix flaky/ }).waitFor();
+    const traceInspector = page.getByRole("complementary", { name: "Inspector" });
+    await traceInspector.waitFor();
+    await traceInspector.getByRole("heading", { name: "Tokens by agent" }).waitFor();
+    expect(await page.locator(".pc-main-scroll .pc-trace__aside").count()).toBe(0);
+    await page.evaluate(() => { location.hash = "#/setup"; });
+    await page.getByRole("heading", { level: 1, name: "Set up pacer" }).waitFor();
+    const setupRail = page.getByRole("complementary", { name: "Setup steps" });
+    await setupRail.waitFor();
+    await setupRail.getByRole("list", { name: "Setup steps" }).waitFor();
+    expect(await page.locator(".pc-setup-layout--framed .pc-setup-rail").count()).toBe(0);
+    await page.evaluate(() => { location.hash = "#/settings/executors"; });
+    await page.getByRole("heading", { level: 1, name: "Agents" }).waitFor();
+    await page.getByRole("complementary", { name: "Settings" }).waitFor();
+    // Inspector stays closed until an executor is selected.
+    expect(await page.getByRole("complementary", { name: "Inspector" }).count()).toBe(0);
+    await page.locator('button[aria-label^="More actions for"]').first().click();
+    const agentsInspector = page.getByRole("complementary", { name: "Inspector" });
+    await agentsInspector.waitFor();
+    await agentsInspector.getByRole("heading", { level: 2 }).first().waitFor();
+  } finally { await browser.close(); }
+}, 30_000);
 
 // Every routed page's own header (title, filter tabs, actions) now lives in the real router/Layout/Screen tree,
 // via FrameSlot name="header"; this fixture is the only one that walks the router instead of mounting one screen.
