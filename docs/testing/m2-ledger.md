@@ -37,7 +37,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `mode.hold` | Native (P5, selective) | Explicit `until` is native. Omitting `until` selectively forwards to TypeScript so `computeStatus` can default to the planner reset window (P5b). |
 | `limits.report` | Native (P5) | Resolves the runner through `pacer-config`, marks `exhausted.json` + evidence via `pacer-engine::exhausted` (manual). No publish. |
 | `limits.check` | Native (P5c) | Row projection via `pacer_engine::usage_broker::limits_check` once Core supplies `accounts` + `providers` through `/_internal/status-broker-parts` (serve) or `_internal.status-broker.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns `computeStatus` / plugin readings. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `limits.refresh` | Forwarded (P5b) | Needs live refresh coordinator and plugin calls beyond the P5c read-only broker bridge. |
+| `limits.refresh` | Forwarded (P5b) | `refreshAccountUsage` / `refreshAllUsage` coordinator (`src/usage/refresh.ts`): per-account dedupe, 15-minute automatic throttle, outcome projection from prior/current readings. Effectful reads via `readAccountUsage(..., refresh: true)` and `readPluginUsage` (provider CLI, Ark CLI, passive Claude logs). Beyond P5c read-only status-broker injection; HTTP `usageRefreshDone` rebuilds cached status after manual refresh. Library: `pacer_engine::usage_refresh` mirrors capability/outcome rules only. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.status` | Native (P5d) | Composed via `pacer_engine::usage_broker::routing_status` with the same P5c `accounts` + `providers` bridge (`/_internal/status-broker-parts` / `_internal.status-broker.parts`). TypeScript still owns live `computeStatus`. `calendarPace` defaults in Rust until the bridge carries planner profile hints. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.route` | Native (P5d, selective) | Broker-backed `usage_broker::routing_route` / `status::rank_route` when params omit `goal` and `repo`. Params with `goal` (classifier) or `repo` (project policy + remote eligibility) selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -74,6 +74,11 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `msg.confirm` | Forwarded (P6) | Human-only release of policy-held messages then `deliver` with runner spawn. |
 | `msg.close` | Forwarded (P6) | Sets `msgClosed`, parent/origin/human authorization and `autoCleanTask` worktree release; no review verdict. |
 | `msg.policy` | Forwarded (P6) | Effective repository guardrails and hypothetical `checkSend` evaluation (`effectivePolicy`, project messaging config). |
+| `desktop.capture.register`, `desktop.capture.targets`, `desktop.capture.request`, `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.result` | Forwarded (P8/P9) | Desktop capture broker over connected authenticated desktop clients (`src/desktop/capture-broker.ts`, `src/api/ops-desktop.ts`): worker credential renewal, owned-window inventory, request/claim/complete lifecycle and PNG metadata reads. Bounded image upload stays on authenticated HTTP routes. |
+| `desktop.update.status`, `desktop.update.check`, `desktop.update.download`, `desktop.update.restart`, `desktop.update.cancel`, `desktop.update.configure`, `desktop.update.adopt`, `desktop.update.adoptCancel` | Forwarded (P8/P9) | Verified desktop OTA and service-adoption runtime (`src/api/ops-desktop-update.ts`, `src/desktop/update/`): feed checks, signed download, restart reservation, adoption handoff and public status. Snapshot probe carries update rows only; effectful install/restart stays TypeScript. |
+| `desktop.reconcile.status`, `desktop.reconcile.request`, `desktop.reconcile.cancel` | Forwarded (P8/P9) | Service reconciliation assessment and (future) native-proof request/cancel stubs (`src/api/ops-desktop-reconciliation.ts`); `request`/`cancel` remain unavailable until reconciliation is implemented. |
+| `discovery.list`, `discovery.network.get` | Forwarded (P8) | LAN discovery state reads: radio availability, found machines (cap 100), per-network advertising rows and revision counters (`src/api/ops-discovery.ts`, `src/discovery/`). |
+| `discovery.set`, `discovery.respond`, `discovery.network.set` | Forwarded (P8) | Machine-local discovery mutations with `expect_rev`, config publication and attention re-derivation; `respond` pair may hand over to a pairing plugin (`src/discovery/handover.ts`). Executor sessions refuse set/respond/network.set via caller policy. |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
@@ -166,6 +171,35 @@ does not register native handlers. Native cutover waits on P6 spawn ownership,
 P5 observation/broker bridges, and a messaging read model. v3-only `tree.status`
 and `liveness.status` (`src/api/ops-msg.ts`) remain under the `tree.*` prefix
 row until separately triaged.
+
+## P5b usage refresh triage (library, no new native ops)
+
+P5b evaluated `limits.refresh` for native registration after P5c registered
+`limits.check` on read-only status-broker injection. Refresh cannot reuse that
+bridge: the coordinator calls `readAccountUsage(..., refresh: true)`, which
+issues provider CLI commands, Ark CLI reads, or passive Claude log ingestion
+through `readPluginUsage` (`src/usage/index.ts`, `src/plugins/usage-broker.ts`).
+Selective native registration (compare `mode.hold` without `until`) does not
+apply because every supported account path needs effectful plugin or subprocess
+I/O, evidence reconciliation and cache mutation beyond injected broker rows.
+The incremental library step is `pacer_engine::usage_refresh` (`refresh_capability`,
+`refresh_outcome`, `automatic_refresh_suppressed`) aligned with
+`src/usage/adapter.ts` and `src/usage/refresh.ts`. Cross-runtime coverage:
+`test/usage-refresh-parity.test.ts` and `cargo test -p pacer-engine usage_refresh`.
+Native registration waits on a refresh bridge that can run plugin reads and
+publish warmed status (same gap as `account.usage.check` and live
+`computeStatus` warming).
+
+## P8 desktop and discovery triage (ledger, no new native ops)
+
+P8 evaluated all seventeen public `desktop.*` and five `discovery.*`
+operations for native registration. None met parity without the desktop capture
+broker, verified OTA/adoption runtime, LAN discovery radio/state files, pairing
+hand-over plugins, client registry liveness, and config/attention publication
+still owned by TypeScript (`src/desktop/`, `src/discovery/`, `src/api/ops-desktop*.ts`,
+`src/api/ops-discovery.ts`). Snapshot and read-model probes may carry desktop
+update rows and pairing eligibility summaries only. This slice expands the
+ledger with explicit Forwarded rows; it does not register native handlers.
 
 PR #585 adds the native `/v3/tasks/<id>/log?follow=1` SSE route. It retains a read-only SQLite connection, detects database replacement, and drains bounded output chunks before `done`. When a read needs a legacy JSON import, an older schema migration, or malformed-record semantics, it calls the existing TypeScript `task.log` fallback with the current byte offsets. That core read performs the shared durable import; no per-stream import cache or new Rust state writer is used. The same fallback applies after a stream connects. All other `/v2` routes remain forwarded.
 
@@ -342,7 +376,6 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 
 | Prefix | Count | Owner stream | Notes |
 | --- | ---: | --- | --- |
-| `desktop.*` | 17 | P8/P9 | e.g. `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.register` (+14 more) |
 | `task.*` | 12 | P3/P6 | e.g. `task.answer`, `task.ask`, `task.attach` (+9 more); `list` and `request_review` native above |
 | `assistant.*` | 12 | P7/P8 | e.g. `assistant.ask`, `assistant.cancel`, `assistant.candidates` (+9 more) |
 | `host.*` | 11 | P2 | YAML edits library-ready (`host` module); SSH/plugin ops stay forwarded (P2-D) |
@@ -350,7 +383,6 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `client.*` | 9 | P6 | e.g. `client.control.claim`, `client.control.complete`, `client.control.enroll` (+6 more) |
 | `project.*` | 7 | P2 | e.g. `project.messaging.get`, `project.messaging.remove`, `project.messaging.set` (+4 more) |
 | `runner.*` | 5 | P2 | `add`/`block`/`unblock`/`check`/`list` stay TS (`set`/`reorder`/`remove`/`settings.*` native above) |
-| `discovery.*` | 5 | P8 | e.g. `discovery.list`, `discovery.network.get`, `discovery.network.set` (+2 more) |
 | `agent.*` | 4 | P9 | e.g. `agent.connect`, `agent.detect`, `agent.disconnect` (+1 more) |
 | `service.*` | 4 | P9 | e.g. `service.handover`, `service.install`, `service.status` (+1 more) |
 | `strategy.*` | 4 | P2 | e.g. `strategy.build`, `strategy.list`, `strategy.preview` (+1 more) |
@@ -369,7 +401,7 @@ reconcile plans. Counts are op prefixes, not reviewable PR slices.
 | `insights.*` | 1 | P5 | e.g. `insights.summary` |
 | `tree.*` | 1 | P5/P6 | e.g. `tree.status` |
 
-Total unregistered (not in the detailed table): **131**.
+Total unregistered (not in the detailed table): **109**.
 Total still not native (v3 − native set): **190**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
