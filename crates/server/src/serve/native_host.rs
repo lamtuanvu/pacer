@@ -1,7 +1,7 @@
 //! Optional P4d-1/P4d-4/P4d-5 native plugin-host wiring for serve.
 //!
 //! Default serve does not start this path yet (`serve_starts_reverse_bridge_by_default`
-//! stays false until capability broker + CT-11). Truthy `PACER_NATIVE_PLUGIN_HOST`
+//! stays false until call-scoped capability resources + CT-11). Truthy `PACER_NATIVE_PLUGIN_HOST`
 //! / `PACER_HOST_BRIDGE` opt in; `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`)
 //! is the documented escape hatch once default-on lands. When enabled,
 //! [`maybe_start`] claims a native ProcessOwner, binds the reverse bridge with

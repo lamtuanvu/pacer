@@ -873,6 +873,17 @@ impl CapabilityBroker {
                     .map_err(|e| BrokerError::HostLease(e.to_string()))?;
                 return Ok(json!({"ok":true}));
             }
+            "capability.log" => {
+                let level = field("level")?;
+                if !["debug", "info", "warn", "error"].contains(&level) {
+                    return Err(BrokerError::Invalid("log level"));
+                }
+                let message = field("message")?;
+                if message.is_empty() || crate::js_semantics::codepoint_len(message) > 4096 {
+                    return Err(BrokerError::Invalid("log message"));
+                }
+            }
+            "capability.config.get" => {}
             _ => {
                 return Err(
                     AuthorityError::Denied("capability broker is not implemented".into()).into(),
@@ -1191,6 +1202,8 @@ fn validate_request_fields(
         ],
         "capability.hosts.fetch" => &["session", "timeoutMs", "maxBytes"],
         "capability.hosts.close" => &["session"],
+        "capability.log" => &["level", "message"],
+        "capability.config.get" => &[],
         _ => return Err(BrokerError::Invalid("unknown host method")),
     };
     if params.keys().any(|key| !allowed.contains(&key.as_str())) {
