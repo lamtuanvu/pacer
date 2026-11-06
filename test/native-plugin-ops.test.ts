@@ -62,8 +62,9 @@ test.skipIf(!front)("native raw JSON decoding matches fetch and JSON.parse bound
 
 async function service(forward = "", homeKind = "absolute", options: { nativeHost?: string } = {}) {
   // host.sock must fit SUN_LEN (~104). Bun test redirects TMPDIR into a deep
-  // isolated home, so flag-on homes allocate under /tmp directly.
-  const shortHome = options.nativeHost === "1";
+  // isolated home, so native-host homes allocate under /tmp directly.
+  const nativeHostEnabled = options.nativeHost !== "0";
+  const shortHome = nativeHostEnabled;
   const home = shortHome ? realpathSync(mkdtempSync("/tmp/pnh-")) : realpathSync(tmpDir());
   const state = join(home, ".pacer");
   mkdirSync(state, { mode: 0o700 });
@@ -524,8 +525,8 @@ let n=0;await serve({manifest,input:stdinLines(),handlers:{'diagnostic.ping':asy
   }
 }, 45000);
 
-test.skipIf(!front)("flag-on ProcessOwner binds host.sock and serves UI mutations", async () => {
-  const s = await service("", "absolute", { nativeHost: "1" });
+test.skipIf(!front)("default-on ProcessOwner binds host.sock and serves UI mutations", async () => {
+  const s = await service();
   try {
     expect(existsSync(join(s.state, "run", "host.sock"))).toBe(true);
     const enable = await s.post("plugin.enable", { id: "fx-ui", grant: true });

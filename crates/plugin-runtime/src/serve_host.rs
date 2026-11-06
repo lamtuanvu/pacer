@@ -1,10 +1,10 @@
 //! Flag-gated native plugin-host session for serve (P4d-1 … P4d-5).
 //!
-//! Default serve stays TypeScript-owned until
-//! [`crate::serve_starts_reverse_bridge_by_default`] flips. Truthy
-//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] opt in
-//! today; falsy values (`0` / `false` / `no`) are the documented escape hatch
-//! for the future default-on cutover. When enabled, serve claims a
+//! Default serve owns a native [`ProcessOwner`] when
+//! [`crate::serve_starts_reverse_bridge_by_default`] is true (P4d-13). Falsy
+//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] values
+//! (`0` / `false` / `no`) escape to TypeScript ownership. Explicit truthy flags
+//! still opt in when the default is off. When enabled, serve claims a
 //! [`ProcessOwner`], binds the reverse bridge with live call/find/spawn/stop,
 //! and exports [`crate::HOST_SOCKET_ENV`] for the Core child.
 
@@ -22,8 +22,8 @@ use tokio::sync::Mutex;
 
 /// Enable / escape env for serve-owned native plugin supervision (P4d-1 / P4d-5).
 ///
-/// Truthy values opt in while the default const is still off. `0` / `false` /
-/// `no` disable the path (escape hatch once default-on lands).
+/// `0` / `false` / `no` disable the path; truthy values opt in when the
+/// default const is off.
 pub const NATIVE_PLUGIN_HOST_ENABLE_ENV: &str = "PACER_NATIVE_PLUGIN_HOST";
 
 #[derive(Debug, Error)]
@@ -116,9 +116,9 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn flags_default_off_with_zero_escape() {
-        assert!(!serve_starts_reverse_bridge_by_default());
-        assert!(!native_plugin_host_enabled(None, None));
+    fn flags_default_on_with_zero_escape() {
+        assert!(serve_starts_reverse_bridge_by_default());
+        assert!(native_plugin_host_enabled(None, None));
         assert!(!native_plugin_host_enabled(Some("0"), None));
         assert!(!native_plugin_host_enabled(None, Some("false")));
         assert!(!native_plugin_host_enabled(Some("0"), Some("false")));
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn env_map_reads_either_flag_and_honors_zero() {
         let mut env = HashMap::new();
-        assert!(!native_plugin_host_enabled_from_env(&env));
+        assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
         assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "0".into());
