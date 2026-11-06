@@ -144,14 +144,23 @@ export type ObservationSeal = {
   readContext: { home: string; pacerHome: string; now: number };
 };
 
+export type HostSnapshotSeal = {
+  alias: string;
+  hostFingerprint: string;
+  callerGeneration: string;
+  providerGeneration: string;
+  providerProcess: number;
+  providerId: string;
+};
+
 export type CallAuthoritySeal = {
   resources: SealedResources;
   grants: string[];
   ttlMs: number;
   /** P4d-8: policy/doctor observation bootstrap for tasks.read / events.subscribe. */
   observation?: ObservationSeal;
-  /** Host provider snapshots for ProcessOwner attach land in a follow-up slice. */
-  hostSnapshots?: never;
+  /** P4d-9: provider snapshots for flag-on ProcessOwner host attach. */
+  hostSnapshots?: HostSnapshotSeal[];
 };
 
 function observationAdmission(

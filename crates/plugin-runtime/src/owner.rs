@@ -293,6 +293,22 @@ impl ProcessOwner {
             Ownership::Native { .. } => Ok(()),
         }
     }
+
+    /// Direct JSON-RPC to a provider child for `hostRunner.*` (bypasses capability broker).
+    pub(crate) async fn call_host_runner(
+        &mut self,
+        id: &str,
+        method: &str,
+        params: serde_json::Value,
+        deadline: Duration,
+    ) -> Result<serde_json::Value, OwnerError> {
+        self.ensure_native_library()?;
+        let child = self
+            .children
+            .get_mut(id)
+            .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
+        Ok(child.request(method, params, deadline, None).await?)
+    }
 }
 
 impl Default for ProcessOwner {

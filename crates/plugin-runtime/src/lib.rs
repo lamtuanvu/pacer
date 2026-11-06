@@ -16,6 +16,7 @@
 
 mod bridge_listener;
 mod capability;
+mod host_attach;
 mod host_bridge;
 mod owner;
 mod serve_host;
@@ -25,10 +26,11 @@ pub use bridge_listener::{
     SharedOwner, bridge_methods_are_private, serve_starts_reverse_bridge_by_default,
 };
 pub use capability::{
-    CapabilitySessionError, LocalHostEffect, ObservationBootstrap, PluginCapabilitySession,
-    call_resources_from_value, observation_bootstrap_from_value, session_for_call,
-    session_from_hello,
+    CapabilitySessionError, FixtureHostProvider, LocalHostEffect, ObservationBootstrap,
+    PluginCapabilitySession, call_resources_from_value, host_snapshots_from_value,
+    observation_bootstrap_from_value, session_for_call, session_from_hello,
 };
+pub use host_attach::HostAttachSnapshot;
 pub use host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
     METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, dark_bridge_disabled,
@@ -37,8 +39,8 @@ pub use host_bridge::{
 pub use owner::{OwnerError, Ownership, ProcessOwner};
 pub use pacer_plugin_host::{
     CallAuthority, CallResources, CapabilityBroker, NativeHttp, NativeProcess, NativeRead,
-    NativeWrite, PluginProcess, PluginState, ProcessError, ReadResource, Registry, SpawnSpec,
-    WriteResource, parse_manifest,
+    NativeWrite, PluginProcess, PluginState, ProcessError, ProviderSnapshot, ReadResource,
+    Registry, SpawnSpec, WriteResource, parse_manifest,
 };
 pub use serve_host::{
     NATIVE_PLUGIN_HOST_ENABLE_ENV, NativeHostError, NativeHostSession, native_plugin_host_enabled,

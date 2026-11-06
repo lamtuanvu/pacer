@@ -111,6 +111,7 @@ test("sealCallAuthority validates host operation resources when hosts is granted
     { resources: { reads: [], commands: [], stores: [], hosts: [host] } },
   );
   expect(sealed.resources.hosts).toEqual([host]);
+  expect(sealed.hostSnapshots).toBeUndefined();
   expect(() => sealCallAuthority(
     ctx,
     { id: "fx", version: "1.0.0", publisher: "f", host: ">=1.10.0", capabilities: [{ name: "hosts" }], contributes: {} } as any,

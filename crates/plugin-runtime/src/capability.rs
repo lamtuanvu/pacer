@@ -4,14 +4,16 @@
 //! NativeProcess, NativeHttp}`. Unscoped methods (`capability.log`,
 //! `capability.config.get`) are answered locally from the sealed hello. Scoped
 //! native modules answer when Core issues call-scoped [`CallResources`] (P4d-7).
-//! Lifecycle / hosts / orca stay refused until a later slice. P4d-8 wires
-//! observation bootstrap (`tasks.read` / `events.subscribe`) when Core seals it;
-//! host provider snapshots still require a follow-up attach.
+//! Lifecycle / orca stay refused until a later slice. P4d-8 wires observation
+//! bootstrap (`tasks.read` / `events.subscribe`) when Core seals it. P4d-9
+//! attaches Core-sealed host provider snapshots for `hosts` when issued.
 
+use crate::host_attach::{HostAttachSnapshot, native_hosts_for_attach};
 use pacer_plugin_host::{
     AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-    CredentialBindings, NativeHttp, NativeProcess, ObservationCall, ObservationGeneration,
-    ParsedManifest, ReadContext, TaskProjection, parse_manifest,
+    CredentialBindings, HostProvider, NativeHttp, NativeHosts, NativeProcess, ObservationCall,
+    ObservationGeneration, ParsedManifest, ProviderSnapshot, ReadContext, TaskProjection,
+    parse_manifest,
 };
 use serde_json::{Value, json};
 use std::{
@@ -124,6 +126,108 @@ struct ObservationState {
     projection: ListFixtureProjection,
 }
 
+enum HostSidecar {
+    Process(NativeHosts<crate::host_attach::OwnerHostProvider>),
+    Fixture(NativeHosts<FixtureHostProvider>),
+}
+
+struct SessionEffect {
+    local: LocalHostEffect,
+    hosts: Option<HostSidecar>,
+}
+
+impl SessionEffect {
+    fn new(local: LocalHostEffect) -> Self {
+        Self { local, hosts: None }
+    }
+
+    fn bind_process_owner_hosts(
+        &mut self,
+        owner: crate::SharedOwner,
+        attach: &[HostAttachSnapshot],
+    ) -> Result<(), CapabilitySessionError> {
+        if attach.is_empty() {
+            return Ok(());
+        }
+        self.hosts = Some(HostSidecar::Process(native_hosts_for_attach(owner, attach)));
+        Ok(())
+    }
+
+    fn bind_hosts_fixture(
+        &mut self,
+        provider: FixtureHostProvider,
+        snapshots: impl IntoIterator<Item = ProviderSnapshot>,
+    ) {
+        self.hosts = Some(HostSidecar::Fixture(NativeHosts::new(provider, snapshots)));
+    }
+}
+
+impl CapabilityEffect for SessionEffect {
+    fn native_host_sessions(&self) -> bool {
+        self.hosts.is_some()
+    }
+
+    fn provider_snapshot(&self, alias: &str) -> Option<ProviderSnapshot> {
+        match &self.hosts {
+            Some(HostSidecar::Process(native)) => native.provider_snapshot(alias),
+            Some(HostSidecar::Fixture(native)) => native.provider_snapshot(alias),
+            None => None,
+        }
+    }
+
+    async fn call(&mut self, method: &str, params: Value) -> Result<Value, BrokerError> {
+        if method.starts_with("capability.hosts.") {
+            match &mut self.hosts {
+                Some(HostSidecar::Process(native)) => native.call(method, params).await,
+                Some(HostSidecar::Fixture(native)) => native.call(method, params).await,
+                None => Err(BrokerError::Invalid("no host provider")),
+            }
+        } else {
+            self.local.call(method, params).await
+        }
+    }
+}
+
+/// Library fixture for host attach proofs (P4d-9).
+pub struct FixtureHostProvider {
+    snapshot: ProviderSnapshot,
+    stdout: String,
+}
+
+impl FixtureHostProvider {
+    pub fn new(snapshot: ProviderSnapshot, stdout: impl Into<String>) -> Self {
+        Self {
+            snapshot,
+            stdout: stdout.into(),
+        }
+    }
+}
+
+impl HostProvider for FixtureHostProvider {
+    fn snapshot(&self, alias: &str) -> Option<ProviderSnapshot> {
+        (self.snapshot.alias == alias).then(|| self.snapshot.clone())
+    }
+
+    async fn invoke(&mut self, method: &str, params: Value) -> Result<Value, BrokerError> {
+        match method {
+            "hostRunner.open" => Ok(json!({"session": "fixture-provider-session"})),
+            "hostRunner.run" => {
+                if params.get("script").and_then(Value::as_str) != Some("PROBE") {
+                    return Err(BrokerError::Invalid("script"));
+                }
+                Ok(json!({
+                    "code": 0,
+                    "stdout": self.stdout,
+                    "stderr": "",
+                    "timedOut": false,
+                }))
+            }
+            "hostRunner.close" => Ok(json!({"ok": true})),
+            _ => Err(BrokerError::Invalid("method")),
+        }
+    }
+}
+
 /// Core-sealed observation bootstrap for one plugin call (P4d-8).
 pub struct ObservationBootstrap {
     pub call_token: String,
@@ -135,16 +239,18 @@ pub struct ObservationBootstrap {
 /// through this while a parent call is pending.
 pub struct PluginCapabilitySession {
     broker: CapabilityBroker,
-    effect: LocalHostEffect,
+    effect: SessionEffect,
     observation: Option<ObservationState>,
+    pending_host_attach: Vec<HostAttachSnapshot>,
 }
 
 impl PluginCapabilitySession {
     pub fn new(broker: CapabilityBroker, effect: LocalHostEffect) -> Self {
         Self {
             broker,
-            effect,
+            effect: SessionEffect::new(effect),
             observation: None,
+            pending_host_attach: Vec::new(),
         }
     }
 
@@ -153,7 +259,28 @@ impl PluginCapabilitySession {
     }
 
     pub fn effect_mut(&mut self) -> &mut LocalHostEffect {
-        &mut self.effect
+        &mut self.effect.local
+    }
+
+    pub fn bind_process_owner_hosts(
+        &mut self,
+        owner: crate::SharedOwner,
+    ) -> Result<(), CapabilitySessionError> {
+        if self.pending_host_attach.is_empty() {
+            return Ok(());
+        }
+        let attach = std::mem::take(&mut self.pending_host_attach);
+        self.effect.bind_process_owner_hosts(owner, &attach)
+    }
+
+    /// Attach a test [`HostProvider`] fixture (library tests only).
+    pub fn bind_hosts_fixture(
+        &mut self,
+        provider: FixtureHostProvider,
+        snapshots: impl IntoIterator<Item = ProviderSnapshot>,
+    ) {
+        self.pending_host_attach.clear();
+        self.effect.bind_hosts_fixture(provider, snapshots);
     }
 
     pub async fn answer(
@@ -239,7 +366,7 @@ impl PluginCapabilitySession {
     }
 
     pub fn take_logs(&mut self) -> Vec<(String, String)> {
-        self.effect.take_logs()
+        self.effect.local.take_logs()
     }
 }
 
@@ -315,6 +442,7 @@ fn attach_natives(
     mut broker: CapabilityBroker,
     resources: &CallResources,
     selected: &HashMap<String, String>,
+    host_snapshots: &[HostAttachSnapshot],
 ) -> Result<CapabilityBroker, CapabilitySessionError> {
     if !resources.reads.is_empty() {
         broker = broker
@@ -331,6 +459,9 @@ fn attach_natives(
             .map_err(|error| CapabilitySessionError::Native(error.to_string()))?;
         broker = broker.with_native_http(http);
     }
+    if !host_snapshots.is_empty() {
+        broker = broker.with_hosts(host_snapshots.iter().map(|row| row.snapshot.clone()));
+    }
     Ok(broker)
 }
 
@@ -346,6 +477,7 @@ pub fn session_from_hello(
         None,
         lifetime,
         None,
+        None,
     )
 }
 
@@ -359,10 +491,22 @@ pub fn session_for_call(
     grants: Option<Vec<String>>,
     lifetime: Duration,
     observation: Option<ObservationBootstrap>,
+    host_attach: Option<&[HostAttachSnapshot]>,
 ) -> Result<PluginCapabilitySession, CapabilitySessionError> {
     let (manifest, hello_grants, features, config) = hello_parts(hello)?;
     let grants = grants.unwrap_or(hello_grants);
     let (resources, selected) = normalize_commands(resources)?;
+    let host_rows = host_attach.unwrap_or_default();
+    if !resources.hosts.is_empty() && host_rows.is_empty() {
+        return Err(CapabilitySessionError::Native(
+            "hosts resources require Core-sealed hostSnapshots".into(),
+        ));
+    }
+    if !host_rows.is_empty() && !grants.iter().any(|g| g == "hosts") {
+        return Err(CapabilitySessionError::Native(
+            "hostSnapshots require hosts grant".into(),
+        ));
+    }
     let authority = CallAuthority::new(
         resources.clone(),
         grants.clone(),
@@ -372,8 +516,10 @@ pub fn session_for_call(
         CapabilityBroker::new(manifest.clone(), authority, features.clone()),
         &resources,
         &selected,
+        host_rows,
     )?;
     let mut session = PluginCapabilitySession::new(broker, LocalHostEffect::new(config));
+    session.pending_host_attach = host_rows.to_vec();
     if let Some(bootstrap) = observation {
         let negotiated = features.iter().any(|f| f == "policyObservations");
         let alive = Arc::new(AtomicBool::new(true));
@@ -412,6 +558,67 @@ pub fn call_resources_from_value(value: &Value) -> Result<CallResources, Capabil
 }
 
 /// Parse optional Core-sealed observation bootstrap from `call_authority`.
+/// Parse optional Core-sealed host provider snapshots from `call_authority`.
+pub fn host_snapshots_from_value(
+    value: &Value,
+) -> Result<Vec<HostAttachSnapshot>, CapabilitySessionError> {
+    let Some(raw) = value.get("hostSnapshots") else {
+        return Ok(Vec::new());
+    };
+    let items = raw
+        .as_array()
+        .ok_or(CapabilitySessionError::Malformed("hostSnapshots array"))?;
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let alias = item
+            .get("alias")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or(CapabilitySessionError::Malformed("hostSnapshots alias"))?
+            .to_owned();
+        let host_fingerprint = item
+            .get("hostFingerprint")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or(CapabilitySessionError::Malformed("hostSnapshots hostFingerprint"))?
+            .to_owned();
+        let caller_generation = item
+            .get("callerGeneration")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or(CapabilitySessionError::Malformed("hostSnapshots callerGeneration"))?
+            .to_owned();
+        let provider_generation = item
+            .get("providerGeneration")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or(CapabilitySessionError::Malformed("hostSnapshots providerGeneration"))?
+            .to_owned();
+        let provider_process = item
+            .get("providerProcess")
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0);
+        let provider_id = item
+            .get("providerId")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or(CapabilitySessionError::Malformed("hostSnapshots providerId"))?
+            .to_owned();
+        out.push(HostAttachSnapshot {
+            snapshot: ProviderSnapshot {
+                alias,
+                host_fingerprint,
+                caller_generation,
+                provider_generation,
+                provider_process,
+            },
+            provider_id,
+        });
+    }
+    Ok(out)
+}
+
 pub fn observation_bootstrap_from_value(
     value: &Value,
 ) -> Result<Option<ObservationBootstrap>, CapabilitySessionError> {
