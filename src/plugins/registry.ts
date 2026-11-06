@@ -30,8 +30,8 @@ import { prepareWriteAuthority } from "./capability-write";
 import { prepareFilesystemAuthority } from "./capability-fs";
 import { prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
-import { CallAuthority, createCallAuthority, type CallResources } from "./authority";
-import { sealCallAuthority } from "./native-call-authority";
+import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
+import { sealCallAuthority, type HostSnapshotSeal } from "./native-call-authority";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type SpawnSpec } from "./process";
@@ -1753,11 +1753,45 @@ export class PluginRegistry {
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const manifest = e.manifest!;
     const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
-    return sealCallAuthority(ctx, manifest, grants, {
+    const sealed = sealCallAuthority(ctx, manifest, grants, {
       resources: options.resources,
       ttlMs: options.ttlMs,
       method: options.method,
     });
+    if (!sealed.resources.hosts.length || !grants.includes("hosts")) return sealed;
+    return { ...sealed, hostSnapshots: this.nativeHostSnapshots(ctx, e, sealed.resources.hosts) };
+  }
+
+  /** Seal SSH provider snapshots for Rust ProcessOwner host attach (P4d-9). */
+  private nativeHostSnapshots(ctx: Ctx, caller: Entry, hosts: readonly HostOperationResource[]): HostSnapshotSeal[] {
+    this.refresh(ctx);
+    const callerGeneration = this.hostGeneration(ctx, caller);
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1 || providers[0] === caller.id)
+      throw new CoreError("plugin_unavailable", "one distinct SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    const providerGeneration = this.hostGeneration(ctx, provider);
+    const providerProcess = provider.process?.pid ?? 0;
+    const seen = new Set<string>();
+    const out: HostSnapshotSeal[] = [];
+    for (const op of hosts) {
+      if (seen.has(op.alias)) continue;
+      seen.add(op.alias);
+      const host = loadStrategy(ctx).hosts[op.alias];
+      if (!host || host.paused) throw new CoreError("not_found", "configured host alias is unavailable");
+      const fingerprint = op.hostFingerprint;
+      if (!fingerprint) throw new CoreError("invalid_input", "host fingerprint required");
+      out.push({
+        alias: op.alias,
+        hostFingerprint: fingerprint,
+        callerGeneration,
+        providerGeneration,
+        providerProcess,
+        providerId: provider.id,
+      });
+    }
+    return out;
   }
 
   /** Record a ProcessOwner hello without holding a local PluginProcess. */

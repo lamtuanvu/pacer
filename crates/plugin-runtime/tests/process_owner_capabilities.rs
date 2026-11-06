@@ -2,8 +2,9 @@
 //! ProcessOwner answers capability.* through the plugin-host broker (P4d-6/7).
 
 use pacer_plugin_runtime::{
-    CallAuthority, CallResources, CapabilityBroker, LocalHostEffect, PluginCapabilitySession,
-    ProcessOwner, ReadResource, SpawnSpec, call_resources_from_value, parse_manifest,
+    CallAuthority, CallResources, CapabilityBroker, FixtureHostProvider, LocalHostEffect,
+    PluginCapabilitySession, ProcessOwner, ProviderSnapshot, ReadResource, SpawnSpec,
+    call_resources_from_value, host_snapshots_from_value, parse_manifest,
     observation_bootstrap_from_value, session_for_call, session_from_hello,
 };
 use serde_json::json;
@@ -274,6 +275,7 @@ for (;;) {{
         Some(vec!["fs.read".into()]),
         Duration::from_secs(10),
         None,
+        None,
     )
     .unwrap();
 
@@ -374,6 +376,7 @@ for (;;) {{
         Some(vec!["process.spawn".into()]),
         Duration::from_secs(10),
         None,
+        None,
     )
     .unwrap();
 
@@ -472,6 +475,7 @@ for (;;) {{
         Some(vec!["tasks.read".into(), "events.subscribe".into()]),
         Duration::from_secs(10),
         observation,
+        None,
     )
     .unwrap();
 
@@ -501,4 +505,116 @@ for (;;) {{
         "Core-sealed observation bootstrap must answer capability.tasks.list"
     );
     owner.terminate("fx-obs").await.unwrap();
+}
+
+#[tokio::test]
+async fn process_owner_answers_hosts_probe_when_core_seals_snapshots() {
+    let alias = "box";
+    let fingerprint = "host-one";
+    let snapshot = ProviderSnapshot {
+        alias: alias.into(),
+        host_fingerprint: fingerprint.into(),
+        caller_generation: "caller-fixture".into(),
+        provider_generation: "provider-fixture".into(),
+        provider_process: 9,
+    };
+
+    let source = r#"const r = Bun.stdin.stream().getReader();
+let b = "";
+let pending;
+const send = (x) => console.log(JSON.stringify({ jsonrpc: "2.0", ...x }));
+for (;;) {
+  const { value, done } = await r.read();
+  if (done) break;
+  b += new TextDecoder().decode(value);
+  while (b.includes("\n")) {
+    const i = b.indexOf("\n");
+    const m = JSON.parse(b.slice(0, i));
+    b = b.slice(i + 1);
+    if (m.method === "plugin.hello") {
+      send({ id: m.id, result: { ok: true, protocol: "1.10.0", id: "fx-host", version: "1.0.0", contributes: ["diagnostic"] } });
+    } else if (m.method === "diagnostic.ping") {
+      pending = m.id;
+      send({ id: 7, method: "capability.hosts.open", params: { alias: "box" } });
+    } else if (m.id === 7 && m.result?.session) {
+      send({ id: 8, method: "capability.hosts.run", params: { session: m.result.session, script: "PROBE", args: [], timeoutMs: 1000, maxBytes: 1024 } });
+    } else if (m.id === 8) {
+      send({ id: pending, result: { ok: true, stdout: m.result?.stdout ?? "" } });
+    }
+  }
+}"#;
+
+    let hello = json!({
+        "protocol":"1.10.0","pacer":"0.2.0",
+        "manifest":{
+            "id":"fx-host","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+            "capabilities":[{"name":"hosts"}],
+            "contributes":{"diagnostic":{}}
+        },
+        "config":{},"grants":["hosts"],"features":[]
+    });
+    let sealed = json!({
+        "reads":[],
+        "writes":[],
+        "commands":[],
+        "hosts":[{
+            "alias":alias,
+            "hostFingerprint":fingerprint,
+            "script":"PROBE",
+            "args":[],
+            "timeoutMs":1000,
+            "maxBytes":1024
+        }],
+        "hostSnapshots":[{
+            "alias":alias,
+            "hostFingerprint":fingerprint,
+            "callerGeneration":"caller-fixture",
+            "providerGeneration":"provider-fixture",
+            "providerProcess":9,
+            "providerId":"pacer-ssh"
+        }]
+    });
+    let host_attach = host_snapshots_from_value(&sealed).unwrap();
+    let resources = call_resources_from_value(&sealed).unwrap();
+    let mut session = session_for_call(
+        &hello,
+        resources,
+        Some(vec!["hosts".into()]),
+        Duration::from_secs(10),
+        None,
+        Some(&host_attach),
+    )
+    .unwrap();
+    session.bind_hosts_fixture(
+        FixtureHostProvider::new(snapshot.clone(), "probe-ok"),
+        [snapshot],
+    );
+
+    let dir = TempDir::new().unwrap();
+    let mut owner = ProcessOwner::native_for_tests();
+    owner
+        .spawn("fx-host", &peer_script(dir.path(), source))
+        .unwrap();
+    owner
+        .install_capability_session("fx-host", session)
+        .unwrap();
+    owner
+        .call_plugin("fx-host", "plugin.hello", hello, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let ping = owner
+        .call_plugin(
+            "fx-host",
+            "diagnostic.ping",
+            json!({}),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        ping,
+        json!({"ok": true, "stdout": "probe-ok"}),
+        "Core-sealed hostSnapshots must answer capability.hosts.run"
+    );
+    owner.terminate("fx-host").await.unwrap();
 }
