@@ -8,6 +8,8 @@ pub(crate) mod config_host_sync;
 pub(crate) mod config_sync;
 use pacer_config_ops::config_writes;
 pub(crate) mod core_bridge_sync;
+mod desktop_reconcile_ops;
+use pacer_discovery_ops::discovery_ops;
 use pacer_dispatch_ops::dispatch_ops;
 mod engine_ops;
 mod files_search_ops;
@@ -15,6 +17,8 @@ use pacer_config_ops::host_mut_ops;
 pub(crate) mod host_mut_sync;
 use pacer_config_ops::host_read_ops;
 pub(crate) mod host_read_sync;
+use pacer_machine_ops::machine_identity;
+use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
 mod meta_ops;
 pub(crate) use pacer_messaging_ops::msg_ops;
@@ -44,8 +48,12 @@ pub(crate) mod task_wait_sync;
 
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
+pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
+pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
+#[doc(hidden)]
+pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
@@ -272,15 +280,15 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "machine.get",
-        call: p8_bridge_ops::bridge_stub,
+        call: machine_ops::machine_get,
     },
     NativeOp {
         name: "machine.set",
-        call: p8_bridge_ops::bridge_stub,
+        call: machine_ops::machine_set,
     },
     NativeOp {
         name: "machine.rotate",
-        call: p8_bridge_ops::bridge_stub,
+        call: machine_ops::machine_rotate,
     },
     NativeOp {
         name: "files.search",
@@ -345,6 +353,26 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.events",
         call: dispatch_ops::dispatch_events,
+    },
+    NativeOp {
+        name: "discovery.set",
+        call: discovery_ops::discovery_set,
+    },
+    NativeOp {
+        name: "discovery.respond",
+        call: discovery_ops::discovery_respond,
+    },
+    NativeOp {
+        name: "desktop.reconcile.status",
+        call: desktop_reconcile_ops::desktop_reconcile_status,
+    },
+    NativeOp {
+        name: "desktop.reconcile.request",
+        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+    },
+    NativeOp {
+        name: "desktop.reconcile.cancel",
+        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {

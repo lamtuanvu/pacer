@@ -1327,6 +1327,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-discovery-ops"
+version = "0.0.0"
+dependencies = [
+ "pacer-foundation",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-discovery-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1422,6 +1432,22 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "pacer-machine-ops"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "hex",
+ "pacer-foundation",
+ "pacer-store",
+ "rand 0.9.5",
+ "ring",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1637,10 +1663,12 @@ dependencies = [
  "nix",
  "pacer-config",
  "pacer-config-ops",
+ "pacer-discovery-ops",
  "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
+ "pacer-machine-ops",
  "pacer-mdns",
  "pacer-messaging-ops",
  "pacer-plugin-ops",

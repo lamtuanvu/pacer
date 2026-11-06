@@ -66,6 +66,11 @@ fn forward_override_removes_only_selected_native_ops() {
         "dispatch.tree",
         "dispatch.list",
         "dispatch.events",
+        "discovery.set",
+        "discovery.respond",
+        "desktop.reconcile.status",
+        "desktop.reconcile.request",
+        "desktop.reconcile.cancel",
     ] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
@@ -82,6 +87,12 @@ fn forward_override_removes_only_selected_native_ops() {
         "dispatch.explain",
         "dispatch.models",
         "dispatch.enforcement",
+        "discovery.list",
+        "discovery.network.get",
+        "discovery.network.set",
+        "desktop.update.status",
+        "desktop.capture.targets",
+        "account.list",
     ] {
         assert!(registry("").get(name).is_none(), "{name}");
     }
@@ -202,6 +213,11 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "dispatch.tree",
         "dispatch.list",
         "dispatch.events",
+        "discovery.set",
+        "discovery.respond",
+        "desktop.reconcile.status",
+        "desktop.reconcile.request",
+        "desktop.reconcile.cancel",
     ] {
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry(name).get(name).is_none(), "{name}");

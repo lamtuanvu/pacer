@@ -7,7 +7,6 @@ import { toApiError } from "../src/api/errors";
 import { onboardingSkip } from "../src/core/setup";
 import { checkSetup } from "../src/setup/check";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
-import { setIdentityPlatformForTests, clearIdentityCache } from "../src/identity/store";
 
 const root = join(import.meta.dir, "..");
 
@@ -29,23 +28,6 @@ test("native onboarding.skip matches TypeScript", () => {
   expect(onboardingSkip(ctx)).toEqual({ skipped: true });
   expect(existsSync(join(home, "onboarding", "skipped"))).toBe(true);
   expect(nativeResult(home, "onboarding.skip", {})).toEqual({ result: { skipped: true } });
-});
-
-test("native machine.get matches TypeScript with injected bridge", async () => {
-  setIdentityPlatformForTests("linux");
-  const home = tmpDir();
-  const ctx = fakeCtx({ home, pacerHome: home, now: 1_700_000_000 });
-  clearIdentityCache();
-  let expected: unknown;
-  try {
-    expected = { result: await callOp(ctx, "machine.get", {}) };
-  } catch (error) {
-    expected = { error: toApiError(error) };
-  }
-  const bridgeResult = "error" in (expected as any) ? undefined : (expected as any).result;
-  if (bridgeResult) {
-    expect(nativeResult(home, "machine.get", {}, bridgeResult)).toEqual(expected);
-  }
 });
 
 test("native files.search matches TypeScript without a core bridge", async () => {

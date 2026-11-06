@@ -78,6 +78,10 @@ layer = 2
 layer = 3
 [crates.pacer-messaging-ops]
 layer = 3
+[crates.pacer-machine-ops]
+layer = 3
+[crates.pacer-discovery-ops]
+layer = 2
 [crates.pacer-sessions]
 layer = 3
 [crates.pacer-plugin-host]
