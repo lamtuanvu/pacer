@@ -951,7 +951,9 @@ impl StartContext<'_> {
             // The fixed wrapper atomically publishes this same PID. It may win
             // between the parent's write snapshot and rename; accept only that
             // exact value under the pinned directory, never overwrite a rival.
-            if dir.bytes("pid", 64)?.as_deref() != Some(pid.to_string().as_bytes()) {
+            if dir.bytes("pid", 64)?.as_deref().map(<[u8]>::trim_ascii_end)
+                != Some(pid.to_string().as_bytes())
+            {
                 if let Ok(pid) = i32::try_from(pid) {
                     let _ = nix::sys::signal::kill(
                         nix::unistd::Pid::from_raw(-pid),
