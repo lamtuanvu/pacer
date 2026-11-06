@@ -127,7 +127,7 @@ export function diagnosticSummary(check: Pick<Check, 'name' | 'detail' | 'level'
   }
   // Plain messages are already useful. Preserve their cause; only raw implementation
   // output needs a summary, with the complete original available in Technical details.
-  if (/--[\w-]+|\/v\d\/|\b[A-Z_]+=[^ ]|\/(?:Users|Volumes|home)\/|\b(?:Error|TypeError):/.test(detail)) {
+  if (/--[\w-]+|\/v\d\/|\b[A-Z_]+=[^ ]|\/(?:Users|Volumes|home)\/|\b\w*Error:/.test(detail)) {
     if (/permission|access denied/i.test(detail)) return 'Access was denied while running this check.';
     if (/not found|ENOENT|missing/i.test(detail)) return 'A required file or command could not be found.';
     if (/timeout|timed out/i.test(detail)) return 'The check timed out before it could confirm the result.';

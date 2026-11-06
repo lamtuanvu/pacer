@@ -40,6 +40,7 @@ import type { AgentDetection } from "../../../../src/install/detection";
 import type { SetupChecklist } from "../../../../src/setup/checklist";
 import { SetupContext } from "../setup/context";
 import { SetupBanner } from "../setup/SetupBanner";
+import { SetupHealthChip } from "../setup/SetupHealth";
 import { ErrorMessage, useAction, useDelayedBusy, useQuery, useTaskContext } from "../task-shared";
 
 const styledDocuments = new WeakSet<Document>();
@@ -365,6 +366,7 @@ const NO_INSIGHTS: InsightsState = { supported: false, loading: false };
 export function DispatchView({ snapshot, query, now, runner, routing = null, period = "7d", onPeriod, insights = NO_INSIGHTS, connected = true, shortWindowPct = null, workRows = [], workLoading, workUpdating, workError, onWorkReload, firstRun, sampleTask, contentRepo }: DispatchProps) {
   useDispatchStyles();
   const narrow = useNarrow(query);
+  const { health, reopenHealth } = useContext(SetupContext);
   const scope = dispatchScope(contentRepo === undefined ? query : { ...query, repo: contentRepo }, narrow);
   const plannerAndNext = <PlannerAndNext snapshot={snapshot} now={now} routing={routing} query={query} shortWindowPct={shortWindowPct} />;
   const glance = <Glance period={period} insights={insights} />, share = <TokenShare summary={insights.current} planner={snapshot.planner?.agent ?? null} />;
@@ -377,6 +379,7 @@ export function DispatchView({ snapshot, query, now, runner, routing = null, per
     {!narrow && <PageHead>{header}</PageHead>}
     <Page width="full" className={`pc-dispatch${narrow ? " pc-dispatch--narrow" : ""}`}>
     <SetupBanner />
+    {health && <SetupHealthChip outcome={health.outcome} attentionCount={health.attentionCount} onOpen={reopenHealth} />}
     {narrow && header}
     {firstRun ? firstRun : empty ? <EmptyDispatch query={query} sampleTask={sampleTask} /> : narrow ? <>
       {<NarrowPlanner snapshot={snapshot} now={now} routing={routing} shortWindowPct={shortWindowPct} />}{needs}{liveWork}

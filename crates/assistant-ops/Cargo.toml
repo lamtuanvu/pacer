@@ -1,0 +1,24 @@
+[package]
+name = "pacer-assistant-ops"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
+pacer-foundation = { path = "../foundation" }
+pacer-config = { path = "../config" }
+pacer-read-model = { path = "../read-model" }
+pacer-store = { path = "../store" }
+pacer-messaging-ops = { path = "../messaging-ops" }
+
+[dev-dependencies]
+tempfile = "3"
+tokio.workspace = true
+
+[lints]
+workspace = true

@@ -89,5 +89,5 @@ async fn read(channel: &tokio::net::UnixStream) -> io::Result<u8> {
 }
 
 #[cfg(test)]
-#[path = "native_bootstrap_tests.rs"]
+#[path = "tests/native_bootstrap.rs"]
 mod tests;

@@ -1,6 +1,10 @@
 use super::{BrokerError, RunDirectory, denied};
 use serde_json::{Value, json};
 use std::{fs, os::unix::fs::MetadataExt};
+/// The wrapper publishes `echo $$`, so only the exact PID with one trailing newline also matches.
+pub(super) fn published_pid(bytes: &[u8], pid: u32) -> bool {
+    bytes.strip_suffix(b"\n").unwrap_or(bytes) == pid.to_string().as_bytes()
+}
 fn number(dir: &RunDirectory, name: &str) -> Result<Option<f64>, BrokerError> {
     let Some(bytes) = dir.bytes(name, usize::MAX)? else {
         return Ok(None);
@@ -146,3 +150,5 @@ pub fn read(dir: &RunDirectory) -> Result<Value, BrokerError> {
         json!({"state":if exit.is_some(){"exited"}else if alive{"running"}else{"uncertain"},"pid":pid,"exitCode":exit,"startedAt":started,"stdoutBytes":sizes[0],"stderrBytes":sizes[1],"lastOutputAt":times.into_iter().reduce(f64::max),"interactive":interactive,"stopPending":false,"report":report}),
     )
 }
+#[cfg(test)]
+mod tests;

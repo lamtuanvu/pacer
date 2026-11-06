@@ -316,5 +316,5 @@ pub fn signer_requirement(
 }
 
 #[cfg(test)]
-#[path = "native_trust_tests.rs"]
+#[path = "tests/native_trust.rs"]
 mod tests;

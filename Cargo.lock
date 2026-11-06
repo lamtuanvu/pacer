@@ -1240,6 +1240,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-assistant-ops"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-messaging-ops",
+ "pacer-read-model",
+ "pacer-store",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-assistant-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1304,6 +1320,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-config-ops"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "pacer-store",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-desktop-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1313,12 +1343,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-discovery-ops"
+version = "0.0.0"
+dependencies = [
+ "pacer-foundation",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-discovery-protocol"
 version = "0.0.0"
 dependencies = [
  "regress",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "pacer-dispatch-ops"
+version = "0.0.0"
+dependencies = [
+ "nix",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1398,10 +1451,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-machine-ops"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "hex",
+ "pacer-foundation",
+ "pacer-store",
+ "rand 0.9.5",
+ "ring",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-mdns"
 version = "0.0.0"
 dependencies = [
  "socket2",
+]
+
+[[package]]
+name = "pacer-messaging-ops"
+version = "0.0.0"
+dependencies = [
+ "pacer-foundation",
+ "pacer-store",
+ "serde_json",
 ]
 
 [[package]]
@@ -1600,17 +1678,23 @@ dependencies = [
  "icu_collator",
  "libproc",
  "nix",
+ "pacer-assistant-ops",
  "pacer-config",
+ "pacer-config-ops",
+ "pacer-discovery-ops",
+ "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
+ "pacer-machine-ops",
  "pacer-mdns",
+ "pacer-messaging-ops",
  "pacer-plugin-ops",
  "pacer-plugin-runtime",
  "pacer-read-model",
  "pacer-store",
+ "pacer-task-ops",
  "rand 0.9.5",
- "ring",
  "ryu-js",
  "security-framework",
  "serde",
@@ -1665,6 +1749,22 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "pacer-task-ops"
+version = "0.0.0"
+dependencies = [
+ "chrono-tz",
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "pacer-read-model",
+ "pacer-store",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

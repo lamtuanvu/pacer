@@ -1,0 +1,15 @@
+[package]
+name = "pacer-messaging-ops"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+pacer-foundation = { path = "../foundation" }
+pacer-store = { path = "../store" }
+
+[lints]
+workspace = true

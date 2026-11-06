@@ -24,6 +24,8 @@ export interface UpdateDeps {
   standalone: boolean;
   version: string;
   platform: Platform | null;
+  /** When set, a successful replace stamps setup-health.required under this home. */
+  pacerHome?: string;
   smoke?: SmokeFn;
   refreshIntegrations?: (path: string) => Promise<string[]>;
   migrateStrategy?: () => string[];
@@ -67,6 +69,7 @@ export function parseUpdateArgs(args: string[]): UpdateOptions | string {
 export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
   return {
     env: ctx.env,
+    pacerHome: ctx.pacerHome,
     fetch: releaseFetch,
     // The Rust front door execs this core. Refresh/update the public executable
     // it supplied, consistently with service and integration installation.
@@ -165,6 +168,11 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
       ? await replacePair({ target: realTarget, bytes: downloads[0].bytes, companions: downloads.slice(1), version: target, smoke: d.smoke ?? runVersion })
       : await replaceBinary(d.execPath, downloads[0].bytes, target, d.smoke ?? runVersion);
     d.progress?.("Replace","passed");
+    try {
+      const { markSetupHealthRequired } = await import("../install/setup-health-store");
+      // Force Checking setup on the next connect after a binary generation change.
+      if (d.pacerHome) markSetupHealthRequired({ pacerHome: d.pacerHome });
+    } catch { /* Health stamp is best-effort; update already succeeded. */ }
     d.progress?.("Refresh integrations","running");
     let refreshNote = "";
     if (!o.noReinstall && d.refreshIntegrations) {

@@ -7038,6 +7038,30 @@ Params JSON Schema:
 }
 ```
 
+### `setup.health`
+
+Run the startup Checking setup gate: bounded doctor and setup checks as fixed steps, persist a last-pass fingerprint, and say whether the full-window stage can skip. Removable-volume probes stay out of the gate. trigger update forces the stage after an update.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "startup",
+        "update",
+        "manual"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `setup.init`
 
 Create a missing strategy and select a planner without connecting agents.

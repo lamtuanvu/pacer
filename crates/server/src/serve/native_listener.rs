@@ -297,5 +297,5 @@ fn socket_path(home: &Path, port: u16, uid: u32) -> io::Result<PathBuf> {
 }
 
 #[cfg(test)]
-#[path = "native_listener_tests.rs"]
+#[path = "tests/native_listener.rs"]
 mod tests;

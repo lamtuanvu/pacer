@@ -188,8 +188,14 @@ async fn broker_admits_only_issued_provider_and_declared_command() {
     let f = Fixture::new();
     let mut run = f.owner();
     let manifest=parse_manifest(json!({"id":"fx-executor","version":"1.0.0","publisher":"fixture","host":">=1.10.0","contributes":{"executor":{"backends":["direct"]}},"capabilities":[{"name":"process.spawn","scopes":["printf"]}]})).unwrap();
+    let launch = f.launch();
+    let resources: CallResources = serde_json::from_value(json!({"executorClaim":{
+        "taskId":ID,"attempt":1,"providerId":"fx-executor","executor":"tool",
+        "launch":{"argv":launch.argv,"cwd":launch.cwd,"executable":launch.executable,"env":{}}
+    }}))
+    .unwrap();
     let authority = CallAuthority::new(
-        CallResources::default(),
+        resources,
         vec!["process.spawn".into()],
         Instant::now() + Duration::from_secs(10),
     );

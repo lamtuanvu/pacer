@@ -186,6 +186,7 @@
     "session.prepare",
     "session.resume",
     "setup.check",
+    "setup.health",
     "setup.init",
     "snapshot.get",
     "strategy.build",
