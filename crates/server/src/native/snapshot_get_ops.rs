@@ -158,10 +158,10 @@ fn model() -> &'static Mutex<ReadModel> {
 }
 
 fn local_zone(ctx: &Ctx) -> chrono_tz::Tz {
-    if let Some(name) = ctx.env.get("TZ") {
-        if let Ok(zone) = name.parse() {
-            return zone;
-        }
+    if let Some(name) = ctx.env.get("TZ")
+        && let Ok(zone) = name.parse()
+    {
+        return zone;
     }
     std::env::var("TZ")
         .ok()
@@ -191,7 +191,7 @@ pub(crate) async fn snapshot_get(
     let result = model()
         .lock()
         .map_err(|_| CoreError::new(Code::Internal, "read model lock poisoned"))?
-        .snapshot(&ctx, input, local_zone(ctx), &alive)
+        .snapshot(ctx, input, local_zone(ctx), &alive)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
     Ok(result.wire(3))
 }
