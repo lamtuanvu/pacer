@@ -41,12 +41,12 @@ async fn failed_endpoint_sync_keeps_saved_edit_but_does_not_publish_success() {
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap_err();
     assert_eq!(error.code, Code::PluginRefused);
     assert_eq!(
@@ -162,12 +162,12 @@ async fn missing_bridge_refuses_before_mutating_the_document() {
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap_err();
     assert_eq!(error.code, Code::Unavailable);
     assert!(!dir.path().join("strategy.yaml").exists());
@@ -212,12 +212,12 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap();
     assert_eq!(list[0]["name"], "default");
     assert_eq!(list[0]["active"], true);
@@ -242,12 +242,12 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap();
     assert_eq!(show["yaml"], yaml);
     assert_eq!(show["active"], false);
@@ -266,12 +266,12 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap_err();
     assert_eq!(missing.code, Code::InvalidInput);
     assert_eq!(missing.message, "unknown strategy \"missing\"");
@@ -315,12 +315,12 @@ async fn pure_config_set_writes_publishes_and_strips_notes() {
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap();
     assert_eq!(result["key"], "update_check");
     assert_eq!(result["value"], false);
@@ -367,12 +367,12 @@ async fn config_set(ctx: &Ctx, params: Value) -> Result<Value, CoreError> {
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap_err();
     assert_eq!(error.code, Code::Unavailable);
 }
@@ -403,12 +403,12 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap();
     assert!(!dir.path().join("link/outbox.jsonl").exists());
     assert_eq!(base["order"], json!(["codex"]));
@@ -431,12 +431,12 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap();
     assert_ne!(saved["revision"], base["revision"]);
     assert_eq!(saved["runners"][0]["enabled"], false);
@@ -464,12 +464,12 @@ async fn runner_settings_get_and_save_publish_runners_without_endpoint_bridge() 
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap_err();
     assert_eq!(conflict.code, Code::Conflict);
     assert_eq!(conflict.message, "Executor settings changed elsewhere.");
@@ -509,12 +509,12 @@ async fn cookie_presets_flag_rejects_custom_terminal_open_templates() {
         None,
         None,
         None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
     .unwrap_err();
     assert_eq!(error.code, Code::InvalidInput);
     assert!(error.message.contains("preset"));

@@ -82,7 +82,7 @@ test.skipIf(!front)("native task.review matches TypeScript for accept on a non-m
   const task = createTask(ctx, { brief: { goal: "Review me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   updateTask(ctx, task.id, t => { t.state = "done"; });
   const rev = readTask(ctx, task.id)!.rev;
-  const reference = await callOp(ctx, "task.review", { id: task.id, expect_rev: rev, verdict: "accept" });
+  const reference = await callOp(ctx, "task.review", { id: task.id, expect_rev: rev, verdict: "accept" }) as { task: { rev: number } };
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-task-review-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-task-review-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });
