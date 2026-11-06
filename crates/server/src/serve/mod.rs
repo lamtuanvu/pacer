@@ -155,6 +155,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         // mode.hold without until needs computeStatus for the planner reset window.
         if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
             || (op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
+            || (op.name == "routing.route" && crate::native::routing_route_stays_forwarded(&params))
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);
@@ -189,7 +190,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Box::pin(crate::native::config_sync::http(Some(target), op.name))
                     as pacer_foundation::api::OpFuture<'_>
             });
-            let broker_sync = if op.name == "limits.check" {
+            let broker_sync = if crate::native::needs_usage_broker(op.name) {
                 state.core.target().await.map(|target| {
                     Box::pin(crate::native::status_sync::http(Some(target)))
                         as pacer_foundation::api::OpFuture<'_>

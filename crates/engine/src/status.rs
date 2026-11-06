@@ -2,8 +2,8 @@
 //!
 //! Callers supply usage readings / provider rows / pause / hold / installed flags.
 //! This module never probes usage plugins, login PATH, endpoints, evidence stores
-//! or activity logs. Public `routing.status` / `routing.route` / `limits.check`
-//! stay forwarded until a reviewed supplier wires those injections (usage broker).
+//! or activity logs. Native ops compose through the usage-broker injection seam;
+//! selective `routing.route` params still forward for classifier / remote eligibility.
 use serde_json::{Map, Value, json};
 
 use crate::{planner_mode, rank_executors};
