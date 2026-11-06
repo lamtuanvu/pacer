@@ -29,6 +29,8 @@ pub(crate) mod task_dismiss_ops;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
+pub(crate) mod task_stop_sync;
+mod task_stop_ops;
 
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
@@ -40,6 +42,7 @@ pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{needs_usage_broker, routing_route_stays_forwarded};
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
+pub(crate) use task_stop_ops::needs_task_stop_bridge;
 
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
@@ -214,6 +217,10 @@ static OPS: &[NativeOp] = &[
         call: lifecycle_ops::task_request_review,
     },
     NativeOp {
+        name: "task.stop",
+        call: task_stop_ops::task_stop_stub,
+    },
+    NativeOp {
         name: "task.dismiss",
         call: task_dismiss_ops::task_dismiss_stub,
     },
@@ -293,6 +300,8 @@ pub async fn call_native(
     task_clean_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     host_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     core_bridge_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    task_stop_probe: Option<Value>,
+    task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
@@ -311,6 +320,12 @@ pub async fn call_native(
         return Err(CoreError::new(
             pacer_foundation::api::Code::Unavailable,
             "task clean bridge unavailable",
+        ));
+    }
+    if needs_task_stop_bridge(op.name) && (task_stop_probe.is_none() || task_stop_effects.is_none()) {
+        return Err(CoreError::new(
+            pacer_foundation::api::Code::Unavailable,
+            "task stop bridge unavailable",
         ));
     }
     let result = if needs_usage_broker(op.name) {
@@ -394,6 +409,23 @@ pub async fn call_native(
             "task.dismiss" => task_dismiss_ops::task_dismiss(ctx, params, clean).await?,
             _ => unreachable!("needs_task_clean_bridge"),
         }
+    } else if needs_task_stop_bridge(op.name) {
+        let probe = task_stop_probe.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "task stop bridge unavailable",
+            )
+        })?;
+        let effects = task_stop_effects.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "task stop effects bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "task.stop" => task_stop_ops::task_stop(ctx, params, probe, effects).await?,
+            _ => unreachable!("needs_task_stop_bridge"),
+        }
     } else if needs_core_bridge(op.name) {
         let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
         let parts = core_bridge_sync.ok_or_else(|| {
@@ -461,6 +493,7 @@ mod tests {
             "routing.status",
             "routing.route",
             "task.request_review",
+            "task.stop",
             "task.dismiss",
             "task.diff",
             "task.list",
@@ -503,7 +536,8 @@ mod tests {
         assert!(registry("snapshot.get").get("snapshot.get").is_none());
         assert!(registry("snapshot.get").get("task.list").is_some());
         assert!(registry("").get("task.delegate").is_none());
-        assert!(registry("").get("task.stop").is_none());
+        assert!(registry("").get("task.stop").is_some());
+        assert!(registry("task.stop").get("task.stop").is_none());
         assert!(registry("").get("task.answer").is_none());
         assert!(registry("").get("task.wait").is_none());
         assert!(registry("").get("task.retry").is_none());
@@ -550,6 +584,7 @@ mod tests {
             "routing.status",
             "routing.route",
             "task.request_review",
+            "task.stop",
             "task.dismiss",
             "task.diff",
             "task.list",

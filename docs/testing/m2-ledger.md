@@ -48,7 +48,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6d+) | P6b `run_spawn` pins the `_run` argv/env/log plan; P6c found no native registration with parity (policy, prepared admission, work grants, messaging turns, effectful spawn). |
-| `task.stop`, `task.ask` | Forwarded (P6d+) | P6d library: `record_task_stop` owns store-only `taskStop` fields (incl. `stopPending` and remote-transfer refusal) without agent sessions, signals, live-worker release or host stop. Public op still needs those effectful sides and `expect_rev`/`stopWork` orchestration. |
+| `task.stop` | Native (P6, selective) | Rust `record_task_stop` owns store CAS + task outbox publication; Core supplies runner liveness, signal/host stop, live-worker release and settle activity through `/_internal/task-stop-probe` / `/_internal/task-stop-effects` (stdio `_internal.task-stop.probe` / `.effects`, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). Selectively forwards when the probe reports managed work or a live agent session / pending checks (same as TypeScript `stopWork` / agent-session gates). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `task.ask` | Forwarded (P6d+) | P6d library only; public op still needs messaging and supervision beyond store fields. |
 | `task.wait` | Forwarded (P6d+) | P6d library: `task_wait_settled` mirrors the poll exit predicate only. Public op still drains the queue, supervises the runner and waits on agent sessions/checks. |
 | `task.review` | Forwarded (P6d+) | P6c library: `record_review_verdict` owns accept/reject SQLite fields only. Public op still needs policy, agent-session gates, labels/activity, messaging `send_back`, retry/delegate/`_run`, and `autoCleanTask`. |
 | `task.retry_options` | Forwarded (P5b/P6) | Needs routing/policy ranking over live readings (same broker gap as `routing.route`). |
@@ -135,16 +136,18 @@ executors for detail. SSH-exec host ops remain forwarded. Cross-runtime coverage
 `test/ssh-config-parity.test.ts`, `test/host-read-parity.test.ts`, and
 `cargo test -p pacer-config ssh_config`.
 
-## P6d stop/wait triage (library, no new native ops)
+## P6d stop/wait triage (library + selective native stop)
 
 P6d evaluated `task.stop` and `task.wait` for the largest safe native
-registration. Neither met parity without agent-session gates, executor/provider
-stop grants, live-worker release, remote host stop, process signals, queue drain,
-supervision or `stopWork` tree orchestration still owned by TypeScript. The
-incremental library step is `pacer-lifecycle::record_task_stop` (store-only
-`taskStop` aligned with `{ signal: false }` and no agent-session branch) and
-`task_wait_settled` (the `taskWait` poll exit predicate). Cross-runtime coverage:
-`test/record-stop-parity.test.ts`, `test/task-wait-settled-parity.test.ts`, and
+registration. Full parity still needs agent-session gates, `stopWork` subtree
+orchestration, queue drain and supervision for managed-work and agent-session
+paths; those cases selectively forward to TypeScript. The safe native slice is
+`pacer-lifecycle::record_task_stop` (store CAS) plus Core bridges for runner
+liveness probe, process/host signals, live-worker release and settle activity
+(pattern: `task.dismiss` auto-clean bridge). `task_wait_settled` remains
+library-only for `task.wait`. Cross-runtime coverage:
+`test/record-stop-parity.test.ts`, `test/native-task-stop-parity.test.ts`,
+`test/task-wait-settled-parity.test.ts`, and
 `cargo test -p pacer-lifecycle record_stop wait_settled`.
 
 ## P7 session ops triage (library, no new native ops)

@@ -168,6 +168,36 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                 .await;
         }
+        let task_stop_probe_cache = if op.name == "task.stop" {
+            let Some(id) = params
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())
+            else {
+                return native_error(CoreError::new(
+                    Code::InvalidInput,
+                    "id: Invalid input: expected string, received undefined",
+                ));
+            };
+            let core_target = state.core.target().await;
+            match crate::native::task_stop_sync::http_probe(core_target.clone(), id).await {
+                Ok(probe) if crate::native::task_stop_sync::task_stop_stays_forwarded(&probe) => {
+                    let Some(target) = core_target else {
+                        return proxy::unavailable(false);
+                    };
+                    return proxy::forward(
+                        Request::from_parts(parts, Body::from(bytes)),
+                        target,
+                        auth,
+                    )
+                    .await;
+                }
+                Ok(probe) => Some(probe),
+                Err(error) => return native_error(error),
+            }
+        } else {
+            None
+        };
         let result = if op.name.starts_with("plugin.") {
             if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
                 eprintln!("native {}", op.name);
@@ -298,6 +328,32 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
+            let task_stop_effects = if task_stop_probe_cache.is_some() {
+                let id = params
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                let before = task_stop_probe_cache
+                    .as_ref()
+                    .and_then(|probe| probe.get("beforeState"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                state.core.target().await.map(|target| {
+                    let id = id.clone();
+                    let before = before.clone();
+                    Box::pin(async move {
+                        crate::native::task_stop_sync::http_effects(
+                            Some(target),
+                            &id,
+                            before.as_deref(),
+                        )
+                        .await
+                    }) as pacer_foundation::api::OpFuture<'_>
+                })
+            } else {
+                None
+            };
             call_native(
                 &request_ctx,
                 op,
@@ -312,6 +368,8 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 task_clean_sync,
                 host_read_sync,
                 core_bridge_sync,
+                task_stop_probe_cache,
+                task_stop_effects,
             )
             .await
         };
