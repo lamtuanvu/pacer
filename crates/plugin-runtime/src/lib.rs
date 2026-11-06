@@ -21,6 +21,7 @@ mod host_bridge;
 mod orca_attach;
 mod owner;
 mod serve_host;
+mod worktree_attach;
 
 pub use bridge_listener::{
     BRIDGE_MAX_LINE_BYTES, BridgeDispatch, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,
@@ -31,6 +32,7 @@ pub use capability::{
     OrcaCallContext, PluginCapabilitySession, call_resources_from_value, host_snapshots_from_value,
     observation_bootstrap_from_value, orca_context_from_value, session_for_call, session_from_hello,
 };
+pub use worktree_attach::{WorktreeCallContext, worktree_context_from_value};
 pub use orca_attach::{FixtureOrcaSession, OrcaBridge, SharedOrcaBridge};
 pub use host_attach::HostAttachSnapshot;
 pub use host_bridge::{
