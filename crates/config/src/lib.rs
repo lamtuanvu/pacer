@@ -8,6 +8,7 @@ mod js_semantics;
 mod notification_json;
 pub mod notifications;
 mod sections;
+pub mod ssh_config;
 pub mod strategy;
 pub mod strategy_write;
 mod temp_file;

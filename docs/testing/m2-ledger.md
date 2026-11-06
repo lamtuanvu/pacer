@@ -10,7 +10,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `config.set` | Native (P2-E) | Pure keys use `pacer_config::settings::set_setting` plus the P3-B publisher. `planner` and `execution.backend` selectively forward to TypeScript for install/uninstall and backend readiness. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.account.add` | Forwarded | SSH account configuration and host adapter dependencies remain in TypeScript. |
 | `host.add`, `host.set`, `host.remove`, `host.repo.map` | Forwarded (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Public ops stay forwarded until native callers also cover endpoint sync (`applyEdit`), config publication, and `host.set` activity side effects. Plugin-owned SSH execution is out of scope. |
-| `host.list`, `host.get`, `host.suggest` | Forwarded (P2-D) | Need running-task/job/reachability state, check caches, or `~/.ssh` alias reads that the config library does not own. |
+| `host.suggest` | Native (P2-D) | `pacer-config::ssh_config` reads `~/.ssh` aliases (Includes, HostName, no shell execution) and filters configured host `ssh` targets from `load_strategy`. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `host.list`, `host.get` | Forwarded (P2-D) | Need running-task/job/reachability state and check caches beyond the P2-D library slice. `pacer-lifecycle::hosts::list` / `summary` accept injected snapshots for parity only. |
 | `host.check`, `host.clean`, `host.terminal`, `host.repo.setup` | Forwarded (P2-D) | Plugin-owned SSH execution, clone/identity/cleanup grants and jobs remain in TypeScript. |
 | `runner.settings.get`, `runner.settings.save` | Native (P2-D) | Native callers use `pacer-config::executor_settings` under the shared `executor-settings` lock; saves publish the `runners` area via the P3-B publisher (matching TS `mutation(..., "runners", ...)`). No endpoint-plugin sync (unlike `runner.set` / `remove`). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `repo.add`, `repo.list`, `repo.remove` | Forwarded (P2-D) | Registry/path-probe/git identity and branch reads stay in TypeScript; only `repo_key` URL canonicalization is in the Rust host library. |
@@ -84,6 +85,19 @@ TypeScript. The incremental library step is `pacer-lifecycle::record_review_verd
 `test/record-review-parity.test.ts` and `cargo test -p pacer-lifecycle record_review`.
 Native registration for the forwarded ops remains a later slice (session probe,
 spawn owner, policy bridge).
+
+## P2-D host read triage (library + native suggest)
+
+P2-D evaluated `host.list`, `host.get` and `host.suggest` for the largest safe
+native registration. `host.suggest` met parity without SSH execution: Rust reads
+`~/.ssh/config` (Includes and HostName, depth/cycle bounded) and subtracts
+configured host `ssh` targets from strategy YAML. `host.list` and `host.get` still
+need live task counts, jobs, reachability, check caches, read-model executors and
+account/worktree enrichment owned by TypeScript; the incremental library step is
+`pacer-lifecycle::hosts::list` composing `summary` over injected snapshots (same
+inputs as the existing `host.summary` fixture op). Cross-runtime coverage:
+`test/ssh-config-parity.test.ts`, `test/host-read-parity.test.ts`, and
+`cargo test -p pacer-config ssh_config`.
 
 ## P6d stop/wait triage (library, no new native ops)
 

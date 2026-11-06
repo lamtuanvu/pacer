@@ -1289,6 +1289,7 @@ dependencies = [
 name = "pacer-config"
 version = "0.0.0"
 dependencies = [
+ "glob",
  "hex",
  "indexmap",
  "pacer-foundation",
