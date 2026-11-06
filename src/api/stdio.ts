@@ -74,6 +74,15 @@ export async function runStdio(
           result = sessionProbeParts(getCtx());
           break;
         }
+        case "_internal.config-host.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { configHostParts } = await import("./config-host-bridge");
+          result = configHostParts(getCtx());
+          break;
+        }
         case "_internal.task-read.parts": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {

@@ -3,7 +3,9 @@ use pacer_foundation::{
     api::{CoreError, NativeOp, Registry},
 };
 use serde_json::Value;
+mod config_get_ops;
 mod config_params;
+pub(crate) mod config_host_sync;
 pub(crate) mod config_sync;
 mod config_writes;
 mod engine_ops;
@@ -17,6 +19,7 @@ mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
 
+pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use session_ops::needs_session_probe;
@@ -98,6 +101,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "notifications.set",
         call: config_writes::notifications_set,
+    },
+    NativeOp {
+        name: "config.get",
+        call: config_get_ops::config_get_stub,
     },
     NativeOp {
         name: "config.set",
@@ -206,6 +213,7 @@ pub async fn call_native(
     broker_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     session_sync: Option<pacer_foundation::api::OpFuture<'_>>,
     task_read_sync: Option<pacer_foundation::api::OpFuture<'_>>,
+    config_host_sync: Option<pacer_foundation::api::OpFuture<'_>>,
 ) -> Result<Value, CoreError> {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         if let Some(id) = request_id {
@@ -256,6 +264,17 @@ pub async fn call_native(
             "task.list" => session_ops::task_list(ctx, params, probe).await?,
             _ => unreachable!("needs_session_probe"),
         }
+    } else if needs_config_host_bridge(op.name) {
+        let parts = config_host_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "config host bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "config.get" => config_get_ops::config_get(ctx, params, parts.await?).await?,
+            _ => unreachable!("needs_config_host_bridge"),
+        }
     } else {
         (op.call)(ctx, params).await?
     };
@@ -300,6 +319,7 @@ mod tests {
             "runner.settings.save",
             "notifications.get",
             "notifications.set",
+            "config.get",
             "config.set",
             "delegation.pause",
             "delegation.resume",
@@ -316,7 +336,8 @@ mod tests {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
         }
-        assert!(registry("").get("config.get").is_none());
+        assert!(registry("").get("config.get").is_some());
+        assert!(registry("config.get").get("config.get").is_none());
         assert!(registry("").get("activity.list").is_some());
         // Stdio keeps retired install in TypeScript; HTTP registers the refuse.
         assert!(registry("").get("plugin.install").is_none());
@@ -368,6 +389,7 @@ mod tests {
             "runner.settings.save",
             "notifications.get",
             "notifications.set",
+            "config.get",
             "config.set",
             "delegation.pause",
             "delegation.resume",
@@ -384,7 +406,12 @@ mod tests {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
         }
-        assert!(super::service_registry("").get("config.get").is_none());
+        assert!(super::service_registry("").get("config.get").is_some());
+        assert!(
+            super::service_registry("config.get")
+                .get("config.get")
+                .is_none()
+        );
         // P4d-4: retired install is native HTTP refuse; stdio stays TypeScript.
         assert!(super::service_registry("").get("plugin.install").is_some());
         assert!(
