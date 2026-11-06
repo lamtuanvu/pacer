@@ -33,15 +33,25 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `routing.status`, `routing.route` | Forwarded (P5b) | Need live readings, remote eligibility and optional classifier. Bridge stubs: `compose_status` / `rank_route` assemble once a supplier injects provider rows (P5a pure rank/eligibility/pace already in `pacer-engine`). |
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `task.request_review` | Native (P6) | Store-only handoff note via `pacer-lifecycle::request_review` + read-model `api_tasks` projection. No runner, plugin, messaging or supervision. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6b/P6c) | Need `_run` spawn, drain launch, policy/project admission effects and executor-session guard. |
-| `task.stop`, `task.ask` | Forwarded (P6b/P6c) | Need executor/provider stop grants, live-worker release, agent-session checks and (for ask) messaging insert. |
-| `task.wait` | Forwarded (P6b/P6c) | Poll loop still drains the queue, supervises the runner and waits on agent sessions/checks. |
+| `task.delegate`, `task.retry`, `task.retry_all`, `task.answer` | Forwarded (P6c) | P6b library: `pacer-lifecycle::run_spawn` pins the `_run` argv/env/log plan (`self_command`, admission lease/task env, detached runner log). Effectful spawn and full admission/drain/policy remain TypeScript until P6c. |
+| `task.stop`, `task.ask` | Forwarded (P6c) | Need executor/provider stop grants, live-worker release, agent-session checks and (for ask) messaging insert. |
+| `task.wait` | Forwarded (P6c) | Poll loop still drains the queue, supervises the runner and waits on agent sessions/checks. |
 | `task.review` | Forwarded (P6c) | Accept/reject need agent-session/check gates and labels; `send_back`/`retry` need delegate/`_run`. |
 | `task.retry_options` | Forwarded (P5b/P6) | Needs routing/policy ranking over live readings (same broker gap as `routing.route`). |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
 
 The native `activity.list` reads the TypeScript activity JSONL, and `task.log` reads the shared SQLite task record and output files. `task.log` opens the existing adapter, which may import or migrate the store as described in P3-C. Native `task.prune` / `task.restore` use the same `TaskStore` retention helpers as the TypeScript reference, including strategy `taskRetentionDays` (default 14) and the cross-runtime retention lock.
+
+## P6b `_run` spawn seam (library)
+
+`pacer-lifecycle::run_spawn` matches `selfCommand`, `runnerLogPath` and the
+`launchTaskRunner` env pins in `src/tasks/api.ts`. The module performs no
+filesystem or process I/O; production spawn stays in TypeScript (`spawnRunnerProcess`).
+Queue drain in Rust already accepts a launch callback returning `Option<u32>`; P6b
+documents that the callback must honor `RunSpawnPlan` before P6c can register
+delegate/retry/answer natively. Cross-runtime coverage:
+`test/run-spawn-parity.test.ts` and `cargo test -p pacer-lifecycle run_spawn`.
 
 PR #585 adds the native `/v3/tasks/<id>/log?follow=1` SSE route. It retains a read-only SQLite connection, detects database replacement, and drains bounded output chunks before `done`. When a read needs a legacy JSON import, an older schema migration, or malformed-record semantics, it calls the existing TypeScript `task.log` fallback with the current byte offsets. That core read performs the shared durable import; no per-stream import cache or new Rust state writer is used. The same fallback applies after a stream connects. All `/v2` routes and `/v3/events` remain forwarded.
 
@@ -109,7 +119,7 @@ inventories under `.work/reviews/`.
 | Service (`pacer serve`) | TypeScript Core (default); Rust `ProcessOwner` when flag on | Flag-on: ProcessOwner starts/supervises children for native HTTP plugin RPC and bridge spawn/call/find/stop; answers hello-sealed `capability.log`/`config.get` and Core-sealed call-scoped fs/process/http (P4d-6/7); Core seals spawn_spec/`call_authority` and refuses local spawn; private `call` retired. Default stays off; `=0` escape ready for default-on. |
 | Stdio (`pacer-core api --stdio`) | TypeScript | Unchanged (P8) |
 | CLI one-shots | TypeScript | Unchanged |
-| `_run` runners | TypeScript | Unchanged (P6b) |
+| `_run` runners | TypeScript (effectful) | P6b: Rust `run_spawn` records the launch plan and `RunSpawnOwner::TypeScriptCore`; `AdmissionState::drain` launch hooks still call injected spawners. Native supervisor spawn is reserved (`RunSpawnOwner::NativeSupervisor`, P6c+). |
 
 ## X3 / P4d-3 / P4d-4 / P4d-5 mutation status and remaining deferred work
 
