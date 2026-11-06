@@ -54,6 +54,13 @@ const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("changed"), id: z.string(), reset: z.boolean(), invalidate: z.boolean() }).strict(),
   z.object({ kind: z.literal("publish"), op: operation }).strict(),
   z.object({ kind: z.literal("log"), id: z.string(), message: z.string().max(1000) }).strict(),
+  z.object({
+    kind: z.literal("orca_bridge"),
+    token: z.string().min(1).max(128),
+    pluginId: z.string().min(1),
+    method: z.string().min(1),
+    params: z.record(z.string(), z.unknown()).default({}),
+  }).strict(),
 ]);
 
 /** Called only after internal-generation authentication, never on the public API. */
@@ -116,6 +123,9 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown) {
         if (["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.visibility", "plugin.settings.set"].includes(p.op)) await publishConfigChange(ctx, "plugins");
         break;
       case "log": appendPluginLog(ctx, p.id, "stderr", p.message); break;
+      case "orca_bridge":
+        value = await reg.nativeAnswerOrcaBridge(p.token, p.pluginId, p.method, p.params);
+        break;
     }
     return { value, entries: reg.nativeSnapshot(ctx) };
   } catch (error) {

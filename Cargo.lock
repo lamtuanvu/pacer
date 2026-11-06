@@ -1502,6 +1502,7 @@ version = "0.0.0"
 dependencies = [
  "nix",
  "pacer-plugin-host",
+ "pacer-store",
  "serde_json",
  "tempfile",
  "thiserror",

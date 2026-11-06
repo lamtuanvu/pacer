@@ -18,6 +18,7 @@ mod bridge_listener;
 mod capability;
 mod host_attach;
 mod host_bridge;
+mod orca_attach;
 mod owner;
 mod serve_host;
 
@@ -27,9 +28,10 @@ pub use bridge_listener::{
 };
 pub use capability::{
     CapabilitySessionError, FixtureHostProvider, LocalHostEffect, ObservationBootstrap,
-    PluginCapabilitySession, call_resources_from_value, host_snapshots_from_value,
-    observation_bootstrap_from_value, session_for_call, session_from_hello,
+    OrcaCallContext, PluginCapabilitySession, call_resources_from_value, host_snapshots_from_value,
+    observation_bootstrap_from_value, orca_context_from_value, session_for_call, session_from_hello,
 };
+pub use orca_attach::{FixtureOrcaSession, OrcaBridge, SharedOrcaBridge};
 pub use host_attach::HostAttachSnapshot;
 pub use host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
