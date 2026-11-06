@@ -35,6 +35,25 @@ export function setupHealthFailureReport(trigger: SetupHealthReport["trigger"] =
   };
 }
 
+export type SetupHealthLoadResult =
+  | { kind: "skip"; summary: SetupHealthSummary }
+  | { kind: "stage"; report: SetupHealthReport; autoEnterMs?: number }
+  | { kind: "fail"; report: SetupHealthReport };
+
+/** Pure load path for the gate: skip, show stage, or hard-fail — never silent ready. */
+export async function loadSetupHealthGate(
+  call: BrowserApi["call"],
+): Promise<SetupHealthLoadResult> {
+  try {
+    const next = await call<SetupHealthReport & { skipFullWindow?: boolean }>("setup.health", { trigger: "startup" });
+    if (next.skipFullWindow) return { kind: "skip", summary: summaryOf(next) };
+    if (next.outcome === "hard_fail") return { kind: "stage", report: next };
+    return { kind: "stage", report: next, autoEnterMs: next.outcome === "ok" ? 600 : 1200 };
+  } catch {
+    return { kind: "fail", report: setupHealthFailureReport("startup") };
+  }
+}
+
 async function applyRepair(
   api: BrowserApi,
   repair: SetupHealthRepair,
@@ -101,40 +120,28 @@ export function SetupHealthGate({
   useEffect(() => {
     if (phase !== "checking" || !connected || !enabled) return;
     let active = true;
-    void api.call<SetupHealthReport & { skipFullWindow?: boolean }>("setup.health", { trigger: "startup" }).then(
-      next => {
-        if (!active) return;
-        setReport(next);
-        if (next.skipFullWindow) {
-          setPhase("ready");
-          onReadyRef.current(summaryOf(next));
-          return;
-        }
-        setPhase("stage");
-      },
-      () => {
-        if (!active) return;
-        // Stay on the gate with an honest hard fail; do not silently enter the app.
-        setReport(setupHealthFailureReport("startup"));
-        setPhase("stage");
-      },
-    );
-    return () => { active = false; };
-  }, [api, connected, enabled, phase]);
-
-  useEffect(() => {
-    if (phase !== "stage" || !report?.checkedAt || report.outcome === "hard_fail") return;
-    let active = true;
-    enterTimer.current = window.setTimeout(() => {
+    void loadSetupHealthGate(api.call).then(result => {
       if (!active) return;
-      setPhase("ready");
-      onReadyRef.current(summaryOf(report));
-    }, report.outcome === "ok" ? 600 : 1200);
+      if (result.kind === "skip") {
+        setPhase("ready");
+        onReadyRef.current(result.summary);
+        return;
+      }
+      setReport(result.report);
+      setPhase("stage");
+      if (result.kind === "stage" && result.autoEnterMs != null) {
+        enterTimer.current = window.setTimeout(() => {
+          if (!active) return;
+          setPhase("ready");
+          onReadyRef.current(summaryOf(result.report));
+        }, result.autoEnterMs);
+      }
+    });
     return () => {
       active = false;
       if (enterTimer.current) window.clearTimeout(enterTimer.current);
     };
-  }, [phase, report]);
+  }, [api, connected, enabled, phase]);
 
   if (!enabled || phase === "idle" || phase === "ready") return null;
   const view = report ?? pendingSetupHealthReport("startup");
