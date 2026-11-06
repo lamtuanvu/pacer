@@ -15,6 +15,7 @@ mod task_reads;
 
 pub(crate) use config_writes::config_set_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
+pub(crate) use status_ops::{routing_route_stays_forwarded, needs_usage_broker};
 
 #[cfg(feature = "test-ops")]
 fn echo(_: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
@@ -137,6 +138,14 @@ static OPS: &[NativeOp] = &[
         call: status_ops::limits_check_stub,
     },
     NativeOp {
+        name: "routing.status",
+        call: status_ops::routing_status_stub,
+    },
+    NativeOp {
+        name: "routing.route",
+        call: status_ops::routing_route_stub,
+    },
+    NativeOp {
         name: "task.request_review",
         call: lifecycle_ops::task_request_review,
     },
@@ -195,14 +204,19 @@ pub async fn call_native(
             "endpoint synchronization bridge unavailable",
         ));
     }
-    let result = if op.name == "limits.check" {
+    let result = if needs_usage_broker(op.name) {
         let parts = broker_sync.ok_or_else(|| {
             CoreError::new(
                 pacer_foundation::api::Code::Unavailable,
                 "usage broker bridge unavailable",
             )
         })?;
-        status_ops::limits_check(ctx, params, parts.await?).await?
+        match op.name {
+            "limits.check" => status_ops::limits_check(ctx, params, parts.await?).await?,
+            "routing.status" => status_ops::routing_status(ctx, params, parts.await?).await?,
+            "routing.route" => status_ops::routing_route(ctx, params, parts.await?).await?,
+            _ => unreachable!("needs_usage_broker"),
+        }
     } else {
         (op.call)(ctx, params).await?
     };
@@ -254,6 +268,8 @@ mod tests {
             "mode.release",
             "limits.report",
             "limits.check",
+            "routing.status",
+            "routing.route",
             "task.request_review",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
@@ -285,8 +301,6 @@ mod tests {
         assert!(registry("").get("task.retry_options").is_none());
         assert!(registry("").get("task.review").is_none());
         assert!(registry("").get("task.ask").is_none());
-        assert!(registry("").get("routing.status").is_none());
-        assert!(registry("").get("routing.route").is_none());
         assert!(registry("").get("limits.refresh").is_none());
     }
 
@@ -319,6 +333,8 @@ mod tests {
             "mode.release",
             "limits.report",
             "limits.check",
+            "routing.status",
+            "routing.route",
             "task.request_review",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");

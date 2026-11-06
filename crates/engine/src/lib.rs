@@ -1,7 +1,7 @@
 //! Pure engine calculations plus safe pacing-state helpers (pause, mode hold, exhausted marks).
 //! Inputs and outputs use the TypeScript JSON shapes until the M2 operation boundary introduces
-//! protocol types. `limits.check` composes from [`usage_broker`] injections; status/route
-//! ops stay forwarded until remote eligibility and classifier bridges land.
+//! protocol types. Pacing status ops compose from [`usage_broker`] injections; selective
+//! `routing.route` params still forward for classifier and remote eligibility.
 pub mod exhausted;
 pub mod mode_hold;
 pub mod pause;

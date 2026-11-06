@@ -178,29 +178,35 @@ async fn forward_input<
             // Planner install and backend readiness remain on the TypeScript path.
             if !(op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
                 && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
+                && !(op.name == "routing.route"
+                    && crate::native::routing_route_stays_forwarded(&params))
             {
                 let request_ctx = ctx.at_now();
-                let result = if op.name == "limits.check" {
-                    match crate::native::status_sync::stdio(
-                        &mut core, sync.0, sync.1, sync.2,
+                let result = if crate::native::needs_usage_broker(op.name) {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        Some(
+                            Box::pin(crate::native::status_sync::stdio(
+                                &mut core, sync.0, sync.1, sync.2,
+                            )) as pacer_foundation::api::OpFuture<'_>,
+                        ),
                     )
                     .await
-                    {
-                        Ok(parts) => {
-                            crate::native::status_ops::limits_check(&request_ctx, params, parts)
-                                .await
-                        }
-                        Err(error) => Err(error),
-                    }
                 } else {
                     call_native(
                         &request_ctx,
                         op,
                         params,
                         request.get("id"),
-                        Some(Box::pin(crate::native::config_sync::stdio(
-                            &mut core, sync.0, sync.1, op.name, sync.2,
-                        ))),
+                        Some(
+                            Box::pin(crate::native::config_sync::stdio(
+                                &mut core, sync.0, sync.1, op.name, sync.2,
+                            )) as pacer_foundation::api::OpFuture<'_>,
+                        ),
                         None,
                     )
                     .await

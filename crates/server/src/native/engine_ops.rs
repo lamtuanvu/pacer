@@ -1,7 +1,7 @@
 //! Safe P5 engine ops that do not need the usage broker: pause/resume, mode
-//! hold/release (explicit `until`), and `limits.report`. `limits.check` is native
-//! in `status_ops` with P5c broker injections; `routing.status` / `routing.route`
-//! stay forwarded until remote eligibility and classifier bridges land.
+//! hold/release (explicit `until`), and `limits.report`. P5c/P5d broker-backed
+//! status ops live in `status_ops`; `routing.route` selectively forwards when
+//! `goal` or `repo` need classifier / remote eligibility.
 #![allow(clippy::result_large_err)]
 use pacer_config::{config_writes, strategy::load_strategy};
 use pacer_engine::{exhausted, mode_hold, pause};
