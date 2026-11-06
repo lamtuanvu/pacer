@@ -289,10 +289,24 @@ fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
     }
 }
 
+fn peer_uid(stream: &UnixStream) -> Result<u32, BridgeError> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
+        let cred = getsockopt(stream, PeerCredentials)
+            .map_err(|_| BridgeError::PeerCredUnavailable)?;
+        return Ok(cred.uid());
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        let (uid, _) =
+            nix::unistd::getpeereid(stream).map_err(|_| BridgeError::PeerCredUnavailable)?;
+        Ok(uid.as_raw())
+    }
+}
+
 fn authorize(stream: &UnixStream, auth: &PeerAuth) -> Result<(), BridgeError> {
-    let (uid, _gid) =
-        nix::unistd::getpeereid(stream).map_err(|_| BridgeError::PeerCredUnavailable)?;
-    if uid.as_raw() != auth.allowed_uid {
+    if peer_uid(stream)? != auth.allowed_uid {
         return Err(BridgeError::UntrustedCaller);
     }
     Ok(())
