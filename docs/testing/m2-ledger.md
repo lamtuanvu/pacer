@@ -128,6 +128,12 @@ inventories under `.work/reviews/`.
 - **P4d-7:** Core→Rust `call_authority` seals call-scoped `CallResources`;
   ProcessOwner binds natives for the call (fixture fs/process/http). Default
   remains off (executor-class resources + observation/hosts/orca + CT-11).
+- **P4d-8:** Core `call_authority` seals observation bootstrap for
+  `diagnostic.ping` / `policy.before` when `tasks.read` / `events.subscribe` are
+  granted; ProcessOwner routes `capability.tasks.*` / `capability.events.subscribe`
+  through `ObservationGeneration` (list proof; Core task projection bridge and
+  host provider snapshots still open). Host `HostOperationResource` sealing
+  validates exact issued ops; `with_hosts` attach remains deferred.
 - **P4d-1 landed (flag-gated):** serve can claim `ProcessOwner` + reverse bridge
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against

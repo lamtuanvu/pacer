@@ -66,6 +66,59 @@ test("sealCallAuthority auto-issues exact fs.read paths and http hosts", () => {
   expect(sealed.grants).toEqual(["fs.read", "net.http", "log"]);
 });
 
+test("sealCallAuthority seals observation bootstrap for policy admission methods", () => {
+  const ctx = fakeCtx();
+  const sealed = sealCallAuthority(
+    ctx,
+    {
+      id: "fx-policy",
+      version: "1.0.0",
+      publisher: "fixture",
+      host: ">=1.10.0",
+      capabilities: [{ name: "tasks.read" }, { name: "events.subscribe" }],
+      contributes: { policy: {} },
+    } as any,
+    ["tasks.read", "events.subscribe"],
+    { method: "policy.before" },
+  );
+  expect(sealed.observation?.bootstrap).toBe(true);
+  expect(sealed.observation?.callToken).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  );
+  expect(sealed.observation?.readContext.home).toBe(ctx.home);
+  expect(sealCallAuthority(
+    ctx,
+    { id: "fx", version: "1.0.0", publisher: "f", host: ">=1.10.0", capabilities: [{ name: "log" }], contributes: {} } as any,
+    ["log"],
+    { method: "policy.before" },
+  ).observation).toBeUndefined();
+});
+
+test("sealCallAuthority validates host operation resources when hosts is granted", () => {
+  const ctx = fakeCtx();
+  const host = {
+    alias: "box",
+    hostFingerprint: "host-one",
+    script: "CHECK_REPO",
+    args: ["~/repo"],
+    timeoutMs: 1000,
+    maxBytes: 1024,
+  };
+  const sealed = sealCallAuthority(
+    ctx,
+    { id: "fx", version: "1.0.0", publisher: "f", host: ">=1.10.0", capabilities: [{ name: "hosts" }], contributes: {} } as any,
+    ["hosts"],
+    { resources: { reads: [], commands: [], stores: [], hosts: [host] } },
+  );
+  expect(sealed.resources.hosts).toEqual([host]);
+  expect(() => sealCallAuthority(
+    ctx,
+    { id: "fx", version: "1.0.0", publisher: "f", host: ">=1.10.0", capabilities: [{ name: "hosts" }], contributes: {} } as any,
+    ["hosts"],
+    { resources: { reads: [], commands: [], stores: [], hosts: [{ ...host, script: "bad" }] } },
+  )).toThrow(/host script/);
+});
+
 test("sealCallAuthority refuses write resources in this slice", () => {
   expect(() => sealCallAuthority(
     fakeCtx(),

@@ -1753,9 +1753,11 @@ export class PluginRegistry {
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const manifest = e.manifest!;
     const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
-    // method is reserved for future per-method resource selection; sealed grants stay call-wide.
-    void options.method;
-    return sealCallAuthority(ctx, manifest, grants, { resources: options.resources, ttlMs: options.ttlMs });
+    return sealCallAuthority(ctx, manifest, grants, {
+      resources: options.resources,
+      ttlMs: options.ttlMs,
+      method: options.method,
+    });
   }
 
   /** Record a ProcessOwner hello without holding a local PluginProcess. */
