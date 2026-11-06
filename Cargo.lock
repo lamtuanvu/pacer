@@ -1546,6 +1546,7 @@ dependencies = [
  "pacer-config",
  "pacer-engine",
  "pacer-foundation",
+ "pacer-lifecycle",
  "pacer-mdns",
  "pacer-plugin-ops",
  "pacer-plugin-runtime",

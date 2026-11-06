@@ -1,9 +1,10 @@
 # pacer-lifecycle
 
-Layer 6, with no runtime callers or native operation registrations. The crate
-contains task admission (brief validation, capacity, lineage, strategy, prepared
+Layer 6. Task admission (brief validation, capacity, lineage, strategy, prepared
 admission, queue drain and revision-checked mutation) alongside P6e attention,
-client, job, host, notification and runner-check decisions.
+client, job, host, notification and runner-check decisions. The first served
+lifecycle op is store-only `task.request_review`; runner/_run-dependent task ops
+stay forwarded until P6b/P6c.
 
 Admission uses `pacer-store` and `pacer-foundation` for transactional task state,
 publication and mutation locks. Capacity characterization covers `slot_use`,
