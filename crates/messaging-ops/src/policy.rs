@@ -43,7 +43,7 @@ fn includes(list: &Value, item: &str) -> bool {
 }
 
 /// `JSON.parse` numbers: imported task records keep integral values as floats (`4.0`).
-fn js_numbers(value: &mut Value) {
+pub(crate) fn js_numbers(value: &mut Value) {
     match value {
         Value::Number(n) => {
             if let Some(f) = n.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 9.0e15) {
