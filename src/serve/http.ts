@@ -382,6 +382,18 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/msg-effects" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const { msgEffectsBridge } = await import("../api/msg-bridge");
+            return Response.json({ result: await msgEffectsBridge(getCtx(), body, opts.opDeps?.spawnRunner) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
