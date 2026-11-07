@@ -82,7 +82,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `msg.wait` | Forwarded (P6) | Blocks up to 3000 s polling the inbox and marks returned messages read; a native blocking loop would hold the stdio connection, and `human` consumption publishes task and attention events. |
 | `msg.confirm` | Forwarded (P6) | Human-only release of policy-held messages then `deliver` with runner spawn. |
 | `msg.close` | Forwarded (P6) | Sets `msgClosed`, parent/origin/human authorization and `autoCleanTask` worktree release; no review verdict. |
-| `msg.policy` | Forwarded (P6) | Effective repository guardrails and hypothetical `checkSend` evaluation (`effectivePolicy`): needs the Zod-defaulted strategy messaging config merged with project messaging rules, plus relation, rate-limit and held-message evaluation that has no Rust owner yet. |
+| `msg.policy` | Native (P6, selective) | `pacer-messaging-ops::policy` computes `effectivePolicy` (the strategy messaging section via `pacer_config::strategy::load_strategy`, Zod defaults when the strategy is missing or invalid, rules normalized to schema key order; then the root task's `messaging` override, the repository's `project-messaging.json` entry, global rules and the default rules) and `checkSend` for a hypothetical send (relation, top position, rule matching including grants, repo and executor conditions, the per-minute cap over `messages`, and `confirm` holds), reporting refusals as `check: {decision: "deny", error}`. The op takes no repository path, so no repo resolution is forwarded. Work-grant and enforcement-token callers selectively forward (`authorizeWorkOperation`), as does an unreadable or invalid `project-messaging.json`, because its `projectError` carries Node and Zod details only the TypeScript reader produces. Accepted residual: a task-store failure during the check is an op-level `internal` error, as for the native message reads, where TypeScript reports `String(e)` inside `check`. Parity: `test/native-msg-policy-parity.test.ts`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `desktop.capture.register`, `desktop.capture.targets`, `desktop.capture.request`, `desktop.capture.claim`, `desktop.capture.complete`, `desktop.capture.result` | Forwarded (P8/P9) | Desktop capture broker over connected authenticated desktop clients (`src/desktop/capture-broker.ts`, `src/api/ops-desktop.ts`): worker credential renewal, owned-window inventory, request/claim/complete lifecycle and PNG metadata reads. Bounded image upload stays on authenticated HTTP routes. `targets` reads the in-memory worker/window map of the running service process; nothing is persisted for Rust to read. |
 | `desktop.update.status`, `desktop.update.check`, `desktop.update.download`, `desktop.update.restart`, `desktop.update.cancel`, `desktop.update.configure`, `desktop.update.adopt`, `desktop.update.adoptCancel` | Forwarded (P8/P9) | Verified desktop OTA and service-adoption runtime (`src/api/ops-desktop-update.ts`, `src/desktop/update/`): feed checks, signed download, restart reservation, adoption handoff and public status. Snapshot probe carries update rows only; effectful install/restart stays TypeScript. `status` reads the in-process desktop update runtime registered by the service (`desktopUpdateRuntime`), not a document Rust can own. |
 | `desktop.reconcile.status`, `desktop.reconcile.request`, `desktop.reconcile.cancel` | Native (P8/P9 desktop reconcile) | Rust returns the fixed `assessReconciliation(undefined)` assessment for `status` and validates the strict `request`/`cancel` schemas with Zod issue text before returning `unavailable` (`src/api/ops-desktop-reconciliation.ts`). The executor upgrade refusal (`PACER_ROLE=executor` or an own task-worktree process directory) and the enforcement-token refusal precede params as in `parseOpParams`. `request`/`cancel` selectively forward when the process directory is an Orca task worktree, where TypeScript resolves the strategy provider. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -260,9 +260,9 @@ effectful `_run` spawn, messaging store turns, project policy, and
 only expands the ledger with explicit Forwarded rows and residual owners; it
 does not register native handlers. Native cutover waits on P6 spawn ownership,
 P5 observation/broker bridges, and a messaging read model. The messaging read
-model has since landed for `msg.inbox`, `msg.log` and `msg.read` (see the Native
-rows above); `msg.wait`, `msg.policy`, `msg.send`, `msg.confirm` and `msg.close`
-stay Forwarded. The later P6 dispatch-reads slice registers
+model has since landed for `msg.inbox`, `msg.log` and `msg.read`, and the policy
+evaluation for `msg.policy` (see the Native rows above); `msg.wait`, `msg.send`,
+`msg.confirm` and `msg.close` stay Forwarded. The later P6 dispatch-reads slice registers
 `dispatch.config.get`, `dispatch.list`, `dispatch.tree` and `dispatch.events`
 over `pacer-lifecycle::work_reads` (parity:
 `test/native-dispatch-reads-parity.test.ts`); the other nineteen stay Forwarded
@@ -564,17 +564,17 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **97** of 225 (85 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Twenty-nine of these selectively forward some inputs to TypeScript:
+Total native: **98** of 225 (86 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Thirty of these selectively forward some inputs to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
-`project.messaging.remove`, `msg.inbox`, `msg.log`, `msg.read`,
+`project.messaging.remove`, `msg.inbox`, `msg.log`, `msg.read`, `msg.policy`,
 `discovery.set`, `discovery.respond`, `desktop.reconcile.request`,
 `desktop.reconcile.cancel`, `assistant.status`, `assistant.candidates`,
 `assistant.settings.get`, `assistant.settings.set`, `assistant.conversations`,
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,
 `assistant.card.record`, `assistant.card.refresh` and `dispatch.dependencies.waive`.
-Total still not native (v3 − native set): **128**.
+Total still not native (v3 − native set): **127**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
