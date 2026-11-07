@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #[cfg(target_os = "macos")]
 mod native_popover;
+#[used]
+static DESKTOP_EXECUTABLE_MARKER: &[u8; 34] = &pacer_desktop::packaging::DESKTOP_EXECUTABLE_MARKER;
 macro_rules! desktop_log {
     ($($arg:tt)*) => { crate::logging::write(format_args!($($arg)*)) };
 }

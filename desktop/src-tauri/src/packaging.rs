@@ -116,11 +116,12 @@ fn validate_bundle(contents: &Path) -> Result<PathBuf, String> {
         .map_err(|_| error())
 }
 
-/// Embedded in every desktop executable, never in the CLI. A desktop executable
-/// copied onto PATH boots the GUI for every `pacer <command>`. A `const` needle is
-/// lowered to immediates in optimized builds, so the bytes live in a retained static
-/// that the scan reads through `black_box`; release staging checks it is present.
-#[used]
+/// Embedded in the desktop executable only, never in the CLI or the update helper.
+/// A desktop executable copied onto PATH boots the GUI for every `pacer <command>`.
+/// A `const` needle is lowered to immediates in optimized builds, so the bytes live
+/// in a static that the scan reads through `black_box`. It is not `#[used]` here:
+/// that would keep it in every binary linking this library. `main.rs` retains it,
+/// and release staging checks it is present there and absent elsewhere.
 pub static DESKTOP_EXECUTABLE_MARKER: [u8; 34] = *b"pacer-desktop-executable-marker/v1";
 
 /// Whether the file at `path` is a pacer desktop executable rather than a CLI.
