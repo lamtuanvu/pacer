@@ -100,6 +100,31 @@ fn rpc_line(id: &Value, result: Result<Value, CoreError>) -> io::Result<Vec<u8>>
     Ok(bytes)
 }
 
+/// A finished `msg.wait`; a wait that panicked still answers its request.
+async fn wait_done<O: AsyncWrite + Unpin>(
+    out: &Mutex<O>,
+    ids: &mut HashMap<tokio::task::Id, Value>,
+    done: Result<(tokio::task::Id, Option<Vec<u8>>), tokio::task::JoinError>,
+) -> io::Result<()> {
+    let bytes = match done {
+        Ok((task, bytes)) => {
+            ids.remove(&task);
+            bytes
+        }
+        Err(error) => ids
+            .remove(&error.id())
+            .map(|id| {
+                let failed = CoreError::new(Code::Internal, "message wait failed");
+                rpc_line(&id, Err(failed))
+            })
+            .transpose()?,
+    };
+    if let Some(bytes) = bytes {
+        write_line(out, &bytes).await?;
+    }
+    Ok(())
+}
+
 async fn forward_input<
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin + Send,
@@ -117,24 +142,21 @@ async fn forward_input<
     let mut protocol = 2;
     // `msg.wait` blocks for minutes; the core answers other requests meanwhile, so waits run beside the loop.
     let mut waits = tokio::task::JoinSet::<Option<Vec<u8>>>::new();
+    let mut wait_ids = HashMap::new();
     loop {
         line.clear();
         // `read_until` is cancel safe: a partial line stays in `line` for the next call.
         let read = loop {
             tokio::select! {
                 read = input.read_until(b'\n', &mut line) => break read?,
-                Some(done) = waits.join_next(), if !waits.is_empty() => {
-                    if let Ok(Some(bytes)) = done {
-                        write_line(out, &bytes).await?;
-                    }
+                Some(done) = waits.join_next_with_id(), if !waits.is_empty() => {
+                    wait_done(out, &mut wait_ids, done).await?;
                 }
             }
         };
         if read == 0 && line.is_empty() {
-            while let Some(done) = waits.join_next().await {
-                if let Ok(Some(bytes)) = done {
-                    write_line(out, &bytes).await?;
-                }
+            while let Some(done) = waits.join_next_with_id().await {
+                wait_done(out, &mut wait_ids, done).await?;
             }
             return core.shutdown().await;
         }
@@ -245,7 +267,8 @@ async fn forward_input<
                             continue;
                         }
                         // A stdio caller is never the human, so a wait needs no Core publication.
-                        waits.spawn(async move {
+                        let reply = id.clone();
+                        let task = waits.spawn(async move {
                             let result = msg_writes::call(
                                 &request_ctx,
                                 "msg.wait",
@@ -255,6 +278,9 @@ async fn forward_input<
                             .await;
                             id.and_then(|id| rpc_line(&id, result).ok())
                         });
+                        if let Some(id) = reply {
+                            wait_ids.insert(task.id(), id);
+                        }
                         continue;
                     }
                     let mut bridge = msg_write_sync::StdioBridge {

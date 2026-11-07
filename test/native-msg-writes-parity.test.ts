@@ -136,6 +136,8 @@ test.skipIf(!front)("stdio msg.send, msg.confirm, msg.close and msg.wait match t
     rpc(31, "msg.wait", { reply_to: s.original, timeout_s: 1 }), rpc(32, "msg.wait", {}),
     rpc(33, "msg.wait", { timeout_s: 0 }), rpc(34, "msg.wait", { timeout_s: 3001, reply_to: 5 }), rpc(35, "msg.wait", { bogus: true }),
     rpc(36, "msg.wait", { timeout_s: 2 }), rpc(37, "msg.send", { to: "human", body: "while waiting" }),
+    rpc(38, "msg.send", { to: "human", body: "x", request_id: "😀".repeat(128) }),
+    rpc(39, "msg.send", { to: "human", body: "x", request_id: "😀".repeat(129) }),
   ];
   const scenarios: { name: string; env: Record<string, string>; caller: string }[] = [
     { name: "local", env: {}, caller: "external:local" },

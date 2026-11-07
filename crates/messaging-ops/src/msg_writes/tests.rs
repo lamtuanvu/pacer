@@ -8,15 +8,31 @@ const CHILD: &str = "t-20260101-000000-0002";
 #[derive(Default)]
 struct Fake {
     requests: Vec<Value>,
+    /// Delivery fails, after starting the turn when a home is set.
+    fail: bool,
+    taken: Option<std::path::PathBuf>,
 }
 
 impl Bridge for Fake {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
         self.requests.push(request.clone());
+        let deliver = request["kind"] == "deliver";
+        if deliver && let Some(home) = &self.taken {
+            let mut store = TaskStore::open(home).unwrap();
+            messages::ensure_schema(&mut store)
+                .unwrap()
+                .execute_batch("UPDATE messages SET status='delivered' WHERE status='pending'")
+                .unwrap();
+        }
+        let fail = deliver && self.fail;
         Box::pin(async move {
-            Ok(match request["kind"].as_str() {
-                Some("deliver") => json!({"delivery": "queued"}),
-                _ => json!({"ok": true}),
+            if fail {
+                return Err(unavailable());
+            }
+            Ok(if deliver {
+                json!({"delivery": "queued"})
+            } else {
+                json!({"ok": true})
             })
         })
     }
@@ -157,6 +173,54 @@ async fn send_stores_in_milliseconds_and_delivers_through_the_bridge() {
             .contains("body: Too small: expected string to have >=1 characters")
     );
     assert!(invalid.message.contains("kind: Invalid option"));
+
+    // Zod's string checks count code points, not UTF-16 units.
+    for (count, fits) in [(128, true), (129, false)] {
+        let sent = run(
+            &ctx,
+            "msg.send",
+            json!({"to":"human","body":"x","request_id":"😀".repeat(count)}),
+            &mut bridge,
+        )
+        .await;
+        assert_eq!(sent.is_ok(), fits, "{count}");
+    }
+}
+
+#[tokio::test]
+async fn a_failed_delivery_reopens_the_question_only_while_the_answer_is_pending() {
+    for taken in [false, true] {
+        let (_dir, ctx) = home();
+        let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+        store
+            .update_current(ROOT, ctx.now, |t| {
+                t["question"] = json!({"text":"which?"});
+                Ok(())
+            })
+            .unwrap();
+        let mut bridge = Fake::default();
+        let question = run(
+            &as_executor(&ctx, ROOT),
+            "msg.send",
+            json!({"to":"external:local","body":"which?","kind":"question"}),
+            &mut bridge,
+        )
+        .await
+        .unwrap();
+        bridge.fail = true;
+        bridge.taken = taken.then(|| ctx.pacer_home.clone());
+        let error = run(
+            &ctx,
+            "msg.send",
+            json!({"to":format!("task:{ROOT}"),"body":"this","kind":"answer","reply_to":question["message"]["id"]}),
+            &mut bridge,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, Code::Unavailable);
+        let task = store.read(ROOT).unwrap().unwrap();
+        assert_eq!(task["question"].get("answer").is_some(), taken, "{taken}");
+    }
 }
 
 #[tokio::test]
