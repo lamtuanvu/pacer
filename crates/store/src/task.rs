@@ -40,6 +40,9 @@ pub enum StoreError {
     Collision,
 }
 type Result<T> = std::result::Result<T, StoreError>;
+fn no_after(_: &Connection, _: &Value) -> Result<()> {
+    Ok(())
+}
 const TERMINAL: &[&str] = &[
     "done",
     "partial",
@@ -580,7 +583,7 @@ impl TaskStore {
                 .read(id)?
                 .ok_or_else(|| StoreError::UnknownTask(id.into()))?;
             let rev = revision(&current).ok_or(StoreError::InvalidRecord)?;
-            self.update_admitted_locked(id, rev, now, |_, task| mutate(task))
+            self.update_admitted_locked(id, rev, now, |_, task| mutate(task), no_after)
         })?
     }
     pub(crate) fn update_locked(
@@ -590,10 +593,16 @@ impl TaskStore {
         now: f64,
         mutate: impl FnOnce(&mut Value),
     ) -> Result<Value> {
-        self.update_admitted_locked(id, expected_rev, now, |_, task| {
-            mutate(task);
-            Ok(())
-        })
+        self.update_admitted_locked(
+            id,
+            expected_rev,
+            now,
+            |_, task| {
+                mutate(task);
+                Ok(())
+            },
+            no_after,
+        )
     }
     /// Recheck domain admission and mutate while holding the same SQLite writer
     /// reservation. The caller holds any required cross-runtime operation lock.
@@ -611,7 +620,27 @@ impl TaskStore {
             now,
         );
         with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
-            self.update_admitted_locked(id, expected_rev, now, mutate)
+            self.update_admitted_locked(id, expected_rev, now, mutate, no_after)
+        })?
+    }
+    /// `update_admitted`, then `after` sees the written record in the same
+    /// transaction, after the `tasks` row triggers have run.
+    pub fn update_admitted_then(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
+        after: impl FnOnce(&Connection, &Value) -> Result<()>,
+    ) -> Result<Value> {
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            self.update_admitted_locked(id, expected_rev, now, mutate, after)
         })?
     }
     fn update_admitted_locked(
@@ -620,6 +649,7 @@ impl TaskStore {
         expected_rev: i64,
         now: f64,
         mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
+        after: impl FnOnce(&Connection, &Value) -> Result<()>,
     ) -> Result<Value> {
         if !is_task_id(id) {
             return Err(StoreError::InvalidRecord);
@@ -674,6 +704,7 @@ impl TaskStore {
         if changed != 1 {
             return Err(StoreError::Conflict);
         }
+        after(&tx, &task)?;
         tx.commit()?;
         Ok(task)
     }

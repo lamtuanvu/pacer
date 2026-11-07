@@ -73,7 +73,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `dispatch.list`, `dispatch.tree`, `dispatch.events` | Native (P6 dispatch reads) | `pacer-lifecycle::work_reads` reads `work_*`, `attempt_usage` and task records from `state/tasks.db` (`listWork`, `scopedWorkTree`, `scopedWorkEvents`), including restart eligibility (runner PID probe, worktree, deadline, attempts, dependencies, stopped ancestors), token roll-ups, usage pools, wait totals and branch reads from worktree HEAD files. Handlers serve ungranted callers only: both front doors forward every op while `PACER_WORK_GRANT` is set, serve forwards task-grant bearers, and `PACER_ROLE=executor` / `PACER_ENFORCEMENT_TOKEN` refusals match `authorizeWorkOperation`. Records holding lone UTF-16 surrogates fail as `internal` natively (shared `serde_json` record parsing). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `dispatch.wait` | Forwarded (P6) | Polls until a work item settles via `waitWork`; needs queue drain, runner supervision and the same orchestration gap as `task.wait` (P6d). |
 | `dispatch.review`, `dispatch.retry`, `dispatch.answer`, `dispatch.stop` | Forwarded (P6) | Managed-work lifecycle at `expect_rev`: review acceptance, lineage retry, executor Q&A resume and subtree stop (`reviewWork`, `retryWork`, `answerWork`, `stopWork`); overlaps P6c/P6d task op gaps (messaging turns, spawn, `stopWork` tree). |
-| `dispatch.dependencies`, `dispatch.dependencies.waive` | Forwarded (P6) | Same-root dependency graph edits with revision checks (`setWorkDependencies`, `waiveWorkDependency`) run inside `updateTask` with work-event and dependency-wait triggers; the response tree projection is native (`work_reads`), the transactional mutation is not yet. |
+| `dispatch.dependencies`, `dispatch.dependencies.waive` | Native (P6 dispatch writes, selective) | `pacer-dispatch-ops::dependency_writes` owns `setWorkDependencies` and `waiveWorkDependency`: the same-root, self and cycle checks, the deduplicated `work_nodes.dependencies` write (clearing waivers) or the waiver upsert, the revision bump with its `work_task_changed` trigger, then the `dependencies.changed`/`dependencies.waived` event and the dependency-wait sync, all in one IMMEDIATE transaction under the task lock (`TaskStore::update_admitted_then`); the reply is the native `scopedWorkTree`. TypeScript publishes no event or activity for either op, so Rust publishes none. `waive` forwards only a reason whose `trim().slice(0, 2000)` cut would split a surrogate pair, which a Rust string cannot hold. Callers holding a work grant are forwarded like every dispatch op. A pipelined stdio session may answer that forwarded request after later native ones. |
 | `dispatch.models`, `dispatch.refresh` | Forwarded (P5/P6) | Model inventory and observation refresh with backoff (`listDispatchModels`, `refreshObservations`); issues scoped plugin/executor observation calls. |
 | `dispatch.analytics`, `dispatch.learning.reset` | Forwarded (P5/P6) | Derived learning aggregates and per-repo reset/exclude (`dispatchAnalytics`, `resetLearning`); reads and mutates learning state beyond native routing broker. |
 | `msg.send` | Forwarded (P6) | Turn delivery: participant policy, project messaging rules, held-message guardrails and admitted-executor resume via `sendMessage` / `deliver` (delegate, route, `spawnRunner`). |
@@ -121,6 +121,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `insights.summary` | Forwarded (P5/P6) | Period analytics over task attempts, tokens and ladder/skip cohorts (`src/insights/`). |
 | `onboarding.try` | Forwarded (P9) | Scratch-repo onboarding delegation via setup mutation (`setup.onboardingTry` in `src/setup/`). |
 | `setup.init` | Forwarded (P9) | Creates missing strategy YAML and selects a planner without agent connect (`setup.init`); distinct from native `setup.check`. |
+| `setup.health` | Forwarded (P9) | Startup Checking-setup gate (`setup.health`): bounded doctor and setup checks as fixed steps, a persisted last-pass fingerprint and the snapshot probe; v3-only. |
 | `tree.status` | Forwarded (P5/P6) | Task-tree turn state over the messaging store and optional work graph (`tree.status` in `src/api/ops-msg.ts`); work-grant authorized. v3-only public op (`liveness.status` remains MCP-only). |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
@@ -563,8 +564,8 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **95** of 224 (83 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Twenty-eight of these selectively forward some inputs to TypeScript:
+Total native: **97** of 225 (85 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Twenty-nine of these selectively forward some inputs to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
 `project.messaging.remove`, `msg.inbox`, `msg.log`, `msg.read`,
@@ -572,8 +573,8 @@ Total native: **95** of 224 (83 on the Rust stdio registry plus 12 HTTP-native
 `desktop.reconcile.cancel`, `assistant.status`, `assistant.candidates`,
 `assistant.settings.get`, `assistant.settings.set`, `assistant.conversations`,
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,
-`assistant.card.record` and `assistant.card.refresh`.
-Total still not native (v3 − native set): **129**.
+`assistant.card.record`, `assistant.card.refresh` and `dispatch.dependencies.waive`.
+Total still not native (v3 − native set): **128**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

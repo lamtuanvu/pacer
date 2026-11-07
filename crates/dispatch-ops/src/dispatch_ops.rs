@@ -13,11 +13,11 @@ use pacer_lifecycle::{
 };
 use serde_json::{Map, Value, json};
 
-fn invalid(message: impl Into<String>) -> CoreError {
+pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-fn type_name(value: &Value) -> &'static str {
+pub(crate) fn type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -42,7 +42,7 @@ const STATES: &[&str] = &[
 ];
 
 /// `authorizeWorkOperation` for callers without a work grant.
-fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
+pub(crate) fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
     if ctx
         .env
         .get("PACER_ENFORCEMENT_TOKEN")
@@ -63,7 +63,7 @@ fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
 }
 
 /// Transports pass absent params as `{}`.
-fn params_object(params: &Value) -> Result<Map<String, Value>, CoreError> {
+pub(crate) fn params_object(params: &Value) -> Result<Map<String, Value>, CoreError> {
     match params {
         Value::Null => Ok(Map::new()),
         Value::Object(map) => Ok(map.clone()),
@@ -74,7 +74,7 @@ fn params_object(params: &Value) -> Result<Map<String, Value>, CoreError> {
     }
 }
 
-fn finish(issues: Vec<String>) -> Result<(), CoreError> {
+pub(crate) fn finish(issues: Vec<String>) -> Result<(), CoreError> {
     if issues.is_empty() {
         Ok(())
     } else {
@@ -83,7 +83,12 @@ fn finish(issues: Vec<String>) -> Result<(), CoreError> {
 }
 
 /// `z.string().min(1).max(max)`; zod counts Unicode code points.
-fn string_issues(name: &str, value: Option<&Value>, max: Option<usize>, issues: &mut Vec<String>) {
+pub(crate) fn string_issues(
+    name: &str,
+    value: Option<&Value>,
+    max: Option<usize>,
+    issues: &mut Vec<String>,
+) {
     match value {
         None => issues.push(format!(
             "{name}: Invalid input: expected string, received undefined"
@@ -107,20 +112,20 @@ fn string_issues(name: &str, value: Option<&Value>, max: Option<usize>, issues: 
     }
 }
 
-/// `z.number().int()` with an inclusive range.
-fn int_issues(name: &str, value: &Value, min: f64, max: Option<f64>, issues: &mut Vec<String>) {
+/// `z.number().int()` type and safe-range issues; `None` when no range check applies.
+fn int_value(name: &str, value: &Value, issues: &mut Vec<String>) -> Option<f64> {
     let Some(n) = value.as_f64().filter(|_| value.is_number()) else {
         issues.push(format!(
             "{name}: Invalid input: expected number, received {}",
             type_name(value)
         ));
-        return;
+        return None;
     };
     if !n.is_finite() || n.fract() != 0.0 {
         issues.push(format!(
             "{name}: Invalid input: expected int, received number"
         ));
-        return;
+        return None;
     }
     if n < -MAX_SAFE {
         issues.push(format!(
@@ -131,10 +136,31 @@ fn int_issues(name: &str, value: &Value, min: f64, max: Option<f64>, issues: &mu
             "{name}: Too big: expected int to be <=9007199254740991"
         ));
     }
+    Some(n)
+}
+
+/// `z.number().int()` with an inclusive range.
+fn int_issues(name: &str, value: &Value, min: f64, max: Option<f64>, issues: &mut Vec<String>) {
+    let Some(n) = int_value(name, value, issues) else {
+        return;
+    };
     if n < min {
         issues.push(format!("{name}: Too small: expected number to be >={min}"));
     } else if let Some(max) = max.filter(|max| n > *max) {
         issues.push(format!("{name}: Too big: expected number to be <={max}"));
+    }
+}
+
+/// `z.number().int().positive()`.
+pub(crate) fn positive_int_issues(name: &str, value: Option<&Value>, issues: &mut Vec<String>) {
+    let Some(value) = value else {
+        issues.push(format!(
+            "{name}: Invalid input: expected number, received undefined"
+        ));
+        return;
+    };
+    if int_value(name, value, issues).is_some_and(|n| n <= 0.0) {
+        issues.push(format!("{name}: Too small: expected number to be >0"));
     }
 }
 
@@ -179,7 +205,7 @@ fn read_error(error: WorkReadError) -> CoreError {
 }
 
 /// Run a read with the TypeScript clock resolution (`Date.now() / 1000`).
-fn with_reads<T>(
+pub(crate) fn with_reads<T>(
     ctx: &Ctx,
     read: impl FnOnce(&WorkReads<'_>) -> Result<T, WorkReadError>,
 ) -> Result<T, CoreError> {

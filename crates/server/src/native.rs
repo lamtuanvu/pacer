@@ -11,6 +11,7 @@ use pacer_config_ops::config_writes;
 pub(crate) mod core_bridge_sync;
 mod desktop_reconcile_ops;
 use pacer_discovery_ops::discovery_ops;
+use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
 mod engine_ops;
 mod files_search_ops;
@@ -50,6 +51,7 @@ pub(crate) mod task_wait_sync;
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
 pub(crate) use config_writes::config_set_stays_forwarded;
+pub use dependency_writes::dependencies_waive_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
@@ -361,6 +363,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.events",
         call: dispatch_ops::dispatch_events,
+    },
+    NativeOp {
+        name: "dispatch.dependencies",
+        call: dependency_writes::dispatch_dependencies,
+    },
+    NativeOp {
+        name: "dispatch.dependencies.waive",
+        call: dependency_writes::dispatch_dependencies_waive,
     },
     NativeOp {
         name: "discovery.set",
