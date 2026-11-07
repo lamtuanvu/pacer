@@ -9,7 +9,8 @@ mod params;
 mod tests;
 mod text;
 
-use text::{clean_body, clean_line};
+pub use gh::gh_env;
+pub use text::{clean_body, clean_line};
 
 use gh::What;
 use pacer_foundation::{
@@ -27,8 +28,8 @@ use std::{
 
 pub(crate) type IssueError = CoreError;
 
-pub(crate) const TITLE_MAX_CHARS: usize = 300;
-pub(crate) const BODY_MAX_BYTES: usize = 64 * 1024;
+pub const TITLE_MAX_CHARS: usize = 300;
+pub const BODY_MAX_BYTES: usize = 64 * 1024;
 const LABEL_MAX_CHARS: usize = 100;
 const LABELS_MAX: usize = 50;
 const ISSUE_NUMBER_MAX: u64 = (1 << 31) - 1;
@@ -54,7 +55,7 @@ fn internal(error: impl std::fmt::Display) -> CoreError {
 /// Inputs only the TypeScript repository reader handles, as for `repo.list`.
 pub fn issue_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
     matches!(op, "issue.import" | "issue.search")
-        && pacer_repos::registry_needs_core(&ctx.pacer_home, false)
+        && pacer_repos::registry_needs_core(&ctx.pacer_home)
 }
 
 /// `authorizeWorkOperation` for callers without a work grant (the front doors forward those).
@@ -413,8 +414,8 @@ fn forget_search(cell: &SearchCell) {
         .retain(|entry| !Arc::ptr_eq(&entry.cell, cell));
 }
 
-#[cfg(test)]
-fn clear_issue_search_cache() {
+/// Forget cached searches. For tests.
+pub fn clear_issue_search_cache() {
     SEARCH_CACHE_ENTRIES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
