@@ -57,7 +57,7 @@ fn parse_id(params: &Value) -> Result<&str, CoreError> {
 
 /// `authorizeWorkOperation` refuses enforcement identities before the schema runs.
 /// Work-grant callers never reach native handlers: both front doors forward them.
-fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
+pub(crate) fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
     if ctx
         .env
         .get("PACER_ENFORCEMENT_TOKEN")

@@ -20,6 +20,14 @@ enum Schema {
 fn id() -> Schema {
     Schema::String(1, Some(128))
 }
+fn draft() -> Schema {
+    object(vec![
+        ("from", id(), false),
+        ("set", Schema::Json, true),
+        ("unset", array(Schema::String(0, None)), true),
+        ("description", Schema::String(0, None), true),
+    ])
+}
 fn array(s: Schema) -> Schema {
     Schema::Array(Box::new(s))
 }
@@ -219,19 +227,11 @@ pub fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
         "strategy.remove" => object(vec![("name", id(), false)]),
         "strategy.save" => object(vec![
             ("name", id(), false),
-            (
-                "draft",
-                object(vec![
-                    ("from", id(), false),
-                    ("set", Json, true),
-                    ("unset", array(String(0, None)), true),
-                    ("description", String(0, None), true),
-                ]),
-                false,
-            ),
+            ("draft", draft(), false),
             ("reason", String(1, None), false),
             ("overwrite", Bool, true),
         ]),
+        "strategy.preview" => object(vec![("draft", draft(), false)]),
         "routing.get" => object(vec![]),
         "routing.set" => object(vec![(
             "rules",
@@ -295,7 +295,7 @@ pub fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
     let mut issues = Vec::new();
     let result = validate(&schema, Some(&params), "", &mut issues);
     // z.record(z.string(), z.json()) has an object boundary, but arbitrary keys.
-    if op == "strategy.save"
+    if matches!(op, "strategy.save" | "strategy.preview")
         && let Some(set) = params.pointer("/draft/set")
         && !set.is_object()
     {

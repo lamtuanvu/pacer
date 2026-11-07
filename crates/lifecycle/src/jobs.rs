@@ -99,6 +99,34 @@ pub fn finish_restart(latest: &Value, time: f64, detail: &str, error: bool) -> V
     }
     out
 }
+/// The `job` entity value `jobChanged` publishes: details, messages and hints are
+/// redacted with the caller's environment secrets, then email addresses. `None`
+/// when a present text is not a string, where TypeScript skips the notification.
+pub fn published(job: &Value, env: &Value) -> Option<Value> {
+    let email = regex::Regex::new(r"(?i-u:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})").ok()?;
+    let safe = |text: &Value| -> Option<Value> {
+        let text = crate::diagnostics::redact(text.as_str()?, env).ok()?;
+        Some(email.replace_all(&text, "[redacted]").into_owned().into())
+    };
+    fn given(value: Option<&Value>) -> Option<&Value> {
+        value.filter(|v| truth(v))
+    }
+    let mut out = job.clone();
+    for step in out.get_mut("steps")?.as_array_mut()? {
+        step.as_object()?;
+        if let Some(detail) = given(step.get("detail")).map(safe) {
+            step["detail"] = detail?;
+        }
+    }
+    if given(job.get("error")).is_some() {
+        job["error"].as_object()?;
+        out["error"]["message"] = safe(&job["error"]["message"])?;
+        if let Some(hint) = given(job["error"].get("hint")) {
+            out["error"]["hint"] = safe(hint)?;
+        }
+    }
+    Some(out)
+}
 pub fn retained(job: &Value, time: f64) -> bool {
     job["state"] == "running"
         || time

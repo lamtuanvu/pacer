@@ -8,6 +8,7 @@ use serde_json::Value;
 pub(crate) mod config_host_sync;
 pub(crate) mod config_sync;
 use pacer_config_ops::config_writes;
+use pacer_config_ops::executor_setup_ops;
 pub(crate) mod core_bridge_sync;
 mod desktop_reconcile_ops;
 use pacer_discovery_ops::discovery_ops;
@@ -19,6 +20,7 @@ use pacer_dispatch_ops::planning_ops;
 mod engine_ops;
 use pacer_config_ops::host_mut_ops;
 use pacer_task_ops::files_search_ops;
+use pacer_task_ops::job_ops;
 pub(crate) mod host_mut_sync;
 use pacer_config_ops::host_read_ops;
 pub(crate) mod host_read_sync;
@@ -65,7 +67,7 @@ pub use insights_ops::insights_stays_forwarded;
 pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
-use pacer_config_ops::{project_strategy_ops, repo_registry_ops};
+use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview_ops};
 pub use planning_ops::planning_stays_forwarded;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
@@ -74,6 +76,17 @@ pub(crate) use repo_ops::repo_remove_stays_forwarded;
 pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     repo_registry_ops::repo_list_stays_forwarded(ctx, op)
         || project_strategy_ops::project_strategy_stays_forwarded(ctx, op, params)
+}
+
+/// `job.*`, `strategy.preview` and `executor.setup.models` inputs that only TypeScript reproduces.
+pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    match op {
+        "strategy.preview" => strategy_preview_ops::strategy_preview_stays_forwarded(ctx, params),
+        "executor.setup.models" => {
+            executor_setup_ops::executor_setup_models_stays_forwarded(ctx, params)
+        }
+        _ => job_ops::job_stays_forwarded(ctx, op, params),
+    }
 }
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
@@ -124,6 +137,30 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "strategy.remove",
         call: config_writes::strategy_remove,
+    },
+    NativeOp {
+        name: "strategy.preview",
+        call: strategy_preview_ops::strategy_preview_stub,
+    },
+    NativeOp {
+        name: "executor.setup.models",
+        call: executor_setup_ops::executor_setup_models,
+    },
+    NativeOp {
+        name: "executor.setup.connect",
+        call: executor_setup_ops::executor_setup_connect,
+    },
+    NativeOp {
+        name: "job.list",
+        call: job_ops::job_list,
+    },
+    NativeOp {
+        name: "job.get",
+        call: job_ops::job_get,
+    },
+    NativeOp {
+        name: "job.cancel",
+        call: job_ops::job_cancel,
     },
     NativeOp {
         name: "routing.get",
@@ -604,6 +641,9 @@ pub async fn call_native(
             "routing.status" => status_ops::routing_status(ctx, params, parts.await?).await?,
             "routing.route" => status_ops::routing_route(ctx, params, parts.await?).await?,
             "task.retry_options" => status_ops::task_retry_options(ctx, params, parts).await?,
+            "strategy.preview" => {
+                strategy_preview_ops::strategy_preview(ctx, params, parts).await?
+            }
             _ => unreachable!("needs_usage_broker"),
         }
     } else if needs_task_read_bridge(op.name) {
