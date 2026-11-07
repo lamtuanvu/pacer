@@ -397,7 +397,7 @@ test("task.hand_back writes the user's done report for a takeover session and re
  expect(existsSync(join(dir,"report.json"))).toBe(false);
  updateTask(ctx,task.id,t=>{t.run={...run,takeover:true};t.takeover={state:"driving",at:startedAt,sessionId:id};});
  expect(await callOp(ctx,"task.hand_back",{id:task.id},{client:"app:Pacer\x07 desktop"})).toEqual({id:task.id,state:"handed_back"});
- expect(JSON.parse(readFileSync(join(dir,"report.json"),"utf8"))).toMatchObject({status:"done",source:"user",summary:"Handed back by app:Pacer desktop"});
+ expect(JSON.parse(readFileSync(join(dir,"report.json"),"utf8"))).toMatchObject({status:"done",source:"user",summary:"Handed back by client:app:Pacer desktop"});
  await expect(callOp(ctx,"task.hand_back",{id:task.id})).rejects.toMatchObject({code:"conflict",message:expect.stringContaining("already")});
  updateTask(ctx,task.id,t=>{t.state="done";});
  await expect(callOp(ctx,"task.hand_back",{id:task.id})).rejects.toMatchObject({code:"conflict"});
@@ -417,4 +417,12 @@ await Bun.sleep(300);writeReport(${JSON.stringify(dir)},"failed","The runner fai
   expect(()=>handBackTask(ctx,task.id,"cli:me")).toThrow("already handed back");
   expect(JSON.parse(readFileSync(join(dir,"report.json"),"utf8"))).toMatchObject({status:"failed"});
  }finally{await holder.exited;}
+});
+test("task.hand_back without a client label names the caller's terminal, not a generic api label",async()=>{
+ const {ctx,task}=fixture(),dir=tmpDir(),startedAt=Date.now()/1000;
+ ctx.env={...ctx.env,USER:"ada",ORCA_TERMINAL_HANDLE:"",TMUX_PANE:"",TERM_SESSION_ID:"w1"};
+ updateTask(ctx,task.id,t=>{t.state="running";t.run={dir,attempt:1,executor:"codex",startedAt,mode:"current",workdir:task.brief.repo,logFile:join(dir,"log"),takeover:true};t.takeover={state:"driving",at:startedAt,sessionId:id};});
+ const {callOp}=await import("../src/api/ops");
+ await callOp(ctx,"task.hand_back",{id:task.id});
+ expect(JSON.parse(readFileSync(join(dir,"report.json"),"utf8")).summary).toBe("Handed back by ada@w1");
 });

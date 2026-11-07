@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { OpDef } from "./ops";
 import { sessionInfo, openSession } from "../session/service";
 import { handBackTask, takeoverTask } from "../session/takeover";
+import { callerIdentity } from "../session/send";
 import { createConversation, requireConversation } from "../session/create";
 import { prepareSession } from "../session/capabilities";
 import {
@@ -212,7 +213,7 @@ export const sessionOps: Record<string, OpDef> = {
     description:
       "End a takeover session and hand the task back for verification.",
     params: z.object({ id }),
-    handler: (ctx, p, deps) => handBackTask(ctx, p.id, deps.client ?? "api"),
+    handler: (ctx, p, deps) => handBackTask(ctx, p.id, callerIdentity(ctx, deps.client, deps.clientInstance)),
   }),
   "task.session": op({
     description: "Session host, capabilities and available viewers.",
