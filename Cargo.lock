@@ -1373,6 +1373,7 @@ dependencies = [
  "pacer-lifecycle",
  "pacer-store",
  "rusqlite",
+ "ryu-js",
  "serde_json",
  "tempfile",
  "tokio",
