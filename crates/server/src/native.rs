@@ -73,6 +73,7 @@ pub use insights_ops::insights_stays_forwarded;
 pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
+pub use pacer_account_ops::account_stays_forwarded;
 use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview_ops};
 #[doc(hidden)]
 pub use pacer_discovery_ops::network::set_probe_outputs_for_tests;
@@ -305,6 +306,34 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "config.set",
         call: config_writes::config_set,
+    },
+    NativeOp {
+        name: "account.add",
+        call: pacer_account_ops::account_add,
+    },
+    NativeOp {
+        name: "account.edit",
+        call: pacer_account_ops::account_edit,
+    },
+    NativeOp {
+        name: "account.adopt",
+        call: pacer_account_ops::account_adopt,
+    },
+    NativeOp {
+        name: "account.remove",
+        call: pacer_account_ops::account_remove,
+    },
+    NativeOp {
+        name: "account.models",
+        call: pacer_account_ops::account_models,
+    },
+    NativeOp {
+        name: "account.test",
+        call: pacer_account_ops::account_test,
+    },
+    NativeOp {
+        name: "account.usage.check",
+        call: pacer_account_ops::account_usage_check,
     },
     NativeOp {
         name: "activity.list",

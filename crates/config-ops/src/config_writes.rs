@@ -74,6 +74,7 @@ fn settings_error(error: SettingsError) -> CoreError {
 pub fn area(op: &str) -> Option<&'static str> {
     match op {
         "strategy.use" | "strategy.save" | "strategy.remove" => Some("strategy"),
+        "account.add" | "account.edit" | "account.adopt" | "account.remove" => Some("accounts"),
         "runner.add"
         | "runner.set"
         | "runner.reorder"
@@ -96,7 +97,11 @@ pub fn area(op: &str) -> Option<&'static str> {
 pub fn syncs_endpoints(op: &str) -> bool {
     matches!(
         op,
-        "host.add"
+        "account.add"
+            | "account.edit"
+            | "account.adopt"
+            | "account.remove"
+            | "host.add"
             | "host.set"
             | "host.remove"
             | "host.repo.map"
