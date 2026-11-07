@@ -36,6 +36,8 @@ export interface NativeOwnerCall {
   processEnv?: Record<string, string>;
   /** Capability methods the owner forwards to Core on this connection instead of answering them. */
   coreMethods?: string[];
+  /** Hello features the child must have negotiated; otherwise the owner refuses before sending the method. */
+  requireFeatures?: string[];
 }
 
 /** Whether a sealed call fits the bridge frame. */

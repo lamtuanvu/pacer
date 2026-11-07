@@ -677,6 +677,223 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
     session.shutdown().await;
 }
 
+/// Planner child: `planner.install` asks Core to run a pinned command, read its
+/// output and the prior record, then returns what Core answered (or fails after
+/// the command when `params.fail`); `planner.uninstall` reads the prior only.
+/// `argv[2] == "1"` negotiates `plannerInstallTransactions` in its hello.
+const PLANNER_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',call,out={};const negotiate=process.argv[2]==='1';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const ask=(id,method,params)=>send({id,method,params});for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:m.params.manifest.id,version:'1.0.0',contributes:['planner'],features:negotiate?['chunkedResults','plannerInstallTransactions']:['chunkedResults']}});else if(m.method==='planner.install'){call=m;out={};ask('run','capability.planner.run',{argv:['fx-cmd','forward'],undo:['fx-cmd','undo'],timeoutMs:1000});}else if(m.method==='planner.uninstall'){call=m;out={};ask('prior','capability.planner.readPriorRange',{handle:'h-1',offset:0,length:2});}else if(m.id==='run'){out.run=m.result??m.error;if(call.params.fail)send({id:call.id,error:{code:-32000,message:'planner child exited',data:{code:'plugin_unavailable'}}});else ask('chunk','capability.process.outputChunk',{handle:'o-1',offset:0,length:4});}else if(m.id==='chunk'){out.chunk=m.result??m.error;ask('prior','capability.planner.readPriorRange',{handle:'h-1',offset:0,length:2});}else if(m.id==='prior'){out.prior=m.result??m.error;send({id:call.id,result:{schema:1,...out}});}}}"#;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_planner_transaction_forwards_commands_to_core_after_negotiation() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("planner.js");
+    fs::write(&script, PLANNER_CHILD).unwrap();
+    let planner_methods = json!([
+        "capability.fs.read",
+        "capability.planner.run",
+        "capability.process.outputChunk",
+        "capability.planner.readPriorRange"
+    ]);
+    let request = |rpc: u64,
+                   id: &str,
+                   method: &str,
+                   params: Value,
+                   core_methods: Value,
+                   required: Value| {
+        json!({
+            "jsonrpc":"2.0","id":rpc,"method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":id,"method":method,"params":params,"deadlineMs":10000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap(), if id == "fx-planner" { "1" } else { "0" }],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":{
+                        "protocol":"1.10.0","pacer":"0.2.0",
+                        "manifest":{
+                            "id":id,"version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                            "capabilities":[{"name":"fs.read","scopes":["/fixture/**"]},{"name":"fs.write","scopes":["/fixture/**"]},{"name":"process.spawn","scopes":["fx-cmd"]}],
+                            "contributes":{"planner":{}}
+                        },
+                        "config":{},"grants":["fs.read","fs.write","process.spawn"],
+                        "features":["chunkedResults","plannerInstallTransactions"]
+                    },
+                },
+                "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
+                "coreMethods":core_methods,
+                "requireFeatures":required
+            }
+        })
+    };
+    let core = |frame: &Value| match frame["method"].as_str() {
+        Some("capability.planner.run") => {
+            json!({"result":{"code":0,"output":{"stdout":"o-1","stderr":"o-2"}}})
+        }
+        Some("capability.process.outputChunk") => json!({"result":{"base64":"b2s="}}),
+        _ => json!({"result":{"base64":"e30="}}),
+    };
+    let methods = |forwarded: &[Value]| -> Vec<Value> {
+        forwarded
+            .iter()
+            .map(|frame| frame["method"].clone())
+            .collect()
+    };
+    let required = json!(["plannerInstallTransactions"]);
+    tokio::task::yield_now().await;
+
+    // Install: Core runs the pinned command and serves its output and the prior record.
+    let (installed, forwarded) = dial_with_core(
+        &path,
+        request(
+            50,
+            "fx-planner",
+            "planner.install",
+            json!({}),
+            planner_methods.clone(),
+            required.clone(),
+        ),
+        core,
+    )
+    .await;
+    assert!(installed.get("error").is_none(), "{installed}");
+    assert_eq!(
+        methods(&forwarded),
+        [
+            json!("capability.planner.run"),
+            json!("capability.process.outputChunk"),
+            json!("capability.planner.readPriorRange")
+        ]
+    );
+    assert_eq!(
+        forwarded[0]["params"],
+        json!({"argv":["fx-cmd","forward"],"undo":["fx-cmd","undo"],"timeoutMs":1000})
+    );
+    let value = &installed["result"]["value"];
+    assert_eq!(value["run"]["code"], 0, "{value}");
+    assert_eq!(value["chunk"]["base64"], "b2s=", "{value}");
+    assert_eq!(value["prior"]["base64"], "e30=", "{value}");
+    assert_eq!(
+        installed["result"]["hello"]["features"],
+        json!(["chunkedResults", "plannerInstallTransactions"]),
+        "{installed}"
+    );
+
+    // Uninstall on the readied child reuses the recorded negotiation.
+    let (removed, forwarded) = dial_with_core(
+        &path,
+        request(
+            51,
+            "fx-planner",
+            "planner.uninstall",
+            json!({}),
+            planner_methods.clone(),
+            required.clone(),
+        ),
+        core,
+    )
+    .await;
+    assert!(removed.get("error").is_none(), "{removed}");
+    assert_eq!(
+        methods(&forwarded),
+        [json!("capability.planner.readPriorRange")]
+    );
+    assert_eq!(removed["result"]["value"]["prior"]["base64"], "e30=");
+
+    // A child that fails after an admitted command reaches Core with its error,
+    // after Core saw the command it must compensate.
+    let (failed, forwarded) = dial_with_core(
+        &path,
+        request(
+            52,
+            "fx-planner",
+            "planner.install",
+            json!({"fail":true}),
+            planner_methods.clone(),
+            required.clone(),
+        ),
+        core,
+    )
+    .await;
+    assert_eq!(
+        failed["error"]["data"]["code"], "plugin_unavailable",
+        "{failed}"
+    );
+    assert_eq!(failed["error"]["message"], "planner child exited");
+    assert_eq!(methods(&forwarded), [json!("capability.planner.run")]);
+
+    // Without Core-sealed planner methods the native broker has no planner effect.
+    let (unsealed, forwarded) = dial_with_core(
+        &path,
+        request(
+            53,
+            "fx-planner",
+            "planner.install",
+            json!({}),
+            Value::Null,
+            required.clone(),
+        ),
+        core,
+    )
+    .await;
+    assert!(forwarded.is_empty(), "{forwarded:?}");
+    let value = &unsealed["result"]["value"];
+    for refused in ["run", "chunk", "prior"] {
+        assert_eq!(value[refused]["code"], -32000, "{value}");
+    }
+
+    // A child that did not negotiate planner transactions never receives the method.
+    let (refused, forwarded) = dial_with_core(
+        &path,
+        request(
+            54,
+            "fx-planner-old",
+            "planner.install",
+            json!({}),
+            planner_methods.clone(),
+            required.clone(),
+        ),
+        core,
+    )
+    .await;
+    assert!(forwarded.is_empty(), "{forwarded:?}");
+    assert_eq!(
+        refused["error"]["data"]["code"], "capability_denied",
+        "{refused}"
+    );
+    assert_eq!(
+        refused["error"]["message"],
+        "planner.install requires the negotiated plannerInstallTransactions feature"
+    );
+
+    // Core may only require features the owner knows.
+    let (invalid, forwarded) = dial_with_core(
+        &path,
+        request(
+            55,
+            "fx-planner",
+            "planner.install",
+            json!({}),
+            planner_methods.clone(),
+            json!(["madeUp"]),
+        ),
+        core,
+    )
+    .await;
+    assert!(forwarded.is_empty(), "{forwarded:?}");
+    assert_eq!(invalid["error"]["message"], "invalid requireFeatures");
+
+    {
+        let mut owner = session.owner().lock().await;
+        owner.terminate("fx-planner").await.unwrap();
+        owner.terminate("fx-planner-old").await.unwrap();
+    }
+    session.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bridge_spawn_and_stop_under_owner() {
     let home = temp_home();

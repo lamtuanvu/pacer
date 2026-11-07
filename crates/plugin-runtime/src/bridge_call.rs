@@ -141,6 +141,8 @@ pub(crate) struct SealedCall {
     roots: ScopeRoots,
     environment: HashMap<String, String>,
     core_methods: HashSet<String>,
+    /// Features the child must have negotiated before Core lets the method run.
+    required: Vec<String>,
 }
 
 impl SealedCall {
@@ -218,6 +220,20 @@ impl SealedCall {
             }
             Some(_) => return Err("invalid coreMethods"),
         }
+        let mut required = Vec::new();
+        match params.get("requireFeatures") {
+            None | Some(Value::Null) => {}
+            Some(Value::Array(items)) => {
+                for item in items {
+                    let feature = item
+                        .as_str()
+                        .filter(|feature| feature_minimum(feature).is_some())
+                        .ok_or("invalid requireFeatures")?;
+                    required.push(feature.to_owned());
+                }
+            }
+            Some(_) => return Err("invalid requireFeatures"),
+        }
         Ok(Some(Self {
             spec: SpawnSpec {
                 argv,
@@ -229,6 +245,7 @@ impl SealedCall {
             roots,
             environment,
             core_methods,
+            required,
         }))
     }
 }
@@ -363,13 +380,24 @@ pub(crate) async fn call_sealed(
                             )
                             .await
                             .map_err(|error| call_failure(error.into(), "plugin_refused"))?;
-                        let info = ready_info(&reply);
+                        let info = ready_info(&reply, &sealed.hello);
                         lane.mark_ready(Some(info.clone()));
                         info
                     }
                 }
             }
         };
+        // A child readied without a recorded summary has no known features.
+        if let Some(feature) = sealed.required.iter().find(|feature| {
+            !hello["features"]
+                .as_array()
+                .is_some_and(|items| items.iter().any(|item| item == feature.as_str()))
+        }) {
+            return Err(failure(
+                "capability_denied",
+                format!("{method} requires the negotiated {feature} feature"),
+            ));
+        }
         let metadata = reentrant.then(|| json!({"capabilityCall": call_token()}));
         let value = lane
             .process()
@@ -409,7 +437,22 @@ pub(crate) async fn call_sealed(
     Ok(json!({"value": value, "hello": hello, "logs": logs}))
 }
 
-fn ready_info(reply: &Value) -> Value {
+/// The protocol minor that introduced each host feature (`registry.ts` hello).
+fn feature_minimum(feature: &str) -> Option<u32> {
+    match feature {
+        "chunkedResults" => Some(1),
+        "httpBodyChunks" => Some(2),
+        "fileWriteChunks" | "plannerInstallTransactions" => Some(4),
+        "policyObservations" => Some(6),
+        "policyRedactionMetadata" => Some(8),
+        _ => None,
+    }
+}
+
+/// `{protocol, served, features}` for a child's `plugin.hello` reply to the
+/// sealed `hello`: features are those the host offered, the child answered and
+/// the child's protocol minor admits, as the flag-off registry negotiates.
+pub fn ready_info(reply: &Value, hello: &Value) -> Value {
     let protocol = reply["protocol"].as_str().unwrap_or("");
     let mut served = vec!["diagnostic".to_owned()];
     for point in reply["contributes"].as_array().into_iter().flatten() {
@@ -419,5 +462,50 @@ fn ready_info(reply: &Value) -> Value {
             served.push(name.to_owned());
         }
     }
-    json!({"protocol": protocol, "served": served})
+    let mut parts = protocol.split('.');
+    let minor = (parts.next() == Some("1"))
+        .then(|| parts.next().and_then(|part| part.parse::<u32>().ok()))
+        .flatten()
+        .unwrap_or(0);
+    let offered = hello["features"].as_array().cloned().unwrap_or_default();
+    let mut features: Vec<&str> = Vec::new();
+    for feature in reply["features"].as_array().into_iter().flatten() {
+        if let Some(name) = feature.as_str()
+            && offered.iter().any(|item| item == name)
+            && feature_minimum(name).is_some_and(|minimum| minor >= minimum)
+            && !features.contains(&name)
+        {
+            features.push(name);
+        }
+    }
+    json!({"protocol": protocol, "served": served, "features": features})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ready_info;
+    use serde_json::json;
+
+    #[test]
+    fn ready_info_keeps_offered_features_the_protocol_admits() {
+        let hello = json!({"features": ["chunkedResults", "plannerInstallTransactions"]});
+        let reply = |protocol: &str| {
+            json!({"protocol": protocol, "contributes": ["planner", "planner"],
+                "features": ["plannerInstallTransactions", "chunkedResults", "chunkedResults", "fileWriteChunks", "madeUp"]})
+        };
+        assert_eq!(
+            ready_info(&reply("1.10.0"), &hello),
+            json!({"protocol": "1.10.0", "served": ["diagnostic", "planner"],
+                "features": ["plannerInstallTransactions", "chunkedResults"]})
+        );
+        assert_eq!(
+            ready_info(&reply("1.3.0"), &hello)["features"],
+            json!(["chunkedResults"])
+        );
+        assert_eq!(ready_info(&reply("2.4.0"), &hello)["features"], json!([]));
+        assert_eq!(
+            ready_info(&json!({"protocol": "1.10.0"}), &hello)["features"],
+            json!([])
+        );
+    }
 }

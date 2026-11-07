@@ -3,7 +3,13 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
+import type { HostClient } from "../packages/plugin-sdk/src";
+import { preparePlannerInstall } from "../packages/plugin-sdk/src/install/prepared";
+import { createPlannerIO, readPlannerPrior } from "../packages/plugin-sdk/src/install/transport";
+import { preparePlannerUninstallFiles } from "../packages/plugin-sdk/src/install/uninstall";
 import { CoreError } from "../src/core/errors";
+import { agentConnect } from "../src/core/setup";
+import { withPlannerInstall } from "../src/plugins/planner-install";
 import { PlannerResources } from "../src/plugins/planner-resources";
 import { PluginRegistry } from "../src/plugins/registry";
 import { manifestSchema } from "../src/plugins/protocol";
@@ -253,18 +259,178 @@ test("flag-on serves read-only planner borrows with Core-answered reads and refu
   expect(answers[0]).toMatchObject({ text: "{\"theme\":\"dark\"}\n" });
   expect(answers[1]).toMatchObject({ data: { code: "capability_denied" }, message: "planner source outside selected root or declared scope" });
   expect(answers[2]).toMatchObject({ data: { code: "capability_denied" } });
-  // An install borrow, an effect method, or a prior too large for one frame never reaches the owner.
+  expect(requests[0].params.requireFeatures).toBeUndefined();
+  // An install borrow on a read-only method never reaches the owner.
   const install = lease("install");
   await expect(registry.call(ctx, "fx-native", "planner.plan", input, { plannerResources: install, accountHome: folder }))
     .rejects.toMatchObject({ code: "plugin_unavailable" });
-  await expect(registry.call(ctx, "fx-native", "planner.install", input, { plannerResources: install, accountHome: folder }))
-    .rejects.toMatchObject({ code: "plugin_unavailable" });
   await install.dispose();
-  const large = lease("preview");
-  await expect(registry.call(ctx, "fx-native", "planner.plan", { ...input, prior: { planner: "claude-code", note: "x".repeat(1024 * 1024) } },
-    { plannerResources: large, accountHome: folder })).rejects.toMatchObject({ code: "plugin_unavailable", message: expect.stringContaining("prior planner record") });
-  await large.dispose();
   expect(requests).toHaveLength(1);
+  // A prior too large for one frame goes by handle; the child must have negotiated planner transactions to read it.
+  const large = lease("preview");
+  await registry.call(ctx, "fx-native", "planner.plan", { ...input, prior: { planner: "claude-code", note: "x".repeat(1024 * 1024) } },
+    { plannerResources: large, accountHome: folder });
+  await large.dispose();
+  expect(requests).toHaveLength(2);
+  expect(requests[1].params.params.prior).toBeUndefined();
+  expect(requests[1].params.params.priorRange).toMatchObject({ handle: expect.any(String), bytes: expect.any(Number) });
+  expect(requests[1].params.requireFeatures).toEqual(["plannerInstallTransactions"]);
+  expect(requests[1].params.coreMethods).toContain("capability.planner.readPriorRange");
+  expect(requests[1].params.coreMethods).not.toContain("capability.planner.run");
+  expect(spawned).toEqual([]);
+});
+
+const plannerManifest = (folder: string) => manifestSchema.parse({
+  id: "fx-planner", version: "1.0.0", publisher: "pacer", host: "^1.6",
+  contributes: { planner: {} },
+  capabilities: [{ name: "fs.read", scopes: [folder + "/**"] }, { name: "fs.write", scopes: [folder + "/**"] }, { name: "process.spawn", scopes: ["fx-planner"] }],
+  reentrant: false, tier: "free",
+});
+
+/** A planner command that appends its direction to `<target>.log`. */
+function plannerSetup() {
+  const home = tmpDir();
+  const pacerHome = join(home, ".pacer");
+  const folder = join(home, "planner");
+  mkdirSync(join(pacerHome, "run"), { recursive: true, mode: 0o700 });
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, "settings.json"), "before", { mode: 0o600 });
+  const tool = join(home, "bin", "fx-planner");
+  mkdirSync(join(home, "bin"));
+  writeFileSync(tool, "#!/bin/sh\nprintf '%s\\n' \"$2\" >> \"$1.log\"\n", { mode: 0o755 });
+  const path = join(pacerHome, "run", "host.sock");
+  const ctx: Ctx = fakeCtx({ home, pacerHome, env: { PATH: process.env.PATH, PACER_HOST_SOCKET: path } });
+  ctx.which = name => name === "fx-planner" ? tool : null;
+  const spawned: string[][] = [];
+  const spawn = ((file: string, args: string[], options: object) => {
+    spawned.push([file, ...args]);
+    return nodeSpawn(file, args, options);
+  }) as typeof nodeSpawn;
+  const registry = new PluginRegistry({ bundled: [{ manifest: plannerManifest(folder), main: async () => ({ handlers: {} }) }], spawn,
+    spawnBundled: () => ({ argv: [process.execPath, "-e", childScript], cwd: home, env: {} }), eventPumpMs: 0 });
+  registries.push(registry);
+  const options = { pluginId: "fx-planner", roots: [folder], binaries: ["fx-planner"], registry, commandApproval: () => true };
+  return { ctx, folder, path, spawned, options, log: join(folder, "command.log") };
+}
+
+type PlannerHandler = (params: any, host: HostClient) => Promise<unknown>;
+/**
+ * Stands in for the Rust owner and the planner child: runs the SDK planner code, sends
+ * each capability request back to Core on the call's connection, then sends the final reply.
+ */
+async function plannerOwner(path: string, handlers: Record<string, PlannerHandler>): Promise<{ requests: any[]; forwarded: any[] }> {
+  const requests: any[] = [], forwarded: any[] = [];
+  const server = createServer(socket => {
+    let text = "", next = 1;
+    const waiting = new Map<string, (frame: any) => void>();
+    const host = { call: (method: string, params?: unknown) => new Promise((resolve, reject) => {
+      const id = `core-${next++}`;
+      waiting.set(id, frame => {
+        forwarded.push({ method, params, reply: frame.result ?? frame.error });
+        if (frame.error) reject(Object.assign(new Error(frame.error.message), { code: frame.error.data?.code }));
+        else resolve(frame.result);
+      });
+      socket.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    }) } as unknown as HostClient;
+    const reply = (id: unknown, body: object) => socket.write(JSON.stringify({ jsonrpc: "2.0", id, ...body }) + "\n");
+    socket.on("data", data => {
+      text += data.toString("utf8");
+      for (let cut = text.indexOf("\n"); cut >= 0; cut = text.indexOf("\n")) {
+        const frame = JSON.parse(text.slice(0, cut));
+        text = text.slice(cut + 1);
+        if (frame.method !== "_host.plugin.call") {
+          waiting.get(frame.id)?.(frame);
+          waiting.delete(frame.id);
+          continue;
+        }
+        requests.push(frame);
+        handlers[frame.params.method]!(frame.params.params, host).then(
+          value => reply(frame.id, { result: { value, hello: { protocol: "1.10.0", served: ["diagnostic", "planner"], features: ["plannerInstallTransactions"] }, logs: [] } }),
+          (error: Error) => reply(frame.id, { error: { code: -32002, message: error.message, data: { code: "plugin_unavailable" } } }));
+      }
+    });
+  });
+  servers.push(server);
+  await new Promise<void>(done => server.listen(path, done));
+  return { requests, forwarded };
+}
+
+const prior = async (params: any, host: HostClient) => params.priorRange ? await readPlannerPrior(host, params.priorRange) as any : params.prior;
+const installHandler = (fail = false): PlannerHandler => async (params, host) => preparePlannerInstall(createPlannerIO(host), params.env, await prior(params, host), async tx => {
+  await tx.run([params.binary, params.env.folder + "/command", "forward"], [params.binary, params.env.folder + "/command", "undo"]);
+  if (fail) throw new Error("planner child exited during installation");
+  await tx.edit(params.env.folder + "/settings.json", () => "installed", []);
+});
+const uninstallHandler: PlannerHandler = async (params, host) => preparePlannerUninstallFiles(createPlannerIO(host), await prior(params, host));
+
+test("flag-on planner.install runs over the bridge as a Core transaction with pinned commands, journal and backups", async () => {
+  const { ctx, folder, path, spawned, options, log } = plannerSetup();
+  const owner = await plannerOwner(path, { "planner.install": installHandler() });
+  const report = await withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options);
+  const [request] = owner.requests;
+  expect(request.params.method).toBe("planner.install");
+  expect(request.params.requireFeatures).toEqual(["plannerInstallTransactions"]);
+  expect(request.params.coreMethods).toEqual(["capability.fs.read", "capability.fs.list", "capability.fs.stat", "capability.fs.readRange",
+    "capability.planner.run", "capability.process.outputChunk", "capability.planner.readPriorRange"]);
+  // Core seals no commands to the owner: it pins and runs them itself so it keeps the undo work.
+  expect(request.params.authority.resources.commands).toEqual([]);
+  expect(owner.forwarded.map(entry => entry.method)).toEqual(["capability.planner.run", "capability.fs.read", "capability.fs.read"]);
+  expect(owner.forwarded[0].reply).toMatchObject({ code: 0 });
+  expect(readFileSync(log, "utf8")).toBe("forward\n");
+  expect(readFileSync(join(folder, "settings.json"), "utf8")).toBe("installed");
+  const backup = report.record.files[0]!.backup!;
+  expect(readFileSync(backup, "utf8")).toBe("before");
+  const saved = JSON.parse(readFileSync(join(ctx.pacerHome, "install-manifest.json"), "utf8"));
+  expect(saved.planners.synthetic).toEqual(report.record);
+  expect(saved.planners.synthetic.commands).toEqual([{ undo: [ctx.which("fx-planner"), folder + "/command", "undo"] }]);
+  expect(existsSync(join(ctx.pacerHome, "install-transaction.json"))).toBe(false);
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on planner.uninstall over the bridge restores the backup and drops the record", async () => {
+  const { ctx, folder, path, spawned, options } = plannerSetup();
+  const owner = await plannerOwner(path, { "planner.install": installHandler(), "planner.uninstall": uninstallHandler });
+  await withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options);
+  await withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", { ...options, operation: "uninstall" });
+  const request = owner.requests[1];
+  expect(request.params.method).toBe("planner.uninstall");
+  expect(request.params.requireFeatures).toEqual(["plannerInstallTransactions"]);
+  expect(request.params.params.prior.planner).toBe("synthetic");
+  expect(readFileSync(join(folder, "settings.json"), "utf8")).toBe("before");
+  const saved = JSON.parse(readFileSync(join(ctx.pacerHome, "install-manifest.json"), "utf8"));
+  expect(saved.planners.synthetic).toBeUndefined();
+  expect(existsSync(join(ctx.pacerHome, "install-transaction.json"))).toBe(false);
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on failed planner.install compensates its admitted commands and leaves files untouched", async () => {
+  const { ctx, folder, path, spawned, options, log } = plannerSetup();
+  const owner = await plannerOwner(path, { "planner.install": installHandler(true) });
+  await expect(withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options))
+    .rejects.toMatchObject({ code: "plugin_unavailable", message: "planner child exited during installation" });
+  expect(owner.forwarded.map(entry => entry.method)).toEqual(["capability.planner.run"]);
+  // Core ran the undo it pinned before the forward command.
+  expect(readFileSync(log, "utf8")).toBe("forward\nundo\n");
+  expect(readFileSync(join(folder, "settings.json"), "utf8")).toBe("before");
+  expect(existsSync(join(ctx.pacerHome, "install-manifest.json"))).toBe(false);
+  expect(existsSync(join(ctx.pacerHome, "install-transaction.json"))).toBe(false);
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on planner commands outside the transaction are refused and a consent-less connect never dials", async () => {
+  const { ctx, folder, path, spawned, options } = plannerSetup();
+  const owner = await plannerOwner(path, {
+    "planner.install": async (params, host) => {
+      await host.call("capability.planner.run", { argv: ["/bin/sh", "-c", "true"], timeoutMs: 1000 }).catch(() => undefined);
+      return installHandler()(params, host);
+    },
+  });
+  await withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options);
+  expect(owner.forwarded[0]).toMatchObject({ method: "capability.planner.run",
+    reply: { data: { code: "capability_denied" }, message: "planner executable is outside host selection" } });
+  const requests = owner.requests.length;
+  await expect(agentConnect(ctx, "claude-code", {})).rejects.toMatchObject({ code: "not_allowed", message: "connecting an agent requires consent" });
+  expect(owner.requests).toHaveLength(requests);
   expect(spawned).toEqual([]);
 });
 

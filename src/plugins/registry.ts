@@ -35,7 +35,9 @@ import { sealCallAuthority, type HostSnapshotSeal } from "./native-call-authorit
 import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
-import { PluginProcess, type SpawnSpec } from "./process";
+import { PluginProcess, type CapabilityTransport, type SpawnSpec } from "./process";
+import { MAX_LINE_BYTES } from "./lines";
+import { PLANNER_INSTALL_FEATURE } from "./planner-protocol";
 import { EXTENSION_METHODS, HELLO_METHOD, NOTIFICATIONS, uiOf, parseViewDocument, parseStatusItemDocument, type ViewDocument, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult } from "./protocol";
 import type { BundledPlugin } from "./types";
 import { currentVersion } from "../update/version";
@@ -101,6 +103,10 @@ const NATIVE_USAGE_STATE_METHODS = ["capability.usage.state.begin", "capability.
 const NATIVE_CORE_READ_METHODS = ["capability.fs.read", "capability.fs.list", "capability.fs.stat", "capability.fs.readRange"];
 /** Planner methods a read-only (`preview`) borrow serves without file settlement or commands. */
 const NATIVE_READ_ONLY_PLANNER = ["planner.plan", "planner.preview", "planner.detect", "planner.check"];
+/** Planner effects stay a Core transaction: Core pins and runs their commands and keeps the undo work. */
+const NATIVE_PLANNER_EFFECTS = ["planner.install", "planner.uninstall"];
+const NATIVE_PLANNER_COMMAND_METHODS = ["capability.planner.run", "capability.process.outputChunk"];
+const NATIVE_PLANNER_PRIOR_METHOD = "capability.planner.readPriorRange";
 interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProcess; generation: string;
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
@@ -2473,7 +2479,8 @@ export class PluginRegistry {
     const hostOnly = options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
       ?? options.expectedProcess ?? options.spawnAdmission
       ?? Object.getOwnPropertySymbols(options).find(key => (options as Record<symbol, unknown>)[key] !== undefined);
-    if (hostOnly !== undefined || (lease && !NATIVE_READ_ONLY_PLANNER.includes(method)))
+    const effects = lease !== undefined && NATIVE_PLANNER_EFFECTS.includes(method);
+    if (hostOnly !== undefined || (lease && !effects && !NATIVE_READ_ONLY_PLANNER.includes(method)))
       throw new CoreError("plugin_unavailable", `${method} needs host-side call options the native process owner bridge does not carry`);
     const issued = options.resources;
     if (issued?.orcaAttempt || issued?.orcaLive || issued?.hosts?.length)
@@ -2492,15 +2499,20 @@ export class PluginRegistry {
           .filter(command => !command.cwd && !command.env && !command.secretEnv)
           .map(command => minimalEnvironment(ctx.env, basename(command.argv[0]!))));
         // Usage state, planner borrows and Codex log reads stay with Core: the owner forwards coreMethods to this authority.
+        // A planner transaction also keeps its pinned commands, prior record and compensation here.
         const manifest = e.manifest!;
         const logReads = issued?.reads.some(read => read.kind === "codex-logs") ?? false;
-        const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : [])];
+        const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
+          ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : [])];
         const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [] }, {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
           grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
         }) : undefined;
+        // The owner refuses the call unless the child negotiated every requireFeatures entry, so the envelope may claim them.
+        const fits = (message: unknown) => Buffer.byteLength(`${JSON.stringify(message)}\n`, "utf8") <= MAX_LINE_BYTES;
+        let transport: CapabilityTransport | undefined;
         const onRequest = local && ((name: string, params: unknown) => coreMethods.includes(name)
-          ? answerCapability(ctx, { id: e.id, manifest }, name, params, local)
+          ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
           : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`)));
         const call: NativeOwnerCall = {
           id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
@@ -2513,10 +2525,18 @@ export class PluginRegistry {
           if (lease) {
             lease.bind(local!, method);
             if (plannerBorrow(local!) !== lease) throw new CoreError("plugin_unavailable", `${method} needs a planner borrow the native process owner bridge does not carry`);
-            if (method === "planner.plan") {
-              call.params = lease.prepareInput(input, value => nativeOwnerCallFits({ ...call, params: value }));
-              if (Object.hasOwn(call.params as object, "priorRange"))
-                throw new CoreError("plugin_unavailable", "the prior planner record exceeds the native owner bridge frame");
+            if (effects || method === "planner.plan") {
+              call.params = lease.prepareInput(input, value => nativeOwnerCallFits({ ...call, params: value,
+                coreMethods: [...coreMethods, NATIVE_PLANNER_PRIOR_METHOD], requireFeatures: [PLANNER_INSTALL_FEATURE] }));
+              if (effects || Object.hasOwn(call.params as object, "priorRange")) {
+                coreMethods.push(NATIVE_PLANNER_PRIOR_METHOD);
+                call.requireFeatures = [PLANNER_INSTALL_FEATURE];
+                transport = Object.freeze({
+                  features: [PLANNER_INSTALL_FEATURE],
+                  requestFits: (params: unknown) => fits({ jsonrpc: "2.0", id: Number.MAX_SAFE_INTEGER, method: NATIVE_PLANNER_PRIOR_METHOD, params }),
+                  resultFits: (result: unknown) => fits({ jsonrpc: "2.0", id: Number.MAX_SAFE_INTEGER, result }),
+                });
+              }
             }
           }
           if (logReads) await prepareFilesystemAuthority(local!);

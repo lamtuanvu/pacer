@@ -39,8 +39,10 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 /// The capability a method needs when Core answers it on the call's bridge
-/// connection: usage state Core keeps, and file reads under a Core planner
-/// borrow or a Codex log directory, which the native read broker does not serve.
+/// connection: usage state Core keeps, file reads under a Core planner borrow
+/// or a Codex log directory, which the native read broker does not serve, and
+/// the planner transaction's pinned commands and prior record, whose
+/// compensation Core keeps.
 pub fn core_capability(method: &str) -> Option<&'static str> {
     match method {
         "capability.usage.state.begin"
@@ -51,7 +53,9 @@ pub fn core_capability(method: &str) -> Option<&'static str> {
         "capability.fs.read"
         | "capability.fs.list"
         | "capability.fs.stat"
-        | "capability.fs.readRange" => Some("fs.read"),
+        | "capability.fs.readRange"
+        | "capability.planner.readPriorRange" => Some("fs.read"),
+        "capability.planner.run" | "capability.process.outputChunk" => Some("process.spawn"),
         _ => None,
     }
 }
