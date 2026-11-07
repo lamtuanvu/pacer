@@ -13,6 +13,8 @@ type DeliveryFailure={ok:false;cause:string;reason:string;from?:string};
 const CANCELLED:DeliveryFailure={ok:false,cause:'cancelled',reason:'the delivery was cancelled'};
 /** The window ended before its requester typed anything; its later input is dropped, so the requester knows nothing was typed. */
 const EXPIRED_UNUSED:DeliveryFailure={ok:false,cause:'expired-unused',reason:'the delivery window expired before any input was typed'};
+/** The controller label a viewer's hello is recorded under, in control frames and `session.state`. */
+export const viewerLabel=(h:{client?:unknown;label?:unknown})=>`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').replace(/[\x00-\x1f\x7f]/g,'').slice(0,64)}`;
 interface Viewer {
  socket:Socket; joined:boolean; blocked:boolean; pending:Buffer[]; bytes:number; resync:boolean; label:string;
  snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void; negotiate?:boolean;
@@ -140,7 +142,7 @@ export class ViewerHub {
      if(this.size>=16){socket.end(wire(FrameType.exit,{code:1,reason:'Session already has 16 viewers; detach a viewer and try again.'}));return;}
      this.pending.delete(v);this.viewers.add(v);v.joined=true;v.negotiate=!!versions&&!!this.protocol;
      v.minor=minor;v.readOnly=h.readOnly===true;
-     v.label=`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').replace(/[\x00-\x1f\x7f]/g,'').slice(0,64)}`;
+     v.label=viewerLabel(h);
      this.cachedSnapshot=undefined;this.publish();
      const missing=h.from===undefined?null:this.since(h.from);
      if(missing===null){v.snapshot={bytes:Buffer.concat([this.freshSnapshot(),this.state(v)]),offset:0};this.flush(v);}

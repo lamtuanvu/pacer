@@ -1,22 +1,22 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { createConnection, createServer, type Server } from "node:net";
+import { join } from "node:path";
 import { readActivity } from "../src/activity/log";
 import { callOp } from "../src/api/ops";
 import { CoreError } from "../src/core/errors";
-import { callerIdentity, send } from "../src/session/send";
-import { createTask, readTask, updateTask } from "../src/tasks/store";
-import type { LiveWorker } from "../src/tasks/types";
-import { fakeCtx, gitRepo } from "./helpers";
-import { fakeRun, raw, type Route } from "./fixtures/orca/fake";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
-import { createConnection, createServer } from "node:net";
-import { join } from "node:path";
-import { answer, ask } from "../src/core/tasks";
+import { answer, answerLiveTask, ask } from "../src/core/tasks";
+import { killTree } from "../src/exec/process";
+import { PACER_CONTROLLER } from "../src/messaging/live";
 import { FrameType, WireDecoder, wire } from "../src/session/framing";
-import { sendDirectInput } from "../src/session/send";
+import { callerIdentity, send, sendDirectInput } from "../src/session/send";
 import { sessionSocket } from "../src/session/service";
 import { ViewerHub } from "../src/session/viewers";
 import { readRun, startRun, stopRun } from "../src/supervisor/run";
-import { tmpDir } from "./helpers";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
+import type { LiveWorker } from "../src/tasks/types";
+import { fakeCtx, gitRepo, tmpDir } from "./helpers";
+import { fakeRun, raw, type Route } from "./fixtures/orca/fake";
 
 const TERM = "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d";
 const envelope = (result: object) => raw(JSON.stringify({ ok: true, result }));
@@ -309,3 +309,54 @@ test("an answer whose delivery window expired during a slow guard is a definite 
     expect(modern.input).toEqual([]);
   } finally { modern.hub.destroy(); modern.server.close(); await stopRun(dir, { graceMs: 500 }); }
 }, 20000);
+const servers: Server[] = [], wrappers: number[] = [];
+afterEach(() => {
+  for (const s of servers.splice(0)) s.close();
+  for (const pid of wrappers.splice(0)) killTree(pid, "SIGKILL");
+});
+const until = async (f: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error("timeout"); await Bun.sleep(25); } };
+
+/** A running built-in interactive run: a live wrapper, and the real viewer hub publishing `session.state` as the host does. */
+async function builtinRun() {
+  const ctx = fakeCtx();
+  const created = createTask(ctx, { brief: { goal: "g", repo: gitRepo() }, kind: null, requestedExecutor: "claude-code", timeoutS: 600 });
+  const dir = tmpDir(), script = join(dir, "run.sh");
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], { detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  wrappers.push(proc.pid);
+  writeFileSync(join(dir, "pid"), String(proc.pid));
+  const sock = join(mkdtempSync("/tmp/pl-"), "s.sock");
+  writeFileSync(join(dir, "session.sock.path"), sock);
+  const input: Buffer[] = [];
+  const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), () => {},
+    (viewers, controller) => writeFileSync(join(dir, "session.state"), JSON.stringify({ viewers, controller, cols: 120, rows: 40 })),
+    { input: b => { input.push(Buffer.from(b)); }, resize() {} });
+  const server = createServer(s => hub.add(s));
+  servers.push(server);
+  await new Promise<void>(r => server.listen(sock, r));
+  updateTask(ctx, created.id, t => {
+    t.state = "running";
+    t.run = { dir, attempt: 1, executor: "claude-code", startedAt: 1, mode: "new", workdir: tmpDir(), logFile: "/dev/null" };
+  });
+  await until(() => readRun(dir).alive);
+  return { ctx, id: created.id, dir, input, hub };
+}
+
+test("direct input into a built-in run passes its readiness check while pacer holds control", async () => {
+  const { ctx, id, dir, input, hub } = await builtinRun();
+  const controllers: Array<string | null | undefined> = [];
+  const delivered = await sendDirectInput(ctx, readTask(ctx, id)!, "go with plan B", () => { controllers.push(readRun(dir).controller); return true; });
+  expect(delivered).toEqual({ ok: true });
+  expect(controllers).toEqual([PACER_CONTROLLER]);
+  expect(Buffer.concat(input).toString()).toContain("go with plan B");
+  expect(hub.controller).toBeNull();
+});
+
+test("a live answer into a built-in run is typed and keeps its reservation", async () => {
+  const { ctx, id, input } = await builtinRun();
+  updateTask(ctx, id, t => { t.question = { text: "A or B?", at: ctx.now }; });
+  const answered = await answerLiveTask(ctx, id, "use B");
+  expect(Buffer.concat(input).toString()).toContain("use B");
+  expect(answered.question?.answer).toBe("use B");
+});

@@ -10,9 +10,9 @@ import { resolvePolicyRepo } from "../src/core/project-policy";
 import { projectReferences } from "../src/engine/project-routing";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { RunRef } from "../src/tasks/types";
-import type { RunState } from "../src/supervisor/run";
+import { readRun, type RunState } from "../src/supervisor/run";
 import { sendMessage } from "../src/messaging/send";
-import { liveTick, typeIntoSession } from "../src/messaging/live";
+import { liveTick, typeIntoSession, PACER_CONTROLLER } from "../src/messaging/live";
 import { FrameType, wire } from "../src/session/framing";
 import { ViewerHub, type DeliveryTiming } from "../src/session/viewers";
 import { createConnection } from "node:net";
@@ -22,12 +22,14 @@ const PASTE_START = "\x1b[200~", PASTE_END = "\x1b[201~";
 const servers: Server[] = [];
 afterEach(() => { for (const s of servers.splice(0)) s.close(); });
 
-/** A session socket served by the real viewer hub, recording what reaches the PTY. */
+/** A session socket served by the real viewer hub, recording what reaches the PTY and publishing `session.state` as the host does. */
 function fakeSession(dir: string, o: { modern?: boolean; timing?: Partial<DeliveryTiming> } = {}) {
   const sock = join(mkdtempSync("/tmp/pl-"), "s.sock");
   writeFileSync(join(dir, "session.sock.path"), sock);
   const input: Buffer[] = [], events: string[] = [];
-  const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), kind => events.push(kind), () => {},
+  const published = (viewers: number, controller: string | null) =>
+    writeFileSync(join(dir, "session.state"), JSON.stringify({ viewers, controller, cols: 120, rows: 40 }));
+  const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), kind => events.push(kind), published,
     { input: b => { input.push(Buffer.from(b)); }, resize() {}, release: label => events.push(`release:${label}`) },
     o.modern ? { pacer: "0.0.0", versions: [1, 2] } : undefined, o.timing);
   const server = createServer(s => hub.add(s));
@@ -156,6 +158,38 @@ test("an agent that resumes while pacer takes control gets nothing typed and no 
   expect(session.hub.controller).toBeNull();
   expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
   expect(readTask(ctx, id)!.liveBlocked).toBeUndefined();
+});
+
+test("pacer's own control, as the session host records it, does not block live delivery", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir);
+  await session.ready;
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  const seen: Array<[string | null | undefined, string | null]> = [];
+  // The run's wrapper process is not real here; everything else, including the controller, comes from the run dir.
+  const readState = (d: string) => { const s = { ...readRun(d), alive: true }; seen.push([s.controller, session.hub.controller]); return s; };
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), { ...deps, readState });
+  const [recorded, held] = seen.at(-1)!;
+  expect(held).toBe(PACER_CONTROLLER);
+  expect(recorded).toBe(held);
+  expect(Buffer.concat(session.input).toString()).toContain("hi");
+  expect(readTask(ctx, id)!.liveTurn?.id).toBe(`${id}#live.1`);
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+});
+
+test("another viewer's label as controller at the in-control check still blocks typing", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir);
+  await session.ready;
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  let reads = 0;
+  const readState = (d: string) => {
+    const s = { ...readRun(d), alive: true };
+    return reads++ ? { ...s, controller: "cli:pacer t-1" } : s;
+  };
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), { ...deps, readState });
+  expect(session.input).toHaveLength(0);
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
 });
 
 test("concurrent live ticks claim one turn and type once", async () => {
