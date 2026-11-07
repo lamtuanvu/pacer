@@ -413,6 +413,71 @@ test("task runner restart reconciles a lost provider result without relaunching"
   } finally { cleanup(); }
 });
 
+test("a live interactive run keeps its owner across repeated observation lease expiries", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  const repo = task.brief.repo;
+  expect(Bun.spawnSync(["mkfifo", join(repo, "hold")]).exitCode).toBe(0);
+  writeFileSync(ctx.which("codex")!, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\nprintf x >> launch-count\nwhile [ ! -e release ]; do sleep 0.05; done\nprintf '%s' '{\"status\":\"done\",\"summary\":\"held through renewals\",\"at\":101}' > \"$PACER_RUN_DIR/report.json\"\nread -r unused < hold\n",
+    { mode: 0o700 });
+  const runtime = { ...ctx, run: realRun }, registry = pluginRegistry(runtime);
+  let leases = 0;
+  const shortLeases = { call: (...[c, id, method, params, options]: Parameters<typeof registry.call>) => {
+    leases++;
+    return registry.call(c, id, method, params, { ...options, deadlineMs: leases === 1 ? 3000 : 400 });
+  } };
+  try {
+    const running = runOwnedDirectCurrent(runtime, { ...cfg, session: "interactive" }, task, shortLeases);
+    for (let i = 0; i < 200 && leases < 4; i++) await Bun.sleep(25);
+    expect(leases).toBeGreaterThanOrEqual(4);
+    writeFileSync(join(repo, "release"), "");
+    const out = await running;
+    expect(out.exec.code).toBe(0);
+    expect(out.report).toBe("held through renewals");
+    expect(readFileSync(join(repo, "launch-count"), "utf8")).toBe("x");
+  } finally { cleanup(); }
+}, 30_000);
+
+test("a runner reattaching to a live owned run clears Lost contact", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  const repo = task.brief.repo;
+  writeFileSync(ctx.which("codex")!, "#!/bin/sh\nprintf x >> launch-count\nwhile [ ! -e release ]; do sleep 0.05; done\nprintf 'reattached result\\n'\n",
+    { mode: 0o700 });
+  const registry = pluginRegistry(ctx), owner = new AbortController();
+  const endedOwner = { call: (...[c, id, method, params, options]: Parameters<typeof registry.call>) =>
+    registry.call(c, id, method, params, { ...options, signal: owner.signal }) };
+  try {
+    const first = runOwnedDirectCurrent(ctx, cfg, task, endedOwner);
+    for (let i = 0; i < 200 && !readTask(ctx, task.id)?.run; i++) await Bun.sleep(25);
+    owner.abort();
+    await expect(first).rejects.toMatchObject({ code: "plugin_unavailable" });
+    const lost = updateTask(ctx, task.id, current => {
+      current.progress = { lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0, logBytes: 0,
+        host: "local", phase: "lost-contact", updatedAt: Date.now() / 1000 };
+    });
+    expect(lost.run).toBeDefined();
+    expect(existsSync(join(lost.run!.dir, "exit"))).toBe(false);
+    const reattached = runTask({ ...ctx, run: realRun }, task.id, {
+      loadStrategy,
+      computeStatus: async () => { throw Error("a reattach never reroutes"); },
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    });
+    let current = readTask(ctx, task.id);
+    for (let i = 0; i < 200 && current?.progress?.phase === "lost-contact"; i++) {
+      await Bun.sleep(25);
+      current = readTask(ctx, task.id);
+    }
+    expect(current?.runnerPid).toBe(process.pid);
+    expect(current?.progress?.phase).not.toBe("lost-contact");
+    expect(existsSync(join(lost.run!.dir, "exit"))).toBe(false);
+    writeFileSync(join(repo, "release"), "");
+    const result = await reattached;
+    expect(result.state).toBe("done");
+    expect(result.result?.report).toContain("reattached result");
+    expect(readFileSync(join(repo, "launch-count"), "utf8")).toBe("x");
+  } finally { cleanup(); }
+}, 30_000);
+
 test("owned deadline persists a stop intent and settles failed only after wrapper exit", async () => {
   const { ctx, task, cleanup } = fixture();
   try {
