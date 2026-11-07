@@ -317,8 +317,12 @@ type PlannerHandler = (params: any, host: HostClient) => Promise<unknown>;
 /**
  * Stands in for the Rust owner and the planner child: runs the SDK planner code, sends
  * each capability request back to Core on the call's connection, then sends the final reply.
+ * Mirrors the real owner's `requireFeatures` gate (`bridge_call.rs`): a request whose
+ * `requireFeatures` is not a subset of `negotiated` is refused before the handler runs and
+ * nothing is forwarded, so a test can model a child that did not negotiate a feature.
  */
-async function plannerOwner(path: string, handlers: Record<string, PlannerHandler>): Promise<{ requests: any[]; forwarded: any[] }> {
+async function plannerOwner(path: string, handlers: Record<string, PlannerHandler>,
+  negotiated: string[] = ["plannerInstallTransactions"]): Promise<{ requests: any[]; forwarded: any[] }> {
   const requests: any[] = [], forwarded: any[] = [];
   const server = createServer(socket => {
     let text = "", next = 1;
@@ -344,8 +348,14 @@ async function plannerOwner(path: string, handlers: Record<string, PlannerHandle
           continue;
         }
         requests.push(frame);
+        const required: string[] = frame.params.requireFeatures ?? [];
+        const missing = required.find(feature => !negotiated.includes(feature));
+        if (missing !== undefined) {
+          reply(frame.id, { error: { code: -32002, message: `${frame.params.method as string} requires the negotiated ${missing} feature`, data: { code: "capability_denied" } } });
+          continue;
+        }
         handlers[frame.params.method]!(frame.params.params, host).then(
-          value => reply(frame.id, { result: { value, hello: { protocol: "1.10.0", served: ["diagnostic", "planner"], features: ["plannerInstallTransactions"] }, logs: [] } }),
+          value => reply(frame.id, { result: { value, hello: { protocol: "1.10.0", served: ["diagnostic", "planner"], features: negotiated }, logs: [] } }),
           (error: Error) => reply(frame.id, { error: { code: -32002, message: error.message, data: { code: "plugin_unavailable" } } }));
       }
     });
@@ -431,6 +441,82 @@ test("flag-on planner commands outside the transaction are refused and a consent
   const requests = owner.requests.length;
   await expect(agentConnect(ctx, "claude-code", {})).rejects.toMatchObject({ code: "not_allowed", message: "connecting an agent requires consent" });
   expect(owner.requests).toHaveLength(requests);
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on install over the bridge is cancelled and compensates when the plugin's grant is revoked mid-call", async () => {
+  const { ctx, folder, path, spawned, options } = plannerSetup();
+  // `disable` needs an existing strategy file to edit (plannerSetup does not write one).
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n", { mode: 0o600 });
+  // A slow pinned command widens the window between the admitted command and the final reply.
+  writeFileSync(join(ctx.home, "bin", "fx-planner"), "#!/bin/sh\nsleep 0.3\nprintf '%s\\n' \"$2\" >> \"$1.log\"\n", { mode: 0o755 });
+  await plannerOwner(path, { "planner.install": installHandler() });
+  const promise = withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options);
+  await new Promise(done => setTimeout(done, 100));
+  // Disabling the plugin revokes its authorities, same as flag-off; the registered
+  // native-owner authority must be among them so the in-flight call is cancelled too.
+  await options.registry.disable(ctx, "fx-planner");
+  await expect(promise).rejects.toMatchObject({ code: expect.any(String) });
+  expect(readFileSync(join(folder, "settings.json"), "utf8")).toBe("before");
+  expect(existsSync(join(ctx.pacerHome, "install-manifest.json"))).toBe(false);
+  expect(existsSync(join(ctx.pacerHome, "install-transaction.json"))).toBe(false);
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on install over the bridge is cancelled when the planner configuration generation changes mid-call", async () => {
+  const { ctx, folder, path, spawned, options } = plannerSetup();
+  writeFileSync(join(ctx.home, "bin", "fx-planner"), "#!/bin/sh\nsleep 0.3\nprintf '%s\\n' \"$2\" >> \"$1.log\"\n", { mode: 0o755 });
+  await plannerOwner(path, { "planner.install": installHandler() });
+  const promise = withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options);
+  await new Promise(done => setTimeout(done, 100));
+  // Change the plugin's `plugins.config.<id>` slice in the strategy file directly: this is
+  // what moves `e.plannerFingerprint`, the same generation `options.registry.refresh` checks
+  // flag-off before admission. The native-owner path must check it too, mid-call.
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
+    "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  config:\n    fx-planner:\n      note: changed\n");
+  options.registry.refresh(ctx);
+  await expect(promise).rejects.toMatchObject({ code: expect.any(String) });
+  expect(readFileSync(join(folder, "settings.json"), "utf8")).toBe("before");
+  expect(existsSync(join(ctx.pacerHome, "install-manifest.json"))).toBe(false);
+  expect(existsSync(join(ctx.pacerHome, "install-transaction.json"))).toBe(false);
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on install over the bridge compensates when the owner drops the socket after a forwarded command", async () => {
+  const { ctx, folder, path, spawned, options, log } = plannerSetup();
+  const server = createServer(socket => {
+    socket.once("data", data => {
+      const frame = JSON.parse(data.toString("utf8").split("\n")[0]!);
+      const params = frame.params.params;
+      socket.write(JSON.stringify({
+        jsonrpc: "2.0", id: "core-1", method: "capability.planner.run",
+        params: { argv: [params.binary, params.env.folder + "/command", "forward"], undo: [params.binary, params.env.folder + "/command", "undo"], timeoutMs: 1000 },
+      }) + "\n");
+      // The owner drops the connection instead of relaying the child's next request
+      // or the final reply: Core must compensate the command it already admitted.
+      socket.once("data", () => socket.destroy());
+    });
+  });
+  servers.push(server);
+  await new Promise<void>(done => server.listen(path, done));
+  await expect(withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options))
+    .rejects.toMatchObject({ code: "plugin_unavailable" });
+  expect(readFileSync(log, "utf8")).toBe("forward\nundo\n");
+  expect(readFileSync(join(folder, "settings.json"), "utf8")).toBe("before");
+  expect(existsSync(join(ctx.pacerHome, "install-manifest.json"))).toBe(false);
+  expect(existsSync(join(ctx.pacerHome, "install-transaction.json"))).toBe(false);
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on refuses a planner call the owner stub has not negotiated the feature for, forwarding nothing", async () => {
+  const { ctx, folder, path, spawned, options, log } = plannerSetup();
+  const owner = await plannerOwner(path, { "planner.install": installHandler() }, []);
+  await expect(withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options))
+    .rejects.toMatchObject({ code: "capability_denied", message: expect.stringContaining("plannerInstallTransactions") });
+  expect(owner.forwarded).toEqual([]);
+  expect(existsSync(log)).toBe(false);
+  expect(readFileSync(join(folder, "settings.json"), "utf8")).toBe("before");
+  expect(existsSync(join(ctx.pacerHome, "install-manifest.json"))).toBe(false);
   expect(spawned).toEqual([]);
 });
 

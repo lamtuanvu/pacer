@@ -2342,7 +2342,7 @@ export class PluginRegistry {
     }
     if (ctx.env.PACER_HOST_SOCKET) {
       if (credentialBindings !== undefined) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
-      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt);
+      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint);
     }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
       const run = async () => {
@@ -2474,7 +2474,7 @@ export class PluginRegistry {
    * Core seals the same spawn spec and call authority it serves over
    * `/_internal/plugins` and never spawns a second owner for the plugin id.
    */
-  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number): Promise<T> {
+  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string): Promise<T> {
     const lease = options.plannerResources;
     const hostOnly = options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
       ?? options.expectedProcess ?? options.spawnAdmission
@@ -2486,10 +2486,18 @@ export class PluginRegistry {
     if (issued?.orcaAttempt || issued?.orcaLive || issued?.hosts?.length)
       throw new CoreError("plugin_unavailable", `${method} needs orca or hosts resources, which the native process owner bridge does not serve`);
     const point = method.split(".")[0]!;
+    // Mirrors the flag-off admission checks (line ~2349): a grant revocation or planner config
+    // change during this call must fail it before Core (in withPlannerInstall) commits writes.
+    const checkPlannerGeneration = async (): Promise<void> => {
+      if (e.plannerRetirement) await e.plannerRetirement;
+      if (e.plannerGenerationFailure) throw e.plannerGenerationFailure;
+      if (plannerFingerprint !== e.plannerFingerprint) throw new CoreError("plugin_unavailable", "planner configuration generation changed before admission");
+    };
     return this.admission.run(deadlineAt, async signal => {
       const run = async () => {
         if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before execution");
         if (e.state === "ready" && !e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${e.id} does not serve ${point}`);
+        await checkPlannerGeneration();
         const remaining = deadlineAt === Infinity ? undefined : Math.max(1, deadlineAt - Date.now());
         const spawn = this.nativeSpawnSpec(ctx, e.id);
         const resources = issued && pinnedExecutables(ctx, issued);
@@ -2508,6 +2516,12 @@ export class PluginRegistry {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
           grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
         }) : undefined;
+        // Register `local` so a grant revocation or planner config change (refresh()'s
+        // e.authorities revoke loop) reaches this in-flight call, same as flag-off's `authority`.
+        if (local) e.authorities.set(local.token, local);
+        // Tie the bridge exchange to `local`'s abort so revoking it closes the socket and the
+        // owner compensates, instead of only taking effect after the call has already settled.
+        const bridgeSignal = local ? AbortSignal.any([signal, local.signal]) : signal;
         // The owner refuses the call unless the child negotiated every requireFeatures entry, so the envelope may claim them.
         const fits = (message: unknown) => Buffer.byteLength(`${JSON.stringify(message)}\n`, "utf8") <= MAX_LINE_BYTES;
         let transport: CapabilityTransport | undefined;
@@ -2541,10 +2555,13 @@ export class PluginRegistry {
           }
           if (logReads) await prepareFilesystemAuthority(local!);
           if (issued?.stores.length) await prepareStateAuthority(local!);
-          reply = await callNativeOwner(socket, call, signal, onRequest);
+          reply = await callNativeOwner(socket, call, bridgeSignal, onRequest);
         } finally {
-          await local?.revoke();
+          if (local) { try { await local.revoke(); } finally { e.authorities.delete(local.token); } }
         }
+        // Re-check after the reply: a revocation racing the final reply line must still fail
+        // the call before the planner install/uninstall transaction commits any write.
+        if (effects) await checkPlannerGeneration();
         for (const line of reply.logs) appendPluginLog(ctx, e.id, "stderr", line);
         if (reply.hello && e.state !== "ready") {
           this.nativeMarkReady(ctx, e.id, reply.hello.protocol,

@@ -325,9 +325,10 @@ pub(crate) async fn call_sealed(
     )
     .map_err(refused)?;
     session.broker_mut().set_scope_roots(sealed.roots);
-    if let Some(core) = core.filter(|_| !sealed.core_methods.is_empty()) {
-        session.bind_core(core, sealed.core_methods);
-    }
+    // Core forwarding binds only after the hello and the `requireFeatures` gate
+    // pass (below): a child must not reach Core-run methods while it answers
+    // `plugin.hello`, before Core knows whether it negotiated the feature.
+    let core_forward = core.filter(|_| !sealed.core_methods.is_empty());
     session
         .bind_process_owner_hosts(owner.clone())
         .map_err(refused)?;
@@ -397,6 +398,13 @@ pub(crate) async fn call_sealed(
                 "capability_denied",
                 format!("{method} requires the negotiated {feature} feature"),
             ));
+        }
+        // The gate passed: only now may this call's capability requests reach Core.
+        if let Some(core) = core_forward {
+            session
+                .lock()
+                .await
+                .bind_core(core, sealed.core_methods.clone());
         }
         let metadata = reentrant.then(|| json!({"capabilityCall": call_token()}));
         let value = lane

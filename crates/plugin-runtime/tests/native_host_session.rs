@@ -894,6 +894,92 @@ async fn sealed_planner_transaction_forwards_commands_to_core_after_negotiation(
     session.shutdown().await;
 }
 
+/// Hello-phase child: before answering `plugin.hello`, it asks for a Core-sealed
+/// `capability.planner.run` the same way an admitted planner command would. It then
+/// negotiates `plannerInstallTransactions` and answers `planner.install` normally,
+/// carrying the hello-phase attempt's outcome in the final value so the test can see it.
+const HELLO_FORWARD_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',hello,early,call,out={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const ask=(id,method,params)=>send({id,method,params});for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello'){hello=m;ask('early','capability.planner.run',{argv:['fx-cmd','forward'],undo:['fx-cmd','undo'],timeoutMs:1000});}else if(m.id==='early'){early=m.result??m.error;send({id:hello.id,result:{protocol:'1.10.0',id:hello.params.manifest.id,version:'1.0.0',contributes:['planner'],features:['chunkedResults','plannerInstallTransactions']}});}else if(m.method==='planner.install'){call=m;out={};ask('run','capability.planner.run',{argv:['fx-cmd','forward'],undo:['fx-cmd','undo'],timeoutMs:1000});}else if(m.id==='run'){out.run=m.result??m.error;send({id:call.id,result:{schema:1,early,...out}});}}}"#;
+
+/// N1: a child that tries to use Core forwarding while it answers `plugin.hello`, before
+/// Core knows whether the feature gate will pass, must get nothing run. Binding Core
+/// forwarding only after the hello and the `requireFeatures` gate (`bridge_call.rs`)
+/// closes that window: the hello-phase request is answered locally (refused) and never
+/// reaches Core, while the same method after the gate passes forwards normally.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("hello-forward.js");
+    fs::write(&script, HELLO_FORWARD_CHILD).unwrap();
+    let planner_methods = json!([
+        "capability.fs.read",
+        "capability.planner.run",
+        "capability.process.outputChunk",
+        "capability.planner.readPriorRange"
+    ]);
+    let request = json!({
+        "jsonrpc":"2.0","id":60,"method":METHOD_PLUGIN_CALL,
+        "params":{
+            "id":"fx-hello-forward","method":"planner.install","params":{},"deadlineMs":10000,
+            "spawn":{
+                "argv":["bun", script.to_str().unwrap()],
+                "cwd":plugin_dir.path().display().to_string(),
+                "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                "hello":{
+                    "protocol":"1.10.0","pacer":"0.2.0",
+                    "manifest":{
+                        "id":"fx-hello-forward","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                        "capabilities":[{"name":"fs.read","scopes":["/fixture/**"]},{"name":"fs.write","scopes":["/fixture/**"]},{"name":"process.spawn","scopes":["fx-cmd"]}],
+                        "contributes":{"planner":{}}
+                    },
+                    "config":{},"grants":["fs.read","fs.write","process.spawn"],
+                    "features":["chunkedResults","plannerInstallTransactions"]
+                },
+            },
+            "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
+            "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
+            "coreMethods":planner_methods,
+            "requireFeatures":["plannerInstallTransactions"]
+        }
+    });
+    let core = |frame: &Value| match frame["method"].as_str() {
+        Some("capability.planner.run") => {
+            json!({"result":{"code":0,"output":{"stdout":"o-1","stderr":"o-2"}}})
+        }
+        Some("capability.process.outputChunk") => json!({"result":{"base64":"b2s="}}),
+        _ => json!({"result":{"base64":"e30="}}),
+    };
+    tokio::task::yield_now().await;
+
+    let (installed, forwarded) = dial_with_core(&path, request, core).await;
+    assert!(installed.get("error").is_none(), "{installed}");
+    // Only the post-gate `planner.install` forward reached Core; the hello-phase
+    // attempt never appeared on the wire.
+    assert_eq!(
+        forwarded
+            .iter()
+            .map(|frame| frame["method"].clone())
+            .collect::<Vec<_>>(),
+        [json!("capability.planner.run")]
+    );
+    let value = &installed["result"]["value"];
+    // The hello-phase attempt was answered locally and refused, not run by Core.
+    assert_eq!(value["early"]["code"], -32000, "{value}");
+    assert_eq!(value["early"]["data"]["code"], "invalid_input", "{value}");
+    assert_eq!(value["run"]["code"], 0, "{value}");
+
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("fx-hello-forward")
+        .await
+        .unwrap();
+    session.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bridge_spawn_and_stop_under_owner() {
     let home = temp_home();
