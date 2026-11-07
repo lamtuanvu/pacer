@@ -1,18 +1,19 @@
 //! Process-owner and reverse-bridge shell for the P4d serve cutover.
 //!
-//! Default `serve` claims a native [`NativeHostSession`] when
-//! [`serve_starts_reverse_bridge_by_default`] is true (P4d-13). Set
-//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`HOST_BRIDGE_ENABLE_ENV`] to
-//! `0` / `false` / `no` to leave plugin children with TypeScript
-//! (`/_internal/plugins`). Library callers may hold live [`PluginProcess`]
-//! children under [`ProcessOwner::native_for_tests`]. Truthy flags still opt
-//! in when the default is off. The session claims supervision, binds the
-//! reverse bridge with live `_host.plugin.call` / `find` / `spawn` / `stop`,
-//! and exports [`HOST_SOCKET_ENV`] for Core. Flag-on serve routes native
-//! plugin RPC through that owner so TypeScript does not also spawn the same
-//! plugin id. P4d-6/7 installs a [`PluginCapabilitySession`] so the owner
-//! answers `capability.*` via `pacer-plugin-host` (log/config.get always;
-//! native fs/process/http when Core issues call-scoped resources).
+//! Default `serve` leaves plugin children with TypeScript
+//! (`/_internal/plugins`) while [`serve_starts_reverse_bridge_by_default`] is
+//! false. Library callers may hold live [`PluginProcess`] children under
+//! [`ProcessOwner::native_for_tests`]. Truthy [`NATIVE_PLUGIN_HOST_ENABLE_ENV`]
+//! / [`HOST_BRIDGE_ENABLE_ENV`] opt into a [`NativeHostSession`] that claims
+//! supervision, binds the reverse bridge with live `_host.plugin.call` /
+//! `find` / `spawn` / `stop`, and exports [`HOST_SOCKET_ENV`] for Core.
+//! Falsy values (`0` / `false` / `no`) are the P4d-5 escape hatch for the
+//! future default-on cutover. Flag-on serve routes native plugin RPC through
+//! that owner so TypeScript does not also spawn the same plugin id. P4d-6/7
+//! installs a [`PluginCapabilitySession`] so the owner answers `capability.*`
+//! via `pacer-plugin-host` (log/config.get always; native fs/process/http when
+//! Core issues call-scoped resources). Default-on stays off until TypeScript
+//! plugin consumers reach the owner over the bridge.
 
 mod bridge_listener;
 mod capability;

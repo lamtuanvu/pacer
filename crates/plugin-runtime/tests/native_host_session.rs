@@ -49,8 +49,8 @@ async fn dial_json(path: &Path, request: Value) -> Value {
 
 #[test]
 fn flag_off_leaves_default_serve_dark() {
-    assert!(serve_starts_reverse_bridge_by_default());
-    assert!(native_plugin_host_enabled(None, None));
+    assert!(!serve_starts_reverse_bridge_by_default());
+    assert!(!native_plugin_host_enabled(None, None));
     assert!(env::var_os(HOST_SOCKET_ENV).is_none());
 }
 

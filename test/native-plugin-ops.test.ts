@@ -65,9 +65,8 @@ const tsOwner = { nativeHost: "0" };
 
 async function service(forward = "", homeKind = "absolute", options: { nativeHost?: string } = {}) {
   // host.sock must fit SUN_LEN (~104). Bun test redirects TMPDIR into a deep
-  // isolated home, so native-host homes allocate under /tmp directly.
-  const nativeHostEnabled = options.nativeHost !== "0";
-  const shortHome = nativeHostEnabled;
+  // isolated home, so homes that may bind it allocate under /tmp directly.
+  const shortHome = options.nativeHost !== "0";
   const home = shortHome ? realpathSync(mkdtempSync("/tmp/pnh-")) : realpathSync(tmpDir());
   const state = join(home, ".pacer");
   mkdirSync(state, { mode: 0o700 });
@@ -528,8 +527,8 @@ let n=0;await serve({manifest,input:stdinLines(),handlers:{'diagnostic.ping':asy
   }
 }, 45000);
 
-test.skipIf(!front)("default-on ProcessOwner binds host.sock and serves UI mutations", async () => {
-  const s = await service();
+test.skipIf(!front)("flag-on ProcessOwner binds host.sock and serves UI mutations", async () => {
+  const s = await service("", "absolute", { nativeHost: "1" });
   try {
     expect(existsSync(join(s.state, "run", "host.sock"))).toBe(true);
     const enable = await s.post("plugin.enable", { id: "fx-ui", grant: true });
@@ -563,4 +562,17 @@ test.skipIf(!front)("PACER_NATIVE_PLUGIN_HOST=0 escape leaves serve without host
     expect(log).not.toContain("native plugin host enabled");
     expect(log).toContain("native plugin.enable");
   }
+}, 60000);
+
+// TypeScript plugin consumers (usage refresh, doctor, planners) start children through Core;
+// default serve must not hand ownership to a native host they cannot reach.
+test.skipIf(!front)("default serve lets TypeScript consumers start plugin children", async () => {
+  const s = await service("plugin.doctor");
+  try {
+    await s.post("plugin.enable", { id: "fx-ui", grant: true });
+    const doctor = await s.post("plugin.doctor", { id: "fx-ui" });
+    expect(doctor.error, JSON.stringify(doctor)).toBeUndefined();
+    expect(doctor.result.reports[0].ok, JSON.stringify(doctor)).toBe(true);
+    expect(existsSync(join(s.state, "run", "host.sock"))).toBe(false);
+  } finally { await s.stop(); }
 }, 60000);

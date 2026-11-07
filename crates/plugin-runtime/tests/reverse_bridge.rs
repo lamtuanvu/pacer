@@ -43,8 +43,8 @@ async fn dial_json(path: &Path, request: Value) -> Value {
 }
 
 #[test]
-fn default_serve_enables_native_supervision_claim() {
-    assert!(serve_starts_reverse_bridge_by_default());
+fn default_serve_stays_dark() {
+    assert!(!serve_starts_reverse_bridge_by_default());
     assert!(
         env::var_os(HOST_SOCKET_ENV).is_none(),
         "test process must not inherit PACER_HOST_SOCKET"
