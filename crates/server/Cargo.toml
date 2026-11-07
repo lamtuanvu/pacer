@@ -28,6 +28,8 @@ pacer-config-ops = { path = "../config-ops" }
 pacer-messaging-ops = { path = "../messaging-ops" }
 pacer-dispatch-ops = { path = "../dispatch-ops" }
 pacer-issues = { path = "../issues" }
+pacer-install = { path = "../install" }
+pacer-update = { path = "../update" }
 pacer-assistant-ops = { path = "../assistant-ops" }
 pacer-machine-ops = { path = "../machine-ops" }
 pacer-discovery-ops = { path = "../discovery-ops" }
