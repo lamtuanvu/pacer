@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from 'bun:test';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fakeCtx, tmpDir } from './helpers';
 import { createTask, taskDatabase } from '../src/tasks/store';
@@ -118,3 +118,19 @@ test('benchmark natural-exit stored-running history through real read-model and 
     console.log(JSON.stringify({benchmark: 'natural-exit-full-path', count, coldMs, warmCycles: 5, warmMs: performance.now() - start}));
   }
 }, 120000);
+
+test('a tasks.db write during a session read is retried instead of surfacing a conflict', () => {
+  const f = history(0);
+  f.insert('starting', 'starting');
+  const file = join(f.ctx.pacerHome, 'state', 'tasks.db');
+  const real = runs.readRun;
+  let raced = 0;
+  // Each touch changes ctime mid-read, as a busy service's task writes do.
+  const probe = spyOn(runs, 'readRun').mockImplementation(dir => {if (raced++ < 2) utimesSync(file, new Date(), new Date()); return real(dir);});
+  try {
+    expect(activeAgentSessions({...f.ctx}).map(s => s.id)).toEqual(['starting']);
+    expect(raced).toBe(3);
+    raced = -100;
+    expect(() => activeAgentSessions({...f.ctx})).toThrow('Session reservations changed during acquisition');
+  } finally {probe.mockRestore();}
+});

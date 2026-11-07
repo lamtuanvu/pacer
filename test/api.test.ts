@@ -37,6 +37,9 @@ test("delegate creates a queued task and starts the runner; bad input creates no
 test("selfCommand re-runs the script under bun, or the compiled binary alone", () => {
   expect(selfCommand(["/bun", "/repo/src/cli.ts", "status"], "/bun")).toEqual(["/bun", "/repo/src/cli.ts"]);
   expect(selfCommand(["/usr/local/bin/pacer", "status"], "/usr/local/bin/pacer")).toEqual(["/usr/local/bin/pacer"]);
+  // The compiled supervision worker's argv[1] is its embedded entrypoint, not a script to pass on.
+  expect(selfCommand(["/home/u/.local/bin/pacer-core", "/$bunfs/root/tasks/supervision-worker.js"], "/home/u/.local/bin/pacer-core")).toEqual(["/home/u/.local/bin/pacer-core"]);
+  expect(selfCommand(["B:\\pacer.exe", "B:\\~BUN\\root\\tasks\\supervision-worker.js"], "B:\\pacer.exe")).toEqual(["B:\\pacer.exe"]);
 });
 
 test("taskWait returns at a terminal state or at the timeout", async () => {

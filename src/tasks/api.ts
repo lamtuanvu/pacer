@@ -116,7 +116,10 @@ export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
 export function selfCommand(argv: string[] = process.argv, execPath: string = process.execPath): string[] {
   const script = argv[1] ?? "";
-  return /\.(ts|js|mjs)$/.test(script) ? [execPath, script] : [execPath];
+  // In a compiled binary a worker's argv[1] is its embedded entrypoint (/$bunfs/root/... or B:\~BUN\root\...),
+  // which the binary would read as an unknown command.
+  const embedded = script.startsWith("/$bunfs/") || /^[A-Za-z]:\\~BUN\\/.test(script);
+  return /\.(ts|js|mjs)$/.test(script) && !embedded ? [execPath, script] : [execPath];
 }
 
 /** Where detached runners write their output, so a runner that dies says why. */
