@@ -11,3 +11,12 @@ export function lastInputWords(active?: string | null, delivered?: Pick<Delivery
   const words = name ? `Interactive · last input from ${name}` : 'Interactive';
   return delivered ? `${words} · pacer delivered ${delivered.kind === 'answer' ? 'an answer' : 'a message'}` : words;
 }
+/**
+ * A built-in host on session protocol 1.2 has no controller: every attached pane types (ADR 0023). The service's
+ * negotiated minor decides; a connected pane runtime is the fallback only for an older core that omits it.
+ */
+export function interactiveHost(session?: Pick<SessionInfo, 'host' | 'sessionMinor'> | null, runtimeShared?: boolean): boolean {
+  if (!session) return runtimeShared === true;
+  if (session.host !== 'builtin') return false;
+  return typeof session.sessionMinor === 'number' ? session.sessionMinor >= 2 : runtimeShared === true;
+}

@@ -12,14 +12,16 @@ import { Button, IconButton } from "../ds/Button";
 import { type SessionState } from "./client";
 import { sessionRuntime, type SessionRuntime } from "./runtime";
 import { lastInputWords } from "./activity";
+import { HAND_BACK_CONFIRM } from "../screens/session/takeover";
+import { agentInfo } from "../../../src/view-model/agents";
 import { filesFromPaste } from "../model/attachments";
 import { terminalDocument } from "./document";
 import { classifyTerminalLink, findWrappedFileLinks, shouldActivateTerminalLink, type TerminalLink } from "./links";
 import { FIND_EVENT } from "../shell/shell-commands";
 export interface TerminalActions { find: () => void; clear: () => void; reader: () => void; release: () => void }
-export interface TerminalViewProps { preview?:boolean; externalControls?:boolean; autoControl?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; id:string; attempt?:number|null; attemptStartedAt?:number; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; active?:string|null; driving?:boolean; onHandBack?:()=>unknown; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null }
+export interface TerminalViewProps { preview?:boolean; externalControls?:boolean; autoControl?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; id:string; attempt?:number|null; attemptStartedAt?:number; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; active?:string|null; driving?:boolean; onHandBack?:()=>unknown; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null; /** Agent id or name; names the terminal region ("Codex terminal, interactive"). */ agent?:string }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,active=null,driving=false,onHandBack,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,preview=false,externalControls=false,autoControl=true}:TerminalViewProps){
+export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',cols=120,rows=40,control=false,resize=true,live=true,controller=null,active=null,driving=false,onHandBack,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,preview=false,externalControls=false,autoControl=true,agent}:TerminalViewProps){
  const dialogs=useDialogs();
  const [acquisition,setAcquisition]=useState(0);
  const [acquired,setRuntime]=useState<SessionRuntime|null>(null);
@@ -30,6 +32,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
  const [reader,setReader]=useState(false),[error,setError]=useState(''),[exitAt,setExitAt]=useState('');
  const [focused,setFocused]=useState(false),[handingBack,setHandingBack]=useState(false);
+ const handBackPending=useRef(false);
  const terminal=useRef<Terminal>(),searchAddon=useRef<SearchAddon>(),taken=useRef(false);
  const viewRef=useRef({control,live});viewRef.current={control,live};
  const resizeRef=useRef(resize);resizeRef.current=resize;
@@ -160,12 +163,21 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',
  const holding=shared?typing&&focused:state.you;
  const mode=state.status==='exited'?`Exited with code ${state.code ?? 'unknown'}${state.signal?` (${state.signal})`:''}${exitAt?` at ${exitAt}`:''}`:shared&&state.status==='live'?(typing?lastInputWords(active,state.delivered):'Read-only'):state.you?'You have control':state.status==='live'?'Watching · read-only':state.status==='resyncing'?'Refreshing snapshot…':state.status==='error'?'Session error':state.status==='reconnecting'?'Reconnecting…':'Connecting…';
  const hint=typing?`Keystrokes go to your ${shell?'shell':'agent'}. Ctrl/⌘-click links; Ctrl-] leaves the terminal.`:state.you&&!shared?`Keystrokes go to your ${shell?'shell':'agent'}. Ctrl/⌘-click links; Ctrl-] to release.`:shared?(conversation?'Closing this window leaves your conversation running.':''):shell?'Nothing you type reaches the shell until you take control.':conversation?'Nothing you type reaches the agent. Closing this window leaves your conversation running.':'Nothing you type reaches the agent.';
+ const paneName=`${agent&&agent!=='unknown'?agentInfo(agent).name:shell?'Shell':'Agent'} terminal, ${state.you&&control&&live&&state.status==='live'?'interactive':'read-only'}`;
  const readerToggle=<label><Checkbox checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label>;
  const toggleControl=()=>{if(state.you)client.current?.release();else{void client.current?.take(message=>dialogs.confirm(message,'Take control','Take control')).catch(e=>setError(String(e)));}};
- const handBack=onHandBack&&(async()=>{if(handingBack)return;setHandingBack(true);setError('');try{await onHandBack();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setHandingBack(false);}});
+ // Handing back ends the session for good, so it confirms like End session; one request at a time, then focus stays on the pane.
+ const handBack=onHandBack&&(async()=>{
+  if(handBackPending.current)return;handBackPending.current=true;
+  try{
+   if(!await dialogs.confirm(HAND_BACK_CONFIRM,'Hand back','Hand back'))return;
+   setHandingBack(true);setError('');
+   try{await onHandBack();requestAnimationFrame(()=>pane.current?.focus());}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setHandingBack(false);}
+  }finally{handBackPending.current=false;}
+ });
  const reconnect=()=>{if(runtime&&!runtime.disposed)runtime.reconnect();else setAcquisition(n=>n+1);};
  const find=(backward=false)=>{if(!search.trim()){searchAddon.current?.clearDecorations();setSearchFound(null);return;}setSearchFound(backward?searchAddon.current?.findPrevious(search,{caseSensitive,decorations:{matchBackground:getComputedStyle(mount.current!).getPropertyValue('--warn-bg').trim(),activeMatchBackground:getComputedStyle(mount.current!).getPropertyValue('--info-bg').trim(),matchOverviewRuler:getComputedStyle(mount.current!).getPropertyValue('--ink-muted').trim(),activeMatchColorOverviewRuler:getComputedStyle(mount.current!).getPropertyValue('--ink').trim()}})??false:searchAddon.current?.findNext(search,{caseSensitive,decorations:{matchBackground:getComputedStyle(mount.current!).getPropertyValue('--warn-bg').trim(),activeMatchBackground:getComputedStyle(mount.current!).getPropertyValue('--info-bg').trim(),matchOverviewRuler:getComputedStyle(mount.current!).getPropertyValue('--ink-muted').trim(),activeMatchColorOverviewRuler:getComputedStyle(mount.current!).getPropertyValue('--ink').trim()}})??false);};
- return <section className={`pc-terminal-view${footer?' pc-terminal-view--fill':''}`} data-session-control={holding?'true':'false'} onKeyDownCapture={e=>{if(shell&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();e.stopPropagation();setFindOpen(true);}if(shell&&e.key==='Escape'&&findOpen){e.preventDefault();e.stopPropagation();setFindOpen(false);terminal.current?.focus();}}} onKeyDown={e=>{if(state.you)e.stopPropagation();}}
+ return <section className={`pc-terminal-view${footer?' pc-terminal-view--fill':''}`} data-session-control={holding?'true':'false'} onKeyDownCapture={e=>{if(shell&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();e.stopPropagation();setFindOpen(true);}if(shell&&e.key==='Escape'&&findOpen){e.preventDefault();e.stopPropagation();setFindOpen(false);terminal.current?.focus();}}} onKeyDown={e=>{if(shared?typing&&!!mount.current?.contains(e.target as Node):state.you)e.stopPropagation();}}
   onPasteCapture={event=>{if(!onFiles)return;const files=filesFromPaste(event);if(files.length){event.preventDefault();event.stopPropagation();const text=event.clipboardData?.getData('text/plain');if(text&&state.you)terminal.current?.paste(text);onFiles(files);}}}
   onDragOver={event=>{if(onFiles)event.preventDefault();}} onDrop={event=>{if(onFiles){event.preventDefault();onFiles(Array.from(event.dataTransfer?.files??[]));}}}>
   {dialogs.dialog}
@@ -180,7 +192,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',
   {shell&&state.status!=='live'&&<div className="pc-terminal-connection" role="status">{mode}{['error','reconnecting'].includes(state.status)&&<Button size="sm" variant="quiet" onClick={reconnect}>Retry</Button>}</div>}
   {shell&&state.status==='live'&&!state.you&&!shared&&<div className="pc-terminal-connection"><Button size="sm" variant="quiet" onClick={toggleControl}>Take control</Button></div>}
 
-  <div className={`pc-terminal-frame${holding?' pc-terminal-frame--control':''}${footer?' pc-terminal-frame--fill':''}`}><div className="pc-terminal-pane" ref={pane} tabIndex={preview?0:shared?-1:undefined} role={preview?'region':undefined} aria-label={preview?'Terminal output':undefined}><div ref={mount} className="pc-terminal-mount"/></div>
+  <div className={`pc-terminal-frame${holding?' pc-terminal-frame--control':''}${footer?' pc-terminal-frame--fill':''}`}><div className="pc-terminal-pane" ref={pane} tabIndex={preview?0:shared?-1:undefined} role={preview?'region':'group'} aria-label={preview?'Terminal output':paneName}><div ref={mount} className="pc-terminal-mount"/></div>
    {!footer&&!shell&&<div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{hint}</span><span>{state.cols}×{state.rows}</span>{readerToggle}</div>}
   </div>
   {shell?<>{error&&<span role="alert">{error}</span>}</>:footer?createPortal(<div className={`pc-session-control${holding?' pc-session-control--driving':''}`}>
@@ -198,12 +210,12 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',
   </>}
  </section>;
 }
-/** On a 1.2 host there is no control to take or release; a takeover session hands back through onHandBack (task.hand_back). */
+/** On a 1.2 host there is no control to take or release, nor a takeover to offer; a takeover session hands back through onHandBack (task.hand_back). */
 export function TerminalControls({control,live,driving,shell,state,takeover,onControl,onReconnect,onHandBack,handingBack=false}:{control:boolean;live:boolean;driving?:boolean;shell?:boolean;state:SessionState;takeover?:ComponentChildren;onControl:()=>void;onReconnect?:()=>void;onHandBack?:()=>void;handingBack?:boolean}){
  const shared=state.shared===true;
  return <div className="pc-session-row">{shared?driving&&onHandBack&&<Button busy={handingBack} disabled={handingBack} onClick={onHandBack}>Hand back</Button>
   :control&&live&&state.status==='live'&&<Button aria-pressed={state.you} onClick={onControl}>{state.you?(driving?'Hand back':'Release control'):'Take control'}</Button>}
-  {takeover}{state.status==='error'&&<Button onClick={onReconnect}>Reconnect</Button>}
+  {!shared&&takeover}{state.status==='error'&&<Button onClick={onReconnect}>Reconnect</Button>}
   <span className="pc-session-muted">{shell?(shared?'Every open window can type into this shell. Closing this page leaves it running.':'Only one window can type into this shell at a time. Closing this page leaves it running.'):driving?'Ends this session and sends the task to review':shared?'Every attached window can type. pacer pauses its idle timer while you type.':state.you?'Other viewers stay read-only while you hold control.':'Only for agents running interactively. pacer pauses its idle timer while you type.'}</span></div>;
 }
 export default TerminalView;

@@ -86,9 +86,63 @@ browserTest('a 1.2 session types on focus with no control row, and Ctrl-] leaves
   expect(await page.evaluate(()=>document.activeElement?.closest('#supervised .pc-terminal-strip')!==null)).toBe(true);
   expect(await supervised.locator('.pc-terminal-view').getAttribute('data-session-control')).toBe('false');
   expect((await sent()).length).toBe(before);
+  // F1: once focus has left the terminal, app shortcuts run again from the control it landed on.
+  expect(await supervised.locator('.pc-terminal-pane').getAttribute('aria-label')).toBe('Codex terminal, interactive');
+  await page.keyboard.press('Control+k');
+  expect(await page.evaluate(()=>(window as any).conversationFixture.shortcuts())).toEqual(['Mod-k']);
+  // Inside the terminal the same keys belong to the agent.
+  await page.locator('#supervised .xterm-helper-textarea').focus();
+  await page.keyboard.press('Control+k');
+  expect(await page.evaluate(()=>(window as any).conversationFixture.shortcuts())).toEqual(['Mod-k']);
+  await page.keyboard.press('Control+BracketRight');
+  await page.keyboard.press('Control+k');
+  expect(await page.evaluate(()=>(window as any).conversationFixture.shortcuts())).toEqual(['Mod-k','Mod-k']);
   // The conversation pane does the same, landing on its footer controls.
   await page.locator('#session-panel .xterm-helper-textarea').focus();
   await page.keyboard.press('Control+BracketRight');
   expect(await page.evaluate(()=>document.activeElement?.closest('#footer')!==null)).toBe(true);
+ }finally{await browser.close();}
+},20000);
+
+browserTest('a 1.2 takeover hands back once, after confirming, and reports a failure',async()=>{
+ const built=await Bun.build({entrypoints:['test/fixtures/ui/conversation-terminal.tsx'],target:'browser',minify:true});
+ expect(built.success).toBe(true);
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try{
+  const page=await browser.newPage({viewport:{width:1000,height:900}});
+  await page.setContent('<style>.pc-terminal-pane{height:200px;overflow:hidden;position:relative}.pc-terminal-mount{transform-origin:top left}</style><div id="app"></div>');
+  // Each hand back waits until the test settles it.
+  await page.evaluate(()=>{const w=window as any;w.sessionVersions=[1,2];w.handBacks=0;w.handBack=()=>{w.handBacks++;return new Promise((resolve,reject)=>{w.settle=(error?:string)=>error?reject(new Error(error)):resolve(undefined);});};});
+  await page.addScriptTag({content:await built.outputs[0].text()});
+  const takeover=page.locator('#takeover'),button=takeover.getByRole('button',{name:'Hand back',exact:true});
+  await button.waitFor();
+  const calls=()=>page.evaluate(()=>(window as any).handBacks as number);
+  // Cancelling the confirmation sends nothing.
+  await button.click();
+  const dialog=page.getByRole('dialog');
+  expect(await dialog.textContent()).toContain('This ends your session and sends the task to review.');
+  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+  await dialog.waitFor({state:'detached'});
+  expect(await calls()).toBe(0);
+  // Confirmed: one request, the button busy, and a second activation does nothing.
+  await button.click();
+  await dialog.getByRole('button',{name:'Hand back',exact:true}).click();
+  await page.waitForFunction(()=>(window as any).handBacks===1);
+  expect(await button.getAttribute('aria-busy')).toBe('true');
+  expect(await button.isDisabled()).toBe(true);
+  await button.dispatchEvent('click');await button.dispatchEvent('click');
+  expect(await page.getByRole('dialog').count()).toBe(0);
+  expect(await calls()).toBe(1);
+  // A refusal is shown as an alert and the button can be used again.
+  await page.evaluate(()=>(window as any).settle('This task is not in a takeover session; nothing to hand back.'));
+  await takeover.getByRole('alert').filter({hasText:'nothing to hand back'}).waitFor();
+  expect(await button.isDisabled()).toBe(false);
+  // Success moves focus to the terminal pane, not the page body.
+  await button.click();
+  await dialog.getByRole('button',{name:'Hand back',exact:true}).click();
+  await page.waitForFunction(()=>(window as any).handBacks===2);
+  await page.evaluate(()=>(window as any).settle());
+  await page.waitForFunction(()=>document.activeElement?.classList.contains('pc-terminal-pane')&&document.activeElement.closest('#takeover')!==null);
+  expect(await takeover.getByRole('alert').count()).toBe(0);
  }finally{await browser.close();}
 },20000);

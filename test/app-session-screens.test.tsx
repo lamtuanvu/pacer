@@ -326,3 +326,26 @@ test('the 1.2 status names who typed last', async () => {
  expect(lastInputWords('app:pacer app',{kind:'answer'})).toBe('Interactive · last input from pacer app · pacer delivered an answer');
  expect(lastInputWords(null,{kind:'message'})).toBe('Interactive · pacer delivered a message');
 });
+test('a 1.2 interactive session renders no control row with a disabled Take over, even when a takeover node is passed', async () => {
+ const { TerminalControls }=await import('../app/src/term/term');
+ const takeover=<span className="pc-control-with-reason"><button disabled>Take over</button><span>This task is already interactive or being taken over.</span></span>;
+ const state={status:'live' as const,you:true,controller:null,cols:120,rows:40,viewers:2,shared:true};
+ const html=renderToString(<TerminalControls control live state={state} takeover={takeover} onControl={()=>{}}/>);
+ expect(html).not.toContain('Take over');expect(html).not.toContain('already interactive');
+ // A 1.1 session keeps its takeover control and reason.
+ expect(renderToString(<TerminalControls control live state={{...state,shared:false,you:false,controller:null}} takeover={takeover} onControl={()=>{}}/>)).toContain('Take over');
+});
+test('the Session screen builds no Take over for a live built-in session on a 1.2 host', async () => {
+ const { sessionTakeoverShown }=await import('../app/src/screens/session/Session');
+ const session={...data.session!,host:'builtin' as const,live:true,takeover:{available:false,reason:'This task is already interactive or being taken over.'}};
+ expect(sessionTakeoverShown({...session,sessionMinor:2})).toBe(false);
+ expect(sessionTakeoverShown({...session,sessionMinor:1})).toBe(true);
+ expect(sessionTakeoverShown({...session,host:'none'})).toBe(true);
+});
+test('the terminal pane is named after its agent and whether it types', async () => {
+ const { TerminalView }=await import('../app/src/term/term');
+ expect(renderToString(<TerminalView id="t-0415" agent="codex" control/>)).toContain('aria-label="Codex terminal, read-only"');
+ expect(renderToString(<TerminalView id="t-0415" agent="claude-code" control/>)).toContain('aria-label="Claude Code terminal, read-only"');
+ expect(renderToString(<TerminalView id="t-0415" control/>)).toContain('aria-label="Agent terminal, read-only"');
+ expect(renderToString(<TerminalView id="t-0415" preview control/>)).toContain('aria-label="Terminal output"');
+});

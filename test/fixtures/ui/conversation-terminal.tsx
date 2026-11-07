@@ -1,6 +1,8 @@
 import { render } from 'preact';
 import { useState } from 'preact/hooks';
 import { TerminalView } from '../../../app/src/term/term';
+import { keys } from '../../../app/src/keys/instance';
+import { attachKeyRegistry } from '../../../app/src/keys/registry';
 
 // An in-page session host: answers hello with a snapshot and its control frame, as a real host does, and records
 // size, focus and input frames. window.sessionVersions picks the host range; [1,2] has no controller.
@@ -41,5 +43,12 @@ function Conversation() {
     <footer ref={setFooter} id="footer" role="group" aria-label="Session control" />
   </article>;
 }
-render(<><Conversation /><section id="supervised"><TerminalView id="t-2" url="ws://fixture.invalid/supervised" control active="cli:ghostty" /></section></>, document.getElementById('app')!);
-(window as unknown as { conversationFixture: object }).conversationFixture = { sizes: () => [...sizes], sent: () => [...sent], hide: (value: boolean) => setHidden(value) };
+// The app's real shortcut registry with one global binding, so tests see whether a key reaches the app.
+const shortcuts: string[] = [];
+attachKeyRegistry(keys, window);
+keys.register({ keys: 'Mod-k', label: 'Command menu', scope: 'global', run: () => shortcuts.push('Mod-k') });
+// window.handBack (when set) renders a 1.2 takeover session whose Hand back calls it.
+const handBack = (window as unknown as { handBack?: () => Promise<unknown> }).handBack;
+render(<><Conversation /><section id="supervised"><TerminalView id="t-2" url="ws://fixture.invalid/supervised" control active="cli:ghostty" agent="codex" /></section>
+  {handBack && <section id="takeover"><TerminalView id="t-3" url="ws://fixture.invalid/takeover" control driving agent="codex" autoControl={false} onHandBack={handBack} /></section>}</>, document.getElementById('app')!);
+(window as unknown as { conversationFixture: object }).conversationFixture = { sizes: () => [...sizes], sent: () => [...sent], shortcuts: () => [...shortcuts], hide: (value: boolean) => setHidden(value) };

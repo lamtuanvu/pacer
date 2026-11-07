@@ -9,6 +9,7 @@ import { verdictParams } from '../review/model';
 import { Failure } from '../failure/Failure';
 import { ErrorMessage, useQuery, useTaskContext } from '../task-shared';
 import { sessionRuntime } from '../../term/runtime';
+import { offersTakeover } from '../session/takeover';
 import { sendBackSteps, userStartedRoot, withManagedFallback } from '../../../../src/view-model/managed-root';
 
 export function TaskActions({task:t,query,reload,embedded=false}:{task:TaskDetail;query:RouteQuery;reload:()=>void;embedded?:boolean}) {
@@ -19,9 +20,9 @@ export function TaskActions({task:t,query,reload,embedded=false}:{task:TaskDetai
  const userRoot=userStartedRoot(t),managed=!!t.work&&!userRoot;
  const tree=useQuery<WorkResult>('dispatch.tree',{id:t.id});
  const session=useQuery<import('../../../../src/session/service').SessionInfo>('task.session',{id:t.id});
- // A live built-in session on a 1.2 host is already interactive, so only a headless run offers takeover.
- let shared=false;
- try{shared=sessionRuntime(t.id,session.data?.attach.ws,false,true)?.state.shared===true;}catch{/* No runtime yet. */}
+ // A live built-in session on a 1.2 host is already interactive; the service's session minor says so before any pane connects.
+ let shared:boolean|undefined;
+ try{shared=sessionRuntime(t.id,session.data?.attach.ws,false,true)?.state.shared;}catch{/* No runtime yet. */}
  const failed=t.acceptance.state==='failed'||['failed','partial','limit'].includes(t.state);
  const active=['running','queued','needs_input'].includes(t.state);
  const reviewable=t.state==='done'&&!active&&!failed&&!t.review&&!t.resolved&&!t.dismissed&&!t.retriedBy&&state.features.ops.has(managed?'dispatch.review':'task.review');
@@ -36,7 +37,7 @@ export function TaskActions({task:t,query,reload,embedded=false}:{task:TaskDetai
   catch(e){setSendError(e);}finally{setSending(false);}
  };
  return <>{!embedded&&<ButtonLink href={hrefFor(routes.workspace(t.id))}>Open workspace</ButtonLink>}
- {active&&<><Button disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>void action.run(t.work?'dispatch.stop':'task.stop',{id:t.id,expect_rev:t.rev},reload)}>Stop</Button>{(session.data?.takeover.available||!shared&&session.data?.host==="builtin"&&session.data.live)&&<ButtonLink variant="primary" href={`${hrefFor(routes.workspace(t.id,'session'))}&takeover=1`}>Take over</ButtonLink>}</>}
+ {active&&<><Button disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>void action.run(t.work?'dispatch.stop':'task.stop',{id:t.id,expect_rev:t.rev},reload)}>Stop</Button>{offersTakeover(session.data,shared)&&<ButtonLink variant="primary" href={`${hrefFor(routes.workspace(t.id,'session'))}&takeover=1`}>Take over</ButtonLink>}</>}
  {reviewable&&<><Button onClick={()=>setReject(true)}>Reject</Button>{userRoot&&(t.executor||t.attempts.at(-1)?.executor)&&<Button onClick={()=>setSendBack(true)}>Send back</Button>}{ready?<Button variant="primary" disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>submit(true)}>Accept result</Button>:<span className="pc-trace__cap">Review required child work before accepting.</span>}</>}
  {failed&&<>{stop&&<Button disabled={!!action.unavailable} title={action.unavailable} busy={action.busy} onClick={()=>void action.run(stop.op,{...stop.params,expect_rev:t.rev},reload)}>Stop task</Button>}<Button variant="primary" onClick={()=>setRetry(true)}>Retry</Button></>}
  {action.unavailable&&<p className="muted">{action.unavailable}</p>}<ErrorMessage error={action.error}/>

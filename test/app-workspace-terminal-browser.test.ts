@@ -20,11 +20,11 @@ async function bundle(entrypoint = 'test/fixtures/workspace-browser.tsx') {
   return { js: await result.outputs[0]!.text(), css: (await buildApp()).find(file => file.path === 'app.css')!.text };
 }
 
-async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held: boolean, theme: 'light' | 'dark', shell = false, heldSize = { cols: 240, rows: 60 }) {
+async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held: boolean, theme: 'light' | 'dark', shell = false, heldSize = { cols: 240, rows: 60 }, versions: [number, number] = [1, 1], mode = '') {
   page.setDefaultTimeout(5000);
   await page.route('http://pacer.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="app"></div><div id="root"></div>' }));
-  await page.goto('http://pacer.test/?header=1#/workspace?task=workspace-task');
-  await page.evaluate(({ held, theme, heldSize }) => {
+  await page.goto(`http://pacer.test/?header=1${mode ? `&mode=${mode}` : ''}#/workspace?task=workspace-task`);
+  await page.evaluate(({ held, theme, heldSize, versions }) => {
     document.documentElement.dataset.theme = theme;
     const history = Array.from({ length: 60 }, (_, i) => `Preserved history ${i}\r\n`).join('');
     const screen = '\x1b[97mAgent prompt\x1b[0m\r\n\x1b[38;2;180;190;210mTruecolor agent\x1b[0m\r\n\x1b[48;5;0m\x1b[97mIndexed black background\x1b[0m\r\n' + '\x1b[38;2;65;65;65mLow contrast agent\x1b[0m\r\n' + 'Full width output '.repeat(16);
@@ -42,7 +42,11 @@ async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held
         const frame = JSON.parse(value); this.sent.push(frame);
         if (frame.type === 'hello') setTimeout(() => {
           if (frame.from !== undefined) this.frame({ type: 'control', controller: null, you: false });
-          else {
+          else if (versions[1] >= 2) {
+            // A 1.2 host has no controller: every attached viewer types.
+            this.frame({ type: 'snapshot', outputOffset: 0, cols: 80, rows: 24, scrollbackAnsi: history, screenAnsi: screen, controller: null, viewers: 1 });
+            this.frame({ type: 'control', controller: null, you: true, versions, pacer: '0.14.0' });
+          } else {
             // A 1.1 host follows every snapshot with its control frame.
             this.frame({ type: 'snapshot', outputOffset: 0, cols: held ? heldSize.cols : 80, rows: held ? heldSize.rows : 24, scrollbackAnsi: history, screenAnsi: screen, controller: held ? 'other window' : null, viewers: 2 });
             this.frame({ type: 'control', controller: held ? 'other window' : null, you: false, versions: [1, 1], pacer: '0.13.0' });
@@ -57,7 +61,7 @@ async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held
     }
     (window as any).WebSocket = Socket;
     (window as any).terminalSockets = sockets;
-  }, { held, theme, heldSize });
+  }, { held, theme, heldSize, versions });
   await page.addStyleTag({ content: source.css });
   await page.addStyleTag({ path: 'node_modules/@xterm/xterm/css/xterm.css' });
   await page.addScriptTag({ type: 'module', content: source.js });
@@ -257,3 +261,48 @@ browserTest('real split shell renderers fit their own panes and keep the same te
     }
   } finally { await browser.close(); }
 }, 45_000);
+
+browserTest('a 1.2 takeover workspace hands back after confirming, once, with its error and focus handled', async () => {
+  const source = await bundle();
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await page.addInitScript(() => {
+      const w = window as any; w.handBacks = 0;
+      w.workspaceHandBack = () => { w.handBacks++; return new Promise((resolve, reject) => { w.settle = (error?: string) => error ? reject(new Error(error)) : resolve({}); }); };
+    });
+    await open(page, source, false, 'dark', false, undefined, [1, 2], 'interactivedriving');
+    const button = page.getByRole('button', { name: 'Hand back', exact: true });
+    await button.waitFor();
+    // The service's session minor hides Take control, and the header does not repeat the terminal's status.
+    expect(await page.getByRole('button', { name: 'Take control', exact: true }).count()).toBe(0);
+    await page.locator('.pc-terminal-strip [role="status"]').filter({ hasText: 'Interactive' }).waitFor();
+    expect(await page.locator('.pc-workspace-panel-details span').filter({ hasText: 'Interactive' }).count()).toBe(0);
+    expect(await page.locator('.pc-terminal-pane').getAttribute('aria-label')).toBe('Codex terminal, interactive');
+    const calls = () => page.evaluate(() => (window as any).handBacks as number);
+    const dialog = page.getByRole('dialog');
+    await button.click();
+    expect(await dialog.textContent()).toContain('This ends your session and sends the task to review.');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await dialog.waitFor({ state: 'detached' });
+    expect(await calls()).toBe(0);
+    await button.click();
+    await dialog.getByRole('button', { name: 'Hand back', exact: true }).click();
+    await page.waitForFunction(() => (window as any).handBacks === 1);
+    expect(await button.getAttribute('aria-busy')).toBe('true');
+    await button.dispatchEvent('click'); await button.dispatchEvent('click');
+    expect(await page.getByRole('dialog').count()).toBe(0);
+    expect(await calls()).toBe(1);
+    await page.evaluate(() => (window as any).settle('This task is not in a takeover session; nothing to hand back.'));
+    await page.getByRole('alert').filter({ hasText: 'nothing to hand back' }).waitFor();
+    expect(await button.isDisabled()).toBe(false);
+    // Success ends driving: Hand back goes away and focus lands on Stop task, not the page body.
+    await button.click();
+    await dialog.getByRole('button', { name: 'Hand back', exact: true }).click();
+    await page.waitForFunction(() => (window as any).handBacks === 2);
+    await page.evaluate(() => (window as any).settle());
+    await button.waitFor({ state: 'detached' });
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Stop task');
+    expect(await page.evaluate(() => (window as any).workspaceParams.filter((p: any) => p.op === 'task.hand_back').map((p: any) => p.params))).toEqual([{ id: 'workspace-task' }, { id: 'workspace-task' }]);
+  } finally { await browser.close(); }
+}, 60_000);

@@ -18,7 +18,7 @@ import { routes } from '../../router';
 import { StatusPill } from '../../ds/StatusPill';
 import { LinkedTerminal } from './LinkedTerminal';
 import { PlainLog } from './PlainLog';
-import { sessionActive } from '../../term/activity';
+import { interactiveHost, sessionActive } from '../../term/activity';
 import { sessionStatus, phaseWords, taskStatus, taskOutcome } from '../../../../src/view-model/words';
 import type { Resource, SessionData, SessionActions, Action } from './types';
 export type { SessionData, SessionActions, Resource } from './types';
@@ -55,6 +55,10 @@ export function Brief({ data }: { data: SessionData }) {
   </div>;
 }
 
+/** A live built-in session on a 1.2 host already types, so the screen shows no Take over row (UI-13, ADR 0023). */
+export function sessionTakeoverShown(session: Pick<NonNullable<SessionData['session']>, 'host' | 'sessionMinor'>): boolean {
+  return !interactiveHost(session);
+}
 export function Session({ embedded = false, data, loading, error, initialTab, view, onAction, onAttach, onReload, onTakeover,
   takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent, onHandBack, slots, onReadFile }: SessionProps) {
   const viewId = useId();
@@ -90,7 +94,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
   const waitingForReview = !!data.reviewRequest && ['done', 'partial'].includes(data.state) && !data.review && !data.resolved && !data.dismissed && !data.retriedBy;
   const driving = active && (!!session?.driving || data.phase === 'driving');
   const headless = session?.host === 'none';
-  const takeover = active && !driving && session ? <span className="pc-control-with-reason">
+  const takeover = active && !driving && session && sessionTakeoverShown(session) ? <span className="pc-control-with-reason">
     <Button variant={headless ? 'primary' : 'secondary'} disabled={takeoverBusy || !session.takeover.available || !onTakeover}
       title={!session.takeover.available ? session.takeover.reason : undefined}
       aria-describedby={!session.takeover.available ? `${viewId}-takeover-reason` : undefined} onClick={onTakeover}>Take over</Button>
