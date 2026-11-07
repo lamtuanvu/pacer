@@ -1910,7 +1910,6 @@ dependencies = [
  "pacer-foundation",
  "pacer-lifecycle",
  "pacer-read-model",
- "pacer-repos",
  "pacer-sessions",
  "pacer-store",
  "serde_json",

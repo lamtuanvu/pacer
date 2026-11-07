@@ -57,7 +57,7 @@ fn parse_id(params: &Value) -> Result<&str, CoreError> {
 
 /// `authorizeWorkOperation` refuses enforcement identities before the schema runs.
 /// Work-grant callers never reach native handlers: both front doors forward them.
-pub(crate) fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
+fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
     if ctx
         .env
         .get("PACER_ENFORCEMENT_TOKEN")
@@ -112,7 +112,7 @@ fn context(ctx: &Ctx, params: &Value) -> Result<Value, CoreError> {
                 .map_err(internal)?
                 .ok_or_else(draft_missing)?
         }
-        // TypeScript stores only UUID strings, so no draft it creates can match another value.
+        // TypeScript only stores UUID strings; no draft can match any other value.
         Some(other) if js_truthy(other) => {
             attachments::ensure_schema(&mut store).map_err(internal)?;
             return Err(draft_missing());
