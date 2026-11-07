@@ -272,6 +272,19 @@ jobs:
       - name: Install, sign in and delegate
         run: bun run test:e2e
 
+  # The ruleset on main requires one check per OS; it passes only when every shard did.
+  test-result:
+    name: Test (${{ matrix.os }})
+    needs: test
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Require every test shard to pass
+        run: test "${{ needs.test.result }}" = success
+
   linux-service-survival:
     name: Linux service restart keeps running work
     needs: changes
