@@ -16,11 +16,11 @@ pub fn needs_host_read_injection(op: &str) -> bool {
     matches!(op, "host.list" | "host.get" | "host.set")
 }
 
-fn invalid(message: impl Into<String>) -> CoreError {
+pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-fn type_name(value: &Value) -> &'static str {
+pub(crate) fn type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -31,7 +31,7 @@ fn type_name(value: &Value) -> &'static str {
     }
 }
 
-fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
+pub(crate) fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
     params.as_object().ok_or_else(|| {
         invalid(format!(
             "params: Invalid input: expected object, received {}",

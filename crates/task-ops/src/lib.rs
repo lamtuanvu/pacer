@@ -1,4 +1,5 @@
 //! Native task, session and snapshot operation handlers that `pacer-server` assembles into its registry.
+pub mod files_search_ops;
 pub mod lifecycle_ops;
 pub mod session_ops;
 pub mod snapshot_get_ops;
