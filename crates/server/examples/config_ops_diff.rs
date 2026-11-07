@@ -8,6 +8,9 @@ async fn main() -> io::Result<()> {
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     for line in io::stdin().lock().lines() {
         let input: Value = serde_json::from_str(&line?).map_err(io::Error::other)?;
+        if let Some(ms) = input["sleepMs"].as_u64() {
+            tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+        }
         let home = input["home"]
             .as_str()
             .ok_or_else(|| io::Error::other("missing fixture home"))?;
@@ -41,7 +44,9 @@ async fn main() -> io::Result<()> {
         let op = registry
             .get(name)
             .ok_or_else(|| io::Error::other("missing native op"))?;
-        if pacer_server::native::assistant_stays_forwarded(&ctx, name, &input["params"]) {
+        if pacer_server::native::assistant_stays_forwarded(&ctx, name, &input["params"])
+            || pacer_server::native::repo_registry_stays_forwarded(&ctx, name, &input["params"])
+        {
             serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
             stdout.write_all(b"\n")?;
             continue;
@@ -58,7 +63,7 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
-        let core_bridge_sync = if matches!(name, "setup.check" | "repo.list" | "repo.add") {
+        let core_bridge_sync = if matches!(name, "setup.check" | "repo.add") {
             let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)
         } else {
