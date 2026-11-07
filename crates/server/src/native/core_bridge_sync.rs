@@ -20,7 +20,7 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
 fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("/_internal/setup-check"),
-        "repo.list" | "repo.add" => Ok("/_internal/repo-bridge"),
+        "repo.add" => Ok("/_internal/repo-bridge"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -28,14 +28,14 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
 fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
-        "repo.list" | "repo.add" => Ok("_internal.repo.bridge"),
+        "repo.add" => Ok("_internal.repo.bridge"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
 
 pub(crate) fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
-        "repo.list" | "repo.add" => Ok(json!({"op": op, "params": params})),
+        "repo.add" => Ok(json!({"op": op, "params": params})),
         "setup.check" => Ok(params.clone()),
         _ => Err(unavailable("core bridge unavailable")),
     }

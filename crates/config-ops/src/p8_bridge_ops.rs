@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::host_read_ops::{invalid, object, type_name};
 
 pub fn needs_core_bridge(op: &str) -> bool {
-    matches!(op, "setup.check" | "repo.list" | "repo.add")
+    matches!(op, "setup.check" | "repo.add")
 }
 
 pub fn bridge_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
@@ -60,7 +60,7 @@ fn parse_repo_add(params: &Value) -> Result<Value, CoreError> {
 
 pub fn bridge_params(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
-        "setup.check" | "repo.list" => {
+        "setup.check" => {
             empty_object(params)?;
             Ok(params.clone())
         }

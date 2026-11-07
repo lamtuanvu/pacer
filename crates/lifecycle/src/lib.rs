@@ -16,6 +16,7 @@ mod json;
 mod lineage;
 mod record_review;
 mod record_stop;
+pub mod repo_registry;
 mod request_review;
 mod schema;
 mod semantics;
