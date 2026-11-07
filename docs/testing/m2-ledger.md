@@ -58,7 +58,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `session.create` | Forwarded (P7) | Idempotent conversation start needs attachment draft claim, `prepareDelegate` admission, work grants and `launchTaskRunner` spawn. Library: `params`, `operations` (reference/summary), `plain`, file/frame/control goldens only. |
 | `session.resume` | Forwarded (P7) | Needs live session probe, executor resume capability, prepared admission consume, queue mutation and runner spawn. Native vt100 replay gate remains **NO-GO**; session WebSocket stays TypeScript. |
 | `session.end` | Forwarded (P7) | Needs `taskStop` orchestration, runner supervision and conversation activity publication beyond store-only fields. |
-| `session.context` | Native (P7 session reads) | `pacer-task-ops::session_context_ops` reads the conversation task from `state/tasks.db` and its private attachment draft through `pacer_store::attachments` (`ctxWithId`, `requireConversation`, `requireDraft`, `listAttachments`): Zod issue text, the enforcement-identity refusal, the `unknown task` and conversation gates, the 24-hour expiry of unclaimed drafts at request time, ready attachments in SQLite row order, and the attachment table creation TypeScript performs on first read. No Core bridge: nothing in the result is live session state. Work-grant callers are forwarded like every op. A truthy non-string `sessionDraftId` (TypeScript stores only UUID strings) reports `not_found`; for an object or array TypeScript raises a SQLite binding error instead. Parity: `test/native-session-context-parity.test.ts` and `cargo test -p pacer-task-ops session_context`. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `session.context` | Native (P7 session reads) | `pacer-task-ops::session_context_ops` reads the conversation task from `state/tasks.db` and its private attachment draft through `pacer_store::attachments` (`ctxWithId`, `requireConversation`, `requireDraft`, `listAttachments`): Zod issue text, the enforcement-identity refusal, the `unknown task` and conversation gates, the 24-hour expiry of unclaimed drafts at request time, ready attachments in SQLite row order, and the attachment table creation TypeScript performs on first read. No Core bridge: nothing in the result is live session state. Work-grant callers are forwarded like every op. A truthy non-string `sessionDraftId` reports `not_found`. TypeScript stores only UUID strings, so this matches unless a hand-written draft id equals the number's text, and for an object or array TypeScript raises a SQLite binding error instead. Parity: `test/native-session-context-parity.test.ts` and `cargo test -p pacer-task-ops session_context`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `session.prepare` | Forwarded (P7) | Executor capability discovery, repo/workspace validation and plugin-backed preparation. |
 | `session.draft.create` | Forwarded (P7) | Attachment store mutation with 24-hour expiry policy. |
 | `session.file.read` | Forwarded (P7) | Secure workspace reader, attempt-scoped paths and revision conflicts; `file_reference` owns syntax only. |
@@ -216,7 +216,7 @@ forward for drain/supervise. Cross-runtime coverage:
 `test/native-task-wait-parity.test.ts`, `test/task-wait-settled-parity.test.ts`, and
 `cargo test -p pacer-lifecycle record_stop wait_settled`.
 
-## P7 session ops triage (library, no new native ops)
+## P7 session ops triage (library)
 
 P7 evaluated all fourteen public `session.*` operations for native
 registration. None met parity without attachment store effects, prepared
@@ -228,9 +228,10 @@ summary helpers, `plain` stdout transcript streaming (#734), and file/frame/cont
 characterization goldens. Cross-runtime coverage: `test/session-params-parity.test.ts`,
 `test/session-ops-parity.test.ts`, `test/session-replay-gate.test.ts`, and
 `cargo test -p pacer-sessions`. Native registration for conversation and agent
-session ops waits on a full native vt100 replay **GO**, a session host owner, and
+session ops that need live sessions or replay waits on a full native vt100 replay **GO**, a session host owner, and
 the P6 spawn/policy bridges. Session WebSocket and `/v3/.../session` routes remain
-forwarded; do not register them while the replay gate is **NO-GO**. A later
+forwarded; do not register them, or session ops that depend on live sessions or
+replay, while the replay gate is **NO-GO**. A later
 slice registers `session.context` natively: it is a read model over the task
 store and attachment drafts with no live session state (see its row). The other
 thirteen stay Forwarded.

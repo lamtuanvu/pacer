@@ -112,7 +112,7 @@ fn context(ctx: &Ctx, params: &Value) -> Result<Value, CoreError> {
                 .map_err(internal)?
                 .ok_or_else(draft_missing)?
         }
-        // TypeScript only stores UUID strings; no draft can match any other value.
+        // TypeScript stores only UUID strings, so no draft it creates can match another value.
         Some(other) if js_truthy(other) => {
             attachments::ensure_schema(&mut store).map_err(internal)?;
             return Err(draft_missing());

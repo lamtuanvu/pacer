@@ -62,9 +62,9 @@ async function compare([params, setup, env = {}]: Case) {
   let expected: unknown;
   try { expected = {result: await callOp(ctx, "session.context", params)}; } catch (error) { expected = {error: toApiError(error)}; }
   const input = `${JSON.stringify({op: "session.context", params, home: rs, now: NOW, env})}\n`;
-  const actual = JSON.parse(execFileSync(driver(), [], {input}).toString());
+  const actual = execFileSync(driver(), [], {input}).toString().trimEnd();
   const label = `${JSON.stringify(params)} ${JSON.stringify(env)}`;
-  expect(JSON.stringify(actual), `${label}: bytes`).toBe(JSON.stringify(expected));
+  expect(actual, `${label}: bytes`).toBe(JSON.stringify(expected));
   expect(schema(rs), `${label}: schema`).toEqual(schema(ts));
   return expected;
 }
