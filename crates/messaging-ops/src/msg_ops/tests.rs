@@ -192,3 +192,80 @@ fn human_receipts_and_grants_stay_forwarded() {
         &ctx(&[(CALLER_AUTH_ENV, "app")])
     ));
 }
+
+#[tokio::test]
+async fn tree_status_lists_the_root_first_and_reads_turn_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = Ctx::with(dir.path().into(), dir.path().into(), HashMap::new(), 1.0);
+    let root = "t-20260101-000000-0001";
+    let child = "t-20260101-000000-0002";
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    let task = |id: &str, state: &str, extra: Value| {
+        let mut t = json!({"id":id,"rev":1,"state":state,"createdAt":1,"updatedAt":1,"brief":{"goal":"g","repo":"/r"},"attempts":[],"source":"cli"});
+        t.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        t
+    };
+    store
+        .insert(
+            &task(
+                root,
+                "running",
+                json!({"executor":"codex","pendingTurn":{"at":4.0}}),
+            ),
+            1.0,
+        )
+        .unwrap();
+    store
+        .insert(
+            &task(child, "done", json!({"dismissed":0,"msgClosed":1})),
+            1.0,
+        )
+        .unwrap();
+    store.connection().unwrap().execute_batch(&format!(
+        "CREATE TABLE work_nodes(task_id TEXT PRIMARY KEY, parent_id TEXT, root_id TEXT NOT NULL, depth INTEGER NOT NULL, options TEXT NOT NULL);
+         INSERT INTO work_nodes VALUES('{child}','{root}','{root}',1,'{{}}'),('{root}',NULL,'{root}',0,'{{}}');
+         CREATE TABLE msg_turns(id TEXT PRIMARY KEY, task_id TEXT NOT NULL, root_id TEXT NOT NULL, started_at REAL NOT NULL, ended_at REAL NULL, outcome TEXT NULL);
+         INSERT INTO msg_turns VALUES('u','{child}','task:{root}',1,NULL,NULL);"
+    )).unwrap();
+    let out = tree_status(&home, json!({"task": child})).await.unwrap();
+    assert_eq!(out["root"], format!("task:{root}"));
+    assert_eq!(out["turns"], 1);
+    assert_eq!(
+        out["nodes"][0],
+        json!({"id":format!("task:{root}"),"state":"running","closed":false,"pendingTurn":{"at":4},"pending":0,"executor":"codex"})
+    );
+    assert_eq!(out["nodes"][1]["closed"], true);
+    let missing = tree_status(&home, json!({"task": "t-20990101-000000-ffff"}))
+        .await
+        .unwrap();
+    assert_eq!(
+        missing["nodes"],
+        json!([{"id":"task:t-20990101-000000-ffff","state":"missing","closed":true,"pendingTurn":null,"pending":0,"executor":null}])
+    );
+    let executor = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        [
+            ("PACER_ROLE".to_owned(), "executor".to_owned()),
+            (
+                "PACER_TASK_ID".to_owned(),
+                "t-20990101-000000-ffff".to_owned(),
+            ),
+        ]
+        .into(),
+        1.0,
+    );
+    assert_eq!(
+        tree_status(&executor, json!({"task": child}))
+            .await
+            .unwrap_err()
+            .code,
+        Code::NotAllowed
+    );
+    assert!(msg_stays_forwarded(
+        "tree.status",
+        &ctx(&[("PACER_ENFORCEMENT_TOKEN", "x")])
+    ));
+}

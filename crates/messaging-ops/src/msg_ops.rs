@@ -55,7 +55,7 @@ pub fn msg_stays_forwarded(name: &str, ctx: &Ctx) -> bool {
             || env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some()
             || pacer_config::project_messaging::read_projects(&ctx.pacer_home).is_err();
     }
-    if !is_msg_read_op(name) {
+    if !is_msg_read_op(name) && name != "tree.status" {
         return false;
     }
     match caller(ctx, current_dir().as_deref()) {
@@ -514,6 +514,73 @@ pub fn msg_read(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         let at = (ctx.now * 1000.0).floor() / 1000.0;
         let read = messages::mark_read(&mut store, &me, &ids, at).map_err(store_error)?;
         Ok(json!({"read": read}))
+    })
+}
+
+fn truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null | Value::Bool(false)) => false,
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|n| n != 0.0),
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(_) => true,
+    }
+}
+
+/// One `tree.status` node; `isClosed` from `src/messaging/turns.ts`.
+fn tree_node(store: &mut TaskStore, id: &str) -> Result<Value, StoreError> {
+    let task = store.read(id)?;
+    let pending = messages::pending_count(store, &format!("task:{id}"))?;
+    let field = |key: &str| {
+        let mut value = task
+            .as_ref()
+            .and_then(|t| t.get(key))
+            .cloned()
+            .unwrap_or(Value::Null);
+        policy::js_numbers(&mut value);
+        value
+    };
+    let state = match field("state") {
+        Value::Null => json!("missing"),
+        state => state,
+    };
+    let closed = task.as_ref().is_none_or(|t| {
+        ["review", "dismissed", "msgClosed"]
+            .iter()
+            .any(|key| truthy(t.get(*key)))
+            || t.get("state").and_then(Value::as_str) == Some("stopped")
+    });
+    Ok(
+        json!({"id": format!("task:{id}"), "state": state, "closed": closed,
+        "pendingTurn": field("pendingTurn"), "pending": pending, "executor": field("executor")}),
+    )
+}
+
+/// `tree.status`: turn state of every node in the task's tree, root first.
+pub fn tree_status(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        let mut p = Params::new(&params)?;
+        let task = p.task_id("task");
+        p.finish(&["task"])?;
+        let task = task.unwrap_or_default();
+        let me = participant(ctx)?;
+        let mut store = open(ctx)?;
+        let anchor = messages::root_of(&mut store, &format!("task:{task}")).map_err(store_error)?;
+        if messages::task_of(&me).is_some()
+            && messages::root_of(&mut store, &me).map_err(store_error)? != anchor
+        {
+            return Err(forbidden("That task is outside your tree", "protocol"));
+        }
+        let root = messages::task_of(&anchor).unwrap_or(task).to_owned();
+        let ids = messages::work_tree_ids(&mut store, &root)
+            .map_err(store_error)?
+            .unwrap_or_else(|| vec![root.clone()]);
+        let mut nodes = vec![tree_node(&mut store, &root).map_err(store_error)?];
+        for id in ids.iter().filter(|id| **id != root) {
+            nodes.push(tree_node(&mut store, id).map_err(store_error)?);
+        }
+        let root = format!("task:{root}");
+        let turns = messages::turns_for_root(&mut store, &root).map_err(store_error)?;
+        Ok(json!({"root": root, "nodes": nodes, "turns": turns}))
     })
 }
 
