@@ -323,6 +323,8 @@ export function DiagnosticsSection() {
       waiting.current.clear();
       void recheck().then(next => {
         for (const item of names) outcome(item, next ? { phase: "rechecked" } : undefined);
+        // Replace the "rechecking when you return" status; recheck() reports its own failure.
+        if (next) setProgress("Checked again after you came back. The rows show the new results.");
       });
     });
   }
