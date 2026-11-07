@@ -273,6 +273,10 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
         async move { dial_json(&path, late).await }
     });
     tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        waited.is_finished(),
+        "the reply must not wait for the owner"
+    );
     drop(held);
     let late = waited.await.unwrap();
     assert_eq!(late["error"]["data"]["code"], "plugin_timeout", "{late}");
