@@ -14,6 +14,7 @@
 //! answers `capability.*` via `pacer-plugin-host` (log/config.get always;
 //! native fs/process/http when Core issues call-scoped resources).
 
+mod bridge_call;
 mod bridge_listener;
 mod capability;
 mod executor_attach;

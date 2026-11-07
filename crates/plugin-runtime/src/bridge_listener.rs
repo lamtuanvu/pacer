@@ -9,8 +9,11 @@
 //!
 //! Without a live [`SharedOwner`], call/find/spawn/stop stay dark stubs.
 //! Flag-on serve attaches the owner so handlers reach tracked
-//! [`crate::PluginProcess`] children (P4d-2 / P4d-4).
+//! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A `_host.plugin.call`
+//! carrying `spawn` is a Core-sealed call (`crate::bridge_call`): the owner
+//! starts, hellos and authorizes the child before calling it.
 
+use crate::bridge_call::{SealedCall, call_sealed};
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND,
     METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, dark_bridge_enabled, prepare_host_run_dir,
@@ -414,6 +417,33 @@ async fn dispatch_call(id: Value, params: Value, dispatch: &BridgeDispatch) -> V
                 .and_then(Value::as_u64)
                 .map(Duration::from_millis)
                 .unwrap_or(DEFAULT_CALL_DEADLINE);
+            match SealedCall::from_params(&params) {
+                Err(message) => return rpc_error(id, INVALID_PARAMS, message),
+                Ok(Some(sealed)) => {
+                    return match call_sealed(
+                        owner,
+                        plugin_id,
+                        method,
+                        call_params,
+                        deadline,
+                        sealed,
+                    )
+                    .await
+                    {
+                        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                        Err(failure) => json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": {
+                                "code": PLUGIN_UNAVAILABLE,
+                                "message": failure.message,
+                                "data": {"code": failure.code}
+                            }
+                        }),
+                    };
+                }
+                Ok(None) => {}
+            }
             let mut guard = owner.lock().await;
             match guard
                 .call_plugin(plugin_id, method, call_params, deadline)

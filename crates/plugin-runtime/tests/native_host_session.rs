@@ -184,6 +184,100 @@ async fn live_call_and_find_against_fixture_under_owner() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let account = temp_home();
+    let account_home = account.path().canonicalize().unwrap();
+    let note = account_home.join("note.txt");
+    fs::write(&note, "from-account-home").unwrap();
+    let note = note.to_str().unwrap().to_owned();
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("plugin.js");
+    fs::write(
+        &script,
+        r#"const r=Bun.stdin.stream().getReader();let b='',pending,hellos=0;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello'){hellos++;send({id:m.id,result:{ok:true,protocol:'1.10.0',id:'fx-sealed',version:'1.0.0',contributes:['diagnostic']}});}else if(m.method==='diagnostic.ping'){pending=m.id;send({id:7,method:'capability.fs.read',params:{path:m.params.path}});}else if(m.id===7){send({id:pending,result:typeof m.result?.text==='string'?{ok:true,text:m.result.text,hellos}:{ok:false,hellos}});}}}"#,
+    )
+    .unwrap();
+    let hello = json!({
+        "protocol":"1.10.0","pacer":"0.2.0",
+        "manifest":{
+            "id":"fx-sealed","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+            "capabilities":[{"name":"fs.read","scopes":["${ACCOUNT_HOME}/**"]}],
+            "contributes":{"diagnostic":{}}
+        },
+        "config":{},"grants":["fs.read"],"features":[]
+    });
+    let request = |rpc: u64, account_home: Value| {
+        json!({
+            "jsonrpc":"2.0",
+            "id":rpc,
+            "method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":"fx-sealed",
+                "method":"diagnostic.ping",
+                "params":{"path":note},
+                "deadlineMs":5000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap()],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":hello,
+                },
+                "authority":{
+                    "resources":{"reads":[{"path":note,"kind":"file"}],"writes":[],"commands":[],"hosts":[]},
+                    "grants":["fs.read"],
+                    "ttlMs":10000
+                },
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":account_home}
+            }
+        })
+    };
+    tokio::task::yield_now().await;
+
+    let first = dial_json(&path, request(30, json!(account_home))).await;
+    assert!(first.get("error").is_none(), "{first}");
+    assert_eq!(
+        first["result"]["value"],
+        json!({"ok": true, "text": "from-account-home", "hellos": 1})
+    );
+    assert_eq!(first["result"]["hello"]["protocol"], "1.10.0");
+    assert_eq!(first["result"]["hello"]["served"], json!(["diagnostic"]));
+    let pid = session.owner().lock().await.find_plugin("fx-sealed");
+    assert!(pid.is_some());
+
+    let second = dial_json(&path, request(31, json!(account_home))).await;
+    assert!(second.get("error").is_none(), "{second}");
+    assert_eq!(second["result"]["value"]["hellos"], 1, "hello runs once");
+    assert_eq!(second["result"]["hello"], Value::Null);
+    assert_eq!(session.owner().lock().await.find_plugin("fx-sealed"), pid);
+
+    // `${ACCOUNT_HOME}` scopes need the call's account home.
+    let unscoped = dial_json(&path, request(32, Value::Null)).await;
+    assert_eq!(unscoped["result"]["value"]["ok"], false, "{unscoped}");
+
+    let mut bad = request(33, Value::Null);
+    bad["params"]["spawn"]["argv"] = json!([]);
+    let bad = dial_json(&path, bad).await;
+    assert_eq!(bad["error"]["code"], -32602);
+
+    let mut refused = request(34, Value::Null);
+    refused["params"]["id"] = json!("fx-refused");
+    refused["params"]["spawn"]["hello"] = json!({"protocol":"1.10.0"});
+    let refused = dial_json(&path, refused).await;
+    assert_eq!(refused["error"]["code"], -32002);
+    assert_eq!(refused["error"]["data"]["code"], "plugin_refused");
+
+    {
+        let mut owner = session.owner().lock().await;
+        owner.terminate("fx-sealed").await.unwrap();
+        owner.terminate("fx-refused").await.unwrap();
+    }
+    session.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bridge_spawn_and_stop_under_owner() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();

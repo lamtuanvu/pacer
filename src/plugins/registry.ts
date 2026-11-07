@@ -16,7 +16,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, rmSync, statSync } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
+import { basename, isAbsolute, join, normalize } from "node:path";
 import { appendActivity } from "../activity/log";
 import { CoreError } from "../core/errors";
 import { publish } from "../link/publish";
@@ -32,6 +32,7 @@ import { prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
 import { sealCallAuthority, type HostSnapshotSeal } from "./native-call-authority";
+import { callNativeOwner } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type SpawnSpec } from "./process";
@@ -107,6 +108,21 @@ export function surfaceKinds(m: PluginManifest | null): SurfaceKind[] {
   return ui ? KINDS.filter(k => ui[k].length > 0) : [];
 }
 const grantCovers = (m: PluginManifest, g: PluginGrant | null | undefined) => g != null && m.capabilities.every(c => g.capabilities.includes(c.name)) && surfaceKinds(m).every(k => (g.surfaces ?? []).includes(k));
+/**
+ * The native owner pins commands by absolute argv[0] and matches plugin spawns by
+ * its file name, so a bare name must resolve to a path ending in that name. A
+ * command that does not resolve is not issued and its spawn is denied.
+ */
+function pinnedExecutables(ctx: Ctx, resources: CallResources): CallResources {
+  if (!resources.commands?.length) return resources;
+  const commands = resources.commands.flatMap(command => {
+    const exe = command.argv[0];
+    if (exe === undefined || isAbsolute(exe)) return [command];
+    const selected = ctx.which(exe);
+    return selected && isAbsolute(selected) && basename(selected) === exe ? [{ ...command, argv: [selected, ...command.argv.slice(1)] }] : [];
+  });
+  return { ...resources, commands };
+}
 
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { ui: Record<SurfaceKind, number>; surfaces: SurfaceKind[]; id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
@@ -2310,6 +2326,10 @@ export class PluginRegistry {
       // The canonical classifier may resolve only the key reference of its selected configuration.
       credentialBindings = classifierCredentialBindings(ctx, selected);
     }
+    if (ctx.env.PACER_HOST_SOCKET) {
+      if (credentialBindings !== undefined) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
+      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt);
+    }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
       const run = async () => {
         if(e.plannerRetirement)await e.plannerRetirement;
@@ -2429,6 +2449,53 @@ export class PluginRegistry {
         } finally {
           if (authority) { try { await authority.revoke(); } finally { e.authorities.delete(authority.token); } }
         }
+      };
+      if (e.manifest?.reentrant) return run();
+      return e.queue.run(signal, run);
+    }, options.signal);
+  }
+
+  /**
+   * Flag-on serve: the Rust ProcessOwner starts, hellos and authorizes the child.
+   * Core seals the same spawn spec and call authority it serves over
+   * `/_internal/plugins` and never spawns a second owner for the plugin id.
+   */
+  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number): Promise<T> {
+    const hostOnly = options.plannerResources ?? options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
+      ?? options.expectedProcess ?? options.spawnAdmission
+      ?? Object.getOwnPropertySymbols(options).find(key => (options as Record<symbol, unknown>)[key] !== undefined);
+    if (hostOnly !== undefined) throw new CoreError("plugin_unavailable", `${method} needs host-side call options the native process owner bridge does not carry`);
+    const point = method.split(".")[0]!;
+    return this.admission.run(deadlineAt, async signal => {
+      const run = async () => {
+        if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before execution");
+        if (e.state === "ready" && !e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${e.id} does not serve ${point}`);
+        const remaining = deadlineAt === Infinity ? undefined : Math.max(1, deadlineAt - Date.now());
+        const spawn = this.nativeSpawnSpec(ctx, e.id);
+        const resources = options.resources && pinnedExecutables(ctx, options.resources);
+        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
+        const reply = await callNativeOwner(socket, {
+          id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
+          scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },
+        }, signal);
+        for (const line of reply.logs) appendPluginLog(ctx, e.id, "stderr", line);
+        if (reply.hello) {
+          const manifest = e.manifest!;
+          this.nativeMarkReady(ctx, e.id, reply.hello.protocol,
+            reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
+        }
+        const def = EXTENSION_METHODS[method]!;
+        if (method === "usage.read" || method === "executor.available") {
+          const output = def.result.safeParse(reply.value);
+          if (!output.success) throw new CoreError("plugin_refused", method === "usage.read" ? "usage reader returned an invalid reading" : "executor returned an invalid availability result");
+          return output.data as T;
+        }
+        if (method.startsWith("ui.")) {
+          const checked = def.result.safeParse(reply.value);
+          if (!checked.success) { appendPluginLog(ctx, e.id, "stderr", `invalid ${method} result: ${checked.error.issues[0]?.path.join(".") || "result"}`); throw new CoreError("invalid_input", `plugin ${e.id} returned an invalid ${method} result`); }
+          return checked.data as T;
+        }
+        return reply.value as T;
       };
       if (e.manifest?.reentrant) return run();
       return e.queue.run(signal, run);
