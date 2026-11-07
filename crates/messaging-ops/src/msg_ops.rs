@@ -1,5 +1,6 @@
 //! Caller-scoped message reads from `src/api/ops-msg.ts` over the shared task database.
 #![allow(clippy::result_large_err)] // NativeOp and CoreError use this public API by value.
+use crate::policy;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
@@ -7,6 +8,23 @@ use pacer_foundation::{
 use pacer_store::{StoreError, TaskStore, is_task_id, messages};
 use serde_json::{Map, Value, json};
 use std::path::Path;
+
+const MSG_KINDS: [&str; 6] = ["message", "question", "answer", "report", "nudge", "close"];
+const TASK_ID: &str = r"/^t-\d{8}-\d{6}-[0-9a-f]{4}$/";
+const PARTICIPANT: &str =
+    r"/^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\d{8}-\d{6}-[0-9a-f]{4})$/";
+
+/// `participantSchema` in `src/messaging/types.ts`.
+fn participant_id(p: &str) -> bool {
+    matches!(p, "human" | "broker")
+        || p.strip_prefix("task:").is_some_and(is_task_id)
+        || p.strip_prefix("external:").is_some_and(|id| {
+            (1..=128).contains(&id.len())
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
+        })
+}
 
 /// How the HTTP front door authenticated the request: `app` (cookie) or `session`
 /// (bearer plus a valid `X-Pacer-Session`). Transports strip any inherited value.
@@ -29,7 +47,14 @@ pub fn is_msg_read_op(name: &str) -> bool {
 
 /// TypeScript keeps work-grant and enforcement identities, Orca worktree detection
 /// (strategy providers) and the human's read receipts (task/attention publication).
+/// `msg.policy` also stays forwarded when `project-messaging.json` is unusable, because
+/// its `projectError` carries Node and Zod details only the TypeScript reader produces.
 pub fn msg_stays_forwarded(name: &str, ctx: &Ctx) -> bool {
+    if name == "msg.policy" {
+        return env(ctx, "PACER_WORK_GRANT").is_some()
+            || env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some()
+            || pacer_config::project_messaging::read_projects(&ctx.pacer_home).is_err();
+    }
     if !is_msg_read_op(name) {
         return false;
     }
@@ -247,20 +272,86 @@ impl<'a> Params<'a> {
     }
 
     fn task_id(&mut self, key: &str) -> Option<&'a str> {
-        let Some(value) = self.map.get(key) else {
+        self.pattern(key, self.map.get(key), is_task_id, TASK_ID)
+    }
+
+    /// A required `z.string().regex(..)` at `path`.
+    fn pattern(
+        &mut self,
+        path: &str,
+        value: Option<&'a Value>,
+        ok: fn(&str) -> bool,
+        pattern: &str,
+    ) -> Option<&'a str> {
+        let Some(value) = value else {
             self.issues.push(format!(
-                "{key}: Invalid input: expected string, received undefined"
+                "{path}: Invalid input: expected string, received undefined"
             ));
             return None;
         };
-        let text = self.string(key, value, None)?;
-        if !is_task_id(text) {
+        let text = self.string(path, value, None)?;
+        if !ok(text) {
             self.issues.push(format!(
-                "{key}: Invalid string: must match pattern /^t-\\d{{8}}-\\d{{6}}-[0-9a-f]{{4}}$/"
+                "{path}: Invalid string: must match pattern {pattern}"
             ));
             return None;
         }
         Some(text)
+    }
+
+    /// The `msg.policy` `check` object.
+    fn send(&mut self, value: &'a Value) -> Option<policy::Send<'a>> {
+        let Some(map) = value.as_object() else {
+            self.mismatch("check", "object", value);
+            return None;
+        };
+        let from = self.pattern("check.from", map.get("from"), participant_id, PARTICIPANT);
+        let to = self.pattern("check.to", map.get("to"), participant_id, PARTICIPANT);
+        let kind = map
+            .get("kind")
+            .and_then(Value::as_str)
+            .filter(|k| MSG_KINDS.contains(k));
+        if kind.is_none() {
+            let options: Vec<String> = MSG_KINDS.iter().map(|k| format!("\"{k}\"")).collect();
+            self.issues.push(format!(
+                "check.kind: Invalid option: expected one of {}",
+                options.join("|")
+            ));
+        }
+        let grant = match map.get("grant") {
+            Some(value) => {
+                let flag = value.as_bool();
+                if flag.is_none() {
+                    self.mismatch("check.grant", "boolean", value);
+                }
+                flag
+            }
+            None => Some(false),
+        };
+        self.unrecognized("check", map, &["from", "to", "kind", "grant"]);
+        Some(policy::Send {
+            from: from?,
+            to: to?,
+            kind: kind?,
+            grant: grant?,
+        })
+    }
+
+    fn unrecognized(&mut self, path: &str, map: &Map<String, Value>, known: &[&str]) {
+        let unknown: Vec<String> = map
+            .keys()
+            .filter(|key| !known.contains(&key.as_str()))
+            .map(|key| format!("\"{key}\""))
+            .collect();
+        match unknown.len() {
+            0 => {}
+            1 => self
+                .issues
+                .push(format!("{path}: Unrecognized key: {}", unknown[0])),
+            _ => self
+                .issues
+                .push(format!("{path}: Unrecognized keys: {}", unknown.join(", "))),
+        }
     }
 
     fn optional_string(&mut self, key: &str, max: usize) -> Option<&'a str> {
@@ -341,21 +432,7 @@ impl<'a> Params<'a> {
     }
 
     fn finish(mut self, known: &[&str]) -> Result<(), CoreError> {
-        let unknown: Vec<String> = self
-            .map
-            .keys()
-            .filter(|key| !known.contains(&key.as_str()))
-            .map(|key| format!("\"{key}\""))
-            .collect();
-        match unknown.len() {
-            0 => {}
-            1 => self
-                .issues
-                .push(format!("params: Unrecognized key: {}", unknown[0])),
-            _ => self
-                .issues
-                .push(format!("params: Unrecognized keys: {}", unknown.join(", "))),
-        }
+        self.unrecognized("params", self.map, known);
         if self.issues.is_empty() {
             Ok(())
         } else {
@@ -437,6 +514,36 @@ pub fn msg_read(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         let at = (ctx.now * 1000.0).floor() / 1000.0;
         let read = messages::mark_read(&mut store, &me, &ids, at).map_err(store_error)?;
         Ok(json!({"read": read}))
+    })
+}
+
+/// `msg.policy` reads no caller identity: the guardrail and a hypothetical send are public.
+pub fn msg_policy(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        let mut p = Params::new(&params)?;
+        let task = p
+            .map
+            .get("task")
+            .and_then(|v| p.pattern("task", Some(v), is_task_id, TASK_ID));
+        let send = p.map.get("check").and_then(|v| p.send(v));
+        p.finish(&["task", "check"])?;
+        let mut store = open(ctx)?;
+        let anchor = match (task, &send) {
+            (Some(task), _) => Some(format!("task:{task}")),
+            (None, Some(s)) if messages::task_of(s.to).is_some() => Some(s.to.to_owned()),
+            (None, Some(s)) => Some(s.from.to_owned()),
+            (None, None) => None,
+        };
+        let root = anchor
+            .map(|a| messages::root_of(&mut store, &a))
+            .transpose()
+            .map_err(store_error)?;
+        let home = &ctx.pacer_home;
+        let mut out = policy::effective(home, &mut store, root.as_deref()).map_err(store_error)?;
+        if let Some(send) = send {
+            out["check"] = policy::check(home, &mut store, ctx.now, &send).map_err(store_error)?;
+        }
+        Ok(out)
     })
 }
 

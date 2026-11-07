@@ -77,7 +77,7 @@ layer = 2
 [crates.pacer-config]
 layer = 3
 [crates.pacer-messaging-ops]
-layer = 3
+layer = 4
 [crates.pacer-machine-ops]
 layer = 3
 [crates.pacer-discovery-ops]
