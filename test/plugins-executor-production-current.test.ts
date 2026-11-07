@@ -20,6 +20,7 @@ import { registerWork } from "../src/dispatch/work";
 import { dispatchDatabase } from "../src/dispatch/store";
 import { retryWork } from "../src/core/work";
 import { realRun } from "./helpers";
+import { readRun } from "../src/supervisor/run";
 import { eligibility } from "./fixtures/eligibility";
 import { defaultHooks } from "../src/classify/hooks";
 import { fakeCtx } from "./helpers";
@@ -413,6 +414,14 @@ test("task runner restart reconciles a lost provider result without relaunching"
   } finally { cleanup(); }
 });
 
+/** A failed assertion must not strand the wrapper waiting on files that cleanup removes. */
+function stopLiveRun(ctx: ReturnType<typeof fakeCtx>, id: string): void {
+  const dir = readTask(ctx, id)?.run?.dir;
+  if (!dir || existsSync(join(dir, "exit"))) return;
+  const pid = readRun(dir).pid;
+  if (pid) try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ }
+}
+
 test("a live interactive run keeps its owner across repeated observation lease expiries", async () => {
   const { ctx, task, cfg, cleanup } = fixture();
   const repo = task.brief.repo;
@@ -434,7 +443,7 @@ test("a live interactive run keeps its owner across repeated observation lease e
     expect(out.exec.code).toBe(0);
     expect(out.report).toBe("held through renewals");
     expect(readFileSync(join(repo, "launch-count"), "utf8")).toBe("x");
-  } finally { cleanup(); }
+  } finally { stopLiveRun(ctx, task.id); cleanup(); }
 }, 30_000);
 
 test("a runner reattaching to a live owned run clears Lost contact", async () => {
@@ -475,7 +484,7 @@ test("a runner reattaching to a live owned run clears Lost contact", async () =>
     expect(result.state).toBe("done");
     expect(result.result?.report).toContain("reattached result");
     expect(readFileSync(join(repo, "launch-count"), "utf8")).toBe("x");
-  } finally { cleanup(); }
+  } finally { stopLiveRun(ctx, task.id); cleanup(); }
 }, 30_000);
 
 test("owned deadline persists a stop intent and settles failed only after wrapper exit", async () => {
