@@ -88,6 +88,7 @@
     "dispatch.submit",
     "dispatch.tree",
     "dispatch.wait",
+    "doctor.fix.delegate",
     "doctor.run",
     "executor.setup.candidates",
     "executor.setup.connect",

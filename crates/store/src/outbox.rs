@@ -280,7 +280,9 @@ fn parse_task(data: &Value) -> Option<Value> {
         if recheck.get("passed").is_some_and(Value::is_boolean)
             && recheck.get("at").is_some_and(number)
             && level.is_some_and(|l| {
-                l.is_null() || l.as_str().is_some_and(|s| ["ok", "warn", "fail", "info"].contains(&s))
+                l.is_null()
+                    || l.as_str()
+                        .is_some_and(|s| ["ok", "warn", "fail", "info"].contains(&s))
             })
         {
             row["diagnosticRecheck"] = json!({"at":recheck["at"],"passed":recheck["passed"],"level":recheck["level"],"detail":optional_string(recheck,"detail",1000).unwrap_or_default()});
