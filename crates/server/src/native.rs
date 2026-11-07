@@ -8,14 +8,20 @@ use serde_json::Value;
 pub(crate) mod config_host_sync;
 pub(crate) mod config_sync;
 use pacer_config_ops::config_writes;
+use pacer_config_ops::executor_setup_ops;
 pub(crate) mod core_bridge_sync;
 mod desktop_reconcile_ops;
-use pacer_discovery_ops::discovery_ops;
+use pacer_discovery_ops::{discovery_ops, network_ops};
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
+use pacer_dispatch_ops::insights_ops;
+use pacer_dispatch_ops::learning_ops;
+use pacer_dispatch_ops::planning_ops;
 mod engine_ops;
 use pacer_config_ops::host_mut_ops;
+use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
+use pacer_task_ops::job_ops;
 pub(crate) mod host_mut_sync;
 use pacer_config_ops::host_read_ops;
 pub(crate) mod host_read_sync;
@@ -26,9 +32,12 @@ use pacer_task_ops::session_context_ops;
 mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
 pub(crate) use pacer_messaging_ops::msg_ops;
+pub(crate) use pacer_messaging_ops::msg_writes;
+pub(crate) mod msg_write_sync;
 pub mod plugins;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
+use pacer_config_ops::runner_ops;
 pub(crate) use pacer_task_ops::session_ops;
 pub(crate) mod session_sync;
 mod setup_ops;
@@ -57,18 +66,40 @@ pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
+pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
 pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
-use pacer_config_ops::{project_strategy_ops, repo_registry_ops};
+use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview_ops};
+#[doc(hidden)]
+pub use pacer_discovery_ops::network::set_probe_outputs_for_tests;
+pub use planning_ops::planning_stays_forwarded;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 
-/// `repo.list` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
+/// `repo.list`, `repo.add`, `issue.*` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
 pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     repo_registry_ops::repo_list_stays_forwarded(ctx, op)
+        || pacer_issues::issue_stays_forwarded(ctx, op)
         || project_strategy_ops::project_strategy_stays_forwarded(ctx, op, params)
+}
+
+/// `job.*`, `strategy.preview` and `executor.setup.models` inputs that only TypeScript reproduces.
+pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    match op {
+        "strategy.preview" => strategy_preview_ops::strategy_preview_stays_forwarded(ctx, params),
+        "executor.setup.models" => {
+            executor_setup_ops::executor_setup_models_stays_forwarded(ctx, params)
+        }
+        _ => job_ops::job_stays_forwarded(ctx, op, params),
+    }
+}
+
+/// `runner.add` and `attention.*` inputs whose effects only the TypeScript core owns.
+pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    runner_ops::runner_stays_forwarded(ctx, op, params)
+        || attention_ops::attention_stays_forwarded(ctx, op, params)
 }
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
@@ -99,6 +130,23 @@ fn debug(_: &Ctx, _: Value) -> pacer_foundation::api::OpFuture<'_> {
     })
 }
 
+/// `network.name` is the advertised machine name from the machine identity.
+#[allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
+fn discovery_list(ctx: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
+    Box::pin(network_ops::discovery_list(ctx, params, move || {
+        let machine = machine_identity::machine_get(ctx, &machine_identity::Env::system())?;
+        Ok(machine["name"].clone())
+    }))
+}
+
+fn discovery_network_get(ctx: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
+    Box::pin(network_ops::discovery_network_get(ctx, params))
+}
+
+fn discovery_network_set(ctx: &Ctx, params: Value) -> pacer_foundation::api::OpFuture<'_> {
+    Box::pin(network_ops::discovery_network_set(ctx, params))
+}
+
 static OPS: &[NativeOp] = &[
     NativeOp {
         name: "strategy.list",
@@ -121,6 +169,30 @@ static OPS: &[NativeOp] = &[
         call: config_writes::strategy_remove,
     },
     NativeOp {
+        name: "strategy.preview",
+        call: strategy_preview_ops::strategy_preview_stub,
+    },
+    NativeOp {
+        name: "executor.setup.models",
+        call: executor_setup_ops::executor_setup_models,
+    },
+    NativeOp {
+        name: "executor.setup.connect",
+        call: executor_setup_ops::executor_setup_connect,
+    },
+    NativeOp {
+        name: "job.list",
+        call: job_ops::job_list,
+    },
+    NativeOp {
+        name: "job.get",
+        call: job_ops::job_get,
+    },
+    NativeOp {
+        name: "job.cancel",
+        call: job_ops::job_cancel,
+    },
+    NativeOp {
         name: "routing.get",
         call: config_writes::routing_get,
     },
@@ -139,6 +211,22 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "runner.remove",
         call: config_writes::runner_remove,
+    },
+    NativeOp {
+        name: "runner.add",
+        call: runner_ops::runner_add,
+    },
+    NativeOp {
+        name: "runner.block",
+        call: runner_ops::runner_block,
+    },
+    NativeOp {
+        name: "runner.unblock",
+        call: runner_ops::runner_unblock,
+    },
+    NativeOp {
+        name: "runner.list",
+        call: runner_ops::runner_list_stub,
     },
     NativeOp {
         name: "runner.settings.get",
@@ -227,6 +315,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "snapshot.get",
         call: snapshot_get_ops::snapshot_get_stub,
+    },
+    NativeOp {
+        name: "attention.dismiss",
+        call: attention_ops::attention_stub,
+    },
+    NativeOp {
+        name: "attention.snooze",
+        call: attention_ops::attention_stub,
     },
     NativeOp {
         name: "version.get",
@@ -330,11 +426,19 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "repo.add",
-        call: p8_bridge_ops::bridge_stub,
+        call: repo_registry_ops::repo_add,
     },
     NativeOp {
         name: "repo.remove",
         call: repo_ops::repo_remove,
+    },
+    NativeOp {
+        name: "issue.import",
+        call: pacer_issues::issue_import,
+    },
+    NativeOp {
+        name: "issue.search",
+        call: pacer_issues::issue_search,
     },
     NativeOp {
         name: "project.messaging.get",
@@ -381,6 +485,26 @@ static OPS: &[NativeOp] = &[
         call: msg_ops::msg_policy,
     },
     NativeOp {
+        name: "tree.status",
+        call: msg_ops::tree_status,
+    },
+    NativeOp {
+        name: "msg.send",
+        call: msg_writes::bridge_stub,
+    },
+    NativeOp {
+        name: "msg.wait",
+        call: msg_writes::bridge_stub,
+    },
+    NativeOp {
+        name: "msg.confirm",
+        call: msg_writes::bridge_stub,
+    },
+    NativeOp {
+        name: "msg.close",
+        call: msg_writes::bridge_stub,
+    },
+    NativeOp {
         name: "dispatch.config.get",
         call: dispatch_ops::dispatch_config_get,
     },
@@ -405,12 +529,48 @@ static OPS: &[NativeOp] = &[
         call: dependency_writes::dispatch_dependencies_waive,
     },
     NativeOp {
+        name: "dispatch.analytics",
+        call: learning_ops::dispatch_analytics,
+    },
+    NativeOp {
+        name: "dispatch.learning.reset",
+        call: learning_ops::dispatch_learning_reset,
+    },
+    NativeOp {
+        name: "dispatch.models",
+        call: planning_ops::dispatch_models,
+    },
+    NativeOp {
+        name: "dispatch.refresh",
+        call: planning_ops::dispatch_refresh,
+    },
+    NativeOp {
+        name: "dispatch.enforcement.consent",
+        call: planning_ops::dispatch_enforcement_consent,
+    },
+    NativeOp {
+        name: "insights.summary",
+        call: insights_ops::insights_summary,
+    },
+    NativeOp {
         name: "discovery.set",
         call: discovery_ops::discovery_set,
     },
     NativeOp {
         name: "discovery.respond",
         call: discovery_ops::discovery_respond,
+    },
+    NativeOp {
+        name: "discovery.list",
+        call: discovery_list,
+    },
+    NativeOp {
+        name: "discovery.network.get",
+        call: discovery_network_get,
+    },
+    NativeOp {
+        name: "discovery.network.set",
+        call: discovery_network_set,
     },
     NativeOp {
         name: "desktop.reconcile.status",
@@ -571,6 +731,10 @@ pub async fn call_native(
             "routing.status" => status_ops::routing_status(ctx, params, parts.await?).await?,
             "routing.route" => status_ops::routing_route(ctx, params, parts.await?).await?,
             "task.retry_options" => status_ops::task_retry_options(ctx, params, parts).await?,
+            "strategy.preview" => {
+                strategy_preview_ops::strategy_preview(ctx, params, parts).await?
+            }
+            "runner.list" => runner_ops::runner_list(ctx, params, parts).await?,
             _ => unreachable!("needs_usage_broker"),
         }
     } else if needs_task_read_bridge(op.name) {
@@ -593,6 +757,8 @@ pub async fn call_native(
         })?;
         match op.name {
             "snapshot.get" => snapshot_get_ops::snapshot_get(ctx, params, parts.await?).await?,
+            "attention.dismiss" => attention_ops::attention_dismiss(ctx, params, parts).await?,
+            "attention.snooze" => attention_ops::attention_snooze(ctx, params, parts).await?,
             _ => unreachable!("needs_snapshot_bridge"),
         }
     } else if needs_session_probe(op.name) {
@@ -694,7 +860,7 @@ pub async fn call_native(
         && let Some(sync) = endpoint_sync
     {
         sync.await.map_err(|mut error| {
-            if op.name == "runner.remove" {
+            if op.name == "runner.remove" || op.name == "runner.add" {
                 if error.code == pacer_foundation::api::Code::Internal {
                     error.code = pacer_foundation::api::Code::InvalidInput;
                 }

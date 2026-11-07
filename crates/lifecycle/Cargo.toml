@@ -9,9 +9,9 @@ publish = false
 [dependencies]
 pacer-store = { path = "../store" }
 pacer-foundation = { path = "../foundation" }
+pacer-repos = { path = "../repos" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 ryu-js = "1"
-sha2 = "0.10"
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value", "float_roundtrip"] }
 thiserror.workspace = true

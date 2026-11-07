@@ -1,16 +1,22 @@
-//! `listRepos` from `src/core/repos.ts`: the registry file, keys of active and recent tasks,
-//! stale filtering and throttled pruning, over the per-process path probe in `probe`.
-//! `branches` adds the local branch reads of `repo.list`.
+//! The repository registry from `src/core/repos.ts`. `listRepos`: the registry file, keys of
+//! active and recent tasks, stale filtering and throttled pruning, over the per-process path
+//! probe in `probe`. `branches` adds the local branch reads of `repo.list`; `identity` owns
+//! git identity and registration of absolute checkout paths (`registerRepo`, `addRepo`).
 #![allow(clippy::result_large_err)]
 mod branches;
+mod git;
+mod identity;
+mod json;
 mod probe;
 #[cfg(test)]
 mod tests;
 
 pub use branches::read_branches;
+pub use git::git_read_within;
+pub use identity::{add_repo, canonical, register_repo};
 pub use probe::{Probe, cached_canonical, cached_path, mark_unreachable, schedule_refresh};
 
-use crate::semantics::stringify;
+use json::stringify;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError},
@@ -191,23 +197,51 @@ fn registry(pacer_home: &Path) -> Vec<(String, Entry)> {
         .collect()
 }
 
-/// `repoFor(ctx, path).key`: the registered root or linked-checkout alias holding the cached
-/// canonical path, else the `local:` key of that path.
-pub fn repo_key_for(pacer_home: &Path, path: &str) -> String {
+/// `fallback(path).key`.
+fn local_key(path: &str) -> String {
+    let digest = format!("{:x}", Sha256::digest(path.as_bytes()));
+    format!("local:{}", &digest[..12])
+}
+
+/// `registered`: the entry of the registered root or linked-checkout alias holding the
+/// cached canonical path.
+fn registered(reg: &Map<String, Value>, aliases: &Map<String, Value>, path: &str) -> Option<Value> {
     let real = cached_canonical(path);
-    let reg = read_object(&state_file(pacer_home, "repos.json"));
-    let aliases = read_object(&state_file(pacer_home, "repo-paths.json"));
     let mut roots: Vec<&String> = reg.keys().chain(aliases.keys()).collect();
     roots.sort_by_key(|root| std::cmp::Reverse(root.encode_utf16().count()));
-    let entry = roots
+    roots
         .into_iter()
         .find(|root| real == **root || real.starts_with(&format!("{root}/")))
-        .and_then(|root| reg.get(aliases.get(root).and_then(Value::as_str).unwrap_or(root)));
-    if let Some(key) = entry.and_then(|e| e.get("key")).and_then(Value::as_str) {
-        return key.to_owned();
+        .and_then(|root| reg.get(aliases.get(root).and_then(Value::as_str).unwrap_or(root)))
+        .cloned()
+}
+
+/// `repoFor(ctx, path)` in its wire key order: the registered entry with its label, else the
+/// `fallback` reference of the cached canonical path.
+pub fn repo_for(pacer_home: &Path, path: &str) -> Value {
+    let reg = read_object(&state_file(pacer_home, "repos.json"));
+    let aliases = read_object(&state_file(pacer_home, "repo-paths.json"));
+    if let Some(entry) = registered(&reg, &aliases, path) {
+        let pairs: Vec<(String, String)> = reg
+            .values()
+            .map(|e| {
+                let text = |field: &str| e[field].as_str().unwrap_or_default().to_owned();
+                (text("key"), text("path"))
+            })
+            .collect();
+        let key = entry["key"].as_str().unwrap_or_default();
+        return json!({"key": key, "path": entry["path"], "label": labels_for(&pairs).get(key)});
     }
-    let digest = format!("{:x}", Sha256::digest(real.as_bytes()));
-    format!("local:{}", &digest[..12])
+    let real = cached_canonical(path);
+    json!({"key": local_key(&real), "label": basename(&real), "path": real})
+}
+
+/// `repoFor(ctx, path).key`.
+pub fn repo_key_for(pacer_home: &Path, path: &str) -> String {
+    repo_for(pacer_home, path)["key"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
 }
 
 fn internal(error: impl std::fmt::Display) -> CoreError {
@@ -248,7 +282,7 @@ fn recent_keys(ctx: &Ctx) -> Result<HashSet<String>, CoreError> {
         });
         let active = matches!(task["state"].as_str(), Some("queued" | "running"));
         if !active
-            && (crate::strategy::truthy(&task["dismissed"])
+            && (json::truthy(&task["dismissed"])
                 || updated < ctx.now - RECENT_S
                 || updated.is_nan())
         {

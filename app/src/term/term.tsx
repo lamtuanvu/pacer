@@ -109,7 +109,8 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label='pacer app',
    const pad=getComputedStyle(pane.current);
    const availW=Math.max(1,pane.current.clientWidth-parseFloat(pad.paddingLeft)-parseFloat(pad.paddingRight));
    const availH=Math.max(1,pane.current.clientHeight-parseFloat(pad.paddingTop)-parseFloat(pad.paddingBottom));
-   const factor=Math.min(availW/width,availH/height);
+   // Shrink to fit a small pane, never enlarge: an upscaled PTY reads as a zoomed-in UI.
+   const factor=Math.min(1,availW/width,availH/height);
    mount.current.style.transform=factor===1?'':`scale(${factor})`;
   };
   const connection=runtime;

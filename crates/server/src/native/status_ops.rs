@@ -26,7 +26,12 @@ const TASK_KINDS: &[&str] = &[
 pub(crate) fn needs_usage_broker(op: &str) -> bool {
     matches!(
         op,
-        "limits.check" | "routing.status" | "routing.route" | "task.retry_options"
+        "limits.check"
+            | "routing.status"
+            | "routing.route"
+            | "task.retry_options"
+            | "strategy.preview"
+            | "runner.list"
     )
 }
 

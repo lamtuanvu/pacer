@@ -203,6 +203,7 @@
     "task.diff",
     "task.dismiss",
     "task.get",
+    "task.hand_back",
     "task.list",
     "task.log",
     "task.prune",

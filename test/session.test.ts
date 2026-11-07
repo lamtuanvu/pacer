@@ -430,7 +430,7 @@ test("controller-only input and size use the queued identity even for pipelined 
   } finally {hub.destroy();}
 });
 
-test.skipIf(!canBindSocket)("live control resizes PTY, preserves last size and records labeled changes", async () => {
+test.skipIf(!canBindSocket)("a 1.1 client's take on a 1.2 host makes it active: its size applies, others' sizes wait, and the last size survives", async () => {
   const dir=temp(),sockets:Socket[]=[];
   try {
     startRun({dir,cwd:dir,env:process.env,session:'pty',argv:['/bin/sh','-c','echo READY; sleep 30']});
@@ -450,7 +450,7 @@ test.skipIf(!canBindSocket)("live control resizes PTY, preserves last size and r
     a.socket.write(wire(FrameType.size,{cols:92,rows:31}));
     await until(()=>a.frames.some(f=>f.type===FrameType.resize));
     const state=JSON.parse(readFileSync(join(dir,'session.state'),'utf8'));
-    expect(state).toMatchObject({cols:92,rows:31,controller:'cli:driver'});
+    expect(state).toMatchObject({cols:92,rows:31,controller:null,active:'cli:driver'});
     b.socket.write(wire(FrameType.size,{cols:1,rows:1}));
     a.socket.write(wire(FrameType.release,{}));
     await until(()=>a.frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).reason==='released'));
@@ -458,10 +458,40 @@ test.skipIf(!canBindSocket)("live control resizes PTY, preserves last size and r
     expect(JSON.parse(c.frames[0].data.toString())).toMatchObject({cols:92,rows:31,controller:null});
     const replay=await replayRecording(dir);expect(replay.snapshot()).toMatchObject({cols:92,rows:31});replay.dispose();
     const markers=decodeLog(readFileSync(join(dir,'session.log'))).frames.filter(f=>f.type===3).map(f=>JSON.parse(f.data.toString()));
-    expect(markers).toContainEqual({event:'control-taken',label:'cli:driver'});
-    expect(markers).toContainEqual({event:'control-released',label:'cli:driver'});
+    expect(markers).toContainEqual({event:'attach',label:'cli:driver'});
+    expect(markers.some(m=>String(m.event).startsWith('control-'))).toBe(false);
   } finally {for(const socket of sockets)socket.destroy();await stopRun(dir,{graceMs:1500});rmSync(dir,{recursive:true,force:true});}
 },10000);
+
+test.skipIf(!canBindSocket)("the host answers a terminal query once and strips every client's reply while both clients type", async () => {
+  const dir=temp(),sockets:Socket[]=[];
+  try {
+    startRun({dir,cwd:dir,env:process.env,session:'interactive',argv:['/bin/sh','-c','stty raw -echo; printf "Q\\033[c"; sleep 1.5; dd bs=4096 count=1 of=got 2>/dev/null; sleep 30']});
+    const {sessionSocket}=await import('../src/session/service');
+    await until(()=>existsSync(sessionSocket(dir)));
+    const connect=async(label:string,hello:Record<string,unknown>)=>{
+      const socket=createConnection(sessionSocket(dir)),decoder=new WireDecoder(),frames:{type:number;data:Buffer}[]=[];sockets.push(socket);
+      socket.on('data',b=>frames.push(...decoder.push(Buffer.from(b))));
+      await new Promise<void>((resolve,reject)=>{socket.once('connect',resolve);socket.once('error',reject);});
+      socket.write(wire(FrameType.hello,{v:1,client:'cli',label,cols:80,rows:24,...hello}));
+      return {socket,frames};
+    };
+    const modern=await connect('modern',{versions:[1,2]}),legacy=await connect('legacy',{});
+    const sawQuery=(frames:{type:number;data:Buffer}[])=>Buffer.concat(frames.filter(f=>f.type===FrameType.output||f.type===FrameType.snapshot).map(f=>f.data)).includes('Q');
+    await until(()=>sawQuery(modern.frames)&&sawQuery(legacy.frames));
+    modern.socket.write(wire(FrameType.input,Buffer.from('\x1b[?62;22cA')));
+    await until(()=>JSON.parse(readFileSync(join(dir,'session.state'),'utf8')).active==='cli:modern');
+    legacy.socket.write(wire(FrameType.take,{}));legacy.socket.write(wire(FrameType.input,Buffer.from('\x1b[?1;2cB')));
+    await until(()=>existsSync(join(dir,'got'))&&readFileSync(join(dir,'got'),'latin1').length>0,5000);
+    const got=readFileSync(join(dir,'got'),'latin1');
+    expect(got.match(/\x1b\[\?[\d;]*c/g)).toHaveLength(1);
+    expect(got).toMatch(/^\x1b\[\?[\d;]*cAB$/);
+    expect(JSON.parse(readFileSync(join(dir,'session.state'),'utf8'))).toMatchObject({controller:null,active:'cli:legacy'});
+    const markers=decodeLog(readFileSync(join(dir,'session.log'))).frames.filter(f=>f.type===3).map(f=>JSON.parse(f.data.toString()));
+    expect(markers).toContainEqual({event:'input',label:'cli:modern'});
+    expect(markers).toContainEqual({event:'input',label:'cli:legacy'});
+  } finally {for(const socket of sockets)socket.destroy();await stopRun(dir,{graceMs:1500});rmSync(dir,{recursive:true,force:true});}
+},15000);
 
 test('recorded resize survives replay without output',async()=>{
   const dir=temp();try{
@@ -497,6 +527,26 @@ test('attach control forwards bytes and parses split escape commands',()=>{
   keys.setControl(false);keys.push(Buffer.from('c'));
   expect(new WireDecoder().push(sent[1])[0].type).toBe(FrameType.take);
   keys.setControl(true);expect(keys.push(Buffer.from('\x1dd'))).toBe(true);
+});
+test('attach keys on a 1.2 host type directly, never take or release, and still detach',()=>{
+  const sent:Buffer[]=[],prompts:string[]=[],keys=new AttachKeys(b=>sent.push(b),s=>prompts.push(s),true);
+  keys.sharedHost();
+  keys.controlState({controller:null,you:false,reason:'released'});
+  expect(keys.push(Buffer.from('qc'))).toBe(false);
+  keys.push(Buffer.from([29,114]));keys.take(true);
+  const frames=new WireDecoder().push(Buffer.concat(sent));
+  expect(frames.map(f=>f.type)).toEqual([FrameType.input]);expect(frames[0].data.toString()).toBe('qc');
+  expect(prompts).toHaveLength(1);
+  expect(keys.push(Buffer.from('\x1dd'))).toBe(true);
+});
+test('read-only attach keys never send input or take, on either host',()=>{
+  for(const shared of [false,true]){
+    const sent:Buffer[]=[],keys=new AttachKeys(b=>sent.push(b),()=>{},false,true);
+    if(shared)keys.sharedHost();
+    keys.push(Buffer.from('typed c'));keys.take(true);keys.controlState({controller:null,you:true});keys.push(Buffer.from('more'));
+    expect(sent).toEqual([]);
+    expect(keys.push(Buffer.from('q'))).toBe(true);
+  }
 });
 test('losing control resets an incomplete escape prefix',()=>{
   const sent:Buffer[]=[],keys=new AttachKeys(bytes=>sent.push(bytes));keys.setControl(true);
@@ -567,6 +617,10 @@ test('task CLI progress shows the active controller label',async()=>{
     for(const args of [['tasks'],['tasks',task.id]])expect((await main(args,ctx)).out).toContain('controlled from cli:Ghostty');
     writeFileSync(join(dir,'session.state'),JSON.stringify({controller:null,viewers:2}));
     expect((await main(['tasks',task.id],ctx)).out).not.toContain('controlled from');
+    // A 1.2 session has no controller; the line names the client that typed last instead.
+    writeFileSync(join(dir,'session.version'),JSON.stringify({pacer:'0.0.0',versions:[1,2]}));
+    writeFileSync(join(dir,'session.state'),JSON.stringify({controller:null,active:'app:Pacer\x07 desktop',viewers:2}));
+    for(const args of [['tasks'],['tasks',task.id]]){const out=(await main(args,ctx)).out;expect(out).toContain('last input from app:Pacer desktop');expect(out).not.toContain('controlled from');}
   }finally{rmSync(home,{recursive:true,force:true});}
 });
 
@@ -764,3 +818,162 @@ test("remote full-session metadata uses the local bridge pid and mirrored host s
     expect(await sessionInfo(ctx,task.id,undefined,false)).toMatchObject({host:"none",live:false,capabilities:{snapshot:false,control:false,resize:false,record:false}});
   }finally{rmSync(home,{recursive:true,force:true});}
 });
+
+// ADR 0023, decision 6: on 1.2 sessions recent client input, not a controller lease, pauses supervision clocks.
+import { activeDeadlineExpired, humanDriving, inputWaitStartedAt, RECENT_INPUT_S } from "../src/supervisor/active-time";
+import { progressPoller } from "../src/exec/direct";
+import { fakeCtx } from "./helpers";
+import type { RunState } from "../src/supervisor/run";
+const session12 = JSON.stringify({ pacer: "0.0.0", versions: [1, 2] }), session11 = JSON.stringify({ pacer: "0.0.0", versions: [1, 1] });
+test("interactive readRun reports the session host's protocol minor from session.version", async () => {
+  const dir = temp();
+  try {
+    writeFileSync(join(dir, "session.version"), session12);
+    expect(readRun(dir).sessionMinor).toBeUndefined();
+    writeFileSync(join(dir, "interactive.json"), "{}");
+    expect(readRun(dir).sessionMinor).toBe(2);
+    const { readRunAsync } = await import("../src/supervisor/run");
+    expect((await readRunAsync(dir)).sessionMinor).toBe(2);
+    writeFileSync(join(dir, "session.version"), session11);
+    expect(readRun(dir).sessionMinor).toBe(1);
+    rmSync(join(dir, "session.version"));
+    expect(readRun(dir).sessionMinor).toBeUndefined();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test("active time pauses for recent client input on 1.2 sessions and for a controller on 1.1 sessions", () => {
+  const now = 1_000_000, running = (o: Partial<RunState>): RunState => ({ pid: 1, startedAt: 0, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null,
+    interactive: true, report: { status: "running", summary: "s", at: 1 }, ...o });
+  // 1.2: a pane left open (no controller is ever written) does not pause; a person typing does, for RECENT_INPUT_S.
+  expect(inputWaitStartedAt(running({ sessionMinor: 2 }), now)).toBeNull();
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - 5, lastHumanInputAt: now / 1000 - 5 }), now)).toBe(now);
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - RECENT_INPUT_S - 1, lastHumanInputAt: now / 1000 - RECENT_INPUT_S - 1 }), now)).toBeNull();
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, controller: "stale", lastInputAt: null }), now)).toBeNull();
+  // pacer's own delivery touches only the all-input marker: nobody is driving.
+  expect(humanDriving(running({ sessionMinor: 2, lastInputAt: now / 1000 - 5 }), now)).toBe(false);
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - 5 }), now)).toBeNull();
+  // 1.1 (and hosts without session.version): the controller lease, not input.
+  expect(inputWaitStartedAt(running({ sessionMinor: 1, controller: "app:pane" }), now)).toBe(now);
+  expect(inputWaitStartedAt(running({ controller: "app:pane" }), now)).toBe(now);
+  expect(inputWaitStartedAt(running({ sessionMinor: 1, lastInputAt: now / 1000 - 5, lastHumanInputAt: now / 1000 - 5 }), now)).toBeNull();
+  const dir = temp();
+  try {
+    expect(activeDeadlineExpired(dir, 60_000, running({ sessionMinor: 2, lastInputAt: 50, lastHumanInputAt: 50 }), 100_000)).toBe(false);
+    expect(activeDeadlineExpired(dir, 60_000, running({ sessionMinor: 2, lastInputAt: 50, lastHumanInputAt: 50 }), 400_000)).toBe(true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test("on 1.2 sessions pacer's delivered answer resumes a needs-input wait (all input), while only a person's input counts as driving", () => {
+  const needsInput = (o: Partial<RunState>): RunState => ({ pid: 1, startedAt: 0, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null,
+    interactive: true, sessionMinor: 2, report: { status: "needs-input", summary: "which db?", at: 100 }, ...o });
+  // Waiting since the report; a hookless agent writes no new report after the answer.
+  expect(inputWaitStartedAt(needsInput({}), 150_000)).toBe(100_000);
+  // pacer delivered the answer at 200 s: the wait ends and nobody counts as driving.
+  expect(inputWaitStartedAt(needsInput({ lastInputAt: 200 }), 210_000)).toBeNull();
+  expect(humanDriving(needsInput({ lastInputAt: 200 }), 210_000)).toBe(false);
+  // A person answering in the pane also ends the wait, and drives the session for RECENT_INPUT_S.
+  expect(inputWaitStartedAt(needsInput({ lastInputAt: 200, lastHumanInputAt: 200 }), 210_000)).toBe(210_000);
+  const dir = temp();
+  try {
+    expect(activeDeadlineExpired(dir, 120_000, needsInput({}), 150_000)).toBe(false);
+    // Resumed at the delivered answer: the 100 s wait is not charged, so the 120 s deadline moves to 220 s.
+    expect(activeDeadlineExpired(dir, 120_000, needsInput({ lastInputAt: 200 }), 210_000)).toBe(false);
+    expect(activeDeadlineExpired(dir, 120_000, needsInput({ lastInputAt: 200 }), 221_000)).toBe(true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test("the idle-fail clock uses recent input on 1.2 sessions and the controller on 1.1 sessions", async () => {
+  const ctx = fakeCtx({ now: Date.now() / 1000 }), repo = temp(), nowS = Date.now() / 1000;
+  const task = createTask(ctx, { brief: { goal: "idle", repo }, kind: null, requestedExecutor: "codex", timeoutS: 3600 });
+  const run = { dir: temp(), attempt: 1, executor: "codex", startedAt: nowS - 7200, mode: "current" as const, workdir: repo, logFile: join(repo, "log") };
+  updateTask(ctx, task.id, t => { t.state = "running"; t.run = run; });
+  const state = (o: Partial<RunState>): RunState => ({ pid: 1, startedAt: null, exit: null, alive: true, stdoutBytes: 1, stderrBytes: 0, lastOutputAt: nowS - 7200,
+    interactive: true, report: { status: "running", summary: "s", at: nowS - 7200 }, ...o });
+  const poll = (o: Partial<RunState>) => progressPoller(ctx, task, run)(state(o));
+  try {
+    expect(await poll({ sessionMinor: 2 })).toBe("idle");
+    expect(await poll({ sessionMinor: 2, lastInputAt: nowS - 10, lastHumanInputAt: nowS - 10 })).toBe("continue");
+    // Only pacer's own delivered input: nobody is driving, so the idle clock keeps running.
+    expect(await poll({ sessionMinor: 2, lastInputAt: nowS - 10 })).toBe("idle");
+    expect(await poll({ sessionMinor: 1, controller: "cli:iTerm" })).toBe("continue");
+    expect(await poll({ sessionMinor: 1, lastInputAt: nowS - 10, lastHumanInputAt: nowS - 10 })).toBe("idle");
+  } finally { rmSync(repo, { recursive: true, force: true }); rmSync(run.dir, { recursive: true, force: true }); }
+});
+
+// ADR 0023, decision 8: additive `active`; `controller` stays, deprecated, and is null for 1.2 sessions.
+test("task.session and TaskData.session report the active client; controller is null on 1.2 sessions", async () => {
+  const home = temp(), ctx = makeCtx({ pacerHome: home });
+  const { sessionInfo } = await import("../src/session/service");
+  const { sessionTaskData } = await import("../src/session/link");
+  const { parseOutboxEvent } = await import("../src/link/envelope");
+  const task = createTask(ctx, { brief: { goal: "active", repo: "." }, kind: "small", requestedExecutor: null, timeoutS: 30 });
+  const dir = join(home, "runs", task.id, "1"); mkdirSync(dir, { recursive: true });
+  updateTask(ctx, task.id, t => { t.run = { host: "box", attempt: 1 } as NonNullable<typeof t.run>; });
+  try {
+    for (const [name, value] of Object.entries({ "session.ckpt": JSON.stringify({ cols: 80, rows: 24 }), "session.sock": "socket fixture", pid: "99999999",
+      "session.remote-full": "box", "session.bridge.pid": String(process.pid), "session.version": session12,
+      "session.state": JSON.stringify({ controller: "stale", active: "app:Pacer desktop", viewers: 2, cols: 90, rows: 30 }) })) writeFileSync(join(dir, name), value);
+    expect(await sessionInfo(ctx, task.id, undefined, false)).toMatchObject({ live: true, controller: null, active: "app:Pacer desktop", viewers: 2 });
+    const data = await sessionTaskData(ctx, { id: task.id, state: "running", goal: "g", executor: null, backend: "direct", worktree: null, updatedAt: 0 }, false);
+    expect(data.session).toEqual({ host: "builtin", live: true, controller: null, active: "app:Pacer desktop", viewers: 2 });
+    const event = parseOutboxEvent({ v: 1, seq: 1, at: 1, type: "task", data });
+    expect((event?.data as typeof data).session).toEqual({ host: "builtin", live: true, controller: null, active: "app:Pacer desktop", viewers: 2 });
+    const older = parseOutboxEvent({ v: 1, seq: 2, at: 1, type: "task", data: { ...data, session: { host: "builtin", live: true, controller: "cli:x", viewers: 1 } } });
+    expect((older?.data as typeof data).session).toEqual({ host: "builtin", live: true, controller: "cli:x", viewers: 1 });
+    writeFileSync(join(dir, "session.version"), session11);
+    writeFileSync(join(dir, "session.state"), JSON.stringify({ controller: "cli:remote", viewers: 1 }));
+    expect(await sessionInfo(ctx, task.id, undefined, false)).toMatchObject({ live: true, controller: "cli:remote", active: null });
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+// ADR 0023: pacer's own delivered input is not someone typing; the built-in terminal never accepts a delivery.
+async function hostViewer(dir: string, label: string) {
+  const { sessionSocket } = await import("../src/session/service");
+  await until(() => existsSync(sessionSocket(dir)));
+  const socket = createConnection(sessionSocket(dir)), decoder = new WireDecoder(), frames: { type: number; data: Buffer }[] = [];
+  socket.on("data", b => frames.push(...decoder.push(Buffer.from(b))));
+  await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
+  socket.write(wire(FrameType.hello, { v: 1, client: "cli", label, versions: [1, 2] }));
+  await until(() => frames.some(f => f.type === FrameType.snapshot));
+  return { socket, frames, delivered: () => frames.filter(f => f.type === FrameType.delivered).map(f => JSON.parse(f.data.toString())) };
+}
+test.skipIf(!canBindSocket)("a 1.2 host marks pacer's delivered input as input but not as a person's input; a person's input marks both", async () => {
+  const dir = temp(), sockets: Socket[] = [];
+  try {
+    const run = startRun({ dir, cwd: dir, env: process.env, session: "interactive", argv: ["/bin/sh", "-c", 'read a; echo "$a" > first; read b; echo "$b" > second; sleep 30'] });
+    if ("error" in run) throw Error(run.error);
+    const pacer = await hostViewer(dir, "pacer"); sockets.push(pacer.socket);
+    pacer.socket.write(wire(FrameType.deliver, {}));
+    await until(() => pacer.frames.some(f => f.type === FrameType.granted));
+    pacer.socket.write(wire(FrameType.input, Buffer.from("delivered\r")));
+    pacer.socket.write(wire(FrameType.deliver, { done: true }));
+    await until(() => existsSync(join(dir, "first")));
+    expect(pacer.delivered()).toEqual([{ ok: true, label: "cli:pacer" }]);
+    expect(existsSync(join(dir, "session.input"))).toBe(true);
+    expect(existsSync(join(dir, "session.human-input"))).toBe(false);
+    const delivered = readRun(dir);
+    expect(delivered.lastInputAt).toBeNumber();
+    expect(delivered.lastHumanInputAt).toBeNull();
+    const human = await hostViewer(dir, "human"); sockets.push(human.socket);
+    human.socket.write(wire(FrameType.input, Buffer.from("typed\r")));
+    await until(() => existsSync(join(dir, "second")));
+    expect(existsSync(join(dir, "session.human-input"))).toBe(true);
+    expect(readRun(dir).lastHumanInputAt).toBeNumber();
+    const { readRunAsync } = await import("../src/supervisor/run");
+    expect((await readRunAsync(dir)).lastHumanInputAt).toBeNumber();
+  } finally { for (const s of sockets) s.destroy(); await stopRun(dir, { graceMs: 100 }); rmSync(dir, { recursive: true, force: true }); }
+}, 10000);
+test.skipIf(!canBindSocket)("a built-in terminal's host refuses deliver; a task session's host grants it", async () => {
+  for (const terminal of [true, false]) {
+    const dir = temp(), sockets: Socket[] = [];
+    try {
+      const run = startRun({ dir, cwd: dir, env: process.env, session: "interactive", ...(terminal ? { terminal } : {}), argv: ["/bin/sh", "-c", "sleep 30"] });
+      if ("error" in run) throw Error(run.error);
+      if (terminal) expect(JSON.parse(readFileSync(join(dir, "session.json"), "utf8")).terminal).toBe(true);
+      const pacer = await hostViewer(dir, "pacer"); sockets.push(pacer.socket);
+      pacer.socket.write(wire(FrameType.deliver, {}));
+      await until(() => pacer.delivered().length > 0 || pacer.frames.some(f => f.type === FrameType.granted));
+      if (terminal) {
+        expect(pacer.delivered()).toEqual([{ ok: false, cause: "refused", reason: "this terminal does not accept automated input" }]);
+        expect(pacer.frames.some(f => f.type === FrameType.granted)).toBe(false);
+      } else expect(pacer.delivered()).toEqual([]);
+    } finally { for (const s of sockets) s.destroy(); await stopRun(dir, { graceMs: 100 }); rmSync(dir, { recursive: true, force: true }); }
+  }
+}, 15000);

@@ -12,7 +12,7 @@ import { configuredNativeServices } from "../update/desktop/native-provider";
 import type { PairedNativeBootstrap } from "../update/desktop/native-paired-bootstrap";
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
-import { superviseTasks } from "../tasks/api";
+import { selfCommand, superviseTasks } from "../tasks/api";
 import type { SpawnRunner } from "../tasks/api";
 import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
@@ -382,31 +382,23 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
-        if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
+        if (pathname === "/_internal/msg-effects" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
-            const { snapshotProbeParts } = await import("../api/snapshot-probe-bridge");
-            return Response.json({ result: await snapshotProbeParts(getCtx()) });
+            const body = await req.json().catch(() => null);
+            const { msgEffectsBridge } = await import("../api/msg-bridge");
+            return Response.json({ result: await msgEffectsBridge(getCtx(), body, opts.opDeps?.spawnRunner) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
-        if (pathname === "/_internal/repo-bridge" && req.method === "POST") {
+        if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
-            const body = await req.json().catch(() => null);
-            const op = body && typeof body === "object" && !Array.isArray(body) ? (body as { op?: unknown }).op : undefined;
-            const bridgeParams = body && typeof body === "object" && !Array.isArray(body) ? (body as { params?: unknown }).params : undefined;
-            if (typeof op !== "string" || op !== "repo.add" || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
-              const { CoreError } = await import("../core/errors");
-              throw new CoreError("invalid_input", "invalid repo bridge body");
-            }
-            const { repoBridge } = await import("../api/repo-bridge");
-            return Response.json({
-              result: await repoBridge(getCtx(), op, bridgeParams as Record<string, unknown>),
-            });
+            const { snapshotProbeParts } = await import("../api/snapshot-probe-bridge");
+            return Response.json({ result: await snapshotProbeParts(getCtx()) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);
@@ -605,6 +597,7 @@ export function startServer(
         type: "init",
         pacerHome: initialCtx.pacerHome,
         env: initialCtx.env,
+        selfCommand: selfCommand(),
       });
       workerSupervises = true;
       workerHeartbeat = Date.now();

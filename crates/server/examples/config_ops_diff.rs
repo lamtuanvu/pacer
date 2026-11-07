@@ -32,6 +32,14 @@ async fn main() -> io::Result<()> {
             input["now"].as_f64().unwrap_or(1_700_000_000.0),
         );
         pacer_server::native::set_identity_platform_for_tests(input["identityPlatform"].as_str());
+        if let Some(outputs) = input["probeOutputs"].as_object() {
+            pacer_server::native::set_probe_outputs_for_tests(Some(
+                outputs
+                    .iter()
+                    .map(|(argv, out)| (argv.clone(), out.as_str().unwrap_or_default().into()))
+                    .collect(),
+            ));
+        }
         let registry = pacer_server::native::registry("");
         let name = input["op"].as_str().unwrap_or("");
         if pacer_server::native::discovery_stays_forwarded(&ctx, name, &input["params"])
@@ -46,6 +54,7 @@ async fn main() -> io::Result<()> {
             .ok_or_else(|| io::Error::other("missing native op"))?;
         if pacer_server::native::assistant_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::repo_registry_stays_forwarded(&ctx, name, &input["params"])
+            || pacer_server::native::runner_attention_stays_forwarded(&ctx, name, &input["params"])
         {
             serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
             stdout.write_all(b"\n")?;
@@ -63,23 +72,29 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
-        let core_bridge_sync = if matches!(name, "setup.check" | "repo.add") {
+        let core_bridge_sync = if name == "setup.check" {
             let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)
         } else {
             None
         };
+        let broker_parts = input.get("brokerParts").cloned();
+        let broker_sync = broker_parts
+            .map(|parts| Box::pin(async move { Ok(parts) }) as pacer_foundation::api::OpFuture<'_>);
+        let snapshot_parts = input.get("snapshotParts").cloned();
+        let snapshot_sync = snapshot_parts
+            .map(|parts| Box::pin(async move { Ok(parts) }) as pacer_foundation::api::OpFuture<'_>);
         let result = pacer_server::native::call_native(
             &ctx,
             op,
             input["params"].clone(),
             None,
             Some(Box::pin(async { Ok(Value::Null) })),
-            None,
+            broker_sync,
             None,
             None,
             host_sync,
-            None,
+            snapshot_sync,
             None,
             host_read_sync,
             core_bridge_sync,

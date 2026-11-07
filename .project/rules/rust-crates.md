@@ -60,7 +60,8 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 3 | `pacer-machine-ops` (`crates/machine-ops`) | Machine identity store, key rotation and the native `machine.*` operation handlers | ≤ 1,500 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
 | 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities | 3,000–4,000 | `reqwest` |
-| 4 | `pacer-messaging-ops` (`crates/messaging-ops`) | Native project messaging read and policy operation handlers (`msg.inbox`, `msg.log`, `msg.read`, `msg.policy`) over the message store, strategy and project messaging documents | ≤ 1,000 | none |
+| 4 | `pacer-repos` (`crates/repos`) | Repository registry: `repos.json` and linked-checkout aliases, the per-process path probe, branch reads, git identity and registration of absolute checkout paths | ≤ 1,500 | none |
+| 4 | `pacer-messaging-ops` (`crates/messaging-ops`) | Native project messaging operation handlers (`msg.inbox`, `msg.log`, `msg.read`, `msg.policy`, `tree.status`, and the writes `msg.send`, `msg.confirm`, `msg.close`, `msg.wait` with their Core effects bridge) over the message store, strategy and project messaging documents | ≤ 2,000 | none |
 | 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations, settings reads and JSON compatibility | ≤ 5,000 | none |
 | 5 | `pacer-engine` (`crates/engine`) | Pacing, usage broker, status | 1,500–2,000 | none |
 | 5 | `pacer-install` (`crates/install`) | Setup, onboarding, agent integrations, accounts, Orca panel installer, executor guard | 3,500–4,500 | none |
@@ -68,10 +69,11 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 6 | `pacer-lifecycle` (`crates/lifecycle`) | Delegation, runner, supervision, attention, jobs, clients, pump | 3,500–4,500 | none |
 | 6 | `pacer-update` (`crates/update`) | Update, release manifest, service install | 1,500 | `reqwest` |
 | 7 | `pacer-read-model` (`crates/read-model`) | Snapshot and view model | 1,300–1,600 | none |
-| 7 | `pacer-config-ops` (`crates/config-ops`) | Native config and host operation handlers (strategy, routing, runners, notifications, host reads and edits) | ≤ 1,500 | none |
-| 7 | `pacer-dispatch-ops` (`crates/dispatch-ops`) | Native dispatch work-graph read operation handlers (`dispatch.config.get`, `dispatch.tree`, `dispatch.list`, `dispatch.events`) | ≤ 1,000 | none |
+| 7 | `pacer-config-ops` (`crates/config-ops`) | Native config and host operation handlers (strategy, strategy preview, routing, runners, notifications, host reads and edits, OpenCode executor setup) | ≤ 1,500 | none |
+| 7 | `pacer-dispatch-ops` (`crates/dispatch-ops`) | Native dispatch work-graph and analytics operation handlers (`dispatch.config.get`, `dispatch.tree`, `dispatch.list`, `dispatch.events`, `dispatch.dependencies*`, `dispatch.analytics`, `dispatch.learning.reset`, `insights.summary`, `dispatch.models`, `dispatch.refresh`, `dispatch.enforcement.consent`) | ≤ 3,000 | none |
+| 7 | `pacer-issues` (`crates/issues`) | Native GitHub issue reads for registered repositories (`issue.import`, `issue.search`) through the user's `gh` login: origin-remote identity, the allowlisted `gh` environment, deadlines, output caps, concurrency and the search cache, and plain-text cleaning of untrusted issue content | ≤ 1,200 | none |
 | 8 | `pacer-assistant-ops` (`crates/assistant-ops`) | Native assistant settings and history operation handlers (`assistant.status`, `assistant.settings.*`, `assistant.candidates`, `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete`, `assistant.card.*`) | ≤ 1,000 | none |
-| 8 | `pacer-task-ops` (`crates/task-ops`) | Native task, session and snapshot operation handlers (reads, list, detail, review, stop, dismiss, diff, wait) | ≤ 2,500 | none |
+| 8 | `pacer-task-ops` (`crates/task-ops`) | Native task, session, snapshot and shared job operation handlers (reads, list, detail, review, stop, dismiss, diff, wait, `job.*`) | ≤ 2,500 | none |
 | 8 | `pacer-tui` (`crates/tui`) | Dashboard (an API client: ARCH-1) | 1,000–1,200 | `ratatui`, `crossterm` |
 | 8 | `pacer-bundled` (`crates/bundled`) | Table of bundled plugins (manifest text and entry function), from M3 plan 1 | ≤ 300 | none (depends on `plugins-rs/*`) |
 | 9 | `pacer-server` (`crates/server`) | Op registry assembly, HTTP, SSE, WebSocket, stdio, MCP, bridge, embedded app assets | 2,000–2,500 | `axum`, `hyper`, `rmcp` |

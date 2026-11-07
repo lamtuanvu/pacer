@@ -3,6 +3,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { readReport, type SessionReport } from "../session/reports";
+import { readSessionVersion } from "../session/protocol";
 import type { RunIO } from "./io";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync, chmodSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -22,8 +23,15 @@ export interface RunSpec { interactionMode?: InteractionMode; takeover?: boolean
   /** The login shell's umask for the agent only (validated octal); absent keeps the service's. */
   umask?: string;
   /** Color flags the user's profile set, kept in an interactive PTY. */
-  keepColor?: string[] }
-export interface RunState { lastInputAt?: number | null; controller?: string | null; interactive?: boolean; report?: SessionReport | null; pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
+  keepColor?: string[];
+  /** A built-in workspace terminal: its session host refuses pacer's deliveries (ADR 0023). */
+  terminal?: boolean }
+/**
+ * `sessionMinor`: the session-socket protocol minor of an interactive run's host, from session.version. A 1.2 host has no
+ * controller, so supervision uses input instead (ADR 0023); absent means a 1.1 host or none. `lastInputAt` counts all
+ * input, pacer's deliveries included; `lastHumanInputAt` only input typed by a client outside a delivery window.
+ */
+export interface RunState { lastInputAt?: number | null; lastHumanInputAt?: number | null; controller?: string | null; sessionMinor?: number; interactive?: boolean; report?: SessionReport | null; pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
 
 const num = (file: string): number | null => {
   try { const v = Number(readFileSync(file, "utf8").trim()); return Number.isFinite(v) && readFileSync(file, "utf8").trim() !== "" ? v : null; } catch { return null; }
@@ -55,7 +63,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     lease = beginWorkSync(ctx, { kind: "session", id: createHash("sha256").update(spec.dir).digest("hex"), label: "Executor session" });
     mkdirSync(spec.dir, { recursive: true });
     // A reused directory must not hand a stale exit or output to the new run.
-    for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.version", "session.json", "session.activity", "session.input", "session.ended", "session.state", "session.state.tmp", "interactive.json", "report.json", "completion.json", "session-status.json", "events.jsonl", "transcript-report.md"]) rmSync(join(spec.dir, f), { force: true });
+    for (const f of ["pid", "pid.tmp", "child", "started", "exit", "exit.tmp", "stdout", "stderr", "stdin", "session.log", "session.log.1", "session.ckpt", "session.ckpt.tmp", "session.sock", "session.sock.path", "session.host", "session.version", "session.json", "session.activity", "session.input", "session.human-input", "session.ended", "session.state", "session.state.tmp", "interactive.json", "report.json", "completion.json", "session-status.json", "events.jsonl", "transcript-report.md"]) rmSync(join(spec.dir, f), { force: true });
     const script = join(spec.dir, "run.sh");
     writeFileSync(script, WRAPPER_SH, { mode: 0o700 });
     if (spec.stdin !== undefined) writeFileSync(join(spec.dir, "stdin"), spec.stdin, { mode: 0o600 });
@@ -69,7 +77,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     let command=["/bin/sh", script, spec.dir, ...argv];
     if(pty) {
       chmodSync(spec.dir,0o700); if(taskRun) chmodSync(dirname(spec.dir),0o700);
-      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,interactionMode:spec.interactionMode,takeover:spec.takeover,argv,cwd:spec.cwd,...(spec.keepColor?.length?{keepColor:spec.keepColor}:{}),pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
+      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,interactionMode:spec.interactionMode,takeover:spec.takeover,...(spec.terminal?{terminal:true}:{}),argv,cwd:spec.cwd,...(spec.keepColor?.length?{keepColor:spec.keepColor}:{}),pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
       // Bun source runs and compiled binaries both re-enter through the CLI.
       command=/(^|\/)bun(?:\.exe)?$/.test(process.execPath)
         ? [process.execPath,fileURLToPath(new URL("../cli.ts",import.meta.url)),"_session",spec.dir]
@@ -113,10 +121,13 @@ export function readRun(dir: string): RunState {
   let controller: string | null = null;
   try { const state = JSON.parse(readFileSync(join(dir, "session.state"), "utf8")); if (typeof state.controller === "string") controller = state.controller; } catch { /* optional session state */ }
   const interactive = existsSync(join(dir, "interactive.json"));
+  const sessionMinor = interactive ? readSessionVersion(dir)?.versions[1] : undefined;
   return {
     ...(interactive && controller ? {controller} : {}),
+    ...(sessionMinor ? {sessionMinor} : {}),
     ...(interactive ? {interactive: true, report: readReport(dir)} : {}),
     lastInputAt: mtime(join(dir, "session.input")),
+    lastHumanInputAt: mtime(join(dir, "session.human-input")),
     pid, startedAt: num(join(dir, "started")), exit, stdoutBytes, stderrBytes,
     lastOutputAt: times.length ? Math.max(...times) : null,
     alive: exit === null && pid !== null && wrapperAlive(pid, dir),
@@ -257,14 +268,21 @@ export async function readRunAsync(dir: string): Promise<RunState> {
 
   const interactive = interactiveExists;
   const alive = exit === null && pid !== null && wrapperAlive(pid, dir);
+  const sessionMinor = interactive ? readSessionVersion(dir)?.versions[1] : undefined;
 
-  const inputStat = await stat(join(dir, "session.input")).catch(() => null);
+  const [inputStat, humanInputStat] = await Promise.all([
+    stat(join(dir, "session.input")).catch(() => null),
+    stat(join(dir, "session.human-input")).catch(() => null),
+  ]);
   const lastInputAt = inputStat?.mtimeMs !== undefined ? inputStat.mtimeMs / 1000 : null;
+  const lastHumanInputAt = humanInputStat?.mtimeMs !== undefined ? humanInputStat.mtimeMs / 1000 : null;
 
   return {
     ...(interactive && controller ? { controller } : {}),
+    ...(sessionMinor ? { sessionMinor } : {}),
     ...(interactive ? { interactive: true, report: readReport(dir) } : {}),
     lastInputAt,
+    lastHumanInputAt,
     pid, startedAt: await readNumber(join(dir, "started")), exit, stdoutBytes, stderrBytes,
     lastOutputAt: times.length ? Math.max(...times) : null,
     alive,

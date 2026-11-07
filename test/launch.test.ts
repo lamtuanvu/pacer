@@ -35,7 +35,7 @@ test("codex: prompt on stdin, last message to a file, optional model", () => {
 
 test("cursor, agy, claude: prompt as the last argument, cwd = repo", () => {
   expect(launchFor(s.providers.cursor, "P", "/repo", "/t", ID)).toEqual({
-    cwd: "/repo", argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--sandbox", "disabled", "--workspace", "/repo", "--model", "sonnet-4", "P"],
+    cwd: "/repo", argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--trust", "--sandbox", "disabled", "--workspace", "/repo", "--model", "sonnet-4", "P"],
   });
   expect(launchFor(s.providers.agy, "P", "/repo", "/t", ID)).toEqual({
     cwd: "/repo", argv: ["agy", "--dangerously-skip-permissions", "--add-dir", "/repo", "-p", "P"],
@@ -125,7 +125,7 @@ test("Codex trusts only this invocation's worktree through a config override", (
 for (const [id, flags] of Object.entries({
   codex: ["--dangerously-bypass-approvals-and-sandbox"],
   "claude-code": ["--dangerously-skip-permissions"],
-  cursor: ["--force", "--sandbox", "disabled"],
+  cursor: ["--force", "--trust", "--sandbox", "disabled"],
   agy: ["--dangerously-skip-permissions"],
   "opencode#byteplus": ["--auto"],
 })) {

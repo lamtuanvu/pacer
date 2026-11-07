@@ -1324,10 +1324,14 @@ name = "pacer-config-ops"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "icu_collator",
  "pacer-config",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
+ "pacer-repos",
  "pacer-store",
+ "ryu-js",
  "serde_json",
  "tempfile",
  "tokio",
@@ -1346,8 +1350,12 @@ dependencies = [
 name = "pacer-discovery-ops"
 version = "0.0.0"
 dependencies = [
+ "hex",
  "pacer-foundation",
+ "rand 0.9.5",
+ "regex",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
 ]
@@ -1365,12 +1373,14 @@ dependencies = [
 name = "pacer-dispatch-ops"
 version = "0.0.0"
 dependencies = [
+ "icu_collator",
  "nix",
  "pacer-config",
  "pacer-foundation",
  "pacer-lifecycle",
  "pacer-store",
  "rusqlite",
+ "ryu-js",
  "serde_json",
  "tempfile",
  "tokio",
@@ -1419,6 +1429,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-issues"
+version = "0.0.0"
+dependencies = [
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "pacer-repos",
+ "regex",
+ "rustix",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "pacer-js-json"
 version = "0.1.0"
 dependencies = [
@@ -1433,13 +1459,13 @@ version = "0.1.0"
 dependencies = [
  "icu_collator",
  "pacer-foundation",
+ "pacer-repos",
  "pacer-store",
  "regex",
  "rusqlite",
  "ryu-js",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "thiserror",
  "url",
@@ -1485,6 +1511,7 @@ dependencies = [
  "pacer-store",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1666,6 +1693,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-repos"
+version = "0.1.0"
+dependencies = [
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-js-json",
+ "pacer-store",
+ "ryu-js",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "pacer-server"
 version = "0.0.0"
 dependencies = [
@@ -1690,6 +1731,7 @@ dependencies = [
  "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
+ "pacer-issues",
  "pacer-lifecycle",
  "pacer-machine-ops",
  "pacer-mdns",
@@ -1752,6 +1794,7 @@ dependencies = [
  "rusqlite",
  "rustix",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
 ]
