@@ -84,6 +84,11 @@ pub fn default_dispatch_config() -> Value {
     crate::sections::dispatch(&crate::yaml_value::Value::from(&json!({})))
         .map_or(Value::Null, |config| config.to_json())
 }
+/// `parseMessagingConfig(undefined)`: the messaging configuration without a strategy override.
+pub fn default_messaging_config() -> Value {
+    crate::sections::messaging(&crate::yaml_value::Value::from(&json!({})))
+        .map_or(Value::Null, |config| config.to_json())
+}
 pub fn list_strategies(home: &Path) -> Result<Vec<String>, StrategyError> {
     let mut names = vec!["default".to_owned()];
     match fs::read_dir(home.join("strategies")) {

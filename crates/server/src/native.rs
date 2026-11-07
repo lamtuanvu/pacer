@@ -349,6 +349,10 @@ static OPS: &[NativeOp] = &[
         call: msg_ops::msg_read,
     },
     NativeOp {
+        name: "msg.policy",
+        call: msg_ops::msg_policy,
+    },
+    NativeOp {
         name: "dispatch.config.get",
         call: dispatch_ops::dispatch_config_get,
     },

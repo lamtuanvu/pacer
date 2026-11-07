@@ -58,9 +58,9 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 3 | `pacer-config` (`crates/config`) | Strategy, YAML editor, config areas (publishes config changes through `pacer-store`) | 3,000–3,800 | none |
 | 2 | `pacer-discovery-ops` (`crates/discovery-ops`) | Native LAN discovery write operation handlers (`discovery.set`, `discovery.respond`) | ≤ 800 | none |
 | 3 | `pacer-machine-ops` (`crates/machine-ops`) | Machine identity store, key rotation and the native `machine.*` operation handlers | ≤ 1,500 | none |
-| 3 | `pacer-messaging-ops` (`crates/messaging-ops`) | Native project messaging read operation handlers (`msg.inbox`, `msg.log`, `msg.read`) over the message store | ≤ 1,000 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
 | 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities | 3,000–4,000 | `reqwest` |
+| 4 | `pacer-messaging-ops` (`crates/messaging-ops`) | Native project messaging read and policy operation handlers (`msg.inbox`, `msg.log`, `msg.read`, `msg.policy`) over the message store, strategy and project messaging documents | ≤ 1,000 | none |
 | 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations, settings reads and JSON compatibility | ≤ 5,000 | none |
 | 5 | `pacer-engine` (`crates/engine`) | Pacing, usage broker, status | 1,500–2,000 | none |
 | 5 | `pacer-install` (`crates/install`) | Setup, onboarding, agent integrations, accounts, Orca panel installer, executor guard | 3,500–4,500 | none |

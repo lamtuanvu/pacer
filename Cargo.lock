@@ -1479,9 +1479,11 @@ dependencies = [
 name = "pacer-messaging-ops"
 version = "0.0.0"
 dependencies = [
+ "pacer-config",
  "pacer-foundation",
  "pacer-store",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

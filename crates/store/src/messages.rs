@@ -132,6 +132,19 @@ pub fn mark_read(store: &mut TaskStore, to: &str, ids: &[&str], at: f64) -> Resu
     Ok(read)
 }
 
+/// `store.countSentSince`: messages `from` sent at or after `since` seconds.
+pub fn count_sent_since(store: &mut TaskStore, from: &str, since: f64) -> Result<i64> {
+    let db = store.connection()?;
+    if !has_table(db, "messages")? {
+        return Ok(0);
+    }
+    Ok(db.query_row(
+        "SELECT COUNT(*) FROM messages WHERE sender=? AND created_at>=?",
+        rusqlite::params![from, since],
+        |r| r.get(0),
+    )?)
+}
+
 /// `taskOf`: the task id of a `task:` participant; an empty id is no task.
 pub fn task_of(participant: &str) -> Option<&str> {
     participant
@@ -262,6 +275,25 @@ mod tests {
         let row = inbox(&mut store, "task:a", false, None).unwrap();
         assert_eq!(row[0]["status"], "read");
         assert_eq!(row[0]["readAt"], json!(5));
+    }
+
+    #[test]
+    fn counts_sent_messages_from_a_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut empty = TaskStore::open(dir.path()).unwrap();
+        assert_eq!(count_sent_since(&mut empty, "human", 0.0).unwrap(), 0);
+        let (_dir, mut store) = store();
+        insert(&mut store, "m-1", None, "task:a", "pending");
+        insert(&mut store, "m-2", None, "task:a", "held");
+        assert_eq!(
+            count_sent_since(&mut store, "human", 1_700_000_000.5).unwrap(),
+            2
+        );
+        assert_eq!(
+            count_sent_since(&mut store, "human", 1_700_000_001.0).unwrap(),
+            0
+        );
+        assert_eq!(count_sent_since(&mut store, "task:a", 0.0).unwrap(), 0);
     }
 
     #[test]
