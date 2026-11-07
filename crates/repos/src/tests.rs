@@ -172,3 +172,109 @@ fn branches_put_the_current_branch_first() {
     let missing = empty.path().join("none").to_string_lossy().into_owned();
     assert!(read_branches(home.path(), &missing).unwrap().is_empty());
 }
+
+fn git_in(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(status.status.success(), "{args:?}");
+}
+
+fn checkout(root: &Path, name: &str) -> String {
+    let path = root.join(name);
+    fs::create_dir(&path).unwrap();
+    git_in(&path, &["init", "-q", "-b", "main"]);
+    git_in(&path, &["commit", "-q", "--allow-empty", "-m", "x"]);
+    fs::canonicalize(path)
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[test]
+fn add_registers_origin_keys_and_linked_checkout_aliases() {
+    let root = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let c = ctx(home.path(), 1_700_000_000.5);
+    let app = checkout(root.path(), "app");
+    git_in(
+        Path::new(&app),
+        &["remote", "add", "origin", "git@GitHub.com:Acme/App.git"],
+    );
+    let wt = format!("{app}-wt");
+    git_in(Path::new(&app), &["worktree", "add", "-q", &wt]);
+    let repo = add_repo(&c, &format!("{wt}/")).unwrap();
+    assert_eq!(
+        serde_json::to_string(&repo).unwrap(),
+        format!(r#"{{"key":"github.com/acme/app","path":"{app}","label":"acme/app"}}"#)
+    );
+    assert_eq!(
+        fs::read_to_string(home.path().join("state/repos.json")).unwrap(),
+        format!(
+            r#"{{"{app}":{{"key":"github.com/acme/app","path":"{app}","lastUsed":1700000000.5}}}}"#
+        )
+    );
+    assert_eq!(
+        fs::read_to_string(home.path().join("state/repo-paths.json")).unwrap(),
+        format!(r#"{{"{wt}":"{app}"}}"#)
+    );
+    assert_eq!(repo_key_for(home.path(), &wt), "github.com/acme/app");
+}
+
+#[test]
+fn add_without_origin_keeps_the_local_key_and_refuses_other_paths() {
+    let root = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let c = ctx(home.path(), 7.0);
+    let tool = checkout(root.path(), "tool");
+    let local = local_key(&tool);
+    let repo = add_repo(&c, &tool).unwrap();
+    assert_eq!(repo, json!({"key": local, "path": tool, "label": "tool"}));
+    // A known checkout without origin keeps its saved key.
+    fs::write(
+        home.path().join("state/repos.json"),
+        format!(r#"{{"{tool}":{{"key":"github.com/a/tool","path":"{tool}","lastUsed":1}}}}"#),
+    )
+    .unwrap();
+    assert_eq!(add_repo(&c, &tool).unwrap()["key"], "github.com/a/tool");
+    git_in(
+        Path::new(&tool),
+        &["remote", "add", "origin", "file:///srv/tool.git"],
+    );
+    assert_eq!(add_repo(&c, &tool).unwrap()["key"], "github.com/a/tool");
+    for (path, message) in [
+        ("relative", "path must be absolute"),
+        ("/", "path is not a git repository"),
+    ] {
+        assert_eq!(add_repo(&c, path).unwrap_err().message, message);
+    }
+}
+
+#[test]
+fn unresolved_identity_is_unverified_or_refused_when_strict() {
+    let root = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let c = ctx(home.path(), 7.0);
+    let plain = root.path().join("plain");
+    fs::create_dir(&plain).unwrap();
+    let plain = plain.to_string_lossy().into_owned();
+    let repo = register_repo(&c, &plain, false).unwrap();
+    let keys: Vec<&String> = repo.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["key", "label", "path", "identityUnverified"]);
+    assert_eq!(repo["label"], "plain");
+    let strict = register_repo(&c, &format!("{plain}/missing"), true).unwrap_err();
+    assert_eq!(
+        strict.message,
+        "Cannot establish repository identity for project routing"
+    );
+    assert!(!home.path().join("state/repos.json").exists());
+    let real = fs::canonicalize(root.path()).unwrap();
+    assert_eq!(
+        canonical(&format!("{plain}/missing/x")).unwrap(),
+        format!("{}/plain/missing/x", real.display())
+    );
+}

@@ -68,7 +68,7 @@ use pacer_config_ops::{project_strategy_ops, repo_registry_ops};
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 
-/// `repo.list` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
+/// `repo.list`, `repo.add` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
 pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     repo_registry_ops::repo_list_stays_forwarded(ctx, op)
         || project_strategy_ops::project_strategy_stays_forwarded(ctx, op, params)
@@ -333,7 +333,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "repo.add",
-        call: p8_bridge_ops::bridge_stub,
+        call: repo_registry_ops::repo_add,
     },
     NativeOp {
         name: "repo.remove",

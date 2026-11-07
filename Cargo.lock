@@ -1327,6 +1327,7 @@ dependencies = [
  "pacer-config",
  "pacer-foundation",
  "pacer-lifecycle",
+ "pacer-repos",
  "pacer-store",
  "serde_json",
  "tempfile",
@@ -1434,13 +1435,13 @@ version = "0.1.0"
 dependencies = [
  "icu_collator",
  "pacer-foundation",
+ "pacer-repos",
  "pacer-store",
  "regex",
  "rusqlite",
  "ryu-js",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "thiserror",
  "url",
@@ -1665,6 +1666,20 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "pacer-repos"
+version = "0.1.0"
+dependencies = [
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-js-json",
+ "pacer-store",
+ "ryu-js",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

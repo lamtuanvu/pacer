@@ -12,6 +12,7 @@ pacer-foundation = { path = "../foundation" }
 pacer-config = { path = "../config" }
 pacer-store = { path = "../store" }
 pacer-lifecycle = { path = "../lifecycle" }
+pacer-repos = { path = "../repos" }
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 
 [dev-dependencies]

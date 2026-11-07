@@ -123,11 +123,13 @@ test("native repository ops forward Core-only inputs", () => {
   const home = mkdtempSync(join(tmpdir(), "native-rr-"));
   registry(home);
   const run = (op: string, params: unknown) => JSON.parse(execFileSync(driver(), [], {input: JSON.stringify({op, params, home, now: NOW}) + "\n"}).toString());
-  // Absolute checkouts need git identity; unusual registries and unusable policy files keep TypeScript's reader and errors.
-  expect(run("project.strategy.get", {repo: join(home, "app")})).toEqual({forwarded: true});
+  // Absolute checkouts resolve natively; unusual registries and unusable policy files keep TypeScript's reader and errors.
+  expect(run("project.strategy.get", {repo: join(home, "app")})).not.toHaveProperty("forwarded");
+  expect(run("repo.add", {path: join(home, "app")})).not.toHaveProperty("forwarded");
   expect(run("project.strategy.list", {})).not.toHaveProperty("forwarded");
   writeFileSync(join(home, "project-strategies.json"), "{broken");
   expect(run("project.strategy.list", {})).toEqual({forwarded: true});
   writeFileSync(join(home, "state/repos.json"), JSON.stringify({"/x": {key: "k", path: "relative"}}));
   expect(run("repo.list", {})).toEqual({forwarded: true});
+  expect(run("repo.add", {path: join(home, "app")})).toEqual({forwarded: true});
 });
