@@ -702,6 +702,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             if (localPlacement) current.placement = { requested: current.placement?.requested ?? "auto",
               ...current.placement, mode: localPlacement.mode, why: localPlacement.why };
           });
+          // No poller writes owned progress, so the mark a lost owner left would outlive this reattach.
+          else task = updateTask(ctx, id, current => {
+            if (current.progress?.phase === "lost-contact") delete current.progress;
+          });
           out = await (ownedRemote ? runOwnedDirectRemote(executionCtx, cfg, task)
             : ownedResume ? resumeOwnedDirect(executionCtx, cfg, task)
               : ownedNew ? runOwnedDirectNew(executionCtx, cfg, task)

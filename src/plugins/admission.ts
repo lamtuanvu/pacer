@@ -43,7 +43,12 @@ export class CallAdmission {
               if (!reason && Date.now() >= deadlineAt) reason = new CoreError("plugin_timeout", "plugin call completed after its absolute deadline");
               finish(); if (reason) reject(reason); else resolve(value);
             },
-            failure => { finish(); reject(reason ?? failure); },
+            failure => {
+              // The owner shares this deadline and may observe it first (late timers, an earlier poll),
+              // ending the work as "owning plugin call ended"; that is still this call's timeout.
+              if (!reason && Date.now() >= deadlineAt) reason = new CoreError("plugin_timeout", "plugin call passed its absolute deadline");
+              finish(); reject(reason ?? failure);
+            },
           ).finally(() => { this.active--; this.queued.shift()?.start(); });
         },
       };
