@@ -527,7 +527,7 @@ pub fn msg_policy(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             .and_then(|v| p.pattern("task", Some(v), is_task_id, TASK_ID));
         let send = p.map.get("check").and_then(|v| p.send(v));
         p.finish(&["task", "check"])?;
-        let mut store = open(ctx)?;
+        let mut store = policy::Store::new(&ctx.pacer_home);
         let anchor = match (task, &send) {
             (Some(task), _) => Some(format!("task:{task}")),
             (None, Some(s)) if messages::task_of(s.to).is_some() => Some(s.to.to_owned()),
@@ -535,13 +535,12 @@ pub fn msg_policy(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             (None, None) => None,
         };
         let root = anchor
-            .map(|a| messages::root_of(&mut store, &a))
+            .map(|a| policy::root(&mut store, &a))
             .transpose()
             .map_err(store_error)?;
-        let home = &ctx.pacer_home;
-        let mut out = policy::effective(home, &mut store, root.as_deref()).map_err(store_error)?;
+        let mut out = policy::effective(&mut store, root.as_deref()).map_err(store_error)?;
         if let Some(send) = send {
-            out["check"] = policy::check(home, &mut store, ctx.now, &send).map_err(store_error)?;
+            out["check"] = policy::check(&mut store, ctx.now, &send).map_err(store_error)?;
         }
         Ok(out)
     })

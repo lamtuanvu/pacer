@@ -34,14 +34,14 @@ fn setup(yaml: &str) -> (tempfile::TempDir, TaskStore) {
     (dir, store)
 }
 
-fn run(dir: &tempfile::TempDir, store: &mut TaskStore, from: &str, to: &str, grant: bool) -> Value {
+fn run(dir: &tempfile::TempDir, from: &str, to: &str, grant: bool) -> Value {
     let send = Send {
         from,
         to,
         kind: "message",
         grant,
     };
-    check(dir.path(), store, 100.0, &send).unwrap()
+    check(&mut Store::new(dir.path()), 100.0, &send).unwrap()
 }
 
 fn t(id: &str) -> String {
@@ -51,8 +51,8 @@ fn t(id: &str) -> String {
 #[test]
 fn defaults_apply_without_a_strategy() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = TaskStore::open(dir.path()).unwrap();
-    let policy = effective(dir.path(), &mut store, None).unwrap();
+    let mut store = Store::new(dir.path());
+    let policy = effective(&mut store, None).unwrap();
     assert_eq!(policy["config"], strategy::default_messaging_config());
     let layers: Vec<_> = policy["rules"]
         .as_array()
@@ -69,24 +69,18 @@ fn defaults_apply_without_a_strategy() {
 
 #[test]
 fn default_guardrail_relations() {
-    let (dir, mut store) = setup("");
-    let decide = |store: &mut TaskStore, from: &str, to: &str, grant: bool| {
-        let r = run(&dir, store, from, to, grant);
+    let (dir, _store) = setup("");
+    let decide = |from: &str, to: &str, grant: bool| {
+        let r = run(&dir, from, to, grant);
         r["decision"].as_str().unwrap().to_owned() + "/" + r["rule"].to_string().as_str()
     };
-    assert_eq!(
-        decide(&mut store, "external:claude-code", &t(TOP), false),
-        "allow/2"
-    );
-    assert_eq!(decide(&mut store, &t(A), &t(TOP), false), "allow/3");
-    assert_eq!(decide(&mut store, &t(A), &t(B), true), "allow/4");
-    assert_eq!(
-        decide(&mut store, "external:claude-code", &t(USER), false),
-        "allow/2"
-    );
-    assert_eq!(decide(&mut store, "human", &t(A), false), "allow/0");
-    assert_eq!(decide(&mut store, &t(A), "human", false), "allow/1");
-    let sibling = run(&dir, &mut store, &t(A), &t(B), false);
+    assert_eq!(decide("external:claude-code", &t(TOP), false), "allow/2");
+    assert_eq!(decide(&t(A), &t(TOP), false), "allow/3");
+    assert_eq!(decide(&t(A), &t(B), true), "allow/4");
+    assert_eq!(decide("external:claude-code", &t(USER), false), "allow/2");
+    assert_eq!(decide("human", &t(A), false), "allow/0");
+    assert_eq!(decide(&t(A), "human", false), "allow/1");
+    let sibling = run(&dir, &t(A), &t(B), false);
     assert_eq!(
         sibling["error"]["message"],
         format!(
@@ -97,15 +91,9 @@ fn default_guardrail_relations() {
         serde_json::to_string(&sibling["error"]["data"]).unwrap(),
         r#"{"reason":"msg_forbidden","layer":"none","relation":"sibling","closest":{"rule":4,"layer":"default","grant":"required"}}"#
     );
-    let unrelated = run(&dir, &mut store, &t(A), &t(USER), false);
+    let unrelated = run(&dir, &t(A), &t(USER), false);
     assert!(unrelated["error"]["data"].get("closest").is_none());
-    let missing = run(
-        &dir,
-        &mut store,
-        "human",
-        "task:t-20990101-000000-ffff",
-        false,
-    );
+    let missing = run(&dir, "human", "task:t-20990101-000000-ffff", false);
     assert_eq!(
         missing,
         json!({"decision":"deny","error":{"code":"not_found","message":"Unknown participant task:t-20990101-000000-ffff"}})
@@ -127,7 +115,7 @@ fn layers_merge_strategy_project_and_tree() {
             top["messaging"] = json!({"rules":[{"effect":"allow","from_position":"child","relation":["parent"],"limits":{"confirm":true,"per_minute":1}}],"max_turns":9.0});
         })
         .unwrap();
-    let policy = effective(dir.path(), &mut store, Some(&t(TOP))).unwrap();
+    let policy = effective(&mut Store::new(dir.path()), Some(&t(TOP))).unwrap();
     let layers: Vec<_> = policy["rules"]
         .as_array()
         .unwrap()
@@ -145,18 +133,12 @@ fn layers_merge_strategy_project_and_tree() {
         policy["config"]["rules"][0],
         json!({"effect":"deny","relation":["top_peer"]})
     );
-    let held = run(&dir, &mut store, &t(A), &t(TOP), false);
+    let held = run(&dir, &t(A), &t(TOP), false);
     assert_eq!(
         held,
         json!({"decision":"allow","hold":true,"rule":0,"layer":"tree"})
     );
-    let denied = run(
-        &dir,
-        &mut store,
-        "external:claude-code",
-        "external:other",
-        false,
-    );
+    let denied = run(&dir, "external:claude-code", "external:other", false);
     assert_eq!(
         denied["error"]["data"],
         json!({"reason":"msg_forbidden","layer":"global","rule":0,"relation":"top_peer"})
@@ -165,9 +147,17 @@ fn layers_merge_strategy_project_and_tree() {
         "INSERT INTO messages(id,root_id,sender,recipient,kind,body,status,created_at) VALUES('m','r',?,'x','message','b','pending',50)",
         [t(A)],
     ).unwrap();
-    let capped = run(&dir, &mut store, &t(A), &t(TOP), false);
+    let capped = run(&dir, &t(A), &t(TOP), false);
     assert_eq!(
         capped,
         json!({"decision":"deny","error":{"code":"conflict","message":"Message rate limit reached","data":{"reason":"msg_cap_reached","limit":"per_minute"}}})
     );
+}
+
+#[test]
+fn checks_without_tasks_leave_the_store_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = run(&dir, "human", "external:codex", false);
+    assert_eq!(r["decision"], "allow");
+    assert!(!dir.path().join("state").exists());
 }

@@ -56,12 +56,48 @@ fn js_numbers(value: &mut Value) {
     }
 }
 
+/// The task database, opened only when a task participant or a rate cap needs it:
+/// TypeScript touches it only then, so other requests succeed without a usable store.
+pub struct Store<'a> {
+    home: &'a Path,
+    db: Option<TaskStore>,
+}
+
+impl<'a> Store<'a> {
+    pub fn new(home: &'a Path) -> Self {
+        Self { home, db: None }
+    }
+
+    fn db(&mut self) -> Result<&mut TaskStore> {
+        let db = match self.db.take() {
+            Some(db) => db,
+            None => TaskStore::open(self.home)?,
+        };
+        Ok(self.db.insert(db))
+    }
+}
+
+fn parent(store: &mut Store<'_>, p: &str) -> Result<Option<String>> {
+    match task_of(p) {
+        Some(_) => parent_of(store.db()?, p),
+        None => Ok(None),
+    }
+}
+
+/// `rootOf`: a participant that is not a task is its own root.
+pub fn root(store: &mut Store<'_>, p: &str) -> Result<String> {
+    match task_of(p) {
+        Some(_) => root_of(store.db()?, p),
+        None => Ok(p.to_owned()),
+    }
+}
+
 /// `readTask` for a `task:` participant.
-fn read_task(store: &mut TaskStore, p: &str) -> Result<Option<Value>> {
+fn read_task(store: &mut Store<'_>, p: &str) -> Result<Option<Value>> {
     let Some(id) = task_of(p) else {
         return Ok(None);
     };
-    let mut task = store.read(id)?;
+    let mut task = store.db()?.read(id)?;
     if let Some(task) = task.as_mut() {
         js_numbers(task);
     }
@@ -103,7 +139,8 @@ fn layered(rules: Option<&Value>, layer: &str, out: &mut Vec<Value>) {
 }
 
 /// `effectivePolicy(ctx, { root })`: `{config, rules}`. An unusable project file stays forwarded.
-pub fn effective(home: &Path, store: &mut TaskStore, root: Option<&str>) -> Result<Value> {
+pub fn effective(store: &mut Store<'_>, root: Option<&str>) -> Result<Value> {
+    let home = store.home;
     let mut config = strategy_config(home);
     let root_task = match root {
         Some(root) => read_task(store, root)?,
@@ -142,35 +179,35 @@ pub fn effective(home: &Path, store: &mut TaskStore, root: Option<&str>) -> Resu
     Ok(json!({"config": config, "rules": rules}))
 }
 
-fn ancestors(store: &mut TaskStore, p: &str) -> Result<Vec<String>> {
+fn ancestors(store: &mut Store<'_>, p: &str) -> Result<Vec<String>> {
     let mut out = Vec::new();
-    let mut current = parent_of(store, p)?;
+    let mut current = parent(store, p)?;
     while let Some(node) = current
         .take()
         .filter(|n| !n.is_empty() && out.len() < MAX_DEPTH)
     {
-        current = parent_of(store, &node)?;
+        current = parent(store, &node)?;
         out.push(node);
     }
     Ok(out)
 }
 
 /// `isTop`: an identified external agent, or a task whose parent is the human.
-fn is_top(store: &mut TaskStore, p: &str) -> Result<bool> {
+fn is_top(store: &mut Store<'_>, p: &str) -> Result<bool> {
     Ok(match participant_kind(p) {
         "external" => p != "external:local",
         "human" => false,
-        _ => parent_of(store, p)?.as_deref() == Some("human"),
+        _ => parent(store, p)?.as_deref() == Some("human"),
     })
 }
 
 /// `relation(ctx, from, to)`.
-fn relation(store: &mut TaskStore, from: &str, to: &str) -> Result<&'static str> {
+fn relation(store: &mut Store<'_>, from: &str, to: &str) -> Result<&'static str> {
     if from == to {
         return Ok("self");
     }
-    let from_parent = parent_of(store, from)?;
-    let to_parent = parent_of(store, to)?;
+    let from_parent = parent(store, from)?;
+    let to_parent = parent(store, to)?;
     if from_parent.as_deref() == Some(to) {
         return Ok("parent");
     }
@@ -192,10 +229,7 @@ fn relation(store: &mut TaskStore, from: &str, to: &str) -> Result<&'static str>
     if ancestors(store, from)?.iter().any(|a| a == to) {
         return Ok("ancestor");
     }
-    if task_of(from).is_some()
-        && task_of(to).is_some()
-        && root_of(store, from)? == root_of(store, to)?
-    {
+    if task_of(from).is_some() && task_of(to).is_some() && root(store, from)? == root(store, to)? {
         return Ok("same_tree");
     }
     Ok("none")
@@ -218,14 +252,14 @@ fn deny(code: &str, message: String, data: Option<Value>) -> Value {
 }
 
 /// `checkSend`, with its `CoreError` reported as `{decision: "deny", error}`.
-pub fn check(home: &Path, store: &mut TaskStore, now: f64, s: &Send<'_>) -> Result<Value> {
+pub fn check(store: &mut Store<'_>, now: f64, s: &Send<'_>) -> Result<Value> {
     let anchor = if task_of(s.to).is_some() {
         s.to
     } else {
         s.from
     };
-    let root = root_of(store, anchor)?;
-    let policy = effective(home, store, Some(&root))?;
+    let root = root(store, anchor)?;
+    let policy = effective(store, Some(&root))?;
     let rules = policy["rules"].as_array().cloned().unwrap_or_default();
     let rel = relation(store, s.from, s.to)?;
     let position = if is_top(store, s.from)? {
@@ -314,7 +348,8 @@ pub fn check(home: &Path, store: &mut TaskStore, now: f64, s: &Send<'_>) -> Resu
     if let Some(cap) = limits
         .and_then(|l| l.get("per_minute"))
         .filter(|v| truthy(Some(v)))
-        && (count_sent_since(store, s.from, now - 60.0)? as f64) >= cap.as_f64().unwrap_or(f64::NAN)
+        && (count_sent_since(store.db()?, s.from, now - 60.0)? as f64)
+            >= cap.as_f64().unwrap_or(f64::NAN)
     {
         let data = json!({"reason": "msg_cap_reached", "limit": "per_minute"});
         return Ok(deny(

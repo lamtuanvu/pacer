@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
@@ -135,3 +135,21 @@ test.skipIf(!front)("stdio msg.policy matches the TypeScript core byte for byte"
     }
   }
 }, 180000);
+
+test.skipIf(!front)("stdio msg.policy opens the task store only for task participants", async () => {
+  const requests = [rpc(2, {}), rpc(3, { check: { from: "human", to: "external:codex", kind: "message" } }), rpc(4, { check: { from: "external:a", to: "external:b", kind: "nudge" } })];
+  const homes = [false, true].map(() => realpathSync(mkdtempSync(join(process.platform === "win32" ? tmpdir() : "/tmp", "mp-"))));
+  try {
+    const [native, forwarded] = await Promise.all(homes.map(async (home, n) => {
+      mkdirSync(join(home, ".pacer"), { recursive: true });
+      writeFileSync(join(home, ".pacer/strategy.yaml"), STRATEGY);
+      const out = await stdio(home, {}, requests, n === 1);
+      return { ...out, db: existsSync(join(home, ".pacer/state/tasks.db")) };
+    }));
+    expect(native!.markers).toEqual(["native msg.policy 2", "native msg.policy 3", "native msg.policy 4"]);
+    expect(native!.lines).toEqual(forwarded!.lines);
+    expect(native!.db).toBe(forwarded!.db);
+  } finally {
+    for (const home of homes) rmSync(home, { recursive: true, force: true });
+  }
+}, 60000);
