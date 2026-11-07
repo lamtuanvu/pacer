@@ -164,9 +164,17 @@ pub fn notify(c: &Value) -> notify::Report {
         if state.get(&candidate.key).is_some() {
             continue;
         }
-        let delivered = if truth(&c["notifier"]) {
-            let mut data = candidate.data;
-            data.client_id = Some(s(&c["notifier"]["client_id"]).into());
+        let mut data = candidate.data;
+        let presenters = if truth(&c["notifier"]) {
+            vec![json!({
+                "client_id": s(&c["notifier"]["client_id"]),
+                "kind": "desktop",
+                "medium": "os",
+            })]
+        } else {
+            vec![]
+        };
+        let delivered = if assign_presenters(&mut data, &presenters) {
             let make = |data: Data| NotificationEvent {
                 kind: "entity",
                 data: EventData {
@@ -182,7 +190,7 @@ pub fn notify(c: &Value) -> notify::Report {
             }
             delivered
         } else {
-            let data = plugin_message(&candidate.data);
+            let data = plugin_message(&data);
             let ids: Vec<_> = c
                 .get("notifiers")
                 .map(a)

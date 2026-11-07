@@ -67,6 +67,8 @@ import type { ExecutorRow } from "../../../../src/api/read-model/types";
 import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
+import { platform } from "../../platform";
+import { browserNotificationPermission, requestBrowserNotificationPermission, showBrowserNotificationOffer, type BrowserPermission } from "../../data/service-notifier";
 import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import type { ConfigData, StrategyRow } from "../../model/strategy";
 import type { RoutingRules } from "../../model/executors";
@@ -456,9 +458,25 @@ function NotificationsSection({
             onChange={change}
           />}</ImmediateSetting>
         </SettingRow>
-
+        <BrowserNotificationOffer level={query.data?.level ?? ""} />
       </ResourceState>
     </section>
+  );
+}
+function BrowserNotificationOffer({ level }: { level: string }) {
+  const [permission, setPermission] = useState<BrowserPermission>(browserNotificationPermission);
+  const [asked, setAsked] = useState(false);
+  const askedRef = useRef(false);
+  if (asked || !showBrowserNotificationOffer(level, platform.desktop, permission)) return null;
+  return (
+    <SettingRow variant="board" label="Browser notifications" description="This browser shows them after you allow it.">
+      <Button size="sm" onClick={() => {
+        if (askedRef.current) return;
+        askedRef.current = true;
+        setAsked(true);
+        void requestBrowserNotificationPermission().then(next => setPermission(next));
+      }}>Allow browser notifications</Button>
+    </SettingRow>
   );
 }
 function AppearanceSection() {

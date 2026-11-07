@@ -43,7 +43,9 @@ export interface Counts {
 export interface Today { since: number; done: number; accepted: number; rejected: number; failed: number; byRepo: Record<string, number> }
 export interface HostSummary { alias: string; ssh: string; state: "unknown" | "paused" | "down" | "checking" | "needs_setup" | "ready"; running: number; maxTasks: number; executors: string[]; repos: number }
 export interface SetupSummary { policy?: import("../../view-model/words").PolicySummary; complete: boolean; ready?: boolean; open: number; items: import("../../setup/checklist").SetupItem[] }
-export interface ServiceInfo { projectStrategyError?: string; version: string; protocol: string; pid: number; startedAt: number; starting?: true; waiting?: import("../../core/path-probe").Waiting; notifier: { client_id: string; kind: import("../../clients/registry").ClientEntry["kind"] } | null }
+export type PresenterRef = { client_id: string; kind: import("../../clients/registry").ClientEntry["kind"] };
+export type ServiceNotifiers = { os: PresenterRef | null; terminal: PresenterRef | null; browser: PresenterRef | null };
+export interface ServiceInfo { projectStrategyError?: string; version: string; protocol: string; pid: number; startedAt: number; starting?: true; waiting?: import("../../core/path-probe").Waiting; /** Additive; absent on older snapshots and fixtures. Production always sets it. */ notifiers?: ServiceNotifiers; notifier: PresenterRef | null }
 export interface ReadModelFields {
  policy: import("../../view-model/words").PolicySummary;
  desktopUpdates?: import("../../update/desktop/types").UpdateStatus[];

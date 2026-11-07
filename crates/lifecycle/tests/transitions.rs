@@ -5,6 +5,58 @@ fn job() -> Value {
     json!({"id":"j","kind":"host.check","target":"host","state":"running","steps":[{"name":"A","state":"running"},{"name":"B","state":"pending"}],"startedAt":1,"pid":42,"cancellable":true})
 }
 #[test]
+fn delivery_presenters_pick_one_per_medium_and_drop_browser_when_os_live() {
+    let mut rows = vec![];
+    clients::register(
+        &mut rows,
+        &json!({"kind":"app","version":"1","notifier":true}),
+        "app",
+        0.0,
+    );
+    clients::register(
+        &mut rows,
+        &json!({"kind":"tui","version":"1","notifier":true}),
+        "tui",
+        1.0,
+    );
+    clients::register(
+        &mut rows,
+        &json!({"kind":"desktop","version":"1","notifier":true}),
+        "desktop",
+        2.0,
+    );
+    let presenters = clients::presenters(&rows, 2.0).as_array().unwrap().clone();
+    assert_eq!(presenters.len(), 2);
+    assert!(
+        presenters
+            .iter()
+            .any(|p| p["medium"] == "os" && p["client_id"] == "desktop")
+    );
+    assert!(
+        presenters
+            .iter()
+            .any(|p| p["medium"] == "terminal" && p["client_id"] == "tui")
+    );
+    assert!(!presenters.iter().any(|p| p["medium"] == "browser"));
+}
+
+#[test]
+fn delivery_presenters_include_browser_when_only_app_live() {
+    let mut rows = vec![];
+    clients::register(
+        &mut rows,
+        &json!({"kind":"app","version":"1","notifier":true}),
+        "app-only",
+        0.0,
+    );
+    let presenters = clients::presenters(&rows, 0.0);
+    assert_eq!(
+        presenters,
+        json!([{"client_id":"app-only","kind":"app","medium":"browser"}])
+    );
+}
+
+#[test]
 fn waking_client_renews_without_changing_notifier_priority() {
     let mut rows = vec![];
     let options = json!({"kind":"desktop","version":"1","notifier":true});
@@ -140,6 +192,40 @@ fn utf16_serialization_preserves_a_split_surrogate() {
     let text = JsText::new("a😀b").slice(2);
     assert_eq!(text.0, vec![0x61, 0xd83d]);
     assert_eq!(serde_json::to_string(&text).unwrap(), r#""\u0061\ud83d""#);
+}
+#[test]
+fn assign_presenters_records_recipients_and_prefers_the_os_client_id() {
+    let mut data = notify::Data {
+        key: "k".into(),
+        title: JsText::new("t"),
+        body: JsText::new("b"),
+        actions: vec![],
+        url: "/".into(),
+        recipients: None,
+        client_id: None,
+    };
+    let rows = json!([
+        {"client_id": "term", "medium": "terminal"},
+        {"client_id": "desk", "medium": "os"}
+    ]);
+    assert!(notify::assign_presenters(
+        &mut data,
+        rows.as_array().unwrap()
+    ));
+    assert_eq!(data.recipients, Some(vec!["term".into(), "desk".into()]));
+    assert_eq!(data.client_id.as_deref(), Some("desk"));
+    let app = json!([{"client_id": "browser", "medium": "browser"}]);
+    assert!(notify::assign_presenters(
+        &mut data,
+        app.as_array().unwrap()
+    ));
+    assert_eq!(data.recipients, Some(vec!["browser".into()]));
+    assert_eq!(data.client_id.as_deref(), Some("browser"));
+    data.recipients = None;
+    data.client_id = None;
+    assert!(!notify::assign_presenters(&mut data, &[]));
+    assert!(data.recipients.is_none());
+    assert!(data.client_id.is_none());
 }
 #[test]
 fn notifier_suppresses_duplicate_candidates_and_seven_day_boundary_is_inclusive() {
