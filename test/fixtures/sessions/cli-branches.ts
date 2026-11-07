@@ -48,6 +48,7 @@ for (const scenario of [
   "attach-open-failed",
   "attach-control",
   "attach-replay-attempt",
+  "attach-read-only",
 ]) {
   state =
     scenario === "takeover-starting"
@@ -73,7 +74,9 @@ for (const scenario of [
             ? ["--control", "--force"]
             : scenario === "attach-replay-attempt"
               ? ["--replay", "--attempt", "2"]
-              : []),
+              : scenario === "attach-read-only"
+                ? ["--read-only"]
+                : []),
       ];
   rows.push({
     scenario,

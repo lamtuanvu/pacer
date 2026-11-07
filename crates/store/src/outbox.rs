@@ -212,6 +212,9 @@ fn parse_task(data: &Value) -> Option<Value> {
             && session.get("viewers").is_some_and(number)
         {
             row["session"] = json!({"host":session["host"],"live":session["live"],"controller":optional_string(session,"controller",64),"viewers":session["viewers"].as_f64().unwrap_or(0.0).floor().clamp(0.0,99.0) as u64});
+            if session.get("active").is_some() {
+                row["session"]["active"] = json!(optional_string(session, "active", 64));
+            }
         }
     }
     if data.get("terminalPresent").is_some_and(Value::is_boolean) {

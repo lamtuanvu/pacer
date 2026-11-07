@@ -31,6 +31,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "desktop.update.cancel",
     "desktop.update.configure",
     "task.takeover",
+    "task.hand_back",
     "service.install",
     "onboarding.skip",
     "onboarding.try",

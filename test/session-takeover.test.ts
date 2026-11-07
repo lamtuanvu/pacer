@@ -180,29 +180,50 @@ test("takeover release key explains the handback before sending release",()=>{
  expect(events).toEqual(["Releasing hands the task back for review.\n","release"]);
 });
 
-test.skipIf(!canInspect)("controller release hands the task to verification; disconnect leaves it driving",async()=>{
+test("on a 1.2 takeover host Ctrl-] h hands the task back; r explains the key; other sessions type h",()=>{
+ const run=(takeover:boolean,shared:boolean)=>{
+  const events:string[]=[],sent:Buffer[]=[];let handed=0;
+  const keys=new AttachKeys(b=>sent.push(b),m=>events.push(m),takeover,false,()=>{handed++;});
+  if(shared)keys.sharedHost();else keys.setControl(true);
+  keys.push(Buffer.from([0x61,29,114,29,104,0x62]));
+  return {events,handed,frames:new WireDecoder().push(Buffer.concat(sent)).map(f=>[f.type,f.data.toString()])};
+ };
+ expect(run(true,true)).toEqual({events:["Press Ctrl-] h to hand the task back for review.\n"],handed:1,frames:[[FrameType.input,"a"],[FrameType.input,"b"]]});
+ expect(run(false,true)).toMatchObject({handed:0,frames:[[FrameType.input,"a"],[FrameType.input,"\x1dhb"]]});
+ // A 1.1 host keeps release on r; h stays an ordinary key.
+ expect(run(true,false)).toMatchObject({handed:0,frames:[[FrameType.input,"a"],[FrameType.release,"{}"],[FrameType.input,"\x1dhb"]]});
+ const readOnly=new AttachKeys(()=>{throw Error("read-only sent");},()=>{},true,true,()=>{throw Error("read-only handed back");});
+ readOnly.sharedHost();readOnly.push(Buffer.from([29,104]));
+});
+
+test.skipIf(!canInspect)("on a 1.2 host a 1.1 client's release hands the task to verification; disconnect leaves it driving",async()=>{
  const {ctx,task,deps}=fixture();
  const running=runTask(ctx,task.id,deps);
  let socket:ReturnType<typeof createConnection>|undefined;
+ let taken=false;
  const connect=async(dir:string)=>{
-  const peer=createConnection(sessionSocket(dir));peer.on("error",()=>{});
+  const peer=createConnection(sessionSocket(dir)),decoder=new WireDecoder();peer.on("error",()=>{});taken=false;
+  peer.on("data",b=>{for(const f of decoder.push(Buffer.from(b)))if(f.type===FrameType.control&&JSON.parse(f.data.toString()).you)taken=true;});
   await new Promise<void>((resolve,reject)=>{peer.once("connect",resolve);peer.once("error",reject);});
+  // No version range: the client negotiates 1.1 and keeps take/release.
   peer.write(wire(FrameType.hello,{v:1,client:"cli",label:"driver",cols:80,rows:24}));
   peer.write(wire(FrameType.take,{}));
   return peer;
  };
+ const viewers=(dir:string)=>{try{return JSON.parse(readFileSync(join(dir,"session.state"),"utf8")).viewers;}catch{return -1;}};
  try{
   await until(()=>readTask(ctx,task.id)?.run?.agentSession);
   await takeoverTask(ctx,task.id);
   const dir=readTask(ctx,task.id)!.run!.dir;
   socket=await connect(dir);
-  await until(()=>readRun(dir).controller);
+  await until(()=>taken);
+  expect(readRun(dir).controller ?? null).toBeNull();
   socket.destroy();
-  await until(()=>!readRun(dir).controller);
+  await until(()=>viewers(dir)===0);
   expect(readTask(ctx,task.id)?.takeover?.state).toBe("driving");
   expect(existsSync(join(dir,"report.json"))).toBe(false);
   socket=await connect(dir);
-  await until(()=>readRun(dir).controller);
+  await until(()=>taken);
   socket.write(wire(FrameType.release,{}));
   const result=await running;
   expect(result.state).toBe("done");
@@ -364,4 +385,36 @@ test("take-over reports fall back to the agent's own session file by id",()=>{
  expect(sessionTranscript("claude-code",id,{},home)).toBe("Claude done.");
  expect(sessionTranscript("codex","../x",{CODEX_HOME:codex},home)).toBe("");
  expect(sessionTranscript("cursor",id,{},home)).toBe("");
+});
+
+test("task.hand_back writes the user's done report for a takeover session and refuses anything else",async()=>{
+ const {callOp}=await import("../src/api/ops");
+ const {ctx,task}=fixture(),dir=tmpDir(),startedAt=Date.now()/1000;
+ const run={dir,attempt:1,executor:"codex",startedAt,mode:"current" as const,workdir:task.brief.repo,logFile:join(dir,"log")};
+ await expect(callOp(ctx,"task.hand_back",{id:"t-missing"})).rejects.toMatchObject({code:"unknown_task"});
+ updateTask(ctx,task.id,t=>{t.state="running";t.run=run;});
+ await expect(callOp(ctx,"task.hand_back",{id:task.id})).rejects.toMatchObject({code:"conflict",message:expect.stringContaining("not in a takeover session")});
+ expect(existsSync(join(dir,"report.json"))).toBe(false);
+ updateTask(ctx,task.id,t=>{t.run={...run,takeover:true};t.takeover={state:"driving",at:startedAt,sessionId:id};});
+ expect(await callOp(ctx,"task.hand_back",{id:task.id},{client:"app:Pacer\x07 desktop"})).toEqual({id:task.id,state:"handed_back"});
+ expect(JSON.parse(readFileSync(join(dir,"report.json"),"utf8"))).toMatchObject({status:"done",source:"user",summary:"Handed back by app:Pacer desktop"});
+ await expect(callOp(ctx,"task.hand_back",{id:task.id})).rejects.toMatchObject({code:"conflict",message:expect.stringContaining("already")});
+ updateTask(ctx,task.id,t=>{t.state="done";});
+ await expect(callOp(ctx,"task.hand_back",{id:task.id})).rejects.toMatchObject({code:"conflict"});
+});
+test("task.hand_back checks and writes the report under the task lock, so a report written meanwhile is kept",async()=>{
+ const {handBackTask}=await import("../src/session/takeover");
+ const {ctx,task}=fixture(),dir=tmpDir(),startedAt=Date.now()/1000;
+ updateTask(ctx,task.id,t=>{t.state="running";t.run={dir,attempt:1,executor:"codex",startedAt,mode:"current",workdir:task.brief.repo,logFile:join(dir,"log"),takeover:true};t.takeover={state:"driving",at:startedAt,sessionId:id};});
+ const lock=join(ctx.pacerHome,"orca",`task-${task.id}.lock`);
+ mkdirSync(join(ctx.pacerHome,"orca"),{recursive:true});writeFileSync(lock,"");
+ // Another process holds the task lock and writes the runner's failed report before releasing it.
+ const script=`import { writeReport } from ${JSON.stringify(join(import.meta.dir,"../src/session/reports.ts"))};
+import { rmSync } from "node:fs";
+await Bun.sleep(300);writeReport(${JSON.stringify(dir)},"failed","The runner failed");rmSync(${JSON.stringify(lock)});`;
+ const holder=Bun.spawn([process.execPath,"-e",script],{stdout:"ignore",stderr:"inherit"});
+ try{
+  expect(()=>handBackTask(ctx,task.id,"cli:me")).toThrow("already handed back");
+  expect(JSON.parse(readFileSync(join(dir,"report.json"),"utf8"))).toMatchObject({status:"failed"});
+ }finally{await holder.exited;}
 });

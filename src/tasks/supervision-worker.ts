@@ -5,6 +5,8 @@ interface WorkerMessage {
   type: "init";
   pacerHome: string;
   env: Record<string, string>;
+  /** The service's selfCommand(); the worker's own argv names the worker module. */
+  selfCommand: string[];
 }
 
 let stopped = false;
@@ -44,8 +46,10 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   if (msg.type === "init") {
     try {
       init = { env: msg.env, pacerHome: msg.pacerHome };
-      const { spawnRunner: defaultSpawn } = await import("./api");
-      spawnRunner = defaultSpawn;
+      if (!Array.isArray(msg.selfCommand) || !msg.selfCommand.length || msg.selfCommand.some(part => typeof part !== "string" || !part))
+        throw new Error("missing service self command");
+      const { spawnRunnerWith } = await import("./api");
+      spawnRunner = spawnRunnerWith(msg.selfCommand);
     } catch (error) {
       self.postMessage({ type: "failed", reason: String(error) });
       return;

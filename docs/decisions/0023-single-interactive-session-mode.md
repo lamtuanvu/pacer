@@ -38,6 +38,7 @@ In practice pacer has one user, and every party is pacer. The exclusive lock cos
      - No human line is pending: since the last Enter, no client has typed printable input.
    - **Window.** On grant, the host holds other clients' input for at most 2 s. Held input is queued, never dropped. Within that window the sender runs its existing guard (`stillIdle`, or the answer's `same` check), then sends the paste and Enter, or cancels.
    - **Failure.** If the grant conditions don't hold within 10 s, the request fails with `conflict` and names the cause, for example "unsent input in the agent from Pacer desktop". The live message path keeps its existing retry for that case. A changed run or question keeps its own distinct `conflict` message.
+   - **Note (2026-11-07, pending maintainer acceptance).** The 2 s window applies until the sender starts typing. Once it has typed, the window lasts until it finishes, cancels or disconnects, capped at 10 s (`maxWindowMs`), so a paste is never cut off from its Enter. A window that expires before the sender typed reports its own cause (`expired-unused`); the host then drops the sender's input until it requests a new window or cancels, so nothing was typed and the delivery is retried.
 
 5. **The host answers terminal queries.** With many interactive clients, every xterm.js would answer the agent's terminal queries. The host now always answers them itself, as it does today with no controller, and strips client replies to queries from input frames. This covers DA1, DA2, cursor position reports and OSC colour queries.
 

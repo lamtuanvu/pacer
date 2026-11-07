@@ -5671,6 +5671,19 @@
       ],
       "additionalProperties": false
     },
+    "TaskHandBackParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
     "TaskListParams": {
       "type": "object",
       "properties": {
