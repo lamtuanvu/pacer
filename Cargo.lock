@@ -1957,7 +1957,6 @@ version = "0.0.0"
 dependencies = [
  "nix",
  "pacer-foundation",
- "pacer-messaging-ops",
  "pacer-store",
  "ryu-js",
  "serde_json",

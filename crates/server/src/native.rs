@@ -32,10 +32,10 @@ pub(crate) use pacer_core_bridge::host_read_sync;
 use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
-#[allow(unused_imports)]
-use pacer_update::handover;
-pub(crate) mod install_apply_sync;
-use pacer_install::install_ops;
+pub(crate) mod host_mut_sync;
+use pacer_config_ops::host_read_ops;
+use pacer_config_ops::limits_refresh_ops;
+pub(crate) mod host_read_sync;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
@@ -105,18 +105,16 @@ pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -
     }
 }
 
-/// `service.status`, `service.install`, `update.check`, `update.apply`, `agent.detect` and
-/// `limits.refresh` inputs only TypeScript answers.
+/// `service.status`, `update.check`, `agent.detect` and `limits.refresh` inputs only TypeScript answers.
 pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     match op {
         "agent.detect" => pacer_install::agent_detect_stays_forwarded(ctx, params),
         "limits.refresh" => limits_refresh_ops::limits_refresh_stays_forwarded(ctx, params),
-        "service.install" | "update.apply" => install_apply_sync::stays_forwarded(ctx, op),
         _ => pacer_update::service_update_stays_forwarded(ctx, op),
     }
 }
 
-/// `runner.add`, `runner.check` and `attention.*` inputs whose effects only the TypeScript core owns.
+/// `runner.add` and `attention.*` inputs whose effects only the TypeScript core owns.
 pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     runner_ops::runner_stays_forwarded(ctx, op, params)
         || runner_check_ops::runner_check_stays_forwarded(ctx, op, params)
@@ -507,6 +505,10 @@ static OPS: &[NativeOp] = &[
         call: limits_refresh_ops::limits_refresh,
     },
     NativeOp {
+        name: "routing.status",
+        call: status_ops::routing_status_stub,
+    },
+    NativeOp {
         name: status_ops::ops()[1].name,
         call: status_ops::ops()[1].call,
     },
@@ -571,8 +573,8 @@ static OPS: &[NativeOp] = &[
         call: setup_ops::ops()[0].call,
     },
     NativeOp {
-        name: "setup.init",
-        call: pacer_config_ops::setup_effects::effects_stub,
+name: "setup.init",
+        call: pacer_config_ops::setup_init_ops::setup_init,
     },
     NativeOp {
         name: "service.status",
@@ -585,14 +587,6 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "agent.detect",
         call: pacer_install::agent_detect,
-    },
-    NativeOp {
-        name: "service.install",
-        call: install_ops::service_install_stub,
-    },
-    NativeOp {
-        name: "update.apply",
-        call: apply::update_apply_stub,
     },
     NativeOp {
         name: "repo.list",

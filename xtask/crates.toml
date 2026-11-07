@@ -124,13 +124,9 @@ layer = 4
 layer = 4
 [crates.pacer-lifecycle]
 layer = 6
-[crates.pacer-dispatch]
-layer = 6
 [crates.pacer-install]
 layer = 5
 [crates.pacer-update]
-layer = 6
-[crates.pacer-account-ops]
 layer = 6
 [crates.pacer-config-ops]
 layer = 7

@@ -4,18 +4,14 @@
 //! service manager (`launchctl` or `systemctl --user`) as an argv subprocess (SEC-5).
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 
-pub mod apply;
 mod check;
-pub mod desktop_reconcile_ops;
 mod feed;
-pub mod handover;
 mod js;
 mod service;
 #[cfg(test)]
 mod tests;
 
 pub use check::update_check;
-pub use handover::{service_handover, service_work};
 pub use service::service_status;
 
 use pacer_foundation::{

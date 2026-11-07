@@ -12,7 +12,7 @@ use pacer_foundation::{
 use serde_json::{Map, Value, json};
 
 /// Names `strategy.accounts[name]` resolves through `Object.prototype` in TypeScript.
-pub(crate) const PROTOTYPE_KEYS: [&str; 12] = [
+const PROTOTYPE_KEYS: [&str; 12] = [
     "__proto__",
     "__defineGetter__",
     "__defineSetter__",

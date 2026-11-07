@@ -341,6 +341,26 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
+                && !crate::native::msg_answer_stays_forwarded(op.name, ctx, &params)
+                && !crate::native::repo_registry_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::desktop_reconcile_stays_forwarded(op.name)
+                && !crate::native::assistant_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::dependencies_waive_stays_forwarded(op.name, &params)
+                && !crate::native::insights_stays_forwarded(op.name, &params)
+                && !crate::native::planning_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::dispatch_lifecycle_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
+                && !crate::native::job_strategy_setup_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
+                && !crate::native::runner_attention_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::service_agent_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
                 if op.name == "task.wait" {

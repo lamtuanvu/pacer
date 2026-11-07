@@ -1,12 +1,10 @@
-//! Agent integrations: `agent.detect`, and the login service install (`service.install`).
+//! Agent integrations: `agent.detect`.
 //!
 //! Interpreting an agent CLI (`planner.detect`) is the planner plugin's capability (ARCH-12),
 //! so a fresh detection stays with the TypeScript plugin host. The host owns the PATH probe
 //! and the hour-long detection cache (`detectAgents` in `src/install/detection.ts`); a cache
 //! hit is answered here.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
-
-pub mod install_ops;
 
 use pacer_foundation::{
     Ctx,
