@@ -13,6 +13,11 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 /// the exit code and stdout, or `None` (and `dir` marked unreachable) when the read did not
 /// finish in two seconds. A spawn failure exits 127, as `execProcess` reports it.
 pub(crate) fn git_read(dir: &str, args: &[&str]) -> Option<(i32, String)> {
+    git_read_within(dir, args, TIMEOUT)
+}
+
+/// `git_read` with another deadline.
+pub fn git_read_within(dir: &str, args: &[&str], timeout: Duration) -> Option<(i32, String)> {
     let Ok(mut child) = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -39,8 +44,8 @@ pub(crate) fn git_read(dir: &str, args: &[&str]) -> Option<(i32, String)> {
         let _ = stdout.read_to_end(&mut bytes);
         let _ = tx.send(bytes);
     });
-    let deadline = Instant::now() + TIMEOUT;
-    let Ok(bytes) = rx.recv_timeout(TIMEOUT) else {
+    let deadline = Instant::now() + timeout;
+    let Ok(bytes) = rx.recv_timeout(timeout) else {
         return timed_out(child);
     };
     loop {

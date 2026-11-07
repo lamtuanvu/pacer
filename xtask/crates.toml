@@ -119,6 +119,8 @@ layer = 6
 layer = 7
 [crates.pacer-dispatch-ops]
 layer = 7
+[crates.pacer-issues]
+layer = 7
 [crates.pacer-task-ops]
 layer = 8
 [crates.pacer-assistant-ops]
