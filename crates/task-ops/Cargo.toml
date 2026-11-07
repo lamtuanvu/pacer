@@ -14,6 +14,7 @@ pacer-config = { path = "../config" }
 pacer-store = { path = "../store" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-read-model = { path = "../read-model" }
+pacer-sessions = { path = "../sessions" }
 chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
 sha2 = "0.10"
 

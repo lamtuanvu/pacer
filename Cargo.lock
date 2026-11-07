@@ -1764,6 +1764,7 @@ dependencies = [
  "pacer-foundation",
  "pacer-lifecycle",
  "pacer-read-model",
+ "pacer-sessions",
  "pacer-store",
  "serde_json",
  "sha2",

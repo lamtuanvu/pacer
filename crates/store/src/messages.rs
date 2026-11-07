@@ -41,7 +41,7 @@ fn has_table(db: &Connection, name: &str) -> Result<bool> {
 }
 
 /// The value Bun's SQLite binding returns for a stored column.
-fn sql_json(value: SqlValue) -> Value {
+pub(crate) fn sql_json(value: SqlValue) -> Value {
     match value {
         SqlValue::Null => Value::Null,
         SqlValue::Integer(n) => json!(n),
