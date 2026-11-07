@@ -9,13 +9,14 @@ use pacer_store::{StoreError, TaskStore, is_task_id, messages};
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
-const MSG_KINDS: [&str; 6] = ["message", "question", "answer", "report", "nudge", "close"];
-const TASK_ID: &str = r"/^t-\d{8}-\d{6}-[0-9a-f]{4}$/";
-const PARTICIPANT: &str =
+pub(crate) const MSG_KINDS: [&str; 6] =
+    ["message", "question", "answer", "report", "nudge", "close"];
+pub(crate) const TASK_ID: &str = r"/^t-\d{8}-\d{6}-[0-9a-f]{4}$/";
+pub(crate) const PARTICIPANT: &str =
     r"/^(human|broker|external:[A-Za-z0-9._:-]{1,128}|task:t-\d{8}-\d{6}-[0-9a-f]{4})$/";
 
 /// `participantSchema` in `src/messaging/types.ts`.
-fn participant_id(p: &str) -> bool {
+pub(crate) fn participant_id(p: &str) -> bool {
     matches!(p, "human" | "broker")
         || p.strip_prefix("task:").is_some_and(is_task_id)
         || p.strip_prefix("external:").is_some_and(|id| {
@@ -45,8 +46,14 @@ pub fn is_msg_read_op(name: &str) -> bool {
     matches!(name, "msg.inbox" | "msg.log" | "msg.read")
 }
 
+/// The operations that resolve their caller with `callerParticipant`.
+pub fn is_msg_caller_op(name: &str) -> bool {
+    is_msg_read_op(name) || crate::msg_writes::uses_bridge(name)
+}
+
 /// TypeScript keeps work-grant and enforcement identities, Orca worktree detection
-/// (strategy providers) and the human's read receipts (task/attention publication).
+/// (strategy providers) and the human's read receipts on `msg.read` (task/attention
+/// publication). The message writes publish for the human through the Core bridge.
 /// `msg.policy` also stays forwarded when `project-messaging.json` is unusable, because
 /// its `projectError` carries Node and Zod details only the TypeScript reader produces.
 pub fn msg_stays_forwarded(name: &str, ctx: &Ctx) -> bool {
@@ -55,7 +62,7 @@ pub fn msg_stays_forwarded(name: &str, ctx: &Ctx) -> bool {
             || env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some()
             || pacer_config::project_messaging::read_projects(&ctx.pacer_home).is_err();
     }
-    if !is_msg_read_op(name) {
+    if !is_msg_caller_op(name) && name != "tree.status" {
         return false;
     }
     match caller(ctx, current_dir().as_deref()) {
@@ -77,7 +84,7 @@ pub fn current_dir() -> Option<String> {
         .and_then(|p| p.to_str().map(str::to_owned))
 }
 
-fn env<'a>(ctx: &'a Ctx, name: &str) -> Option<&'a str> {
+pub(crate) fn env<'a>(ctx: &'a Ctx, name: &str) -> Option<&'a str> {
     ctx.env
         .get(name)
         .map(String::as_str)
@@ -113,7 +120,7 @@ fn caller(ctx: &Ctx, cwd: Option<&str>) -> Result<Caller, CoreError> {
     Ok(Caller::Id("external:local".into()))
 }
 
-fn forbidden(message: &str, layer: &str) -> CoreError {
+pub(crate) fn forbidden(message: &str, layer: &str) -> CoreError {
     let mut data = Map::new();
     data.insert("reason".into(), json!("msg_forbidden"));
     data.insert("layer".into(), json!(layer));
@@ -209,7 +216,7 @@ fn planner_participant(ctx: &Ctx) -> Option<String> {
     None
 }
 
-fn kind(value: &Value) -> &'static str {
+pub(crate) fn kind(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -221,13 +228,13 @@ fn kind(value: &Value) -> &'static str {
 }
 
 /// Zod issue collection for one strict object schema, in schema field order.
-struct Params<'a> {
-    map: &'a Map<String, Value>,
-    issues: Vec<String>,
+pub(crate) struct Params<'a> {
+    pub(crate) map: &'a Map<String, Value>,
+    pub(crate) issues: Vec<String>,
 }
 
 impl<'a> Params<'a> {
-    fn new(params: &'a Value) -> Result<Self, CoreError> {
+    pub(crate) fn new(params: &'a Value) -> Result<Self, CoreError> {
         static EMPTY: std::sync::OnceLock<Map<String, Value>> = std::sync::OnceLock::new();
         let map = match params {
             Value::Null => EMPTY.get_or_init(Map::new),
@@ -248,14 +255,19 @@ impl<'a> Params<'a> {
         })
     }
 
-    fn mismatch(&mut self, path: &str, expected: &str, value: &Value) {
+    pub(crate) fn mismatch(&mut self, path: &str, expected: &str, value: &Value) {
         self.issues.push(format!(
             "{path}: Invalid input: expected {expected}, received {}",
             kind(value)
         ));
     }
 
-    fn string(&mut self, path: &str, value: &'a Value, max: Option<usize>) -> Option<&'a str> {
+    pub(crate) fn string(
+        &mut self,
+        path: &str,
+        value: &'a Value,
+        max: Option<usize>,
+    ) -> Option<&'a str> {
         let Some(text) = value.as_str() else {
             self.mismatch(path, "string", value);
             return None;
@@ -271,12 +283,12 @@ impl<'a> Params<'a> {
         Some(text)
     }
 
-    fn task_id(&mut self, key: &str) -> Option<&'a str> {
+    pub(crate) fn task_id(&mut self, key: &str) -> Option<&'a str> {
         self.pattern(key, self.map.get(key), is_task_id, TASK_ID)
     }
 
     /// A required `z.string().regex(..)` at `path`.
-    fn pattern(
+    pub(crate) fn pattern(
         &mut self,
         path: &str,
         value: Option<&'a Value>,
@@ -354,7 +366,7 @@ impl<'a> Params<'a> {
         }
     }
 
-    fn optional_string(&mut self, key: &str, max: usize) -> Option<&'a str> {
+    pub(crate) fn optional_string(&mut self, key: &str, max: usize) -> Option<&'a str> {
         let value = self.map.get(key)?;
         self.string(key, value, Some(max))
     }
@@ -370,6 +382,11 @@ impl<'a> Params<'a> {
 
     /// `z.number().int().min(1).max(1000)`.
     fn optional_limit(&mut self, key: &str) -> Option<u32> {
+        self.optional_int(key, 1000)
+    }
+
+    /// `z.number().int().min(1).max(max)`.
+    pub(crate) fn optional_int(&mut self, key: &str, max: u32) -> Option<u32> {
         let value = self.map.get(key)?;
         let Some(n) = value.as_f64().filter(|_| value.is_number()) else {
             self.mismatch(key, "number", value);
@@ -394,9 +411,9 @@ impl<'a> Params<'a> {
         if n < 1.0 {
             self.issues
                 .push(format!("{key}: Too small: expected number to be >=1"));
-        } else if n > 1000.0 {
+        } else if n > f64::from(max) {
             self.issues
-                .push(format!("{key}: Too big: expected number to be <=1000"));
+                .push(format!("{key}: Too big: expected number to be <={max}"));
         }
         (self.issues.len() == before).then_some(n as u32)
     }
@@ -431,7 +448,7 @@ impl<'a> Params<'a> {
         (self.issues.len() == before).then_some(ids)
     }
 
-    fn finish(mut self, known: &[&str]) -> Result<(), CoreError> {
+    pub(crate) fn finish(mut self, known: &[&str]) -> Result<(), CoreError> {
         self.unrecognized("params", self.map, known);
         if self.issues.is_empty() {
             Ok(())
@@ -441,15 +458,15 @@ impl<'a> Params<'a> {
     }
 }
 
-fn store_error(error: StoreError) -> CoreError {
+pub(crate) fn store_error(error: StoreError) -> CoreError {
     CoreError::new(Code::Internal, error.to_string())
 }
 
-fn open(ctx: &Ctx) -> Result<TaskStore, CoreError> {
+pub(crate) fn open(ctx: &Ctx) -> Result<TaskStore, CoreError> {
     TaskStore::open(&ctx.pacer_home).map_err(store_error)
 }
 
-fn participant(ctx: &Ctx) -> Result<String, CoreError> {
+pub(crate) fn participant(ctx: &Ctx) -> Result<String, CoreError> {
     match caller(ctx, current_dir().as_deref())? {
         Caller::Id(id) => Ok(id),
         Caller::Forward => Err(CoreError::new(
@@ -514,6 +531,76 @@ pub fn msg_read(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         let at = (ctx.now * 1000.0).floor() / 1000.0;
         let read = messages::mark_read(&mut store, &me, &ids, at).map_err(store_error)?;
         Ok(json!({"read": read}))
+    })
+}
+
+pub(crate) fn truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null | Value::Bool(false)) => false,
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|n| n != 0.0),
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(_) => true,
+    }
+}
+
+/// `isClosed` from `src/messaging/turns.ts`.
+pub(crate) fn is_closed(t: &Value) -> bool {
+    ["review", "dismissed", "msgClosed"]
+        .iter()
+        .any(|key| truthy(t.get(*key)))
+        || t.get("state").and_then(Value::as_str) == Some("stopped")
+}
+
+/// One `tree.status` node.
+fn tree_node(store: &mut TaskStore, id: &str) -> Result<Value, StoreError> {
+    let task = store.read(id)?;
+    let pending = messages::pending_count(store, &format!("task:{id}"))?;
+    let field = |key: &str| {
+        let mut value = task
+            .as_ref()
+            .and_then(|t| t.get(key))
+            .cloned()
+            .unwrap_or(Value::Null);
+        policy::js_numbers(&mut value);
+        value
+    };
+    let state = match field("state") {
+        Value::Null => json!("missing"),
+        state => state,
+    };
+    let closed = task.as_ref().is_none_or(is_closed);
+    Ok(
+        json!({"id": format!("task:{id}"), "state": state, "closed": closed,
+        "pendingTurn": field("pendingTurn"), "pending": pending, "executor": field("executor")}),
+    )
+}
+
+/// `tree.status`: turn state of every node in the task's tree, root first.
+pub fn tree_status(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        let mut p = Params::new(&params)?;
+        let task = p.task_id("task");
+        p.finish(&["task"])?;
+        let task = task.unwrap_or_default();
+        let me = participant(ctx)?;
+        let mut store = open(ctx)?;
+        let anchor = messages::root_of(&mut store, &format!("task:{task}")).map_err(store_error)?;
+        if messages::task_of(&me).is_some()
+            && messages::root_of(&mut store, &me).map_err(store_error)? != anchor
+        {
+            return Err(forbidden("That task is outside your tree", "protocol"));
+        }
+        let root = messages::task_of(&anchor).unwrap_or(task).to_owned();
+        let ids = messages::work_tree_ids(&mut store, &root)
+            .map_err(store_error)?
+            .unwrap_or_else(|| vec![root.clone()]);
+        let mut nodes = vec![tree_node(&mut store, &root).map_err(store_error)?];
+        for id in ids.iter().filter(|id| **id != root) {
+            nodes.push(tree_node(&mut store, id).map_err(store_error)?);
+        }
+        let root = format!("task:{root}");
+        let turns = messages::turns_for_root(&mut store, &root).map_err(store_error)?;
+        Ok(json!({"root": root, "nodes": nodes, "turns": turns}))
     })
 }
 

@@ -33,7 +33,7 @@ test("assigned session ids are passed to headless Claude and Cursor",()=>{
 test("resume launches preserve working directory, model and correct option order",()=>{
  expect(resumeLaunchFor({...providers.codex,model:"m"},id,"/wt","/run")).toEqual({cwd:"/wt",argv:["codex","-c",'projects={"/wt"={trust_level="trusted"}}',"-c","check_for_update_on_startup=false","resume","--no-daemon","-C","/wt","--dangerously-bypass-approvals-and-sandbox","--add-dir","/run","-m","m",id]});
  expect(resumeLaunchFor(providers["claude-code"],id,"/wt","/run").argv).toEqual(["claude","--dangerously-skip-permissions","--resume",id]);
- expect(resumeLaunchFor(providers.cursor,id,"/wt","/run").argv).toEqual(["cursor-agent","--force","--sandbox","disabled","--workspace","/wt","--resume",id]);
+ expect(resumeLaunchFor(providers.cursor,id,"/wt","/run").argv).toEqual(["cursor-agent","--force","--trust","--sandbox","disabled","--workspace","/wt","--resume",id]);
  expect(resumeLaunchFor({...providers.codex,via:"opencode",model:"m"},id,"/wt","/run").argv).toEqual(["opencode","--standalone","--auto","--session",id]);
 });
 test("OpenCode lookup tolerates wrappers, malformed rows, and selects newest matching title",()=>{

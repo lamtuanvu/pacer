@@ -1,5 +1,6 @@
 //! `effectivePolicy` and `checkSend` from `src/messaging/policy.ts`, as `msg.policy` reports them.
 use pacer_config::{project_messaging, strategy};
+use pacer_foundation::api::{Code, CoreError};
 use pacer_store::{
     StoreError, TaskStore,
     messages::{count_sent_since, parent_of, root_of, task_of},
@@ -43,7 +44,7 @@ fn includes(list: &Value, item: &str) -> bool {
 }
 
 /// `JSON.parse` numbers: imported task records keep integral values as floats (`4.0`).
-fn js_numbers(value: &mut Value) {
+pub(crate) fn js_numbers(value: &mut Value) {
     match value {
         Value::Number(n) => {
             if let Some(f) = n.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 9.0e15) {
@@ -243,16 +244,41 @@ pub struct Send<'a> {
     pub grant: bool,
 }
 
-fn deny(code: &str, message: String, data: Option<Value>) -> Value {
-    let mut error = json!({"code": code, "message": message});
-    if let Some(data) = data {
-        error["data"] = data;
+fn deny(code: Code, message: String, data: Option<Value>) -> CoreError {
+    let error = CoreError::new(code, message);
+    match data {
+        Some(Value::Object(data)) => error.data(data),
+        _ => error,
     }
-    json!({"decision": "deny", "error": error})
 }
 
 /// `checkSend`, with its `CoreError` reported as `{decision: "deny", error}`.
 pub fn check(store: &mut Store<'_>, now: f64, s: &Send<'_>) -> Result<Value> {
+    Ok(match verdict(store, now, s, 0)? {
+        Ok((hold, rule, layer)) => {
+            json!({"decision": "allow", "hold": hold, "rule": rule, "layer": layer})
+        }
+        Err(e) => {
+            let mut error = json!({"code": e.code, "message": e.message});
+            if let Some(data) = e.data {
+                error["data"] = Value::Object(data);
+            }
+            json!({"decision": "deny", "error": error})
+        }
+    })
+}
+
+/// `checkSend` for a message of `bytes` UTF-8 bytes: `(hold, rule, layer)` or the refusal.
+pub fn verdict(
+    store: &mut Store<'_>,
+    now: f64,
+    s: &Send<'_>,
+    bytes: usize,
+) -> Result<std::result::Result<(bool, usize, Value), CoreError>> {
+    let hint = format!(
+        "Run `pacer msg policy --check --from {} --to {} --kind {}` to see which rule decides.",
+        s.from, s.to, s.kind
+    );
     let anchor = if task_of(s.to).is_some() {
         s.to
     } else {
@@ -269,11 +295,11 @@ pub fn check(store: &mut Store<'_>, now: f64, s: &Send<'_>) -> Result<Value> {
     };
     let (from_task, to_task) = (read_task(store, s.from)?, read_task(store, s.to)?);
     if task_of(s.to).is_some() && to_task.is_none() {
-        return Ok(deny(
-            "not_found",
+        return Ok(Err(deny(
+            Code::NotFound,
             format!("Unknown participant {}", s.to),
             None,
-        ));
+        )));
     }
     let pick = |path: [&str; 2]| -> [Option<&Value>; 2] {
         [&from_task, &to_task].map(|t| t.as_ref()?.get(path[0])?.get(path[1]))
@@ -316,7 +342,7 @@ pub fn check(store: &mut Store<'_>, now: f64, s: &Send<'_>) -> Result<Value> {
                     rule["layer"].as_str().unwrap_or_default()
                 );
                 let data = json!({"reason": "msg_forbidden", "layer": layer_of(rule), "rule": i, "relation": rel});
-                return Ok(deny("not_allowed", message, Some(data)));
+                return Ok(Err(deny(Code::NotAllowed, message, Some(data)).hint(hint)));
             }
             let near = rules.iter().position(|r| {
                 r["effect"] == "allow"
@@ -340,11 +366,36 @@ pub fn check(store: &mut Store<'_>, now: f64, s: &Send<'_>) -> Result<Value> {
                     json!({"rule": near, "layer": layer, "grant": "required"}),
                 );
             }
-            return Ok(deny("not_allowed", message, Some(Value::Object(data))));
+            return Ok(Err(deny(
+                Code::NotAllowed,
+                message,
+                Some(Value::Object(data)),
+            )
+            .hint(hint)));
         }
     };
     let (index, rule) = rule;
     let limits = rule.get("limits");
+    let config_max = policy["config"]["message"]["max_bytes"].as_f64();
+    let max_bytes = match (
+        limits
+            .and_then(|l| l.get("max_bytes"))
+            .and_then(Value::as_f64),
+        config_max,
+    ) {
+        (Some(rule_max), Some(config_max)) => Some(rule_max.min(config_max)),
+        (None, config_max) => config_max,
+        (Some(_), None) => None,
+    };
+    if let Some(max) = max_bytes.filter(|max| bytes as f64 > *max) {
+        let max = json!(max as i64);
+        let data = json!({"reason": "msg_too_large", "max": max});
+        return Ok(Err(deny(
+            Code::TooLarge,
+            format!("Message exceeds {max} bytes"),
+            Some(data),
+        )));
+    }
     if let Some(cap) = limits
         .and_then(|l| l.get("per_minute"))
         .filter(|v| truthy(Some(v)))
@@ -352,14 +403,15 @@ pub fn check(store: &mut Store<'_>, now: f64, s: &Send<'_>) -> Result<Value> {
             >= cap.as_f64().unwrap_or(f64::NAN)
     {
         let data = json!({"reason": "msg_cap_reached", "limit": "per_minute"});
-        return Ok(deny(
-            "conflict",
+        return Ok(Err(deny(
+            Code::Conflict,
             "Message rate limit reached".into(),
             Some(data),
-        ));
+        )
+        .hint("Wait a minute before sending again.")));
     }
     let hold = truthy(limits.and_then(|l| l.get("confirm"))) && !human;
-    Ok(json!({"decision": "allow", "hold": hold, "rule": index, "layer": rule["layer"]}))
+    Ok(Ok((hold, index, rule["layer"].clone())))
 }
 
 #[cfg(test)]

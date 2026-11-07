@@ -1,5 +1,6 @@
 import { appendFileSync } from "node:fs";
-import { plannerPolicyApplies } from "../install/role";
+import { plannerPolicyApplies, plannerSessionStatus } from "../install/role";
+import { renderHook } from "../render/hook";
 import type { Ctx } from "../types";
 
 export type PlannerKind = "claude-code" | "codex";
@@ -24,6 +25,11 @@ export async function sessionHook(ctx: Ctx, kind: PlannerKind, input: unknown, s
       if (line) appendFileSync(ctx.env.CLAUDE_ENV_FILE, line, { mode: 0o600 });
     }
   } catch { /* SessionStart must preserve status output when the env file cannot be written. */ }
-  const out = statusOutput ? await statusOutput() : (await (await import("../cli")).main(["status", "--hook", kind], ctx)).out;
-  return { out };
+  return { out: statusOutput ? await statusOutput() : await hookStatus(ctx, kind, input) };
+}
+
+/** Same output as `pacer status --hook`. Importing `../cli` here would wait on the entry module's own top-level await and never settle. */
+async function hookStatus(ctx: Ctx, kind: PlannerKind, input: unknown): Promise<string> {
+  try { return plannerPolicyApplies(ctx, kind, input) ? renderHook(await plannerSessionStatus(ctx, kind), kind) : ""; }
+  catch { return "{}"; }
 }
