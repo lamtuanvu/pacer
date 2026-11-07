@@ -1,6 +1,6 @@
 import type { Check, Remedy } from "../install/doctor";
 import type { SetupChecklist } from "../setup/checklist";
-import { checkSetupLink, diagnosticRepair, diagnosticSummary, remedyAgent } from "./diagnostics";
+import { checkSetupLink, diagnosticSummary, remedyAgent } from "./diagnostics";
 
 /** Fixed startup gate steps from the setup-health design. */
 export type SetupHealthStepId =
@@ -62,7 +62,6 @@ export interface SetupHealthReport {
 }
 
 const WIRING_HONESTY = "Wiring OK · live enforcement unverified";
-const RECONNECT_AGENTS = new Set(["claude-code", "codex", "cursor", "opencode"]);
 
 export interface SetupHealthFingerprint {
   schema: 1;
@@ -214,13 +213,11 @@ function linkRepair(link: { href: string } | undefined): SetupHealthRepair | und
 /**
  * Map attention checks to primary Fix descriptors. Never applies changes;
  * agent.reconnect still goes through agent.preview + consent on connect.
- * A check's remedy decides its repair; names are a fallback for responses without one
- * and for remedies the gate cannot run yet.
+ * Only this service's own doctor result reaches the gate, and it gives every warning or failure a remedy,
+ * so a check's remedy alone decides its repair. Check names only supply a setup link for remedies the gate
+ * cannot run yet.
  */
-export function setupHealthRepairs(
-  checks: Check[],
-  options: { planner?: string; repairAvailable?: boolean } = {},
-): SetupHealthRepair[] {
+export function setupHealthRepairs(checks: Check[]): SetupHealthRepair[] {
   const repairs: SetupHealthRepair[] = [];
   const seen = new Set<string>();
   const add = (repair: SetupHealthRepair) => {
@@ -229,45 +226,13 @@ export function setupHealthRepairs(
     seen.add(key);
     repairs.push(repair);
   };
-  const planner = options.planner;
-  const agent = planner?.split("#")[0];
-  const canReconnect = !!options.repairAvailable && !!agent && RECONNECT_AGENTS.has(agent);
 
   for (const check of checks) {
-    if (check.level !== "warn" && check.level !== "fail") continue;
-
-    if (check.remedy) {
-      const repair = remedyRepair(check, check.remedy);
-      // Agent tasks and pacer restarts have no gate action yet; keep the setup link the check name gave.
-      const link = repair.kind === "open.diagnostics" ? linkRepair(checkSetupLink(check)) : undefined;
-      add(link ? { ...link, remedy: check.remedy } : repair);
-      continue;
-    }
-
-    if (canReconnect && planner) {
-      const via = diagnosticRepair(check, planner);
-      const freshness = check.name === `Integration freshness ${planner}` || check.name === "Claude config folder";
-      if (via || freshness) {
-        add({
-          kind: "agent.reconnect",
-          label: "Fix integration",
-          agent: via?.agent ?? agent!,
-          honesty: WIRING_HONESTY,
-        });
-        continue;
-      }
-    }
-
-    if (check.name.startsWith("Usage ") && /stale usage/i.test(check.detail)) {
-      add({ kind: "limits.refresh", label: "Refresh usage" });
-      continue;
-    }
-
-    // Exhausted quota is not a fixable setup action.
-    if (check.name.startsWith("Usage ") && check.detail === "EXHAUSTED") continue;
-
-    const repair = linkRepair(checkSetupLink(check));
-    if (repair) add(repair);
+    if ((check.level !== "warn" && check.level !== "fail") || !check.remedy) continue;
+    const repair = remedyRepair(check, check.remedy);
+    // Agent tasks and pacer restarts have no gate action yet; keep the setup link the check name gave.
+    const link = repair.kind === "open.diagnostics" ? linkRepair(checkSetupLink(check)) : undefined;
+    add(link ? { ...link, remedy: check.remedy } : repair);
   }
 
   if (checks.some(c => c.level === "warn" || c.level === "fail") && repairs.length === 0) {
@@ -284,8 +249,6 @@ export function aggregateSetupHealth(input: {
   checkedAt: number;
   durationSeconds?: number;
   timedOutSteps?: SetupHealthStepId[];
-  planner?: string;
-  repairAvailable?: boolean;
 }): SetupHealthReport {
   const timed = new Set(input.timedOutSteps ?? []);
   const service = serviceState(input.checks, input.checklist);
@@ -313,10 +276,7 @@ export function aggregateSetupHealth(input: {
       : detailFor(id, input.checks, input.checklist),
   }));
 
-  const repairs = setupHealthRepairs(input.checks, {
-    planner: input.planner,
-    repairAvailable: input.repairAvailable,
-  });
+  const repairs = setupHealthRepairs(input.checks);
 
   return {
     trigger: input.trigger,

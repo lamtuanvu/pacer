@@ -11,6 +11,14 @@ export class CoreError extends Error {
   }
 }
 
+/** A plugin's own JSON-RPC error reply. It keeps the code the plugin chose, but the failure is the plugin's. */
+export class PluginReportedError extends CoreError {}
+
+/** Errors pacer raised itself (host, registry, bridge, deadlines it enforces), never a plugin's error reply. */
+export function raisedByPacer(e: unknown): e is CoreError {
+  return e instanceof CoreError && !(e instanceof PluginReportedError);
+}
+
 export function toCoreError(e: unknown): CoreError {
   if (e instanceof CoreError) return e;
   const message = e instanceof Error ? e.message : String(e);

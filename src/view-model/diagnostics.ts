@@ -51,8 +51,9 @@ export function remedyAgent(check: Check): string | undefined {
 }
 
 /**
- * The server's remedy decides the repair. Responses without one fall back to names: only the selected
- * planner is addressable by agent.connect. Never infer an action from fix text.
+ * The server's remedy decides the repair. The app can be connected to an older service whose checks carry
+ * no remedy; only those fall back to names, where only the selected planner is addressable by agent.connect.
+ * Never infer an action from fix text.
  */
 export function diagnosticRepair(check: Check, planner?: string): { agent: string } | undefined {
   if (check.remedy) {
@@ -102,7 +103,7 @@ export function diagnosticSetupLink(check: Check): { href: string; label: string
   return (check.remedy && remedySetupLink(check.remedy)) ?? checkSetupLink(check);
 }
 
-/** The setup link a check's name implies, used before remedies existed. */
+/** The setup link a check's name implies: for older services that send no remedy, and remedies that open no place. */
 export function checkSetupLink(check: Pick<Check, "name">): { href: string; label: string } | undefined {
   if (check.name.startsWith("Usage ") || check.name.startsWith("Login ") || check.name === "Claude config folder") return { href: "#/settings/accounts", label: "Review accounts" };
   if (/^(Binary|CLI) /.test(check.name) || check.name === "Executor") return { href: "#/settings/add-executor", label: "Open executor setup" };

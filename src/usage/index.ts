@@ -9,7 +9,7 @@ export type { RefreshCapability } from "./adapter";
 import { limitWindow } from "./reactive";
 import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
-import { CoreError } from "../core/errors";
+import { raisedByPacer } from "../core/errors";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
   return readPluginUsage(ctx, cfg, account, refresh);
@@ -37,7 +37,7 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
     const trace = statusTimer(ctx);
     let timer:ReturnType<typeof setTimeout>|undefined;
     try {
-      // Only pacer's own errors carry a code; a plugin cannot report its failure as pacer-internal.
+      // A code in the plugin's reading is the plugin's claim, so it is dropped; only errors pacer raised keep one (below).
       const value=withoutErrorCode(await Promise.race([base(ctx,cfg,account,refresh),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(`usage source ${source} timed out`)),10000);})]));
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
       const replacesHistory = value.availability?.reason === "authentication_failed" || value.availability?.reason === "subscription_missing";
@@ -47,7 +47,8 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
           ? hit.value : value;
       return entry.value;
     } catch (e) {
-      const code = e instanceof CoreError ? { errorCode: e.code } : {};
+      // A plugin's error reply is the plugin's failure, whatever code it chose.
+      const code = raisedByPacer(e) ? { errorCode: e.code } : {};
       const value = {windows: [], capturedAt: null, stale: false, error: String(e), ...code};
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
       entry.value = hit?.value?.windows.length

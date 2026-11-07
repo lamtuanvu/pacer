@@ -1,9 +1,10 @@
-import { CoreError } from "../core/errors";
+import { raisedByPacer } from "../core/errors";
 import type { Check, Remedy } from "./doctor";
 
 /**
- * Codes that mean pacer itself could not run a check, never the user's setup. `plugin_timeout`
- * counts because pacer raises it when its own plugin call misses a deadline.
+ * Codes that mean pacer itself could not run a check, never the user's setup, when pacer raised them.
+ * `plugin_timeout` counts because pacer raises it when its own plugin call misses a deadline.
+ * A plugin's error reply carrying one of these codes is the plugin's failure.
  */
 export const INTERNAL_ERROR_CODES: ReadonlySet<string> = new Set([
   "plugin_unavailable", "plugin_timeout", "plugin_refused", "unknown_plugin",
@@ -14,7 +15,7 @@ export function isInternalCode(code: string | undefined): boolean {
 }
 
 export function internalErrorCode(error: unknown): string | undefined {
-  return error instanceof CoreError && isInternalCode(error.code) ? error.code : undefined;
+  return raisedByPacer(error) && isInternalCode(error.code) ? error.code : undefined;
 }
 
 /** A check pacer could not run: never a setup problem, and never a reinstall suggestion. */

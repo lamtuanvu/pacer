@@ -1,5 +1,5 @@
 import type { Ctx } from "../types";
-import { CoreError } from "../core/errors";
+import { raisedByPacer } from "../core/errors";
 import { plannerSelectedSources } from "../plugins/planner-selection";
 import { readInstallFile } from "./atomic";
 import { managedContent } from "./managed-content";
@@ -15,7 +15,7 @@ export interface IntegrationResult {
   state: "current" | "refreshed" | "conflict" | "failed";
   detail?: string;
   hint?: string;
-  /** The CoreError code when assessment threw one. */
+  /** The CoreError code when pacer itself raised the assessment's error; a plugin's error reply has none. */
   code?: string;
 }
 function errorResult(target: string, error: unknown): IntegrationResult {
@@ -24,7 +24,7 @@ function errorResult(target: string, error: unknown): IntegrationResult {
     state: "conflict",
     detail: error instanceof Error ? error.message : String(error),
     hint: `Preserve your customizations, then reconnect the intended integration with pacer install ${target}`,
-    ...(error instanceof CoreError ? { code: error.code } : {}),
+    ...(raisedByPacer(error) ? { code: error.code } : {}),
   };
 }
 async function assess(
