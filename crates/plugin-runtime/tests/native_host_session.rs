@@ -356,7 +356,7 @@ async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
         r#"const r=Bun.stdin.stream().getReader();let b='',hellos=0;const pending={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello'){hellos++;send({id:m.id,result:{protocol:'1.10.0',id:m.params.manifest.id,version:'1.0.0',contributes:['diagnostic']}});}else if(m.method==='slow'){pending['r'+m.id]=m;send({id:'r'+m.id,method:'capability.fs.read',params:{path:m.params.path},...(m._meta?{_meta:m._meta}:{})});}else if(typeof m.id==='string'&&pending[m.id]){const p=pending[m.id];delete pending[m.id];setTimeout(()=>send({id:p.id,result:{text:m.result?.text??null,denied:m.error?.data?.code??null,token:p._meta?.capabilityCall??null,hellos}}),p.params.ms);}}}"#,
     )
     .unwrap();
-    let call = |plugin: &str, reentrant: bool, read: &str, ms: u64| {
+    let request_for = |plugin: &str, reentrant: bool, read: &str, ms: u64| {
         let hello = json!({
             "protocol":"1.10.0","pacer":"0.2.0",
             "manifest":{
@@ -366,7 +366,7 @@ async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
             },
             "config":{},"grants":["fs.read"],"features":[]
         });
-        let request = json!({
+        json!({
             "jsonrpc":"2.0","id":1,"method":METHOD_PLUGIN_CALL,
             "params":{
                 "id":plugin,"method":"slow","params":{"path":read,"ms":ms},"deadlineMs":10000,
@@ -382,7 +382,10 @@ async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
                 },
                 "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":account_home}
             }
-        });
+        })
+    };
+    let call = |plugin: &str, reentrant: bool, read: &str, ms: u64| {
+        let request = request_for(plugin, reentrant, read, ms);
         let path = path.clone();
         async move {
             let started = std::time::Instant::now();
@@ -425,6 +428,7 @@ async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
     for (reply, text) in [(&first, "a.txt"), (&second, "b.txt")] {
         assert_eq!(reply["result"]["value"]["text"], text, "{reply}");
         assert_eq!(reply["result"]["value"]["token"], Value::Null, "{reply}");
+        assert_eq!(reply["result"]["value"]["hellos"], 1, "hello runs once");
     }
     assert!(
         serialized >= Duration::from_millis(1150),
@@ -442,6 +446,17 @@ async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
         fast_took < Duration::from_millis(1200),
         "a call waited for another plugin: {fast_took:?}"
     );
+
+    // The deadline covers the wait for a busy non-reentrant plugin.
+    let mut late = request_for("fx-single", false, &a, 0);
+    late["params"]["deadlineMs"] = json!(300);
+    let (_, (late, late_took)) = tokio::join!(call("fx-single", false, &a, 1500), async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let started = std::time::Instant::now();
+        (dial_json(&path, late).await, started.elapsed())
+    });
+    assert_eq!(late["error"]["data"]["code"], "plugin_timeout", "{late}");
+    assert!(late_took < Duration::from_millis(1200), "{late_took:?}");
 
     {
         let mut owner = session.owner().lock().await;
@@ -507,7 +522,7 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
     let script = plugin_dir.path().join("plugin.js");
     fs::write(
         &script,
-        r#"const r=Bun.stdin.stream().getReader();let b='',pending,out={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:'fx-usage',version:'1.0.0',contributes:['usage']}});else if(m.method==='usage.read'){pending=m.id;send({id:7,method:'capability.usage.state.begin',params:{store:'codex-cursors'}});}else if(m.id===7){out.state=m.result??m.error;send({id:8,method:'capability.process.spawn',params:{argv:['codex','-s','read-only','-a','never','app-server'],timeoutMs:5000}});}else if(m.id===8){out.live=m.result??m.error;send({id:9,method:'capability.process.spawn',params:{argv:['fx-env'],timeoutMs:5000}});}else if(m.id===9){out.env=m.result??m.error;send({id:10,method:'capability.fs.stat',params:{path:'/fixture/account/auth.json'}});}else if(m.id===10){out.stat=m.result??m.error;send({id:pending,result:out});}}}"#,
+        r#"const r=Bun.stdin.stream().getReader();let b='',pending,out={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:'fx-usage',version:'1.0.0',contributes:['usage']}});else if(m.method==='usage.read'){pending=m.id;send({id:7,method:'capability.usage.state.begin',params:{store:'codex-cursors'}});}else if(m.id===7){out.state=m.result??m.error;send({id:11,method:'capability.usage.state.stageChunk',params:{lease:'lease-1',offset:0,base64:'e30='}});}else if(m.id===11){out.staged=m.result??m.error;send({id:12,method:'capability.usage.state.commit',params:{lease:'lease-1'}});}else if(m.id===12){out.commit=m.result??m.error;send({id:8,method:'capability.process.spawn',params:{argv:['codex','-s','read-only','-a','never','app-server'],timeoutMs:5000}});}else if(m.id===8){out.live=m.result??m.error;send({id:9,method:'capability.process.spawn',params:{argv:['fx-env'],timeoutMs:5000}});}else if(m.id===9){out.env=m.result??m.error;send({id:10,method:'capability.fs.stat',params:{path:'/fixture/account/auth.json'}});}else if(m.id===10){out.stat=m.result??m.error;send({id:pending,result:out});}}}"#,
     )
     .unwrap();
     let hello = json!({
@@ -520,7 +535,12 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
         "config":{},"grants":["process.spawn","usage.state","fs.read"],"features":[]
     });
     let codex_env = json!({"PATH": env::var("PATH").unwrap(), "CODEX_HOME": account_home});
-    let sealed = json!(["capability.usage.state.begin", "capability.fs.stat"]);
+    let sealed = json!([
+        "capability.usage.state.begin",
+        "capability.usage.state.stageChunk",
+        "capability.usage.state.commit",
+        "capability.fs.stat"
+    ]);
     let request = |rpc: u64, account_home: Value, core_methods: Value| {
         json!({
             "jsonrpc":"2.0",
@@ -556,12 +576,11 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
     let (reply, forwarded) = dial_with_core(
         &path,
         request(40, json!(account_home), sealed.clone()),
-        |frame| {
-            if frame["method"] == "capability.fs.stat" {
-                json!({"result":{"info":null,"missing":true}})
-            } else {
-                json!({"result":{"lease":"lease-1","bytes":2,"version":4,"dirty":false}})
-            }
+        |frame| match frame["method"].as_str() {
+            Some("capability.fs.stat") => json!({"result":{"info":null,"missing":true}}),
+            Some("capability.usage.state.stageChunk") => json!({"result":{"bytes":2}}),
+            Some("capability.usage.state.commit") => json!({"result":{"saved":true}}),
+            _ => json!({"result":{"lease":"lease-1","bytes":2,"version":4,"dirty":false}}),
         },
     )
     .await;
@@ -574,13 +593,21 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
         methods,
         [
             json!("capability.usage.state.begin"),
+            json!("capability.usage.state.stageChunk"),
+            json!("capability.usage.state.commit"),
             json!("capability.fs.stat")
         ],
         "{forwarded:?}"
     );
     assert_eq!(forwarded[0]["params"], json!({"store":"codex-cursors"}));
+    assert_eq!(
+        forwarded[1]["params"],
+        json!({"lease":"lease-1","offset":0,"base64":"e30="})
+    );
     let value = &reply["result"]["value"];
     assert_eq!(value["state"]["lease"], "lease-1", "{value}");
+    assert_eq!(value["staged"]["bytes"], 2, "{value}");
+    assert_eq!(value["commit"]["saved"], true, "{value}");
     assert_eq!(value["stat"]["missing"], true, "{value}");
     let live: Value =
         serde_json::from_str(value["live"]["stdout"].as_str().unwrap().trim()).unwrap();

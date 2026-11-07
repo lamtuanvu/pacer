@@ -8,7 +8,8 @@
 
 use crate::capability::PluginCapabilitySession;
 use crate::orca_attach::SharedOrcaBridge;
-use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, SpawnSpec};
+use crate::process::PluginProcess;
+use pacer_plugin_host::{PluginState, ProcessError, Registry, SpawnSpec};
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;

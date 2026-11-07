@@ -22,6 +22,7 @@ mod host_attach;
 mod host_bridge;
 mod orca_attach;
 mod owner;
+mod process;
 mod serve_host;
 mod worktree_attach;
 
@@ -44,12 +45,13 @@ pub use host_bridge::{
     dark_bridge_enabled, host_socket_path, prepare_host_run_dir,
 };
 pub use orca_attach::{FixtureOrcaSession, OrcaBridge, SharedOrcaBridge};
-pub use owner::{OwnerError, Ownership, ProcessOwner};
+pub use owner::{OwnerError, Ownership, PluginLane, ProcessOwner};
 pub use pacer_plugin_host::{
     CallAuthority, CallResources, CapabilityBroker, NativeHttp, NativeProcess, NativeRead,
-    NativeWrite, PluginProcess, PluginState, ProcessError, ProviderSnapshot, ReadResource,
-    Registry, SpawnSpec, WriteResource, parse_manifest,
+    NativeWrite, PluginState, ProcessError, ProviderSnapshot, ReadResource, Registry, SpawnSpec,
+    WriteResource, parse_manifest,
 };
+pub use process::PluginProcess;
 pub use serve_host::{
     NATIVE_PLUGIN_HOST_ENABLE_ENV, NativeHostError, NativeHostSession, native_plugin_host_enabled,
     native_plugin_host_enabled_from_env,

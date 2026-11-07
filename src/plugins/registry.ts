@@ -95,7 +95,8 @@ const stagedFetchResult = z.object({ handle: z.string().regex(/^[a-f0-9-]{36}$/)
   bytes: z.number().int().nonnegative().max(50 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 type StagedFetchResult = z.infer<typeof stagedFetchResult>;
 /** Under the native owner Core answers these itself; `crates/plugin-runtime` `core_capability` admits the same set. */
-const NATIVE_USAGE_STATE_METHODS = ["capability.usage.state.begin", "capability.usage.state.readChunk", "capability.usage.state.release"];
+const NATIVE_USAGE_STATE_METHODS = ["capability.usage.state.begin", "capability.usage.state.readChunk",
+  "capability.usage.state.stageChunk", "capability.usage.state.commit", "capability.usage.state.release"];
 /** File reads under a planner borrow or a Codex log directory, which the native read broker does not serve. */
 const NATIVE_CORE_READ_METHODS = ["capability.fs.read", "capability.fs.list", "capability.fs.stat", "capability.fs.readRange"];
 /** Planner methods a read-only (`preview`) borrow serves without file settlement or commands. */

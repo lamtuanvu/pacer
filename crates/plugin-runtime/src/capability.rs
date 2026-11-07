@@ -45,6 +45,8 @@ pub fn core_capability(method: &str) -> Option<&'static str> {
     match method {
         "capability.usage.state.begin"
         | "capability.usage.state.readChunk"
+        | "capability.usage.state.stageChunk"
+        | "capability.usage.state.commit"
         | "capability.usage.state.release" => Some("usage.state"),
         "capability.fs.read"
         | "capability.fs.list"

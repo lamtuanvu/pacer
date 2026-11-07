@@ -180,23 +180,33 @@ test("flag-on answers owner-forwarded usage state with the flag-off broker and o
   const { ctx, registry, path, spawned } = setup("fake");
   const store = join(ctx.pacerHome, "cache", "arkcli-usage-plan.json");
   mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true, mode: 0o700 });
-  writeFileSync(store, JSON.stringify({ capturedAt: 1, value: { plan: "pro" } }), { mode: 0o600 });
+  const before = JSON.stringify({ capturedAt: 1, value: { plan: "pro" } });
+  writeFileSync(store, before, { mode: 0o600 });
+  const fresh = Buffer.from(JSON.stringify({ capturedAt: 2, value: { plan: "max" } })).toString("base64");
   const { answers, requests } = await forwardingOwner(path, answers => [
     { method: "capability.usage.state.begin", params: { store: "arkcli-usage-plan" } },
     { method: "capability.usage.state.readChunk", params: { lease: answers[0]?.lease, offset: 0, length: answers[0]?.bytes } },
-    { method: "capability.usage.state.release", params: { lease: answers[0]?.lease } },
+    { method: "capability.usage.state.stageChunk", params: { lease: answers[0]?.lease, offset: 0, base64: fresh } },
+    { method: "capability.usage.state.commit", params: { lease: answers[0]?.lease } },
+    { method: "capability.usage.state.begin", params: { store: "arkcli-usage-plan" } },
+    { method: "capability.usage.state.release", params: { lease: answers[4]?.lease } },
     { method: "capability.usage.state.begin", params: { store: "codex-cursors" } },
     { method: "capability.fs.read", params: { path: store } },
   ][answers.length], { ok: true, uptimeS: 0 });
   await registry.call(ctx, "fx-native", "diagnostic.ping", {}, {
     resources: { reads: [], commands: [], stores: [{ id: "arkcli-usage-plan", path: store, kind: "cache" }] },
   });
-  expect(requests[0].params.coreMethods).toEqual(["capability.usage.state.begin", "capability.usage.state.readChunk", "capability.usage.state.release"]);
-  expect(answers[0]).toMatchObject({ lease: expect.any(String), bytes: readFileSync(store).length });
-  expect(Buffer.from(answers[1].base64, "base64").toString("utf8")).toBe(readFileSync(store, "utf8"));
-  expect(answers[2]).toEqual({ ok: true });
-  expect(answers[3]).toMatchObject({ code: -32000, data: { code: "capability_denied" }, message: "usage state store is not authorized" });
-  expect(answers[4]).toMatchObject({ code: -32000, data: { code: "capability_denied" } });
+  expect(requests[0].params.coreMethods).toEqual(["capability.usage.state.begin", "capability.usage.state.readChunk",
+    "capability.usage.state.stageChunk", "capability.usage.state.commit", "capability.usage.state.release"]);
+  expect(answers[0]).toMatchObject({ lease: expect.any(String), bytes: Buffer.byteLength(before) });
+  expect(Buffer.from(answers[1].base64, "base64").toString("utf8")).toBe(before);
+  expect(answers[2]).toEqual({ bytes: Buffer.from(fresh, "base64").length });
+  expect(answers[3]).toEqual({ saved: true });
+  expect(JSON.parse(readFileSync(store, "utf8"))).toMatchObject({ capturedAt: 2, value: { plan: "max" } });
+  expect(answers[4]).toMatchObject({ bytes: readFileSync(store).length });
+  expect(answers[5]).toEqual({ ok: true });
+  expect(answers[6]).toMatchObject({ code: -32000, data: { code: "capability_denied" }, message: "usage state store is not authorized" });
+  expect(answers[7]).toMatchObject({ code: -32000, data: { code: "capability_denied" } });
   expect(spawned).toEqual([]);
 });
 
