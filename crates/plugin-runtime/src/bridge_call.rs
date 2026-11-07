@@ -40,6 +40,8 @@ pub(crate) struct CallFailure {
     pub code: String,
     pub message: String,
     pub hint: Option<String>,
+    /// The child's own JSON-RPC error reply, relayed; never an owner or Core failure.
+    pub from_plugin: bool,
 }
 
 fn failure(code: &str, error: impl Display) -> CallFailure {
@@ -47,6 +49,7 @@ fn failure(code: &str, error: impl Display) -> CallFailure {
         code: code.to_owned(),
         message: error.to_string(),
         hint: None,
+        from_plugin: false,
     }
 }
 
@@ -88,6 +91,7 @@ fn call_failure(error: OwnerError, fallback: &str) -> CallFailure {
                     .to_owned(),
                 message: message.to_owned(),
                 hint: reply["data"]["hint"].as_str().map(str::to_owned),
+                from_plugin: true,
             };
         }
     }

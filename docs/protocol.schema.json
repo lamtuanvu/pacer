@@ -2893,6 +2893,28 @@
       ],
       "additionalProperties": false
     },
+    "DoctorFixDelegateParams": {
+      "type": "object",
+      "properties": {
+        "check": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "fix",
+            "investigate"
+          ]
+        }
+      },
+      "required": [
+        "check",
+        "scope"
+      ],
+      "additionalProperties": false
+    },
     "DoctorRunParams": {
       "type": "object",
       "properties": {},

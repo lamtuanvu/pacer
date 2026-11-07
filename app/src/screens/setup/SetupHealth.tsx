@@ -71,6 +71,7 @@ export function SetupHealthStage({
   onOpenDiagnostics,
   onRepair,
   repairing = false,
+  repairError,
 }: {
   report: SetupHealthReport;
   busy?: boolean;
@@ -78,6 +79,8 @@ export function SetupHealthStage({
   onOpenDiagnostics: () => void;
   onRepair?: (repair: SetupHealthRepair) => void;
   repairing?: boolean;
+  /** Why the last fix did not finish; the checks are unchanged. */
+  repairError?: string;
 }) {
   const primary = report.repairs?.[0];
   const hardFail = report.outcome === "hard_fail";
@@ -114,6 +117,7 @@ export function SetupHealthStage({
       You can continue into pacer and fix these when you are ready.
     </Alert>}
     {done && report.outcome === "ok" && <Alert tone="success" title="Setup looks ready" announce={false} />}
+    {done && repairError && <Alert tone="error" title="The fix did not finish">{repairError}</Alert>}
     {done && <div className="pc-setup-health__actions">
       {primary && onRepair && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onRepair(primary)}>{primary.label}</Button>}
       {hardFail && <Button variant={primary ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>Continue anyway</Button>}

@@ -16,3 +16,7 @@ dde21d34cb13730d25e8afc8e82e33aa19990393:crates/store/tests/json_acceptance.rs:g
 dde21d34cb13730d25e8afc8e82e33aa19990393:crates/store/tests/json_acceptance.rs:generic-api-key:130
 dde21d34cb13730d25e8afc8e82e33aa19990393:crates/store/tests/json_acceptance.rs:generic-api-key:384
 dde21d34cb13730d25e8afc8e82e33aa19990393:crates/store/tests/json_acceptance.rs:generic-api-key:385
+# Fake tokens in test/doctor-fix-delegate.test.ts redaction tests (not credentials); the file now builds them at runtime.
+1e8c9f80a0cbb8f5dcceeae0cfb2dac648faf92d:test/doctor-fix-delegate.test.ts:aws-access-token:121
+1e8c9f80a0cbb8f5dcceeae0cfb2dac648faf92d:test/doctor-fix-delegate.test.ts:jwt:121
+f12790aa05859b4c3ac48c6c0d7c83886d8c8dcd:test/doctor-fix-delegate.test.ts:generic-api-key:16

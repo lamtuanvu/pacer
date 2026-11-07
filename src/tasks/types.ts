@@ -325,6 +325,10 @@ export interface TaskRecord {
   retriedBy?: string;
   force?: boolean;
   fromPanel?: boolean;
+  /** The diagnostics check this task was started to fix (`doctor.fix.delegate`). */
+  diagnosticCheck?: string;
+  /** The rerun of `diagnosticCheck` after the task was accepted; passed only if the check passes. */
+  diagnosticRecheck?: { at: number; passed: boolean; level: "ok" | "warn" | "fail" | "info" | null; detail: string };
   childPid?: number;
   attempts: Attempt[];
   result?: TaskResult;

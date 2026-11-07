@@ -263,6 +263,10 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     assert_eq!(failing["error"]["message"], "bad input", "{failing}");
     assert_eq!(failing["error"]["data"]["code"], "invalid_input");
     assert_eq!(failing["error"]["data"]["hint"], "fix it");
+    assert_eq!(
+        failing["error"]["data"]["origin"], "plugin",
+        "a relayed child error is tagged as the plugin's"
+    );
 
     // The deadline starts at receipt and covers the wait for the owner.
     let mut late = request(36, json!(account_home));
@@ -280,6 +284,10 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     drop(held);
     let late = waited.await.unwrap();
     assert_eq!(late["error"]["data"]["code"], "plugin_timeout", "{late}");
+    assert!(
+        late["error"]["data"].get("origin").is_none(),
+        "an owner-enforced deadline is pacer's own failure: {late}"
+    );
 
     // A caller that hangs up cancels its call and releases the owner.
     let mut hang = request(38, json!(account_home));
