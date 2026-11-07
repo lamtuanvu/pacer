@@ -2,6 +2,7 @@
   "params": [
     {"name":"task.delegate","input":{"title":"x","dispatch":{"model":"m"}},"output":{"title":"x"}},
     {"name":"client.register","input":{"kind":"desktop","capture":true},"output":{"kind":"desktop"}},
+    {"name":"client.heartbeat","input":{"client_id":"c","notifier":false},"output":{"client_id":"c"}},
     {"name":"task.review","input":{"accepted":true,"id":"t"},"output":{"id":"t","verdict":"accept"}},
     {"name":"task.review","input":{"accepted":false},"output":{"verdict":"reject"}},
     {"name":"task.review","input":{"accepted":true,"verdict":"reject"},"output":{"verdict":"reject"}},

@@ -187,6 +187,7 @@ pub fn op_schemas(input: &Value) -> Value {
     for (op, field) in [
         ("task.delegate", "dispatch"),
         ("client.register", "capture"),
+        ("client.heartbeat", "notifier"),
     ] {
         if let Some(map) = out[op]["params"]["properties"].as_object_mut() {
             map.shift_remove(field);
@@ -197,6 +198,8 @@ pub fn op_schemas(input: &Value) -> Value {
     );
     out["client.register"]["description"] =
         json!("Register a client with an optional notifier lease; heartbeat every 30 seconds.");
+    out["client.heartbeat"]["description"] =
+        json!("Renew a client lease, which lapses after 45 seconds without a heartbeat.");
     let review = &mut out["task.review"]["params"];
     review["properties"]["accepted"] = json!({"type":"boolean"});
     let source = review["properties"].clone();

@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Notifications are no longer lost while the desktop is open but macOS has denied it notification permission. The desktop now registers and heartbeats with `notifier: false` after an explicit denial (rechecked every heartbeat), so the service falls back to its notifier plugin; `client.heartbeat` accepts an optional `notifier` flag that older services ignore.
+
 ### Changed
 
 - Client-owned notification delivery: the service selects per-medium presenters (`desktop` → OS, `tui` → terminal, standalone `app` → browser; browser omitted while desktop is live), publishes `notify` events with additive `recipients`, and exposes `service.notifiers` on the snapshot (`service.notifier` stays the `os` presenter for older clients). The bundled notifier plugin (`pacer-notify` / `osascript` / `notify-send`) runs only when no delivery client is live. See [ADR 2026-11-06](docs/decisions/2026-11-06-client-notification-delivery.md).

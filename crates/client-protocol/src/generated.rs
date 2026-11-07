@@ -3678,6 +3678,9 @@ impl<'de> ::serde::Deserialize<'de> for AttentionSnoozeParamsId {
 ///      "type": "string",
 ///      "maxLength": 128,
 ///      "minLength": 1
+///    },
+///    "notifier": {
+///      "type": "boolean"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -3688,6 +3691,8 @@ impl<'de> ::serde::Deserialize<'de> for AttentionSnoozeParamsId {
 #[serde(deny_unknown_fields)]
 pub struct ClientHeartbeatParams {
     pub client_id: ClientHeartbeatParamsClientId,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub notifier: ::std::option::Option<bool>,
 }
 ///`ClientHeartbeatParamsClientId`
 ///

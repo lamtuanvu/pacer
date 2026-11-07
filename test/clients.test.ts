@@ -82,6 +82,19 @@ test("registrations persist under state and non-notifiers cannot take the lease"
   expect(activeNotifier(restored)?.client_id).toBe(a.client_id);
 });
 
+test("heartbeat notifier updates delivery eligibility in place", () => {
+  const ctx = fakeCtx();
+  const desktop = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  expect(heartbeat(ctx, desktop.client_id, false)).toEqual({ ok: true });
+  expect(deliveryPresenters(ctx)).toEqual([]);
+  expect(activeNotifier(ctx)).toBeNull();
+  heartbeat(ctx, desktop.client_id);
+  expect(deliveryPresenters(ctx)).toEqual([]);
+  heartbeat(ctx, desktop.client_id, true);
+  expect(deliveryPresenters(ctx)).toEqual([{ client_id: desktop.client_id, kind: "desktop", medium: "os" }]);
+  expect(list(ctx)).toHaveLength(1);
+});
+
 test("unknown heartbeat ids fail without creating state", () => {
   const ctx = fakeCtx();
   expect(() => heartbeat(ctx, "missing")).toThrow(expect.objectContaining({ code: "invalid_input" }));
@@ -97,6 +110,9 @@ test("client operations advertise, register, renew and list clients", async () =
     expect(await callOp(ctx, "client.heartbeat", { client_id: result.client_id })).toEqual({ ok: true });
   }
   expect(await callOp(ctx, "client.list", {})).toHaveLength(7);
+  const desktop = (await callOp(ctx, "client.list", {}) as { client_id: string; kind: string }[]).find(c => c.kind === "desktop")!;
+  expect(await callOp(ctx, "client.heartbeat", { client_id: desktop.client_id, notifier: false })).toEqual({ ok: true });
+  expect(await callOp(ctx, "client.list", {})).toEqual(expect.arrayContaining([expect.objectContaining({ client_id: desktop.client_id, notifier: false })]));
   ctx.now += 46;
   expect(await callOp(ctx, "client.list", {})).toEqual([]);
 });
@@ -111,6 +127,8 @@ test("client operations reject invalid parameters and unknown ids", async () => 
   }
   await expect(callOp(ctx, "client.heartbeat", { client_id: "missing" })).rejects.toMatchObject({ code: "invalid_input" });
   await expect(callOp(ctx, "client.heartbeat", { client_id: "" })).rejects.toMatchObject({ code: "invalid_input" });
+  const { client_id } = await callOp(ctx, "client.register", { kind: "desktop", version: "1" }) as { client_id: string };
+  await expect(callOp(ctx, "client.heartbeat", { client_id, notifier: "false" })).rejects.toMatchObject({ code: "invalid_input" });
 });
 
 test("snapshot service exposes per-medium notifiers and compat os notifier", async()=>{
