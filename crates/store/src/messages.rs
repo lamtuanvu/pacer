@@ -8,6 +8,9 @@ use rusqlite::{
 };
 use serde_json::{Map, Value, json};
 
+mod writes;
+pub use writes::{NewMessage, by_request, confirm_held, ensure_schema, fingerprint, get, insert};
+
 type Result<T> = std::result::Result<T, StoreError>;
 
 const MAX_DEPTH: usize = 64;
@@ -194,6 +197,16 @@ pub fn work_tree_ids(store: &mut TaskStore, id: &str) -> Result<Option<Vec<Strin
         .query_map([root], |r| r.get(0))?
         .collect::<rusqlite::Result<Vec<String>>>()?;
     Ok(Some(ids))
+}
+
+/// `getWork(id) !== null`: the task is a managed work node.
+pub fn is_work(store: &mut TaskStore, id: &str) -> Result<bool> {
+    let db = store.connection()?;
+    Ok(has_table(db, "work_nodes")?
+        && db
+            .query_row("SELECT 1 FROM work_nodes WHERE task_id=?", [id], |_| Ok(()))
+            .optional()?
+            .is_some())
 }
 
 /// `taskOf`: the task id of a `task:` participant; an empty id is no task.
