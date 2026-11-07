@@ -47,6 +47,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- The Claude Code `SessionStart` hook (`pacer msg hook session`) finishes again. Since 0.13.0 it waited forever on its own CLI module, so sessions never got the budget context. With stdin at end of file, for example from a closed terminal, it also used about 70% of a CPU core until it was killed.
 - Turn the native plugin host back off by default on `pacer serve` (reverts P4d-13). With it on, the TypeScript core refused to start any plugin child, and only the public `plugin.*` HTTP operations could start one through the native owner. Usage refresh, the doctor and setup-health integration and Usage checks, and the planners plugin all failed, and usage readings stopped updating. `PACER_NATIVE_PLUGIN_HOST=1` still opts in, with the same limitation.
 - Cursor sessions no longer stop at Cursor Agent 2026.11's "Workspace Trust Required" prompt in new task worktrees. Every Cursor launch (headless, interactive, resume and planner) passes `--trust`. The launch arguments changed, so strict-enforcement certifications for Cursor are re-probed once.
 - Watching a session no longer enlarges its terminal to fill a wide pane, which made a 120×40 session look zoomed in. The terminal now only shrinks to fit a small pane.
