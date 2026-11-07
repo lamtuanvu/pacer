@@ -15,6 +15,7 @@ use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
 use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
+use pacer_dispatch_ops::planning_ops;
 mod engine_ops;
 use pacer_config_ops::host_mut_ops;
 use pacer_task_ops::files_search_ops;
@@ -65,6 +66,7 @@ pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 use pacer_config_ops::{project_strategy_ops, repo_registry_ops};
+pub use planning_ops::planning_stays_forwarded;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 
@@ -418,6 +420,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.learning.reset",
         call: learning_ops::dispatch_learning_reset,
+    },
+    NativeOp {
+        name: "dispatch.models",
+        call: planning_ops::dispatch_models,
+    },
+    NativeOp {
+        name: "dispatch.refresh",
+        call: planning_ops::dispatch_refresh,
+    },
+    NativeOp {
+        name: "dispatch.enforcement.consent",
+        call: planning_ops::dispatch_enforcement_consent,
     },
     NativeOp {
         name: "insights.summary",
