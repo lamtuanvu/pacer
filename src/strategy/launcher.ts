@@ -53,7 +53,7 @@ async function buildAdmitted(ctx:Ctx,opts:{agent?:string;from?:string;brief?:str
   }
   const argv=agent==='opencode'?['opencode','run','--standalone','--auto',prompt]
     : agent==='claude-code'?['claude','--dangerously-skip-permissions','--',prompt]
-    : agent==='cursor'?['cursor-agent','--force','--sandbox','disabled','--',prompt]
+    : agent==='cursor'?['cursor-agent','--force','--trust','--sandbox','disabled','--',prompt]
     : ['codex','--no-daemon','--dangerously-bypass-approvals-and-sandbox','--',prompt];
   const result=await (deps.open ?? openInTerminal)(ctx,{argv,title:'pacer strategy',worktree:opts.worktree,requestId:opts.request_id});
   return {...result,path,message:result.opened?'Session opened in a new terminal':`Run: ${result.command}`};

@@ -180,7 +180,7 @@ interactive sessions, takeover/resume, remote execution and strategy planning:
 | --- | --- |
 | Codex | `--dangerously-bypass-approvals-and-sandbox`; interactive/resume also bypass trust for injected hooks |
 | Claude Code | `--dangerously-skip-permissions` |
-| Cursor | `--force --sandbox disabled` |
+| Cursor | `--force --trust --sandbox disabled`; `--trust` skips the workspace-trust prompt that Cursor Agent 2026.11 shows in new worktrees |
 | Antigravity | `--dangerously-skip-permissions`, without `--sandbox`; interactive prompts use `--prompt-interactive` |
 | OpenCode | `--auto`, with `--standalone` to keep the process environment private |
 
