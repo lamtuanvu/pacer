@@ -30,6 +30,21 @@ test('offline builtin offers replay viewers and no app socket',async()=>{
  writeFileSync(join(dir,'session.ckpt'),JSON.stringify({cols:80,rows:24}));writeFileSync(join(dir,'exit'),'0');
  expect(await sessionInfo(ctx,id)).toMatchObject({host:'builtin',live:false,cols:80,rows:24,targets:expect.arrayContaining(['here'])});
 });
+test('task.session reports the negotiated session protocol minor of a built-in host',async()=>{
+ const ctx=fakeCtx();task(ctx);const dir=join(ctx.pacerHome,'runs',id,'1');mkdirSync(dir,{recursive:true});
+ writeFileSync(join(dir,'session.ckpt'),JSON.stringify({cols:80,rows:24}));writeFileSync(join(dir,'exit'),'0');
+ // No session.version: an older host that speaks 1.1.
+ expect((await sessionInfo(ctx,id)).sessionMinor).toBe(1);
+ writeFileSync(join(dir,'session.version'),JSON.stringify({pacer:'0.14.0',versions:[1,2]}));
+ expect((await sessionInfo(ctx,id)).sessionMinor).toBe(2);
+ // A newer host still negotiates down to this service's highest minor.
+ writeFileSync(join(dir,'session.version'),JSON.stringify({pacer:'0.15.0',versions:[1,3]}));
+ expect((await sessionInfo(ctx,id)).sessionMinor).toBe(2);
+ writeFileSync(join(dir,'session.version'),JSON.stringify({pacer:'0.12.0',versions:[1,1]}));
+ expect((await sessionInfo(ctx,id)).sessionMinor).toBe(1);
+ // Only built-in hosts speak the session protocol.
+ const other=fakeCtx();task(other);expect((await sessionInfo(other,id)).sessionMinor).toBeUndefined();
+});
 test('builtin and Orca adapters conform to RunIO with host-specific control',async()=>{
  const ctx=fakeCtx();const builtin=new BuiltinSessionHost(ctx.home);
  expect(builtin.id).toBe('builtin');expect(builtin.capabilities.control).toBe(true);expect(builtin.capabilities.resize).toBe(true);

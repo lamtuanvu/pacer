@@ -13,6 +13,7 @@ export type SessionConnection = Pick<
   | 'configure'
   | 'take'
   | 'release'
+  | 'focus'
   | 'input'
   | 'resize'
   | 'dispose'
@@ -114,16 +115,21 @@ export class SessionRuntime {
         for (const r of this.sinks()) r.write(b);
       },
       onState: (s) => {
-        if (this.intent === 'released' && s.you) {
+        if (this.intent === 'released' && s.you && !s.shared) {
           this.client.release();
           return;
         }
         const previous = this.state;
         this.state = s;
-        if (s.status === 'exited' && this.intent === 'driving') this.intent = 'watching';
-        if (s.you && this.intent !== 'released') this.intent = 'driving';
-        else if (s.status === 'live' && !s.you && s.controller && this.intent === 'driving')
-          this.intent = 'watching';
+        // Every pane on a 1.2 host can type, so none of them holds a session like a 1.1 controller.
+        if (s.shared) {
+          if (this.intent === 'driving') this.intent = 'watching';
+        } else {
+          if (s.status === 'exited' && this.intent === 'driving') this.intent = 'watching';
+          if (s.you && this.intent !== 'released') this.intent = 'driving';
+          else if (s.status === 'live' && !s.you && s.controller && this.intent === 'driving')
+            this.intent = 'watching';
+        }
         this.terminal?.renderer.state?.(s);
         for (const r of this.renderers) r.state?.(s);
         if (
@@ -259,6 +265,7 @@ export class SessionRuntime {
     return sent;
   }
   release() {
+    if (this.state.shared) return false;
     this.controlVersion++;
     this.takeRequested = false;
     this.intent = 'released';
@@ -266,6 +273,9 @@ export class SessionRuntime {
     this.idle();
     this.changed();
     return sent;
+  }
+  focus() {
+    return this.client.focus();
   }
   input(text: string) {
     return this.client.input(text);

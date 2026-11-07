@@ -18,6 +18,7 @@ import { routes } from '../../router';
 import { StatusPill } from '../../ds/StatusPill';
 import { LinkedTerminal } from './LinkedTerminal';
 import { PlainLog } from './PlainLog';
+import { interactiveHost, sessionActive } from '../../term/activity';
 import { sessionStatus, phaseWords, taskStatus, taskOutcome } from '../../../../src/view-model/words';
 import type { Resource, SessionData, SessionActions, Action } from './types';
 export type { SessionData, SessionActions, Resource } from './types';
@@ -26,6 +27,8 @@ export interface SessionProps extends SessionActions {
   embedded?: boolean; data?: SessionData | null; loading?: boolean; error?: string | null; initialTab?: SessionTab; view?:SessionTab;
   onReload?: () => void; onTakeover?: () => void; takeoverBusy?: boolean; takeoverStarting?: boolean;
   takeoverError?: string; takeRequested?: boolean; onTakeSent?: () => void;
+  /** Ends a takeover session on a 1.2 host (task.hand_back). */
+  onHandBack?: () => unknown;
   /** Embedded in a task's screen: End session goes to the title bar and the activity and actions to the right panel. */
   slots?: SessionSlots;
 }
@@ -52,8 +55,12 @@ export function Brief({ data }: { data: SessionData }) {
   </div>;
 }
 
+/** A live built-in session on a 1.2 host already types, so the screen shows no Take over row (UI-13, ADR 0023). */
+export function sessionTakeoverShown(session: Pick<NonNullable<SessionData['session']>, 'host' | 'sessionMinor'>): boolean {
+  return !interactiveHost(session);
+}
 export function Session({ embedded = false, data, loading, error, initialTab, view, onAction, onAttach, onReload, onTakeover,
-  takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent, slots, onReadFile }: SessionProps) {
+  takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent, onHandBack, slots, onReadFile }: SessionProps) {
   const viewId = useId();
   const [chosenTab, setTab] = useState<SessionTab | undefined>(initialTab);
   const [selected, setSelected] = useState(''), [busy, setBusy] = useState(false);
@@ -87,7 +94,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
   const waitingForReview = !!data.reviewRequest && ['done', 'partial'].includes(data.state) && !data.review && !data.resolved && !data.dismissed && !data.retriedBy;
   const driving = active && (!!session?.driving || data.phase === 'driving');
   const headless = session?.host === 'none';
-  const takeover = active && !driving && session ? <span className="pc-control-with-reason">
+  const takeover = active && !driving && session && sessionTakeoverShown(session) ? <span className="pc-control-with-reason">
     <Button variant={headless ? 'primary' : 'secondary'} disabled={takeoverBusy || !session.takeover.available || !onTakeover}
       title={!session.takeover.available ? session.takeover.reason : undefined}
       aria-describedby={!session.takeover.available ? `${viewId}-takeover-reason` : undefined} onClick={onTakeover}>Take over</Button>
@@ -110,7 +117,8 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
         }</ResourceView> : <PlainLog key={data.id} id={data.id}/>}
       </div> : <LinkedTerminal key={data.id} id={data.id} attempt={session.attempt ?? null} readFile={onReadFile} workspace={data.branch ?? data.repo} agent={data.agent} url={session.attach.ws} cols={session.cols} rows={session.rows}
         control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
-        controller={session.controller} driving={driving} takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
+        controller={session.controller} active={sessionActive(session)} driving={driving} onHandBack={driving ? onHandBack : undefined}
+        takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </Stack>;
   const aside = <>
       <section><SectionHeading as="h3">Activity</SectionHeading>

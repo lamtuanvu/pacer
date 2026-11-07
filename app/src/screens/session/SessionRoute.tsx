@@ -11,7 +11,7 @@ import { keys } from "../../keys/instance";
 import { useActions } from "../../data/action-context";
 import { useFrame } from "../../shell/slots";
 import { useQuery, useTaskContext } from "../task-shared";
-import { takeoverSession, type TakeoverState } from "./takeover";
+import { handBackSession, takeoverSession, type TakeoverState } from "./takeover";
 import { sessionChangeText, sessionDetail } from "./controller";
 import { Session } from "./Session";
 import { Conversation, type SessionSlots } from "./Conversation";
@@ -118,6 +118,6 @@ export function SessionRoute({id, result, work, tab}:{id:string; result?:Compone
  }}>{next.label}</Button>;
  const header=task.data&&<SessionHeader task={task.data} onEnd={endSession} busy={endBusy} actions={nextAction}/>;
  if(task.data?.interactionMode==='conversation')return <>{dialogs.dialog}{header}{shortcutError&&<p role="alert">{shortcutError}</p>}<Conversation key={id} task={task.data} session={session.data} slots={slots} onReload={()=>{task.reload();session.reload();}}/></>;
- return <>{dialogs.dialog}{header}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded view="terminal" slots={slots} key={id} onTakeSent={()=>setTakeRequested(false)} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onReadFile={request=>api.call('session.file.read',request)} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
+ return <>{dialogs.dialog}{header}{shortcutError&&<p role="status">{shortcutError}</p>}<Session embedded view="terminal" slots={slots} key={id} onTakeSent={()=>setTakeRequested(false)} onHandBack={async()=>{await handBackSession({id,call:api.call.bind(api)});task.reload();session.reload();}} onTakeover={()=>void takeOver()} takeoverBusy={takeoverBusy} takeoverStarting={takeoverStarting} takeoverError={takeoverError} takeRequested={takeRequested} data={data} loading={task.loading} error={message(task.error)} onAction={invoke} onReadFile={request=>api.call('session.file.read',request)} onAttach={async(_,target)=>{const key=`attach:${id}:${target}`;const outcome=await runner.run(key,{label:'Open viewer',op:'task.attach',params:{id,target}});if(outcome.status==='error'||outcome.status==='handled')throw new Error(outcome.message);return runner.result(key) as {opened:boolean;command?:string};}} onReload={task.reload}/></>;
 }
 const message=(error:unknown)=>error instanceof Error?error.message:error?String(error):undefined;
