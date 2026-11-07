@@ -1,7 +1,6 @@
 import { arch, platform } from "node:os";
 import { execFileSync } from "node:child_process";
 import pkg from "../../package.json";
-import { activeNotifier } from "../clients/registry";
 import { validateExecution } from "../config/execution";
 import { loadStrategy, validateStrategy } from "../config/strategy";
 import { readProjectStrategies } from "../config/project-strategies";
@@ -13,7 +12,7 @@ import { computeStatus } from "../engine/status";
 import { machineGuardState } from "../engine/machine";
 import { serviceInstalled } from "../service";
 import { PROTOCOL_VERSION } from "./protocol";
-import { readModelContext } from "./read-model";
+import { readModelContext, serviceNotifiers } from "./read-model";
 import { sessionProbeParts } from "./session-probe-bridge";
 import type { Ctx } from "../types";
 
@@ -60,14 +59,15 @@ export async function snapshotProbeParts(ctx: Ctx) {
   } catch (error) {
     policyError = error instanceof Error ? error.message : String(error);
   }
-  const notifier = activeNotifier(ctx);
+  const notifiers = serviceNotifiers(ctx);
   const service = {
     ...(policyError ? { projectStrategyError: policyError } : {}),
     version: pkg.version,
     protocol: PROTOCOL_VERSION,
     pid: process.pid,
     startedAt,
-    notifier: notifier ? { client_id: notifier.client_id, kind: notifier.kind } : null,
+    notifiers,
+    notifier: notifiers.os,
     ...waitingField(),
   };
   const discovery = discoveryRuleInput(ctx, ctx.now);

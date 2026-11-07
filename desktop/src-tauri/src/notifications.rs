@@ -19,8 +19,15 @@ pub fn from_attention(item: &Value, level: &str) -> Option<Notification> {
     }
     Some(project(item, "detail", actions::attention_route(item)))
 }
+fn targets_client(data: &Value, client_id: &str) -> bool {
+    match data.get("recipients") {
+        None | Some(Value::Null) => data["client_id"].as_str() == Some(client_id),
+        Some(Value::Array(list)) => list.iter().any(|id| id.as_str() == Some(client_id)),
+        Some(_) => false,
+    }
+}
 pub fn from_event(data: &Value, client_id: &str) -> Option<Notification> {
-    if data["client_id"].as_str() != Some(client_id) {
+    if !targets_client(data, client_id) {
         return None;
     }
     let route = data["url"]
@@ -76,6 +83,36 @@ mod tests {
         let n = from_event(&data, "mine").unwrap();
         assert_eq!(n.route, "#/sessions/t-1");
         assert_eq!(n.body, "Detail");
+    }
+    #[test]
+    fn recipients_list_targets_notify_events() {
+        let base = json!({
+            "client_id": "primary",
+            "url": "/app/#/sessions/t-1",
+            "title": "Ready",
+            "body": "Detail"
+        });
+        let listed = json!({
+            "recipients": ["mine", "other"],
+            "client_id": "primary",
+            "url": "/app/#/sessions/t-1",
+            "title": "Ready",
+            "body": "Detail"
+        });
+        assert!(from_event(&listed, "primary").is_none());
+        let n = from_event(&listed, "mine").unwrap();
+        assert_eq!(n.body, "Detail");
+        assert!(from_event(&base, "mine").is_none());
+        let legacy = from_event(&base, "primary").unwrap();
+        assert_eq!(legacy.route, "#/sessions/t-1");
+        let null_recipients = json!({
+            "recipients": null,
+            "client_id": "primary",
+            "url": "/app/#/sessions/t-1",
+            "title": "Ready",
+            "body": "Detail"
+        });
+        assert!(from_event(&null_recipients, "primary").unwrap().body == "Detail");
     }
 }
 

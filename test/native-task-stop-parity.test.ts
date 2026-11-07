@@ -67,7 +67,7 @@ test.skipIf(!front)("native task.stop matches TypeScript for a non-managed task"
     expect(native?.result?.state).toBe("stopped");
     expect(forwarded?.result?.state).toBe("stopped");
     expect(native?.result?.task_id).toBe(task.id);
-    expect(native?.result?.state).toBe(reference.state);
+    expect(native?.result?.state).toBe((reference as { state: string }).state);
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });

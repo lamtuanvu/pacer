@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { Action, AttentionItem } from "../attention/types";
 import { needsReview } from "../api/read-model/tasks";
-import { activeNotifier } from "../clients/registry";
+import { deliveryPresenters } from "../clients/registry";
 import { withLock } from "../core/lock";
 import { getLevel, type NotificationLevel } from "../core/notify";
 import { readJson, writeJsonAtomic } from "../fsutil";
@@ -14,7 +14,7 @@ import { notifierResources } from "../plugins/notifier-resources";
 import { notificationResult } from "../plugins/notifier-protocol";
 import { CoreError } from "../core/errors";
 
-export interface NotifyData { key: string; title: string; body: string; actions: Action[]; url: string; client_id?: string }
+export interface NotifyData { key: string; title: string; body: string; actions: Action[]; url: string; recipients?: string[]; client_id?: string }
 export type DeliveryLedger = Record<string, number>;
 function notificationView(item: AttentionItem): string {
   const section = item.actions.find(a => a.op === "ui.open" && a.params.view === "settings")?.params.section;
@@ -98,10 +98,12 @@ export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], de
     const sent: OutboxEvent[] = [];
     for (const { key, data } of candidates) {
       if (Object.hasOwn(ledger, key)) continue;
-      const notifier = activeNotifier(ctx);
+      const presenters = deliveryPresenters(ctx);
       let delivered: boolean;
-      if (notifier) {
-        const event: OutboxEvent = { type: "entity", data: { kind: "notify", id: key, value: { ...data, client_id: notifier.client_id } } };
+      if (presenters.length > 0) {
+        const recipients = presenters.map(presenter => presenter.client_id);
+        const client_id = presenters.find(presenter => presenter.medium === "os")?.client_id ?? recipients[0];
+        const event: OutboxEvent = { type: "entity", data: { kind: "notify", id: key, value: { ...data, recipients, client_id } } };
         const report = await (deps.publish ?? publish)(ctx, [event]);
         delivered = report.transports.includes("outbox");
         if (delivered) sent.push(event);

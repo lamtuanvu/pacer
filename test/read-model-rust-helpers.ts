@@ -92,6 +92,15 @@ export async function rustRequest(ctx: Ctx, request: Record<string, unknown>, ex
   pending = pending.slice(index + 1);
   return result;
 }
+const emptyNotifiers = () => ({ os: null, terminal: null, browser: null });
+
+function rustProbeService(expected: unknown, protocol: 2 | 3): Record<string, unknown> {
+  const fallback = { version: pkg.version, protocol: protocol === 2 ? "2.8.0" : "3.0.0", pid: 0, startedAt: 0, notifiers: emptyNotifiers(), notifier: null };
+  const service = (expected as { snapshot?: { service?: Record<string, unknown> } })?.snapshot?.service;
+  if (!service) return fallback;
+  return { ...service, pid: 0, startedAt: 0, protocol: protocol === 2 ? "2.8.0" : service.protocol ?? "3.0.0" };
+}
+
 export async function rustSnapshot(ctx: Ctx, expected: unknown, options: { status?: (ctx: Ctx) => Promise<Status>; maxBudgetAgeS?: number; includeSessions?: boolean }, protocol: 2 | 3): Promise<unknown> {
   const { setup } = await readModelContext(ctx);
   let execution;
@@ -99,7 +108,7 @@ export async function rustSnapshot(ctx: Ctx, expected: unknown, options: { statu
   let status: Status | undefined, statusError: string | undefined;
   if (options.status) try { status = await options.status(ctx); } catch (e) { statusError = (e as Error).message; }
   const sessions = options.includeSessions === false ? undefined : { revision: agentSessionsRevision(ctx), active: activeAgentSessions(ctx).map(s => ({ task_id: s.task_id, executor: s.executor })) };
-  const actual = await rustRequest(ctx, { op: "snapshot", protocol, setup, policy: policySummary(ctx), machine: { os: "PLATFORM", arch: "ARCH", ...machineGuardState(validateExecution(execution)) }, service: { version: pkg.version, protocol: "3.0.0", pid: 0, startedAt: 0, notifier: null }, desktopUpdates: [], serviceInstalled: false, status, statusError, useCache: !options.status, maxBudgetAgeS: options.maxBudgetAgeS, sessions }, expected);
+  const actual = await rustRequest(ctx, { op: "snapshot", protocol, setup, policy: policySummary(ctx), machine: { os: "PLATFORM", arch: "ARCH", ...machineGuardState(validateExecution(execution)) }, service: rustProbeService(expected, protocol), desktopUpdates: [], serviceInstalled: false, status, statusError, useCache: !options.status, maxBudgetAgeS: options.maxBudgetAgeS, sessions }, expected);
   // Caller normalizes only nondeterministic home/id/platform values. Byte comparison
   // keeps key order, omitted fields, arrays and every other wire byte significant.
   return actual;

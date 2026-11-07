@@ -58,3 +58,41 @@ export function activeNotifier(ctx: Ctx): ClientEntry | null {
   // Storage order also resolves registrations made within the same clock tick.
   return list(ctx).reverse().find(entry => entry.notifier) ?? null;
 }
+
+export type DeliveryMedium = "os" | "terminal" | "browser";
+
+export type DeliveryPresenter = {
+  client_id: string;
+  kind: ClientEntry["kind"];
+  medium: DeliveryMedium;
+};
+
+export function mediumFor(kind: ClientEntry["kind"]): DeliveryMedium | null {
+  switch (kind) {
+    case "desktop":
+      return "os";
+    case "tui":
+      return "terminal";
+    case "app":
+      return "browser";
+    default:
+      return null;
+  }
+}
+
+export function deliveryPresenters(ctx: Ctx): DeliveryPresenter[] {
+  const pick = (medium: DeliveryMedium): ClientEntry | undefined =>
+    list(ctx)
+      .slice()
+      .reverse()
+      .find(entry => entry.notifier && mediumFor(entry.kind) === medium);
+
+  const os = pick("os");
+  const terminal = pick("terminal");
+  const browser = pick("browser");
+  const presenters: DeliveryPresenter[] = [];
+  if (os) presenters.push({ client_id: os.client_id, kind: os.kind, medium: "os" });
+  if (terminal) presenters.push({ client_id: terminal.client_id, kind: terminal.kind, medium: "terminal" });
+  if (browser && !os) presenters.push({ client_id: browser.client_id, kind: browser.kind, medium: "browser" });
+  return presenters;
+}

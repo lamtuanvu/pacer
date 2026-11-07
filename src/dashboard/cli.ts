@@ -8,6 +8,7 @@ import type { Result } from "../commands/types";
 import { dashboardClient } from "./client";
 import { withFallback } from "./data";
 import { Dashboard } from "./controller";
+import { openTerminalNotifications, registerTuiNotifier } from "./notifier";
 import { Keys } from "./input";
 import type { ScreenId } from "./state";
 import { detectTheme } from "./theme";
@@ -107,23 +108,43 @@ export async function runDashboard(args: string[], ctx: Ctx): Promise<Result> {
   const restore = () => { process.stdin.setRawMode(raw); process.stdout.write(LEAVE_SCREEN); };
   const redraw = () => dash.draw();
   let timer: ReturnType<typeof setInterval> | undefined, spinner: ReturnType<typeof setInterval> | undefined, unsubscribe: (() => void) | undefined;
+  let notifierStop: (() => void) | undefined;
+  let notifications: ReturnType<typeof openTerminalNotifications> | undefined;
   process.on("exit", restore);
   try {
     process.stdin.setRawMode(true); process.stdin.resume(); process.stdout.write(ENTER_SCREEN);
     process.stdin.on("data", input); process.stdin.on("end", quit); process.stdout.on("resize", redraw);
     process.on("SIGINT", interrupt); process.on("SIGTERM", terminate); process.on("SIGHUP", hangup);
     process.on("uncaughtException", crash); process.on("unhandledRejection", crash);
+    let notifierId: string | undefined;
+    notifications = openTerminalNotifications({
+      stdout: process.stdout,
+      clientId: () => notifierId,
+      report: line => { dash.report(line); },
+    });
     dash.draw();
-    void dash.refresh().then(() => {
+    void dash.refresh().then(async () => {
       if (closed) return;
-      unsubscribe = client.subscribe(dash.snapshot.seq, event => { void dash.event(event); });
+      try {
+        const registered = await registerTuiNotifier((op, params) => client.call(op, params));
+        if (closed) { registered.stop(); return; }
+        notifierStop = registered.stop;
+        notifierId = registered.client_id;
+      } catch (error) {
+        if (!closed) dash.reportError(error);
+      }
+      if (closed) return;
+      unsubscribe = client.subscribe(dash.snapshot.seq, event => {
+        notifications?.event(event);
+        void dash.event(event);
+      });
       if (dash.supports("update.check")) void client.call("update.check", {}).then(value => { dash.data.settings.update = { value: value as never }; dash.draw(); }).catch(() => {});
     });
     timer = setInterval(() => { void dash.refresh(); }, 2000);
     if (theme.motion) spinner = setInterval(() => dash.tick(), 120);
     return { code: await done, out: "", err: exitError };
   } finally {
-    closed = true; unsubscribe?.(); client.close(); localClient.close();
+    closed = true; notifierStop?.(); unsubscribe?.(); client.close(); localClient.close();
     clearInterval(timer); clearInterval(spinner); clearTimeout(escapeTimer);
     process.stdin.off("data", input); process.stdin.off("end", quit); process.stdin.pause(); process.stdout.off("resize", redraw);
     process.off("SIGINT", interrupt); process.off("SIGTERM", terminate); process.off("SIGHUP", hangup);

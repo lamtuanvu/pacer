@@ -23,14 +23,89 @@ test("levels filter attention and keys include since with at most two actions", 
 });
 
 test("a durable targeted event stays delivered after the notifier lease lapses", async () => {
- const ctx=fakeCtx(), notifier=register(ctx,{kind:"orca",version:"1",notifier:true});let fallback=0;
+ const ctx=fakeCtx(), notifier=register(ctx,{kind:"desktop",version:"1",notifier:true});let fallback=0;
  const deps={publish:(c:typeof ctx,e:Parameters<typeof publish>[1])=>publish(c,e),notifiers:["pacer-notify"],deliver:async()=>{fallback++;return true;}};
  await dispatchNotifications(ctx,[item()],deps);
- expect(eventsSince(ctx,0).events).toEqual([expect.objectContaining({type:"notify",data:expect.objectContaining({client_id:notifier.client_id,key:"failed:t-1:100",title:item().title})})]);
+ expect(eventsSince(ctx,0).events).toEqual([expect.objectContaining({type:"notify",data:expect.objectContaining({recipients:[notifier.client_id],client_id:notifier.client_id,key:"failed:t-1:100",title:item().title})})]);
  ctx.now+=46;
  await dispatchNotifications(ctx,[item()],deps);
  expect(fallback).toBe(0);
  expect(eventsSince(ctx,0).events).toHaveLength(1);
+});
+
+test("desktop+tui recipients get one notify event and plugins are not tried", async () => {
+  const ctx = fakeCtx();
+  const tui = register(ctx, { kind: "tui", version: "1", notifier: true });
+  const desktop = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  let plugins = 0;
+  const sent = await dispatchNotifications(ctx, [item()], {
+    publish: (c, events) => publish(c, events),
+    notifiers: ["pacer-notify"],
+    deliver: async () => { plugins++; return true; },
+  });
+  expect(plugins).toBe(0);
+  expect(sent).toHaveLength(1);
+  expect(eventsSince(ctx, 0).events).toEqual([
+    expect.objectContaining({
+      type: "notify",
+      data: expect.objectContaining({
+        recipients: [desktop.client_id, tui.client_id],
+        client_id: desktop.client_id,
+        key: "failed:t-1:100",
+      }),
+    }),
+  ]);
+  expect(readJson(join(ctx.pacerHome, "state/notified.json"))).toEqual({ "failed:t-1:100": ctx.now });
+});
+
+test("app-only publishes browser recipient", async () => {
+  const ctx = fakeCtx();
+  const app = register(ctx, { kind: "app", version: "1", notifier: true });
+  let plugins = 0;
+  const sent = await dispatchNotifications(ctx, [item()], {
+    publish: (c, events) => publish(c, events),
+    notifiers: ["pacer-notify"],
+    deliver: async () => { plugins++; return true; },
+  });
+  expect(plugins).toBe(0);
+  expect(sent).toHaveLength(1);
+  expect((sent[0]!.data as { value: { recipients: string[]; client_id: string } }).value).toEqual(
+    expect.objectContaining({ recipients: [app.client_id], client_id: app.client_id }),
+  );
+});
+
+test("desktop+app suppresses browser recipient", async () => {
+  const ctx = fakeCtx();
+  const desktop = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  const app = register(ctx, { kind: "app", version: "1", notifier: true });
+  let plugins = 0;
+  const sent = await dispatchNotifications(ctx, [item()], {
+    publish: (c, events) => publish(c, events),
+    notifiers: ["pacer-notify"],
+    deliver: async () => { plugins++; return true; },
+  });
+  expect(plugins).toBe(0);
+  expect(sent).toHaveLength(1);
+  const value = (sent[0]!.data as { value: { recipients: string[]; client_id: string } }).value;
+  expect(value.recipients).toEqual([desktop.client_id]);
+  expect(value.client_id).toBe(desktop.client_id);
+  expect(value.recipients).not.toContain(app.client_id);
+});
+
+test("no delivery clients still uses plugin fallback", async () => {
+  const ctx = fakeCtx();
+  register(ctx, { kind: "orca", version: "1", notifier: true });
+  let plugins = 0;
+  let publishes = 0;
+  const sent = await dispatchNotifications(ctx, [item()], {
+    publish: async () => { publishes++; return { seq: 0, transports: ["outbox"], errors: [] }; },
+    notifiers: ["pacer-notify"],
+    deliver: async () => { plugins++; return true; },
+  });
+  expect(plugins).toBe(1);
+  expect(publishes).toBe(0);
+  expect(sent).toEqual([]);
+  expect(readJson(join(ctx.pacerHome, "state/notified.json"))).toEqual({ "failed:t-1:100": ctx.now });
 });
 
 test("plugin delivery retries failures, deduplicates concurrent dispatch and prunes old ledger entries", async () => {

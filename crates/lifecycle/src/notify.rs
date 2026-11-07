@@ -15,6 +15,10 @@ pub struct Data {
     pub body: Text,
     pub actions: Vec<Value>,
     pub url: String,
+    /// Presenter ids when the host published to clients. Dispatch selection
+    /// lives in `src/notify/decide.ts`; this field is the serialized host value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipients: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
 }
@@ -71,6 +75,7 @@ pub fn candidates(items: &[Item], level: &str, ledger: &Value) -> Vec<Candidate>
                 body: item.detail.clone(),
                 actions: a(item.get("actions")).iter().take(2).cloned().collect(),
                 url: format!("/app/#/{}", view(item)),
+                recipients: None,
                 client_id: None,
             },
         });
@@ -129,6 +134,7 @@ pub fn transitions(candidates: &mut Vec<Candidate>, items: &[Item], level: &str,
                 body: Text::new(&body),
                 actions: vec![],
                 url,
+                recipients: None,
                 client_id: None,
             },
         });
@@ -160,6 +166,31 @@ pub struct Report {
     pub state: Value,
 }
 
+/// Records presenter targeting on a notify payload. Returns false when the
+/// presenter set is empty so the caller keeps plugin fallback and does not
+/// publish a client event. `client_id` is the os presenter when one is
+/// selected, otherwise the first recipient. Host dispatch I/O is
+/// `src/notify/decide.ts`.
+pub fn assign_presenters(data: &mut Data, presenters: &[Value]) -> bool {
+    if presenters.is_empty() {
+        return false;
+    }
+    let recipients: Vec<String> = presenters
+        .iter()
+        .map(|presenter| s(&presenter["client_id"]).to_owned())
+        .collect();
+    let Some(first) = recipients.first().cloned() else {
+        return false;
+    };
+    let client_id = presenters
+        .iter()
+        .find(|presenter| presenter["medium"] == "os" && presenter["client_id"].is_string())
+        .map(|presenter| s(&presenter["client_id"]).to_owned())
+        .unwrap_or(first);
+    data.recipients = Some(recipients);
+    data.client_id = Some(client_id);
+    true
+}
 /// The client outbox keeps the full message; only the bounded notifier plugin
 /// protocol clips title/body, using JavaScript UTF-16 slice semantics.
 pub fn plugin_message(full: &Data) -> Data {

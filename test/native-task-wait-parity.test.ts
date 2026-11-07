@@ -74,7 +74,7 @@ test.skipIf(!front)("native task.wait matches TypeScript for a settled task", as
     expect(native?.result?.state).toBe("done");
     expect(forwarded?.result?.state).toBe("done");
     expect(native?.result?.task_id).toBe(task.id);
-    expect(native?.result?.state).toBe(reference.state);
+    expect(native?.result?.state).toBe((reference as { state: string }).state);
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });
