@@ -12,9 +12,10 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { RunRef } from "../src/tasks/types";
 import { readRun, type RunState } from "../src/supervisor/run";
 import { sendMessage } from "../src/messaging/send";
-import { liveTick, PACER_CONTROLLER } from "../src/messaging/live";
+import { liveTick, typeIntoSession, PACER_CONTROLLER } from "../src/messaging/live";
 import { FrameType, wire } from "../src/session/framing";
-import { ViewerHub } from "../src/session/viewers";
+import { ViewerHub, type DeliveryTiming } from "../src/session/viewers";
+import { createConnection } from "node:net";
 import * as store from "../src/messaging/store";
 
 const PASTE_START = "\x1b[200~", PASTE_END = "\x1b[201~";
@@ -22,14 +23,15 @@ const servers: Server[] = [];
 afterEach(() => { for (const s of servers.splice(0)) s.close(); });
 
 /** A session socket served by the real viewer hub, recording what reaches the PTY and publishing `session.state` as the host does. */
-function fakeSession(dir: string) {
+function fakeSession(dir: string, o: { modern?: boolean; timing?: Partial<DeliveryTiming> } = {}) {
   const sock = join(mkdtempSync("/tmp/pl-"), "s.sock");
   writeFileSync(join(dir, "session.sock.path"), sock);
   const input: Buffer[] = [], events: string[] = [];
   const published = (viewers: number, controller: string | null) =>
     writeFileSync(join(dir, "session.state"), JSON.stringify({ viewers, controller, cols: 120, rows: 40 }));
   const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), kind => events.push(kind), published,
-    { input: b => { input.push(Buffer.from(b)); }, resize() {}, release: label => events.push(`release:${label}`) });
+    { input: b => { input.push(Buffer.from(b)); }, resize() {}, release: label => events.push(`release:${label}`) },
+    o.modern ? { pacer: "0.0.0", versions: [1, 2] } : undefined, o.timing);
   const server = createServer(s => hub.add(s));
   servers.push(server);
   const ready = new Promise<void>(r => server.listen(sock, r));
@@ -295,4 +297,158 @@ test("an ended conversation is live_unavailable and keeps the message pending", 
   const r = await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
   expect(r.delivery).toBe("live_unavailable");
   expect(store.pendingFor(ctx, `task:${id}`).length).toBe(1);
+});
+
+// ADR 0023: on a 1.2 host pacer types through a delivery window; a 1.1 host keeps take and release.
+const FAST = { quietMs: 30, windowMs: 1000, timeoutMs: 200 };
+const clients: import("node:net").Socket[] = [];
+afterEach(() => { for (const c of clients.splice(0)) c.destroy(); });
+async function viewer(session: { sock: string; hub: ViewerHub }, hello: Record<string, unknown>) {
+  const socket = createConnection(session.sock);
+  clients.push(socket);
+  await new Promise<void>(r => socket.once("connect", () => r()));
+  const before = session.hub.size;
+  socket.write(wire(FrameType.hello, { v: 1, ...hello }));
+  for (let i = 0; i < 200 && session.hub.size === before; i++) await Bun.sleep(5);
+  const write = (bytes: Buffer) => new Promise<void>(r => socket.write(bytes, () => r()));
+  return {
+    type: async (text: string) => { await write(wire(FrameType.input, Buffer.from(text))); await Bun.sleep(20); },
+    take: async () => { await write(wire(FrameType.take, {})); await Bun.sleep(20); },
+  };
+}
+
+test("typeIntoSession on a 1.1 host takes and releases control, and a refusal names the controller", async () => {
+  const session = fakeSession(tmpDir());
+  await session.ready;
+  expect(await typeIntoSession(session.sock, "hi", deps, () => true)).toEqual({ kind: "typed" });
+  expect(session.events).toEqual(expect.arrayContaining(["control-taken", "control-released"]));
+  const app = await viewer(session, { label: "Pacer desktop", client: "app" });
+  await app.take();
+  expect(session.hub.controller).toBe("app:Pacer desktop");
+  const before = session.input.length;
+  expect(await typeIntoSession(session.sock, "again", deps, () => true)).toEqual({ kind: "refused", controller: "app:Pacer desktop" });
+  expect(session.input).toHaveLength(before);
+});
+
+test("typeIntoSession on a 1.2 host delivers through a granted window while app panes are open, without taking control", async () => {
+  const session = fakeSession(tmpDir(), { modern: true, timing: FAST });
+  await session.ready;
+  const old = await viewer(session, { label: "Pacer desktop", client: "app", versions: [1, 1] });
+  await old.take();
+  await viewer(session, { label: "pane", client: "app", versions: [1, 2] });
+  expect(await typeIntoSession(session.sock, "hi", deps, () => true)).toEqual({ kind: "typed" });
+  expect(Buffer.concat(session.input).toString()).toBe(`${PASTE_START}hi${PASTE_END}\r`);
+  expect(session.events).not.toContain("control-taken");
+  expect(session.hub.controller).toBeNull();
+});
+
+test("typeIntoSession on a 1.2 host reports pending human input by client, and a changed run as busy", async () => {
+  const session = fakeSession(tmpDir(), { modern: true, timing: FAST });
+  await session.ready;
+  const pane = await viewer(session, { label: "pane", client: "app", versions: [1, 2] });
+  await pane.type("half a line");
+  expect(await typeIntoSession(session.sock, "hi", deps, () => true)).toEqual({ kind: "pending", reason: "pending input from app:pane" });
+  await pane.type("\r");
+  await Bun.sleep(40);
+  expect(await typeIntoSession(session.sock, "hi", deps, () => false)).toEqual({ kind: "busy" });
+  expect(session.input.map(b => b.toString())).toEqual(["half a line", "\r"]);
+});
+
+test("live messages on a 1.2 host retry after pending human input and never set liveBlocked", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir, { modern: true, timing: FAST });
+  await session.ready;
+  const human = await viewer(session, { label: "iTerm", versions: [1, 2] });
+  await human.type("draft");
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(session.input.map(b => b.toString())).toEqual(["draft"]);
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
+  expect(readTask(ctx, id)!.liveBlocked).toBeUndefined();
+  expect(readTask(ctx, id)!.liveError?.message).toContain("pending input from cli:iTerm");
+  await human.type("\r");
+  await Bun.sleep(40);
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(session.input.at(-1)!.toString()).toBe("\r");
+  expect(Buffer.concat(session.input).toString()).toContain("hi");
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  expect(readTask(ctx, id)!.liveBlocked).toBeUndefined();
+  expect(readTask(ctx, id)!.liveError).toBeUndefined();
+});
+
+test("typeIntoSession on a 1.2 host submits its paste even when Enter comes after windowMs; held human input follows it", async () => {
+  const session = fakeSession(tmpDir(), { modern: true, timing: { quietMs: 30, windowMs: 60, timeoutMs: 200 } });
+  await session.ready;
+  const human = await viewer(session, { label: "iTerm", versions: [1, 2] });
+  const typing = typeIntoSession(session.sock, "hi", { ...deps, submitDelayMs: 150 }, () => true);
+  for (let i = 0; i < 100 && !session.input.length; i++) await Bun.sleep(5);
+  await human.type("held");
+  expect(await typing).toEqual({ kind: "typed" });
+  expect(session.input.map(b => b.toString())).toEqual([`${PASTE_START}hi${PASTE_END}`, "\r", "held"]);
+});
+
+test("typeIntoSession on a 1.2 host: a guard slower than windowMs gets the window expired unused; the paste is dropped and nothing was typed", async () => {
+  const session = fakeSession(tmpDir(), { modern: true, timing: { quietMs: 30, windowMs: 50, timeoutMs: 200 } });
+  await session.ready;
+  const human = await viewer(session, { label: "iTerm", versions: [1, 2] });
+  const slowGuard = () => { Bun.sleepSync(80); return true; };
+  expect(await typeIntoSession(session.sock, "hi", deps, slowGuard)).toEqual({ kind: "pending", reason: "the delivery window expired before any input was typed" });
+  await human.type("mine");
+  expect(session.input.map(b => b.toString())).toEqual(["mine"]);
+  expect(session.hub.active).toBe("cli:iTerm");
+});
+
+test("a live delivery whose window expired unused during a slow guard leaves the messages pending and retries them", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir, { modern: true, timing: { quietMs: 30, windowMs: 50, timeoutMs: 200 } });
+  await session.ready;
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  let reads = 0;
+  // The second read is typeIntoSession's guard, run after the grant.
+  const slow = { ...deps, readState: () => { if (++reads === 2) Bun.sleepSync(80); return state(); } };
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), slow);
+  expect(session.input).toHaveLength(0);
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
+  expect(readTask(ctx, id)!.liveTurn).toBeUndefined();
+  expect(readTask(ctx, id)!.liveError?.message).toBe("Not delivered: the delivery window expired before any input was typed");
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(Buffer.concat(session.input).toString()).toContain("hi");
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  expect(readTask(ctx, id)!.liveTurn?.id).toBe(`${id}#live.1`);
+});
+
+test("a live delivery that fails after input was attempted is not re-queued or retyped and records the error", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir, { modern: true, timing: { quietMs: 30, windowMs: 1000, timeoutMs: 200, maxWindowMs: 60 } });
+  await session.ready;
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  const slow = { ...deps, submitDelayMs: 150 };
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), slow);
+  const typed = session.input.length;
+  expect(Buffer.concat(session.input).toString()).toContain("hi");
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  const t = readTask(ctx, id)!;
+  expect(t.liveTurn).toBeUndefined();
+  expect(t.liveError?.message).toContain("not resent");
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), slow);
+  expect(session.input).toHaveLength(typed);
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  // A later message gets a fresh turn and does not carry the ambiguous one with it.
+  await sendMessage(ctx, { to: `task:${id}`, body: "next" }, { appAuthenticated: true });
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(Buffer.concat(session.input.slice(typed)).toString()).toContain("next");
+  expect(store.claimedMessages(ctx, readTask(ctx, id)!.liveTurn!.id).map(m => m.body)).toEqual(["next"]);
+});
+
+test("a 1.1 host refusing control blocks live delivery as viewer", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir);
+  await session.ready;
+  const app = await viewer(session, { label: "Pacer desktop", client: "app" });
+  await app.take();
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(session.input).toHaveLength(0);
+  expect(readTask(ctx, id)!.liveBlocked).toBe("viewer");
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
 });

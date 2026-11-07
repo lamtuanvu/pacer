@@ -80,7 +80,7 @@ Binary WebSocket messages contain complete session wire frames (u8 type, u32 big
 
 Each session accepts 16 viewers. A 17th receives exit with a clear refusal. Each viewer has a 1 MiB output queue; overflow drops pending output and sends resync then a fresh snapshot. Phase 2 is read-only: take/release receive a refusal and input/size do not affect the PTY. Server shutdown closes WebSocket viewers without stopping the host.
 
-Task events include session `{host: "builtin" | "orca" | "none", live, controller, viewers}`; session changes are throttled to once per second. terminalPresent remains for one minor release and equals session.host === orca && session.live. terminal.open accepts a preset or argv template containing {cmd}; templates never run through a shell.
+Task events include session `{host: "builtin" | "orca" | "none", live, controller, active, viewers}`; `active` names the client that last typed or focused the terminal, and `controller` is deprecated and always null on session protocol 1.2 hosts. Session changes are throttled to once per second. terminalPresent remains for one minor release and equals session.host === orca && session.live. terminal.open accepts a preset or argv template containing {cmd}; templates never run through a shell.
 
 ## JSON-RPC methods
 
@@ -7871,6 +7871,29 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `task.hand_back`
+
+End a takeover session and hand the task back for verification.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
     }
   },
   "required": [
