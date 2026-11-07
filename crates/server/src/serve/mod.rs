@@ -201,6 +201,16 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                 .await;
         }
+        if crate::native::msg_writes::uses_bridge(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut bridge = crate::native::msg_write_sync::HttpBridge {
+                target: state.core.target().await,
+            };
+            return match crate::native::msg_writes::call(&ctx, op.name, params, &mut bridge).await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
         if op.name == "task.wait" {
             let Some(id) = params
                 .get("id")

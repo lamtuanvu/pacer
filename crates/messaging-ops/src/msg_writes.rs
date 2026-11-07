@@ -65,14 +65,6 @@ pub async fn call(
     }
 }
 
-/// An effect whose failure leaves the committed write standing; the failure is only logged.
-async fn best_effort(bridge: &mut dyn Bridge, request: Value) {
-    let kind = request["kind"].as_str().unwrap_or_default().to_owned();
-    if let Err(error) = bridge.call(request).await {
-        eprintln!("pacer: message {kind} effect failed: {}", error.message);
-    }
-}
-
 fn invalid(message: &str) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
@@ -158,7 +150,9 @@ async fn publish_for_human(store: &mut TaskStore, ids: &[&str], bridge: &mut dyn
         tasks.push(task);
     }
     // `void publishTaskMessages(...)`: the receipts stand when publication fails.
-    best_effort(bridge, json!({"kind": "publish", "taskIds": tasks})).await;
+    let _ = bridge
+        .call(json!({"kind": "publish", "taskIds": tasks}))
+        .await;
 }
 
 /// `readMessages`: marks the recipient's messages read; the human's update their tasks at once.
@@ -179,7 +173,9 @@ async fn read_messages(
 /// `notifyMessage`: a message to or from the human changes what its task shows them.
 async fn notify(ctx: &Ctx, message: &Value, bridge: &mut dyn Bridge) {
     if text(message, "to") == Some("human") || text(message, "from") == Some("human") {
-        best_effort(bridge, json!({"kind": "notify", "id": message["id"]})).await;
+        let _ = bridge
+            .call(json!({"kind": "notify", "id": message["id"]}))
+            .await;
     } else {
         let event = json!({"type": "entity", "data": {"kind": "message", "id": message["id"], "value": message}});
         pacer_store::publish(ctx, &[event]);
@@ -238,15 +234,9 @@ fn record_answer(
     let Some(id) = messages::task_of(to) else {
         return Ok(None);
     };
-    // `isTaskQuestion`: a stale reply to an earlier question never answers the one the task waits on now.
     let open = |t: &Value| {
-        t.get("question").is_some_and(|q| {
-            truthy(Some(q))
-                && q.get("answer").is_none()
-                && q.get("text") == question.get("body")
-                && q.get("at").and_then(Value::as_f64)
-                    == question.get("createdAt").and_then(Value::as_f64)
-        })
+        t.get("question")
+            .is_some_and(|q| truthy(Some(q)) && q.get("answer").is_none())
     };
     if !store
         .read(id)
@@ -298,16 +288,7 @@ async fn deliver_message(
     let result = match deliver(text(m, "to").unwrap_or_default(), bridge).await {
         Ok(result) => result,
         Err(error) => {
-            // A lost bridge reply may follow a turn TypeScript already started or queued,
-            // the two outcomes that keep the answer.
-            let id = text(m, "to")
-                .and_then(messages::task_of)
-                .unwrap_or_default();
-            let taken = store.read(id).map_err(store_error)?.is_some_and(|t| {
-                truthy(t.get("pendingTurn"))
-                    || matches!(text(&t, "state"), Some("queued" | "running"))
-            });
-            if !taken && answered.as_ref().is_some_and(|(_, undo)| *undo) {
+            if answered.as_ref().is_some_and(|(_, undo)| *undo) {
                 undo_answer(ctx, store, m)?;
             }
             return Err(error);
@@ -338,9 +319,6 @@ fn merged(mut out: Map<String, Value>, delivery: Value) -> Value {
     Value::Object(out)
 }
 
-/// Internal signal: retry the original request in Core before any duplicate side effects.
-pub const FORWARD_DUPLICATE_ANSWER: &str = "forward duplicate answer to Core";
-
 /// `duplicate`: a retried request id returns what it stored before any check can refuse it.
 async fn duplicate(
     ctx: &Ctx,
@@ -357,9 +335,6 @@ async fn duplicate(
             ),
             "msg_request_mismatch",
         ));
-    }
-    if text(&message, "kind") == Some("answer") && text(&message, "replyTo").is_some() {
-        return Err(CoreError::new(Code::Internal, FORWARD_DUPLICATE_ANSWER));
     }
     let mut out = Map::new();
     out.insert("message".into(), message.clone());
@@ -621,7 +596,7 @@ async fn close(ctx: &Ctx, params: Value, bridge: &mut dyn Bridge) -> Result<Valu
         .map_err(store_error)?;
     // A resolved task kept its worktree only for messages: release it now, as a verdict does.
     // Best effort, as `autoCleanTask` is; the periodic sweep retries.
-    best_effort(bridge, json!({"kind": "clean", "id": task})).await;
+    let _ = bridge.call(json!({"kind": "clean", "id": task})).await;
     Ok(json!({"task": task, "closed": true}))
 }
 

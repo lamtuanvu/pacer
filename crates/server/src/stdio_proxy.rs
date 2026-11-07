@@ -100,23 +100,6 @@ async fn write_line<W: AsyncWrite + Unpin>(out: &Mutex<W>, line: &[u8]) -> io::R
     out.flush().await
 }
 
-/// Request ids the front door may answer itself: null, strings and safe integers,
-/// which the core's `JSON.parse`/`JSON.stringify` echo byte for byte. Every other
-/// number forwards so the core's own echo decides, even one JavaScript happens to
-/// round-trip, such as `1.5`.
-fn natively_answered_id(id: &Value) -> bool {
-    const MAX_SAFE: u64 = (1 << 53) - 1;
-    match id {
-        Value::Null | Value::String(_) => true,
-        Value::Number(n) => n
-            .as_i64()
-            .map(i64::unsigned_abs)
-            .or_else(|| n.as_u64())
-            .is_some_and(|n| n <= MAX_SAFE),
-        _ => false,
-    }
-}
-
 fn rpc_line(id: &Value, result: Result<Value, CoreError>) -> io::Result<Vec<u8>> {
     let response = match result {
         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
@@ -127,57 +110,6 @@ fn rpc_line(id: &Value, result: Result<Value, CoreError>) -> io::Result<Vec<u8>>
     Ok(bytes)
 }
 
-/// A finished `msg.wait`; a wait that panicked still answers its request.
-async fn wait_done<O: AsyncWrite + Unpin>(
-    out: &Mutex<O>,
-    ids: &mut HashMap<tokio::task::Id, Value>,
-    done: Result<(tokio::task::Id, Option<Vec<u8>>), tokio::task::JoinError>,
-) -> io::Result<()> {
-    let bytes = match done {
-        Ok((task, bytes)) => {
-            ids.remove(&task);
-            bytes
-        }
-        Err(error) => ids
-            .remove(&error.id())
-            .map(|id| {
-                let failed = CoreError::new(Code::Internal, "message wait failed");
-                rpc_line(&id, Err(failed))
-            })
-            .transpose()?,
-    };
-    if let Some(bytes) = bytes {
-        write_line(out, &bytes).await?;
-    }
-    Ok(())
-}
-
-/// The plugin operations of one connection: their service, Core channel and running tasks.
-struct Plugins {
-    service: std::sync::Arc<crate::native::plugins::Service>,
-    link: std::sync::Arc<PluginLink>,
-    frames: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
-    tasks: tokio::task::JoinSet<Done>,
-    ids: HashMap<tokio::task::Id, Value>,
-}
-
-/// Act on a finished plugin operation: answer the client or replay the line to Core.
-async fn plugin_done<W: AsyncWrite + Unpin, O: AsyncWrite + Unpin>(
-    core: &mut W,
-    out: &Mutex<O>,
-    done: Done,
-) -> io::Result<()> {
-    match done {
-        Done::Reply(bytes) => write_line(out, &bytes).await,
-        Done::Replay(line) => {
-            core.write_all(&line).await?;
-            core.flush().await
-        }
-        Done::Nothing => Ok(()),
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
 async fn forward_input<
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin + Send,
@@ -196,42 +128,23 @@ async fn forward_input<
     let mut protocol = 2;
     // `msg.wait` blocks for minutes; the core answers other requests meanwhile, so waits run beside the loop.
     let mut waits = tokio::task::JoinSet::<Option<Vec<u8>>>::new();
-    let mut wait_ids = HashMap::new();
     loop {
         line.clear();
         // `read_until` is cancel safe: a partial line stays in `line` for the next call.
         let read = loop {
             tokio::select! {
                 read = input.read_until(b'\n', &mut line) => break read?,
-                Some(done) = waits.join_next_with_id(), if !waits.is_empty() => {
-                    wait_done(out, &mut wait_ids, done).await?;
-                }
-                Some(frame) = plugins.frames.recv() => {
-                    core.write_all(&frame).await?;
-                    core.flush().await?;
-                }
-                Some(done) = plugins.tasks.join_next_with_id(), if !plugins.tasks.is_empty() => {
-                    let done = stdio_plugins::finished(&mut plugins.ids, done);
-                    plugin_done(&mut core, out, done).await?;
+                Some(done) = waits.join_next(), if !waits.is_empty() => {
+                    if let Ok(Some(bytes)) = done {
+                        write_line(out, &bytes).await?;
+                    }
                 }
             }
         };
         if read == 0 && line.is_empty() {
-            // Plugin operations still need their Core channel until they finish.
-            loop {
-                tokio::select! {
-                    Some(done) = waits.join_next_with_id(), if !waits.is_empty() => {
-                        wait_done(out, &mut wait_ids, done).await?;
-                    }
-                    Some(frame) = plugins.frames.recv(), if !plugins.tasks.is_empty() => {
-                        core.write_all(&frame).await?;
-                        core.flush().await?;
-                    }
-                    Some(done) = plugins.tasks.join_next_with_id(), if !plugins.tasks.is_empty() => {
-                        let done = stdio_plugins::finished(&mut plugins.ids, done);
-                        plugin_done(&mut core, out, done).await?;
-                    }
-                    else => break,
+            while let Some(done) = waits.join_next().await {
+                if let Ok(Some(bytes)) = done {
+                    write_line(out, &bytes).await?;
                 }
             }
             return core.shutdown().await;
@@ -343,6 +256,42 @@ async fn forward_input<
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
             {
                 let request_ctx = ctx.at_now();
+                if crate::native::msg_writes::uses_bridge(op.name) {
+                    use crate::native::{msg_write_sync, msg_writes};
+                    msg_write_sync::trace(op.name, request.get("id"));
+                    let id = request.get("id").cloned();
+                    if op.name == "msg.wait" {
+                        if let Some(result) = msg_writes::wait_now(&request_ctx, &params) {
+                            if let Some(id) = id {
+                                write_line(out, &rpc_line(&id, result)?).await?;
+                            }
+                            continue;
+                        }
+                        // A stdio caller is never the human, so a wait needs no Core publication.
+                        waits.spawn(async move {
+                            let result = msg_writes::call(
+                                &request_ctx,
+                                "msg.wait",
+                                params,
+                                &mut msg_writes::NoBridge,
+                            )
+                            .await;
+                            id.and_then(|id| rpc_line(&id, result).ok())
+                        });
+                        continue;
+                    }
+                    let mut bridge = msg_write_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = msg_writes::call(&request_ctx, op.name, params, &mut bridge).await;
+                    if let Some(id) = id {
+                        write_line(out, &rpc_line(&id, result)?).await?;
+                    }
+                    continue;
+                }
                 if op.name == "task.wait" {
                     let task_id = params
                         .get("id")

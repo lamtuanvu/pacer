@@ -8,34 +8,15 @@ const CHILD: &str = "t-20260101-000000-0002";
 #[derive(Default)]
 struct Fake {
     requests: Vec<Value>,
-    /// The delivery reply is lost, after the turn started when a home is set.
-    fail: bool,
-    taken: Option<std::path::PathBuf>,
 }
 
 impl Bridge for Fake {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
         self.requests.push(request.clone());
-        let deliver = request["kind"] == "deliver";
-        if deliver && let Some(home) = &self.taken {
-            // `startTurnIfIdle` marks the task; the runner claims the message later.
-            TaskStore::open(home)
-                .unwrap()
-                .update_current(ROOT, 2.0, |t| {
-                    t["pendingTurn"] = json!({"turnId": "turn-1"});
-                    Ok(())
-                })
-                .unwrap();
-        }
-        let fail = deliver && self.fail;
         Box::pin(async move {
-            if fail {
-                return Err(unavailable());
-            }
-            Ok(if deliver {
-                json!({"delivery": "queued"})
-            } else {
-                json!({"ok": true})
+            Ok(match request["kind"].as_str() {
+                Some("deliver") => json!({"delivery": "queued"}),
+                _ => json!({"ok": true}),
             })
         })
     }
@@ -176,63 +157,6 @@ async fn send_stores_in_milliseconds_and_delivers_through_the_bridge() {
             .contains("body: Too small: expected string to have >=1 characters")
     );
     assert!(invalid.message.contains("kind: Invalid option"));
-
-    // Zod's string checks count code points, not UTF-16 units.
-    for (count, fits) in [(128, true), (129, false)] {
-        let sent = run(
-            &ctx,
-            "msg.send",
-            json!({"to":"human","body":"x","request_id":"😀".repeat(count)}),
-            &mut bridge,
-        )
-        .await;
-        assert_eq!(sent.is_ok(), fits, "{count}");
-    }
-}
-
-#[tokio::test]
-async fn an_answer_stays_recorded_unless_its_turn_never_started() {
-    for (fail, taken) in [(false, false), (true, false), (true, true)] {
-        let (_dir, ctx) = home();
-        let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
-        let mut bridge = Fake::default();
-        let question = run(
-            &as_executor(&ctx, ROOT),
-            "msg.send",
-            json!({"to":"external:local","body":"which?","kind":"question"}),
-            &mut bridge,
-        )
-        .await
-        .unwrap();
-        // The task's open question is the one the message asked, as TypeScript records it.
-        store
-            .update_current(ROOT, ctx.now, |t| {
-                t["question"] = json!({"text":"which?","at":question["message"]["createdAt"]});
-                Ok(())
-            })
-            .unwrap();
-        bridge.fail = fail;
-        bridge.taken = taken.then(|| ctx.pacer_home.clone());
-        let sent = run(
-            &ctx,
-            "msg.send",
-            json!({"to":format!("task:{ROOT}"),"body":"this","kind":"answer","reply_to":question["message"]["id"]}),
-            &mut bridge,
-        )
-        .await;
-        match &sent {
-            Ok(sent) => assert_eq!(sent["delivery"], "queued"),
-            Err(error) => assert_eq!(error.code, Code::Unavailable),
-        }
-        assert_eq!(sent.is_err(), fail);
-        let task = store.read(ROOT).unwrap().unwrap();
-        let kept = !fail || taken;
-        assert_eq!(
-            task["question"].get("answer").is_some(),
-            kept,
-            "{fail} {taken}"
-        );
-    }
 }
 
 #[tokio::test]
@@ -296,23 +220,4 @@ async fn wait_returns_unread_messages_and_consumes_them() {
         .await
         .unwrap();
     assert_eq!(timed_out["timedOut"], true);
-}
-
-#[tokio::test]
-async fn duplicate_answer_race_forwards_without_effects() {
-    let (_dir, ctx) = home();
-    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
-    let message = json!({"kind":"answer", "replyTo":"q", "status":"pending"});
-    let mut bridge = Fake::default();
-    let error = duplicate(
-        &ctx,
-        &mut store,
-        (message, None),
-        "fingerprint",
-        &mut bridge,
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(error.message, FORWARD_DUPLICATE_ANSWER);
-    assert!(bridge.requests.is_empty());
 }
