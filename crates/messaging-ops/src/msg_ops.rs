@@ -1,4 +1,4 @@
-//! Caller-scoped message reads from `src/api/ops-msg.ts` over the shared task database.
+//! Caller-scoped message reads and the `msg.policy` guardrail from `src/api/ops-msg.ts`.
 #![allow(clippy::result_large_err)] // NativeOp and CoreError use this public API by value.
 use crate::policy;
 use pacer_foundation::{

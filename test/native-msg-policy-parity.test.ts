@@ -48,8 +48,9 @@ function seed() {
   updateTask(ctx, b.id, t => { t.run = { executor: "codex" } as TaskRecord["run"]; });
   updateTask(ctx, user.id, t => { repo(t); t.origin = "human"; });
   updateTask(ctx, loose.id, t => { t.origin = "external:local"; });
-  // A recent send from `a` trips the per-minute cap of the global launched-to-external rule.
-  insertMessage({ ...ctx, now: Date.now() / 1000 }, { taskId: a.id, rootId: `task:${top.id}`, from: `task:${a.id}`, to: "external:codex", kind: "message", body: "hi", replyTo: null, requestId: null });
+  // A send from `a` trips the per-minute cap of the global launched-to-external rule. It is dated
+  // ahead so the cap still counts it however long the scenarios take.
+  insertMessage({ ...ctx, now: Date.now() / 1000 + 3600 }, { taskId: a.id, rootId: `task:${top.id}`, from: `task:${a.id}`, to: "external:codex", kind: "message", body: "hi", replyTo: null, requestId: null });
   return { ctx, top: top.id, a: a.id, b: b.id, user: user.id, loose: loose.id };
 }
 
