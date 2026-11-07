@@ -17,6 +17,8 @@ import { uninstallAll } from "./install/uninstall-all";
 import type { ClientSnapshot } from "./view-model/snapshot";
 import { registeredRepo, resolveRepoInput } from "./core/repos";
 import { callOp } from "./api/ops";
+import { recheckDiagnostic } from "./core/doctor-fix";
+import { doctor as setupDoctor } from "./core/setup";
 import { readTask } from "./tasks/store";
 import { connectClient } from "./api/client";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
@@ -502,7 +504,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           if((opts["send-back"]||opts["retry-on"])&&isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
           const verdict=opts.accept?"accept":opts.reject?"reject":opts["send-back"]?"send_back":"retry";
           const result=await core.tasks.review(ctx,pos[0],{verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note)}, {delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner),spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
-          return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
+          const recheck=verdict==="accept"?await recheckDiagnostic(ctx,pos[0],setupDoctor).then(()=>"",e=>`pacer: diagnostics recheck failed: ${e instanceof Error?e.message:String(e)}`):"";
+          return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:recheck};
         }
         if(cmd==="dismiss") {
           const r=await core.tasks.dismiss(ctx,pos);

@@ -25,6 +25,8 @@ export interface ProviderStatus {
   endpointNotTested?: true;
   stale: boolean;
   error?: string;
+  /** The CoreError code behind `error`, when the usage read threw one. */
+  errorCode?: string;
   brokenReason?: string;
   blockedReason?: string;
   blockedUntil?: number | null;

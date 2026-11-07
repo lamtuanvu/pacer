@@ -232,6 +232,34 @@ describe("setupHealthRepairs", () => {
     )).toEqual([{ kind: "open.add_executor", label: "Open executor setup" }]);
   });
 
+  test("prefers the doctor's remedy over the check name", () => {
+    const review = { kind: "review" as const, label: "Review and fix", op: "agent.preview", params: { agent: "codex" } };
+    const signIn = { kind: "user" as const, label: "Sign in to Codex", op: "account.signin", params: { name: "codex" } };
+    const refresh = { kind: "auto" as const, label: "Refresh usage", op: "limits.refresh", params: { account: "codex" } };
+    const service = { kind: "auto" as const, label: "Restart service", op: "service.install" };
+    const internal = { kind: "internal" as const, label: "Restart pacer service", op: "service.install" };
+    const agent = { kind: "agent" as const, label: "Fix with agent", op: "doctor.fix.delegate", params: { check: "Binary cursor", scope: "fix" } };
+    // A non-planner agent is reconnected because the server says so; the planner option is not consulted.
+    expect(setupHealthRepairs(
+      [{ name: "Install codex", level: "warn", detail: "changed", remedy: review }],
+      { planner: "claude-code", repairAvailable: false },
+    )).toEqual([{ kind: "agent.reconnect", label: "Fix integration", agent: "codex", honesty: "Wiring OK · live enforcement unverified", remedy: review }]);
+    // Names that the fallback would map elsewhere follow the remedy instead.
+    expect(setupHealthRepairs([{ name: "Usage codex", level: "warn", detail: "stale usage", remedy: signIn }]))
+      .toEqual([{ kind: "open.accounts", label: "Review accounts", remedy: signIn }]);
+    expect(setupHealthRepairs([{ name: "Usage codex", level: "warn", detail: "unknown", remedy: refresh }]))
+      .toEqual([{ kind: "limits.refresh", label: "Refresh usage", remedy: refresh }]);
+    expect(setupHealthRepairs([{ name: "Service", level: "fail", detail: "down", remedy: service }]))
+      .toEqual([{ kind: "open.setup", label: "Open Setup", remedy: service }]);
+    // Agent tasks start from Diagnostics; the name would have offered executor setup or a reconnect.
+    expect(setupHealthRepairs([{ name: "Binary cursor", level: "fail", detail: "not found", remedy: agent }]))
+      .toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics", remedy: agent }]);
+    expect(setupHealthRepairs([{ name: "Install codex#work", level: "warn", detail: "changed", remedy: agent }], { planner: "codex#work", repairAvailable: true }))
+      .toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics", remedy: agent }]);
+    expect(setupHealthRepairs([{ name: "Integration freshness cursor", level: "warn", evidence: "unverified", detail: "plugin unavailable", remedy: internal }], { planner: "cursor", repairAvailable: true }))
+      .toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics", remedy: internal }]);
+  });
+
   test("aggregateSetupHealth includes repairs when planner can reconnect", () => {
     const report = aggregateSetupHealth({
       checks: [{ name: "Install opencode", level: "warn", detail: "changed" }],

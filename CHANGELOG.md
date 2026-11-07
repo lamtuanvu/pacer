@@ -23,6 +23,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Diagnostics remedies: every warning or failure from `doctor.run` and `pacer doctor` carries an optional typed `remedy` (`auto`, `review`, `user`, `agent` or `internal`) naming the one operation, URL or agent task that fixes it, and `pacer doctor` prints its CLI equivalent on a `run:` line. Failures pacer raises itself (such as `plugin_unavailable`) are classified by error code as warnings pacer could not check, with a restart of the pacer service rather than an agent reinstall. The new `doctor.fix.delegate` operation turns a failing check into a delegated fix or investigation task whose brief pacer builds from its own redacted result; accepting the task (in the app or with `pacer review --accept`) reruns the check and records whether it passes.
+
 - Opt-in P4d-1 native plugin-host wiring in `pacer serve`: set `PACER_NATIVE_PLUGIN_HOST=1` and/or `PACER_HOST_BRIDGE=1` to claim a Rust `ProcessOwner`, bind `$PACER_HOME/run/host.sock`, and pass `PACER_HOST_SOCKET` to the Core child. Default (flags unset) remains TypeScript-owned.
 
 - P4d-2: when that flag path is on, reverse-bridge `_host.plugin.call` / `_host.plugin.find` reach live `ProcessOwner` children instead of dark stubs. Flag-off and unbound bridges keep the stub answers.

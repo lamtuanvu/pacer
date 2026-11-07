@@ -26662,6 +26662,7 @@
     "session.agent.create",
     "session.agent.end",
     "session.agent.retry",
-    "session.agent.resume"
+    "session.agent.resume",
+    "doctor.fix.delegate"
   ]
 }

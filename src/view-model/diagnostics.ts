@@ -1,4 +1,4 @@
-import type { Check } from "../install/doctor";
+import type { Check, Remedy } from "../install/doctor";
 import { displayName } from "./format";
 /** Diagnostic vocabulary shared by clients; technical details stay in disclosures. */
 export const diagnosticLevel = {
@@ -40,11 +40,28 @@ function diagnosticGroup(name: string): string {
   return "Pacer";
 }
 
-/** Only the selected planner is addressable by agent.connect. Never infer an action from fix text. */
+const REPAIR_AGENTS = ["claude-code", "codex", "cursor", "opencode"];
+
+/** The agent a `review` (or file-updating `auto`) remedy previews and reconnects. */
+export function remedyAgent(check: Check): string | undefined {
+  const { remedy } = check;
+  if (!remedy || !["warn", "fail"].includes(check.level) || !["agent.preview", "agent.connect"].includes(remedy.op ?? "")) return;
+  const agent = remedy.params?.agent;
+  return typeof agent === "string" && REPAIR_AGENTS.includes(agent) ? agent : undefined;
+}
+
+/**
+ * The server's remedy decides the repair. Responses without one fall back to names: only the selected
+ * planner is addressable by agent.connect. Never infer an action from fix text.
+ */
 export function diagnosticRepair(check: Check, planner?: string): { agent: string } | undefined {
+  if (check.remedy) {
+    const agent = remedyAgent(check);
+    return agent ? { agent } : undefined;
+  }
   if (!planner || !["warn", "fail"].includes(check.level)) return;
   const agent = planner.split("#")[0]!;
-  if (!["claude-code", "codex", "cursor", "opencode"].includes(agent)) return;
+  if (!REPAIR_AGENTS.includes(agent)) return;
   if (check.name === `Install ${planner}` || check.name === `Skill ${planner}` ||
       agent === "claude-code" && ["Claude hook configuration", "Legacy guard"].includes(check.name)) return { agent };
 }
@@ -66,7 +83,15 @@ export function diagnosticGuidance(check: Check): string {
   return "Review setup and the technical details for this check.";
 }
 
+/** Where a remedy that opens a place sends the person; repairs and agent tasks have their own actions. */
+function remedySetupLink(remedy: Remedy): { href: string; label: string } | undefined {
+  const op = remedy.op ?? remedy.secondary?.op;
+  if (op === "account.signin" || op === "limits.refresh" || op === "runner.block") return { href: "#/settings/accounts", label: "Review accounts" };
+  if (op === "service.install") return { href: "#/setup", label: "Open setup" };
+}
+
 export function diagnosticSetupLink(check: Check): { href: string; label: string } | undefined {
+  if (check.remedy) return remedySetupLink(check.remedy);
   if (check.name.startsWith("Usage ") || check.name.startsWith("Login ") || check.name === "Claude config folder") return { href: "#/settings/accounts", label: "Review accounts" };
   if (/^(Binary|CLI) /.test(check.name) || check.name === "Executor") return { href: "#/settings/add-executor", label: "Open executor setup" };
   if (["Service", "Strategy", "Installs"].includes(check.name)) return { href: "#/setup", label: "Open setup" };

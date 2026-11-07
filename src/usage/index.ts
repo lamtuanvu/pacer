@@ -9,9 +9,14 @@ export type { RefreshCapability } from "./adapter";
 import { limitWindow } from "./reactive";
 import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
+import { CoreError } from "../core/errors";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
   return readPluginUsage(ctx, cfg, account, refresh);
+}
+
+function withoutErrorCode({ errorCode: _code, ...reading }: UsageReading): UsageReading {
+  return reading;
 }
 
 const sources = new Map<string, {at:number; value?:UsageReading; pending?:Promise<UsageReading>; refreshing?:boolean}>();
@@ -32,19 +37,21 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
     const trace = statusTimer(ctx);
     let timer:ReturnType<typeof setTimeout>|undefined;
     try {
-      const value=await Promise.race([base(ctx,cfg,account,refresh),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(`usage source ${source} timed out`)),10000);})]);
+      // Only pacer's own errors carry a code; a plugin cannot report its failure as pacer-internal.
+      const value=withoutErrorCode(await Promise.race([base(ctx,cfg,account,refresh),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(`usage source ${source} timed out`)),10000);})]));
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
       const replacesHistory = value.availability?.reason === "authentication_failed" || value.availability?.reason === "subscription_missing";
       entry.value = replacesHistory ? value : value.error && hit?.value?.windows.length
-        ? { ...hit.value, stale: true, error: value.error, ...(value.availability ? { availability: value.availability } : {}) }
+        ? { ...withoutErrorCode(hit.value), stale: true, error: value.error, ...(value.availability ? { availability: value.availability } : {}) }
         : hit?.value?.capturedAt != null && (value.capturedAt == null || value.capturedAt < hit.value.capturedAt)
           ? hit.value : value;
       return entry.value;
     } catch (e) {
-      const value = {windows: [], capturedAt: null, stale: false, error: String(e)};
+      const code = e instanceof CoreError ? { errorCode: e.code } : {};
+      const value = {windows: [], capturedAt: null, stale: false, error: String(e), ...code};
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
       entry.value = hit?.value?.windows.length
-        ? { ...hit.value, stale: true, error: value.error }
+        ? { ...withoutErrorCode(hit.value), stale: true, error: value.error, ...code }
         : value;
       return entry.value;
     }
@@ -90,6 +97,7 @@ export async function readAccountUsage(ctx: Ctx, account: AccountCfg, runners: R
     capturedAt: readings.every(r => r.capturedAt !== null) ? Math.min(...readings.map(r => r.capturedAt!)) : null,
     stale: readings.some(r => r.stale || !!r.error),
     ...(readings.some(r => r.error) ? { error: readings.filter(r => r.error).map(r => r.error).join("; ") } : {}),
+    ...(readings.find(r => r.error && r.errorCode) ? { errorCode: readings.find(r => r.error && r.errorCode)!.errorCode } : {}),
   };
 }
 

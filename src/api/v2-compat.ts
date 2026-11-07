@@ -139,3 +139,4 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
 }
 
 for (const name of ["list","get","create","end","retry","resume"]) V3_ONLY_OPS.add(`session.agent.${name}`);
+V3_ONLY_OPS.add("doctor.fix.delegate");
