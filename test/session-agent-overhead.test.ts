@@ -132,5 +132,6 @@ test('a tasks.db write during a session read is retried instead of surfacing a c
     expect(raced).toBe(3);
     raced = -100;
     expect(() => activeAgentSessions({...f.ctx})).toThrow('Session reservations changed during acquisition');
+    expect(raced).toBe(-96); // exactly four acquisitions before the race surfaces
   } finally {probe.mockRestore();}
 });

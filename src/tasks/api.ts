@@ -132,8 +132,11 @@ function openRunnerLog(ctx: Ctx): number | "ignore" {
   } catch { return "ignore"; } // A missing log never blocks a launch.
 }
 
-const spawnRunnerProcess: SpawnRunner = (ctx, taskId) => {
-  const [cmd, ...pre] = selfCommand();
+/** Spawn detached `_run` processes with an explicit self command. A worker must use
+ * its parent's command: its own argv[1] is the worker module, not pacer's entry. */
+export const runnerProcess = (command: readonly string[]): SpawnRunner => (ctx, taskId) => {
+  const [cmd, ...pre] = command;
+  if (!cmd) throw new Error("runner self command is empty");
   const log = openRunnerLog(ctx);
   try {
     const child = spawn(cmd, [...pre, "_run", taskId], {
@@ -157,7 +160,10 @@ export function launchTaskRunner(ctx: Ctx, taskId: string, spawn: SpawnRunner, a
   const {operation:_requestLifetime,...launchCtx}=ctx;
   return spawn({ ...launchCtx, env: { ...ctx.env, PACER_ADMISSION_LEASE: lease, PACER_ADMISSION_TASK: taskId } }, taskId);
 }
+const spawnRunnerProcess: SpawnRunner = (ctx, taskId) => runnerProcess(selfCommand())(ctx, taskId);
 export const spawnRunner: SpawnRunner = (ctx, taskId) => launchTaskRunner(ctx, taskId, spawnRunnerProcess);
+/** The supervision worker's launcher, bound to the service's own self command. */
+export const spawnRunnerWith = (command: readonly string[]): SpawnRunner => (ctx, taskId) => launchTaskRunner(ctx, taskId, runnerProcess(command));
 
 export function validateInput(s: Strategy, input: DelegateInput): string[] {
   const p: string[] = [];

@@ -49,9 +49,9 @@ const lifecycleWatches=new Map<string,LifecycleWatch>();
  * retargeted while in use; it is not a hostile-filesystem isolation boundary. */
 const SNAPSHOT_ATTEMPTS = 4;
 const snapshotRaces = new WeakSet<CoreError>();
-/** Any task write changes tasks.db's ctime, so a read can lose the race to a busy
- * service. Each retry is a fresh, fully validated acquisition; only a persistent
- * race reaches the caller. */
+/** WAL checkpoints of a busy service's writes change tasks.db's ctime, so a read can
+ * lose that race. Each retry is a fresh, fully validated acquisition; only a
+ * persistent race reaches the caller. Errors that are not races are never retried. */
 function withSessionSnapshot<T>(ctx: Ctx, read: (db: ReadOnlyStore, identity: string) => T): T {
  for (let attempt = 1; ; attempt++) {
   try {return sessionSnapshotOnce(ctx, read);}
@@ -64,15 +64,17 @@ function sessionSnapshotOnce<T>(ctx: Ctx, read: (db: ReadOnlyStore, identity: st
  let db: ReadOnlyStore | undefined;
  let verify: (() => void) | undefined;
  const conflict = () => {const error = new CoreError('conflict', 'Session reservations changed during acquisition; retry before changing workspaces'); snapshotRaces.add(error); return error;};
+ // Not a race: the store itself could not be opened or read. Keep the cause for diagnosis.
+ const unreadable = (cause: unknown) => new CoreError('conflict', 'Session reservations could not be read', undefined, {cause: cause instanceof Error ? cause.message : String(cause)});
  try {
   try {fd = openSync(path, 'r');}
-  catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw conflict();}
+  catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw unreadable(error);}
   const pinned = fd === undefined ? undefined : fstatSync(fd, {bigint: true});
   const identityOf = (s: NonNullable<typeof pinned>) => `${s.dev}:${s.ino}:${s.birthtimeNs}`;
   verify = () => {
    let current: typeof pinned;
    try {current = statSync(path, {bigint: true});}
-   catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw conflict();}
+   catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw unreadable(error);}
    if (!pinned) {if (current) throw conflict(); return;}
    const held = fstatSync(fd!, {bigint: true});
    if (!current || identityOf(current) !== identityOf(pinned) || current.ctimeNs !== pinned.ctimeNs || held.ctimeNs !== pinned.ctimeNs) throw conflict();
@@ -85,9 +87,9 @@ function sessionSnapshotOnce<T>(ctx: Ctx, read: (db: ReadOnlyStore, identity: st
  } catch (error) {
   lifecycleWatches.delete(ctx.pacerHome);
   // A read that failed because the database changed under it is the same race.
-  if (error instanceof CoreError && !snapshotRaces.has(error) && verify) verify();
+  if (!(error instanceof CoreError && snapshotRaces.has(error)) && verify) verify();
   if (error instanceof CoreError) throw error;
-  throw conflict();
+  throw unreadable(error);
  } finally {
   try {db?.close();} finally {if (fd !== undefined) closeSync(fd);}
  }

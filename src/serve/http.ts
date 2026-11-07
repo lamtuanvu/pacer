@@ -12,7 +12,7 @@ import { configuredNativeServices } from "../update/desktop/native-provider";
 import type { PairedNativeBootstrap } from "../update/desktop/native-paired-bootstrap";
 import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/desktop/service";
 import { reconcileAdmissionSync } from "../update/desktop/admission";
-import { superviseTasks } from "../tasks/api";
+import { selfCommand, superviseTasks } from "../tasks/api";
 import type { SpawnRunner } from "../tasks/api";
 import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
@@ -597,6 +597,7 @@ export function startServer(
         type: "init",
         pacerHome: initialCtx.pacerHome,
         env: initialCtx.env,
+        selfCommand: selfCommand(),
       });
       workerSupervises = true;
       workerHeartbeat = Date.now();
