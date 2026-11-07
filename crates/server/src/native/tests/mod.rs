@@ -76,6 +76,10 @@ fn forward_override_removes_only_selected_native_ops() {
         "msg.read",
         "msg.policy",
         "tree.status",
+        "msg.send",
+        "msg.wait",
+        "msg.confirm",
+        "msg.close",
         "dispatch.config.get",
         "dispatch.tree",
         "dispatch.list",
@@ -163,9 +167,6 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("").get("limits.refresh").is_none());
     assert!(registry("").get("assistant.ask").is_none());
     assert!(registry("").get("assistant.cancel").is_none());
-    for name in ["msg.send", "msg.wait", "msg.confirm", "msg.close"] {
-        assert!(registry("").get(name).is_none(), "{name}");
-    }
 }
 
 #[test]
@@ -248,6 +249,10 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "msg.read",
         "msg.policy",
         "tree.status",
+        "msg.send",
+        "msg.wait",
+        "msg.confirm",
+        "msg.close",
         "dispatch.config.get",
         "dispatch.tree",
         "dispatch.list",

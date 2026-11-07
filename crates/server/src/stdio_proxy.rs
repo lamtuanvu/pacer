@@ -90,6 +90,16 @@ async fn write_line<W: AsyncWrite + Unpin>(out: &Mutex<W>, line: &[u8]) -> io::R
     out.flush().await
 }
 
+fn rpc_line(id: &Value, result: Result<Value, CoreError>) -> io::Result<Vec<u8>> {
+    let response = match result {
+        Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
+        Err(error) => json!({"jsonrpc":"2.0", "id":id, "error":error.rpc()}),
+    };
+    let mut bytes = serde_json::to_vec(&response)?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
 async fn forward_input<
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin + Send,
@@ -105,9 +115,27 @@ async fn forward_input<
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
+    // `msg.wait` blocks for minutes; the core answers other requests meanwhile, so waits run beside the loop.
+    let mut waits = tokio::task::JoinSet::<Option<Vec<u8>>>::new();
     loop {
         line.clear();
-        if input.read_until(b'\n', &mut line).await? == 0 {
+        // `read_until` is cancel safe: a partial line stays in `line` for the next call.
+        let read = loop {
+            tokio::select! {
+                read = input.read_until(b'\n', &mut line) => break read?,
+                Some(done) = waits.join_next(), if !waits.is_empty() => {
+                    if let Ok(Some(bytes)) = done {
+                        write_line(out, &bytes).await?;
+                    }
+                }
+            }
+        };
+        if read == 0 && line.is_empty() {
+            while let Some(done) = waits.join_next().await {
+                if let Ok(Some(bytes)) = done {
+                    write_line(out, &bytes).await?;
+                }
+            }
             return core.shutdown().await;
         }
         let request = serde_json::from_slice::<Value>(&line).ok();
@@ -205,6 +233,42 @@ async fn forward_input<
                 && !crate::native::runner_attention_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
+                if crate::native::msg_writes::uses_bridge(op.name) {
+                    use crate::native::{msg_write_sync, msg_writes};
+                    msg_write_sync::trace(op.name, request.get("id"));
+                    let id = request.get("id").cloned();
+                    if op.name == "msg.wait" {
+                        if let Some(result) = msg_writes::wait_now(&request_ctx, &params) {
+                            if let Some(id) = id {
+                                write_line(out, &rpc_line(&id, result)?).await?;
+                            }
+                            continue;
+                        }
+                        // A stdio caller is never the human, so a wait needs no Core publication.
+                        waits.spawn(async move {
+                            let result = msg_writes::call(
+                                &request_ctx,
+                                "msg.wait",
+                                params,
+                                &mut msg_writes::NoBridge,
+                            )
+                            .await;
+                            id.and_then(|id| rpc_line(&id, result).ok())
+                        });
+                        continue;
+                    }
+                    let mut bridge = msg_write_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = msg_writes::call(&request_ctx, op.name, params, &mut bridge).await;
+                    if let Some(id) = id {
+                        write_line(out, &rpc_line(&id, result)?).await?;
+                    }
+                    continue;
+                }
                 if op.name == "task.wait" {
                     let task_id = params
                         .get("id")

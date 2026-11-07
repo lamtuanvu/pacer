@@ -32,6 +32,8 @@ use pacer_task_ops::session_context_ops;
 mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
 pub(crate) use pacer_messaging_ops::msg_ops;
+pub(crate) use pacer_messaging_ops::msg_writes;
+pub(crate) mod msg_write_sync;
 pub mod plugins;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
@@ -485,6 +487,22 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "tree.status",
         call: msg_ops::tree_status,
+    },
+    NativeOp {
+        name: "msg.send",
+        call: msg_writes::bridge_stub,
+    },
+    NativeOp {
+        name: "msg.wait",
+        call: msg_writes::bridge_stub,
+    },
+    NativeOp {
+        name: "msg.confirm",
+        call: msg_writes::bridge_stub,
+    },
+    NativeOp {
+        name: "msg.close",
+        call: msg_writes::bridge_stub,
     },
     NativeOp {
         name: "dispatch.config.get",
