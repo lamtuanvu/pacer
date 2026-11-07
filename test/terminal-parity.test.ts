@@ -36,7 +36,7 @@ function expectedArgv(agent: Agent, mode: "interactive" | "headless", p: {workdi
     codex: ["codex", "--dangerously-bypass-hook-trust",
       ...["PermissionRequest", "Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure"].flatMap(event => ["-c", `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(hook)}}]}]`]),
       "--no-daemon", "-c", `projects={${JSON.stringify(p.workdir)}={trust_level="trusted"}}`, "-C", p.workdir, "--dangerously-bypass-approvals-and-sandbox", "--add-dir", p.dir, "--"],
-    cursor: ["cursor-agent", "--force", "--sandbox", "disabled", "--workspace", p.workdir, "--"],
+    cursor: ["cursor-agent", "--force", "--trust", "--sandbox", "disabled", "--workspace", p.workdir, "--"],
     agy: ["agy", "--dangerously-skip-permissions", "--add-dir", p.workdir, "--prompt-interactive"],
     opencode: ["opencode", "--standalone", "--auto", "--prompt"],
   }[agent];

@@ -20,11 +20,11 @@ async function bundle(entrypoint = 'test/fixtures/workspace-browser.tsx') {
   return { js: await result.outputs[0]!.text(), css: (await buildApp()).find(file => file.path === 'app.css')!.text };
 }
 
-async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held: boolean, theme: 'light' | 'dark', shell = false) {
+async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held: boolean, theme: 'light' | 'dark', shell = false, heldSize = { cols: 240, rows: 60 }) {
   page.setDefaultTimeout(5000);
   await page.route('http://pacer.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><div id="app"></div><div id="root"></div>' }));
   await page.goto('http://pacer.test/?header=1#/workspace?task=workspace-task');
-  await page.evaluate(({ held, theme }) => {
+  await page.evaluate(({ held, theme, heldSize }) => {
     document.documentElement.dataset.theme = theme;
     const history = Array.from({ length: 60 }, (_, i) => `Preserved history ${i}\r\n`).join('');
     const screen = '\x1b[97mAgent prompt\x1b[0m\r\n\x1b[38;2;180;190;210mTruecolor agent\x1b[0m\r\n\x1b[48;5;0m\x1b[97mIndexed black background\x1b[0m\r\n' + '\x1b[38;2;65;65;65mLow contrast agent\x1b[0m\r\n' + 'Full width output '.repeat(16);
@@ -42,7 +42,7 @@ async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held
         const frame = JSON.parse(value); this.sent.push(frame);
         if (frame.type === 'hello') setTimeout(() => {
           if (frame.from !== undefined) this.frame({ type: 'control', controller: null, you: false });
-          else this.frame({ type: 'snapshot', outputOffset: 0, cols: held ? 240 : 80, rows: held ? 60 : 24, scrollbackAnsi: history, screenAnsi: screen, controller: held ? 'other window' : null, viewers: 2 });
+          else this.frame({ type: 'snapshot', outputOffset: 0, cols: held ? heldSize.cols : 80, rows: held ? heldSize.rows : 24, scrollbackAnsi: history, screenAnsi: screen, controller: held ? 'other window' : null, viewers: 2 });
         }, 0);
         if (frame.type === 'take' && (!held || frame.force)) setTimeout(() => this.frame({ type: 'control', controller: 'app', you: true }), 0);
         if (frame.type === 'size') setTimeout(() => this.frame({ type: 'resize', cols: frame.cols, rows: frame.rows }), 0);
@@ -53,7 +53,7 @@ async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held
     }
     (window as any).WebSocket = Socket;
     (window as any).terminalSockets = sockets;
-  }, { held, theme });
+  }, { held, theme, heldSize });
   await page.addStyleTag({ content: source.css });
   await page.addStyleTag({ path: 'node_modules/@xterm/xterm/css/xterm.css' });
   await page.addScriptTag({ type: 'module', content: source.js });
@@ -146,7 +146,10 @@ browserTest('occupied workspace sessions share the fill-pane layout, preserve le
         };
       });
       expect(metrics.stripBottom).toBeLessThanOrEqual(metrics.workspaceBottom);
-      expect(metrics.transform).not.toBe('none');
+      // Watching never enlarges the PTY: a wide pane keeps natural size, a narrow one shrinks it to fit.
+      const scale = metrics.transform === 'none' ? 1 : Number(/matrix\(([^,]+)/.exec(metrics.transform)![1]);
+      expect(scale).toBeLessThanOrEqual(1);
+      if (viewport.width === 375) expect(scale).toBeLessThan(1);
       expect(metrics.fits).toBe(true);
       expect(metrics.overflow).toBe('hidden');
       expect(metrics.background).toBe('rgb(0, 0, 0)');
@@ -191,6 +194,23 @@ browserTest('occupied workspace sessions share the fill-pane layout, preserve le
   } finally { await browser.close(); }
 }, 60_000);
 
+
+browserTest('a small watched PTY in a wide pane keeps its natural size instead of being enlarged', async () => {
+  const source = await bundle();
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 2080, height: 1388 } });
+    await open(page, source, true, 'light', false, { cols: 120, rows: 40 });
+    const watched = await page.evaluate(() => {
+      const mount = document.querySelector<HTMLElement>('.pc-terminal-mount')!;
+      const screen = document.querySelector<HTMLElement>('.xterm-screen')!;
+      return { transform: getComputedStyle(mount).transform, screen: screen.getBoundingClientRect().width, natural: screen.offsetWidth };
+    });
+    expect(watched.transform).toBe('none');
+    expect(watched.screen).toBe(watched.natural);
+    await page.close();
+  } finally { await browser.close(); }
+}, 30_000);
 
 browserTest('explicitly controlled workspace reconnect resumes the same renderer and reacquires control without a forced take', async () => {
   const source = await bundle();
