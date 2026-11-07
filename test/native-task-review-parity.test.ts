@@ -92,6 +92,8 @@ test.skipIf(!front)("native task.review forwards accepting a diagnostics fix", a
     const stored = readTask({ ...ctx, home, pacerHome: join(home, ".pacer") }, task.id)!;
     expect(stored.diagnosticCheck).toBe("CLI codex");
     expect(stored.review?.accepted).toBe(true);
+    // The stdio core records the recheck before it exits.
+    expect(stored.diagnosticRecheck).toMatchObject({ passed: expect.any(Boolean) });
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

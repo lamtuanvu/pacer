@@ -56,15 +56,23 @@ function normalize(value: unknown): unknown {
   return value;
 }
 
-test.skipIf(!front)("task.get matches forced forwarding with task read enrichment", async () => {
+test.skipIf(!front).each([
+  ["task read enrichment", {}],
+  ["a diagnostics fix's check and recheck", {
+    diagnosticCheck: "CLI codex",
+    diagnosticRecheck: { at: 1_700_000_000, passed: true, level: "ok" as const, detail: "codex --help succeeded" },
+  }],
+])("task.get matches forced forwarding with %s", async (_name, fields) => {
   const ctx = fakeCtx();
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   const task = createTask(ctx, { brief: { goal: "Goal", repo: realpathSync(ctx.home) }, kind: null, requestedExecutor: "cursor", timeoutS: 60 });
   updateTask(ctx, task.id, row => {
     row.state = "done";
     row.executor = "cursor";
+    Object.assign(row, fields);
   });
   const reference = await callOp(ctx, "task.get", { id: task.id });
+  expect(reference).toMatchObject(fields);
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-task-get-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-task-get-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });

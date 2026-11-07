@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { z } from "zod";
 import { OPS } from "../src/api/ops";
 import { CoreError } from "../src/core/errors";
 import type { ProviderStatus } from "../src/engine/rank";
@@ -64,9 +65,13 @@ test("usage remedies: stale and unknown refresh, auth signs in, payment opens bi
   const payment = await runDoctor(ctx, { service: service(), status: async () => status({
     codex: { error: "no plan", eligibility: { state: "ineligible", reasons: [{ code: "subscription_missing", evidenceIds: [] }] } as never },
   }) });
+  // No confirmed Codex account billing page exists, so Codex offers "Turn off" alone.
   expect(find(payment, "Usage codex").remedy).toEqual({
-    kind: "user", label: "Open Codex billing", url: "https://chatgpt.com/#pricing",
-    secondary: { label: "Turn off Codex", op: "runner.block", params: { id: "codex", reason: "No active subscription" } },
+    kind: "user", label: "Turn off Codex", op: "runner.block", params: { id: "codex", reason: "No active subscription" },
+  });
+  expect(remedies.billing("claude", "claude-code", "Claude")).toEqual({
+    kind: "user", label: "Open Claude billing", url: "https://claude.ai/settings/billing",
+    secondary: { label: "Turn off Claude", op: "runner.block", params: { id: "claude-code", reason: "No active subscription" } },
   });
 });
 
@@ -75,13 +80,13 @@ test("login, service, binary, CLI and unmatched warnings get user, auto and agen
   ctx.which = bin => bin === "codex" ? null : `/fake/${bin}`;
   let checks = await runDoctor(ctx, { status: async () => status(), service: service({ installed: false, running: false, healthy: false, binaryMatches: false }) });
   expect(find(checks, "Login claude-code").remedy).toEqual({ kind: "user", label: "Sign in to Claude", op: "account.signin", params: { name: "claude-code" } });
-  expect(find(checks, "Service").remedy).toEqual({ kind: "auto", label: "Install service", op: "service.install" });
+  expect(find(checks, "Service").remedy).toEqual({ kind: "auto", label: "Install service", op: "service.install", consent: true });
   expect(find(checks, "Binary codex").remedy).toEqual({ kind: "agent", label: "Fix with agent", op: "doctor.fix.delegate", params: { check: "Binary codex", scope: "fix" } });
   expect(find(checks, "Orca").remedy).toMatchObject({ kind: "agent", op: "doctor.fix.delegate", params: { check: "Orca" } });
 
   ctx.which = bin => `/fake/${bin}`;
   checks = await runDoctor(ctx, { status: async () => status(), service: service({ running: false, healthy: false }) });
-  expect(find(checks, "Service").remedy).toEqual({ kind: "auto", label: "Restart service", op: "service.install" });
+  expect(find(checks, "Service").remedy).toEqual({ kind: "auto", label: "Restart service", op: "service.install", consent: true });
   expect(find(checks, "CLI codex")).toMatchObject({ level: "fail", remedy: { kind: "agent", params: { check: "CLI codex" } } });
 });
 
@@ -90,7 +95,7 @@ test("integration files: auto for pacer-managed refresh, review for any connecte
   const skill = intactFile(ctx, ".codex/skills/pacer/SKILL.md");
   record(ctx, { codex: [intactFile(ctx, ".codex/AGENTS.md"), skill] });
   let checks = await runDoctor(ctx, { status: async () => status(), service: service() });
-  expect(find(checks, "Integration freshness codex").remedy).toEqual({ kind: "auto", label: "Update files", op: "agent.connect", params: { agent: "codex" } });
+  expect(find(checks, "Integration freshness codex").remedy).toEqual({ kind: "auto", label: "Update files", op: "agent.connect", params: { agent: "codex" }, consent: true });
 
   // A user-edited file turns the same refresh into a reviewed change; codex is not the selected planner.
   put(join(ctx.home, ".codex/AGENTS.md"), "user edits");
@@ -106,7 +111,7 @@ test("integration files: auto for pacer-managed refresh, review for any connecte
 
   record(ctx, { service: [{ path: join(ctx.home, "missing"), action: "created", undo: [] }] });
   checks = await runDoctor(ctx, { status: async () => status(), service: service() });
-  expect(find(checks, "Install service").remedy).toEqual({ kind: "auto", label: "Install service", op: "service.install" });
+  expect(find(checks, "Install service").remedy).toEqual({ kind: "auto", label: "Install service", op: "service.install", consent: true });
 });
 
 test("Claude hook configuration and the legacy guard are reviewed reconnects of claude-code", async () => {
@@ -126,7 +131,7 @@ test("pacer-internal error codes are warnings pacer could not check, classified 
     codex: { error: "CoreError: native process owner supervises plugin children", errorCode: "plugin_unavailable" },
     "claude-code": { error: "plugin_unavailable: looks internal but has no code" },
   }) });
-  const internal = { kind: "internal" as const, label: "Restart pacer service", op: "service.install" };
+  const internal = { kind: "internal" as const, label: "Restart pacer service", op: "service.install", consent: true as const };
   expect(find(checks, "Usage codex")).toEqual({ name: "Usage codex", level: "warn", evidence: "unverified",
     detail: "CoreError: native process owner supervises plugin children", remedy: internal });
   expect(find(checks, "Usage claude-code").remedy?.kind).toBe("agent");
@@ -194,9 +199,32 @@ test("every operation a remedy can name is registered and accepts the remedy's p
       expect(Object.hasOwn(OPS, action.op)).toBe(true);
       expect(action.params?.consent).toBeUndefined();
       // Consent comes from the person's click at call time; the remedy's own params must otherwise validate.
-      const parsed = OPS[action.op]!.params.safeParse({ ...action.params, ...(action.op === "service.install" ? { consent: true } : {}) });
+      const parsed = OPS[action.op]!.params.safeParse({ ...action.params, ...(action.consent ? { consent: true } : {}) });
       expect(parsed.success).toBe(true);
     }
+  }
+});
+
+/** Whether an operation's params schema declares `consent`, as published in the protocol docs. */
+function opTakesConsent(op: string): boolean {
+  const schema = z.toJSONSchema(OPS[op]!.params) as { properties?: Record<string, unknown>; anyOf?: { properties?: Record<string, unknown> }[] };
+  return [schema, ...(schema.anyOf ?? [])].some(branch => !!branch.properties && Object.hasOwn(branch.properties, "consent"));
+}
+
+test("remedies mark consent exactly where the operation's schema takes it, and those operations refuse without it", async () => {
+  const actions = [
+    ...Object.values(remedies).map(factory => (factory as (...args: string[]) => Remedy)("codex", "codex", "Codex")),
+    remedies.billing("claude", "claude-code", "Claude"),
+  ].flatMap(remedy => [remedy, ...(remedy.secondary ? [remedy.secondary] : [])]).filter(action => action.op);
+  const gated = new Set(actions.flatMap(action => opTakesConsent(action.op!) ? [action.op!] : []));
+  expect(gated).toEqual(new Set(["agent.connect", "service.install"]));
+  for (const action of actions) expect([action.op, action.consent]).toEqual([action.op, opTakesConsent(action.op!) ? true : undefined]);
+
+  // agent.connect declares consent as optional, so its handler is what enforces it.
+  const ctx = fixture();
+  for (const op of gated) {
+    const params = actions.find(action => action.op === op)!.params ?? {};
+    await expect(Promise.resolve().then(() => OPS[op]!.handler(ctx, params as never, {}))).rejects.toMatchObject({ code: "not_allowed" });
   }
 });
 
@@ -214,7 +242,8 @@ test("pacer doctor prints each remedy's CLI equivalent where one exists", () => 
     `[warn] Orca: tasks use the direct backend\n  run: pacer api call doctor.fix.delegate --params '{"check":"Orca","scope":"fix"}'\n`,
     "[warn] Removable volume access: denied\n  run: open 'x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders'\n",
   ].join(""));
-  expect(remedyCommand(remedies.billing("codex", "codex#work", "Codex (work)").secondary as Remedy)).toBe("pacer executor block codex#work");
+  expect(remedyCommand(remedies.billing("claude", "claude-code#work", "Claude (work)").secondary as Remedy)).toBe("pacer executor block claude-code#work");
+  expect(remedyCommand(remedies.billing("codex", "codex#work", "Codex (work)"))).toBe("pacer executor block codex#work");
   expect(remedyCommand(remedies.signIn("work", "Codex"))).toBe(`pacer api call account.signin --params '{"name":"work"}'`);
   expect(remedyCommand({ kind: "user", label: "x" })).toBeUndefined();
   expect(remedyCommand(remedies.internal())).toBe("pacer service restart");

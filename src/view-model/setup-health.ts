@@ -1,6 +1,6 @@
 import type { Check, Remedy } from "../install/doctor";
 import type { SetupChecklist } from "../setup/checklist";
-import { diagnosticRepair, diagnosticSetupLink, diagnosticSummary, remedyAgent } from "./diagnostics";
+import { checkSetupLink, diagnosticRepair, diagnosticSummary, remedyAgent } from "./diagnostics";
 
 /** Fixed startup gate steps from the setup-health design. */
 export type SetupHealthStepId =
@@ -198,13 +198,14 @@ function remedyRepair(check: Check, remedy: Remedy): SetupHealthRepair {
   if (agent) return { kind: "agent.reconnect", label: "Fix integration", agent, honesty: WIRING_HONESTY, remedy };
   if (remedy.op === "limits.refresh") return { kind: "limits.refresh", label: remedy.label, remedy };
   if (remedy.op === "service.install" && remedy.kind !== "internal") return { kind: "open.setup", label: "Open Setup", remedy };
-  if (remedy.kind === "user") return { kind: "open.accounts", label: "Review accounts", remedy };
-  // Agent tasks and pacer-internal failures are handled from Diagnostics.
+  if (remedy.kind === "user" && ["account.signin", "runner.block"].includes(remedy.op ?? remedy.secondary?.op ?? ""))
+    return { kind: "open.accounts", label: "Review accounts", remedy };
+  // Agent tasks, pacer-internal failures and system settings are handled from Diagnostics.
   return { kind: "open.diagnostics", label: "Open Diagnostics", remedy };
 }
 
-function linkRepair(check: Check): SetupHealthRepair | undefined {
-  const href = diagnosticSetupLink(check)?.href;
+function linkRepair(link: { href: string } | undefined): SetupHealthRepair | undefined {
+  const href = link?.href;
   if (href === "#/setup") return { kind: "open.setup", label: "Open Setup" };
   if (href === "#/settings/add-executor") return { kind: "open.add_executor", label: "Open executor setup" };
   if (href === "#/settings/accounts") return { kind: "open.accounts", label: "Review accounts" };
@@ -213,7 +214,8 @@ function linkRepair(check: Check): SetupHealthRepair | undefined {
 /**
  * Map attention checks to primary Fix descriptors. Never applies changes;
  * agent.reconnect still goes through agent.preview + consent on connect.
- * A check's remedy decides its repair; names are a fallback for responses without one.
+ * A check's remedy decides its repair; names are a fallback for responses without one
+ * and for remedies the gate cannot run yet.
  */
 export function setupHealthRepairs(
   checks: Check[],
@@ -235,7 +237,10 @@ export function setupHealthRepairs(
     if (check.level !== "warn" && check.level !== "fail") continue;
 
     if (check.remedy) {
-      add(remedyRepair(check, check.remedy));
+      const repair = remedyRepair(check, check.remedy);
+      // Agent tasks and pacer restarts have no gate action yet; keep the setup link the check name gave.
+      const link = repair.kind === "open.diagnostics" ? linkRepair(checkSetupLink(check)) : undefined;
+      add(link ? { ...link, remedy: check.remedy } : repair);
       continue;
     }
 
@@ -261,7 +266,7 @@ export function setupHealthRepairs(
     // Exhausted quota is not a fixable setup action.
     if (check.name.startsWith("Usage ") && check.detail === "EXHAUSTED") continue;
 
-    const repair = linkRepair(check);
+    const repair = linkRepair(checkSetupLink(check));
     if (repair) add(repair);
   }
 

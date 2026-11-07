@@ -236,8 +236,8 @@ describe("setupHealthRepairs", () => {
     const review = { kind: "review" as const, label: "Review and fix", op: "agent.preview", params: { agent: "codex" } };
     const signIn = { kind: "user" as const, label: "Sign in to Codex", op: "account.signin", params: { name: "codex" } };
     const refresh = { kind: "auto" as const, label: "Refresh usage", op: "limits.refresh", params: { account: "codex" } };
-    const service = { kind: "auto" as const, label: "Restart service", op: "service.install" };
-    const internal = { kind: "internal" as const, label: "Restart pacer service", op: "service.install" };
+    const service = { kind: "auto" as const, label: "Restart service", op: "service.install", consent: true as const };
+    const internal = { kind: "internal" as const, label: "Restart pacer service", op: "service.install", consent: true as const };
     const agent = { kind: "agent" as const, label: "Fix with agent", op: "doctor.fix.delegate", params: { check: "Binary cursor", scope: "fix" } };
     // A non-planner agent is reconnected because the server says so; the planner option is not consulted.
     expect(setupHealthRepairs(
@@ -251,9 +251,16 @@ describe("setupHealthRepairs", () => {
       .toEqual([{ kind: "limits.refresh", label: "Refresh usage", remedy: refresh }]);
     expect(setupHealthRepairs([{ name: "Service", level: "fail", detail: "down", remedy: service }]))
       .toEqual([{ kind: "open.setup", label: "Open Setup", remedy: service }]);
-    // Agent tasks start from Diagnostics; the name would have offered executor setup or a reconnect.
+    // The gate cannot start agent tasks or restart pacer yet, so those checks keep the setup link their name gave.
     expect(setupHealthRepairs([{ name: "Binary cursor", level: "fail", detail: "not found", remedy: agent }]))
-      .toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics", remedy: agent }]);
+      .toEqual([{ kind: "open.add_executor", label: "Open executor setup", remedy: agent }]);
+    expect(setupHealthRepairs([{ name: "Usage codex", level: "warn", evidence: "unverified", detail: "plugin unavailable", remedy: internal }]))
+      .toEqual([{ kind: "open.accounts", label: "Review accounts", remedy: internal }]);
+    // A system settings link is not an account problem.
+    const privacy = { kind: "user" as const, label: "Open Privacy settings", url: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders" };
+    expect(setupHealthRepairs([{ name: "Removable volume access", level: "warn", detail: "denied", remedy: privacy }]))
+      .toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics", remedy: privacy }]);
+    // Without a setup link they go to Diagnostics; the remedy says a reconnect cannot fix them.
     expect(setupHealthRepairs([{ name: "Install codex#work", level: "warn", detail: "changed", remedy: agent }], { planner: "codex#work", repairAvailable: true }))
       .toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics", remedy: agent }]);
     expect(setupHealthRepairs([{ name: "Integration freshness cursor", level: "warn", evidence: "unverified", detail: "plugin unavailable", remedy: internal }], { planner: "cursor", repairAvailable: true }))

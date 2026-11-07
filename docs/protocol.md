@@ -3970,7 +3970,7 @@ Params JSON Schema:
 
 ### `doctor.fix.delegate`
 
-Start a pacer task to fix (scope fix) or investigate (scope investigate, changes nothing) one failing diagnostics check. The brief is built from the service's latest doctor result for that check, never from client text, and goes through task.delegate routing, pacing and review. The task records diagnosticCheck; accepting it reruns the check and records diagnosticRecheck.
+Start a pacer task to fix (scope fix) or investigate (scope investigate, changes nothing) one failing diagnostics check. The brief is built from the service's latest doctor result for that check, never from client text, and goes through task.delegate routing, pacing and review. The task records diagnosticCheck; accepting it reruns the check and records diagnosticRecheck. Task reads (task.get, task.list, snapshot tasks) expose both.
 
 Params JSON Schema:
 
@@ -4002,7 +4002,7 @@ Params JSON Schema:
 
 ### `doctor.run`
 
-Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed. Each warning or failure carries one remedy { kind: auto|review|user|agent|internal, label, op?, params?, url?, secondary? } naming a registered operation; params never include consent.
+Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed. Each warning or failure carries one remedy { kind: auto|review|user|agent|internal, label, op?, params?, consent?, url?, secondary? } naming a registered operation; params never include consent. consent: true marks an op that requires it: show what will change and send consent: true only after the user's click.
 
 Params JSON Schema:
 

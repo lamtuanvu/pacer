@@ -23,12 +23,12 @@ export function internalCheck(check: Pick<Check, "name" | "detail">): Check {
 }
 
 const PRIVACY_FILES = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders";
+/** Only confirmed account billing pages; other kinds offer "Turn off" alone. */
 const BILLING: Record<string, string> = {
   claude: "https://claude.ai/settings/billing",
-  codex: "https://chatgpt.com/#pricing",
 };
 
-/** Remedies name registered operations only; params never carry consent. */
+/** Remedies name registered operations only; params never carry consent, `consent: true` marks ops that need it. */
 export const remedies = {
   refreshUsage: (account: string): Remedy => ({ kind: "auto", label: "Refresh usage", op: "limits.refresh", params: { account } }),
   signIn: (account: string, label: string): Remedy => ({ kind: "user", label: `Sign in to ${label}`, op: "account.signin", params: { name: account } }),
@@ -39,12 +39,12 @@ export const remedies = {
       ? { kind: "user", label: `Open ${label} billing`, url, secondary: turnOff }
       : { kind: "user", ...turnOff };
   },
-  updateFiles: (agent: string): Remedy => ({ kind: "auto", label: "Update files", op: "agent.connect", params: { agent } }),
+  updateFiles: (agent: string): Remedy => ({ kind: "auto", label: "Update files", op: "agent.connect", params: { agent }, consent: true }),
   review: (agent: string): Remedy => ({ kind: "review", label: "Review and fix", op: "agent.preview", params: { agent } }),
-  service: (label: string): Remedy => ({ kind: "auto", label, op: "service.install" }),
+  service: (label: string): Remedy => ({ kind: "auto", label, op: "service.install", consent: true }),
   privacySettings: (): Remedy => ({ kind: "user", label: "Open Privacy settings", url: PRIVACY_FILES }),
   agent: (check: string): Remedy => ({ kind: "agent", label: "Fix with agent", op: "doctor.fix.delegate", params: { check, scope: "fix" } }),
-  internal: (): Remedy => ({ kind: "internal", label: "Restart pacer service", op: "service.install" }),
+  internal: (): Remedy => ({ kind: "internal", label: "Restart pacer service", op: "service.install", consent: true }),
 };
 
 /** Every warning or failure gets exactly one remedy; passed and informational checks get none. */

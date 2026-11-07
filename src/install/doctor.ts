@@ -33,9 +33,14 @@ export interface Remedy {
   op?: string;
   /** Validated by the operation's schema at call time; never carries consent. */
   params?: Record<string, unknown>;
+  /**
+   * Set when `op` requires consent. The client must show what will change and send
+   * `consent: true` after the user's click; the remedy never grants it.
+   */
+  consent?: true;
   /** `user` remedies only: https or x-apple.systempreferences: links. */
   url?: string;
-  secondary?: { label: string; op?: string; params?: Record<string, unknown>; url?: string };
+  secondary?: { label: string; op?: string; params?: Record<string, unknown>; consent?: true; url?: string };
 }
 
 export interface Check {

@@ -602,7 +602,10 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       const nativeConfigKey = ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
       delete ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
       delete process.env.PACER_NATIVE_CONFIG_SYNC_KEY;
-      await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: cliDeps, nativeConfigKey });
+      const rechecks: Promise<void>[] = [];
+      await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: { ...cliDeps, diagnosticRecheck: pending => { rechecks.push(pending); } }, nativeConfigKey });
+      // A diagnostics recheck started by an accepted fix still uses the plugins.
+      await Promise.all(rechecks);
       await shutdownPlugins(ctx);
       return { code: 0, out: "", err: "", keepAlive: true };
     }

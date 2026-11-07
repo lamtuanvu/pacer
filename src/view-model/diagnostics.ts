@@ -83,15 +83,27 @@ export function diagnosticGuidance(check: Check): string {
   return "Review setup and the technical details for this check.";
 }
 
-/** Where a remedy that opens a place sends the person; repairs and agent tasks have their own actions. */
+/**
+ * Where a remedy that opens a place sends the person; repairs and agent tasks have their own actions.
+ * A pacer restart is not a setup step, so internal remedies keep the check's own link.
+ */
 function remedySetupLink(remedy: Remedy): { href: string; label: string } | undefined {
+  if (remedy.kind === "internal") return;
   const op = remedy.op ?? remedy.secondary?.op;
   if (op === "account.signin" || op === "limits.refresh" || op === "runner.block") return { href: "#/settings/accounts", label: "Review accounts" };
   if (op === "service.install") return { href: "#/setup", label: "Open setup" };
 }
 
+/**
+ * A remedy's own place first. Remedies that open no place (agent tasks, reviewed repairs) keep the
+ * check's setup link so no screen loses a button before it can run them.
+ */
 export function diagnosticSetupLink(check: Check): { href: string; label: string } | undefined {
-  if (check.remedy) return remedySetupLink(check.remedy);
+  return (check.remedy && remedySetupLink(check.remedy)) ?? checkSetupLink(check);
+}
+
+/** The setup link a check's name implies, used before remedies existed. */
+export function checkSetupLink(check: Pick<Check, "name">): { href: string; label: string } | undefined {
   if (check.name.startsWith("Usage ") || check.name.startsWith("Login ") || check.name === "Claude config folder") return { href: "#/settings/accounts", label: "Review accounts" };
   if (/^(Binary|CLI) /.test(check.name) || check.name === "Executor") return { href: "#/settings/add-executor", label: "Open executor setup" };
   if (["Service", "Strategy", "Installs"].includes(check.name)) return { href: "#/setup", label: "Open setup" };

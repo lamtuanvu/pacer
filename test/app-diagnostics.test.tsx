@@ -112,16 +112,22 @@ test('a remedy decides the repair and setup link before the check name does', as
   const { diagnosticRepair, diagnosticSetupLink } = await import('../src/view-model/diagnostics');
   const review = {kind:'review' as const,label:'Review and fix',op:'agent.preview',params:{agent:'codex'}};
   const agentTask = {kind:'agent' as const,label:'Fix with agent',op:'doctor.fix.delegate',params:{check:'Install codex#work',scope:'fix'}};
-  const billing = {kind:'user' as const,label:'Open Codex billing',url:'https://chatgpt.com/#pricing',secondary:{label:'Turn off Codex',op:'runner.block',params:{id:'codex',reason:'No active subscription'}}};
+  const billing = {kind:'user' as const,label:'Open Claude billing',url:'https://claude.ai/settings/billing',secondary:{label:'Turn off Claude',op:'runner.block',params:{id:'claude-code',reason:'No active subscription'}}};
   expect(diagnosticRepair({name:'Install codex',level:'warn',detail:'',remedy:review}, 'claude-code')).toEqual({agent:'codex'});
   // The name alone would match the planner; the remedy says reconnecting cannot fix it.
   expect(diagnosticRepair({name:'Install codex#work',level:'warn',detail:'',remedy:agentTask}, 'codex#work')).toBeUndefined();
   expect(diagnosticRepair({name:'Claude hook configuration',level:'warn',detail:'',remedy:agentTask}, 'claude-code')).toBeUndefined();
-  expect(diagnosticSetupLink({name:'Usage codex',level:'warn',detail:'',remedy:billing})?.href).toBe('#/settings/accounts');
-  expect(diagnosticSetupLink({name:'Service',level:'warn',detail:'',remedy:{kind:'internal',label:'Restart pacer service',op:'service.install'}})?.href).toBe('#/setup');
+  expect(diagnosticSetupLink({name:'Usage claude-code',level:'warn',detail:'',remedy:billing})?.href).toBe('#/settings/accounts');
+  expect(diagnosticSetupLink({name:'Service',level:'warn',detail:'',remedy:{kind:'internal',label:'Restart pacer service',op:'service.install',consent:true}})?.href).toBe('#/setup');
   expect(diagnosticSetupLink({name:'Strategy',level:'warn',detail:'',remedy:{kind:'user',label:'Sign in to Codex',op:'account.signin',params:{name:'codex'}}})?.href).toBe('#/settings/accounts');
-  // Without a remedy this name links to executor setup; the remedy has no settings flow.
-  expect(diagnosticSetupLink({name:'Binary codex',level:'fail',detail:'',remedy:agentTask})).toBeUndefined();
+  // Remedies that open no place keep the link the check name gave, so the screen keeps its button.
+  expect(diagnosticSetupLink({name:'Binary codex',level:'fail',detail:'',remedy:agentTask})).toEqual({href:'#/settings/add-executor',label:'Open executor setup'});
+  expect(diagnosticSetupLink({name:'Usage codex',level:'warn',detail:'',remedy:{...agentTask,params:{check:'Usage codex',scope:'fix'}}})).toEqual({href:'#/settings/accounts',label:'Review accounts'});
+  expect(diagnosticSetupLink({name:'Install codex#work',level:'warn',detail:'',remedy:agentTask})).toEqual({href:'#/settings/planner',label:'Review planner setup'});
+  expect(diagnosticSetupLink({name:'Install codex',level:'warn',detail:'',remedy:review})).toEqual({href:'#/settings/planner',label:'Review planner setup'});
+  expect(diagnosticSetupLink({name:'Orca',level:'warn',detail:'',remedy:agentTask})).toBeUndefined();
+  // A pacer restart is not a setup step; the check keeps the same link Setup Health shows.
+  expect(diagnosticSetupLink({name:'Usage codex',level:'warn',detail:'',remedy:{kind:'internal',label:'Restart pacer service',op:'service.install',consent:true}})).toEqual({href:'#/settings/accounts',label:'Review accounts'});
 });
 
 test('unverified evidence remains visible on warnings without double counting', () => {
