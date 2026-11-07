@@ -17,7 +17,10 @@ use std::{
 };
 use tokio::{io::AsyncReadExt, sync::Semaphore};
 
+#[cfg(not(test))]
 const TIMEOUT: Duration = Duration::from_secs(20);
+#[cfg(test)]
+const TIMEOUT: Duration = Duration::from_secs(2);
 const GRACE: Duration = Duration::from_secs(2);
 pub(crate) const OUTPUT_MAX: usize = 4 * 1024 * 1024;
 const STDERR_MAX: usize = 1024 * 1024;
@@ -55,7 +58,7 @@ const ENV_NAMES: &[&str] = &[
 const ENV_PREFIXES: &[&str] = &["LC_", "XDG_"];
 
 /// `ghEnv`: the allowlisted variables plus the non-interactive gh settings.
-pub fn gh_env(env: &HashMap<String, String>) -> HashMap<String, String> {
+pub(crate) fn gh_env(env: &HashMap<String, String>) -> HashMap<String, String> {
     let mut out: HashMap<String, String> = env
         .iter()
         .filter(|(name, _)| {
@@ -129,10 +132,29 @@ async fn read_capped<R: AsyncReadExt + Unpin>(
     (bytes, overflow)
 }
 
-/// `execProcess` with `maxStdoutBytes`: a spawn failure exits 127; past the deadline or the
-/// stdout cap the process group is killed and given two seconds to finish.
-async fn run(bin: &Path, argv: &[String], env: HashMap<String, String>) -> Run {
+type Output = (Vec<u8>, bool);
+
+/// The exit status and both streams; a descendant that keeps a pipe open keeps this pending.
+async fn finish(
+    child: &mut tokio::process::Child,
+    out: &mut tokio::task::JoinHandle<Output>,
+    err: &mut tokio::task::JoinHandle<Output>,
+) -> (Option<std::process::ExitStatus>, Output, Output) {
+    let status = child.wait().await.ok();
+    (
+        status,
+        out.await.unwrap_or_default(),
+        err.await.unwrap_or_default(),
+    )
+}
+
+/// `execProcess` with `maxStdoutBytes`: a spawn failure exits 127; the deadline covers the exit
+/// and both streams, and past it the process group is killed and given two seconds to finish.
+async fn run(bin: &Path, argv: &[String], mut env: HashMap<String, String>) -> Run {
     use std::os::unix::process::CommandExt as _;
+    if let Ok(cwd) = std::env::current_dir() {
+        env.insert("PWD".into(), cwd.to_string_lossy().into_owned());
+    }
     let mut command = std::process::Command::new(bin);
     command
         .args(argv)
@@ -158,28 +180,26 @@ async fn run(bin: &Path, argv: &[String], env: HashMap<String, String>) -> Run {
     };
     let pid = child.id();
     let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
-    let out = tokio::spawn(read_capped(stdout, OUTPUT_MAX, pid, true));
-    let err = tokio::spawn(read_capped(stderr, STDERR_MAX, pid, false));
-    let mut timed_out = false;
-    let status = match tokio::time::timeout(TIMEOUT, child.wait()).await {
-        Ok(status) => status.ok(),
+    let mut out = tokio::spawn(read_capped(stdout, OUTPUT_MAX, pid, true));
+    let mut err = tokio::spawn(read_capped(stderr, STDERR_MAX, pid, false));
+    let finished = tokio::time::timeout(TIMEOUT, finish(&mut child, &mut out, &mut err)).await;
+    let timed_out = finished.is_err();
+    let (status, (stdout, overflow), (stderr, _)) = match finished {
+        Ok(done) => done,
         Err(_) => {
-            timed_out = true;
             kill_group(pid);
-            tokio::time::timeout(GRACE, child.wait())
-                .await
-                .ok()
-                .and_then(Result::ok)
+            let late = tokio::time::timeout(GRACE, finish(&mut child, &mut out, &mut err)).await;
+            out.abort();
+            err.abort();
+            late.unwrap_or_else(|_| {
+                (
+                    child.try_wait().ok().flatten(),
+                    (Vec::new(), false),
+                    (Vec::new(), false),
+                )
+            })
         }
     };
-    let collect = |task: tokio::task::JoinHandle<(Vec<u8>, bool)>| async move {
-        tokio::time::timeout(GRACE, task)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .unwrap_or_default()
-    };
-    let ((stdout, overflow), (stderr, _)) = (collect(out).await, collect(err).await);
     let mut code = status.and_then(|s| s.code()).unwrap_or(1);
     if overflow && code == 0 {
         code = 1;

@@ -9,8 +9,7 @@ mod params;
 mod tests;
 mod text;
 
-pub use gh::gh_env;
-pub use text::{clean_body, clean_line};
+use text::{clean_body, clean_line};
 
 use gh::What;
 use pacer_foundation::{
@@ -28,8 +27,8 @@ use std::{
 
 pub(crate) type IssueError = CoreError;
 
-pub const TITLE_MAX_CHARS: usize = 300;
-pub const BODY_MAX_BYTES: usize = 64 * 1024;
+pub(crate) const TITLE_MAX_CHARS: usize = 300;
+pub(crate) const BODY_MAX_BYTES: usize = 64 * 1024;
 const LABEL_MAX_CHARS: usize = 100;
 const LABELS_MAX: usize = 50;
 const ISSUE_NUMBER_MAX: u64 = (1 << 31) - 1;
@@ -414,8 +413,8 @@ fn forget_search(cell: &SearchCell) {
         .retain(|entry| !Arc::ptr_eq(&entry.cell, cell));
 }
 
-/// Forget cached searches. For tests.
-pub fn clear_issue_search_cache() {
+#[cfg(test)]
+fn clear_issue_search_cache() {
     SEARCH_CACHE_ENTRIES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)

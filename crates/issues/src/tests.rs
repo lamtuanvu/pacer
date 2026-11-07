@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
+use crate::gh::gh_env;
 use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::Path, process::Command};
 
 const KEY: &str = "github.com/lamtuanvu/pacer";
@@ -204,6 +205,12 @@ fn fixture(reply: &str) -> Fixture {
     }
 }
 
+/// Tests that run gh share the process-wide limiter, so they run one at a time.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static GH: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    GH.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn block<T>(future: impl std::future::Future<Output = T>) -> T {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -222,6 +229,7 @@ fn calls(log: &Path) -> Vec<String> {
 
 #[test]
 fn import_runs_gh_with_argv_and_returns_plain_text() {
+    let _gh = serial();
     let raw = json!({"number": 5, "title": "Fix\u{7} it", "body": "a\r\nb", "labels": [{"name": "bug\u{0}"}, {"name": "\u{202E}"}], "url": "https://github.com/LamTuanVu/Pacer/issues/5", "state": "CLOSED"});
     let f = fixture(&format!("cat <<'EOF'\n{raw}\nEOF"));
     let out = block(issue_import(&f.ctx, json!({"repo": KEY, "issue": "#5"}))).unwrap();
@@ -240,6 +248,7 @@ fn import_runs_gh_with_argv_and_returns_plain_text() {
 
 #[test]
 fn gh_failures_map_to_typed_errors() {
+    let _gh = serial();
     let cases = [
         (
             "echo 'HTTP 403: API rate limit exceeded' >&2; exit 1",
@@ -293,6 +302,7 @@ fn gh_failures_map_to_typed_errors() {
 
 #[test]
 fn search_keeps_only_this_repository_and_caches_successes() {
+    let _gh = serial();
     clear_issue_search_cache();
     let list = json!([
         {"number": 1, "title": "mine", "labels": [], "url": "https://github.com/lamtuanvu/pacer/issues/1", "state": "OPEN"},
@@ -357,4 +367,60 @@ fn executors_and_unknown_repositories_are_refused_before_gh() {
         "repo: Invalid input: expected string, received number; issue: Invalid input: expected string, received number; params: Unrecognized key: \"x\""
     );
     assert!(calls(&f.log).is_empty());
+}
+
+#[test]
+fn at_most_two_gh_runs_at_once_and_eight_wait() {
+    let _gh = serial();
+    let f = fixture(
+        "dir=$(dirname \"$0\"); touch \"$dir/run.$$\"; ls \"$dir\" | grep -c '^run[.]' >> \"$dir/peak\"; sleep 1; rm \"$dir/run.$$\"; echo 'HTTP 404' >&2; exit 1",
+    );
+    let results = block(async {
+        let mut set = tokio::task::JoinSet::new();
+        for n in 1..=11 {
+            let ctx = f.ctx.clone();
+            set.spawn(async move {
+                issue_import(&ctx, json!({"repo": KEY, "issue": n.to_string()})).await
+            });
+        }
+        set.join_all().await
+    });
+    let refused: Vec<_> = results
+        .iter()
+        .filter_map(|r| r.as_ref().err())
+        .filter(|e| e.message == "Too many GitHub requests are waiting")
+        .collect();
+    assert_eq!(refused.len(), 1);
+    let peak = std::fs::read_to_string(f.log.with_file_name("bin/peak")).unwrap();
+    let peak = peak.lines().map(|l| l.trim().parse::<u32>().unwrap()).max();
+    assert_eq!(peak, Some(2));
+    assert_eq!(calls(&f.log).len(), 20, "ten gh runs");
+}
+
+#[test]
+fn concurrent_identical_searches_share_one_gh_run() {
+    let _gh = serial();
+    clear_issue_search_cache();
+    let f = fixture("sleep 0.5; echo '[]'");
+    let params = json!({"repo": KEY, "query": "shared run"});
+    let (a, b) = block(async {
+        tokio::join!(
+            issue_search(&f.ctx, params.clone()),
+            issue_search(&f.ctx, params.clone())
+        )
+    });
+    assert_eq!(a.unwrap(), b.unwrap());
+    assert_eq!(calls(&f.log).len(), 2, "one gh run");
+}
+
+#[test]
+fn the_deadline_kills_gh_and_descendants_holding_its_output() {
+    let _gh = serial();
+    for reply in ["sleep 30", "sleep 30 &\nexit 0"] {
+        let f = fixture(reply);
+        let started = Instant::now();
+        let error = block(issue_import(&f.ctx, json!({"repo": KEY, "issue": "1"}))).unwrap_err();
+        assert_eq!(error.message, "gh did not answer in time", "{reply}");
+        assert!(started.elapsed() < Duration::from_secs(6), "{reply}");
+    }
 }
