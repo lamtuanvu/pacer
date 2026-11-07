@@ -820,7 +820,7 @@ test("remote full-session metadata uses the local bridge pid and mirrored host s
 });
 
 // ADR 0023, decision 6: on 1.2 sessions recent client input, not a controller lease, pauses supervision clocks.
-import { activeDeadlineExpired, inputWaitStartedAt, RECENT_INPUT_S } from "../src/supervisor/active-time";
+import { activeDeadlineExpired, humanDriving, inputWaitStartedAt, RECENT_INPUT_S } from "../src/supervisor/active-time";
 import { progressPoller } from "../src/exec/direct";
 import { fakeCtx } from "./helpers";
 import type { RunState } from "../src/supervisor/run";
@@ -843,19 +843,40 @@ test("interactive readRun reports the session host's protocol minor from session
 test("active time pauses for recent client input on 1.2 sessions and for a controller on 1.1 sessions", () => {
   const now = 1_000_000, running = (o: Partial<RunState>): RunState => ({ pid: 1, startedAt: 0, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null,
     interactive: true, report: { status: "running", summary: "s", at: 1 }, ...o });
-  // 1.2: a pane left open (no controller is ever written) does not pause; typing does, for RECENT_INPUT_S.
+  // 1.2: a pane left open (no controller is ever written) does not pause; a person typing does, for RECENT_INPUT_S.
   expect(inputWaitStartedAt(running({ sessionMinor: 2 }), now)).toBeNull();
-  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - 5 }), now)).toBe(now);
-  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - RECENT_INPUT_S - 1 }), now)).toBeNull();
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - 5, lastHumanInputAt: now / 1000 - 5 }), now)).toBe(now);
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - RECENT_INPUT_S - 1, lastHumanInputAt: now / 1000 - RECENT_INPUT_S - 1 }), now)).toBeNull();
   expect(inputWaitStartedAt(running({ sessionMinor: 2, controller: "stale", lastInputAt: null }), now)).toBeNull();
+  // pacer's own delivery touches only the all-input marker: nobody is driving.
+  expect(humanDriving(running({ sessionMinor: 2, lastInputAt: now / 1000 - 5 }), now)).toBe(false);
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - 5 }), now)).toBeNull();
   // 1.1 (and hosts without session.version): the controller lease, not input.
   expect(inputWaitStartedAt(running({ sessionMinor: 1, controller: "app:pane" }), now)).toBe(now);
   expect(inputWaitStartedAt(running({ controller: "app:pane" }), now)).toBe(now);
-  expect(inputWaitStartedAt(running({ sessionMinor: 1, lastInputAt: now / 1000 - 5 }), now)).toBeNull();
+  expect(inputWaitStartedAt(running({ sessionMinor: 1, lastInputAt: now / 1000 - 5, lastHumanInputAt: now / 1000 - 5 }), now)).toBeNull();
   const dir = temp();
   try {
-    expect(activeDeadlineExpired(dir, 60_000, running({ sessionMinor: 2, lastInputAt: 50 }), 100_000)).toBe(false);
-    expect(activeDeadlineExpired(dir, 60_000, running({ sessionMinor: 2, lastInputAt: 50 }), 400_000)).toBe(true);
+    expect(activeDeadlineExpired(dir, 60_000, running({ sessionMinor: 2, lastInputAt: 50, lastHumanInputAt: 50 }), 100_000)).toBe(false);
+    expect(activeDeadlineExpired(dir, 60_000, running({ sessionMinor: 2, lastInputAt: 50, lastHumanInputAt: 50 }), 400_000)).toBe(true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test("on 1.2 sessions pacer's delivered answer resumes a needs-input wait (all input), while only a person's input counts as driving", () => {
+  const needsInput = (o: Partial<RunState>): RunState => ({ pid: 1, startedAt: 0, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null,
+    interactive: true, sessionMinor: 2, report: { status: "needs-input", summary: "which db?", at: 100 }, ...o });
+  // Waiting since the report; a hookless agent writes no new report after the answer.
+  expect(inputWaitStartedAt(needsInput({}), 150_000)).toBe(100_000);
+  // pacer delivered the answer at 200 s: the wait ends and nobody counts as driving.
+  expect(inputWaitStartedAt(needsInput({ lastInputAt: 200 }), 210_000)).toBeNull();
+  expect(humanDriving(needsInput({ lastInputAt: 200 }), 210_000)).toBe(false);
+  // A person answering in the pane also ends the wait, and drives the session for RECENT_INPUT_S.
+  expect(inputWaitStartedAt(needsInput({ lastInputAt: 200, lastHumanInputAt: 200 }), 210_000)).toBe(210_000);
+  const dir = temp();
+  try {
+    expect(activeDeadlineExpired(dir, 120_000, needsInput({}), 150_000)).toBe(false);
+    // Resumed at the delivered answer: the 100 s wait is not charged, so the 120 s deadline moves to 220 s.
+    expect(activeDeadlineExpired(dir, 120_000, needsInput({ lastInputAt: 200 }), 210_000)).toBe(false);
+    expect(activeDeadlineExpired(dir, 120_000, needsInput({ lastInputAt: 200 }), 221_000)).toBe(true);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 test("the idle-fail clock uses recent input on 1.2 sessions and the controller on 1.1 sessions", async () => {
@@ -868,9 +889,11 @@ test("the idle-fail clock uses recent input on 1.2 sessions and the controller o
   const poll = (o: Partial<RunState>) => progressPoller(ctx, task, run)(state(o));
   try {
     expect(await poll({ sessionMinor: 2 })).toBe("idle");
-    expect(await poll({ sessionMinor: 2, lastInputAt: nowS - 10 })).toBe("continue");
+    expect(await poll({ sessionMinor: 2, lastInputAt: nowS - 10, lastHumanInputAt: nowS - 10 })).toBe("continue");
+    // Only pacer's own delivered input: nobody is driving, so the idle clock keeps running.
+    expect(await poll({ sessionMinor: 2, lastInputAt: nowS - 10 })).toBe("idle");
     expect(await poll({ sessionMinor: 1, controller: "cli:iTerm" })).toBe("continue");
-    expect(await poll({ sessionMinor: 1, lastInputAt: nowS - 10 })).toBe("idle");
+    expect(await poll({ sessionMinor: 1, lastInputAt: nowS - 10, lastHumanInputAt: nowS - 10 })).toBe("idle");
   } finally { rmSync(repo, { recursive: true, force: true }); rmSync(run.dir, { recursive: true, force: true }); }
 });
 
@@ -911,7 +934,7 @@ async function hostViewer(dir: string, label: string) {
   await until(() => frames.some(f => f.type === FrameType.snapshot));
   return { socket, frames, delivered: () => frames.filter(f => f.type === FrameType.delivered).map(f => JSON.parse(f.data.toString())) };
 }
-test.skipIf(!canBindSocket)("a 1.2 host does not mark pacer's delivered input as client input; a person's input does", async () => {
+test.skipIf(!canBindSocket)("a 1.2 host marks pacer's delivered input as input but not as a person's input; a person's input marks both", async () => {
   const dir = temp(), sockets: Socket[] = [];
   try {
     const run = startRun({ dir, cwd: dir, env: process.env, session: "interactive", argv: ["/bin/sh", "-c", 'read a; echo "$a" > first; read b; echo "$b" > second; sleep 30'] });
@@ -923,11 +946,18 @@ test.skipIf(!canBindSocket)("a 1.2 host does not mark pacer's delivered input as
     pacer.socket.write(wire(FrameType.deliver, { done: true }));
     await until(() => existsSync(join(dir, "first")));
     expect(pacer.delivered()).toEqual([{ ok: true, label: "cli:pacer" }]);
-    expect(existsSync(join(dir, "session.input"))).toBe(false);
+    expect(existsSync(join(dir, "session.input"))).toBe(true);
+    expect(existsSync(join(dir, "session.human-input"))).toBe(false);
+    const delivered = readRun(dir);
+    expect(delivered.lastInputAt).toBeNumber();
+    expect(delivered.lastHumanInputAt).toBeNull();
     const human = await hostViewer(dir, "human"); sockets.push(human.socket);
     human.socket.write(wire(FrameType.input, Buffer.from("typed\r")));
     await until(() => existsSync(join(dir, "second")));
-    expect(existsSync(join(dir, "session.input"))).toBe(true);
+    expect(existsSync(join(dir, "session.human-input"))).toBe(true);
+    expect(readRun(dir).lastHumanInputAt).toBeNumber();
+    const { readRunAsync } = await import("../src/supervisor/run");
+    expect((await readRunAsync(dir)).lastHumanInputAt).toBeNumber();
   } finally { for (const s of sockets) s.destroy(); await stopRun(dir, { graceMs: 100 }); rmSync(dir, { recursive: true, force: true }); }
 }, 10000);
 test.skipIf(!canBindSocket)("a built-in terminal's host refuses deliver; a task session's host grants it", async () => {

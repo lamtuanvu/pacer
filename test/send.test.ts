@@ -232,10 +232,10 @@ async function attachViewer(path: string, hello: Record<string, unknown>) {
   await Bun.sleep(50);
   return { socket, output: () => Buffer.concat(output).toString(), write };
 }
-function fakeHub(versions?: [number, number]) {
+function fakeHub(versions?: [number, number], windowMs = 1000) {
   const input: string[] = [], path = join(mkdtempSync("/tmp/pl-"), "s.sock");
   const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), () => {}, () => {},
-    { input: b => { input.push(b.toString()); }, resize() {} }, versions ? { pacer: "0.0.0", versions } : undefined, { quietMs: 30, windowMs: 1000, timeoutMs: 200 });
+    { input: b => { input.push(b.toString()); }, resize() {} }, versions ? { pacer: "0.0.0", versions } : undefined, { quietMs: 30, windowMs, timeoutMs: 200 });
   const server = createServer(s => hub.add(s));
   return { input, path, hub, server, ready: new Promise<void>(r => server.listen(path, r)) };
 }
@@ -295,4 +295,17 @@ test("direct input refusals are distinct: pending input names the client, a 1.1 
     for (const h of [modern, old]) { h.hub.destroy(); h.server.close(); }
     await stopRun(dir, { graceMs: 500 });
   }
+}, 20000);
+
+test("an answer whose delivery window expired during a slow guard is a definite conflict: nothing was typed, the reservation rolls back", async () => {
+  const { ctx, id, dir } = await liveRun();
+  const modern = fakeHub([1, 2], 50);
+  try {
+    await modern.ready;
+    writeFileSync(join(dir, "session.sock.path"), modern.path);
+    const slow = () => { Bun.sleepSync(80); return true; };
+    expect(await sendDirectInput(ctx, readTask(ctx, id)!, "yes", slow)).toEqual({ ok: false, code: "conflict", definite: true,
+      message: "Not delivered: the delivery window expired before any input was typed. Nothing was typed; try again" });
+    expect(modern.input).toEqual([]);
+  } finally { modern.hub.destroy(); modern.server.close(); await stopRun(dir, { graceMs: 500 }); }
 }, 20000);

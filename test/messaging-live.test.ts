@@ -353,6 +353,36 @@ test("typeIntoSession on a 1.2 host submits its paste even when Enter comes afte
   expect(session.input.map(b => b.toString())).toEqual([`${PASTE_START}hi${PASTE_END}`, "\r", "held"]);
 });
 
+test("typeIntoSession on a 1.2 host: a guard slower than windowMs gets the window expired unused; the paste is dropped and nothing was typed", async () => {
+  const session = fakeSession(tmpDir(), { modern: true, timing: { quietMs: 30, windowMs: 50, timeoutMs: 200 } });
+  await session.ready;
+  const human = await viewer(session, { label: "iTerm", versions: [1, 2] });
+  const slowGuard = () => { Bun.sleepSync(80); return true; };
+  expect(await typeIntoSession(session.sock, "hi", deps, slowGuard)).toEqual({ kind: "pending", reason: "the delivery window expired before any input was typed" });
+  await human.type("mine");
+  expect(session.input.map(b => b.toString())).toEqual(["mine"]);
+  expect(session.hub.active).toBe("cli:iTerm");
+});
+
+test("a live delivery whose window expired unused during a slow guard leaves the messages pending and retries them", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir, { modern: true, timing: { quietMs: 30, windowMs: 50, timeoutMs: 200 } });
+  await session.ready;
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  let reads = 0;
+  // The second read is typeIntoSession's guard, run after the grant.
+  const slow = { ...deps, readState: () => { if (++reads === 2) Bun.sleepSync(80); return state(); } };
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), slow);
+  expect(session.input).toHaveLength(0);
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
+  expect(readTask(ctx, id)!.liveTurn).toBeUndefined();
+  expect(readTask(ctx, id)!.liveError?.message).toBe("Not delivered: the delivery window expired before any input was typed");
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(Buffer.concat(session.input).toString()).toContain("hi");
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  expect(readTask(ctx, id)!.liveTurn?.id).toBe(`${id}#live.1`);
+});
+
 test("a live delivery that fails after input was attempted is not re-queued or retyped and records the error", async () => {
   const { ctx, id, dir, run } = setup();
   const session = fakeSession(dir, { modern: true, timing: { quietMs: 30, windowMs: 1000, timeoutMs: 200, maxWindowMs: 60 } });

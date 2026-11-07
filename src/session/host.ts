@@ -104,7 +104,10 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
     },{
       release:label=>{if(launch.takeover)writeReport(dir,"done",`Handed back by ${label}`,"user");},
       input:(bytes,delivery)=>{
-        if(bytes.length&&!delivery)try{writeFileSync(join(dir,"session.input"),"",{mode:0o600});}catch{/* optional input marker */}
+        if(bytes.length)try{
+          writeFileSync(join(dir,"session.input"),"",{mode:0o600});
+          if(!delivery)writeFileSync(join(dir,"session.human-input"),"",{mode:0o600});
+        }catch{/* optional input markers */}
         proc.terminal?.write(bytes);
         try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
       },

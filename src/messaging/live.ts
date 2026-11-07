@@ -153,11 +153,12 @@ export class SessionInputError extends Error {
 /**
  * "typed": the paste and Enter reached the PTY. Nothing was typed otherwise: "busy" when the guard failed (the run or
  * question changed); "refused" when another viewer holds control of a 1.1 host; "pending" when a 1.2 host did not grant
- * a delivery window, with its reason naming the cause and the client (ADR 0023).
+ * a delivery window, or its window expired before any input arrived, with its reason naming the cause (ADR 0023).
  */
 export type TypeResult = { kind: "typed" } | { kind: "busy" } | { kind: "refused"; controller: string | null } | { kind: "pending"; reason: string };
 
-interface Reply { type: number; body: { controller?: string | null; you?: boolean; reason?: string; versions?: unknown; ok?: boolean } }
+interface Reply { type: number; body: { controller?: string | null; you?: boolean; reason?: string; versions?: unknown; ok?: boolean; cause?: string } }
+const EXPIRED_UNUSED = "expired-unused";
 
 /**
  * Connect as viewer `pacer`, paste the body and submit it while `stillIdle` holds. A host that negotiated session protocol
@@ -210,11 +211,13 @@ export async function typeIntoSession(path: string, body: string, deps: LiveDeps
     if (ended) return { kind: "pending", reason: ended.body.reason ?? "the delivery window ended" };
     await type();
     await send(wire(FrameType.deliver, { done: true }));
-    // The host applies frames in order: its delivered reply means the input reached the PTY.
+    // The host applies frames in order: its delivered reply means the input reached the PTY. A window that expired
+    // before any of our input arrived makes the host drop all of it, so nothing was typed.
     for (;;) {
       const done = await next();
       if (done.type !== FrameType.delivered) continue;
       if (done.body.ok) return { kind: "typed" };
+      if (done.body.cause === EXPIRED_UNUSED) return { kind: "pending", reason: done.body.reason ?? "the delivery window expired" };
       throw Error(`the delivery window ended before the input was submitted: ${done.body.reason}`);
     }
   };

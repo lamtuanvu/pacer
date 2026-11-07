@@ -11,11 +11,15 @@ export const DELIVERY_TIMING={quietMs:1500,windowMs:2000,timeoutMs:10000,maxWind
 export type DeliveryTiming=typeof DELIVERY_TIMING;
 type DeliveryFailure={ok:false;cause:string;reason:string;from?:string};
 const CANCELLED:DeliveryFailure={ok:false,cause:'cancelled',reason:'the delivery was cancelled'};
+/** The window ended before its requester typed anything; its later input is dropped, so the requester knows nothing was typed. */
+const EXPIRED_UNUSED:DeliveryFailure={ok:false,cause:'expired-unused',reason:'the delivery window expired before any input was typed'};
 interface Viewer {
  socket:Socket; joined:boolean; blocked:boolean; pending:Buffer[]; bytes:number; resync:boolean; label:string;
  snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void; negotiate?:boolean;
  /** Negotiated protocol minor, 1 without a hello range. */
  minor:number; readOnly:boolean; took:boolean; size?:{cols:number;rows:number};
+ /** Its window expired unused: its input is dropped until it sends a new deliver request or a cancel. */
+ expiredUnused?:boolean;
 }
 /** Bounded output queues. Snapshot state is shared, and streamed in small writes. */
 export interface ControlHandlers { release?:(label:string)=>void;
@@ -182,6 +186,7 @@ export class ViewerHub {
   }else if(f.type===FrameType.deliver){if(v.minor>=2)this.deliverFrame(v,JSON.parse(f.data.toString()));}
   else if(v.readOnly||(v.minor<2&&!v.took))return;
   else if(f.type===FrameType.input){
+   if(v.expiredUnused)return;
    const bytes=stripQueryReplies(f.data,Date.now()<this.cursorReportUntil);
    if(!bytes.length)return;
    // The requester's own paste and Enter do not delay the next delivery.
@@ -218,6 +223,7 @@ export class ViewerHub {
   if(v.readOnly){this.send(v,wire(FrameType.delivered,{ok:false,cause:'read-only',reason:'read-only viewers cannot deliver input'}));return;}
   if(this.refuseDeliver){this.send(v,wire(FrameType.delivered,{ok:false,cause:'refused',reason:'this terminal does not accept automated input'}));return;}
   const queued=this.requests.findIndex(r=>r.viewer===v),owns=this.window?.viewer===v;
+  if(body.done!==true||body.cancel===true)v.expiredUnused=false;
   if(body.done===true||body.cancel===true){
    if(owns)this.finish(body.done===true?{ok:true}:CANCELLED);
    else if(queued>=0){this.requests.splice(queued,1);this.send(v,wire(FrameType.delivered,CANCELLED));this.pump();}
@@ -250,7 +256,9 @@ export class ViewerHub {
  private grant(r:{viewer:Viewer}){
   const expire=(ms:number)=>{
    const timer=setTimeout(()=>this.enqueue(()=>{
-    if(this.window&&(this.window.timer===timer||this.window.cap===timer))this.finish({ok:false,cause:'expired',reason:'the delivery window expired'});
+    const w=this.window;if(!w)return;
+    if(w.timer===timer&&!w.typing){w.viewer.expiredUnused=true;this.finish(EXPIRED_UNUSED);}
+    else if(w.cap===timer)this.finish({ok:false,cause:'expired',reason:'the delivery window expired'});
    }),ms);
    timer.unref?.();
    return timer;

@@ -221,6 +221,7 @@ test('1.2 deliver: steady input times out naming the most recent typist',async()
  await Bun.sleep(30);
  expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'input',from:'cli:human',reason:'recent input from cli:human'}]);
 });
+const EXPIRED_UNUSED={ok:false,cause:'expired-unused',reason:'the delivery window expired before any input was typed'};
 test('1.2 deliver: the window expires after windowMs and releases held input',async()=>{
  const {inputs,join}=shared(FAST),pacer=join('pacer'),human=join('human');
  pacer.emit('data',wire(FrameType.deliver,{}));
@@ -228,9 +229,46 @@ test('1.2 deliver: the window expires after windowMs and releases held input',as
  expect(inputs).toEqual([]);
  await Bun.sleep(160);
  expect(inputs).toEqual(['waiting']);
- expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'expired',reason:'the delivery window expired'}]);
+ expect(deliveredOf(pacer)).toEqual([EXPIRED_UNUSED]);
  pacer.emit('data',wire(FrameType.deliver,{done:true}));
  expect(deliveredOf(pacer)).toHaveLength(1);
+});
+test('1.2 deliver: after a window expires unused, the requester\'s late paste is dropped and never joins the held half-line',async()=>{
+ const {hub,inputs,deliveries,states,join}=shared(FAST),human=join('human'),pacer=join('pacer');
+ human.emit('data',wire(FrameType.focus,{}));
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(pacer)).toHaveLength(1);
+ human.emit('data',wire(FrameType.input,Buffer.from('half typed')));
+ await Bun.sleep(FAST.windowMs+40);
+ pacer.emit('data',wire(FrameType.input,Buffer.from('PASTE')));
+ pacer.emit('data',wire(FrameType.input,Buffer.from('\r')));
+ pacer.emit('data',wire(FrameType.deliver,{done:true}));
+ expect(inputs).toEqual(['half typed']);
+ expect(deliveries).toEqual([]);
+ expect(deliveredOf(pacer)).toEqual([EXPIRED_UNUSED]);
+ expect(deliveredOf(human)).toEqual([]);
+ expect(hub.active).toBe('cli:human');
+ expect(states.map(s=>s.active)).not.toContain('cli:pacer');
+});
+test('1.2 deliver: input dropped after an unused expiry flows again after a cancel or a new deliver',async()=>{
+ const {inputs,deliveries,join}=shared(FAST),pacer=join('pacer');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ await Bun.sleep(FAST.windowMs+40);
+ pacer.emit('data',wire(FrameType.input,Buffer.from('late')));
+ pacer.emit('data',wire(FrameType.deliver,{cancel:true}));
+ pacer.emit('data',wire(FrameType.input,Buffer.from('after cancel')));
+ expect(inputs).toEqual(['after cancel']);
+ const fresh=shared(FAST),again=fresh.join('pacer');
+ again.emit('data',wire(FrameType.deliver,{}));
+ await Bun.sleep(FAST.windowMs+40);
+ again.emit('data',wire(FrameType.input,Buffer.from('late')));
+ again.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(again)).toHaveLength(2);
+ again.emit('data',wire(FrameType.input,Buffer.from('paste\r')));again.emit('data',wire(FrameType.deliver,{done:true}));
+ expect(fresh.inputs).toEqual(['paste\r']);
+ expect(fresh.deliveries).toEqual(['paste\r']);
+ expect(deliveredOf(again)).toEqual([EXPIRED_UNUSED,{ok:true,label:'cli:pacer'}]);
+ expect(deliveries).toEqual([]);
 });
 test('1.2 deliver: cancel ends the window, flushes held input and reports it',()=>{
  const {inputs,join}=shared(FAST),pacer=join('pacer'),human=join('human');

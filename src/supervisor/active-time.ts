@@ -6,15 +6,17 @@ import type { RunState } from "./run";
 export const RECENT_INPUT_S = 120;
 
 /**
- * Someone is driving the interactive terminal. A 1.2 session has no controller: a client typed within RECENT_INPUT_S,
- * so a pane left open without typing does not count. A 1.1 session (or one without session.version) keeps the controller lease.
+ * Someone is driving the interactive terminal. A 1.2 session has no controller: a person typed within RECENT_INPUT_S,
+ * so a pane left open without typing, or pacer's own delivered input, does not count. A 1.1 session (or one without
+ * session.version) keeps the controller lease.
  */
 export function humanDriving(state: RunState, now: number): boolean {
   if (!state.interactive) return false;
-  if ((state.sessionMinor ?? 1) >= 2) return !!state.lastInputAt && now - state.lastInputAt * 1000 < RECENT_INPUT_S * 1000;
+  if ((state.sessionMinor ?? 1) >= 2) return !!state.lastHumanInputAt && now - state.lastHumanInputAt * 1000 < RECENT_INPUT_S * 1000;
   return !!state.controller;
 }
 
+/** Any input after a needs-input or turn-ended report, pacer's delivered answer included, ends that wait. */
 export function inputWaitStartedAt(state: RunState, now: number): number | null {
   if (!state.interactive) return null;
   if ((state.report?.status === "needs-input" || state.report?.status === "turn-ended") &&
