@@ -103,7 +103,7 @@ export function renderProtocolDoc(major: 2 | 3 = 3): string {
     "",
     "Each session accepts 16 viewers. A 17th receives exit with a clear refusal. Each viewer has a 1 MiB output queue; overflow drops pending output and sends resync then a fresh snapshot. Phase 2 is read-only: take/release receive a refusal and input/size do not affect the PTY. Server shutdown closes WebSocket viewers without stopping the host.",
     "",
-    "Task events include session `{host: \"builtin\" | \"orca\" | \"none\", live, controller, viewers}`; session changes are throttled to once per second. terminalPresent remains for one minor release and equals session.host === orca && session.live. terminal.open accepts a preset or argv template containing {cmd}; templates never run through a shell.",
+    "Task events include session `{host: \"builtin\" | \"orca\" | \"none\", live, controller, active, viewers}`; `active` names the client that last typed or focused the terminal, and `controller` is deprecated and always null on session protocol 1.2 hosts. Session changes are throttled to once per second. terminalPresent remains for one minor release and equals session.host === orca && session.live. terminal.open accepts a preset or argv template containing {cmd}; templates never run through a shell.",
     "",
     "## JSON-RPC methods",
     "",

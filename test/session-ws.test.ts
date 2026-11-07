@@ -194,6 +194,24 @@ test('offline upgrade handles checkpoint-only, rotated-log-only, dead host and a
  expect((await localReplay(f)).response?.status).toBe(409);
 });
 
+test('live bridge forwards focus to the session socket and closes on a deliver frame without forwarding it',()=>{
+ for(const deliver of [JSON.stringify({type:'deliver',text:'answer'}),wire(FrameType.deliver,{text:'answer'})]){
+  const writes:Buffer[]=[];let destroyed=false;const closes:unknown[][]=[];
+  const socket={writableLength:0,write:(b:Buffer)=>{writes.push(b);return true;},destroy:()=>{destroyed=true;}};
+  const ws={data:{socket,decoder:new WireDecoder()},close:(...args:unknown[])=>closes.push(args)} as any;
+  sessionWebSocket.message!(ws,JSON.stringify({type:'focus'}));
+  expect(writes.map(b=>new WireDecoder().push(b)[0].type)).toEqual([FrameType.focus]);
+  sessionWebSocket.message!(ws,typeof deliver==='string'?deliver:Buffer.from(deliver));
+  expect(writes).toHaveLength(1);expect(closes).toEqual([[1002,'Invalid session frame']]);expect(destroyed).toBe(true);
+ }
+});
+test('offline replay ignores focus and stays read-only',async()=>{
+ const f=await recordedFixture();
+ const {messages}=await localReplay(f,'',[JSON.stringify({type:'focus'})]);
+ expect(messages.filter(m=>m.type==='control')).toEqual([]);
+ expect(messages.map(m=>m.type)).toEqual(['snapshot','output','exit']);
+});
+
 test('ended remote session replays from its local recording mirror',async()=>{
  const f=await recordedFixture();
  updateTask(f.ctx,f.task.id,t=>{t.run={host:'remote-box',attempt:1} as NonNullable<typeof t.run>;});

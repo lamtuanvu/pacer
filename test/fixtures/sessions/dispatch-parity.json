@@ -81,7 +81,8 @@
         {
           "replay": false,
           "control": true,
-          "force": false
+          "force": false,
+          "readOnly": false
         },
         "pacer task"
       ]
@@ -114,7 +115,8 @@
         {
           "replay": false,
           "control": true,
-          "force": false
+          "force": false,
+          "readOnly": true
         },
         "pacer task"
       ]
@@ -143,7 +145,8 @@
         {
           "replay": false,
           "control": false,
-          "force": false
+          "force": false,
+          "readOnly": true
         },
         "pacer task"
       ]
@@ -254,7 +257,8 @@
         {
           "replay": false,
           "control": true,
-          "force": true
+          "force": true,
+          "readOnly": false
         },
         "pacer task"
       ]
@@ -287,7 +291,39 @@
           "replay": true,
           "control": false,
           "force": false,
+          "readOnly": false,
           "attempt": 2
+        },
+        "pacer task"
+      ]
+    ]
+  },
+  {
+    "scenario": "attach-read-only",
+    "args": [
+      "attach",
+      "task",
+      "--read-only"
+    ],
+    "result": {
+      "code": 0,
+      "out": "",
+      "err": ""
+    },
+    "calls": [
+      [
+        "directory",
+        "task",
+        null
+      ],
+      [
+        "attach",
+        "fixture-run",
+        {
+          "replay": false,
+          "control": false,
+          "force": false,
+          "readOnly": true
         },
         "pacer task"
       ]

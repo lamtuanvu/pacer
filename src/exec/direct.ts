@@ -11,6 +11,7 @@ import { resolveAttachments } from "../attachments/claims";
 import { attachmentDirectory } from "../attachments/store";
 import { executorExclusion } from "../executors/availability";
 import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
+import { humanDriving } from "../supervisor/active-time";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, renameSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -126,8 +127,9 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle" | "asked"> => {
     const now = Date.now() / 1000;
     discoverSession(ctx, task, run);
-    if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !(s.interactive && s.controller))) resumedAt = now;
-    controlled = !!(s.interactive && s.controller);
+    const driving = humanDriving(s, now * 1000);
+    if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !driving)) resumedAt = now;
+    controlled = driving;
     let changed = false;
     if (!run.host && now - gitAt >= 30) {
       gitAt = now;

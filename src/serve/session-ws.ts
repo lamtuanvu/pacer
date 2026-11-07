@@ -27,6 +27,8 @@ export function viewerMessageFrames(message:string|Buffer,from?:number):Buffer[]
   // Each binary WebSocket message must contain complete wire frames.
   if(frames.reduce((n,f)=>n+5+f.data.length,0)!==message.length)throw Error('incomplete session frame');
  }
+ // Only pacer's own delivery path may type through deliver (API-5, SEC-5); browser clients never can.
+ if(frames.some(f=>f.type===FrameType.deliver))throw Error('deliver is not accepted from WebSocket clients');
  return frames.map(f=>f.type===FrameType.hello
   ?wire(f.type,{...JSON.parse(f.data.toString()),client:'app',...(from===undefined?{}:{from})})
   :wire(f.type,f.data));

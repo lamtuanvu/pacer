@@ -5,8 +5,8 @@ import { z } from "zod";
 import { compareVersions, currentVersion, isVersion } from "../update/version";
 import type { ProcessIdentity } from "../update/desktop/process-identity";
 
-/** The hello frame itself keeps v: 1 for older hosts. */
-export const SESSION_PROTOCOL: readonly [number, number] = [1, 1];
+/** The hello frame itself keeps v: 1 for older hosts. 1.2 has no controller (ADR 0023). */
+export const SESSION_PROTOCOL: readonly [number, number] = [1, 2];
 export const SESSION_SUPPORT_MINORS = 3;
 export const SESSION_VERSION_FILE = "session.version";
 

@@ -86,3 +86,12 @@ test("automatic shell titles name the login executable and preserve the requeste
   expect(launched!.env.SHELL).toBe(launched!.argv[0]);
   expect(launched!.cwd).toBe(realpathSync(ctx.home));
 });
+
+test("shell and action terminals launch as built-in terminals, whose host refuses pacer's deliveries", async () => {
+  const ctx = fakeCtx({ env: { ...process.env, SHELL: "/bin/sh" } });
+  const launched: import("../src/supervisor/run").RunSpec[] = [];
+  const start = (spec: import("../src/supervisor/run").RunSpec) => { launched.push(spec); return { pid: 99999999 }; };
+  await workspace.createTerminal(ctx, { requestId: "deliver-shell", kind: "shell", cwd: ctx.home }, { start });
+  await workspace.createTerminal(ctx, { requestId: "deliver-action", kind: "action", title: "Act", argv: ["true"] }, { start });
+  expect(launched.map(spec => [spec.session, spec.terminal])).toEqual([["interactive", true], ["interactive", true]]);
+});

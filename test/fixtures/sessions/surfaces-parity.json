@@ -7,7 +7,7 @@
       "result": {
         "code": 2,
         "out": "",
-        "err": "usage: pacer attach <task> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"
+        "err": "usage: pacer attach <task> [--read-only] [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"
       }
     },
     {
@@ -19,7 +19,7 @@
       "result": {
         "code": 2,
         "out": "",
-        "err": "usage: pacer attach <task> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"
+        "err": "usage: pacer attach <task> [--read-only] [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"
       }
     },
     {
@@ -31,7 +31,7 @@
       "result": {
         "code": 2,
         "out": "",
-        "err": "usage: pacer attach <task> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"
+        "err": "usage: pacer attach <task> [--read-only] [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"
       }
     },
     {

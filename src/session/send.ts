@@ -10,6 +10,7 @@ import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 
 const unknown = (id: string) => new CoreError("unknown_task", `unknown task ${id}`);
+const clean = (label: string) => label.replace(/[\x00-\x1f\x7f]/g, "");
 
 /**
  * How recently someone else must have sent for `pacer send` to refuse without `--force`. pacer has
@@ -103,8 +104,11 @@ export async function sendDirectInput(ctx: Ctx, task: TaskRecord, text: string, 
   };
   try {
     const result = await typeIntoSession(sessionSocket(dir), text, {}, ready);
-    return result === "typed" ? {ok: true as const}
-      : {ok: false as const, code: "conflict" as const, definite: true, message: "Terminal is controlled by another viewer or the run changed"};
+    if (result.kind === "typed") return {ok: true as const};
+    const message = result.kind === "refused" ? `The terminal is controlled from ${clean(result.controller ?? "another viewer")}; nothing was typed`
+      : result.kind === "pending" ? `Not delivered: ${clean(result.reason)}. Nothing was typed; try again`
+      : "The task's run or question changed before delivery; nothing was typed";
+    return {ok: false as const, code: "conflict" as const, definite: true, message};
   } catch (error) {
     return {ok: false as const, code: "unavailable" as const, definite: error instanceof SessionInputError && !error.inputAttempted, message: `Interactive input failed: ${String(error)}`};
   }

@@ -78,3 +78,19 @@ fn javascript_numeric_and_utf16_boundaries_match_ts() {
         );
     }
 }
+#[test]
+fn terminal_query_reply_stripping_matches_ts() {
+    let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let rows = golden()["queries"].as_array().unwrap().clone();
+    assert!(!rows.is_empty());
+    for row in rows {
+        let text = row["hex"].as_str().unwrap();
+        let bytes: Vec<u8> = (0..text.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+            .collect();
+        let kept =
+            pacer_sessions::control::strip_query_replies(&bytes, row["cursor"].as_bool().unwrap());
+        assert_eq!(hex(&kept), row["kept"].as_str().unwrap(), "{row}");
+    }
+}

@@ -16582,6 +16582,7 @@
         "task.diff",
         "task.dismiss",
         "task.get",
+        "task.hand_back",
         "task.list",
         "task.log",
         "task.prune",
@@ -23218,6 +23219,23 @@
           "additionalProperties": false
         }
       },
+      "task.hand_back": {
+        "description": "End a takeover session and hand the task back for verification.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
       "task.list": {
         "description": "Recent tasks, newest first, always returned as a cursor page.",
         "params": {
@@ -26558,6 +26576,7 @@
     "desktop.update.cancel",
     "desktop.update.configure",
     "task.takeover",
+    "task.hand_back",
     "service.install",
     "onboarding.skip",
     "onboarding.try",
