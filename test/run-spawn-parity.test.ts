@@ -49,6 +49,16 @@ const GOLDENS = [
     taskId: "t-20261106-000000-efgh",
     admissionLease: "lease-2",
   },
+  {
+    // Rust's self_command_matches_typescript_script_detection pins the same embedded case.
+    execPath: "/bin/pacer-core",
+    argv1: "/$bunfs/root/tasks/supervision-worker.js",
+    home: "/home/user",
+    pacerHome: "/home/user/.pacer",
+    baseEnv: {},
+    taskId: "t-20261106-000000-ijkl",
+    admissionLease: "lease-3",
+  },
 ] as const;
 
 test("run spawn plan goldens stay aligned with Rust run_spawn", () => {
@@ -67,6 +77,7 @@ test("run spawn plan goldens stay aligned with Rust run_spawn", () => {
   for (const row of GOLDENS) {
     const plan = buildRunSpawnPlan(row);
     expect(plan.argv[0]).toBe(row.execPath);
+    if (row.argv1.startsWith("/$bunfs/")) expect(plan.argv).toEqual([row.execPath, "_run", row.taskId]);
     expect(plan.argv).toContain("_run");
     expect(plan.env.PACER_ADMISSION_TASK).toBe(row.taskId);
     expect(plan.log_path).toBe(join(row.pacerHome, "logs", "runner.log"));
