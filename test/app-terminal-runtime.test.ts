@@ -47,3 +47,21 @@ test('runtime lifecycle remains readable rather than minified',async()=>{const s
 
 test('alternating single-signal attempt changes never swallow the next reset',()=>{const f=fixture(),r=f.get();r.update({attempt:1,attemptStartedAt:10});r.attach({reset:()=>{},write:()=>{}});for(const identity of [{attempt:2},{attemptStartedAt:20},{attempt:3},{attemptStartedAt:30}]){f.sockets.at(-1)!.frame(snapshot);r.update(identity);expect(r.bufferBytes).toBe(0);}expect(f.sockets).toHaveLength(5);f.registry.dispose();});
 test('watching view hidden beyond the idle timeout returns on the original socket',()=>{const f=fixture(),runtime=f.get(),renderer={reset:()=>{},write:()=>{}};const detach=runtime.attach(renderer);f.sockets[0]!.frame(snapshot);runtime.setVisible(renderer,false);for(const timer of [...f.timers])if(!timer.cancelled&&timer.ms<=61000)timer.fn();runtime.setVisible(renderer,true);expect(f.sockets).toHaveLength(1);expect(f.sockets[0]!.readyState).toBe(1);expect(runtime.disposed).toBe(false);detach();f.registry.dispose();});
+test('a 1.2 pane types without driving, idles like a watcher and never releases', () => {
+ const f=fixture(),r=f.get();const detach=r.attach({reset:()=>{},write:()=>{}},{control:true,autoControl:true});
+ f.sockets[0]!.frame(snapshot);f.sockets[0]!.frame({type:'control',controller:null,you:true,versions:[1,2],pacer:'0.14.0'});
+ expect(r.state.shared).toBe(true);expect(r.intent).toBe('watching');expect(r.input('x')).toBe(true);
+ expect(r.focus()).toBe(true);expect(r.release()).toBe(false);expect(r.intent).toBe('watching');
+ detach();expect(f.registry.hiddenDriving()).toEqual([]);
+ expect(f.timers.filter(t=>!t.cancelled&&t.ms===60000)).toHaveLength(1);
+ expect(f.sockets[0]!.sent.map(s=>JSON.parse(s).type)).toEqual(['focus']);
+ f.registry.dispose();
+});
+test('a pane released on 1.1 types again when its next attempt runs on a 1.2 host', () => {
+ const f=fixture(),r=f.get();r.update({attempt:1});r.attach({reset:()=>{},write:()=>{}});
+ f.sockets[0]!.frame(snapshot);r.release();r.update({attempt:2});expect(f.sockets).toHaveLength(2);
+ f.sockets.at(-1)!.frame(snapshot);f.sockets.at(-1)!.frame({type:'control',controller:null,you:true,versions:[1,2],pacer:'0.14.0'});
+ expect(r.state.you).toBe(true);expect(r.input('x')).toBe(true);
+ expect(f.sockets.at(-1)!.sent.some(s=>['take','release'].includes(JSON.parse(s).type))).toBe(false);
+ f.registry.dispose();
+});

@@ -30,7 +30,8 @@ import type { TerminalActions } from '../../term/term';
 import { ErrorMessage, useAction, useQuery, useTaskContext } from '../task-shared';
 import { FileViewer } from '../session/FileViewer';
 import { PlainLog } from '../session/PlainLog';
-import { takeoverSession } from '../session/takeover';
+import { HAND_BACK_CONFIRM, handBackSession, takeoverSession } from '../session/takeover';
+import { interactiveHost, lastInputWords, sessionActive } from '../../term/activity';
 import { Diff } from '../review/Diff';
 import { NowCard, CostTiles, Acceptance } from '../trace/Overview';
 import { hasTaskExecution, traceSteps, tokenValue, type TraceTree } from '../trace/model';
@@ -280,7 +281,10 @@ function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query,
  const [,runtimeChanged]=useState(0);
  useEffect(()=>sessionRuntimes.subscribe(()=>runtimeChanged(n=>n+1)),[runtime]);
  useEffect(()=>{runtime?.update({attempt:session.data?.attempt});},[runtime,session.data?.attempt]);
- const driving=runtime?.state.you??false,takeRequested=runtime?.takeRequested??false;
+ // On a 1.2 host every pane can type; only a takeover session is driven, and it hands back through task.hand_back.
+ // The service's negotiated session minor decides before the pane connects; a cached runtime only covers older cores.
+ const shared=interactiveHost(session.data,runtime?.state.shared);
+ const driving=shared?!!session.data?.driving:runtime?.state.you??false,takeRequested=runtime?.takeRequested??false;
  const [pendingTake,setPendingTake]=useState(false);
  useEffect(()=>{if(pendingTake&&runtime){runtime.requestTake();setPendingTake(false);}},[pendingTake,runtime]);
  const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>();
@@ -297,11 +301,25 @@ function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query,
   }catch(e){if(version===takeVersion.current)setError(e);}
   finally{if(version===takeVersion.current)setBusy(false);}
  };
- const handBack=()=>{
+ const stopTaking=()=>{
   // A pending startup poll must not reclaim input after an explicit handback.
   takeVersion.current++;setBusy(false);setPendingTake(false);
   runtime?.release();
  };
+ const [handingBack,setHandingBack]=useState(false),handBackPending=useRef(false);
+ // 1.1 hands back by releasing control. On 1.2 task.hand_back ends the session, so it confirms first and sends once.
+ const handBack=async()=>{
+  if(!shared){stopTaking();return;}
+  if(handBackPending.current)return;handBackPending.current=true;
+  try{
+   if(!await dialogs.confirm(HAND_BACK_CONFIRM,'Hand back','Hand back'))return;
+   setHandingBack(true);setError(undefined);stopTaking();
+   try{await handBackSession({id,call:api.call.bind(api)});session.reload();requestAnimationFrame(()=>stopButton.current?.focus());}
+   catch(e){setError(e);}finally{setHandingBack(false);}
+  }finally{handBackPending.current=false;}
+ };
+ // The Hand back button unmounts on success; focus lands on the neighbouring Stop task control.
+ const stopButton=useRef<HTMLButtonElement>(null);
  useEffect(()=>()=>{takeVersion.current++;},[id]);
  useEffect(()=>{if(!active)return;const params=new URLSearchParams(location.hash.split('?')[1]);const pending=params.get('takeover');if(pending==='1'&&!session.data)return;if(pending){params.delete('takeover');history.replaceState(null,'',`${location.hash.split('?')[0]}?${params}`);void take(pending==='starting'||pending==='driving'?pending:undefined);}},[id,active,session.data?.host,session.data?.live]);
  // Opening a workspace is read-only, even when another viewer controls the session.
@@ -309,13 +327,14 @@ function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query,
  const taskRevision=JSON.stringify([task?.rev,task?.state]);
  const stopped=stoppedAt===taskRevision;
  const t=stopped&&task?{...task,state:'stopped' as const}:task,s=session.data,live=!!s?.live&&!!t&&['running','queued','needs_input'].includes(t.state);
- const mode=t?.state==='queued'?'Waiting to start':t&&!['running','needs_input'].includes(t.state)?'Ended · read-only':!s?session.error?'Session unavailable':undefined:s.host==='none'?'Output · read-only':driving?'You control this session':'Watching · read-only';
+ const mode=t?.state==='queued'?'Waiting to start':t&&!['running','needs_input'].includes(t.state)?'Ended · read-only':!s?session.error?'Session unavailable':undefined:s.host==='none'?'Output · read-only':shared?lastInputWords(sessionActive(s),runtime?.state.delivered):driving?'You control this session':'Watching · read-only';
  // The header is the session's name. Repo and branch live in the side panel; only a mode that changes what you can do is spelled out.
+ // A 1.2 session's mode ("Interactive · …") is the terminal's polite status; the header does not repeat it.
  const metadata=mode==='You control this session'||mode==='Session unavailable'?mode:'';
  // Stalled conversations and a live delivery waiting on this viewer's control are named beside the session.
  const notice=t&&['running','needs_input'].includes(t.state)?livenessNotice({...detail,...t} as LivenessInput):null;
- const end=async()=>{if(!await dialogs.confirm('Stop this task? The output and changes are kept.','Stop task','Stop task'))return;try{if(t?.interactionMode==='conversation')await changeConversation(api,id,'end');else await api.call(work||detail?.work?'dispatch.stop':'task.stop',{id,expect_rev:t?.rev});setStoppedAt(taskRevision);handBack();session.reload();}catch(e){setError(e);}};
- return <>{dialogs.dialog}<FrameSlot name="title"><div className="pc-workspace-panel-details">{t?.executor&&<AgentMark agent={markAgent(t.executor)} size={18}/>}<div><b title={t?.title??t?.goal}>{t?.title??t?.goal}</b>{metadata&&<span title={metadata}>{metadata}</span>}</div>{t&&<Pill tone={taskStatus(t).tone}>{taskStatus(t).label}</Pill>}</div></FrameSlot><FrameSlot name="actions">{!state.connected&&<span id={reasonId} className="muted">Reconnecting… Session controls are paused.</span>}{t&&['running','queued','needs_input'].includes(t.state)&&<>{driving?<IconButton geometry="board" variant="quiet" icon="hand-back" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} aria-label="Hand back" title="Hand back" onClick={handBack}/>:(t.state!=='queued'&&(s?.takeover.available||s?.host==='builtin'&&live))&&<Button variant="secondary" size="sm" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} title={!state.connected?"Reconnecting… Take control when pacer reconnects.":undefined} busy={busy} onClick={()=>void take()}>Take control</Button>}<IconButton geometry="board" variant="quiet" tone="bad" icon="stop-session" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} aria-label="Stop task" title="Stop task" onClick={()=>void end()}/></>}</FrameSlot><ErrorMessage error={error??ownDetail.error??session.error}/>{notice&&<div className="pc-workspace-notice"><Alert tone="warning" compact title={notice} announce={false}/></div>}{!t?<Skeleton layout="rows" label="Loading task"/>:t.state==='queued'?<WaitingTask task={t}/>:!['running','needs_input'].includes(t.state)?detail?<WorkspaceResult task={{...detail,state:t.state}} query={query} reload={reloadDetail}/>:<Skeleton layout="rows" label="Loading result"/>:!s?session.error?<Button onClick={session.reload}>Retry session</Button>:<Skeleton layout="rows" label="Loading session"/>:s.host==='builtin'?<LazyTerminal id={id} url={s.attach.ws} cols={s.cols} rows={s.rows} live={live} control={live} resize={live} attempt={s.attempt} autoControl={false} externalControls takeRequested={takeRequested}  onActions={a=>{controls.current=a;}} onOpenFile={openFile}/>:s.host==='orca'?<p>This session runs in Orca. Open workspace output from the original host.</p>:<PlainLog id={id}/>}</>;
+ const end=async()=>{if(!await dialogs.confirm('Stop this task? The output and changes are kept.','Stop task','Stop task'))return;try{if(t?.interactionMode==='conversation')await changeConversation(api,id,'end');else await api.call(work||detail?.work?'dispatch.stop':'task.stop',{id,expect_rev:t?.rev});setStoppedAt(taskRevision);stopTaking();session.reload();}catch(e){setError(e);}};
+ return <>{dialogs.dialog}<FrameSlot name="title"><div className="pc-workspace-panel-details">{t?.executor&&<AgentMark agent={markAgent(t.executor)} size={18}/>}<div><b title={t?.title??t?.goal}>{t?.title??t?.goal}</b>{metadata&&<span title={metadata}>{metadata}</span>}</div>{t&&<Pill tone={taskStatus(t).tone}>{taskStatus(t).label}</Pill>}</div></FrameSlot><FrameSlot name="actions">{!state.connected&&<span id={reasonId} className="muted">Reconnecting… Session controls are paused.</span>}{t&&['running','queued','needs_input'].includes(t.state)&&<>{driving?<IconButton geometry="board" variant="quiet" icon="hand-back" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} aria-label="Hand back" title="Hand back" busy={handingBack} onClick={()=>void handBack()}/>:(t.state!=='queued'&&(s?.takeover.available||!shared&&s?.host==='builtin'&&live))&&<Button variant="secondary" size="sm" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} title={!state.connected?"Reconnecting… Take control when pacer reconnects.":undefined} busy={busy} onClick={()=>void take()}>Take control</Button>}<IconButton ref={stopButton} geometry="board" variant="quiet" tone="bad" icon="stop-session" disabled={!state.connected} aria-describedby={!state.connected?reasonId:undefined} aria-label="Stop task" title="Stop task" onClick={()=>void end()}/></>}</FrameSlot><ErrorMessage error={error??ownDetail.error??session.error}/>{notice&&<div className="pc-workspace-notice"><Alert tone="warning" compact title={notice} announce={false}/></div>}{!t?<Skeleton layout="rows" label="Loading task"/>:t.state==='queued'?<WaitingTask task={t}/>:!['running','needs_input'].includes(t.state)?detail?<WorkspaceResult task={{...detail,state:t.state}} query={query} reload={reloadDetail}/>:<Skeleton layout="rows" label="Loading result"/>:!s?session.error?<Button onClick={session.reload}>Retry session</Button>:<Skeleton layout="rows" label="Loading session"/>:s.host==='builtin'?<LazyTerminal id={id} url={s.attach.ws} agent={t.executor?markAgent(t.executor):undefined} active={sessionActive(s)} cols={s.cols} rows={s.rows} live={live} control={live} resize={live} attempt={s.attempt} autoControl={false} externalControls takeRequested={takeRequested}  onActions={a=>{controls.current=a;}} onOpenFile={openFile}/>:s.host==='orca'?<p>This session runs in Orca. Open workspace output from the original host.</p>:<PlainLog id={id}/>}</>;
 }
 
 export function workspaceWait(task:Pick<ApiTask,'queue'>) {

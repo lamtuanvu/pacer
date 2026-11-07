@@ -1,5 +1,5 @@
 import { StringDecoder } from "node:string_decoder";
-import { attachDirectory, attachSession } from "../session/attach";
+import { attachDirectory, attachReadOnly, attachSession } from "../session/attach";
 import { pacerArgv } from "../install/self";
 import { currentVersion } from "../update/version";
 import { updateState } from "./screens/common";
@@ -81,7 +81,7 @@ export async function runDashboard(args: string[], ctx: Ctx): Promise<Result> {
   const raw = process.stdin.isRaw;
   const suspend = () => { suspended = true; clearTimeout(escapeTimer); keys.flush(); process.stdin.off("data", input); process.stdin.setRawMode(false); process.stdout.write(LEAVE_SCREEN); };
   const resume = () => { if (closed) return; process.stdin.setRawMode(true); process.stdout.write(ENTER_SCREEN); process.stdin.on("data", input); process.stdin.resume(); suspended = false; dash.draw(); };
-  dash.deps.attachHere = async id => { suspend(); try { await attachSession(attachDirectory({ ...ctx, now: Date.now() / 1000 }, id), {}, `pacer ${id}`); } finally { resume(); } };
+  dash.deps.attachHere = async id => { suspend(); try { await attachSession(attachDirectory({ ...ctx, now: Date.now() / 1000 }, id), { readOnly: attachReadOnly(ctx), handBack: () => client.call("task.hand_back", { id }).then(() => undefined) }, `pacer ${id}`); } finally { resume(); } };
   dash.deps.handoff = async argv => {
     suspend();
     try { return await Bun.spawn([...pacerArgv(ctx.env), ...argv], { env: ctx.env, stdin: "inherit", stdout: "inherit", stderr: "inherit" }).exited; }

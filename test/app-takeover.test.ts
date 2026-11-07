@@ -28,3 +28,44 @@ test('leaving during startup prevents a later take',async()=>{
  await expect(takeoverSession({id:'t1',state:'starting',signal:abort.signal,starting:()=>{},ready:()=>{takes++;},sleep:async()=>{abort.abort();},call:async<T>()=>{polls++;return fixture.session as T;}})).rejects.toThrow('cancelled');
  expect(takes).toBe(0);expect(polls).toBe(0);
 });
+test('hand back on a 1.2 host calls task.hand_back for the task',async()=>{
+ const {handBackSession}=await import('../app/src/screens/session/takeover');
+ const calls:[string,unknown][]=[];
+ await handBackSession({id:'t1',call:async<T>(op:string,params:unknown)=>{calls.push([op,params]);return {} as T;}});
+ expect(calls).toEqual([['task.hand_back',{id:'t1'}]]);
+ await expect(handBackSession({id:'t1',call:async()=>{throw new Error('not a takeover');}})).rejects.toThrow('not a takeover');
+});
+test('a takeover that becomes ready on a 1.2 host types without sending take',async()=>{
+ const sent:string[]=[];
+ const socket:SessionSocket={readyState:1,binaryType:'arraybuffer',onopen:null,onclose:null,onerror:null,onmessage:null,send:data=>{if(typeof data==='string')sent.push(JSON.parse(data).type);},close:()=>{}};
+ const client=new SessionClient({url:'ws://test',label:'app',cols:120,rows:36,control:true,autoControl:true,socket:()=>socket});
+ client.connect();socket.onopen?.();
+ socket.onmessage?.({data:JSON.stringify({type:'snapshot',outputOffset:0,cols:120,rows:36,scrollbackAnsi:'',screenAnsi:'',controller:null,viewers:1})});
+ socket.onmessage?.({data:JSON.stringify({type:'control',controller:null,you:true,versions:[1,2],pacer:'0.14.0'})});
+ await takeoverSession({id:'t1',state:'driving',call:async<T>()=>({...fixture.session,live:true,driving:true}) as T,starting:()=>{},ready:()=>{void client.take();},sleep:async()=>{}});
+ expect(sent).toEqual(['hello']);expect(client.input('x')).toBe(true);client.dispose();
+});
+test('the service-reported session minor decides whether a session is interactive, before any pane connects',async()=>{
+ const {interactiveHost}=await import('../app/src/term/activity');
+ const builtin={...fixture.session,host:'builtin' as const,live:true};
+ expect(interactiveHost({...builtin,sessionMinor:2})).toBe(true);
+ // The service's answer wins over a cached pane runtime in either direction.
+ expect(interactiveHost({...builtin,sessionMinor:2},false)).toBe(true);
+ expect(interactiveHost({...builtin,sessionMinor:1},true)).toBe(false);
+ // An older core omits the field; a connected runtime is the only evidence then.
+ expect(interactiveHost(builtin)).toBe(false);
+ expect(interactiveHost(builtin,true)).toBe(true);
+ expect(interactiveHost({...builtin,host:'orca',sessionMinor:2})).toBe(false);
+ expect(interactiveHost(null,true)).toBe(true);
+});
+test('the task page offers Take over for a headless run or a live 1.1 session, never for a live 1.2 session',async()=>{
+ const {offersTakeover}=await import('../app/src/screens/session/takeover');
+ const builtin={...fixture.session,host:'builtin' as const,live:true,takeover:{available:false,reason:'This task is already interactive or being taken over.'}};
+ expect(offersTakeover({...builtin,sessionMinor:1})).toBe(true);
+ expect(offersTakeover({...builtin,sessionMinor:2})).toBe(false);
+ // No cached runtime is needed: a cold task page reads the service's minor.
+ expect(offersTakeover({...builtin,sessionMinor:2},false)).toBe(false);
+ expect(offersTakeover({...builtin,live:false,sessionMinor:1})).toBe(false);
+ expect(offersTakeover({...builtin,host:'none',live:false,takeover:{available:true}})).toBe(true);
+ expect(offersTakeover(undefined)).toBe(false);
+});

@@ -11,7 +11,7 @@ import { CoreError } from '../core/errors';
 import { loadStrategy, strategyPath } from '../config/strategy';
 import { attachCommand, detectTerminal, hasDesktop, launchViewer, terminalRecipe, validateTaskId, type ViewerTarget } from './targets';
 import { takeoverAvailability } from './takeover';
-import { hostVersionView, readSessionVersion, type HostVersionView } from './protocol';
+import { hostVersionView, negotiate, readSessionVersion, type HostVersionView } from './protocol';
 export interface Capabilities { snapshot:boolean; control:boolean; record:boolean; resize:boolean }
 export type AttachTarget={kind:'socket';path:string}|{kind:'orca';terminal:string|null};
 export interface SessionHost extends RunIO {
@@ -69,7 +69,9 @@ export interface SessionInfo {takeover:{available:boolean;reason?:string};drivin
  /** Deprecated: always null for session protocol 1.2 hosts, which have no controller (ADR 0023). */
  controller:string|null;
  /** The client that most recently typed or focused the terminal; absent from older cores. */
- active?:string|null;viewers:number;targets:ViewerTarget[];attach:{cli:string;ws:string};hostVersion?:HostVersionView}
+ active?:string|null;viewers:number;targets:ViewerTarget[];attach:{cli:string;ws:string};hostVersion?:HostVersionView;
+ /** Session protocol 1.x minor a built-in host negotiates with this service (2 = no controller, ADR 0023); absent for other hosts and older cores. */
+ sessionMinor?:number}
 function json(path:string):any{try{return JSON.parse(readFileSync(path,'utf8'));}catch{return {};}}
 export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTargets=true):Promise<SessionInfo>{
  validateTaskId(id);const task=readTask(ctx,id);if(!task)throw new CoreError('unknown_task',`unknown task ${id}`);
@@ -86,7 +88,8 @@ export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTar
  const state=json(join(dir,'session.state')),ckpt=json(join(dir,'session.ckpt'));
  info.cols=state.cols??ckpt.cols??120;info.rows=state.rows??ckpt.rows??40;
  info.live=existsSync(sessionSocket(dir))&&!existsSync(join(dir,'exit'))&&sessionProcessAlive(dir);
- const shared=(readSessionVersion(dir)?.versions[1]??1)>=2;
+ const minor=negotiate(readSessionVersion(dir)?.versions??null);if(minor!==null)info.sessionMinor=minor;
+ const shared=(minor??1)>=2;
  info.controller=info.live&&!shared&&typeof state.controller==='string'?state.controller:null;
  info.active=info.live&&typeof state.active==='string'?state.active:null;
  info.viewers=info.live?Math.max(0,Math.min(16,Number(state.viewers)||0)):0;

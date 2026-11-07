@@ -278,3 +278,74 @@ test('session review action requires an explicit review request and preserves th
  expect(renderToString(<Session data={completed}/>)).not.toContain('>Review</a>');
  expect(renderToString(<Session data={{...completed,reviewRequest:{note:'Check cleanup',at:1}}}/>)).toContain('>Review</a>');
 });
+
+type Node={props?:{children?:unknown;onClick?:()=>void}};
+const findButton=(node:unknown,label:string):Node|undefined=>{
+ if(!node||typeof node!=='object')return undefined;
+ if(Array.isArray(node))return node.map(child=>findButton(child,label)).find(Boolean);
+ const props=(node as Node).props;
+ if(props?.children===label&&props.onClick)return node as Node;
+ return findButton(props?.children,label);
+};
+test('a 1.2 session has no control row: no take, release, read-only notice or takeover prompt', async () => {
+ const { TerminalControls }=await import('../app/src/term/term');
+ const state={status:'live' as const,you:true,controller:null,cols:120,rows:40,viewers:2,shared:true};
+ for(const html of [renderToString(<TerminalControls control live state={state} onControl={()=>{}}/>),
+  renderToString(<TerminalControls control live state={{...state,you:false}} onControl={()=>{}}/>)]){
+  for(const word of ['Take control','Release control','Watching · read-only','Take over?','Hand back','Other viewers stay read-only'])expect(html).not.toContain(word);
+ }
+ expect(renderToString(<TerminalControls control live shell state={state} onControl={()=>{}}/>)).toContain('Every open window can type into this shell.');
+});
+test('a 1.2 takeover session hands back through its own action, not by releasing control', async () => {
+ const { TerminalControls }=await import('../app/src/term/term');
+ const state={status:'live' as const,you:true,controller:null,cols:120,rows:40,viewers:1,shared:true};
+ let handedBack=0,released=0;
+ const controls=TerminalControls({control:true,live:true,driving:true,state,onControl:()=>{released++;},onHandBack:()=>{handedBack++;}});
+ const html=renderToString(controls);
+ expect(html).toContain('>Hand back<');expect(html).toContain('Ends this session and sends the task to review');expect(html).not.toContain('aria-pressed');
+ findButton(controls,'Hand back')!.props!.onClick!();
+ expect([handedBack,released]).toEqual([1,0]);
+ expect(renderToString(<TerminalControls control live driving state={state} onControl={()=>{}}/>)).not.toContain('Hand back');
+ const busy=renderToString(<TerminalControls control live driving handingBack state={state} onControl={()=>{}} onHandBack={()=>{}}/>);
+ expect(busy).toMatch(/<button[^>]*disabled[^>]*>/);
+});
+test('a 1.1 takeover still hands back by releasing control', async () => {
+ const { TerminalControls }=await import('../app/src/term/term');
+ let handedBack=0,released=0;
+ const controls=TerminalControls({control:true,live:true,driving:true,state:{status:'live',you:true,controller:'app',cols:120,rows:40,viewers:1,shared:false},onControl:()=>{released++;},onHandBack:()=>{handedBack++;}});
+ findButton(controls,'Hand back')!.props!.onClick!();
+ expect([handedBack,released]).toEqual([0,1]);
+});
+test('the 1.2 status names who typed last', async () => {
+ const { lastInputWords, sessionActive }=await import('../app/src/term/activity');
+ expect(lastInputWords(null)).toBe('Interactive');
+ expect(lastInputWords('app:pacer app')).toBe('Interactive · last input from pacer app');
+ expect(lastInputWords('cli:iTerm.app')).toBe('Interactive · last input from iTerm.app');
+ expect(sessionActive({...data.session!,active:'cli:ghostty'})).toBe('cli:ghostty');
+ expect(sessionActive(data.session)).toBeNull();
+ expect(lastInputWords('app:pacer app',{kind:'answer'})).toBe('Interactive · last input from pacer app · pacer delivered an answer');
+ expect(lastInputWords(null,{kind:'message'})).toBe('Interactive · pacer delivered a message');
+});
+test('a 1.2 interactive session renders no control row with a disabled Take over, even when a takeover node is passed', async () => {
+ const { TerminalControls }=await import('../app/src/term/term');
+ const takeover=<span className="pc-control-with-reason"><button disabled>Take over</button><span>This task is already interactive or being taken over.</span></span>;
+ const state={status:'live' as const,you:true,controller:null,cols:120,rows:40,viewers:2,shared:true};
+ const html=renderToString(<TerminalControls control live state={state} takeover={takeover} onControl={()=>{}}/>);
+ expect(html).not.toContain('Take over');expect(html).not.toContain('already interactive');
+ // A 1.1 session keeps its takeover control and reason.
+ expect(renderToString(<TerminalControls control live state={{...state,shared:false,you:false,controller:null}} takeover={takeover} onControl={()=>{}}/>)).toContain('Take over');
+});
+test('the Session screen builds no Take over for a live built-in session on a 1.2 host', async () => {
+ const { sessionTakeoverShown }=await import('../app/src/screens/session/Session');
+ const session={...data.session!,host:'builtin' as const,live:true,takeover:{available:false,reason:'This task is already interactive or being taken over.'}};
+ expect(sessionTakeoverShown({...session,sessionMinor:2})).toBe(false);
+ expect(sessionTakeoverShown({...session,sessionMinor:1})).toBe(true);
+ expect(sessionTakeoverShown({...session,host:'none'})).toBe(true);
+});
+test('the terminal pane is named after its agent and whether it types', async () => {
+ const { TerminalView }=await import('../app/src/term/term');
+ expect(renderToString(<TerminalView id="t-0415" agent="codex" control/>)).toContain('aria-label="Codex terminal, read-only"');
+ expect(renderToString(<TerminalView id="t-0415" agent="claude-code" control/>)).toContain('aria-label="Claude Code terminal, read-only"');
+ expect(renderToString(<TerminalView id="t-0415" control/>)).toContain('aria-label="Agent terminal, read-only"');
+ expect(renderToString(<TerminalView id="t-0415" preview control/>)).toContain('aria-label="Terminal output"');
+});

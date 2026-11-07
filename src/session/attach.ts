@@ -6,6 +6,7 @@ import { admitRemoteViewer } from "../remote/viewer-admission";
 import { FrameType, WireDecoder, wire } from "./framing";
 import { readRecording } from "./recording";
 import { readTask } from "../tasks/store";
+import { isExecutorSession } from "../install/role";
 import type { Ctx } from "../types";
 /** control and force apply only to 1.1 hosts. readOnly never sends input, size, focus or take. */
 export interface AttachOptions { replay?:boolean; attempt?:number; control?:boolean; force?:boolean; readOnly?:boolean;
@@ -93,6 +94,8 @@ export function renderSessionFrame(type:number,data:Buffer,stdout:NodeJS.WriteSt
     return false;
 }
 /** A local viewer. Raw mode and listeners are restored on every exit path. */
+/** Executors cannot send or answer (API-5), so every attach they open is read-only. */
+export const attachReadOnly=(ctx:Ctx)=>isExecutorSession(ctx);
 export async function attachSession(dir:string,options:AttachOptions={},label="pacer"):Promise<void> {
   const stdin=process.stdin, stdout=process.stdout, wasRaw=stdin.isRaw, wasPaused=stdin.isPaused();
   let detach!:()=>void;

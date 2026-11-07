@@ -16,6 +16,9 @@ function fixture(autoControl?:boolean){const sockets:FakeSocket[]=[], timers:(()
 test('opening an active task claims an unheld session once without taking another viewer\'s control',()=>{
  const free=fixture(),socket=free.sockets[0]!;
  socket.frame({type:'snapshot',outputOffset:0,cols:120,rows:40,scrollbackAnsi:'',screenAnsi:'',controller:null,viewers:1});
+ // A host always follows the snapshot with a control frame; it names the host's version before any take.
+ expect(socket.json().filter(frame=>frame.type==='take')).toEqual([]);
+ socket.frame({type:'control',controller:null,you:false,versions:[1,1],pacer:'0.13.0'});
  expect(socket.json().filter(frame=>frame.type==='take')).toEqual([{type:'take'}]);
  socket.frame({type:'control',controller:'app',you:true});free.client.release();
  socket.frame({type:'control',controller:null,you:false});
@@ -23,11 +26,12 @@ test('opening an active task claims an unheld session once without taking anothe
  free.client.dispose();
  const held=fixture(true),other=held.sockets[0]!;
  other.frame({type:'snapshot',outputOffset:0,cols:120,rows:40,scrollbackAnsi:'',screenAnsi:'',controller:'cli',viewers:2});
+ other.frame({type:'control',controller:'cli',you:false});
  expect(other.json().filter(frame=>frame.type==='take')).toEqual([]);
  held.client.dispose();
 });
 test('snapshot precedes output, byte offsets resume after a drop and resync replaces screen',()=>{const f=fixture(false),s=f.sockets[0]!;
- expect(s.json()[0]).toEqual({type:'hello',v:1,versions:[1,1],client:'app',label:'app',cols:120,rows:40});
+ expect(s.json()[0]).toEqual({type:'hello',v:1,versions:[1,2],client:'app',label:'app',cols:120,rows:40});
  s.frame({type:'snapshot',outputOffset:20,cols:80,rows:24,scrollbackAnsi:'old',screenAnsi:'screen',controller:null,viewers:1});s.output('é');
  expect(f.writes).toEqual(['old','screen','é']);s.onclose?.();f.timers[0]!();f.sockets[1]!.onopen?.();expect(f.sockets[1]!.json()[0].from).toBe(22);
  f.sockets[1]!.frame({type:'resync'});f.sockets[1]!.frame({type:'snapshot',outputOffset:50,cols:80,rows:24,scrollbackAnsi:'fresh',screenAnsi:'screen',controller:null,viewers:1});expect(f.resets()).toBe(2);f.client.dispose();});
@@ -64,4 +68,70 @@ test('an explicit take restores reconnect intent after a deliberately read-only 
  await f.client.take();s.frame({type:'control',controller:'app',you:true});s.onclose?.();f.timers[0]!();
  const resumed=f.sockets[1]!;resumed.onopen?.();resumed.frame({type:'control',controller:null,you:false});
  expect(resumed.json().filter(frame=>frame.type==='take')).toEqual([{type:'take'}]);f.client.dispose();
+});
+
+const shared={type:'control',controller:null,you:true,versions:[1,2],pacer:'0.14.0'};
+const live={type:'snapshot',outputOffset:0,cols:120,rows:40,scrollbackAnsi:'',screenAnsi:'',controller:null,viewers:2};
+const sentInput=(s:FakeSocket)=>s.sent.filter((frame):frame is Uint8Array=>typeof frame!=='string').map(frame=>frame[0]);
+test('a 1.2 host types without take, sends focus and size, and never sends take or release', async () => {
+ const f=fixture(),s=f.sockets[0]!;
+ s.frame(live);s.frame(shared);
+ expect(f.client.state).toMatchObject({status:'live',you:true,shared:true,controller:null});
+ expect(f.client.input('x')).toBe(true);expect(sentInput(s)).toEqual([10]);
+ expect(f.client.focus()).toBe(true);expect(s.json().at(-1)).toEqual({type:'focus'});
+ expect(f.client.resize(100,30)).toBe(true);expect(s.json().at(-1)).toEqual({type:'size',cols:100,rows:30});
+ expect(await f.client.take(async()=>true)).toBe(false);expect(f.client.release()).toBe(false);
+ expect(f.client.state.you).toBe(true);
+ expect(s.json().filter(frame=>['take','release'].includes(frame.type))).toEqual([]);
+ f.client.dispose();
+});
+test('a 1.2 reconnect keeps take off and sends focus only after the host answers', async () => {
+ const f=fixture(),s=f.sockets[0]!;
+ s.frame(live);s.frame(shared);s.onclose?.();f.timers[0]!();
+ const resumed=f.sockets[1]!;resumed.onopen?.();
+ expect(f.client.focus()).toBe(false);expect(await f.client.take()).toBe(false);
+ resumed.frame(shared);
+ expect(f.client.focus()).toBe(true);
+ expect(resumed.json().map(frame=>frame.type)).toEqual(['hello','focus']);
+ // A later control frame has no versions; the connection stays on 1.2.
+ resumed.frame({type:'control',controller:null,you:true,reason:'released'});
+ expect(f.client.state.shared).toBe(true);expect(f.client.state.message).toBeUndefined();
+ f.client.dispose();
+});
+test('a 1.1 host keeps take and release and never receives 1.2 frames', async () => {
+ const f=fixture(),s=f.sockets[0]!;
+ s.frame(live);s.frame({type:'control',controller:null,you:false,versions:[1,1],pacer:'0.13.0'});
+ expect(f.client.state.shared).toBe(false);
+ expect(s.json().filter(frame=>frame.type==='take')).toEqual([{type:'take'}]);
+ s.frame({type:'control',controller:'app',you:true});
+ expect(f.client.focus()).toBe(false);expect(f.client.input('x')).toBe(true);
+ expect(f.client.release()).toBe(true);expect(s.json().at(-1)).toEqual({type:'release'});
+ s.frame({type:'control',controller:'cli',you:false});
+ expect(await f.client.take(async message=>{expect(message).toBe('Someone is in control from cli. Take over?');return true;})).toBe(true);
+ expect(s.json().at(-1)).toEqual({type:'take',force:true});
+ expect(s.json().some(frame=>frame.type==='focus')).toBe(false);
+ f.client.dispose();
+});
+test('the hello range matches the session protocol and a host range decides the minor', async () => {
+ const {SESSION_PROTOCOL}=await import('../src/session/protocol');
+ const {SESSION_VERSIONS,negotiatedMinor}=await import('../app/src/term/client');
+ expect([...SESSION_VERSIONS]).toEqual([...SESSION_PROTOCOL]);
+ expect(negotiatedMinor(undefined)).toBe(1);expect(negotiatedMinor([1,1])).toBe(1);
+ expect(negotiatedMinor([1,2])).toBe(2);expect(negotiatedMinor([1,5])).toBe(2);expect(negotiatedMinor('bad')).toBe(1);
+});
+test('a 1.2 host names pacer deliveries until this pane types, and a 1.1 host never shows them', () => {
+ const f=fixture(),s=f.sockets[0]!;
+ s.frame(live);s.frame(shared);
+ s.frame({type:'granted'});expect(f.client.state.status).toBe('live');
+ s.frame({type:'delivered',ok:true,label:'pacer answer'});
+ expect(f.client.state.delivered).toEqual({kind:'answer',label:'pacer answer'});
+ s.frame({type:'delivered',ok:true,kind:'message',label:'pacer'});
+ expect(f.client.state.delivered).toEqual({kind:'message',label:'pacer'});
+ s.frame({type:'delivered',ok:false,label:'pacer answer'});expect(f.client.state.delivered?.kind).toBe('message');
+ f.client.input('x');expect(f.client.state.delivered).toBeUndefined();
+ f.client.dispose();
+ const old=fixture(false),o=old.sockets[0]!;
+ o.frame(live);o.frame({type:'control',controller:null,you:false,versions:[1,1]});
+ o.frame({type:'delivered',ok:true,label:'pacer answer'});expect(old.client.state.delivered).toBeUndefined();
+ old.client.dispose();
 });

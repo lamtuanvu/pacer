@@ -111,5 +111,5 @@ test("session.version is reset with a reused run directory, pruned with sessions
   pruneTaskSessions(ctx, updateTask(ctx, t.id, x => { x.state = "done"; }));
   expect(existsSync(join(dir, "session.version"))).toBe(false);
   expect(SCRIPTS.START).toContain('"$D/session.version"');
-  expect(readFileSync(join(import.meta.dir, "../app/src/term/client.ts"), "utf8")).toContain("versions:[1,1]");
+  expect(readFileSync(join(import.meta.dir, "../app/src/term/client.ts"), "utf8")).toContain("versions:[...SESSION_VERSIONS]");
 });

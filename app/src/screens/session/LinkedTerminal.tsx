@@ -48,7 +48,7 @@ export function LinkedTerminal({ attempt, readFile, workspace, agent, ...termina
   };
   return <div className={`pc-linked-terminal${viewing ? " pc-linked-terminal--viewing" : ""}`} data-linked-terminal ref={root}>
     <div className="pc-linked-terminal__layout">
-      <div className="pc-linked-terminal__term"><LazyTerminal {...terminal} onOpenFile={(path, line, column) => { void open(path, line, column); }}/></div>
+      <div className="pc-linked-terminal__term"><LazyTerminal {...terminal} agent={agent} onOpenFile={(path, line, column) => { void open(path, line, column); }}/></div>
       {viewing && <div className="pc-linked-terminal__viewer">
         {View ? <View key={viewing.reference} {...viewing} workspace={workspace} agent={agent && agent[0]!.toUpperCase() + agent.slice(1)} running={terminal.live ?? true} onClose={close} onRefresh={() => { void open(viewing.reference); }} onOpenFile={path => { void open(path); }}/>
           : loadFailed ? <div><p role="alert">Could not load the file viewer.</p><Button size="sm" onClick={load}>Try again</Button> <Button size="sm" variant="quiet" onClick={close}>Back to terminal</Button></div>
