@@ -53,7 +53,7 @@ pub fn resolve(path: &str) -> String {
     out.to_string_lossy().into_owned()
 }
 
-fn dirname(path: &str) -> String {
+pub(crate) fn dirname(path: &str) -> String {
     match path.rfind('/') {
         Some(0) | None => "/".into(),
         Some(i) => path[..i].into(),
@@ -100,7 +100,17 @@ pub fn mark_unreachable(path: &str) {
     state.cache.insert(p, probe);
 }
 
-fn absent(error: &std::io::Error) -> bool {
+/// `rememberPath`.
+pub(crate) fn remember(path: &str, real: &str) {
+    let probe = Probe {
+        exists: Some(true),
+        real: real.into(),
+        unreachable: false,
+    };
+    probes().cache.insert(resolve(path), probe);
+}
+
+pub(crate) fn absent(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
         std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory

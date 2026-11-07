@@ -1,15 +1,16 @@
-//! Native `repo.list` (`listReposWithBranches` in `src/core/repos.ts`) over the Rust
-//! repository registry. Registries the JavaScript reader treats differently stay forwarded.
+//! Native `repo.list` (`listReposWithBranches` in `src/core/repos.ts`) and `repo.add`
+//! (`addRepo`) over the Rust repository registry. Registries the JavaScript reader treats
+//! differently stay forwarded.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
-use pacer_lifecycle::repo_registry;
+use pacer_repos as repo_registry;
 use serde_json::{Map, Value, json};
 
 pub fn repo_list_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
-    op == "repo.list" && repo_registry::registry_needs_core(&ctx.pacer_home)
+    matches!(op, "repo.list" | "repo.add") && repo_registry::registry_needs_core(&ctx.pacer_home)
 }
 
 pub(crate) fn received(value: Option<&Value>) -> &'static str {
@@ -37,6 +38,28 @@ pub(crate) fn params_object(params: &Value) -> Result<Map<String, Value>, CoreEr
             ),
         )),
     }
+}
+
+/// Registers the git checkout at an absolute `path` (`string().min(1).max(4096)`).
+pub fn repo_add(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+    Box::pin(async move {
+        let map = params_object(&params)?;
+        let issue = match map.get("path") {
+            Some(Value::String(path)) => match path.encode_utf16().count() {
+                0 => Some("Too small: expected string to have >=1 characters".into()),
+                4097.. => Some("Too big: expected string to have <=4096 characters".into()),
+                _ => None,
+            },
+            other => Some(format!(
+                "Invalid input: expected string, received {}",
+                received(other)
+            )),
+        };
+        if let Some(issue) = issue {
+            return Err(CoreError::new(Code::InvalidInput, format!("path: {issue}")));
+        }
+        repo_registry::add_repo(ctx, map["path"].as_str().unwrap_or_default())
+    })
 }
 
 /// Registered repositories with their local branches, current branch first.

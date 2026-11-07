@@ -16,7 +16,7 @@ fn selected_settings_match(home: &Path, path: &Path, before: &str) -> bool {
         && fs::read_to_string(path).is_ok_and(|current| current == before)
 }
 
-pub(crate) fn ensure_migrated(home: &Path) -> Result<Option<Value>, StrategyError> {
+pub fn ensure_migrated(home: &Path) -> Result<Option<Value>, StrategyError> {
     let (path, _) = strategy_path(home)?;
     let before = fs::read_to_string(&path)?;
     let strategy = load_strategy(home)?;
@@ -42,7 +42,7 @@ pub(crate) fn ensure_migrated(home: &Path) -> Result<Option<Value>, StrategyErro
     ))
 }
 
-fn edit(
+pub fn edit(
     home: &Path,
     change: impl FnOnce(&mut StrategyDoc, &Value) -> Result<(), StrategyError>,
 ) -> Result<String, StrategyError> {
@@ -134,7 +134,7 @@ fn runner_component(text: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
-fn parse_runner_ref(reference: &str) -> Option<(&str, Option<&str>, Option<&str>)> {
+pub fn parse_runner_ref(reference: &str) -> Option<(&str, Option<&str>, Option<&str>)> {
     let (body, host) = match reference.split_once('@') {
         Some((body, host)) if runner_component(host) => (body, Some(host)),
         Some(_) => return None,
@@ -153,7 +153,7 @@ fn parse_runner_ref(reference: &str) -> Option<(&str, Option<&str>, Option<&str>
     Some((agent, account, host.filter(|name| *name != "local")))
 }
 
-fn default_account<'a>(strategy: &'a Value, agent: &str) -> Option<&'a str> {
+pub fn default_account<'a>(strategy: &'a Value, agent: &str) -> Option<&'a str> {
     let kind = match agent {
         "claude-code" => "claude",
         "codex" => "codex",
@@ -362,7 +362,7 @@ pub fn reorder_runners(home: &Path, ids: &[String]) -> Result<Value, StrategyErr
     Ok(result)
 }
 
-fn move_rank(
+pub fn move_rank(
     doc: &mut StrategyDoc,
     strategy: &Value,
     id: &str,

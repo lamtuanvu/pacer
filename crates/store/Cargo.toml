@@ -15,6 +15,7 @@ thiserror.workspace = true
 rand = "0.9"
 regex = "1"
 rustix = { version = "1", features = ["process"] }
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"

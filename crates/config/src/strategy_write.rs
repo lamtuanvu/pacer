@@ -390,3 +390,61 @@ pub fn save_strategy(
         json!({"name":name,"path":path,"summary":summary_yaml(&strategy),"active":load_strategy(home)?["name"] == name}),
     )
 }
+
+/// What `strategy.preview` learns from a draft without writing anything.
+pub enum DraftPreview {
+    /// The base strategy could not be listed, read or parsed. Only Bun reproduces those messages.
+    Unreadable,
+    /// The draft failed; `yaml` is empty when it failed before serialization.
+    Invalid { yaml: String, problems: Vec<String> },
+    Valid {
+        yaml: String,
+        strategy: Value,
+        summary: String,
+    },
+}
+
+pub fn preview_draft(home: &Path, draft: &Value) -> DraftPreview {
+    let problems = |error: StrategyError| match error {
+        StrategyError::Invalid { problems, .. } => problems,
+        other => vec![other.to_string()],
+    };
+    let source = draft["from"].as_str().unwrap_or("default");
+    let path = match path_for(home, source) {
+        Ok(path) => path,
+        Err(StrategyError::Io(_)) => return DraftPreview::Unreadable,
+        Err(error) => {
+            return DraftPreview::Invalid {
+                yaml: String::new(),
+                problems: problems(error),
+            };
+        }
+    };
+    let Some(raw) = fs::read_to_string(path)
+        .ok()
+        .and_then(|text| crate::doc::parse_yaml_value(&text).ok())
+    else {
+        return DraftPreview::Unreadable;
+    };
+    let raw = match apply_draft(raw, draft) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return DraftPreview::Invalid {
+                yaml: String::new(),
+                problems: problems(error),
+            };
+        }
+    };
+    let yaml = crate::doc::stringify_yaml_bun(&raw);
+    match crate::strategy_validation::validate_strategy(&raw, Path::new("draft"), source) {
+        Ok(strategy) => DraftPreview::Valid {
+            yaml,
+            summary: summary_yaml(&strategy),
+            strategy: strategy.to_json(),
+        },
+        Err(error) => DraftPreview::Invalid {
+            yaml,
+            problems: problems(error),
+        },
+    }
+}

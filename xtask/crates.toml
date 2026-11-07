@@ -111,11 +111,15 @@ layer = 5
 layer = 5
 [crates.pacer-read-model]
 layer = 7
+[crates.pacer-repos]
+layer = 4
 [crates.pacer-lifecycle]
 layer = 6
 [crates.pacer-config-ops]
 layer = 7
 [crates.pacer-dispatch-ops]
+layer = 7
+[crates.pacer-issues]
 layer = 7
 [crates.pacer-task-ops]
 layer = 8

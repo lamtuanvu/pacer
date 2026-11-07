@@ -1,7 +1,7 @@
 #![allow(clippy::result_large_err)]
 //! TypeScript bridge for ops that stay effectful or probe-heavy in Core.
 use pacer_foundation::api::{Code, CoreError};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 fn unavailable(message: &str) -> CoreError {
     CoreError::new(Code::Unavailable, message)
@@ -20,7 +20,6 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
 fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("/_internal/setup-check"),
-        "repo.add" => Ok("/_internal/repo-bridge"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -28,14 +27,12 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
 fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
-        "repo.add" => Ok("_internal.repo.bridge"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
 
 pub(crate) fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
-        "repo.add" => Ok(json!({"op": op, "params": params})),
         "setup.check" => Ok(params.clone()),
         _ => Err(unavailable("core bridge unavailable")),
     }

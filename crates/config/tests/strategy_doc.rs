@@ -160,3 +160,19 @@ fn plugin_installed_insert_preserves_disabled_sibling() {
     assert!(after.contains("  disabled:\n"), "{after}");
     assert!(!after.contains("\ndisabled:\n"), "{after}");
 }
+
+#[test]
+fn insert_at_keeps_multi_key_items_inside_their_sequence_entry() {
+    let mut doc = StrategyDoc::new(
+        "routing:\n  - kinds: [tests]\n    executors: [codex]\n  - default: [codex]\n",
+    );
+    doc.replace_node(
+        &[json!("routing")],
+        &json!({"kind":"insertAt","index":1,"value":{"kinds":["docs"],"executors":["cursor"]}}),
+    )
+    .unwrap();
+    assert_eq!(
+        doc.as_str(),
+        "routing:\n  - kinds: [ tests ]\n    executors: [ codex ]\n  - kinds:\n      - docs\n    executors:\n      - cursor\n  - default: [ codex ]\n"
+    );
+}

@@ -74,9 +74,11 @@ fn settings_error(error: SettingsError) -> CoreError {
 pub fn area(op: &str) -> Option<&'static str> {
     match op {
         "strategy.use" | "strategy.save" | "strategy.remove" => Some("strategy"),
-        "runner.set" | "runner.reorder" | "runner.remove" | "runner.settings.save" => {
-            Some("runners")
-        }
+        "runner.add"
+        | "runner.set"
+        | "runner.reorder"
+        | "runner.remove"
+        | "runner.settings.save" => Some("runners"),
         "host.add" | "host.set" | "host.remove" | "host.repo.map" | "host.account.add" => {
             Some("hosts")
         }
@@ -87,7 +89,7 @@ pub fn area(op: &str) -> Option<&'static str> {
         "machine.set" | "machine.rotate" => Some("machine"),
         "project.messaging.set" | "project.messaging.remove" => Some("project-messaging"),
         "project.strategy.set" | "project.strategy.remove" => Some("project-strategies"),
-        "discovery.set" | "discovery.respond" => Some("discovery"),
+        "discovery.set" | "discovery.respond" | "discovery.network.set" => Some("discovery"),
         _ => None,
     }
 }
@@ -99,6 +101,7 @@ pub fn syncs_endpoints(op: &str) -> bool {
             | "host.remove"
             | "host.repo.map"
             | "host.account.add"
+            | "runner.add"
             | "runner.set"
             | "runner.reorder"
             | "runner.remove"

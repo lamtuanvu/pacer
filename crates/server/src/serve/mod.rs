@@ -131,7 +131,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         && let Some(name) = req.uri().path().strip_prefix("/v3/ops/")
         && let Some(op) = state.registry.get(name)
     {
-        let ctx = if crate::native::msg_ops::is_msg_read_op(op.name) {
+        let ctx = if crate::native::msg_ops::is_msg_caller_op(op.name) {
             let human_session = auth == auth::AuthKind::Bearer
                 && header_value(req.headers(), "x-pacer-session").is_some_and(|session| {
                     session.len() == 64
@@ -188,12 +188,26 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::desktop_reconcile_stays_forwarded(op.name)
             || crate::native::assistant_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dependencies_waive_stays_forwarded(op.name, &params)
+            || crate::native::insights_stays_forwarded(op.name, &params)
+            || crate::native::planning_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::job_strategy_setup_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::runner_attention_stays_forwarded(&ctx, op.name, &params)
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);
             };
             return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                 .await;
+        }
+        if crate::native::msg_writes::uses_bridge(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut bridge = crate::native::msg_write_sync::HttpBridge {
+                target: state.core.target().await,
+            };
+            return match crate::native::msg_writes::call(&ctx, op.name, params, &mut bridge).await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
         }
         if op.name == "task.wait" {
             let Some(id) = params

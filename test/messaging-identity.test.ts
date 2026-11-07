@@ -47,6 +47,26 @@ test("SessionStart skips executor env writes and fails open on an unwritable fil
   } finally { io.readStdin = original; }
 });
 
+test("SessionStart hook run as the CLI entry exits with the status hook output", async () => {
+  const ctx = fakeCtx();
+  const run = async (args: string[], stdin: "ignore" | Blob) => {
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/cli.ts"), ...args], {
+      env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_API: "inprocess" },
+      stdin, stdout: "pipe", stderr: "pipe",
+    });
+    const deadline = setTimeout(() => child.kill("SIGKILL"), 15000);
+    try {
+      const out = await new Response(child.stdout).text();
+      return { code: await child.exited, out };
+    } finally { clearTimeout(deadline); }
+  };
+  const status = await run(["status", "--hook", "claude-code"], "ignore");
+  expect(status.code).toBe(0);
+  for (const stdin of ["ignore", new Blob([JSON.stringify({ session_id: "abc" })])] as const) {
+    expect(await run(["msg", "hook", "session", "--planner", "claude-code"], stdin)).toEqual(status);
+  }
+}, 40000);
+
 test("SessionStart does not export an identity for a different configured planner", async () => {
   const dir = tmpDir(), file = join(dir, "env");
   writeFileSync(file, "existing=1\n");

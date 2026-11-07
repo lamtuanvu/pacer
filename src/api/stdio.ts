@@ -198,6 +198,15 @@ export async function runStdio(
           result = await taskAutoCleanBridge(getCtx(), ids);
           break;
         }
+        case "_internal.msg.effects": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { msgEffectsBridge } = await import("./msg-bridge");
+          result = await msgEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps?.spawnRunner);
+          break;
+        }
         case "_internal.setup.check": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -206,20 +215,6 @@ export async function runStdio(
           const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
           const { setupCheckBridge } = await import("./setup-check-bridge");
           result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false);
-          break;
-        }
-        case "_internal.repo.bridge": {
-          const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
-            throw new CoreError("unknown_op", "unknown operation");
-          }
-          const op = (r.params as { op?: unknown }).op;
-          const bridgeParams = (r.params as { params?: unknown }).params;
-          if (typeof op !== "string" || op !== "repo.add" || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
-            throw new CoreError("invalid_input", "invalid repo bridge params");
-          }
-          const { repoBridge } = await import("./repo-bridge");
-          result = await repoBridge(getCtx(), op, bridgeParams as Record<string, unknown>);
           break;
         }
         case "hello": {

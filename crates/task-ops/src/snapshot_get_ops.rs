@@ -28,7 +28,10 @@ fn type_name(value: &Value) -> &'static str {
 }
 
 pub fn needs_snapshot_bridge(op: &str) -> bool {
-    matches!(op, "snapshot.get")
+    matches!(
+        op,
+        "snapshot.get" | "attention.dismiss" | "attention.snooze"
+    )
 }
 
 fn parse_params(params: &Value) -> Result<(), CoreError> {
@@ -152,12 +155,12 @@ pub fn parse_snapshot_parts(value: Value) -> Result<SnapshotBridgeParts, CoreErr
     })
 }
 
-fn model() -> &'static Mutex<ReadModel> {
+pub(crate) fn model() -> &'static Mutex<ReadModel> {
     static MODEL: OnceLock<Mutex<ReadModel>> = OnceLock::new();
     MODEL.get_or_init(|| Mutex::new(ReadModel::new()))
 }
 
-fn local_zone(ctx: &Ctx) -> chrono_tz::Tz {
+pub(crate) fn local_zone(ctx: &Ctx) -> chrono_tz::Tz {
     if let Some(name) = ctx.env.get("TZ")
         && let Ok(zone) = name.parse()
     {

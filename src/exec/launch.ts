@@ -100,7 +100,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     const models = model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", model] : [];
     const argv = cfg.via === "opencode" ? ["opencode", "--standalone", "--auto", "--prompt", prompt]
       : agent === "codex" || agent === "claude-code" ? [...launchArgvFor(cfg, repo, taskDir, trustRoot), "--", prompt]
-      : agent === "cursor" ? ["cursor-agent", "--force", "--sandbox", "disabled", "--workspace", repo, ...models, "--", prompt]
+      : agent === "cursor" ? ["cursor-agent", "--force", "--trust", "--sandbox", "disabled", "--workspace", repo, ...models, "--", prompt]
       : agent === "agy" ? ["agy", "--dangerously-skip-permissions", "--add-dir", repo, ...models, "--prompt-interactive", prompt] : null;
     if (!argv) throw new Error(`no interactive launcher for provider "${cfg.id}"`);
     return {cwd: repo, argv};
@@ -127,7 +127,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     case "cursor":
       return {
         cwd: repo,
-        argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--sandbox", "disabled", "--workspace", repo, ...(sessionId ? ["--resume", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
+        argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--trust", "--sandbox", "disabled", "--workspace", repo, ...(sessionId ? ["--resume", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
       };
     case "agy":
       return {
@@ -165,7 +165,7 @@ export function resumeLaunchFor(cfg: ProviderCfg, sessionId: string, worktree: s
   const models = cfg.model ? [agent === "codex" || agent === "opencode" ? "-m" : "--model", cfg.model] : [];
   const argv = agent === "codex" ? ["codex", "-c", codexTrust(worktree, trustRoot), "-c", "check_for_update_on_startup=false", "resume", "--no-daemon", "-C", worktree, "--dangerously-bypass-approvals-and-sandbox", "--add-dir", runDir, ...models, sessionId]
     : agent === "claude-code" ? ["claude", "--dangerously-skip-permissions", ...models, "--resume", sessionId]
-    : agent === "cursor" ? ["cursor-agent", "--force", "--sandbox", "disabled", "--workspace", worktree, ...models, "--resume", sessionId]
+    : agent === "cursor" ? ["cursor-agent", "--force", "--trust", "--sandbox", "disabled", "--workspace", worktree, ...models, "--resume", sessionId]
     : agent === "opencode" ? ["opencode", "--standalone", "--auto", "--session", sessionId] : null;
   if (!argv) throw Error(`no resume launcher for provider "${cfg.id}"`);
   return {cwd: worktree, argv};
@@ -198,7 +198,7 @@ export function resumeHeadlessFor(cfg: ProviderCfg, sessionId: string, prompt: s
     case "claude-code":
       return {cwd: workdir, argv: ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--resume", sessionId, ...(model ? ["--model", model] : []), prompt]};
     case "cursor":
-      return {cwd: workdir, argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--sandbox", "disabled", "--workspace", workdir, "--resume", sessionId, ...(model ? ["--model", model] : []), prompt]};
+      return {cwd: workdir, argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--trust", "--sandbox", "disabled", "--workspace", workdir, "--resume", sessionId, ...(model ? ["--model", model] : []), prompt]};
     default:
       throw new Error(`no headless resume for provider "${cfg.id}"`);
   }
