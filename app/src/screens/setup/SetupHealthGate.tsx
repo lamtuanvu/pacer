@@ -120,6 +120,7 @@ export function SetupHealthGate({
   const [phase, setPhase] = useState<GatePhase>("idle");
   const [report, setReport] = useState<SetupHealthReport | null>(null);
   const [repairing, setRepairing] = useState(false);
+  const [autoEnterMs, setAutoEnterMs] = useState<number>();
   const enterTimer = useRef<number>();
 
   useEffect(() => {
@@ -140,20 +141,22 @@ export function SetupHealthGate({
         return;
       }
       setReport(commit.report);
+      setAutoEnterMs(commit.autoEnterMs);
       setPhase("stage");
-      if (commit.autoEnterMs != null) {
-        enterTimer.current = window.setTimeout(() => {
-          if (!active) return;
-          setPhase("ready");
-          onReadyRef.current(summaryOf(commit.report));
-        }, commit.autoEnterMs);
-      }
     });
-    return () => {
-      active = false;
-      if (enterTimer.current) window.clearTimeout(enterTimer.current);
-    };
+    return () => { active = false; };
   }, [api, connected, enabled, phase]);
+
+  // Separate from the load effect: leaving "checking" runs that effect's cleanup.
+  useEffect(() => {
+    if (phase !== "stage" || autoEnterMs == null || !report) return;
+    const timer = window.setTimeout(() => {
+      setPhase("ready");
+      onReadyRef.current(summaryOf(report));
+    }, autoEnterMs);
+    enterTimer.current = timer;
+    return () => window.clearTimeout(timer);
+  }, [phase, autoEnterMs, report]);
 
   if (!enabled || phase === "idle" || phase === "ready") return null;
   const view = report ?? pendingSetupHealthReport("startup");
