@@ -1,5 +1,6 @@
 import { sha256 } from "../install/fsx";
 import { runDoctor } from "../install/doctor";
+import { saveDoctorReport } from "./doctor-fix";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { PLANNERS, validateStrategy } from "../config/strategy";
@@ -125,7 +126,9 @@ export async function doctor(ctx: Ctx) {
       const account = strategy.accounts[strategy.planner.account];
       repairAvailable = !!account && (account.source === "default" || !!accountFolder(ctx, account));
     } catch { /* The strategy diagnostic reports missing or invalid configuration. */ }
-    return { checkedAt: ctx.now, checks, ...(planner ? {planner, repairAvailable} : {}) };
+    const report = { checkedAt: ctx.now, checks, ...(planner ? {planner, repairAvailable} : {}) };
+    saveDoctorReport(ctx, report);
+    return report;
   }
   catch (e) { throw toCoreError(e); }
 }
@@ -164,8 +167,6 @@ export async function health(
       trigger,
       checkedAt,
       durationSeconds: (Date.now() - started) / 1000,
-      planner: reportDoctor.planner,
-      repairAvailable: reportDoctor.repairAvailable,
     });
     const version = currentVersion();
     const integrationHashes: Record<string, string> = {};

@@ -3,8 +3,8 @@ import {executorRunEvent} from "./executor-protocol";
 import {plannerPreparedResultAllowed} from "./planner-resources";
 import { scheduleDeadline } from "../deadline";
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { pluginRpcError as rpcError } from "./errors";
-import { CoreError, type CoreErrorCode } from "../core/errors";
+import { pluginReplyError, pluginRpcError as rpcError } from "./errors";
+import { CoreError } from "../core/errors";
 import { MAX_LINE_BYTES, readLines } from "./lines";
 import { CANCEL_METHOD, CAPABILITY_METHODS, RESULT_CHUNK_METHOD, RESULT_CHUNK_FEATURE, STREAM_ACK_METHOD, STREAM_INPUT_METHOD, STREAM_INPUT_ACK_METHOD, streamAckParams, streamProgressEvent, streamInputFrame, streamInputAckParams, resultChunkParams, chunkedResult } from "./protocol";
 import type { CallAuthority } from "./authority";
@@ -32,7 +32,6 @@ type StreamPending = StreamProgress & { nextSeq: number; inputSeq: number;
   outstanding?: { seq: number; done: Promise<void>; cancelDeadline: () => void };
   input?: { seq: number; resolve: () => void; reject: (error: CoreError) => void; cancelDeadline: () => void } };
 type Pending = { authority?: CallAuthority; metadata?: unknown; transferStarted?: boolean; staging?: ResultStaging; dispose: () => void; onProgress?: (event: unknown) => void; stream?: StreamPending; method: string; resolve: (v: unknown) => void; reject: (e: CoreError) => void; cancelDeadline?: () => void };
-const KNOWN: ReadonlySet<string> = new Set<CoreErrorCode>(["unknown_op", "unknown_task", "invalid_input", "unknown_executor", "conflict", "not_allowed", "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin", "not_found", "too_large"]);
 
 /** One plugin child: JSON-RPC both ways on stdio, stderr to a hook, deadlines owned here. */
 export class PluginProcess {
@@ -231,9 +230,7 @@ export class PluginProcess {
       return;
     }
     if (m.error) {
-      const err = m.error as { message?: string; data?: { code?: string; hint?: string } };
-      const code = err.data?.code && KNOWN.has(err.data.code) ? (err.data.code as CoreErrorCode) : "plugin_unavailable";
-      this.rejectPending(m.id, p, new CoreError(code, err.message ?? "plugin error", err.data?.hint));
+      this.rejectPending(m.id, p, pluginReplyError(m.error as { message?: string; data?: { code?: string; hint?: string } }));
       return;
     }
     const result = m.result;

@@ -63,7 +63,7 @@ export function createBrowserAdapter(context: BrowserContext, origin: string): S
         const name = clip(node.getAttribute("aria-label") ?? (labelled || labels || node.innerText?.trim() || node.getAttribute("title") || input.placeholder || ""));
         const bounds = node.getBoundingClientRect();
         const sensitive = input.type === "password" || input.autocomplete === "one-time-code";
-        const value = sensitive ? undefined : ("value" in input ? clip(input.value) : undefined);
+        const value = sensitive ? undefined : ("value" in input ? clip(String(input.value)) : undefined);
         const ancestors: Array<{role: string; name: string}> = [];
         for (let parent = node.parentElement; parent && ancestors.length < 50; parent = parent.parentElement) {
           const ancestorRole = parent.getAttribute("role") ?? ({ nav: "navigation", main: "main", form: "form", section: "region" }[parent.tagName.toLowerCase()] ?? "generic");

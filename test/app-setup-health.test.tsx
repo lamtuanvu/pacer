@@ -46,7 +46,7 @@ test("after-update eyebrow and hard-fail CTAs", () => {
     outcome: "hard_fail",
     attentionCount: 1,
     steps: okReport().steps.map(s => s.id === "service" ? { ...s, state: "failed", detail: "not running" } : s),
-    repairs: [{ kind: "agent.reconnect", label: "Fix integration", agent: "cursor" }],
+    repairs: [{ kind: "remedy", label: "Review and fix", check: "Install cursor", remedy: { kind: "review", label: "Review and fix", op: "agent.preview", params: { agent: "cursor" } } }],
   };
   const html = renderToString(
     <SetupHealthStage report={report} onContinue={() => {}} onOpenDiagnostics={() => {}} onRepair={() => {}} />,
@@ -54,7 +54,7 @@ test("after-update eyebrow and hard-fail CTAs", () => {
   expect(html).toContain("After update · checking setup");
   expect(html).toContain("Continue anyway");
   expect(html).toContain("Open Diagnostics");
-  expect(html).toContain("Fix integration");
+  expect(html).toContain("Review and fix");
   expect(html).toContain('role="alert"');
 });
 

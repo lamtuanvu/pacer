@@ -16,6 +16,7 @@ async function reviewExchange(
   rev: number,
   forward: boolean,
   verdict: "accept" | "reject" = "accept",
+  native = !forward,
 ) {
   const request = JSON.stringify({
     jsonrpc: "2.0",
@@ -52,7 +53,7 @@ async function reviewExchange(
     expect(code, stderr).toBe(0);
     const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
     const markers = stderr.split("\n").filter(line => /^native task\.review \d+$/.test(line));
-    expect(markers).toEqual(forward ? [] : ["native task.review 2"]);
+    expect(markers).toEqual(native ? ["native task.review 2"] : []);
     return replies[1];
   } finally {
     if (child.exitCode === null) {
@@ -67,6 +68,35 @@ test("taskReviewProbe allows native accept for a simple done task", () => {
   const task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   updateTask(ctx, task.id, t => { t.state = "done"; });
   expect(taskReviewProbe(ctx, task.id, { verdict: "accept" })).toEqual({ forward: false });
+});
+
+test("taskReviewProbe forwards accepting a diagnostics fix so TypeScript reruns its check", () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: "debug", requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = "done"; t.diagnosticCheck = "CLI codex"; });
+  expect(taskReviewProbe(ctx, task.id, { verdict: "accept" })).toEqual({ forward: true, reason: "diagnostic recheck" });
+  expect(taskReviewProbe(ctx, task.id, { verdict: "reject" })).toEqual({ forward: false });
+});
+
+test.skipIf(!front)("native task.review forwards accepting a diagnostics fix", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
+  const task = createTask(ctx, { brief: { goal: "Fix check", repo: ctx.home }, kind: "debug", requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = "done"; t.diagnosticCheck = "CLI codex"; });
+  const rev = readTask(ctx, task.id)!.rev;
+  const home = mkdtempSync(join(tmpdir(), "pacer-task-review-diagnostic-"));
+  cpSync(ctx.home, home, { recursive: true });
+  try {
+    const reply = await reviewExchange(home, task.id, rev, false, "accept", false);
+    expect(reply?.result?.task?.review?.accepted).toBe(true);
+    const stored = readTask({ ...ctx, home, pacerHome: join(home, ".pacer") }, task.id)!;
+    expect(stored.diagnosticCheck).toBe("CLI codex");
+    expect(stored.review?.accepted).toBe(true);
+    // The stdio core records the recheck before it exits.
+    expect(stored.diagnosticRecheck).toMatchObject({ passed: expect.any(Boolean) });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("taskReviewProbe forwards send_back and retry", () => {

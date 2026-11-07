@@ -28,7 +28,7 @@ export function ErrorMessage({ error }: { error: unknown }) {
   return <Alert tone="error" title="Something went wrong"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && <p>{error.hint}</p>}</Alert>;
 }
 /** Task reads follow only this task, rather than unrelated snapshot traffic. */
-const CONFIG_AREAS = ['accounts', 'config', 'delegation', 'hosts', 'machine', 'mode', 'plugins', 'project-strategies', 'routing', 'runners', 'setup', 'strategy', 'update', 'discovery', 'project-messaging'];
+const CONFIG_AREAS = ['accounts', 'config', 'delegation', 'hosts', 'machine', 'mode', 'plugins', 'project-strategies', 'routing', 'runners', 'setup', 'strategy', 'update', 'discovery', 'project-messaging', 'diagnostics'];
 export function queryRevision(state: StoreState, op: string, params: unknown): string {
   if(op.startsWith("session.agent."))return JSON.stringify([state.invalidations,state.snapshot?.machine?.agentSessionsRevision]);
   const budget = budgetResourceRevision(op, state.invalidations, state.snapshot?.accounts);
@@ -53,7 +53,7 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
     routing: ['accounts', 'runners', 'routing', 'strategy', 'hosts', 'mode', 'config', 'project-strategies'],
     dispatch: ['project-strategies', 'strategy', 'routing', 'runners', 'config'],
     session: ['accounts', 'runners', 'hosts'], plugin: ['plugins'],
-    setup: ['setup', 'accounts', 'runners'],
+    setup: ['setup', 'accounts', 'runners', 'diagnostics'],
   };
   const revisions = (areas[op.split('.')[0]!] ?? CONFIG_AREAS).map(area => [area, state.invalidations[area] ?? 0]);
   if (op === "account.list") return JSON.stringify([revisions, state.snapshot?.accounts?.map(account => [account.name, account.capturedAt, account.usedPct, account.resetsAt, account.stale, account.signedIn])]);

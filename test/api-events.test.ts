@@ -60,6 +60,17 @@ test("v2 task events include repo, kind and host without changing v1 envelopes",
  expect((await import("../src/link/store")).readOutboxSince(ctx,0)[0]?.envelope.data).not.toHaveProperty("repo");
 });
 
+test("task events keep the diagnostics link so a client upsert does not forget the fix task",async()=>{
+ const {createTask,updateTask}=await import("../src/tasks/store");
+ const {taskData}=await import("../src/link/pump");
+ const ctx=fakeCtx(),t=createTask(ctx,{brief:{repo:"/missing/repo",goal:"g"},kind:"debug",requestedExecutor:null,timeoutS:60});
+ const recheck={at:ctx.now,passed:false,level:"fail" as const,detail:"still failing"};
+ const record=updateTask(ctx,t.id,t=>{t.diagnosticCheck="CLI codex";t.diagnosticRecheck=recheck;});
+ await publish(ctx,[{type:"task",data:taskData(record)}]);
+ expect(eventsSince(ctx,0).events[0]?.data).toMatchObject({diagnosticCheck:"CLI codex",diagnosticRecheck:recheck});
+ expect((await import("../src/link/store")).readOutboxSince(ctx,0)[0]?.envelope.data).toMatchObject({diagnosticCheck:"CLI codex",diagnosticRecheck:recheck});
+});
+
 test("hello advertises additive 2.1 events for clients that skip unknown event types",async()=>{
  const {v2Hello:helloBody}=await import("../src/api/v2-compat");
  expect(helloBody()).toMatchObject({protocol:"2.8.0",events:expect.arrayContaining(["budget","task","mode","alert","config","reset","executor","account","host","repo","counts"])});

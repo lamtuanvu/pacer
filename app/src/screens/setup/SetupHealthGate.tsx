@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { remedyPlan } from "../../../../src/view-model/diagnostics";
 import type { SetupHealthRepair, SetupHealthReport } from "../../../../src/view-model/setup-health";
 import type { BrowserApi } from "../../data/api";
+import { dispatchRemedy, openRemedyUrl, recheckOnReturn, type RemedyHost } from "../../data/remedies";
+import { platform } from "../../platform";
 import { useDialogs } from "../../ds/useDialogs";
 import { pendingSetupHealthReport, SetupHealthStage } from "./SetupHealth";
 
@@ -65,41 +68,39 @@ export function commitSetupHealthLoad(
   return { action: "stage", report: result.report, autoEnterMs: result.autoEnterMs };
 }
 
-async function applyRepair(
-  api: BrowserApi,
-  repair: SetupHealthRepair,
-  confirm: (message: string, title?: string, confirmLabel?: string) => Promise<boolean>,
-): Promise<"rerun" | "navigate" | "done"> {
-  if (repair.kind === "limits.refresh") {
-    await api.call("limits.refresh", {});
-    return "rerun";
-  }
-  if (repair.kind === "agent.reconnect" && repair.agent) {
-    const preview = await api.call<{ agent: string; revision: string; files: string[]; detail?: string }>("agent.preview", { agent: repair.agent });
-    const files = preview.files?.length ? `\n\n${preview.files.join("\n")}` : "";
-    const ok = await confirm(
-      `${preview.detail ?? "Reconnect this planner integration."}${files}\n\nReview the files that will change before applying.`,
+type Confirm = (message: string, title?: string, confirmLabel?: string) => Promise<boolean>;
+const fileList = (files: string[]) => files.length ? `\n\n${files.join("\n")}` : "";
+
+/** The gate's side of the shared remedy dispatch: confirmations are dialogs, agent tasks open their task page. */
+export function gateRemedyHost(api: Pick<BrowserApi, "call">, confirm: Confirm, open: (url: string) => void = url => openRemedyUrl(url, platform)): RemedyHost {
+  return {
+    call: (op, params) => api.call(op, params),
+    confirm: request => confirm(`${request.message}${fileList(request.files)}`, request.title, request.confirmLabel),
+    review: preview => confirm(
+      `${preview.detail ?? "Reconnect this integration."}${fileList(preview.files ?? [])}\n\nReview the files that will change before applying.`,
       "Review repair",
       "Apply repair",
-    );
-    if (!ok) return "done";
-    await api.call("agent.connect", { agent: preview.agent, consent: true, preview_revision: preview.revision });
-    return "rerun";
-  }
-  if (repair.kind === "open.setup") {
-    location.hash = "#/setup";
+    ),
+    delegate: async check => {
+      if (!await confirm("Pacer has no built-in fix for this, so it starts a task with everything the check found. You review the result like any other task.", "Fix with agent", "Start fix task")) return false;
+      const result = await api.call<{ task: { task_id: string } }>("doctor.fix.delegate", { check, scope: "fix" });
+      location.hash = `#/tasks/${encodeURIComponent(result.task.task_id)}`;
+      return true;
+    },
+    open,
+  };
+}
+
+export async function applyRepair(repair: SetupHealthRepair, host: RemedyHost): Promise<"rerun" | "rerun-on-return" | "navigate" | "done"> {
+  const plan = repair.kind === "remedy" && repair.remedy ? remedyPlan(repair.remedy) : undefined;
+  if (!plan) {
+    location.hash = "#/settings/diagnostics";
     return "navigate";
   }
-  if (repair.kind === "open.accounts") {
-    location.hash = "#/settings/accounts";
-    return "navigate";
-  }
-  if (repair.kind === "open.add_executor") {
-    location.hash = "#/settings/add-executor";
-    return "navigate";
-  }
-  location.hash = "#/settings/diagnostics";
-  return "navigate";
+  const result = await dispatchRemedy(plan, host);
+  if (result === "recheck") return "rerun";
+  if (result === "await-return") return "rerun-on-return";
+  return result === "delegated" ? "navigate" : "done";
 }
 
 /** Full-window Checking setup after service connect; skip when fingerprint is fresh. */
@@ -122,6 +123,9 @@ export function SetupHealthGate({
   const [repairing, setRepairing] = useState(false);
   const [autoEnterMs, setAutoEnterMs] = useState<number>();
   const enterTimer = useRef<number>();
+  const [repairError, setRepairError] = useState<string>();
+  const returnRecheck = useRef<() => void>();
+  useEffect(() => () => returnRecheck.current?.(), []);
 
   useEffect(() => {
     if (!enabled || !connected || phase !== "idle") return;
@@ -173,21 +177,28 @@ export function SetupHealthGate({
       report={view}
       busy={phase === "checking" || !view.checkedAt}
       repairing={repairing}
+      repairError={repairError}
       onContinue={() => finish(view.checkedAt ? summaryOf(view) : null)}
       onOpenDiagnostics={() => finish(view.checkedAt ? summaryOf(view) : null, "#/settings/diagnostics")}
       onRepair={async repair => {
         if (enterTimer.current) window.clearTimeout(enterTimer.current);
         setRepairing(true);
+        setRepairError(undefined);
+        returnRecheck.current?.();
         try {
-          const result = await applyRepair(api, repair, dialogs.confirm);
+          const result = await applyRepair(repair, gateRemedyHost(api, dialogs.confirm));
           if (result === "navigate") {
             finish(view.checkedAt ? summaryOf(view) : null);
             return;
           }
-          if (result === "rerun") {
+          const rerun = () => {
             setReport(pendingSetupHealthReport(view.trigger));
             setPhase("checking");
-          }
+          };
+          if (result === "rerun") rerun();
+          if (result === "rerun-on-return") returnRecheck.current = recheckOnReturn(rerun);
+        } catch (failure) {
+          setRepairError(failure instanceof Error ? failure.message : String(failure));
         } finally {
           setRepairing(false);
         }

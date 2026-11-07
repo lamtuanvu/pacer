@@ -26,6 +26,8 @@ export interface UsageReading {
   source?: UsageSource;
   remoteHost?: string;
   error?: string;
+  /** The CoreError code behind `error`, when the read threw one. */
+  errorCode?: string;
   spendUsd?: number; // 7-day spend for the account's model, from opencode stats
 }
 

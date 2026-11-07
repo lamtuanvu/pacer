@@ -1,11 +1,9 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { type z } from "zod";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { taskTitle } from "../core/short-title";
 import { computeStatus, type Status } from "../engine/status";
-import { readKey } from "../endpoints/keys";
+import { configuredSecrets, readKey } from "../endpoints/keys";
 import { publish } from "../link/publish";
 import { pluginRegistry } from "../plugins";
 import { assistantRespondResult, ASSISTANT_MAX_DEADLINE_MS } from "../plugins/protocol";
@@ -64,14 +62,8 @@ const defaultCards: CardDeps = {
   task(ctx, id) { const t = readTask(ctx, id); return t ? { rev: t.rev, state: t.state, title: taskTitle(t) } : null; },
 };
 
-async function defaultKeys(ctx: Ctx, strategy: Strategy): Promise<string[]> {
-  const out: string[] = [];
-  for (const [name, account] of Object.entries(strategy.accounts)) {
-    if (account.kind !== "endpoint" || !account.connection) continue;
-    try { const key = await readKey(ctx, name, account.connection.key); if (key) out.push(key); } catch { /* an unreadable key cannot leak */ }
-  }
-  try { const token = readFileSync(join(ctx.pacerHome, "token"), "utf8").trim(); if (token) out.push(token); } catch { /* no token file */ }
-  return out;
+function defaultKeys(ctx: Ctx, strategy: Strategy): Promise<string[]> {
+  return configuredSecrets(ctx, strategy.accounts);
 }
 
 function endpointFor(strategy: Strategy, settings: AssistantSettings) {

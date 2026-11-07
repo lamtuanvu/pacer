@@ -497,6 +497,11 @@ fn enrich_api_task(
     row["repo"] = repo;
     row["kind"] = t["kind"].clone();
     row["host"] = t["run"]["host"].clone();
+    for key in ["diagnosticCheck", "diagnosticRecheck"] {
+        if truth(&t[key]) {
+            row[key] = t[key].clone();
+        }
+    }
     if tables.liveness {
         let own = format!("task:{}", text(&t["id"]));
         let work_parent = if tables.work_nodes {

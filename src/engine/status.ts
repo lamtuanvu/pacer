@@ -178,6 +178,7 @@ export async function computeStatus(
       ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),
       ...(broken[runner.name] ? { brokenReason: broken[runner.name].reason } : {}),
       ...(reading.error ? { error: reading.error } : {}),
+      ...(reading.error && reading.errorCode ? { errorCode: reading.errorCode } : {}),
       evidenceScope: scope, evidenceRevision: snapshot.revision,
     };
     const restrictions: { code: string; evidenceIds: string[] }[] = [];

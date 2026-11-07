@@ -558,6 +558,9 @@ async fn dispatch_call(
                             if let Some(hint) = failure.hint {
                                 data["hint"] = Value::String(hint);
                             }
+                            if failure.from_plugin {
+                                data["origin"] = Value::String("plugin".into());
+                            }
                             json!({
                                 "jsonrpc": "2.0",
                                 "id": id,

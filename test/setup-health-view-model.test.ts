@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Check } from "../src/install/doctor";
+import { remedies } from "../src/install/doctor-remedy";
 import type { SetupChecklist } from "../src/setup/checklist";
 import {
   aggregateSetupHealth,
@@ -178,74 +179,66 @@ describe("shouldSkipFullWindow", () => {
 });
 
 describe("setupHealthRepairs", () => {
-  test("maps drifted hooks and freshness to agent.reconnect with honesty", () => {
+  const honesty = "Wiring OK · live enforcement unverified";
+
+  test("one remedy per agent reconnect, with honesty for file repairs", () => {
     const checks: Check[] = [
-      { name: "Claude hook configuration", level: "warn", detail: "SessionStart missing", evidence: "configured" },
-      { name: "Integration freshness cursor", level: "warn", detail: "managed files changed" },
-      { name: "Claude config folder", level: "warn", detail: "Selected account settings: /tmp/a vs /tmp/b", evidence: "configured" },
+      { name: "Claude hook configuration", level: "warn", detail: "SessionStart missing", remedy: remedies.review("claude-code") },
+      { name: "Legacy guard", level: "warn", detail: "legacy subagent_guard.py present", remedy: remedies.review("claude-code") },
+      { name: "Integration freshness cursor", level: "warn", detail: "managed files changed", remedy: remedies.updateFiles("cursor") },
+      { name: "Install cursor", level: "warn", detail: "changed", remedy: remedies.review("cursor") },
+      { name: "Install codex#work", level: "warn", detail: "changed", remedy: remedies.review("codex") },
     ];
-    expect(setupHealthRepairs(checks, { planner: "claude-code", repairAvailable: true })).toEqual([
-      {
-        kind: "agent.reconnect",
-        label: "Fix integration",
-        agent: "claude-code",
-        honesty: "Wiring OK · live enforcement unverified",
-      },
+    expect(setupHealthRepairs(checks)).toEqual([
+      { kind: "remedy", label: "Review and fix", check: "Claude hook configuration", honesty, remedy: remedies.review("claude-code") },
+      { kind: "remedy", label: "Update files", check: "Integration freshness cursor", honesty, remedy: remedies.updateFiles("cursor") },
+      { kind: "remedy", label: "Review and fix", check: "Install codex#work", honesty, remedy: remedies.review("codex") },
     ]);
-    expect(setupHealthRepairs(
-      [{ name: "Integration freshness cursor", level: "warn", detail: "changed" }],
-      { planner: "cursor", repairAvailable: true },
-    )).toEqual([{
-      kind: "agent.reconnect",
-      label: "Fix integration",
-      agent: "cursor",
-      honesty: "Wiring OK · live enforcement unverified",
-    }]);
-    expect(setupHealthRepairs(
-      [{ name: "Install codex#work", level: "warn", detail: "changed" }],
-      { planner: "codex#work", repairAvailable: true },
-    )).toEqual([{
-      kind: "agent.reconnect",
-      label: "Fix integration",
-      agent: "codex",
-      honesty: "Wiring OK · live enforcement unverified",
-    }]);
   });
 
-  test("does not reconnect without repairAvailable or for exhausted quota", () => {
-    expect(setupHealthRepairs(
-      [{ name: "Install cursor", level: "warn", detail: "changed" }],
-      { planner: "cursor", repairAvailable: false },
-    )).toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics" }]);
-    expect(setupHealthRepairs(
-      [{ name: "Usage codex", level: "warn", detail: "EXHAUSTED" }],
-      { planner: "codex", repairAvailable: true },
-    )).toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics" }]);
+  test("check names never pick a repair: problems without a remedy only open Diagnostics", () => {
+    expect(setupHealthRepairs([
+      { name: "Usage codex", level: "warn", detail: "stale usage" },
+      { name: "Install cursor", level: "warn", detail: "changed" },
+      { name: "Binary cursor", level: "fail", detail: "not found" },
+    ])).toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics" }]);
+    expect(setupHealthRepairs([{ name: "Usage codex", level: "ok", detail: "OK" }])).toEqual([]);
   });
 
-  test("maps stale usage and missing binaries to refresh / executor setup", () => {
-    expect(setupHealthRepairs(
-      [{ name: "Usage codex", level: "warn", detail: "stale usage" }],
-    )).toEqual([{ kind: "limits.refresh", label: "Refresh usage" }]);
-    expect(setupHealthRepairs(
-      [{ name: "Binary cursor", level: "fail", detail: "not found" }],
-    )).toEqual([{ kind: "open.add_executor", label: "Open executor setup" }]);
+  test("every remedy kind becomes a remedy repair; internal problems share one restart", () => {
+    const signIn = remedies.signIn("codex", "Codex");
+    const refresh = remedies.refreshUsage("codex");
+    const service = remedies.service("Restart service");
+    const internal = remedies.internal();
+    const agent = remedies.agent("Binary cursor");
+    const privacy = remedies.privacySettings();
+    const checks: Check[] = [
+      { name: "Usage codex", level: "warn", detail: "stale usage", remedy: signIn },
+      { name: "Usage codex#tse", level: "warn", detail: "unknown", remedy: refresh },
+      { name: "Service", level: "fail", detail: "down", remedy: service },
+      { name: "Binary cursor", level: "fail", detail: "not found", remedy: agent },
+      { name: "Install codex", level: "warn", evidence: "unverified", detail: "plugin unavailable", remedy: internal },
+      { name: "Skill codex", level: "warn", evidence: "unverified", detail: "plugin unavailable", remedy: internal },
+      { name: "Removable volume access", level: "warn", detail: "denied", remedy: privacy },
+      { name: "Binary codex", level: "ok", detail: "found", remedy: agent },
+    ];
+    expect(setupHealthRepairs(checks)).toEqual([
+      { kind: "remedy", label: "Sign in to Codex", check: "Usage codex", remedy: signIn },
+      { kind: "remedy", label: "Refresh usage", check: "Usage codex#tse", remedy: refresh },
+      { kind: "remedy", label: "Restart service", check: "Service", remedy: service },
+      { kind: "remedy", label: "Fix with agent", check: "Binary cursor", remedy: agent },
+      { kind: "remedy", label: "Restart pacer service", check: "Install codex", remedy: internal },
+      { kind: "remedy", label: "Open Privacy settings", check: "Removable volume access", remedy: privacy },
+    ]);
   });
 
-  test("aggregateSetupHealth includes repairs when planner can reconnect", () => {
+  test("aggregateSetupHealth includes the repairs its remedies name", () => {
     const report = aggregateSetupHealth({
-      checks: [{ name: "Install opencode", level: "warn", detail: "changed" }],
+      checks: [{ name: "Install opencode", level: "warn", detail: "changed", remedy: remedies.review("opencode") }],
       checklist: checklist(),
       trigger: "startup",
       checkedAt: 1,
-      planner: "opencode",
-      repairAvailable: true,
     });
-    expect(report.repairs).toEqual([{
-      kind: "agent.reconnect",
-      label: "Fix integration",
-      agent: "opencode",
-      honesty: "Wiring OK · live enforcement unverified",
-    }]);
+    expect(report.repairs).toEqual([{ kind: "remedy", label: "Review and fix", check: "Install opencode", honesty, remedy: remedies.review("opencode") }]);
   });
 });

@@ -43,6 +43,20 @@ test("Rust task titles, UTF-16 bounds, archived/old windows and legacy labels ma
   }
 },120_000);
 
+test("Rust task reads expose a diagnostics fix's check and recheck like TS", async () => {
+  const {createTask,readTask,updateTask}=await import("../src/tasks/store");
+  const ctx=fakeCtx();
+  const plain=createTask(ctx,{brief:{repo:ctx.home,goal:"Ordinary task"},kind:null,requestedExecutor:null,timeoutS:60});
+  const running=createTask(ctx,{brief:{repo:ctx.home,goal:"Fix check: CLI codex"},kind:"debug",requestedExecutor:null,timeoutS:60});
+  updateTask(ctx,running.id,t=>{t.diagnosticCheck="CLI codex";});
+  const fixed=createTask(ctx,{brief:{repo:ctx.home,goal:"Fix check: Usage codex"},kind:"debug",requestedExecutor:null,timeoutS:60});
+  updateTask(ctx,fixed.id,t=>{t.state="done";t.diagnosticCheck="Usage codex";t.diagnosticRecheck={at:ctx.now,passed:false,level:null,detail:"check did not run"};});
+  const records=[plain,running,fixed].map(t=>readTask(ctx,t.id)!);
+  const expected=apiTasks(ctx,records);
+  expect(expected.map(t=>[t.diagnosticCheck,t.diagnosticRecheck?.passed])).toEqual([[undefined,undefined],["CLI codex",undefined],["Usage codex",false]]);
+  expect(JSON.stringify(await rustRequest(ctx,{op:"tasks",records}))).toBe(JSON.stringify(expected));
+},120_000);
+
 test("Rust scoped auth marks, background checks, and host state keep current read-model semantics", async () => {
  const {markAuthFailed}=await import("../src/usage/auth");
  const {accountEvidenceScope}=await import("../src/evidence/scope");

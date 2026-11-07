@@ -11,6 +11,7 @@
 import { createConnection } from "node:net";
 import { z } from "zod";
 import { CoreError, type CoreErrorCode } from "../core/errors";
+import { pluginReplyError } from "./errors";
 
 export const HOST_PLUGIN_CALL = "_host.plugin.call";
 
@@ -61,7 +62,7 @@ const rpcReply = z.object({
   error: z.object({
     code: z.number(),
     message: z.string(),
-    data: z.object({ code: z.string().optional(), hint: z.string().optional() }).passthrough().optional(),
+    data: z.object({ code: z.string().optional(), hint: z.string().optional(), origin: z.string().optional() }).passthrough().optional(),
   }).optional(),
 });
 
@@ -73,6 +74,8 @@ function unreachable(socketPath: string, detail: string): CoreError {
 }
 
 function bridgeError(socketPath: string, error: NonNullable<z.infer<typeof rpcReply>["error"]>): CoreError {
+  // The owner tags a relayed child error reply; it is the plugin's failure, never pacer's own.
+  if (error.data?.origin === "plugin") return pluginReplyError(error);
   const sealed = error.data?.code;
   if (sealed && CORE_CODES.has(sealed)) return new CoreError(sealed as CoreErrorCode, error.message, error.data?.hint);
   if (error.code === -32600 || error.code === -32602) return new CoreError("invalid_input", error.message);

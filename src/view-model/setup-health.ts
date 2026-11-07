@@ -1,6 +1,6 @@
-import type { Check } from "../install/doctor";
+import type { Check, Remedy } from "../install/doctor";
 import type { SetupChecklist } from "../setup/checklist";
-import { diagnosticRepair, diagnosticSetupLink, diagnosticSummary } from "./diagnostics";
+import { diagnosticSummary, remedyAgent } from "./diagnostics";
 
 /** Fixed startup gate steps from the setup-health design. */
 export type SetupHealthStepId =
@@ -21,22 +21,21 @@ export type SetupHealthStepState =
 export type SetupHealthTrigger = "startup" | "update" | "manual";
 export type SetupHealthOutcome = "ok" | "warnings" | "hard_fail";
 
-/** Primary Fix actions for the gate; consent still happens at apply time. */
-export type SetupHealthRepairKind =
-  | "agent.reconnect"
-  | "limits.refresh"
-  | "open.setup"
-  | "open.accounts"
-  | "open.add_executor"
-  | "open.diagnostics";
+/**
+ * Fix actions for the gate. `remedy` runs the doctor's remedy through the same dispatch Diagnostics uses
+ * (consent still happens at apply time); `open.diagnostics` is for problems that carry no remedy.
+ */
+export type SetupHealthRepairKind = "remedy" | "open.diagnostics";
 
 export interface SetupHealthRepair {
   kind: SetupHealthRepairKind;
   label: string;
-  /** Agent id for agent.reconnect (no account fragment). */
-  agent?: string;
+  /** The check the remedy fixes. */
+  check?: string;
   /** Shown after file repairs until live enforcement is observed. */
   honesty?: string;
+  /** The doctor's remedy; present exactly when kind is `remedy`. */
+  remedy?: Remedy;
 }
 
 export interface SetupHealthStep {
@@ -60,7 +59,6 @@ export interface SetupHealthReport {
 }
 
 const WIRING_HONESTY = "Wiring OK · live enforcement unverified";
-const RECONNECT_AGENTS = new Set(["claude-code", "codex", "cursor", "opencode"]);
 
 export interface SetupHealthFingerprint {
   schema: 1;
@@ -190,59 +188,34 @@ function detailFor(id: SetupHealthStepId, checks: Check[], checklist?: SetupChec
   return undefined;
 }
 
+/** One remedy fixes every check it is attached to; pacer-internal problems share one restart. */
+function remedyKey(remedy: Remedy): string {
+  if (remedy.kind === "internal") return "internal";
+  if (remedy.kind === "agent") return `agent:${String(remedy.params?.check ?? "")}`;
+  // A reviewed reconnect and a file update for the same agent both reconnect it.
+  if (remedy.op === "agent.preview" || remedy.op === "agent.connect") return `agent.connect:${String(remedy.params?.agent ?? "")}`;
+  return `${remedy.op ?? remedy.url ?? remedy.label}:${JSON.stringify(remedy.params ?? {})}`;
+}
+
 /**
- * Map attention checks to primary Fix descriptors. Never applies changes;
- * agent.reconnect still goes through agent.preview + consent on connect.
+ * Map attention checks to the gate's Fix actions, decided only by each check's remedy. Never applies changes:
+ * the app dispatches the remedy, and consent-gated operations still ask at apply time.
+ * Problems without a remedy (an older doctor) only offer Diagnostics.
  */
-export function setupHealthRepairs(
-  checks: Check[],
-  options: { planner?: string; repairAvailable?: boolean } = {},
-): SetupHealthRepair[] {
+export function setupHealthRepairs(checks: Check[]): SetupHealthRepair[] {
   const repairs: SetupHealthRepair[] = [];
   const seen = new Set<string>();
-  const add = (repair: SetupHealthRepair) => {
-    const key = `${repair.kind}:${repair.agent ?? ""}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    repairs.push(repair);
-  };
-  const planner = options.planner;
-  const agent = planner?.split("#")[0];
-  const canReconnect = !!options.repairAvailable && !!agent && RECONNECT_AGENTS.has(agent);
-
   for (const check of checks) {
-    if (check.level !== "warn" && check.level !== "fail") continue;
-
-    if (canReconnect && planner) {
-      const via = diagnosticRepair(check, planner);
-      const freshness = check.name === `Integration freshness ${planner}` || check.name === "Claude config folder";
-      if (via || freshness) {
-        add({
-          kind: "agent.reconnect",
-          label: "Fix integration",
-          agent: via?.agent ?? agent!,
-          honesty: WIRING_HONESTY,
-        });
-        continue;
-      }
-    }
-
-    if (check.name.startsWith("Usage ") && /stale usage/i.test(check.detail)) {
-      add({ kind: "limits.refresh", label: "Refresh usage" });
-      continue;
-    }
-
-    // Exhausted quota is not a fixable setup action.
-    if (check.name.startsWith("Usage ") && check.detail === "EXHAUSTED") continue;
-
-    const link = diagnosticSetupLink(check);
-    if (link?.href === "#/setup") add({ kind: "open.setup", label: "Open Setup" });
-    else if (link?.href === "#/settings/add-executor") add({ kind: "open.add_executor", label: "Open executor setup" });
-    else if (link?.href === "#/settings/accounts") add({ kind: "open.accounts", label: "Review accounts" });
+    const { remedy } = check;
+    if ((check.level !== "warn" && check.level !== "fail") || !remedy) continue;
+    const key = remedyKey(remedy);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    repairs.push({ kind: "remedy", label: remedy.label, check: check.name, remedy,
+      ...(remedyAgent(check) ? { honesty: WIRING_HONESTY } : {}) });
   }
-
   if (checks.some(c => c.level === "warn" || c.level === "fail") && repairs.length === 0) {
-    add({ kind: "open.diagnostics", label: "Open Diagnostics" });
+    repairs.push({ kind: "open.diagnostics", label: "Open Diagnostics" });
   }
   return repairs;
 }
@@ -255,8 +228,6 @@ export function aggregateSetupHealth(input: {
   checkedAt: number;
   durationSeconds?: number;
   timedOutSteps?: SetupHealthStepId[];
-  planner?: string;
-  repairAvailable?: boolean;
 }): SetupHealthReport {
   const timed = new Set(input.timedOutSteps ?? []);
   const service = serviceState(input.checks, input.checklist);
@@ -284,10 +255,7 @@ export function aggregateSetupHealth(input: {
       : detailFor(id, input.checks, input.checklist),
   }));
 
-  const repairs = setupHealthRepairs(input.checks, {
-    planner: input.planner,
-    repairAvailable: input.repairAvailable,
-  });
+  const repairs = setupHealthRepairs(input.checks);
 
   return {
     trigger: input.trigger,

@@ -134,6 +134,21 @@ test("flag-on call goes to the native owner over host.sock with sealed spawn, au
   expect(readFileSync(join(ctx.pacerHome, "logs", "plugins", "fx-native.log"), "utf8")).toContain("from owner");
 });
 
+test("a plugin's own error relayed by the owner is the plugin's failure, while owner failures stay pacer's", async () => {
+  const { PluginReportedError, raisedByPacer } = await import("../src/core/errors");
+  const { ctx, registry, path } = setup("fake");
+  let origin: string | undefined = "plugin";
+  await fakeOwner(path, () => ({ error: { code: -32002, message: "reader failed", data: { code: "plugin_unavailable", ...(origin ? { origin } : {}) } } }));
+  const relayed = await registry.call(ctx, "fx-native", "diagnostic.ping", {}).catch((error: unknown) => error);
+  expect(relayed).toBeInstanceOf(PluginReportedError);
+  expect(raisedByPacer(relayed)).toBe(false);
+  origin = undefined;
+  const owned = await registry.call(ctx, "fx-native", "diagnostic.ping", {}).catch((error: unknown) => error);
+  expect(owned).toBeInstanceOf(CoreError);
+  expect(owned).not.toBeInstanceOf(PluginReportedError);
+  expect(raisedByPacer(owned)).toBe(true);
+});
+
 test("flag-on pins bare command names to the resolved absolute executable and drops unresolved ones", async () => {
   const { ctx, registry, path } = setup("fake");
   ctx.which = name => ({ "fx-tool": "/opt/fx/bin/fx-tool", "fx-elsewhere": "/opt/fx/bin/other" } as Record<string, string>)[name] ?? null;

@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { KeySource } from "../config/accounts";
+import type { AccountCfg, KeySource } from "../config/accounts";
 import type { Ctx, RunResult } from "../types";
 import { security as runSecurity } from "../identity/security";
 
@@ -73,6 +73,17 @@ export async function deleteKey(ctx: Ctx, name: string, source: KeySource): Prom
   }
   try { rmSync(join(ctx.pacerHome, "secrets", `${name}.key`), {force: true}); }
   catch { throw Error("endpoint key file deletion failed"); }
+}
+
+/** Every configured endpoint key pacer can read, plus the service token, for redaction only. Never log the result. */
+export async function configuredSecrets(ctx: Ctx, accounts: Record<string, AccountCfg>): Promise<string[]> {
+  const out: string[] = [];
+  for (const [name, account] of Object.entries(accounts)) {
+    if (account.kind !== "endpoint" || !account.connection) continue;
+    try { const key = await readKey(ctx, name, account.connection.key); if (key) out.push(key); } catch { /* an unreadable key cannot leak */ }
+  }
+  try { const token = readFileSync(join(ctx.pacerHome, "token"), "utf8").trim(); if (token) out.push(token); } catch { /* no token file */ }
+  return out;
 }
 
 /** Stable host environment name; the value is resolved only for a child launch. */

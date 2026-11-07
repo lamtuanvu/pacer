@@ -2,23 +2,30 @@ import {SettingsPath} from "./PathText";
 import { recordDiagnostics } from "../../data/diagnostics-status";
 import { diagnosticDetail, diagnosticNextStep, settingsText } from "./presentation";
 import { NativeValidationSetup } from "./NativeValidation";
-import { useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Check } from "../../../../src/install/doctor";
-import { diagnosticBucket, diagnosticCategory, diagnosticGuidance, diagnosticEvidence, diagnosticGroups, diagnosticLevel, diagnosticRepair, diagnosticSetupLink, diagnosticTitle } from "../../../../src/view-model/diagnostics";
+import { diagnosticEvidence, diagnosticLevel, diagnosticsPage, diagnosticTitle, remedyPlan, remedyProgress, type DiagnosticFixRow, type DiagnosticRowOutcome, type DiagnosticTask, type RemedyPlan } from "../../../../src/view-model/diagnostics";
+import { displayName } from "../../../../src/view-model/format";
+import { commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, type ConsentRequest, type PreparedRun, type RemedyHost, type RepairPreview } from "../../data/remedies";
+import { useActions } from "../../data/action-context";
+import { platform } from "../../platform";
 import { Button, ButtonLink } from "../../ds/Button";
-import { Disclosure, SearchInput } from "../../ds/Controls";
-import { SegmentedControl } from "../../ds/SelectionStrip";
 import { DisclosurePanel } from "../../ds/Page";
 import { DiagnosticRow } from "../../ds/DiagnosticRow";
+import { Pill } from "../../ds/Pill";
+import { RadioCard, RadioGroup } from "../../ds/Composer";
 import { SectionHeading } from "../../ds/SectionHeading";
+import { SideDialog } from "../../ds/SideDialog";
+import { Disclosure } from "../../ds/Controls";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { time, useOperation, useSettingsStyles } from "./shared";
+import { time, useSettingsStyles } from "./shared";
 import { PageHead } from "../../shell/slots";
 
 export interface DoctorReport { checkedAt: number; durationSeconds?: number; checks: Check[]; planner?: string; repairAvailable?: boolean }
-interface RepairPreview { revision: string; agent: string; files: string[]; undo: string; detail?: string }
 
 const REPORT_NOTE = "Configuration and fixture tests do not prove hook invocation. It stays unverified until observed in the planner.";
+/** The confirmation key for the "Couldn't check" group and for Fix all. */
+const INTERNAL = "\u0000internal", FIX_ALL = "\u0000fix-all";
 const glyphs = {good: "✓", warn: "!", bad: "✕", neutral: "–"} as const;
 function diagnosticTiming(report: DoctorReport): string {
   const checked = time(report.checkedAt);
@@ -26,133 +33,430 @@ function diagnosticTiming(report: DoctorReport): string {
 }
 export function diagnosticReportText(report: DoctorReport): string {
   return [`Diagnostics · ${diagnosticTiming(report)}`, ...report.checks.map(check =>
-    `${diagnosticLevel[check.level].label}: ${settingsText(diagnosticTitle(check.name))}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}\n${diagnosticDetail(check)}${check.fix ? `\nSuggested next step: ${diagnosticNextStep(check.fix)}` : ""}\nTechnical details: ${check.detail}${check.fix ? `\nReported recovery instructions: ${check.fix}` : ""}`), REPORT_NOTE].join("\n\n");
+    `${diagnosticLevel[check.level].label}: ${settingsText(diagnosticTitle(check.name))}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}\n${diagnosticDetail(check)}${check.fix ? `\nSuggested next step: ${diagnosticNextStep(check.fix)}` : ""}${check.remedy ? `\nFix: ${check.remedy.label}` : ""}\nTechnical details: ${check.detail}${check.fix ? `\nReported recovery instructions: ${check.fix}` : ""}`), REPORT_NOTE].join("\n\n");
 }
-const filters = [
-  {value: 'attention', label: 'Needs attention'}, {value: 'all', label: 'All'},
-  {value: 'failed', label: 'Failed'}, {value: 'passed', label: 'Passed'},
-  {value: 'unchecked', label: 'Not checked'}, {value: 'information', label: 'Information'},
-];
-const priority = {failed: 0, attention: 1, unchecked: 2, information: 3, passed: 4};
-export function DiagnosticResults({ report, busy = false, onRepair }: { report: DoctorReport; busy?: boolean; onRepair?: (agent: string) => void }) {
-  const [filter, setFilter] = useState('attention');
-  const [search, setSearch] = useState('');
-  const groups = diagnosticGroups(report.checks);
-  const query = search.trim().toLocaleLowerCase();
-  const visible = report.checks.filter(check => {
-    const bucket = diagnosticBucket(check);
-    return (filter === 'all' || (filter === 'attention' ? bucket === 'attention' || bucket === 'failed' : bucket === filter)) &&
-      (!query || [diagnosticTitle(check.name), diagnosticCategory(check, report.planner), diagnosticDetail(check), check.detail, check.fix].join(' ').toLocaleLowerCase().includes(query));
-  }).sort((a, b) => priority[diagnosticBucket(a)] - priority[diagnosticBucket(b)]);
-  const totals = [
-    {tone: "good", count: groups.passed.length, label: "Passed"},
-    {tone: "warn", count: report.checks.filter(check => check.level === "warn").length, label: "Needs attention"},
-    {tone: "bad", count: report.checks.filter(check => check.level === "fail").length, label: "Failed"},
-    {tone: "neutral", count: groups.unverified.length, label: "Not checked"},
-  ] as const;
-  const categories = ['Planner', 'Executors', 'Service'].map(name => ({name, checks: visible.filter(check => diagnosticCategory(check, report.planner) === name)}))
-    .filter(group => group.checks.length)
-    .sort((a, b) => priority[diagnosticBucket(a.checks[0]!)] - priority[diagnosticBucket(b.checks[0]!)]);
-  return <div className="pc-diagnostic-results">
-    <div className="pc-diagnostic-totals" aria-label="Check summary">{totals.map(total => <div key={total.label} className="pc-diagnostic-total" data-count={total.count}>
-      <span aria-hidden="true" className={`pc-diagnostic-glyph pc-diagnostic-glyph--${total.tone}`}>{glyphs[total.tone]}</span>
-      <span><b>{total.count}</b><span className="pc-diagnostic-caption">{total.label}</span></span>
-    </div>)}</div>
-    <div className="pc-diagnostic-controls">
-      <SegmentedControl label="Filter checks" value={filter} onChange={setFilter} options={filters}/>
-      <SearchInput label="Search checks" placeholder="Search checks" value={search} onInput={event => setSearch(event.currentTarget.value)}/>
+
+export interface PendingConsent { key: string; requests: ConsentRequest[]; resolve: (ok: boolean) => void }
+interface ResultsProps {
+  report: DoctorReport;
+  baseline?: readonly string[];
+  outcomes?: Readonly<Record<string, DiagnosticRowOutcome>>;
+  tasks?: readonly DiagnosticTask[];
+  /** True while a check run or a remedy is in progress; other remedy buttons wait. */
+  busy?: boolean;
+  consent?: PendingConsent;
+  internalProgress?: string;
+  onRemedy?: (row: DiagnosticFixRow, plan: RemedyPlan, secondary?: boolean) => void;
+  onRestart?: () => void;
+  onCopyReport?: () => void;
+}
+
+/**
+ * One confirmation for every consent-gated change a click would make; consent is sent only after Confirm.
+ * Focus moves into it so keyboard users reach Confirm next, and returns to the control that asked.
+ */
+function ConsentConfirm({ consent }: { consent: PendingConsent }) {
+  const single = consent.requests.length === 1 ? consent.requests[0] : undefined;
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const invoking = document.activeElement as HTMLElement | null;
+    ref.current?.focus();
+    return () => { if (invoking?.isConnected && invoking !== document.body) invoking.focus(); };
+  }, []);
+  return <div ref={ref} tabIndex={-1} className="pc-diagnostic-confirm" role="group" aria-label={single?.title ?? "Confirm changes"}>
+    {consent.requests.map(request => <div key={request.title} className="pc-diagnostic-confirm__item">
+      <b>{settingsText(request.title)}</b>
+      <span>{request.message}</span>
+      {request.files.length > 0 && <ul>{request.files.map(file => <li key={file}><SettingsPath path={file}/></li>)}</ul>}
+    </div>)}
+    <div className="pc-diagnostic-confirm__actions">
+      <Button size="sm" onClick={() => consent.resolve(true)}>{single?.confirmLabel ?? "Confirm and fix"}</Button>
+      <Button size="sm" variant="ghost" onClick={() => consent.resolve(false)}>Cancel</Button>
     </div>
-    <p className="pc-diagnostic-caption" role="status">Showing {visible.length} of {report.checks.length} checks{filter === 'attention' ? ' needing attention' : ''}.</p>
-    {!visible.length && <p>{query ? 'No checks match this search and status. Change the filter or clear the search.' : filter === 'attention' ? 'No checks need attention. Choose All to review passed and not checked results.' : 'No checks have this status.'}</p>}
-    {categories.map(({name, checks}) => <section key={name} aria-label={name} className="pc-diagnostic-group">
-      <DisclosurePanel open summary={`${name} · ${checks.length}`}>
-        <div className="pc-diagnostic-list">{checks.map((check, index) => {
-          const repair = diagnosticRepair(check, report.repairAvailable ? report.planner : undefined);
-          const attention = ['warn', 'fail'].includes(check.level);
-          const setup = attention ? diagnosticSetupLink(check) : undefined;
-          const bucket = diagnosticBucket(check);
-          const tone = bucket === 'unchecked' ? 'neutral' : diagnosticLevel[check.level].tone;
-          return <DiagnosticRow key={`${index}:${check.name}`} title={settingsText(diagnosticTitle(check.name))}
-            caption={`${diagnosticDetail(check)}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ''}`}
-            tone={tone} glyph={glyphs[tone]} status={bucket === 'unchecked' ? 'Not checked' : diagnosticLevel[check.level].label}
-            nextStep={attention || bucket === 'unchecked' ? `Next step: ${check.fix ? diagnosticNextStep(check.fix) : diagnosticGuidance(check)}` : undefined}
-            action={repair && onRepair ? <Button size="sm" disabled={busy} onClick={() => onRepair(repair.agent)}>Repair<span className="sr-only"> {settingsText(diagnosticTitle(check.name))}</span></Button>
-              : setup ? <ButtonLink size="sm" href={setup.href}>{setup.label}</ButtonLink> : undefined}>
-            <pre>{check.detail}{check.fix ? `\n\nReported recovery instructions:\n${check.fix}` : ''}</pre>
-          </DiagnosticRow>;
-        })}</div>
-      </DisclosurePanel>
-    </section>)}
   </div>;
 }
+
+function FixRow({ row, busy, consent, onRemedy }: { row: DiagnosticFixRow; busy: boolean; consent?: PendingConsent; onRemedy?: ResultsProps["onRemedy"] }) {
+  const title = settingsText(row.title);
+  const confirming = consent?.key === row.check.name ? consent : undefined;
+  const task = row.task;
+  const taskLink = task && <ButtonLink size="sm" variant="ghost" href={`#/tasks/${encodeURIComponent(task.taskId)}`}>Open task<span className="sr-only"> for {title}</span></ButtonLink>;
+  const offered = !task?.open && row.plan && onRemedy;
+  // A remedy in progress keeps its button mounted, so focus stays on it and sheets can return focus to it.
+  const locked = busy || !!row.progress || !!confirming;
+  const remedy = (plan: RemedyPlan, secondary?: boolean) => () => { if (!locked) onRemedy!(row, plan, secondary); };
+  const action = row.fixed ? undefined : <>
+    {task && <span className="pc-diagnostic-row__state" data-tone={task.tone}>{task.label}</span>}
+    {row.progress && <span className="pc-diagnostic-caption">{row.progress}</span>}
+    {offered && <Button size="sm" aria-disabled={locked || undefined} onClick={remedy(row.plan!)}>{row.remedy!.label}<span className="sr-only"> for {title}</span></Button>}
+    {offered && row.secondary && <Button size="sm" variant="ghost" aria-disabled={locked || undefined} onClick={remedy(row.secondary.plan, true)}>{row.secondary.label}<span className="sr-only"> for {title}</span></Button>}
+    {taskLink}
+  </>;
+  const problem = row.problem ?? (task?.detail ? `Still failing after the fix task: ${settingsText(task.detail)}` : undefined);
+  return <DiagnosticRow title={title} caption={settingsText(row.detail)} kind={row.kind} tone={row.tone} glyph={row.glyph} status={row.status}
+    action={action} notice={confirming ? <ConsentConfirm consent={confirming}/> : problem ? <p className="pc-diagnostic-row__problem">{problem}</p> : undefined}>
+    <pre>{row.technical}</pre>
+  </DiagnosticRow>;
+}
+
+function ResultRow({ check }: { check: Check }) {
+  const unchecked = check.evidence === "unverified";
+  const tone = unchecked ? "neutral" : diagnosticLevel[check.level].tone;
+  const title = settingsText(diagnosticTitle(check.name));
+  return <DiagnosticRow title={title} caption={`${diagnosticDetail(check)}${check.evidence ? ` · ${diagnosticEvidence[check.evidence]}` : ""}`}
+    tone={tone} glyph={glyphs[tone]} status={unchecked ? "Not checked" : diagnosticLevel[check.level].label}>
+    <pre>{check.detail}{check.fix ? `\n\nReported recovery instructions:\n${check.fix}` : ""}</pre>
+  </DiagnosticRow>;
+}
+
+/** The Diagnostics board: summary, problems with one fix each, checks pacer could not run, and collapsed results. */
+export function DiagnosticResults({ report, baseline, outcomes, tasks, busy = false, consent, internalProgress, onRemedy, onRestart, onCopyReport }: ResultsProps) {
+  const page = diagnosticsPage({ checks: report.checks, baseline, outcomes, tasks });
+  const internal = page.internal;
+  return <div className="pc-diagnostic-results">
+    <section aria-label="Summary" className="pc-diagnostic-summary">
+      <p className="pc-diagnostic-summary__headline">{page.headline}</p>
+      {page.support && <p>{page.support}</p>}
+      {consent?.key === FIX_ALL && <ConsentConfirm consent={consent}/>}
+    </section>
+    {page.rows.length > 0 && <section aria-labelledby="diagnostics-needs-fix" className="pc-diagnostic-group">
+      <SectionHeading id="diagnostics-needs-fix">Needs a fix · {page.openCount}</SectionHeading>
+      <div className="pc-diagnostic-list pc-diagnostic-list--card">
+        {page.rows.map(row => <FixRow key={row.check.name} row={row} busy={busy} consent={consent} onRemedy={onRemedy}/>)}
+      </div>
+    </section>}
+    {internal && <section aria-labelledby="diagnostics-unchecked" className="pc-diagnostic-group">
+      <SectionHeading id="diagnostics-unchecked">Couldn’t check · {internal.checks.length}</SectionHeading>
+      <div className="pc-diagnostic-internal">
+        <div className="pc-diagnostic-row__heading">
+          <span className="pc-diagnostic-glyph pc-diagnostic-glyph--warn" aria-hidden="true">◐</span>
+          <div className="pc-diagnostic-row__text">
+            <b>{internal.title}</b>
+            <span className="pc-diagnostic-row__detail">{internal.cause}</span>
+            <ul className="pc-diagnostic-internal__checks">{internal.titles.map(title => <li key={title}>{settingsText(title)}</li>)}</ul>
+          </div>
+        </div>
+        {consent?.key === INTERNAL && <ConsentConfirm consent={consent}/>}
+        <div className="pc-diagnostic-internal__actions">
+          {internalProgress && <span className="pc-diagnostic-caption">{internalProgress}</span>}
+          {onRestart && <Button size="sm" aria-disabled={busy || consent?.key === INTERNAL || !!internalProgress || undefined}
+            onClick={() => { if (!busy && consent?.key !== INTERNAL && !internalProgress) onRestart(); }}>{internal.remedy.label}</Button>}
+          {onCopyReport && <Button size="sm" variant="ghost" onClick={onCopyReport}>Copy report<span className="sr-only"> to send to pacer</span></Button>}
+        </div>
+        <Disclosure className="pc-diagnostic-row__details" summary={<span>Technical details<span className="sr-only"> for checks pacer couldn’t run</span></span>}>
+          <div className="pc-diagnostic-row__output"><pre>{internal.technical}</pre></div>
+        </Disclosure>
+      </div>
+    </section>}
+    {page.passed.length > 0 && <section aria-labelledby="diagnostics-passed" className="pc-diagnostic-group">
+      <SectionHeading id="diagnostics-passed">Passed · {page.passed.length}</SectionHeading>
+      <DisclosurePanel summary={<span className="pc-diagnostic-collapsed"><span className="pc-diagnostic-glyph pc-diagnostic-glyph--good" aria-hidden="true">✓</span><span>{settingsText(page.passedSummary)}</span><span className="pc-diagnostic-caption">Show all</span></span>}>
+        <div className="pc-diagnostic-list">{page.passed.map(check => <ResultRow key={check.name} check={check}/>)}</div>
+      </DisclosurePanel>
+    </section>}
+    {page.information.length > 0 && <section aria-labelledby="diagnostics-information" className="pc-diagnostic-group">
+      <SectionHeading id="diagnostics-information">Information and not checked · {page.information.length}</SectionHeading>
+      <DisclosurePanel summary={<span className="pc-diagnostic-collapsed"><span className="pc-diagnostic-glyph pc-diagnostic-glyph--neutral" aria-hidden="true">–</span><span>Results that need no fix</span><span className="pc-diagnostic-caption">Show all</span></span>}>
+        <div className="pc-diagnostic-list">{page.information.map(check => <ResultRow key={check.name} check={check}/>)}</div>
+      </DisclosurePanel>
+    </section>}
+  </div>;
+}
+
+type ReviewState = { check: Check; preview: RepairPreview; phase: "review" | "applying" | "done" | "error"; error?: unknown; resolve?: (ok: boolean) => void };
+/** Review changes: every file the reconnect writes, applied only with this preview's revision. */
+export function ReviewSheet({ review, report, onApply, onClose }: { review: ReviewState; report?: DoctorReport; onApply: () => void; onClose: () => void }) {
+  const agent = displayName(review.preview.agent);
+  const title = settingsText(diagnosticTitle(review.check.name));
+  const current = report?.checks.find(check => check.name === review.check.name);
+  const passes = !current || current.level === "ok" || current.level === "info";
+  const files = review.preview.files ?? [];
+  if (review.phase === "done") return <SideDialog title={`${agent} reconnected`} close={onClose}
+    footer={<Button variant="primary" onClick={onClose}>Back to Diagnostics</Button>}>
+    <p role="status" className="pc-diagnostic-sheet-text">{`Updated ${files.length === 1 ? "1 file" : `${files.length} files`} and rechecked: ${title} ${passes ? "passes" : "still needs attention"}.`}
+      {passes && " Hooks show as verified after your next session with this agent."}</p>
+  </SideDialog>;
+  return <SideDialog title={`Reconnect ${agent}`} close={onClose}
+    footer={<><Button onClick={onClose} disabled={review.phase === "applying"}>Cancel</Button>
+      {review.phase !== "error" && <Button variant="primary" busy={review.phase === "applying"} onClick={onApply}>{review.phase === "applying" ? "Fixing and rechecking…" : "Apply and recheck"}</Button>}</>}>
+    <p className="pc-diagnostic-caption">{title}</p>
+    <p className="pc-diagnostic-sheet-text">{`Pacer restores its own files for ${agent}. Nothing else in your folder changes.`}{review.preview.detail ? ` ${settingsText(review.preview.detail)}` : ""}</p>
+    <SectionHeading as="h3">{files.length === 1 ? "1 file changes" : `${files.length} files change`}</SectionHeading>
+    <ul className="pc-diagnostic-files">{files.map(file => <li key={file}><SettingsPath path={file}/></li>)}</ul>
+    <p className="pc-diagnostic-note">You can disconnect the integration later from Budget &amp; pacing.</p>
+    <ErrorMessage error={review.error}/>
+  </SideDialog>;
+}
+
+type AgentState = { check: Check; scope: "fix" | "investigate"; phase: "compose" | "starting" | "started"; error?: unknown; taskId?: string; resolve?: (ok: boolean) => void };
+const SCOPES = {
+  fix: { title: "Fix it, ask before changing anything else", note: "Repairing the failing tool or integration goes ahead. Changes to other tools or your settings wait for you.", short: "asks before other changes" },
+  investigate: { title: "Investigate only", note: "The agent finds the cause and proposes a fix. Nothing on your machine changes.", short: "investigate only" },
+} as const;
+/** Fix with agent: the service builds the brief from its own doctor result; the client sends only the check and scope. */
+export function AgentSheet({ agent, report, onScope, onStart, onClose }: { agent: AgentState; report?: DoctorReport; onScope: (scope: AgentState["scope"]) => void; onStart: () => void; onClose: () => void }) {
+  const title = settingsText(diagnosticTitle(agent.check.name));
+  if (agent.phase === "started" && agent.taskId) return <SideDialog title="Fix task started" close={onClose}
+    footer={<><Button onClick={onClose}>Back to Diagnostics</Button><ButtonLink variant="primary" href={`#/tasks/${encodeURIComponent(agent.taskId)}`} onClick={onClose}>Open task</ButtonLink></>}>
+    <div className="pc-diagnostic-task" role="status"><b>{`${agent.scope === "fix" ? "Fix" : "Investigate"}: ${title}`}</b><Pill tone="info">Working</Pill><span className="pc-diagnostic-caption">{SCOPES[agent.scope].short}</span></div>
+    <p className="pc-diagnostic-sheet-text">When you accept the task, pacer reruns this check. The row shows it as fixed only after the check passes.</p>
+  </SideDialog>;
+  const goal = agent.scope === "fix" ? `Make the check “${title}” pass.` : `Find why the check “${title}” fails and propose a fix.`;
+  return <SideDialog title="Fix with agent" close={onClose}
+    footer={<><Button onClick={onClose} disabled={agent.phase === "starting"}>Cancel</Button><Button variant="primary" busy={agent.phase === "starting"} onClick={onStart}>Start fix task</Button></>}>
+    <p className="pc-diagnostic-caption">{title}</p>
+    <p className="pc-diagnostic-sheet-text">Pacer has no built-in fix for this, so it starts a task with everything the check found. You review the result like any other task.</p>
+    <SectionHeading as="h3">The agent gets</SectionHeading>
+    <pre className="pc-diagnostic-brief">{[`Goal: ${goal}`, `Check: ${title} (${diagnosticLevel[agent.check.level].label.toLowerCase()}${report ? `, ${diagnosticTiming(report).replace(/^Last run /, "checked ").replace(/ · took.*$/, "")}` : ""})`,
+      agent.check.detail, "Attached: related checks, the agent’s version and install path."].join("\n")}</pre>
+    <p className="pc-diagnostic-note">Pacer builds the final brief from its own check result and removes keys and tokens before the agent sees it.</p>
+    <SectionHeading as="h3">Runs on</SectionHeading>
+    <p className="pc-diagnostic-sheet-text">Pacer routes it to an executor by budget and pace, like any task.</p>
+    <SectionHeading as="h3" id="diagnostics-agent-scope">What it may change</SectionHeading>
+    <RadioGroup label="What it may change" aria-labelledby="diagnostics-agent-scope" className="pc-diagnostic-scopes">
+      {(["fix", "investigate"] as const).map(scope => <RadioCard key={scope} checked={agent.scope === scope} disabled={agent.phase === "starting"}
+        onSelect={() => onScope(scope)} title={SCOPES[scope].title} sub={SCOPES[scope].note}/>)}
+    </RadioGroup>
+    <ErrorMessage error={agent.error}/>
+  </SideDialog>;
+}
+
+const errorText = (error: unknown) => settingsText(error instanceof Error ? error.message : String(error));
+const issueNames = (checks: Check[]) => checks.filter(check => check.level === "warn" || check.level === "fail").map(check => check.name);
+const stillFailing = (report: DoctorReport, name: string) => issueNames(report.checks).includes(name);
+
 export function DiagnosticsSection() {
   useSettingsStyles();
-  const {api} = useTaskContext();
+  const {api, state} = useTaskContext();
+  const runner = useActions();
+  const call: RemedyHost["call"] = (op, params) => runner ? runner.call(op, params) : api.call(op, params);
   const [report, setReport] = useState<DoctorReport>();
+  const [baseline, setBaseline] = useState<string[]>([]);
+  const [outcomes, setOutcomes] = useState<Record<string, DiagnosticRowOutcome>>({});
+  const [consent, setConsent] = useState<PendingConsent>();
+  const [review, setReview] = useState<ReviewState>();
+  const [agent, setAgent] = useState<AgentState>();
+  const [started, setStarted] = useState<Record<string, DiagnosticTask>>({});
+  const [running, setRunning] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
   const [copyError, setCopyError] = useState<unknown>();
-  const [preview, setPreview] = useState<RepairPreview>();
   const [progress, setProgress] = useState("No checks run yet.");
-  const action = useOperation(undefined, {notifySuccess: false});
-  function timedReport(report: DoctorReport, started: number) {
-    return { ...report, durationSeconds: (performance.now() - started) / 1000 };
+  /** Rows waiting for the person to come back; one focus listener rechecks them all. */
+  const waiting = useRef(new Set<string>());
+  const returnListener = useRef<() => void>();
+  const runButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => () => returnListener.current?.(), []);
+  /** When the focused control went away (a fixed row, the last fix-all), keep focus on the page. */
+  const keepFocus = () => requestAnimationFrame(() => {
+    if (!document.activeElement || document.activeElement === document.body) runButton.current?.focus();
+  });
+  const snapshotTasks = (state.snapshot?.tasks ?? []) as DiagnosticTask[];
+  const tasks = [...snapshotTasks, ...Object.values(started).filter(task => !snapshotTasks.some(item => item.id === task.id))];
+  const outcome = (name: string, next?: DiagnosticRowOutcome) => setOutcomes(current => {
+    const { [name]: _previous, ...rest } = current;
+    return next ? { ...rest, [name]: next } : rest;
+  });
+
+  function record(next: DoctorReport) {
+    setReport(next);
+    recordDiagnostics(next.checks.filter(check => check.level === "fail" || check.level === "warn").length);
   }
   async function readReport() {
-    const started = performance.now();
-    return timedReport(await api.call<DoctorReport>("doctor.run", {}), started);
+    const begun = performance.now();
+    const next = await call<DoctorReport>("doctor.run", {});
+    return { ...next, durationSeconds: (performance.now() - begun) / 1000 };
   }
   async function runChecks() {
-    setPreview(undefined);
-    setProgress("Running checks…");
-    const started = performance.now();
-    const result = await action.run("doctor.run", {}, data => {setReport(timedReport(data, started)); recordDiagnostics(data.checks.filter((check: Check) => check.level === "fail" || check.level === "warn").length);});
-    setProgress(result ? "" : "Checks failed. Try running checks again.");
+    if (running || busy) return;
+    returnListener.current?.(); returnListener.current = undefined; waiting.current.clear();
+    setRunning(true); setError(undefined); setProgress("Running checks…");
+    try {
+      const next = await readReport();
+      record(next); setBaseline(issueNames(next.checks)); setOutcomes({});
+      setProgress("");
+    } catch (failure) { setError(failure); setProgress("Checks failed. Try running checks again."); }
+    finally { setRunning(false); keepFocus(); }
   }
-  async function previewRepair(agent: string) {
-    setPreview(undefined);
-    setProgress("Loading repair preview…");
-    const result = await action.run("agent.preview", {agent}, data => setPreview(data));
-    setProgress(result ? "Review the repair below before applying changes." : "Repair preview failed. No changes were applied.");
+  /** Rerun every check after a fix; the row order stays that of the last full run. */
+  async function recheck(): Promise<DoctorReport | undefined> {
+    setRunning(true);
+    try { const next = await readReport(); record(next); return next; }
+    catch (failure) { setError(failure); setProgress("The recheck failed. Run all checks again when pacer is reachable."); return undefined; }
+    finally { setRunning(false); }
   }
-  async function repair() {
-    if (!preview) return;
-    setProgress("Repairing integration…");
-    const result = await action.run("agent.connect", {agent: preview.agent, consent: true, preview_revision: preview.revision}, async () => {
-      setPreview(undefined);
-      setProgress("Repair applied. Rechecking…");
-      const refreshed = await readReport();
-      setReport(refreshed);
-      recordDiagnostics(refreshed.checks.filter(check => check.level === "warn" || check.level === "fail").length);
+  function ask(key: string, requests: ConsentRequest[]): Promise<boolean> {
+    return new Promise(resolve => setConsent({ key, requests, resolve: ok => { setConsent(undefined); resolve(ok); } }));
+  }
+  function host(check: Check, progressText: string): RemedyHost {
+    return {
+      call,
+      confirm: async request => {
+        outcome(check.name);
+        const ok = await ask(check.name, [request]);
+        if (ok) outcome(check.name, { phase: "running", text: progressText });
+        return ok;
+      },
+      review: preview => new Promise(resolve => {
+        outcome(check.name, { phase: "running", text: "Waiting for your review…" });
+        setProgress("");
+        setReview({ check, preview, phase: "review", resolve: ok => {
+          setReview(current => current && (ok ? { ...current, phase: "applying", resolve: undefined } : undefined));
+          if (ok) outcome(check.name, { phase: "running", text: "Updating files and rechecking…" });
+          resolve(ok);
+        } });
+      }),
+      delegate: () => new Promise(resolve => {
+        outcome(check.name, { phase: "running", text: "Waiting for you to start the task…" });
+        setProgress("");
+        setAgent({ check, scope: "fix", phase: "compose", resolve });
+      }),
+      open: url => openRemedyUrl(url, platform),
+    };
+  }
+  function awaitReturn(name: string) {
+    waiting.current.add(name);
+    if (returnListener.current) return;
+    returnListener.current = recheckOnReturn(() => {
+      returnListener.current = undefined;
+      const names = [...waiting.current];
+      waiting.current.clear();
+      void recheck().then(next => {
+        for (const item of names) outcome(item, next ? { phase: "rechecked" } : undefined);
+        // Replace the "rechecking when you return" status; recheck() reports its own failure.
+        if (next) setProgress("Checked again after you came back. The rows show the new results.");
+      });
     });
-    if (!result) setPreview(undefined);
-    setProgress(result ? "Repair applied and checks refreshed. Review any remaining issues." : "Repair or recheck failed. Review the error and run checks again.");
+  }
+  async function runRemedy(row: DiagnosticFixRow, plan: RemedyPlan, secondary = false) {
+    if (busy || running) return;
+    const name = row.check.name;
+    const remedy = row.remedy!;
+    const text = remedyProgress(secondary ? { kind: remedy.kind, label: remedy.secondary!.label, op: remedy.secondary!.op, url: remedy.secondary!.url } : remedy);
+    // A consent-gated change only reads what would change until the person confirms.
+    const asks = (plan.kind === "run" || plan.kind === "signin") && !!plan.consent;
+    const first = asks ? "Checking what will change…" : plan.kind === "review" ? remedyProgress(remedy) : text;
+    setBusy(true); setError(undefined);
+    outcome(name, { phase: "running", text: first });
+    setProgress(`${settingsText(row.title)}: ${first}`);
+    try {
+      const result = await dispatchRemedy(plan, host(row.check, text));
+      if (result === "cancelled") { outcome(name); setProgress("No changes were made."); return; }
+      if (result === "delegated") { outcome(name); setProgress(`${settingsText(row.title)}: fix task started.`); return; }
+      if (result === "await-return") {
+        outcome(name, { phase: "waiting", text });
+        setProgress(`${settingsText(row.title)}: ${text}`);
+        awaitReturn(name);
+        return;
+      }
+      const rechecked = await recheck();
+      if (rechecked) {
+        outcome(name, { phase: "rechecked" });
+        setProgress(`${settingsText(row.title)}: ${stillFailing(rechecked, name) ? "still failing after the fix. The new result is in the row." : "fixed and rechecked."}`);
+      } else outcome(name);
+      setReview(current => current?.check.name !== name ? current : rechecked ? { ...current, phase: "done" }
+        : { ...current, phase: "error", error: new Error("The files were updated, but the recheck failed. Run all checks again.") });
+    } catch (failure) {
+      outcome(name, { phase: "error", message: errorText(failure) });
+      setProgress(`${settingsText(row.title)}: the fix did not finish.`);
+      setReview(current => current?.check.name === name ? { ...current, phase: "error", error: failure } : current);
+    } finally { setBusy(false); keepFocus(); }
+  }
+  /** Runs every remaining automatic fix one at a time after one confirmation for those that need consent, then rechecks once. */
+  async function fixAll(rows: DiagnosticFixRow[]) {
+    if (busy || running || !rows.length) return;
+    setBusy(true); setError(undefined); setProgress("Checking what will change…");
+    try {
+      const prepared: { row: DiagnosticFixRow; run: PreparedRun }[] = [];
+      for (const row of rows) {
+        try { prepared.push({ row, run: await prepareRun(row.plan as Extract<RemedyPlan, { kind: "run" }>, call) }); }
+        catch (failure) { outcome(row.check.name, { phase: "error", message: errorText(failure) }); }
+      }
+      const requests = prepared.flatMap(item => item.run.consent ? [item.run.consent] : []);
+      if (requests.length && !await ask(FIX_ALL, requests)) { setProgress("No changes were made."); return; }
+      for (const { row } of prepared) outcome(row.check.name, { phase: "running", text: remedyProgress(row.remedy!) });
+      for (const { row, run } of prepared) {
+        setProgress(`${settingsText(row.title)}: ${remedyProgress(row.remedy!)}`);
+        try { await commitRun(run, call); outcome(row.check.name, { phase: "running", text: "Rechecking…" }); }
+        catch (failure) { outcome(row.check.name, { phase: "error", message: errorText(failure) }); }
+      }
+      const rechecked = await recheck();
+      for (const { row } of prepared) setOutcomes(current => {
+        if (current[row.check.name]?.phase !== "running") return current;
+        const { [row.check.name]: _running, ...rest } = current;
+        return rechecked ? { ...rest, [row.check.name]: { phase: "rechecked" } } : rest;
+      });
+      if (rechecked) setProgress("Automatic fixes finished and checks refreshed. Review any remaining issues.");
+    } finally { setBusy(false); keepFocus(); }
+  }
+  async function restart(remedy: NonNullable<Check["remedy"]>) {
+    const plan = remedyPlan(remedy);
+    if (busy || running || plan?.kind !== "run") return;
+    setBusy(true); setError(undefined);
+    try {
+      const run = await prepareRun(plan, call);
+      if (run.consent && !await ask(INTERNAL, [run.consent])) { setProgress("No changes were made."); return; }
+      outcome(INTERNAL, { phase: "running", text: "Restarted · rechecking…" });
+      setProgress("Restarting the pacer service…");
+      await commitRun(run, call);
+      if (await recheck()) setProgress("The pacer service restarted and checks were refreshed.");
+    } catch (failure) { setError(failure); setProgress("The restart did not finish."); }
+    finally { outcome(INTERNAL); setBusy(false); keepFocus(); }
+  }
+  async function startAgentTask() {
+    if (!agent || agent.phase !== "compose") return;
+    const { check, scope } = agent;
+    setAgent({ ...agent, phase: "starting", error: undefined });
+    try {
+      const result = await call<{ task: { task_id: string; state?: string } }>("doctor.fix.delegate", { check: check.name, scope });
+      const id = result.task.task_id;
+      setStarted(current => ({ ...current, [check.name]: { id, state: result.task.state ?? "queued", diagnosticCheck: check.name, updatedAt: Date.now() / 1000 } }));
+      setAgent(current => current && { ...current, phase: "started", taskId: id, resolve: undefined });
+      agent.resolve?.(true);
+    } catch (failure) { setAgent(current => current && { ...current, phase: "compose", error: failure }); }
+  }
+  function closeAgent() {
+    if (agent?.phase === "starting") return;
+    agent?.resolve?.(false);
+    setAgent(undefined);
+    keepFocus();
+  }
+  function closeReview() {
+    if (review?.phase === "applying") return;
+    review?.resolve?.(false);
+    setReview(undefined);
+    keepFocus();
   }
   async function copyReport() {
     if (!report) return;
     setCopyError(undefined);
     try { await navigator.clipboard.writeText(diagnosticReportText(report)); setProgress("Report copied."); }
-    catch (error) { setCopyError(error); setProgress("Could not copy the report."); }
+    catch (failure) { setCopyError(failure); setProgress("Could not copy the report."); }
   }
+  const page = report && diagnosticsPage({ checks: report.checks, baseline, outcomes, tasks });
+  const autoLeft = page?.autoLeft ?? [];
+  const locked = busy || running;
   return <><PageHead>
     <header className="pc-diagnostics-header">
       <div><h1>Diagnostics</h1><p className="pc-diagnostic-caption">Checks that pacer, your planner and every executor are wired up.{report && ` ${diagnosticTiming(report)}.`}</p></div>
       {report && <Button onClick={() => void copyReport()}>Copy report</Button>}
-      <Button variant="primary" disabled={action.busy} aria-describedby={action.busy ? "diagnostics-progress" : undefined}
+      <Button ref={runButton} variant={autoLeft.length ? "secondary" : "primary"} disabled={locked} aria-describedby={locked ? "diagnostics-progress" : undefined}
         onClick={() => void runChecks()}>Run all checks</Button>
+      {autoLeft.length > 0 && <Button variant="primary" aria-disabled={locked || undefined} aria-describedby={locked ? "diagnostics-progress" : undefined}
+        onClick={() => { if (!locked) void fixAll(autoLeft); }}>{page!.fixAllLabel}</Button>}
     </header>
   </PageHead>
   <section id="diagnostics" aria-label="Diagnostics" className="pc-diagnostics">
     <div role="status" aria-live="polite" id="diagnostics-progress" className={progress ? undefined : "sr-only"}>{progress}</div>
-    <ErrorMessage error={action.error}/><ErrorMessage error={copyError}/>
-    {preview && <section className="pc-card" aria-label="Repair preview" aria-busy={action.busy}>
-      <SectionHeading>Review repair</SectionHeading>
-      <p>Reconnect the selected planner integration. Review the files that will change before applying this repair.</p>
-      <Disclosure className="pc-disclosure pc-disclosure--wrap" summary="Files and undo instructions">
-        <ul>{preview.files.map(file => <li key={file}><SettingsPath path={file}/></li>)}</ul><p>You can disconnect the integration later from Budget &amp; pacing.</p>
-      </Disclosure>
-      <div className="u3-actions"><Button disabled={action.busy} onClick={() => void repair()}>Apply repair</Button>
-        <Button variant="ghost" disabled={action.busy} onClick={() => {setPreview(undefined);setProgress("Repair cancelled. No changes were applied.");}}>Cancel</Button></div>
-    </section>}
-    {report && <div aria-busy={action.busy}><DiagnosticResults report={report} busy={action.busy} onRepair={agent => void previewRepair(agent)}/></div>}
+    <ErrorMessage error={error}/><ErrorMessage error={copyError}/>
+    {report && <div aria-busy={locked}><DiagnosticResults report={report} baseline={baseline} outcomes={outcomes} tasks={tasks} busy={locked} consent={consent}
+      internalProgress={outcomes[INTERNAL]?.phase === "running" ? (outcomes[INTERNAL] as {text: string}).text : undefined}
+      onRemedy={(row, plan, secondary) => void runRemedy(row, plan, secondary)}
+      onRestart={page?.internal ? () => void restart(page.internal!.remedy) : undefined}
+      onCopyReport={() => void copyReport()}/></div>}
     <NativeValidationSetup/>
-  </section></>;
+  </section>
+  {review && <ReviewSheet review={review} report={report} onApply={() => review.resolve?.(true)} onClose={closeReview}/>}
+  {agent && <AgentSheet agent={agent} report={report} onScope={scope => setAgent(current => current && { ...current, scope })} onStart={() => void startAgentTask()} onClose={closeAgent}/>}
+  </>;
 }

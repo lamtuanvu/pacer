@@ -86,6 +86,7 @@ import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegat
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 import { callerParticipant } from "../messaging/participants";
+import { delegateDiagnosticFix, recheckDiagnostic, type RunDoctor } from "../core/doctor-fix";
 
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
 
@@ -115,6 +116,10 @@ export interface OpDeps {
   runUpdate?: typeof runUpdate;
   update?: Partial<Pick<UpdateDeps, "standalone" | "execPath">>;
   gh?: IssueDeps["gh"];
+  /** Runs the doctor for `doctor.fix.delegate` and the recheck after an accepted fix. */
+  doctor?: RunDoctor;
+  /** Receives the background recheck that follows accepting a diagnostics fix task. */
+  diagnosticRecheck?: (pending: Promise<void>) => void;
 }
 export interface OpDef<P extends z.ZodTypeAny = z.ZodTypeAny> { description: string; params: P; handler: (ctx: Ctx, p: z.infer<P>, deps: OpDeps) => unknown }
 
@@ -192,6 +197,14 @@ function userStartedRetry(ctx: Ctx, id: string, expectRev: number | undefined, e
   if (!task || !core.tasks.userStartedRoot(ctx, task)) return null;
   const rev = expectRev ?? task.rev;
   return retryWork(ctx, id, { expectRev: rev, requestId: `retry-${id}-${rev}`, ...(executor ? { executor } : {}) }, deps.spawnRunner ?? spawnRunner).then(summarizeTask);
+}
+/** Accepting a diagnostics fix task reruns its check in the background; clients refresh on the config event. */
+function recheckAfterAccept(ctx: Ctx, id: string, deps: OpDeps): void {
+  if (!readTask(ctx, id)?.diagnosticCheck) return;
+  const pending = recheckDiagnostic(ctx, id, deps.doctor ?? setup.doctor).then(() => {}, error => {
+    appendActivity(ctx, {kind: "config", level: "warn", text: `Diagnostics recheck failed: ${toCoreError(error).message}`, taskId: id});
+  });
+  deps.diagnosticRecheck?.(pending);
 }
 function taskMutation<T>(ctx: Ctx, id: string, expect: number | undefined, action: () => T): T {
   return withTaskLock(ctx, id, () => {
@@ -357,7 +370,15 @@ export const OPS: Record<string, OpDef> = {
     handler: (ctx, p) => mutation(ctx, "machine", async () => { const m = await import("../identity"); await m.setMachineName(ctx, p.name, p.expect_rev); return m.machineView(await m.ensureIdentity(ctx), await m.cloneSuspected(ctx)); }) }),
   "machine.rotate": op({ description: "Replace this machine's key and id. Paired machines must be told or pair again. An unavailable error with data.rotationPending true (and data.oldId, data.newId) means the new key is already in place but finishing the rotation failed; it completes the next time pacer loads the machine identity.", params: z.object({}),
     handler: ctx => mutation(ctx, "machine", async () => { const { rotateIdentity } = await import("../identity"); const r = await rotateIdentity(ctx); return { oldId: r.oldId, newId: r.newId }; }) }),
-  "doctor.run": op({ description: "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.", params: z.object({}), handler: (ctx) => setup.doctor(ctx) }),
+  "doctor.run": op({ description: "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed. Each warning or failure carries one remedy { kind: auto|review|user|agent|internal, label, op?, params?, consent?, url?, secondary? } naming a registered operation; params never include consent. consent: true marks an op that requires it: show what will change and send consent: true only after the user's click.", params: z.object({}), handler: (ctx) => setup.doctor(ctx) }),
+  "doctor.fix.delegate": op({
+    description: "Start a pacer task to fix (scope fix) or investigate (scope investigate, changes nothing) one failing diagnostics check. The brief is built from the service's latest doctor result for that check, never from client text, and goes through task.delegate routing, pacing and review. The task records diagnosticCheck; accepting it reruns the check and records diagnosticRecheck. Task reads (task.get, task.list, snapshot tasks) expose both.",
+    params: z.object({ check: z.string().min(1).max(256), scope: z.enum(["fix", "investigate"]) }),
+    handler: (ctx, p, deps) => {
+      if (isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
+      return delegateDiagnosticFix(ctx, p, { doctor: deps.doctor ?? setup.doctor, delegate: params => callOp(ctx, "task.delegate", params, deps) });
+    },
+  }),
   "setup.health": op({
     description: "Run the startup Checking setup gate: bounded doctor and setup checks as fixed steps, persist a last-pass fingerprint, and say whether the full-window stage can skip. Removable-volume probes stay out of the gate. trigger update forces the stage after an update.",
     params: z.object({ trigger: z.enum(["startup", "update", "manual"]).optional() }),
@@ -492,14 +513,18 @@ export const OPS: Record<string, OpDef> = {
     })
       .refine(p => p.verdict !== "send_back" || !!p.note?.trim(), "send_back requires a note")
       .refine(p => p.verdict !== "retry" || !!p.executor?.trim(), "retry requires an executor"),
-    handler: (ctx, p, deps) => {
+    handler: async (ctx, p, deps) => {
       if ((p.verdict === "send_back" || p.verdict === "retry") && isExecutorSession(ctx)) throw new CoreError("not_allowed", EXECUTOR_DELEGATE_ERROR);
       const work=getWork(ctx,p.id)?readTask(ctx,p.id):null;
+      let result: unknown;
       if(work&&!(p.verdict==="send_back"&&core.tasks.canContinue(ctx,work))){
         if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
-        return taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
+        result = await taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
+      } else {
+        result = await taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id)&&p.verdict!=="send_back")recordWorkReview(ctx,p.id,"human");return result;});
       }
-      return taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id)&&p.verdict!=="send_back")recordWorkReview(ctx,p.id,"human");return result;});
+      if (p.verdict === "accept") recheckAfterAccept(ctx, p.id, deps);
+      return result;
     },
   }),
   "attention.dismiss": op({ description: "Dismiss a raised attention item.", params: z.object({id:z.string().min(1).max(256)}), handler: (ctx,p) => attention.dismiss(ctx,p.id) }),

@@ -6,6 +6,16 @@ import { initialState } from "../app/src/data/store";
 import { callOp, opNames } from "../src/api/ops";
 import { V3_ONLY_OPS } from "../src/api/v2-compat";
 import { fakeCtx } from "./helpers";
+import type { Remedy } from "../src/install/doctor";
+
+const review: Remedy = {kind:'review',label:'Review and fix',op:'agent.preview',params:{agent:'claude-code'}};
+const updateFiles: Remedy = {kind:'auto',label:'Update files',op:'agent.connect',params:{agent:'cursor'},consent:true};
+const refresh: Remedy = {kind:'auto',label:'Refresh usage',op:'limits.refresh',params:{account:'codex#tse'}};
+const service: Remedy = {kind:'auto',label:'Install pacer service',op:'service.install',consent:true};
+const signIn: Remedy = {kind:'user',label:'Sign in to Codex',op:'account.signin',params:{name:'codex'}};
+const billing: Remedy = {kind:'user',label:'Open Claude billing',url:'https://claude.ai/settings/billing',secondary:{label:'Turn off Claude',op:'runner.block',params:{id:'claude-code',reason:'No active subscription'}}};
+const internal: Remedy = {kind:'internal',label:'Restart pacer service',op:'service.install',consent:true};
+const agentTask = (check: string): Remedy => ({kind:'agent',label:'Fix with agent',op:'doctor.fix.delegate',params:{check,scope:'fix'}});
 
 test("diagnostics starts idle and has an accessible service-backed run action", () => {
   const html = renderToString(<TaskContext.Provider value={{state:initialState(),api:{} as any}}><DiagnosticsSection/></TaskContext.Provider>);
@@ -15,17 +25,17 @@ test("diagnostics starts idle and has an accessible service-backed run action", 
   // The hook-invocation caveat belongs to a run result, not the idle page.
   expect(html).not.toContain("unverified until observed");
 });
-test("attention default does not mistake unverified checks for passed checks", () => {
+test("unverified and informational checks stay out of Needs a fix and passed counts", () => {
   const report = {checkedAt:0, checks:[
     {name:"Claude hook configuration",level:"ok" as const,evidence:"configured" as const,detail:"SessionStart command present"},
     {name:"Claude handler probes",level:"ok" as const,evidence:"tested" as const,detail:"Isolated fixture"},
     {name:"Claude host invocation",level:"info" as const,evidence:"unverified" as const,detail:"No host evidence",fix:"Inspect /hooks"},
   ]};
   const html = renderToString(<DiagnosticResults report={report}/>);
-  expect(html).toContain('Showing 0 of 3 checks needing attention.');
-  expect(html).toContain('No checks need attention.');
-  expect(html).toContain('data-count="2"');
-  expect(html).toContain('data-count="1"');
+  expect(html).toContain('No problems found.');
+  expect(html).not.toContain('Needs a fix');
+  expect(html).toContain('Passed · 2');
+  expect(html).toContain('Information and not checked · 1');
   for (const word of ['Configured', 'Tested working', 'Unverified']) expect(diagnosticReportText(report)).toContain(word);
 });
 test("doctor operation is additive and v3-only, with structured results and honest host evidence", async () => {
@@ -86,37 +96,29 @@ test('diagnostic groups separate issues, passed and unverified without counting 
   expect(result.issueCount).toBe(1);
 });
 
-test('results expose report-backed groups with individual collapsed rows', () => {
+test('results group problems into one card and collapse passed checks', () => {
   const html = renderToString(<DiagnosticResults report={{checkedAt:0,checks:[
-    {name:'Install codex',level:'warn',detail:'missing file',fix:'arbitrary command'},
-    {name:'Skill codex',level:'warn',detail:'changed file'},
+    {name:'Install codex',level:'warn',detail:'missing file',fix:'arbitrary command',remedy:review},
+    {name:'Skill codex',level:'warn',detail:'changed file',remedy:updateFiles},
     {name:'Binary codex',level:'ok',detail:'installed'},
   ]}}/>);
-  expect(html).toContain('Needs attention');
-  expect(html).toContain('Executors');
-  expect(html).toContain('Passed');
-  expect(html.match(/<details/g)).toHaveLength(3);
-  expect(html).not.toContain('Plugins');
+  expect(html).toContain('Needs a fix · 2');
+  expect(html).toContain('pc-diagnostic-list--card');
+  expect(html).toContain('Passed · 1');
+  // Two rows' technical details, the collapsed Passed panel and its row; nothing starts open.
+  expect(html.match(/<details/g)).toHaveLength(4);
+  expect(html).not.toMatch(/<details[^>]*\sopen/);
+  expect(html).not.toContain('arbitrary command<');
 });
 
-test('repairs only target the selected planner integration, never suggested strings or another account', async () => {
-  const { diagnosticRepair } = await import('../src/view-model/diagnostics');
-  expect(diagnosticRepair({name:'Install codex#work',level:'warn',detail:''}, 'codex#work')).toEqual({agent:'codex'});
-  expect(diagnosticRepair({name:'Install codex#other',level:'warn',detail:''}, 'codex#work')).toBeUndefined();
-  expect(diagnosticRepair({name:'Service',level:'warn',detail:'',fix:'pacer install codex'}, 'codex')).toBeUndefined();
-  expect(diagnosticRepair({name:'Claude hook configuration',level:'warn',detail:''}, 'claude-code')).toEqual({agent:'claude-code'});
-  expect(diagnosticRepair({name:'Install codex',level:'ok',detail:''}, 'codex')).toBeUndefined();
+test('unverified warnings remain fixable problems without double counting', () => {
+ const html=renderToString(<DiagnosticResults report={{checkedAt:0,checks:[{name:'Claude hook configuration',level:'warn',evidence:'unverified',detail:'missing settings',remedy:agentTask('Claude hook configuration')}]}}/>);
+ expect(html).toContain('Needs a fix · 1');
+ expect(html).not.toContain('Passed');
+ expect(html).not.toContain('Information and not checked');
 });
 
-test('unverified evidence remains visible on warnings without double counting', () => {
- const html=renderToString(<DiagnosticResults report={{checkedAt:0,checks:[{name:'Claude hook configuration',level:'warn',evidence:'unverified',detail:'missing settings'}]}}/>);
- expect(html).toContain('Not checked');
- expect(html).toContain('Unverified');
- // Unverified warnings remain warnings: summary buckets never count a row twice.
- expect(html).toContain('data-count="0"');
-});
-
-test('named install checks retain their account and unavailable account folders offer setup instead of repair', async () => {
+test('named install checks retain their account and unavailable account folders get no reconnect', async () => {
  const {runDoctor}=await import('../src/install/doctor');
  const {mkdirSync,writeFileSync}=await import('node:fs');
  const {join}=await import('node:path');
@@ -132,32 +134,28 @@ test('named install checks retain their account and unavailable account folders 
  writeFileSync(join(ctx.pacerHome,'strategy.yaml'),JSON.stringify({planner:'claude-code#missing',accounts:{missing:{kind:'claude',orca_account:'not-present'}},runners:{'claude-code#missing':{}}}));
  const unavailable=await callOp(ctx,'doctor.run',{}) as any;
  expect(unavailable.repairAvailable).toBe(false);
- const html=renderToString(<DiagnosticResults report={unavailable} onRepair={()=>{}}/>);
- expect(html).not.toContain('>Repair<');
+ const html=renderToString(<DiagnosticResults report={unavailable} onRemedy={()=>{}}/>);
+ expect(html).not.toContain('Review and fix');
+ expect(html).not.toContain('Update files');
 });
 
-test('setup links lead to relevant flows and do not imply planner setup fixes host issues', async () => {
- const {diagnosticSetupLink}=await import('../src/view-model/diagnostics');
- expect(diagnosticSetupLink({name:'Usage codex#work',level:'warn',detail:''})?.href).toBe('#/settings/accounts');
- expect(diagnosticSetupLink({name:'Service',level:'warn',detail:''})?.href).toBe('#/setup');
- expect(diagnosticSetupLink({name:'macOS code signing',level:'warn',detail:''})).toBeUndefined();
- expect(diagnosticSetupLink({name:'Orca',level:'warn',detail:''})).toBeUndefined();
-});
-
- test('failures start collapsed with plain details and totals count each check once', () => {
+test('rows start collapsed with plain details and omit missing timing', () => {
  const html = renderToString(<DiagnosticResults report={{checkedAt:1,checks:[
- {name:'Service',level:'fail',detail:'Connection refused',fix:'Start the service'},
+ {name:'Service',level:'fail',detail:'Connection refused',fix:'Start the service',remedy:service},
  {name:'Binary codex',level:'ok',detail:'Installed'},
  {name:'Claude host invocation',level:'info',evidence:'unverified',detail:'No observation'},
  {name:'Activity',level:'info',detail:'Available'},
  ]}}/>);
- expect(html).not.toMatch(/<details[^>]*open[^>]*class="pc-disclosure pc-diagnostic-row__details/);
+ expect(html).not.toMatch(/<details[^>]*\sopen/);
  expect(html).toContain('Connection refused');
- expect(html).toContain('Start the service');
- expect(html.match(/data-count="1"/g)).toHaveLength(3);
+ expect(html).toContain('Reported hint: Start the service');
+ expect(html).toContain('fix runs: service.install (asks you first)');
+ expect(html).toContain('Needs a fix · 1');
+ expect(html).toContain('Passed · 1');
+ expect(html).toContain('Information and not checked · 2');
  expect(html).not.toContain('took');
  expect(html).not.toContain('0.0s');
- });
+});
 
 test('copy summary contains only existing report data', () => {
  const text = diagnosticReportText({checkedAt:1,checks:[{name:'Service',level:'fail',detail:'Unavailable',fix:'Check service'}]});
@@ -174,13 +172,14 @@ test('diagnostic causes and remediation survive technical service and CLI eviden
  expect(diagnosticNextStep('pacer install codex#work')).toContain('Reconnect');
 });
 
-test('attention rows expose next steps without opening technical details and omit missing timing', () => {
- const html=renderToString(<DiagnosticResults report={{checkedAt:1,checks:[{name:'Service',level:'warn',detail:'installed: true; running: false; healthy: false; binary matches current: true',fix:'pacer service restart'}]}}/>);
+test('rows explain the problem in plain words and keep the raw output in Technical details', () => {
+ const html=renderToString(<DiagnosticResults report={{checkedAt:1,checks:[{name:'Service',level:'warn',detail:'installed: true; running: false; healthy: false; binary matches current: true',fix:'pacer service restart',remedy:service}]}}/>);
  expect(html).toContain('not running');
  expect(html).toContain('Technical details');
+ expect(html).toContain('installed: true; running: false');
  expect(html).not.toContain('Not recorded');
- expect(html).toContain('Search checks');
- expect(html).toContain('Filter checks');
+ // The search and filter controls are gone: the page shows only what needs a fix.
+ expect(html).not.toContain('Search checks');
 });
 
 
@@ -223,4 +222,244 @@ test('configured Claude hooks explain account-folder mismatch without claiming m
   expect(diagnosticSummary(check)).not.toContain('missing');
   expect(diagnosticGuidance(check)).toContain('matching planner account');
  }
+});
+
+test('each remedy kind maps to one plan, and consent is never taken from the server params', async () => {
+  const { remedyPlan, secondaryPlan } = await import('../src/view-model/diagnostics');
+  expect(remedyPlan(refresh)).toEqual({kind:'run',op:'limits.refresh',params:{account:'codex#tse'}});
+  expect(remedyPlan({...updateFiles,params:{agent:'cursor',consent:true}})).toMatchObject({kind:'run',op:'agent.connect',params:{agent:'cursor'},consent:{confirmLabel:'Update files'}});
+  expect(remedyPlan(service)).toMatchObject({kind:'run',op:'service.install',params:{},consent:{title:'Install pacer service'}});
+  expect(remedyPlan(review)).toEqual({kind:'review',agent:'claude-code'});
+  expect(remedyPlan({...review,params:{agent:'not-an-agent'}})).toBeUndefined();
+  expect(remedyPlan(signIn)).toEqual({kind:'signin',op:'account.signin',params:{name:'codex'}});
+  expect(remedyPlan(billing)).toEqual({kind:'open',url:'https://claude.ai/settings/billing'});
+  expect(secondaryPlan(billing)).toEqual({kind:'run',op:'runner.block',params:{id:'claude-code',reason:'No active subscription'}});
+  expect(remedyPlan({kind:'user',label:'Privacy',url:'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'})).toMatchObject({kind:'open'});
+  expect(remedyPlan(agentTask('Binary codex'))).toEqual({kind:'delegate',check:'Binary codex'});
+  expect(remedyPlan(internal)).toMatchObject({kind:'run',op:'service.install',consent:{title:'Restart the pacer service',confirmLabel:'Restart'}});
+});
+
+test('remedy links open only https pages and System Settings panes', async () => {
+  const { remedyPlan, remedyUrl } = await import('../src/view-model/diagnostics');
+  for (const url of ['http://example.com','file:///etc/passwd','javascript:alert(1)','x-apple.systempreferencesX:','  https://example.com']) {
+    expect(remedyUrl(url)).toBeUndefined();
+    expect(remedyPlan({kind:'user',label:'Open',url})).toBeUndefined();
+  }
+  expect(remedyUrl('https://example.com/billing')).toBe('https://example.com/billing');
+});
+
+test('file-update consent names the files and service consent names the restart', async () => {
+  const { remedyConsent } = await import('../src/view-model/diagnostics');
+  expect(remedyConsent(updateFiles, ['a','b'])).toEqual({title:'Update pacer’s files for Cursor',message:'Pacer updates only its own files and keeps your edits. These 2 files change:',confirmLabel:'Update files'});
+  expect(remedyConsent(service).message).toContain('restarts its background service');
+  expect(remedyConsent(internal).confirmLabel).toBe('Restart');
+});
+
+test('fix tasks drive the row state from task reads, and only a passed recheck counts as fixed', async () => {
+  const { diagnosticTaskStatus } = await import('../src/view-model/diagnostics');
+  const base = {id:'t1',diagnosticCheck:'Binary codex',updatedAt:1};
+  expect(diagnosticTaskStatus([{...base,state:'running'}],'Binary codex')).toMatchObject({label:'Fix task running',open:true,taskId:'t1'});
+  expect(diagnosticTaskStatus([{...base,state:'done'}],'Binary codex')).toMatchObject({label:'Waiting for your review',open:true});
+  expect(diagnosticTaskStatus([{...base,state:'needs_input'}],'Binary codex')).toMatchObject({label:'Needs your answer',open:true});
+  expect(diagnosticTaskStatus([{...base,state:'failed'}],'Binary codex')).toBeUndefined();
+  expect(diagnosticTaskStatus([{...base,state:'done',review:{accepted:true}}],'Binary codex')).toMatchObject({label:'Rechecking'});
+  expect(diagnosticTaskStatus([{...base,state:'done',review:{accepted:true},diagnosticRecheck:{at:2,passed:true,level:'ok',detail:'found'}}],'Binary codex')).toMatchObject({label:'Fixed and rechecked',tone:'good',open:false});
+  expect(diagnosticTaskStatus([{...base,state:'done',review:{accepted:true},diagnosticRecheck:{at:2,passed:false,level:'fail',detail:'still missing'}}],'Binary codex')).toMatchObject({label:'Still failing',detail:'still missing'});
+  expect(diagnosticTaskStatus([{...base,state:'done',review:{accepted:false}}],'Binary codex')).toBeUndefined();
+  expect(diagnosticTaskStatus([{...base,state:'running',dismissed:true}],'Binary codex')).toBeUndefined();
+  expect(diagnosticTaskStatus([{...base,state:'running'},{...base,id:'t2',state:'done',updatedAt:5}],'Binary codex')?.taskId).toBe('t2');
+  expect(diagnosticTaskStatus([{...base,state:'running'}],'Binary cursor')).toBeUndefined();
+});
+
+const mixedChecks = () => [
+  {name:'Usage codex#tse',level:'warn' as const,detail:'stale',remedy:refresh},
+  {name:'Install cursor',level:'warn' as const,detail:'changed',remedy:updateFiles},
+  {name:'Skill claude-code',level:'warn' as const,detail:'missing',remedy:review},
+  {name:'Login codex',level:'warn' as const,detail:'no login indicator',remedy:signIn},
+  {name:'Usage claude-code',level:'warn' as const,detail:'no active subscription',remedy:billing},
+  {name:'CLI opencode',level:'fail' as const,detail:'help failed',remedy:agentTask('CLI opencode')},
+  {name:'Install claude-code',level:'warn' as const,detail:'CoreError: boom',remedy:internal},
+  {name:'Skill codex',level:'warn' as const,detail:'CoreError: boom',remedy:internal},
+  {name:'Service',level:'ok' as const,detail:'healthy'},
+];
+
+test('the page counts what pacer can fix by itself and offers one fix-all for automatic remedies only', async () => {
+  const { diagnosticsPage } = await import('../src/view-model/diagnostics');
+  const page = diagnosticsPage({checks: mixedChecks()});
+  expect(page.openCount).toBe(6);
+  expect(page.rows.map(row => row.kind)).toEqual(['Automatic','Automatic','Review changes','Needs you','Needs you','Agent']);
+  expect(page.autoLeft.map(row => row.check.name)).toEqual(['Usage codex#tse','Install cursor']);
+  expect(page.fixAllLabel).toBe('Fix 2 issues automatically');
+  expect(page.headline).toBe('6 problems. Pacer can fix 2 by itself; the rest take one click each.');
+  expect(page.rows[3]!.detail).toBe('No login indicator. Only you can do this. Pacer rechecks when you come back.');
+  // A running remedy or an open fix task leaves the fix-all set.
+  const running = diagnosticsPage({checks: mixedChecks(), outcomes:{'Usage codex#tse':{phase:'running',text:'Refreshing usage…'}}});
+  expect(running.autoLeft.map(row => row.check.name)).toEqual(['Install cursor']);
+  expect(running.fixAllLabel).toBe('Fix 1 issue automatically');
+  expect(running.rows[0]!.progress).toBe('Refreshing usage…');
+});
+
+test('a fixed row stays in place as fixed after the recheck, and a failed fix shows the new error', async () => {
+  const { diagnosticsPage } = await import('../src/view-model/diagnostics');
+  const baseline = ['Usage codex#tse','Install cursor'];
+  const checks = [{name:'Usage codex#tse',level:'ok' as const,detail:'fresh'},{name:'Install cursor',level:'warn' as const,detail:'changed',remedy:updateFiles}];
+  const page = diagnosticsPage({checks, baseline, outcomes:{'Install cursor':{phase:'error',message:'Permission denied'}}});
+  expect(page.rows.map(row => [row.check.name,row.fixed,row.kind])).toEqual([['Usage codex#tse',true,'Fixed'],['Install cursor',false,'Automatic']]);
+  expect(page.rows[0]!.detail).toBe('Fixed and rechecked just now.');
+  expect(page.rows[1]!.problem).toBe('Permission denied');
+  expect(page.openCount).toBe(1);
+  expect(diagnosticsPage({checks:[{name:'Usage codex#tse',level:'ok',detail:'fresh'}], baseline}).headline).toBe('Everything that can be fixed is fixed.');
+});
+
+test('checks pacer could not run form one group with one cause and one restart', async () => {
+  const { diagnosticsPage } = await import('../src/view-model/diagnostics');
+  const page = diagnosticsPage({checks: mixedChecks()});
+  expect(page.rows.some(row => row.remedy?.kind === 'internal')).toBe(false);
+  expect(page.internal?.titles).toEqual(['Integration · Claude','Planner skill · Codex']);
+  expect(page.internal?.title).toBe('A pacer problem stopped 2 checks. Your setup wasn’t tested.');
+  expect(page.internal?.remedy.label).toBe('Restart pacer service');
+  expect(page.internal?.technical).toContain('Same cause for all 2 checks.');
+  const html = renderToString(<DiagnosticResults report={{checkedAt:1,checks:mixedChecks()}} onRestart={()=>{}} onCopyReport={()=>{}}/>);
+  expect(html).toContain('Couldn’t check · 2');
+  expect(html.match(/A pacer problem stopped/g)).toHaveLength(1);
+  expect(html).toContain('>Restart pacer service<');
+  expect(html).toMatch(/Copy report<span class="sr-only"> to send to pacer/);
+  const only = diagnosticsPage({checks: mixedChecks().filter(check => check.remedy === internal)});
+  expect(only.headline).toBe('Pacer couldn’t run 2 checks. Nothing else needs a fix.');
+});
+
+test('each row shows its remedy kind, one action and an inline consent before consent-gated changes', () => {
+  const html = renderToString(<DiagnosticResults report={{checkedAt:1,checks:mixedChecks()}} onRemedy={()=>{}}/>);
+  for (const pill of ['Automatic','Review changes','Needs you','Agent']) expect(html).toContain(`>${pill}</span>`);
+  for (const label of ['Refresh usage','Update files','Review and fix','Sign in to Codex','Open Claude billing','Turn off Claude','Fix with agent'])
+    expect(html).toContain(`>${label}<span class="sr-only"> for `);
+  const consent = {key:'Install cursor',requests:[{title:'Update pacer’s files for Cursor',message:'These 2 files change:',confirmLabel:'Update files',files:['$HOME/.cursor/rules/pacer.mdc','$HOME/.cursor/hooks.json']}],resolve:()=>{}};
+  const confirming = renderToString(<DiagnosticResults report={{checkedAt:1,checks:mixedChecks()}} consent={consent} onRemedy={()=>{}}/>);
+  expect(confirming).toContain('role="group" aria-label="Update pacer’s files for Cursor"');
+  expect(confirming).toContain('hooks.json<wbr/>');
+  expect(confirming).toContain('pacer.mdc<wbr/>');
+  // While confirming, the row's own button stays mounted (so focus can return to it) but does nothing.
+  expect(confirming).toMatch(/aria-disabled="true"[^>]*>Update files<span class="sr-only"> for Integration · Cursor/);
+  expect(confirming).toContain('>Cancel<');
+});
+
+test('rows with an open fix task link to the task and hide the remedy button', () => {
+  const tasks = [{id:'task 1',state:'running',diagnosticCheck:'CLI opencode',updatedAt:1}];
+  const html = renderToString(<DiagnosticResults report={{checkedAt:1,checks:mixedChecks()}} tasks={tasks} onRemedy={()=>{}}/>);
+  expect(html).toContain('Fix task running');
+  expect(html).toContain('href="#/tasks/task%201"');
+  expect(html).not.toContain('>Fix with agent<');
+  const failed = renderToString(<DiagnosticResults report={{checkedAt:1,checks:mixedChecks()}} tasks={[{...tasks[0]!,state:'done',review:{accepted:true},diagnosticRecheck:{at:2,passed:false,level:'fail',detail:'help still fails'}}]} onRemedy={()=>{}}/>);
+  expect(failed).toContain('Still failing after the fix task: help still fails');
+  expect(failed).toContain('>Fix with agent<');
+});
+
+test('the review sheet lists every file and applies only from its primary button', async () => {
+  const { ReviewSheet } = await import('../app/src/screens/settings/Diagnostics');
+  const check = {name:'Skill claude-code',level:'warn' as const,detail:'missing',remedy:review};
+  const preview = {revision:'r1',agent:'claude-code',files:['$HOME/.claude/skills/pacer/SKILL.md','$HOME/.claude/settings.json']};
+  const html = renderToString(<ReviewSheet review={{check,preview,phase:'review'}} onApply={()=>{}} onClose={()=>{}}/>);
+  expect(html).toContain('aria-label="Reconnect Claude"');
+  expect(html).toContain('2 files change');
+  expect(html).toContain('SKILL.md');
+  expect(html).toContain('settings.json');
+  expect(html).toContain('Apply and recheck');
+  expect(html.match(/pc-btn--primary/g)).toHaveLength(1);
+  const done = renderToString(<ReviewSheet review={{check,preview,phase:'done'}} report={{checkedAt:1,checks:[{...check,level:'ok'}]}} onApply={()=>{}} onClose={()=>{}}/>);
+  expect(done).toContain('Updated 2 files and rechecked: Planner skill · Claude passes.');
+});
+
+test('the agent sheet shows the brief and scope, and links to the started task', async () => {
+  const { AgentSheet } = await import('../app/src/screens/settings/Diagnostics');
+  const check = {name:'CLI opencode',level:'fail' as const,detail:'opencode --help failed',remedy:agentTask('CLI opencode')};
+  const html = renderToString(<AgentSheet agent={{check,scope:'fix',phase:'compose'}} onScope={()=>{}} onStart={()=>{}} onClose={()=>{}}/>);
+  expect(html).toContain('aria-label="Fix with agent"');
+  expect(html).toContain('Goal: Make the check “Compatibility · OpenCode” pass.');
+  expect(html).toContain('opencode --help failed');
+  expect(html).toContain('Fix it, ask before changing anything else');
+  expect(html).toContain('Investigate only');
+  expect(html).toContain('Start fix task');
+  const started = renderToString(<AgentSheet agent={{check,scope:'investigate',phase:'started',taskId:'t-9'}} onScope={()=>{}} onStart={()=>{}} onClose={()=>{}}/>);
+  expect(started).toContain('Fix task started');
+  expect(started).toContain('Investigate: Compatibility · OpenCode');
+  expect(started).toContain('href="#/tasks/t-9"');
+});
+
+function fakeHost(answers: {confirm?: boolean; review?: boolean; delegate?: boolean} = {}) {
+  const calls: [string, unknown][] = [], asked: unknown[] = [], opened: string[] = [], delegated: string[] = [];
+  const host = {
+    call: async <T,>(op: string, params: unknown) => { calls.push([op, params]); return (op === 'agent.preview' ? {revision:'rev-7',agent:(params as {agent:string}).agent,files:['$HOME/a','$HOME/b']} : {}) as T; },
+    confirm: async (request: unknown) => { asked.push(request); return answers.confirm ?? true; },
+    review: async (preview: unknown) => { asked.push(preview); return answers.review ?? true; },
+    delegate: async (check: string) => { delegated.push(check); return answers.delegate ?? true; },
+    open: (url: string) => { opened.push(url); },
+  };
+  return { host, calls, asked, opened, delegated };
+}
+
+test('dispatch: automatic remedies run and recheck; consent is sent only after confirm', async () => {
+  const { dispatchRemedy } = await import('../app/src/data/remedies');
+  const { remedyPlan } = await import('../src/view-model/diagnostics');
+  const plain = fakeHost();
+  expect(await dispatchRemedy(remedyPlan(refresh)!, plain.host)).toBe('recheck');
+  expect(plain.calls).toEqual([['limits.refresh',{account:'codex#tse'}]]);
+  expect(plain.asked).toEqual([]);
+  const files = fakeHost();
+  expect(await dispatchRemedy(remedyPlan(updateFiles)!, files.host)).toBe('recheck');
+  expect(files.asked).toEqual([expect.objectContaining({files:['$HOME/a','$HOME/b'],confirmLabel:'Update files'})]);
+  expect(files.calls).toEqual([['agent.preview',{agent:'cursor'}],['agent.connect',{agent:'cursor',preview_revision:'rev-7',consent:true}]]);
+  const declined = fakeHost({confirm:false});
+  expect(await dispatchRemedy(remedyPlan(service)!, declined.host)).toBe('cancelled');
+  expect(declined.calls).toEqual([]);
+});
+
+test('dispatch: review previews, waits for the sheet, then applies that revision with consent', async () => {
+  const { dispatchRemedy } = await import('../app/src/data/remedies');
+  const { remedyPlan } = await import('../src/view-model/diagnostics');
+  const applied = fakeHost();
+  expect(await dispatchRemedy(remedyPlan(review)!, applied.host)).toBe('recheck');
+  expect(applied.calls).toEqual([['agent.preview',{agent:'claude-code'}],['agent.connect',{agent:'claude-code',consent:true,preview_revision:'rev-7'}]]);
+  const closed = fakeHost({review:false});
+  expect(await dispatchRemedy(remedyPlan(review)!, closed.host)).toBe('cancelled');
+  expect(closed.calls).toEqual([['agent.preview',{agent:'claude-code'}]]);
+});
+
+test('dispatch: a consent-gated sign-in asks first; desktop refuses links it cannot open instead of claiming it opened them', async () => {
+  const { dispatchRemedy, openRemedyUrl } = await import('../app/src/data/remedies');
+  const { remedyPlan } = await import('../src/view-model/diagnostics');
+  const gated = {...signIn, consent: true as const};
+  const declined = fakeHost({confirm:false});
+  expect(await dispatchRemedy(remedyPlan(gated)!, declined.host)).toBe('cancelled');
+  expect(declined.calls).toEqual([]);
+  const accepted = fakeHost();
+  expect(await dispatchRemedy(remedyPlan(gated)!, accepted.host)).toBe('await-return');
+  expect(accepted.calls).toEqual([['account.signin',{name:'codex',consent:true}]]);
+  const opened: string[] = [];
+  const desktop = {desktop:true, openExternal:(url: string) => { opened.push(url); }};
+  expect(() => openRemedyUrl('x-apple.systempreferences:com.apple.preference.security', desktop)).toThrow('Open System Settings');
+  openRemedyUrl('https://claude.ai/settings/billing', desktop);
+  openRemedyUrl('x-apple.systempreferences:com.apple.preference.security', {...desktop, desktop:false});
+  expect(opened).toEqual(['https://claude.ai/settings/billing','x-apple.systempreferences:com.apple.preference.security']);
+});
+
+test('dispatch: user remedies sign in or open the link and recheck on return; agent remedies delegate', async () => {
+  const { dispatchRemedy, recheckOnReturn } = await import('../app/src/data/remedies');
+  const { remedyPlan, secondaryPlan } = await import('../src/view-model/diagnostics');
+  const user = fakeHost();
+  expect(await dispatchRemedy(remedyPlan(signIn)!, user.host)).toBe('await-return');
+  expect(await dispatchRemedy(remedyPlan(billing)!, user.host)).toBe('await-return');
+  expect(await dispatchRemedy(secondaryPlan(billing)!, user.host)).toBe('recheck');
+  expect(user.calls).toEqual([['account.signin',{name:'codex'}],['runner.block',{id:'claude-code',reason:'No active subscription'}]]);
+  expect(user.opened).toEqual(['https://claude.ai/settings/billing']);
+  const agent = fakeHost();
+  expect(await dispatchRemedy(remedyPlan(agentTask('CLI opencode'))!, agent.host)).toBe('delegated');
+  expect(agent.delegated).toEqual(['CLI opencode']);
+  expect(await dispatchRemedy(remedyPlan(agentTask('CLI opencode'))!, fakeHost({delegate:false}).host)).toBe('cancelled');
+  const target = new EventTarget(); let rechecks = 0;
+  recheckOnReturn(() => rechecks++, target as never);
+  target.dispatchEvent(new Event('focus')); target.dispatchEvent(new Event('focus'));
+  expect(rechecks).toBe(1);
+  const cancel = recheckOnReturn(() => rechecks++, target as never);
+  cancel(); target.dispatchEvent(new Event('focus'));
+  expect(rechecks).toBe(1);
 });
