@@ -1324,7 +1324,9 @@ name = "pacer-config-ops"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "icu_collator",
  "pacer-config",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
  "pacer-repos",

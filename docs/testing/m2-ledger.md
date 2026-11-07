@@ -111,14 +111,17 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `task.attach`, `task.session`, `task.takeover` | Forwarded (P6/P7) | Live session viewers, session-host metadata and headless-to-interactive takeover (`src/api/ops-session.ts`, `src/tasks/session.ts`, `takeoverTask`). Shares the attach/viewer path with `session.*`; native vt100 replay gate remains **NO-GO**. |
 | `task.send` | Forwarded (P6) | Injects text into an interactive lane's live worker with driving-lease and `expect_rev` rules (`sendMessage` in `src/tasks/send.ts`); does not create attempts. |
 | `runner.add`, `runner.block`, `runner.unblock`, `runner.check`, `runner.list` | Forwarded (P2/P6) | Executor inventory, manual blocks and scratch check jobs (`src/api/ops.ts`, `src/core/runners.ts`, `checkRunner`). Distinct from native `runner.set` / `reorder` / `remove` / `settings.*`. |
-| `strategy.build`, `strategy.preview` | Forwarded (P2) | Opens a terminal strategy-builder session and validates drafts without writes (`buildStrategy`, `strategy.preview`). Native strategy reads/writes are listed above. |
+| `strategy.preview` | Native (M2, selective) | `pacer-config::strategy_write::preview_draft` applies the draft to the current `strategy.yaml` text without writing, then reports the Bun YAML bytes, schema problems and `summary`. `pacer-config-ops::strategy_preview_ops` ranks both strategies with `usage_broker::routing_status` over the usage-broker bridge rows that `routing.status` already uses. Those rows describe the current strategy, so a valid draft that changes provider inputs (`planner`, `accounts`, `hosts`, `runners`, `legacy`, `runnerAliases`, `providers`, or pacing thresholds and reserve) forwards to TypeScript, which recomputes `computeStatus` for the draft. An unreadable current strategy also forwards. Parity: `test/native-job-strategy-setup-parity.test.ts`. |
+| `strategy.build` | Forwarded (P2) | Opens a strategy-builder session in the app terminal or an external terminal (`openInTerminal`, PTY runtime), embeds `renderText(computeStatus)` in the prompt, runs under desktop work admission and publishes an alert (`buildStrategy`). Native strategy reads/writes are listed above. |
 | `client.register`, `client.heartbeat`, `client.list` | Forwarded (P6) | Client registry with 45-second lease renewal and connected instance listing (`src/api/client.ts`). |
 | `client.control.enroll`, `client.control.targets`, `client.control.request`, `client.control.result` | Forwarded (P6/P8) | App-page control worker enrollment, allowlisted navigation/window/tray/quit requests and polled outcomes (`src/api/ops-client-control.ts`). |
 | `client.control.claim`, `client.control.complete` | Forwarded (P6/P8) | Worker-side claim/complete loop for distributed UI actions; worker credentials stay page-private. |
 | `project.messaging.get`, `project.messaging.set`, `project.messaging.remove` | Native (P6, selective) | `pacer-config::project_messaging` owns `project-messaging.json` reads, Zod-order normalization, revision checks and atomic writes under the shared `project-messaging` lock; set/remove publish the `project-messaging` config area via the P3-B publisher. Repository keys are native. Absolute checkout paths (Core repository probe), an unreadable or schema-invalid policy file (Node read errors and Zod issue text) and set params with invalid nested `rules` items or `liveness` selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `project.strategy.list`, `project.strategy.get`, `project.strategy.set`, `project.strategy.remove` | Native (M2, selective) | `pacer-config-ops::project_strategy_ops` builds `repo` references from `pacer-repos` (read-only for policy keys and `list`, pruning for other keys as `resolveRepoInput` does), resolves executor aliases with `pacer_lifecycle::resolve_runner`, and owns `project-strategies.json` compare-and-set writes under the shared `project-strategies` lock in Zod schema order; set/remove publish the `project-strategies` config area. Absolute checkout paths resolve natively through `pacer-repos` (`resolveRepoInput` for get/remove, including `identityUnverified` references; strict `resolveRepo` for set) and register the checkout under the `repos` lock. Registries that `repo.list` forwards, an unloadable strategy and an unreadable or schema-invalid policy file selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `job.list`, `job.get`, `job.cancel` | Forwarded (P6) | Shared async job store reads and cancellation for host checks, runner checks, updates and similar targets (`src/jobs/`). |
-| `executor.setup.candidates`, `executor.setup.models`, `executor.setup.connect` | Forwarded (P6/P9) | OpenCode executor onboarding: candidate discovery, model lists and provider connect hand-off (`src/opencode/setup.ts`, endpoint plugin). |
+| `job.list`, `job.get`, `job.cancel` | Native (M2) | `pacer-task-ops::job_ops` reads `state/jobs/<id>.json` with the `pacer-lifecycle::jobs` helpers: id validation, `list` pruning of expired jobs and ICU-sorted output. `cancel` marks a running job `endedAt` and writes the file privately; the TypeScript job owner polls its file, so the write cancels across processes. Rust then publishes the redacted `job` entity event (`redactEndpointError` and email redaction). Job files whose shapes the TypeScript reader treats differently (non-object JSON, non-number `startedAt` or `endedAt`, unreadable directory) forward. Parity: `test/native-job-strategy-setup-parity.test.ts`. |
+| `executor.setup.models` | Native (M2, selective) | `pacer-config-ops::executor_setup_ops` ranks cached catalog models from `cache/models.json` (fresh within 24 hours, strict `parseCatalog` shape): usable filter, coding, context and release ordering with ICU collation, and `classify` usage labels. The `local` group, `base_url` probes and providers without a usable cached catalog entry forward, because they need local model-server probes, the `opencode models` subprocess or a models.dev fetch. |
+| `executor.setup.connect` | Native (M2) | Pure: Zod checks on `provider` and `key`, then the `opencode auth login <provider>` hand-off. It writes nothing. |
+| `executor.setup.candidates` | Forwarded (P6/P9) | Probes local model servers through the endpoint plugin over the network, runs `opencode auth list` and may fetch the models.dev catalog (`src/opencode/setup.ts`). |
 | `attention.dismiss`, `attention.snooze` | Forwarded (P6) | Attention item mutations that feed notify derivation (`src/attention/`). |
 | `issue.import`, `issue.search` | Forwarded (P8) | GitHub issue read/search via the user's `gh` login for registered repositories (`src/issues/`). |
 | `insights.summary` | Native (M2 analytics reads, selective) | `pacer-dispatch-ops::insights_ops` runs the `src/insights/summary.ts` queries over `tasks`, `task_first_settle`, `work_nodes` and `attempt_usage` for the period and the previous one: first-settle acceptance cohorts, per-agent spread (`parseRunnerId` agent), buckets, kinds, ladder steps and rules, and skip reasons. Sorts use ICU root collation (`localeCompare`), `byAgent` objects keep JavaScript integer-key order, `Math.round` rounds halves up, and parsing a routing `skipped` note stops where TypeScript throws. Params use Zod issue text and order, including the period refinements. Inputs with `from` or `to` at or above 1e15 forward, because only `JSON.stringify` prints those numbers. Residual: a skip reason cut at 200 UTF-16 units inside a surrogate pair keeps the lone surrogate only in TypeScript. Parity: `test/native-analytics-parity.test.ts`. |
@@ -324,7 +327,23 @@ parity without client registry liveness, distributed UI control workers,
 project messaging/strategy config effects, interactive runner add/check jobs,
 shared job cancellation, or OpenCode endpoint onboarding still owned by
 TypeScript. This slice only expands the ledger with explicit Forwarded rows; it
-does not register native handlers.
+does not register native handlers. The M2 job, strategy and executor-setup slice
+later registers `job.*`, `strategy.preview`, `executor.setup.models` and
+`executor.setup.connect` (see below).
+
+## M2 job, strategy preview and executor setup (native, selective)
+
+`job.list`, `job.get`, `job.cancel`, `strategy.preview`, `executor.setup.models`
+and `executor.setup.connect` are registered native on stdio and HTTP. Rust owns
+the logic and the state: the job files, the draft application and validation,
+and the cached model catalog. No op calls TypeScript to execute. The
+`job_strategy_setup_stays_forwarded` predicate forwards only the inputs listed
+in their rows. `strategy.preview` reuses the usage-broker bridge, like
+`routing.status`, for the current strategy's provider rows. `strategy.build`
+and `executor.setup.candidates` stay Forwarded: they need the terminal and PTY
+runtime, or network probes of local model servers and the `opencode`
+subprocess. `test/native-job-strategy-setup-parity.test.ts` compares replies,
+errors, job files and outbox events against the TypeScript handlers.
 
 ## P6 project messaging cutover (native, selective)
 
@@ -572,7 +591,7 @@ evidence belongs with the fixed `native-config` live fixture and targeted parity
 
 ## Unregistered public ops (Forwarded by default)
 
-Pinned against `stdio_hello.json` v3 (`224` ops). The Rust registry lists
+Pinned against `stdio_hello.json` v3 (`225` ops). The Rust registry lists
 native names in the detailed table above; every other public op remains TypeScript-owned
 until a cutover PR registers it and updates this ledger. Rows already named in
 the table above are omitted here. Owner streams follow
@@ -584,8 +603,8 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **110** of 225 (98 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Forty of these selectively forward some inputs to TypeScript:
+Total native: **116** of 225 (104 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Forty-two of these selectively forward some inputs to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
 `project.messaging.remove`, `project.strategy.list`, `project.strategy.get`,
@@ -595,8 +614,8 @@ Total native: **110** of 225 (98 on the Rust stdio registry plus 12 HTTP-native
 `assistant.settings.get`, `assistant.settings.set`, `assistant.conversations`,
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,
 `assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
-`dispatch.refresh` and `dispatch.enforcement.consent`.
-Total still not native (v3 − native set): **115**.
+`dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview` and `executor.setup.models`.
+Total still not native (v3 − native set): **109**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
