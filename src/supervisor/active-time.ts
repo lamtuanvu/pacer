@@ -2,12 +2,25 @@ import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RunState } from "./run";
 
+/** How long after a client's last input a session protocol 1.2 terminal counts as driven by someone (ADR 0023, decision 6). */
+export const RECENT_INPUT_S = 120;
+
+/**
+ * Someone is driving the interactive terminal. A 1.2 session has no controller: a client typed within RECENT_INPUT_S,
+ * so a pane left open without typing does not count. A 1.1 session (or one without session.version) keeps the controller lease.
+ */
+export function humanDriving(state: RunState, now: number): boolean {
+  if (!state.interactive) return false;
+  if ((state.sessionMinor ?? 1) >= 2) return !!state.lastInputAt && now - state.lastInputAt * 1000 < RECENT_INPUT_S * 1000;
+  return !!state.controller;
+}
+
 export function inputWaitStartedAt(state: RunState, now: number): number | null {
   if (!state.interactive) return null;
   if ((state.report?.status === "needs-input" || state.report?.status === "turn-ended") &&
     !(state.lastInputAt && state.lastInputAt > state.report.at)) return Math.min(now, state.report.at * 1000);
-  // A controller lease must never backdate to an unrelated old running report.
-  return state.controller ? now : null;
+  // A driving lease must never backdate to an unrelated old running report.
+  return humanDriving(state, now) ? now : null;
 }
 
 interface Budget { base: number; deadline: number; waitingSince: number | null }

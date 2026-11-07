@@ -21,7 +21,7 @@ import { readTask } from "./tasks/store";
 import { connectClient } from "./api/client";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
-import { takeoverTask } from "./session/takeover";
+import { handBackTask, takeoverTask } from "./session/takeover";
 import { sessionHost } from "./session/host";
 import { attachDirectory, attachSession } from "./session/attach";
 import { createInterface } from "node:readline/promises";
@@ -339,8 +339,8 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
 async function controlProgress(ctx:Ctx,t:TaskRecord):Promise<string> {
   if(t.state!=="running")return "";
   try {
-    const info=await sessionInfo(ctx,t.id,false,false);
-    return info.controller?`controlled from ${info.controller.replace(/[\x00-\x1f\x7f]/g,"")}`:"";
+    const info=await sessionInfo(ctx,t.id,false,false),clean=(label:string)=>label.replace(/[\x00-\x1f\x7f]/g,"");
+    return info.active?`last input from ${clean(info.active)}`:info.controller?`controlled from ${clean(info.controller)}`:"";
   }catch{return "";}
 }
 
@@ -701,7 +701,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         const dir=attachDirectory(ctx,pos[0],attempt);
         // Executors cannot send or answer (API-5); attaching must not type around that.
         const readOnly=opts["read-only"]===true||isExecutorSession(ctx);
-        await attachSession(dir,{replay:opts.replay===true,control:opts.control===true,force:opts.force===true,readOnly,attempt},`pacer ${pos[0]}`);
+        await attachSession(dir,{replay:opts.replay===true,control:opts.control===true,force:opts.force===true,readOnly,attempt,handBack:by=>Promise.resolve().then(()=>handBackTask(ctx,pos[0],by))},`pacer ${pos[0]}`);
         return {code:0,out:"",err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
     }

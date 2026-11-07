@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { conversationActivity } from "../session/conversation";
 import { withLock } from "../core/lock";
 import { FrameType, WireDecoder, wire } from "../session/framing";
+import { clientHello, negotiate, parseVersions, SESSION_PROTOCOL } from "../session/protocol";
 import { sessionSocket } from "../session/service";
+import { DELIVERY_TIMING } from "../session/viewers";
 import { transcriptReport } from "../session/reports";
 import { readRun, type RunState } from "../supervisor/run";
 import type { SpawnRunner } from "../tasks/api";
@@ -88,10 +90,16 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
       body = `Read the new messages in ${JSON.stringify(path)} and respond to them.`;
     }
     const typed = await typeIntoSession(sessionSocket(run.dir), body, deps, () => stillBetweenTurns(ctx, t.id, run, deps));
-    if (typed === "busy") return release(ctx, turnId, messages);
-    if (typed === "refused") {
+    if (typed.kind === "busy") return release(ctx, turnId, messages);
+    if (typed.kind === "refused") {
       release(ctx, turnId, messages);
       return setBlocked(ctx, t, true);
+    }
+    if (typed.kind === "pending") {
+      // Unsent human input in the agent: the messages stay pending and the next poll retries.
+      release(ctx, turnId, messages);
+      updateTask(ctx, t.id, x => { x.liveError = { at: now.now, message: `Not delivered: ${typed.reason}` }; delete x.liveBlocked; });
+      return;
     }
   } catch (e) {
     release(ctx, turnId, messages);
@@ -129,57 +137,93 @@ export function finishLiveTurn(ctx: Ctx, t: TaskRecord, spawn?: SpawnRunner): vo
   updateTask(ctx, id, x => { if (x.liveTurn?.id === live.id) delete x.liveTurn; });
 }
 
-/**
- * Take control as viewer `pacer`, paste the body, submit it, and hand control back. "refused": a viewer took control first;
- * "busy": with control held, the agent was no longer between turns, so nothing was typed.
- */
 export class SessionInputError extends Error {
   constructor(error: unknown, readonly inputAttempted: boolean) { super(String(error)); }
 }
 
-export async function typeIntoSession(path: string, body: string, deps: LiveDeps, stillIdle: () => boolean): Promise<"typed" | "refused" | "busy"> {
+/**
+ * "typed": the paste and Enter reached the PTY. Nothing was typed otherwise: "busy" when the guard failed (the run or
+ * question changed); "refused" when another viewer holds control of a 1.1 host; "pending" when a 1.2 host did not grant
+ * a delivery window, with its reason naming the cause and the client (ADR 0023).
+ */
+export type TypeResult = { kind: "typed" } | { kind: "busy" } | { kind: "refused"; controller: string | null } | { kind: "pending"; reason: string };
+
+interface Reply { type: number; body: { controller?: string | null; you?: boolean; reason?: string; versions?: unknown; ok?: boolean } }
+
+/**
+ * Connect as viewer `pacer`, paste the body and submit it while `stillIdle` holds. A host that negotiated session protocol
+ * 1.2 grants a delivery window; a 1.1 host is driven with take and release.
+ */
+export async function typeIntoSession(path: string, body: string, deps: LiveDeps, stillIdle: () => boolean): Promise<TypeResult> {
   let inputAttempted = false;
   const timeoutMs = deps.timeoutMs ?? 3000;
   const socket: Socket = createConnection(path);
   const decoder = new WireDecoder();
-  const controls: Array<{ controller?: string | null; you?: boolean; reason?: string }> = [];
+  const replies: Reply[] = [];
   let waiter: (() => void) | undefined, failure: Error | undefined;
   socket.on("data", data => {
-    try { for (const f of decoder.push(Buffer.from(data))) if (f.type === FrameType.control) controls.push(JSON.parse(f.data.toString())); }
-    catch (e) { failure = e as Error; }
+    try {
+      for (const f of decoder.push(Buffer.from(data))) {
+        if (f.type === FrameType.control || f.type === FrameType.granted || f.type === FrameType.delivered) replies.push({ type: f.type, body: JSON.parse(f.data.toString()) });
+      }
+    } catch (e) { failure = e as Error; }
     waiter?.();
   });
   socket.on("error", e => { failure = e; waiter?.(); });
   socket.on("close", () => { failure ??= Error("the session closed the connection"); waiter?.(); });
-  const next = async (): Promise<{ controller?: string | null; you?: boolean; reason?: string }> => {
-    const until = Date.now() + timeoutMs;
-    while (!controls.length) {
+  const next = async (wait = timeoutMs): Promise<Reply> => {
+    const until = Date.now() + wait;
+    while (!replies.length) {
       if (failure) throw failure;
       if (Date.now() >= until) throw Error("the session did not answer in time");
       await new Promise<void>(r => { waiter = r; setTimeout(r, Math.max(1, until - Date.now())); });
       waiter = undefined;
     }
-    return controls.shift()!;
+    return replies.shift()!;
   };
   const send = (bytes: Buffer) => new Promise<void>((resolve, reject) => socket.write(bytes, e => e ? reject(e) : resolve()));
-  try {
-    await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
-    await send(wire(FrameType.hello, { v: 1, client: "cli", label: "pacer" }));
-    await next();
-    await send(wire(FrameType.take, {}));
-    let control = await next();
-    while (!control.you && control.reason !== "refused" && !control.controller) control = await next();
-    if (!control.you) return "refused";
-    if (!stillIdle()) { await send(wire(FrameType.release, {})); return "busy"; }
+  const type = async () => {
     inputAttempted = true;
     await send(wire(FrameType.input, Buffer.from(`${PASTE_START}${body}${PASTE_END}`)));
     // Give the agent's input box a moment to take the paste before it is submitted.
     if (deps.submitDelayMs ?? 150) await Bun.sleep(deps.submitDelayMs ?? 150);
     await send(wire(FrameType.input, Buffer.from("\r")));
+  };
+  const deliver = async (): Promise<TypeResult> => {
+    await send(wire(FrameType.deliver, {}));
+    // The host answers within its own timeout; another client's completed delivery is only news.
+    const grantWait = DELIVERY_TIMING.timeoutMs + timeoutMs;
+    let reply = await next(grantWait);
+    while (reply.type === FrameType.control || (reply.type === FrameType.delivered && reply.body.ok)) reply = await next(grantWait);
+    if (reply.type === FrameType.delivered) return { kind: "pending", reason: reply.body.reason ?? "the session refused the delivery" };
+    if (!stillIdle()) { await send(wire(FrameType.deliver, { cancel: true })); return { kind: "busy" }; }
+    const ended = replies.find(r => r.type === FrameType.delivered && !r.body.ok);
+    if (ended) return { kind: "pending", reason: ended.body.reason ?? "the delivery window ended" };
+    await type();
+    await send(wire(FrameType.deliver, { done: true }));
+    // The host applies frames in order: its delivered reply means the input reached the PTY.
+    for (;;) {
+      const done = await next();
+      if (done.type !== FrameType.delivered) continue;
+      if (done.body.ok) return { kind: "typed" };
+      throw Error(`the delivery window ended before the input was submitted: ${done.body.reason}`);
+    }
+  };
+  try {
+    await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
+    await send(wire(FrameType.hello, { v: 1, client: "cli", label: "pacer", ...clientHello() }));
+    const hello = (await next()).body;
+    if ((negotiate(SESSION_PROTOCOL, parseVersions(hello.versions) ?? [1, 1]) ?? 1) >= 2) return await deliver();
+    await send(wire(FrameType.take, {}));
+    let control = await next();
+    while (!control.body.you && control.body.reason !== "refused" && !control.body.controller) control = await next();
+    if (!control.body.you) return { kind: "refused", controller: control.body.controller ?? null };
+    if (!stillIdle()) { await send(wire(FrameType.release, {})); return { kind: "busy" }; }
+    await type();
     await send(wire(FrameType.release, {}));
     // The host applies frames in order: once control is back, the input reached the PTY.
-    while ((await next()).you);
-    return "typed";
+    while ((await next()).body.you);
+    return { kind: "typed" };
   } catch (error) {
     throw new SessionInputError(error, inputAttempted);
   } finally {

@@ -193,6 +193,7 @@ export function recordControl() {
     "task.session",
     "task.attach",
     "task.takeover",
+    "task.hand_back",
     "session.prepare",
     "session.draft.create",
     "session.create",

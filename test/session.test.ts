@@ -617,6 +617,10 @@ test('task CLI progress shows the active controller label',async()=>{
     for(const args of [['tasks'],['tasks',task.id]])expect((await main(args,ctx)).out).toContain('controlled from cli:Ghostty');
     writeFileSync(join(dir,'session.state'),JSON.stringify({controller:null,viewers:2}));
     expect((await main(['tasks',task.id],ctx)).out).not.toContain('controlled from');
+    // A 1.2 session has no controller; the line names the client that typed last instead.
+    writeFileSync(join(dir,'session.version'),JSON.stringify({pacer:'0.0.0',versions:[1,2]}));
+    writeFileSync(join(dir,'session.state'),JSON.stringify({controller:null,active:'app:Pacer\x07 desktop',viewers:2}));
+    for(const args of [['tasks'],['tasks',task.id]]){const out=(await main(args,ctx)).out;expect(out).toContain('last input from app:Pacer desktop');expect(out).not.toContain('controlled from');}
   }finally{rmSync(home,{recursive:true,force:true});}
 });
 
@@ -813,4 +817,85 @@ test("remote full-session metadata uses the local bridge pid and mirrored host s
     expect(sessionDirectory(ctx,task.id)).toBeNull();
     expect(await sessionInfo(ctx,task.id,undefined,false)).toMatchObject({host:"none",live:false,capabilities:{snapshot:false,control:false,resize:false,record:false}});
   }finally{rmSync(home,{recursive:true,force:true});}
+});
+
+// ADR 0023, decision 6: on 1.2 sessions recent client input, not a controller lease, pauses supervision clocks.
+import { activeDeadlineExpired, inputWaitStartedAt, RECENT_INPUT_S } from "../src/supervisor/active-time";
+import { progressPoller } from "../src/exec/direct";
+import { fakeCtx } from "./helpers";
+import type { RunState } from "../src/supervisor/run";
+const session12 = JSON.stringify({ pacer: "0.0.0", versions: [1, 2] }), session11 = JSON.stringify({ pacer: "0.0.0", versions: [1, 1] });
+test("interactive readRun reports the session host's protocol minor from session.version", async () => {
+  const dir = temp();
+  try {
+    writeFileSync(join(dir, "session.version"), session12);
+    expect(readRun(dir).sessionMinor).toBeUndefined();
+    writeFileSync(join(dir, "interactive.json"), "{}");
+    expect(readRun(dir).sessionMinor).toBe(2);
+    const { readRunAsync } = await import("../src/supervisor/run");
+    expect((await readRunAsync(dir)).sessionMinor).toBe(2);
+    writeFileSync(join(dir, "session.version"), session11);
+    expect(readRun(dir).sessionMinor).toBe(1);
+    rmSync(join(dir, "session.version"));
+    expect(readRun(dir).sessionMinor).toBeUndefined();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test("active time pauses for recent client input on 1.2 sessions and for a controller on 1.1 sessions", () => {
+  const now = 1_000_000, running = (o: Partial<RunState>): RunState => ({ pid: 1, startedAt: 0, exit: null, alive: true, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null,
+    interactive: true, report: { status: "running", summary: "s", at: 1 }, ...o });
+  // 1.2: a pane left open (no controller is ever written) does not pause; typing does, for RECENT_INPUT_S.
+  expect(inputWaitStartedAt(running({ sessionMinor: 2 }), now)).toBeNull();
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - 5 }), now)).toBe(now);
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, lastInputAt: now / 1000 - RECENT_INPUT_S - 1 }), now)).toBeNull();
+  expect(inputWaitStartedAt(running({ sessionMinor: 2, controller: "stale", lastInputAt: null }), now)).toBeNull();
+  // 1.1 (and hosts without session.version): the controller lease, not input.
+  expect(inputWaitStartedAt(running({ sessionMinor: 1, controller: "app:pane" }), now)).toBe(now);
+  expect(inputWaitStartedAt(running({ controller: "app:pane" }), now)).toBe(now);
+  expect(inputWaitStartedAt(running({ sessionMinor: 1, lastInputAt: now / 1000 - 5 }), now)).toBeNull();
+  const dir = temp();
+  try {
+    expect(activeDeadlineExpired(dir, 60_000, running({ sessionMinor: 2, lastInputAt: 50 }), 100_000)).toBe(false);
+    expect(activeDeadlineExpired(dir, 60_000, running({ sessionMinor: 2, lastInputAt: 50 }), 400_000)).toBe(true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test("the idle-fail clock uses recent input on 1.2 sessions and the controller on 1.1 sessions", async () => {
+  const ctx = fakeCtx({ now: Date.now() / 1000 }), repo = temp(), nowS = Date.now() / 1000;
+  const task = createTask(ctx, { brief: { goal: "idle", repo }, kind: null, requestedExecutor: "codex", timeoutS: 3600 });
+  const run = { dir: temp(), attempt: 1, executor: "codex", startedAt: nowS - 7200, mode: "current" as const, workdir: repo, logFile: join(repo, "log") };
+  updateTask(ctx, task.id, t => { t.state = "running"; t.run = run; });
+  const state = (o: Partial<RunState>): RunState => ({ pid: 1, startedAt: null, exit: null, alive: true, stdoutBytes: 1, stderrBytes: 0, lastOutputAt: nowS - 7200,
+    interactive: true, report: { status: "running", summary: "s", at: nowS - 7200 }, ...o });
+  const poll = (o: Partial<RunState>) => progressPoller(ctx, task, run)(state(o));
+  try {
+    expect(await poll({ sessionMinor: 2 })).toBe("idle");
+    expect(await poll({ sessionMinor: 2, lastInputAt: nowS - 10 })).toBe("continue");
+    expect(await poll({ sessionMinor: 1, controller: "cli:iTerm" })).toBe("continue");
+    expect(await poll({ sessionMinor: 1, lastInputAt: nowS - 10 })).toBe("idle");
+  } finally { rmSync(repo, { recursive: true, force: true }); rmSync(run.dir, { recursive: true, force: true }); }
+});
+
+// ADR 0023, decision 8: additive `active`; `controller` stays, deprecated, and is null for 1.2 sessions.
+test("task.session and TaskData.session report the active client; controller is null on 1.2 sessions", async () => {
+  const home = temp(), ctx = makeCtx({ pacerHome: home });
+  const { sessionInfo } = await import("../src/session/service");
+  const { sessionTaskData } = await import("../src/session/link");
+  const { parseOutboxEvent } = await import("../src/link/envelope");
+  const task = createTask(ctx, { brief: { goal: "active", repo: "." }, kind: "small", requestedExecutor: null, timeoutS: 30 });
+  const dir = join(home, "runs", task.id, "1"); mkdirSync(dir, { recursive: true });
+  updateTask(ctx, task.id, t => { t.run = { host: "box", attempt: 1 } as NonNullable<typeof t.run>; });
+  try {
+    for (const [name, value] of Object.entries({ "session.ckpt": JSON.stringify({ cols: 80, rows: 24 }), "session.sock": "socket fixture", pid: "99999999",
+      "session.remote-full": "box", "session.bridge.pid": String(process.pid), "session.version": session12,
+      "session.state": JSON.stringify({ controller: "stale", active: "app:Pacer desktop", viewers: 2, cols: 90, rows: 30 }) })) writeFileSync(join(dir, name), value);
+    expect(await sessionInfo(ctx, task.id, undefined, false)).toMatchObject({ live: true, controller: null, active: "app:Pacer desktop", viewers: 2 });
+    const data = await sessionTaskData(ctx, { id: task.id, state: "running", goal: "g", executor: null, backend: "direct", worktree: null, updatedAt: 0 }, false);
+    expect(data.session).toEqual({ host: "builtin", live: true, controller: null, active: "app:Pacer desktop", viewers: 2 });
+    const event = parseOutboxEvent({ v: 1, seq: 1, at: 1, type: "task", data });
+    expect((event?.data as typeof data).session).toEqual({ host: "builtin", live: true, controller: null, active: "app:Pacer desktop", viewers: 2 });
+    const older = parseOutboxEvent({ v: 1, seq: 2, at: 1, type: "task", data: { ...data, session: { host: "builtin", live: true, controller: "cli:x", viewers: 1 } } });
+    expect((older?.data as typeof data).session).toEqual({ host: "builtin", live: true, controller: "cli:x", viewers: 1 });
+    writeFileSync(join(dir, "session.version"), session11);
+    writeFileSync(join(dir, "session.state"), JSON.stringify({ controller: "cli:remote", viewers: 1 }));
+    expect(await sessionInfo(ctx, task.id, undefined, false)).toMatchObject({ live: true, controller: "cli:remote", active: null });
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });

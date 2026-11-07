@@ -1051,6 +1051,20 @@
       }
     },
     {
+      "name": "task.hand_back",
+      "executor": false,
+      "result": {
+        "ok": null
+      }
+    },
+    {
+      "name": "task.hand_back",
+      "executor": true,
+      "result": {
+        "error": "PACER_ROLE=executor: handing a taken-over task back is for the person driving it."
+      }
+    },
+    {
       "name": "session.prepare",
       "executor": false,
       "result": {

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { ViewerHub } from '../src/session/viewers';
+import { DELIVERY_TIMING, ViewerHub, type DeliveryTiming } from '../src/session/viewers';
 import { FrameType, WireDecoder, wire } from '../src/session/framing';
 class Peer extends EventEmitter {
   destroyed=false; writableLength=0; frames:Buffer[]=[]; blocked=false;
@@ -78,11 +78,11 @@ test('only an explicit controller release hands back a takeover; disconnect and 
 
 // Session protocol 1.2 (ADR 0023): no controller, read-only viewers, size follows the active client.
 const MODERN=[1,2] as [number,number];
-function shared(){
+function shared(timing?:Partial<DeliveryTiming>){
  const inputs:string[]=[],sizes:[number,number][]=[],markers:string[]=[],released:string[]=[],states:{viewers:number;controller:string|null;active:string|null}[]=[];
  const hub=new ViewerHub(()=>wire(FrameType.snapshot,{controller:hub.controller,active:hub.active}),()=>null,fn=>fn(),(kind,label)=>markers.push(`${kind}:${label}`),
   (viewers,controller,active)=>states.push({viewers,controller,active}),
-  {input:b=>inputs.push(b.toString('latin1')),resize:(c,r)=>sizes.push([c,r]),release:l=>released.push(l)},{pacer:'0.0.0',versions:MODERN});
+  {input:b=>inputs.push(b.toString('latin1')),resize:(c,r)=>sizes.push([c,r]),release:l=>released.push(l)},{pacer:'0.0.0',versions:MODERN},timing);
  const join=(label:string,hello:Record<string,unknown>={versions:MODERN})=>{const p=new Peer();hub.add(p as any);p.emit('data',wire(FrameType.hello,{v:1,label,...hello}));return p;};
  return {hub,inputs,sizes,markers,released,states,join};
 }
@@ -162,4 +162,113 @@ test('a 1.1 host keeps take and release for a client that negotiated 1.1',()=>{
  a.emit('data',wire(FrameType.input,Buffer.from('kept')));b.emit('data',wire(FrameType.input,Buffer.from('dropped')));
  expect(inputs).toEqual(['kept']);expect(hub.controller).toBe('cli:a');
  expect(controlsOf(b).at(-1)).toMatchObject({controller:'cli:a',you:false,reason:'refused'});
+});
+
+// Delivery window (ADR 0023, decision 4): pacer's automated input waits for quiet and no pending human line.
+const FAST={quietMs:40,windowMs:120,timeoutMs:250};
+const deliveredOf=(p:Peer)=>framesOf(p).filter(f=>f.type===FrameType.delivered).map(f=>JSON.parse(f.data.toString()));
+const grantedOf=(p:Peer)=>framesOf(p).filter(f=>f.type===FrameType.granted);
+test('delivery timing defaults are the ADR values',()=>{
+ expect(DELIVERY_TIMING).toEqual({quietMs:1500,windowMs:2000,timeoutMs:10000});
+});
+test('1.2 deliver: granted after quiet; other input is held, never dropped, and applied after the delivery',async()=>{
+ const {inputs,join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ human.emit('data',wire(FrameType.input,Buffer.from('done\r')));
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(pacer)).toHaveLength(0);
+ await Bun.sleep(80);
+ expect(grantedOf(pacer)).toHaveLength(1);
+ human.emit('data',wire(FrameType.input,Buffer.from('held')));
+ pacer.emit('data',wire(FrameType.input,Buffer.from('paste')));pacer.emit('data',wire(FrameType.input,Buffer.from('\r')));
+ expect(inputs).toEqual(['done\r','paste','\r']);
+ pacer.emit('data',wire(FrameType.deliver,{done:true}));
+ expect(inputs).toEqual(['done\r','paste','\r','held']);
+ expect(deliveredOf(pacer)).toEqual([{ok:true,label:'cli:pacer'}]);
+ expect(deliveredOf(human)).toEqual([{ok:true,label:'cli:pacer'}]);
+});
+test('1.2 deliver: a fresh session with no input is granted at once',()=>{
+ const {join}=shared(FAST),pacer=join('pacer');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(pacer)).toHaveLength(1);
+});
+test('1.2 deliver: a pending human line refuses after the timeout and names the client',async()=>{
+ const {inputs,join}=shared(FAST),pacer=join('pacer'),app=join('Pacer desktop',{versions:MODERN,client:'app'});
+ app.emit('data',wire(FrameType.input,Buffer.from('half a line\x1b[D')));
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ await Bun.sleep(150);
+ expect(grantedOf(pacer)).toHaveLength(0);expect(deliveredOf(pacer)).toEqual([]);
+ await Bun.sleep(200);
+ expect(grantedOf(pacer)).toHaveLength(0);
+ expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'pending',from:'app:Pacer desktop',reason:'pending input from app:Pacer desktop'}]);
+ expect(deliveredOf(app)).toEqual([]);
+ expect(inputs).toEqual(['half a line\x1b[D']);
+});
+test('1.2 deliver: Enter ends the pending line, then the quiet period grants',async()=>{
+ const {join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ human.emit('data',wire(FrameType.input,Buffer.from('typing')));
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ await Bun.sleep(80);expect(grantedOf(pacer)).toHaveLength(0);
+ human.emit('data',wire(FrameType.input,Buffer.from('\r')));
+ await Bun.sleep(20);expect(grantedOf(pacer)).toHaveLength(0);
+ await Bun.sleep(60);expect(grantedOf(pacer)).toHaveLength(1);
+});
+test('1.2 deliver: steady input times out naming the most recent typist',async()=>{
+ const {join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ pacer.emit('data',wire(FrameType.input,Buffer.from('\r')));
+ human.emit('data',wire(FrameType.input,Buffer.from('\r')));
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ for(let i=0;i<14;i++){await Bun.sleep(20);human.emit('data',wire(FrameType.input,Buffer.from('\x1b[A')));}
+ await Bun.sleep(30);
+ expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'input',from:'cli:human',reason:'recent input from cli:human'}]);
+});
+test('1.2 deliver: the window expires after windowMs and releases held input',async()=>{
+ const {inputs,join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ human.emit('data',wire(FrameType.input,Buffer.from('waiting')));
+ expect(inputs).toEqual([]);
+ await Bun.sleep(160);
+ expect(inputs).toEqual(['waiting']);
+ expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'expired',reason:'the delivery window expired'}]);
+ pacer.emit('data',wire(FrameType.deliver,{done:true}));
+ expect(deliveredOf(pacer)).toHaveLength(1);
+});
+test('1.2 deliver: cancel ends the window, flushes held input and reports it',()=>{
+ const {inputs,join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ human.emit('data',wire(FrameType.input,Buffer.from('mine')));
+ pacer.emit('data',wire(FrameType.deliver,{cancel:true}));
+ expect(inputs).toEqual(['mine']);
+ expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'cancelled',reason:'the delivery was cancelled'}]);
+ expect(deliveredOf(human)).toEqual([]);
+});
+test('1.2 deliver: a requester that disconnects ends its window',()=>{
+ const {inputs,join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ human.emit('data',wire(FrameType.input,Buffer.from('mine')));
+ pacer.destroy();
+ expect(inputs).toEqual(['mine']);
+ human.emit('data',wire(FrameType.input,Buffer.from('more')));
+ expect(inputs).toEqual(['mine','more']);
+});
+test('1.2 deliver: one window at a time; a second request waits its turn',()=>{
+ const {join}=shared(FAST),one=join('one'),two=join('two');
+ one.emit('data',wire(FrameType.deliver,{}));two.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(one)).toHaveLength(1);expect(grantedOf(two)).toHaveLength(0);
+ one.emit('data',wire(FrameType.deliver,{}));
+ expect(deliveredOf(one)).toEqual([{ok:false,cause:'duplicate',reason:'a delivery is already pending'}]);
+ one.emit('data',wire(FrameType.deliver,{done:true}));
+ expect(grantedOf(two)).toHaveLength(1);
+});
+test('deliver is refused from read-only viewers and ignored from 1.1 clients and on 1.1 hosts',()=>{
+ const {inputs,join}=shared(FAST),watcher=join('watch',{versions:MODERN,readOnly:true}),old=join('old',{});
+ watcher.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(watcher)).toHaveLength(0);
+ expect(deliveredOf(watcher)).toEqual([{ok:false,cause:'read-only',reason:'read-only viewers cannot deliver input'}]);
+ old.emit('data',wire(FrameType.take,{}));old.emit('data',wire(FrameType.deliver,{}));
+ expect(framesOf(old).filter(f=>f.type===FrameType.granted||f.type===FrameType.delivered)).toEqual([]);
+ old.emit('data',wire(FrameType.input,Buffer.from('typed')));expect(inputs).toEqual(['typed']);
+ const hub=new ViewerHub(()=>wire(FrameType.snapshot,{}),()=>null,fn=>fn(),()=>{},()=>{},{input:()=>{},resize:()=>{}},{pacer:'0.0.0',versions:[1,1]},FAST);
+ const p=new Peer();hub.add(p as any);p.emit('data',wire(FrameType.hello,{v:1,label:'p',versions:MODERN}));
+ p.emit('data',wire(FrameType.deliver,{}));
+ expect(framesOf(p).filter(f=>f.type===FrameType.granted||f.type===FrameType.delivered)).toEqual([]);
 });

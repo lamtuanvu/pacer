@@ -3,6 +3,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { readReport, type SessionReport } from "../session/reports";
+import { readSessionVersion } from "../session/protocol";
 import type { RunIO } from "./io";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync, chmodSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -23,7 +24,11 @@ export interface RunSpec { interactionMode?: InteractionMode; takeover?: boolean
   umask?: string;
   /** Color flags the user's profile set, kept in an interactive PTY. */
   keepColor?: string[] }
-export interface RunState { lastInputAt?: number | null; controller?: string | null; interactive?: boolean; report?: SessionReport | null; pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
+/**
+ * `sessionMinor`: the session-socket protocol minor of an interactive run's host, from session.version. A 1.2 host has no
+ * controller, so supervision uses `lastInputAt` instead (ADR 0023); absent means a 1.1 host or none.
+ */
+export interface RunState { lastInputAt?: number | null; controller?: string | null; sessionMinor?: number; interactive?: boolean; report?: SessionReport | null; pid: number | null; startedAt: number | null; exit: number | null; alive: boolean; stdoutBytes: number; stderrBytes: number; lastOutputAt: number | null }
 
 const num = (file: string): number | null => {
   try { const v = Number(readFileSync(file, "utf8").trim()); return Number.isFinite(v) && readFileSync(file, "utf8").trim() !== "" ? v : null; } catch { return null; }
@@ -113,8 +118,10 @@ export function readRun(dir: string): RunState {
   let controller: string | null = null;
   try { const state = JSON.parse(readFileSync(join(dir, "session.state"), "utf8")); if (typeof state.controller === "string") controller = state.controller; } catch { /* optional session state */ }
   const interactive = existsSync(join(dir, "interactive.json"));
+  const sessionMinor = interactive ? readSessionVersion(dir)?.versions[1] : undefined;
   return {
     ...(interactive && controller ? {controller} : {}),
+    ...(sessionMinor ? {sessionMinor} : {}),
     ...(interactive ? {interactive: true, report: readReport(dir)} : {}),
     lastInputAt: mtime(join(dir, "session.input")),
     pid, startedAt: num(join(dir, "started")), exit, stdoutBytes, stderrBytes,
@@ -257,12 +264,14 @@ export async function readRunAsync(dir: string): Promise<RunState> {
 
   const interactive = interactiveExists;
   const alive = exit === null && pid !== null && wrapperAlive(pid, dir);
+  const sessionMinor = interactive ? readSessionVersion(dir)?.versions[1] : undefined;
 
   const inputStat = await stat(join(dir, "session.input")).catch(() => null);
   const lastInputAt = inputStat?.mtimeMs !== undefined ? inputStat.mtimeMs / 1000 : null;
 
   return {
     ...(interactive && controller ? { controller } : {}),
+    ...(sessionMinor ? { sessionMinor } : {}),
     ...(interactive ? { interactive: true, report: readReport(dir) } : {}),
     lastInputAt,
     pid, startedAt: await readNumber(join(dir, "started")), exit, stdoutBytes, stderrBytes,

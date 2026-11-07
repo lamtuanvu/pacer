@@ -1,8 +1,11 @@
 /** Session recording and socket v1. All multi-byte integers use network byte order. */
 export interface LogHeader { cols: number; rows: number; startedAt: number; generation: number; outputOffset?: number }
 export interface Frame { type: number; data: Buffer; ms?: number }
-/** focus and deliver are session protocol 1.2 frames; a client never sends them to a 1.1 host. */
-export const FrameType = { hello: 1, snapshot: 2, output: 3, resize: 4, control: 5, resync: 6, exit: 7, take: 8, release: 9, input: 10, size: 11, focus: 12, deliver: 13 } as const;
+/**
+ * focus, deliver, granted and delivered are session protocol 1.2 frames: a client never sends them to a 1.1 host, and a
+ * host sends granted and delivered only to clients that negotiated 1.2.
+ */
+export const FrameType = { hello: 1, snapshot: 2, output: 3, resize: 4, control: 5, resync: 6, exit: 7, take: 8, release: 9, input: 10, size: 11, focus: 12, deliver: 13, granted: 14, delivered: 15 } as const;
 export const MAX_FRAME = 16 * 1024 * 1024;
 const MAGIC = Buffer.from("PACERTTY");
 export function encodeHeader(header: LogHeader): Buffer {

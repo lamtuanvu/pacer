@@ -7,6 +7,16 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { LiveWorker } from "../src/tasks/types";
 import { fakeCtx, gitRepo } from "./helpers";
 import { fakeRun, raw, type Route } from "./fixtures/orca/fake";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { createConnection, createServer } from "node:net";
+import { join } from "node:path";
+import { answer, ask } from "../src/core/tasks";
+import { FrameType, WireDecoder, wire } from "../src/session/framing";
+import { sendDirectInput } from "../src/session/send";
+import { sessionSocket } from "../src/session/service";
+import { ViewerHub } from "../src/session/viewers";
+import { readRun, startRun, stopRun } from "../src/supervisor/run";
+import { tmpDir } from "./helpers";
 
 const TERM = "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d";
 const envelope = (result: object) => raw(JSON.stringify({ ok: true, result }));
@@ -202,3 +212,87 @@ test("send rejects a stale expectRev and accepts a matching one", async () => {
   await expect(send(ctx, task.id, "hi", { expectRev: currentRev + 1 })).rejects.toThrow();
   await expect(send(ctx, task.id, "hi", { expectRev: currentRev })).resolves.toBeTruthy();
 });
+
+// Built-in sessions (ADR 0023): answers and sends type through the session host's delivery window.
+async function liveRun() {
+  const ctx = fakeCtx(), dir = tmpDir();
+  const task = createTask(ctx, { brief: { goal: "answer live", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  startRun({ dir, argv: ["sh", "-c", "cat"], cwd: dir, env: { PATH: process.env.PATH }, session: "interactive" });
+  const until = Date.now() + 5000;
+  while ((!readRun(dir).alive || !existsSync(sessionSocket(dir))) && Date.now() < until) await Bun.sleep(25);
+  updateTask(ctx, task.id, t => { t.state = "running"; t.origin = "human"; t.run = { dir, attempt: 1, executor: "codex", startedAt: Date.now() / 1000, mode: "current", workdir: t.brief.repo, logFile: join(dir, "log") }; });
+  return { ctx, id: task.id, dir };
+}
+async function attachViewer(path: string, hello: Record<string, unknown>) {
+  const socket = createConnection(path), output: Buffer[] = [], decoder = new WireDecoder();
+  socket.on("data", d => { for (const f of decoder.push(Buffer.from(d))) if (f.type === FrameType.output) output.push(f.data); });
+  await new Promise<void>(r => socket.once("connect", () => r()));
+  const write = (bytes: Buffer) => new Promise<void>(r => socket.write(bytes, () => r()));
+  await write(wire(FrameType.hello, { v: 1, ...hello }));
+  await Bun.sleep(50);
+  return { socket, output: () => Buffer.concat(output).toString(), write };
+}
+function fakeHub(versions?: [number, number]) {
+  const input: string[] = [], path = join(mkdtempSync("/tmp/pl-"), "s.sock");
+  const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), () => {}, () => {},
+    { input: b => { input.push(b.toString()); }, resize() {} }, versions ? { pacer: "0.0.0", versions } : undefined, { quietMs: 30, windowMs: 1000, timeoutMs: 200 });
+  const server = createServer(s => hub.add(s));
+  return { input, path, hub, server, ready: new Promise<void>(r => server.listen(path, r)) };
+}
+
+test("an answer reaches a 1.2 session while app panes are attached: an open pane no longer blocks it", async () => {
+  const { ctx, id, dir } = await liveRun();
+  const viewers: Awaited<ReturnType<typeof attachViewer>>[] = [];
+  try {
+    viewers.push(await attachViewer(sessionSocket(dir), { label: "Pacer desktop", client: "app", versions: [1, 2] }));
+    const old = await attachViewer(sessionSocket(dir), { label: "older pane", client: "app" });
+    viewers.push(old);
+    await old.write(wire(FrameType.take, {}));
+    await ask(ctx, id, "Which database?");
+    const result = await answer(ctx, id, "postgres-please");
+    expect(result.task.state).toBe("running");
+    expect(readTask(ctx, id)!.question!.answer).toBe("postgres-please");
+    const until = Date.now() + 3000;
+    while (!viewers[0]!.output().includes("postgres-please") && Date.now() < until) await Bun.sleep(25);
+    expect(viewers[0]!.output()).toContain("postgres-please");
+  } finally { for (const v of viewers) v.socket.destroy(); await stopRun(dir, { graceMs: 500 }); }
+}, 20000);
+
+test("direct input refusals are distinct: pending input names the client, a 1.1 controller is named, a changed run is its own conflict", async () => {
+  const { ctx, id, dir } = await liveRun();
+  const modern = fakeHub([1, 2]), old = fakeHub();
+  const viewers: Awaited<ReturnType<typeof attachViewer>>[] = [];
+  try {
+    await Promise.all([modern.ready, old.ready]);
+    writeFileSync(join(dir, "session.sock.path"), modern.path);
+    const human = await attachViewer(modern.path, { label: "iTerm.app", versions: [1, 2] });
+    viewers.push(human);
+    await human.write(wire(FrameType.input, Buffer.from("half a line")));
+    await ask(ctx, id, "Proceed?");
+    const pending = await answer(ctx, id, "yes").then(() => null, (e: CoreError) => e);
+    expect(pending?.code).toBe("conflict");
+    expect(pending?.message).toBe("Not delivered: pending input from cli:iTerm.app. Nothing was typed; try again");
+    expect(readTask(ctx, id)!.question!.answer).toBeUndefined();
+    expect(modern.input).toEqual(["half a line"]);
+
+    const changed = await sendDirectInput(ctx, readTask(ctx, id)!, "x", () => false);
+    expect(changed).toEqual({ ok: false, code: "conflict", definite: true, message: "Not delivered: pending input from cli:iTerm.app. Nothing was typed; try again" });
+    await human.write(wire(FrameType.input, Buffer.from("\r")));
+    await Bun.sleep(60);
+    expect(await sendDirectInput(ctx, readTask(ctx, id)!, "x", () => false)).toEqual({ ok: false, code: "conflict", definite: true, message: "The task's run or question changed before delivery; nothing was typed" });
+
+    writeFileSync(join(dir, "session.sock.path"), old.path);
+    const app = await attachViewer(old.path, { label: "Pacer desktop", client: "app" });
+    viewers.push(app);
+    await app.write(wire(FrameType.take, {}));
+    await Bun.sleep(30);
+    const refused = await answer(ctx, id, "yes").then(() => null, (e: CoreError) => e);
+    expect(refused?.code).toBe("conflict");
+    expect(refused?.message).toBe("The terminal is controlled from app:Pacer desktop; nothing was typed");
+    expect(old.input).toEqual([]);
+  } finally {
+    for (const v of viewers) v.socket.destroy();
+    for (const h of [modern, old]) { h.hub.destroy(); h.server.close(); }
+    await stopRun(dir, { graceMs: 500 });
+  }
+}, 20000);

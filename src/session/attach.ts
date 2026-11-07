@@ -8,7 +8,9 @@ import { readRecording } from "./recording";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
 /** control and force apply only to 1.1 hosts. readOnly never sends input, size, focus or take. */
-export interface AttachOptions { replay?:boolean; attempt?:number; control?:boolean; force?:boolean; readOnly?:boolean }
+export interface AttachOptions { replay?:boolean; attempt?:number; control?:boolean; force?:boolean; readOnly?:boolean;
+  /** Ends a takeover session on a 1.2 host (Ctrl-] h); `by` is this viewer's label. */
+  handBack?:(by:string)=>Promise<unknown> }
 /** Stateful byte parser: escape sequences may cross stdin chunks. */
 export class AttachKeys {
   private controlling=false;
@@ -17,7 +19,7 @@ export class AttachKeys {
   private terminalEscape: 'esc'|'csi'|'ss3'|'string'|'stringEsc'|null=null;
   private requested=false;
   private confirming=false;
-  constructor(private send:(bytes:Buffer)=>void,private prompt:(message:string)=>void=()=>{},private takeover=false,private readOnly=false){}
+  constructor(private send:(bytes:Buffer)=>void,private prompt:(message:string)=>void=()=>{},private takeover=false,private readOnly=false,private handBack?:()=>void){}
   take(force=false){if(this.readOnly||this.shared)return;this.requested=true;this.send(wire(FrameType.take,force?{force:true}:{}));}
   /** A 1.2 host has no controller: keys go straight to the agent unless the viewer is read-only. */
   sharedHost(){this.shared=true;this.requested=false;this.confirming=false;this.setControl(!this.readOnly);}
@@ -55,7 +57,8 @@ export class AttachKeys {
       }else if(this.escaped){
         this.escaped=false;
         if(byte===100){flush();return true;}
-        if(byte===114&&this.shared){flush();this.prompt(this.takeover?"Hand the task back from the pacer app.\n":"Every attached terminal can type; there is no control to release.\n");}
+        if(byte===104&&this.shared&&this.takeover&&this.handBack){flush();this.handBack();}
+        else if(byte===114&&this.shared){flush();this.prompt(this.takeover?"Press Ctrl-] h to hand the task back for review.\n":"Every attached terminal can type; there is no control to release.\n");}
         else if(byte===114){flush();if(this.takeover)this.prompt("Releasing hands the task back for review.\n");this.send(wire(FrameType.release,{}));}
         else if(byte===29)pending.push(29);
         else pending.push(29,byte);
@@ -102,7 +105,12 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
   // Decided by the host's first control frame: true on a host that negotiated 1.2.
   let shared:boolean|undefined;
   try{takeover=JSON.parse(readFileSync(join(dir,"session.json"),"utf8")).takeover===true;}catch{/* optional metadata */}
-  const keys=new AttachKeys(bytes=>send(bytes),message=>process.stderr.write(message),takeover,readOnly);
+  const viewerLabel=process.env.TERM_PROGRAM??process.env.TERM??"cli";
+  const handBack=options.handBack?()=>{
+    process.stderr.write("Handing the task back for review.\n");
+    options.handBack!(`cli:${viewerLabel}`).catch(error=>process.stderr.write(`Could not hand the task back: ${String(error instanceof Error?error.message:error).replace(/[\x00-\x1f\x7f]/g,'')}\n`));
+  }:undefined;
+  const keys=new AttachKeys(bytes=>send(bytes),message=>process.stderr.write(message),takeover,readOnly,handBack);
   const input=(data:Buffer)=>{if(keys.push(data))detach();};
   const title=()=>{if(stdout.isTTY)stdout.write(`\x1b]0;${label.replace(/[\x00-\x1f\x7f]/g,"")} · ${controlling?(shared?'interactive':'controlling'):'watching'}\x07`);};
   const resize=()=>{if(controlling)send(wire(FrameType.size,{cols:stdout.columns??120,rows:stdout.rows??40}));};
@@ -143,7 +151,7 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
         socket.on("close",detach);socket.on("error",detach);
         socket.resume();
         send=bytes=>{if(!socket.destroyed)socket.write(bytes);};
-        send(wire(FrameType.hello,{v:1,client:"cli",label:process.env.TERM_PROGRAM??process.env.TERM??"cli",cols:stdout.columns ?? 120,rows:stdout.rows ?? 40,...clientHello(),...(readOnly?{readOnly:true}:{})}));
+        send(wire(FrameType.hello,{v:1,client:"cli",label:viewerLabel,cols:stdout.columns ?? 120,rows:stdout.rows ?? 40,...clientHello(),...(readOnly?{readOnly:true}:{})}));
         await detached;return;
       } catch (error) {
         if(existsSync(join(dir,"session.bridge.pid"))) throw error;

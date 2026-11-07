@@ -13,6 +13,7 @@ import { profileKeys, terminalEnv } from "../exec/login-env";
 import { stopRun } from "../supervisor/run";
 import { CoreError } from "../core/errors";
 import { validateTaskId } from "./targets";
+import { readReport, writeReport } from "./reports";
 
 export const providerOwnedTakeover = "Take over is not yet extracted for provider-owned runs.";
 export const missingSession = (executor: string) => `Take over needs the agent's session id; \`${executor}\` does not report one. Stop the task and retry it interactively instead.`;
@@ -47,6 +48,18 @@ export function parseOpencodeSessions(text: string, taskId: string): string | un
     };
     return rows.sort((a,b) => timestamp(b) - timestamp(a))[0]?.id;
   } catch { return undefined; }
+}
+/** Ends a takeover session with the same user report a 1.1 viewer's release writes; the runner then verifies the work. */
+export function handBackTask(ctx: Ctx, id: string, by: string) {
+  validateTaskId(id);
+  const task = readTask(ctx, id);
+  if (!task) throw new CoreError("unknown_task", `unknown task ${id}`);
+  const run = task.run;
+  if (task.state !== "running" || !run?.takeover || task.takeover?.state === "ended") throw new CoreError("conflict", "This task is not in a takeover session; nothing to hand back.");
+  const report = readReport(run.dir);
+  if (report?.status === "done" || report?.status === "failed") throw new CoreError("conflict", "This task was already handed back and is finishing.");
+  writeReport(run.dir, "done", `Handed back by ${by.replace(/[\x00-\x1f\x7f]/g, "") || "a viewer"}`, "user");
+  return {id, state: "handed_back" as const};
 }
 export async function takeoverTask(ctx: Ctx, id: string, by?: string) {
   return withWork(ctx, { kind: "operation", id, label: `Taking over task ${id}` }, () => takeoverTaskAdmitted(ctx, id, by));
