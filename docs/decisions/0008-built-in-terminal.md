@@ -10,7 +10,7 @@ Pacer's app can show agent sessions, but general shell commands and several sett
 
 ## Decision
 
-`pacer serve` owns detached interactive PTYs and a private terminal registry under `PACER_HOME`. The app exposes shell tabs, splits and search. Additive v3 operations manage terminal records; a same-origin authenticated WebSocket reuses the task-session framing, replay and exclusive input control. Browser callers may create login shells only. Trusted service actions supply their own argument vectors to the internal launcher and return a terminal ID for app navigation. The CLI and TUI retain their existing external launch targets.
+`pacer serve` owns detached interactive PTYs and a private terminal registry under `PACER_HOME`. The app exposes shell tabs, splits and search. Additive v3 operations manage terminal records; a same-origin authenticated WebSocket reuses the task-session framing, replay and exclusive input control. ([ADR 0023](0023-single-interactive-session-mode.md) replaces exclusive input control with one interactive mode.) Browser callers may create login shells only. Trusted service actions supply their own argument vectors to the internal launcher and return a terminal ID for app navigation. The CLI and TUI retain their existing external launch targets.
 
 Each creation has a request ID reserved before spawn. A repeat request reuses the record or reports a conflicting payload. The API never accepts arbitrary command text or argv for actions; users type commands into an authenticated shell stream. Terminal files are private, and executor work grants cannot manage or attach to these terminals.
 
