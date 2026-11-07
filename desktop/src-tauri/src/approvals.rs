@@ -13,11 +13,17 @@ enum Permission {
     Denied = 2,
 }
 static NOTIFICATIONS: AtomicU8 = AtomicU8::new(Permission::Unknown as u8);
+static NOTIFICATIONS_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 /// Only an explicit OS denial opts the desktop out, so the service can fall back to its
 /// notifier plugin; an undetermined or unbundled launch keeps presenting.
 pub fn notifications_presentable() -> bool {
     NOTIFICATIONS.load(Ordering::SeqCst) != Permission::Denied as u8
+}
+
+/// Resolves after the recorded permission changes, including a change made before the call.
+pub async fn notifications_changed() {
+    NOTIFICATIONS_CHANGED.notified().await;
 }
 
 #[cfg_attr(
@@ -28,6 +34,7 @@ fn record_notifications(permission: Permission) {
     let previous = NOTIFICATIONS.swap(permission as u8, Ordering::SeqCst);
     if previous != permission as u8 {
         desktop_log!("pacer approvals: notification permission {permission:?}");
+        NOTIFICATIONS_CHANGED.notify_one();
     }
 }
 
@@ -145,13 +152,28 @@ pub fn launch_at_login_enabled() -> Option<bool> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn only_explicit_denial_stops_presenting() {
+    #[tokio::test]
+    async fn only_explicit_denial_stops_presenting_and_wakes_the_heartbeat() {
+        use std::time::Duration;
+        use tokio::time::timeout;
         assert!(notifications_presentable());
         record_notifications(Permission::Denied);
         assert!(!notifications_presentable());
+        timeout(Duration::from_secs(1), notifications_changed())
+            .await
+            .expect("a change wakes the heartbeat");
+        record_notifications(Permission::Denied);
+        assert!(
+            timeout(Duration::from_millis(20), notifications_changed())
+                .await
+                .is_err(),
+            "an unchanged answer does not"
+        );
         record_notifications(Permission::Allowed);
         assert!(notifications_presentable());
+        timeout(Duration::from_secs(1), notifications_changed())
+            .await
+            .expect("a change wakes the heartbeat");
     }
 
     #[test]

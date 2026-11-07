@@ -1133,7 +1133,11 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
     // still ends it immediately.
     let mut strikes = logic::SessionOpStrikes::default();
     loop {
-        interval.tick().await;
+        // A permission change beats at once so notifications do not wait out the interval.
+        tokio::select! {
+            _ = interval.tick() => {}
+            _ = crate::approvals::notifications_changed() => {}
+        }
         if !missing_reported {
             if let (Ok(home), Ok(config)) = (
                 required_home(std::env::var_os("HOME").as_deref()),
@@ -1146,7 +1150,7 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
             }
         }
 
-        // The refreshed answer arrives asynchronously and is sent on the next beat.
+        // A changed answer arrives asynchronously and wakes the loop for another beat.
         crate::approvals::refresh_notifications();
         let result = session
             .op_timeout(

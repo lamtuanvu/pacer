@@ -2,7 +2,8 @@
 
 The original endpoint captures (`hello.json`, `snapshot.json`, task and event
 files) retain the pre-upgrade contract. Do not replace them with current output.
-`conversions.json` retains the initial pure-conversion cases.
+`conversions.json` retains the initial pure-conversion cases, plus the removal of
+v3-only params such as `notifier` on `client.heartbeat`.
 
 `characterization.json` records the current TypeScript reference adapter without
 changing runtime code. Both `test/v2-parity.test.ts` and
