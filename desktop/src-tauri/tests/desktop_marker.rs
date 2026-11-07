@@ -1,4 +1,4 @@
-//! Release staging rejects a package whose CLI or update helper carries the desktop marker.
+//! Release staging rejects a package whose update helper carries the desktop marker.
 use pacer_desktop::packaging::DESKTOP_EXECUTABLE_MARKER;
 
 fn carries_marker(path: &str) -> bool {
