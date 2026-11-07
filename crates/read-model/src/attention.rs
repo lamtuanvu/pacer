@@ -58,6 +58,40 @@ pub fn derive(
     planner: &Value,
     can_pair: bool,
 ) -> Vec<Value> {
+    let items = raised(ctx, tasks, executors, accounts, setup, planner, can_pair);
+    let store = read(ctx, "state/attention.json");
+    let mut items: Vec<Value> = items
+        .into_iter()
+        .filter_map(|mut a| {
+            let entry = &store[text(&a["id"])];
+            let since = entry.get("since").cloned().unwrap_or(number(ctx.now));
+            if entry.get("dismissedSince") == Some(&since) || num(&entry["snoozedUntil"]) > ctx.now
+            {
+                return None;
+            }
+            a["since"] = since.clone();
+            if !truth(&a["taskId"]) {
+                a["raisedAt"] = since;
+            }
+            if let Some(v) = entry.get("snoozedUntil") {
+                a["snoozedUntil"] = v.clone();
+            }
+            Some(a)
+        })
+        .collect();
+    sort(&mut items);
+    items
+}
+/// The items the rules raise before `state/attention.json` hides dismissed and snoozed ones.
+pub fn raised(
+    ctx: &Ctx,
+    tasks: &[Value],
+    executors: &[Value],
+    accounts: &[Value],
+    setup: &Value,
+    planner: &Value,
+    can_pair: bool,
+) -> Vec<Value> {
     let mut items = Vec::new();
     let superseded = tasks::superseded(tasks);
     for source in tasks {
@@ -463,26 +497,5 @@ pub fn derive(
             ));
         }
     }
-    let store = read(ctx, "state/attention.json");
-    items = items
-        .into_iter()
-        .filter_map(|mut a| {
-            let entry = &store[text(&a["id"])];
-            let since = entry.get("since").cloned().unwrap_or(number(ctx.now));
-            if entry.get("dismissedSince") == Some(&since) || num(&entry["snoozedUntil"]) > ctx.now
-            {
-                return None;
-            }
-            a["since"] = since.clone();
-            if !truth(&a["taskId"]) {
-                a["raisedAt"] = since;
-            }
-            if let Some(v) = entry.get("snoozedUntil") {
-                a["snoozedUntil"] = v.clone();
-            }
-            Some(a)
-        })
-        .collect();
-    sort(&mut items);
     items
 }
