@@ -9,7 +9,7 @@ test('any planner opens through terminal with a prompt and safe paths',async()=>
  for(const [agent,bin] of [['cursor','cursor-agent'],['opencode','opencode'],['codex','codex'],['claude-code','claude']]) {
  let argv:string[]=[];const result=await build(ctx,{agent,brief:'Do this'}, {open:async(_ctx,o)=>{argv=o.argv;return {opened:true,target:'terminal',command:'cmd'};}});
  expect(argv[0]).toBe(bin);
- const flags = agent === 'codex' ? ['--dangerously-bypass-approvals-and-sandbox'] : agent === 'claude-code' ? ['--dangerously-skip-permissions'] : agent === 'cursor' ? ['--force', '--sandbox', 'disabled'] : ['--auto', '--standalone'];
+ const flags = agent === 'codex' ? ['--dangerously-bypass-approvals-and-sandbox'] : agent === 'claude-code' ? ['--dangerously-skip-permissions'] : agent === 'cursor' ? ['--force', '--trust', '--sandbox', 'disabled'] : ['--auto', '--standalone'];
  for (const flag of flags) expect(argv).toContain(flag);
  expect(argv.at(-1)).toContain('Do this');expect(result.target).toBe('terminal');expect(readFileSync(result.path,'utf8')).toContain('Do this');
  }

@@ -26,7 +26,7 @@ function expectedArgv(agent: Agent, mode: "interactive" | "headless", p: {workdi
   if (mode === "headless") return {
     "claude-code": ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--session-id", p.session!],
     codex: ["codex", "exec", "-C", p.workdir, "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-o", join(p.dir, `${p.id}.codex-last.md`), "-"],
-    cursor: ["cursor-agent", "-p", "--output-format", "text", "--force", "--sandbox", "disabled", "--workspace", p.workdir, "--resume", "chat-1"],
+    cursor: ["cursor-agent", "-p", "--output-format", "text", "--force", "--trust", "--sandbox", "disabled", "--workspace", p.workdir, "--resume", "chat-1"],
     agy: ["agy", "--dangerously-skip-permissions", "--add-dir", p.workdir, "-p"],
     opencode: ["opencode", "run", "--standalone", "--agent", "build", "-m", "", "--auto", "--title", `pacer ${p.id}`],
   }[agent];

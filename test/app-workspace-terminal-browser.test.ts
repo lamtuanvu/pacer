@@ -202,12 +202,16 @@ browserTest('a small watched PTY in a wide pane keeps its natural size instead o
     const page = await browser.newPage({ viewport: { width: 2080, height: 1388 } });
     await open(page, source, true, 'light', false, { cols: 120, rows: 40 });
     const watched = await page.evaluate(() => {
+      const pane = document.querySelector<HTMLElement>('.pc-terminal-pane')!;
       const mount = document.querySelector<HTMLElement>('.pc-terminal-mount')!;
-      const screen = document.querySelector<HTMLElement>('.xterm-screen')!;
-      return { transform: getComputedStyle(mount).transform, screen: screen.getBoundingClientRect().width, natural: screen.offsetWidth };
+      const paneBox = pane.getBoundingClientRect(), mountBox = mount.getBoundingClientRect(), pad = getComputedStyle(pane);
+      return { transform: getComputedStyle(mount).transform, mount: mountBox.width, pane: paneBox.width,
+        left: mountBox.left - paneBox.left - parseFloat(pad.paddingLeft), top: mountBox.top - paneBox.top - parseFloat(pad.paddingTop) };
     });
     expect(watched.transform).toBe('none');
-    expect(watched.screen).toBe(watched.natural);
+    expect(watched.mount).toBeLessThan(watched.pane);
+    expect(Math.abs(watched.left)).toBeLessThanOrEqual(1);
+    expect(Math.abs(watched.top)).toBeLessThanOrEqual(1);
     await page.close();
   } finally { await browser.close(); }
 }, 30_000);

@@ -127,7 +127,7 @@ export function launchFor(cfg: ProviderCfg, prompt: string, repo: string, taskDi
     case "cursor":
       return {
         cwd: repo,
-        argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--sandbox", "disabled", "--workspace", repo, ...(sessionId ? ["--resume", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
+        argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--trust", "--sandbox", "disabled", "--workspace", repo, ...(sessionId ? ["--resume", sessionId] : []), ...(model ? ["--model", model] : []), prompt],
       };
     case "agy":
       return {
@@ -198,7 +198,7 @@ export function resumeHeadlessFor(cfg: ProviderCfg, sessionId: string, prompt: s
     case "claude-code":
       return {cwd: workdir, argv: ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose", "--resume", sessionId, ...(model ? ["--model", model] : []), prompt]};
     case "cursor":
-      return {cwd: workdir, argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--sandbox", "disabled", "--workspace", workdir, "--resume", sessionId, ...(model ? ["--model", model] : []), prompt]};
+      return {cwd: workdir, argv: ["cursor-agent", "-p", "--output-format", "text", "--force", "--trust", "--sandbox", "disabled", "--workspace", workdir, "--resume", sessionId, ...(model ? ["--model", model] : []), prompt]};
     default:
       throw new Error(`no headless resume for provider "${cfg.id}"`);
   }
