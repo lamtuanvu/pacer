@@ -6,6 +6,7 @@ import { conversationActivity } from "../session/conversation";
 import { withLock } from "../core/lock";
 import { FrameType, WireDecoder, wire } from "../session/framing";
 import { sessionSocket } from "../session/service";
+import { viewerLabel } from "../session/viewers";
 import { transcriptReport } from "../session/reports";
 import { readRun, type RunState } from "../supervisor/run";
 import type { SpawnRunner } from "../tasks/api";
@@ -19,6 +20,9 @@ import type { Message } from "./types";
 import { agentReport, beginTurn, isClosed, notifyMessage, renderTurnPrompt, report, reportHold, reportReader } from "./turns";
 
 const PASTE_START = "\x1b[200~", PASTE_END = "\x1b[201~";
+/** pacer's own viewer: its hello, and the controller label the session host records for it. */
+const PACER_VIEWER = { client: "cli", label: "pacer" } as const;
+export const PACER_CONTROLLER = viewerLabel(PACER_VIEWER);
 /** Larger bodies go to a run-dir file and only a short prompt is typed, as a conversation's first request does. */
 const INLINE_BYTES = 32 * 1024;
 
@@ -42,11 +46,11 @@ export async function liveTick(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSt
   catch (e) { if (!(e instanceof Error && e.message.includes("timed out waiting for"))) throw e; }
 }
 
-/** Fresh run activity and control: the agent is still between turns and nobody but `pacer` holds the terminal. */
+/** Fresh run activity and control: the agent is still between turns and nobody but pacer's own viewer holds the terminal. */
 function stillBetweenTurns(ctx: Ctx, id: string, run: RunRef, deps: LiveDeps): boolean {
   const t = readTask(ctx, id), s = deps.readState?.(run.dir) ?? readRun(run.dir);
   return !!t && t.run?.dir === run.dir && !t.liveTurn && !t.run.takeover && t.takeover?.state !== "driving" &&
-    s.alive && !!s.interactive && (!s.controller || s.controller === "pacer") && betweenTurns(t, s);
+    s.alive && !!s.interactive && (!s.controller || s.controller === PACER_CONTROLLER) && betweenTurns(t, s);
 }
 
 /** One claim at a time per task, so two ticks never type the same turn. */
@@ -164,7 +168,7 @@ export async function typeIntoSession(path: string, body: string, deps: LiveDeps
   const send = (bytes: Buffer) => new Promise<void>((resolve, reject) => socket.write(bytes, e => e ? reject(e) : resolve()));
   try {
     await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
-    await send(wire(FrameType.hello, { v: 1, client: "cli", label: "pacer" }));
+    await send(wire(FrameType.hello, { v: 1, ...PACER_VIEWER }));
     await next();
     await send(wire(FrameType.take, {}));
     let control = await next();
