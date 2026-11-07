@@ -2,6 +2,7 @@ import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { SessionInfo } from "../../../../src/session/service";
 import { LinkedTerminal, type ReadSessionFile } from "./LinkedTerminal";
 import { ReopenToUpdate } from "./ReopenToUpdate";
+import { sessionActive } from "../../term/activity";
 
 /** Picks the renderer for a live session. The built-in terminal is the only renderer today. */
 export function SessionView({
@@ -41,6 +42,7 @@ export function SessionView({
         resize={active && session.capabilities.resize}
         live={active && session.live}
         controller={session.controller}
+        active={sessionActive(session)}
         takeRequested={takeRequested && session.live}
         onTakeSent={onTakeSent}
         conversation

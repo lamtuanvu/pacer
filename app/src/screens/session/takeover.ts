@@ -1,6 +1,10 @@
 import type { BrowserApi } from '../../data/api';
 import type { SessionInfo } from '../../../../src/session/service';
 export type TakeoverState='starting'|'driving'|'ended';
+/** Ends a takeover session on a 1.2 host, where releasing control no longer hands back (ADR 0023). */
+export async function handBackSession({id,call}:{id:string;call:BrowserApi['call']}){
+ await call('task.hand_back',{id});
+}
 /** A retry resumes polling an accepted takeover rather than submitting it again. */
 export async function takeoverSession({id,call,state,starting,ready,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),signal}:{id:string;call:BrowserApi['call'];state?:TakeoverState;starting:()=>void;ready:(session:SessionInfo)=>void;sleep?:(ms:number)=>Promise<unknown>;signal?:AbortSignal}) {
  const check=()=>{if(signal?.aborted)throw new Error('Takeover cancelled');};

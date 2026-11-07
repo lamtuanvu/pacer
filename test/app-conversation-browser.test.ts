@@ -49,3 +49,46 @@ browserTest('conversation terminal portals its controls to the footer and never 
   expect(await page.evaluate(()=>(window as any).conversationFixture.sizes().at(-1))).toBe(fitted);
  }finally{await browser.close();}
 },20000);
+
+browserTest('a 1.2 session types on focus with no control row, and Ctrl-] leaves the terminal',async()=>{
+ const built=await Bun.build({entrypoints:['test/fixtures/ui/conversation-terminal.tsx'],target:'browser',minify:true});
+ expect(built.success).toBe(true);
+ const browser=await chromium.launch({executablePath:process.env.PACER_TEST_BROWSER!,headless:true});
+ try{
+  const page=await browser.newPage({viewport:{width:1000,height:700}});
+  await page.setContent('<style>.pc-terminal-pane{height:300px;overflow:hidden;position:relative}.pc-terminal-mount{transform-origin:top left}</style><div id="app"></div>');
+  await page.evaluate(()=>{(window as any).sessionVersions=[1,2];});
+  await page.addScriptTag({content:await built.outputs[0].text()});
+  const footer=page.locator('#footer'),supervised=page.locator('#supervised');
+  await footer.getByText('Interactive',{exact:true}).waitFor();
+  await supervised.getByText('Interactive · last input from ghostty',{exact:true}).waitFor();
+  expect(await supervised.locator('.pc-terminal-strip [role="status"][aria-live="polite"]').textContent()).toBe('Interactive · last input from ghostty');
+  for(const word of ['Take control','Release control','Watching · read-only','Nothing you type reaches the agent','Take over?'])expect(await page.getByText(word,{exact:false}).count()).toBe(0);
+  expect(await page.getByRole('button',{name:/control/i}).count()).toBe(0);
+  const sent=()=>page.evaluate(()=>(window as any).conversationFixture.sent() as string[]);
+
+  // Focusing a pane makes it the active client; its keystrokes reach the agent without take.
+  await page.locator('#supervised .xterm-helper-textarea').focus();
+  await page.waitForFunction(()=>((window as any).conversationFixture.sent() as string[]).includes('supervised:focus'));
+  await page.keyboard.press('x');
+  await page.waitForFunction(()=>((window as any).conversationFixture.sent() as string[]).includes('supervised:input'));
+  expect((await sent()).filter(frame=>/:(take|release)$/.test(frame))).toEqual([]);
+  expect(await supervised.locator('.pc-terminal-view').getAttribute('data-session-control')).toBe('true');
+  expect(await page.locator('#session-panel .pc-terminal-view').getAttribute('data-session-control')).toBe('false');
+  // A focused pane's Ctrl combinations stay with the agent.
+  await page.evaluate(()=>{(window as any).seen=[];addEventListener('keydown',(e:Event)=>{const k=e as KeyboardEvent;if(k.key==='b')(window as any).seen.push(k.key);});});
+  await page.keyboard.press('Control+b');
+  expect(await page.evaluate(()=>(window as any).seen)).toEqual([]);
+
+  // Ctrl-] moves focus to the next control after the terminal without sending anything; Tab continues from there.
+  const before=(await sent()).length;
+  await page.keyboard.press('Control+BracketRight');
+  expect(await page.evaluate(()=>document.activeElement?.closest('#supervised .pc-terminal-strip')!==null)).toBe(true);
+  expect(await supervised.locator('.pc-terminal-view').getAttribute('data-session-control')).toBe('false');
+  expect((await sent()).length).toBe(before);
+  // The conversation pane does the same, landing on its footer controls.
+  await page.locator('#session-panel .xterm-helper-textarea').focus();
+  await page.keyboard.press('Control+BracketRight');
+  expect(await page.evaluate(()=>document.activeElement?.closest('#footer')!==null)).toBe(true);
+ }finally{await browser.close();}
+},20000);

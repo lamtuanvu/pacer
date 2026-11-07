@@ -42,7 +42,11 @@ async function open(page: Page, source: Awaited<ReturnType<typeof bundle>>, held
         const frame = JSON.parse(value); this.sent.push(frame);
         if (frame.type === 'hello') setTimeout(() => {
           if (frame.from !== undefined) this.frame({ type: 'control', controller: null, you: false });
-          else this.frame({ type: 'snapshot', outputOffset: 0, cols: held ? heldSize.cols : 80, rows: held ? heldSize.rows : 24, scrollbackAnsi: history, screenAnsi: screen, controller: held ? 'other window' : null, viewers: 2 });
+          else {
+            // A 1.1 host follows every snapshot with its control frame.
+            this.frame({ type: 'snapshot', outputOffset: 0, cols: held ? heldSize.cols : 80, rows: held ? heldSize.rows : 24, scrollbackAnsi: history, screenAnsi: screen, controller: held ? 'other window' : null, viewers: 2 });
+            this.frame({ type: 'control', controller: held ? 'other window' : null, you: false, versions: [1, 1], pacer: '0.13.0' });
+          }
         }, 0);
         if (frame.type === 'take' && (!held || frame.force)) setTimeout(() => this.frame({ type: 'control', controller: 'app', you: true }), 0);
         if (frame.type === 'size') setTimeout(() => this.frame({ type: 'resize', cols: frame.cols, rows: frame.rows }), 0);

@@ -28,3 +28,20 @@ test('leaving during startup prevents a later take',async()=>{
  await expect(takeoverSession({id:'t1',state:'starting',signal:abort.signal,starting:()=>{},ready:()=>{takes++;},sleep:async()=>{abort.abort();},call:async<T>()=>{polls++;return fixture.session as T;}})).rejects.toThrow('cancelled');
  expect(takes).toBe(0);expect(polls).toBe(0);
 });
+test('hand back on a 1.2 host calls task.hand_back for the task',async()=>{
+ const {handBackSession}=await import('../app/src/screens/session/takeover');
+ const calls:[string,unknown][]=[];
+ await handBackSession({id:'t1',call:async<T>(op:string,params:unknown)=>{calls.push([op,params]);return {} as T;}});
+ expect(calls).toEqual([['task.hand_back',{id:'t1'}]]);
+ await expect(handBackSession({id:'t1',call:async()=>{throw new Error('not a takeover');}})).rejects.toThrow('not a takeover');
+});
+test('a takeover that becomes ready on a 1.2 host types without sending take',async()=>{
+ const sent:string[]=[];
+ const socket:SessionSocket={readyState:1,binaryType:'arraybuffer',onopen:null,onclose:null,onerror:null,onmessage:null,send:data=>{if(typeof data==='string')sent.push(JSON.parse(data).type);},close:()=>{}};
+ const client=new SessionClient({url:'ws://test',label:'app',cols:120,rows:36,control:true,autoControl:true,socket:()=>socket});
+ client.connect();socket.onopen?.();
+ socket.onmessage?.({data:JSON.stringify({type:'snapshot',outputOffset:0,cols:120,rows:36,scrollbackAnsi:'',screenAnsi:'',controller:null,viewers:1})});
+ socket.onmessage?.({data:JSON.stringify({type:'control',controller:null,you:true,versions:[1,2],pacer:'0.14.0'})});
+ await takeoverSession({id:'t1',state:'driving',call:async<T>()=>({...fixture.session,live:true,driving:true}) as T,starting:()=>{},ready:()=>{void client.take();},sleep:async()=>{}});
+ expect(sent).toEqual(['hello']);expect(client.input('x')).toBe(true);client.dispose();
+});
