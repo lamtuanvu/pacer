@@ -31,6 +31,7 @@ pub(crate) fn needs_usage_broker(op: &str) -> bool {
             | "routing.route"
             | "task.retry_options"
             | "strategy.preview"
+            | "runner.list"
     )
 }
 

@@ -202,6 +202,7 @@ async fn forward_input<
                     op.name,
                     &params,
                 )
+                && !crate::native::runner_attention_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
                 if op.name == "task.wait" {

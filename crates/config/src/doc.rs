@@ -960,7 +960,8 @@ impl StrategyDoc {
                 let mut parts: Vec<String> = items
                     .iter()
                     .map(|item| {
-                        let body = emit_clone(item, &self.text, false);
+                        let body = emit_clone(item, &self.text, false)
+                            .replace('\n', &format!("{}  ", self.newline()));
                         format!("- {body}")
                     })
                     .collect();

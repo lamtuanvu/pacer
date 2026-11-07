@@ -1331,6 +1331,7 @@ dependencies = [
  "pacer-lifecycle",
  "pacer-repos",
  "pacer-store",
+ "ryu-js",
  "serde_json",
  "tempfile",
  "tokio",
@@ -1349,8 +1350,12 @@ dependencies = [
 name = "pacer-discovery-ops"
 version = "0.0.0"
 dependencies = [
+ "hex",
  "pacer-foundation",
+ "rand 0.9.5",
+ "regex",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
 ]

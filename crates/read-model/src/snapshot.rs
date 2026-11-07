@@ -101,6 +101,10 @@ impl<'a> SnapshotInput<'a> {
 }
 pub struct SnapshotResult {
     pub snapshot: Value,
+    /// `raisedItems` (`src/core/attention.ts`): what `attention.dismiss` and
+    /// `attention.snooze` accept, built like the snapshot without its
+    /// context-only executor facts or status-updated setup checklist.
+    pub raised: Vec<Value>,
     legacy: Value,
     questions: HashMap<String, String>,
 }
@@ -434,6 +438,15 @@ impl ReadModel {
         let attention = attention::derive(
             ctx, &tasks, &executors, &accounts, &setup, &planner, p.can_pair,
         );
+        let raised = attention::raised(
+            ctx,
+            &tasks,
+            &capacity::executors_without_ctx(&status, &strategy, &tasks, ctx.now),
+            &accounts,
+            &json!({"items": checklist["items"]}),
+            &planner,
+            p.can_pair,
+        );
         let mut repos = tasks::registered_repos(ctx);
         for t in &tasks {
             if !repos.iter().any(|r| r["key"] == t["repo"]["key"]) {
@@ -494,6 +507,7 @@ impl ReadModel {
         let questions = crate::wire::questions(self.store(ctx)?)?;
         Ok(SnapshotResult {
             snapshot,
+            raised,
             legacy,
             questions,
         })

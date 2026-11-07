@@ -15,6 +15,7 @@ pacer-store = { path = "../store" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-repos = { path = "../repos" }
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
+ryu-js = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 
 [dev-dependencies]

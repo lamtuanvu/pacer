@@ -324,6 +324,9 @@ async fn run(core: Arc<CoreChild>, state: Arc<Mutex<State>>, poll: Duration) {
             continue;
         };
         let raw = post(&client, &target, "/_internal/discovery/config", json!({})).await;
+        if raw.is_some() {
+            pacer_discovery_ops::network::record_radio_contact();
+        }
         if let Some(raw) = raw
             && let Some(config) = validate_config(&raw)
         {

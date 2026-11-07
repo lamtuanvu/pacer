@@ -77,6 +77,7 @@ export async function finishNativeConfigEdit(ctx: Ctx, op: unknown): Promise<voi
       "host.set",
       "host.remove",
       "host.repo.map",
+      "runner.add",
       "runner.set",
       "runner.reorder",
       "runner.remove",
