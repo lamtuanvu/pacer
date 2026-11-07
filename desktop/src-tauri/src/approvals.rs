@@ -3,7 +3,10 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_os = "macos", not(feature = "ota-fixture"))),
+    allow(dead_code)
+)]
 enum Permission {
     Unknown = 0,
     Allowed = 1,
@@ -17,7 +20,10 @@ pub fn notifications_presentable() -> bool {
     NOTIFICATIONS.load(Ordering::SeqCst) != Permission::Denied as u8
 }
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(
+    not(all(target_os = "macos", not(feature = "ota-fixture"))),
+    allow(dead_code)
+)]
 fn record_notifications(permission: Permission) {
     let previous = NOTIFICATIONS.swap(permission as u8, Ordering::SeqCst);
     if previous != permission as u8 {
@@ -83,6 +89,13 @@ pub fn request_notifications() {
             granted.as_bool(),
             !error.is_null()
         );
+        if let Some(error) = unsafe { error.as_ref() } {
+            desktop_log!(
+                "pacer approvals: notification authorization error {}: {}",
+                error.code(),
+                error.localizedDescription()
+            );
+        }
         record_notifications(if granted.as_bool() {
             Permission::Allowed
         } else {

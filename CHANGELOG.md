@@ -4,10 +4,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
-### Fixed
-
-- Notifications are no longer lost while the desktop is open but macOS has denied it notification permission. The desktop now registers and heartbeats with `notifier: false` after an explicit denial (rechecked every heartbeat), so the service falls back to its notifier plugin; `client.heartbeat` accepts an optional `notifier` flag that older services ignore.
-
 ### Changed
 
 - Client-owned notification delivery: the service selects per-medium presenters (`desktop` → OS, `tui` → terminal, standalone `app` → browser; browser omitted while desktop is live), publishes `notify` events with additive `recipients`, and exposes `service.notifiers` on the snapshot (`service.notifier` stays the `os` presenter for older clients). The bundled notifier plugin (`pacer-notify` / `osascript` / `notify-send`) runs only when no delivery client is live. See [ADR 2026-11-06](docs/decisions/2026-11-06-client-notification-delivery.md).
@@ -51,6 +47,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Notifications are no longer lost while the desktop is open but macOS has denied it notification permission. The desktop now registers and heartbeats with `notifier: false` after an explicit denial (rechecked every heartbeat), so the service falls back to its notifier plugin; `client.heartbeat` accepts an optional `notifier` flag that older services ignore.
 - The Claude Code `SessionStart` hook (`pacer msg hook session`) finishes again. Since 0.13.0 it waited forever on its own CLI module, so sessions never got the budget context. With stdin at end of file, for example from a closed terminal, it also kept most of a CPU core busy until it was killed.
 - Turn the native plugin host back off by default on `pacer serve` (reverts P4d-13). With it on, the TypeScript core refused to start any plugin child, and only the public `plugin.*` HTTP operations could start one through the native owner. Usage refresh, the doctor and setup-health integration and Usage checks, and the planners plugin all failed, and usage readings stopped updating. `PACER_NATIVE_PLUGIN_HOST=1` still opts in, with the same limitation.
 - Cursor sessions no longer stop at Cursor Agent 2026.11's "Workspace Trust Required" prompt in new task worktrees. Every Cursor launch (headless, interactive, resume and planner) passes `--trust`. The launch arguments changed, so strict-enforcement certifications for Cursor are re-probed once.
