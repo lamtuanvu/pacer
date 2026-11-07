@@ -78,13 +78,13 @@ test('only an explicit controller release hands back a takeover; disconnect and 
 
 // Session protocol 1.2 (ADR 0023): no controller, read-only viewers, size follows the active client.
 const MODERN=[1,2] as [number,number];
-function shared(timing?:Partial<DeliveryTiming>){
- const inputs:string[]=[],sizes:[number,number][]=[],markers:string[]=[],released:string[]=[],states:{viewers:number;controller:string|null;active:string|null}[]=[];
+function shared(timing?:Partial<DeliveryTiming>,refuseDeliver=false){
+ const inputs:string[]=[],deliveries:string[]=[],sizes:[number,number][]=[],markers:string[]=[],released:string[]=[],states:{viewers:number;controller:string|null;active:string|null}[]=[];
  const hub=new ViewerHub(()=>wire(FrameType.snapshot,{controller:hub.controller,active:hub.active}),()=>null,fn=>fn(),(kind,label)=>markers.push(`${kind}:${label}`),
   (viewers,controller,active)=>states.push({viewers,controller,active}),
-  {input:b=>inputs.push(b.toString('latin1')),resize:(c,r)=>sizes.push([c,r]),release:l=>released.push(l)},{pacer:'0.0.0',versions:MODERN},timing);
+  {input:(b,delivery)=>{inputs.push(b.toString('latin1'));if(delivery)deliveries.push(b.toString('latin1'));},resize:(c,r)=>sizes.push([c,r]),release:l=>released.push(l)},{pacer:'0.0.0',versions:MODERN},timing,refuseDeliver);
  const join=(label:string,hello:Record<string,unknown>={versions:MODERN})=>{const p=new Peer();hub.add(p as any);p.emit('data',wire(FrameType.hello,{v:1,label,...hello}));return p;};
- return {hub,inputs,sizes,markers,released,states,join};
+ return {hub,inputs,deliveries,sizes,markers,released,states,join};
 }
 const controlsOf=(p:Peer)=>p.frames.flatMap(b=>new WireDecoder().push(b)).filter(f=>f.type===FrameType.control).map(f=>JSON.parse(f.data.toString()));
 const framesOf=(p:Peer)=>p.frames.flatMap(b=>new WireDecoder().push(b));
@@ -169,7 +169,7 @@ const FAST={quietMs:40,windowMs:120,timeoutMs:250};
 const deliveredOf=(p:Peer)=>framesOf(p).filter(f=>f.type===FrameType.delivered).map(f=>JSON.parse(f.data.toString()));
 const grantedOf=(p:Peer)=>framesOf(p).filter(f=>f.type===FrameType.granted);
 test('delivery timing defaults are the ADR values',()=>{
- expect(DELIVERY_TIMING).toEqual({quietMs:1500,windowMs:2000,timeoutMs:10000});
+ expect(DELIVERY_TIMING).toEqual({quietMs:1500,windowMs:2000,timeoutMs:10000,maxWindowMs:10000});
 });
 test('1.2 deliver: granted after quiet; other input is held, never dropped, and applied after the delivery',async()=>{
  const {inputs,join}=shared(FAST),pacer=join('pacer'),human=join('human');
@@ -271,4 +271,102 @@ test('deliver is refused from read-only viewers and ignored from 1.1 clients and
  const p=new Peer();hub.add(p as any);p.emit('data',wire(FrameType.hello,{v:1,label:'p',versions:MODERN}));
  p.emit('data',wire(FrameType.deliver,{}));
  expect(framesOf(p).filter(f=>f.type===FrameType.granted||f.type===FrameType.delivered)).toEqual([]);
+});
+test('1.2 deliver: once the requester starts typing, the window outlasts windowMs so Enter is never split from its paste',async()=>{
+ const {inputs,join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(pacer)).toHaveLength(1);
+ pacer.emit('data',wire(FrameType.input,Buffer.from('PASTE')));
+ human.emit('data',wire(FrameType.input,Buffer.from('half typed')));
+ await Bun.sleep(FAST.windowMs+60);
+ expect(inputs).toEqual(['PASTE']);
+ expect(deliveredOf(pacer)).toEqual([]);
+ pacer.emit('data',wire(FrameType.input,Buffer.from('\r')));
+ pacer.emit('data',wire(FrameType.deliver,{done:true}));
+ expect(inputs).toEqual(['PASTE','\r','half typed']);
+ expect(deliveredOf(pacer)).toEqual([{ok:true,label:'cli:pacer'}]);
+});
+test('1.2 deliver: a requester that started typing but never finishes is cut off at maxWindowMs',async()=>{
+ const {inputs,join}=shared({...FAST,maxWindowMs:220}),pacer=join('pacer'),human=join('human');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ pacer.emit('data',wire(FrameType.input,Buffer.from('PASTE')));
+ human.emit('data',wire(FrameType.input,Buffer.from('held')));
+ await Bun.sleep(160);
+ expect(inputs).toEqual(['PASTE']);
+ await Bun.sleep(120);
+ expect(inputs).toEqual(['PASTE','held']);
+ expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'expired',reason:'the delivery window expired'}]);
+});
+test('1.2 deliver: the requester\'s own input is marked as a delivery and starts no quiet period',()=>{
+ const {inputs,deliveries,join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ human.emit('data',wire(FrameType.input,Buffer.from('held')));
+ pacer.emit('data',wire(FrameType.input,Buffer.from('paste')));pacer.emit('data',wire(FrameType.input,Buffer.from('\r')));
+ pacer.emit('data',wire(FrameType.deliver,{done:true}));
+ expect(inputs).toEqual(['paste','\r','held']);
+ expect(deliveries).toEqual(['paste','\r']);
+ const other=join('other');
+ human.emit('data',wire(FrameType.input,Buffer.from('\r')));
+ other.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(other)).toHaveLength(0);
+ const fresh=shared(FAST),first=fresh.join('first'),second=fresh.join('second');
+ first.emit('data',wire(FrameType.deliver,{}));
+ first.emit('data',wire(FrameType.input,Buffer.from('paste\r')));first.emit('data',wire(FrameType.deliver,{done:true}));
+ second.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(second)).toHaveLength(1);
+});
+test('1.2 deliver: the requester does not become the active client, so the size keeps following the human',()=>{
+ const {hub,sizes,states,join}=shared(FAST),human=join('human'),pacer=join('pacer');
+ human.emit('data',wire(FrameType.size,{cols:100,rows:30}));human.emit('data',wire(FrameType.focus,{}));
+ expect(hub.active).toBe('cli:human');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ pacer.emit('data',wire(FrameType.input,Buffer.from('paste\r')));pacer.emit('data',wire(FrameType.deliver,{done:true}));
+ expect(hub.active).toBe('cli:human');
+ expect(states.map(s=>s.active)).not.toContain('cli:pacer');
+ pacer.destroy();expect(hub.active).toBe('cli:human');
+ human.emit('data',wire(FrameType.size,{cols:90,rows:20}));
+ expect(sizes).toEqual([[100,30],[90,20]]);
+});
+test('1.2 pending line: Backspace and DEL remove typed characters; reaching none clears it',async()=>{
+ for(const erase of ['\x7f','\x08']){
+  const {join}=shared(FAST),pacer=join('pacer'),human=join('human');
+  human.emit('data',wire(FrameType.input,Buffer.from('ab')));human.emit('data',wire(FrameType.input,Buffer.from(erase)));
+  pacer.emit('data',wire(FrameType.deliver,{}));
+  await Bun.sleep(80);expect(grantedOf(pacer)).toHaveLength(0);
+  human.emit('data',wire(FrameType.input,Buffer.from(erase)));
+  await Bun.sleep(80);expect(grantedOf(pacer)).toHaveLength(1);
+ }
+});
+test('1.2 pending line: extra Backspaces do not go below empty, and multibyte characters count once',async()=>{
+ const {join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ human.emit('data',wire(FrameType.input,Buffer.from('\x7f\x7f\x7f')));
+ human.emit('data',wire(FrameType.input,Buffer.from('é')));human.emit('data',wire(FrameType.input,Buffer.from('\x7f')));
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ await Bun.sleep(80);expect(grantedOf(pacer)).toHaveLength(1);
+});
+test('1.2 pending line: a lone Esc clears it; Esc starting a sequence does not',async()=>{
+ const {join}=shared(FAST),pacer=join('pacer'),human=join('human');
+ human.emit('data',wire(FrameType.input,Buffer.from('draft\x1b[D')));
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ await Bun.sleep(80);expect(grantedOf(pacer)).toHaveLength(0);
+ human.emit('data',wire(FrameType.input,Buffer.from('\x1b')));
+ await Bun.sleep(80);expect(grantedOf(pacer)).toHaveLength(1);
+});
+test('1.2 pending line: Ctrl-C, Ctrl-U, CR and LF each end it',async()=>{
+ for(const end of ['\x03','\x15','\r','\n']){
+  const {join}=shared(FAST),pacer=join('pacer'),human=join('human');
+  human.emit('data',wire(FrameType.input,Buffer.from('draft')));
+  pacer.emit('data',wire(FrameType.deliver,{}));
+  await Bun.sleep(80);expect(grantedOf(pacer)).toHaveLength(0);
+  human.emit('data',wire(FrameType.input,Buffer.from(`more${end}`)));
+  await Bun.sleep(80);expect(grantedOf(pacer)).toHaveLength(1);
+ }
+});
+test('a host that refuses deliveries (the built-in terminal) answers every deliver with refused',()=>{
+ const {inputs,join}=shared(FAST,true),pacer=join('pacer'),human=join('human');
+ pacer.emit('data',wire(FrameType.deliver,{}));
+ expect(grantedOf(pacer)).toHaveLength(0);
+ expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'refused',reason:'this terminal does not accept automated input'}]);
+ human.emit('data',wire(FrameType.input,Buffer.from('ls\r')));pacer.emit('data',wire(FrameType.input,Buffer.from('typed')));
+ expect(inputs).toEqual(['ls\r','typed']);
 });

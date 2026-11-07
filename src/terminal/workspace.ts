@@ -138,7 +138,7 @@ export async function createTerminal(ctx: Ctx, input: CreateTerminalInput, deps:
     if (input.kind === "shell") env.SHELL = argv[0];
     for (const name of ["PACER_AUTH_TOKEN","PACER_INTERNAL_TOKEN","PACER_WORK_GRANT","PACER_REPORT_TOKEN","PACER_COMPLETION_NONCE","PACER_ADMISSION_LEASE","PACER_ADMISSION_TASK","PACER_ADMISSION_SESSION","PACER_ADMISSION_DIR","PACER_RUN_DIR","PACER_TRANSCRIPT_REPORT","PACER_ROLE","PACER_TASK_ID"]) delete env[name];
     let started: ReturnType<Start>;
-    try { started = (deps.start ?? startRun)({ dir, cwd, argv, env, session: "interactive" }); }
+    try { started = (deps.start ?? startRun)({ dir, cwd, argv, env, session: "interactive", terminal: true }); }
     catch (error) { started = { error: String(error) }; }
     if ("error" in started) {
       record.state = "failed";

@@ -899,3 +899,51 @@ test("task.session and TaskData.session report the active client; controller is 
     expect(await sessionInfo(ctx, task.id, undefined, false)).toMatchObject({ live: true, controller: "cli:remote", active: null });
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+// ADR 0023: pacer's own delivered input is not someone typing; the built-in terminal never accepts a delivery.
+async function hostViewer(dir: string, label: string) {
+  const { sessionSocket } = await import("../src/session/service");
+  await until(() => existsSync(sessionSocket(dir)));
+  const socket = createConnection(sessionSocket(dir)), decoder = new WireDecoder(), frames: { type: number; data: Buffer }[] = [];
+  socket.on("data", b => frames.push(...decoder.push(Buffer.from(b))));
+  await new Promise<void>((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
+  socket.write(wire(FrameType.hello, { v: 1, client: "cli", label, versions: [1, 2] }));
+  await until(() => frames.some(f => f.type === FrameType.snapshot));
+  return { socket, frames, delivered: () => frames.filter(f => f.type === FrameType.delivered).map(f => JSON.parse(f.data.toString())) };
+}
+test.skipIf(!canBindSocket)("a 1.2 host does not mark pacer's delivered input as client input; a person's input does", async () => {
+  const dir = temp(), sockets: Socket[] = [];
+  try {
+    const run = startRun({ dir, cwd: dir, env: process.env, session: "interactive", argv: ["/bin/sh", "-c", 'read a; echo "$a" > first; read b; echo "$b" > second; sleep 30'] });
+    if ("error" in run) throw Error(run.error);
+    const pacer = await hostViewer(dir, "pacer"); sockets.push(pacer.socket);
+    pacer.socket.write(wire(FrameType.deliver, {}));
+    await until(() => pacer.frames.some(f => f.type === FrameType.granted));
+    pacer.socket.write(wire(FrameType.input, Buffer.from("delivered\r")));
+    pacer.socket.write(wire(FrameType.deliver, { done: true }));
+    await until(() => existsSync(join(dir, "first")));
+    expect(pacer.delivered()).toEqual([{ ok: true, label: "cli:pacer" }]);
+    expect(existsSync(join(dir, "session.input"))).toBe(false);
+    const human = await hostViewer(dir, "human"); sockets.push(human.socket);
+    human.socket.write(wire(FrameType.input, Buffer.from("typed\r")));
+    await until(() => existsSync(join(dir, "second")));
+    expect(existsSync(join(dir, "session.input"))).toBe(true);
+  } finally { for (const s of sockets) s.destroy(); await stopRun(dir, { graceMs: 100 }); rmSync(dir, { recursive: true, force: true }); }
+}, 10000);
+test.skipIf(!canBindSocket)("a built-in terminal's host refuses deliver; a task session's host grants it", async () => {
+  for (const terminal of [true, false]) {
+    const dir = temp(), sockets: Socket[] = [];
+    try {
+      const run = startRun({ dir, cwd: dir, env: process.env, session: "interactive", ...(terminal ? { terminal } : {}), argv: ["/bin/sh", "-c", "sleep 30"] });
+      if ("error" in run) throw Error(run.error);
+      if (terminal) expect(JSON.parse(readFileSync(join(dir, "session.json"), "utf8")).terminal).toBe(true);
+      const pacer = await hostViewer(dir, "pacer"); sockets.push(pacer.socket);
+      pacer.socket.write(wire(FrameType.deliver, {}));
+      await until(() => pacer.delivered().length > 0 || pacer.frames.some(f => f.type === FrameType.granted));
+      if (terminal) {
+        expect(pacer.delivered()).toEqual([{ ok: false, cause: "refused", reason: "this terminal does not accept automated input" }]);
+        expect(pacer.frames.some(f => f.type === FrameType.granted)).toBe(false);
+      } else expect(pacer.delivered()).toEqual([]);
+    } finally { for (const s of sockets) s.destroy(); await stopRun(dir, { graceMs: 100 }); rmSync(dir, { recursive: true, force: true }); }
+  }
+}, 15000);

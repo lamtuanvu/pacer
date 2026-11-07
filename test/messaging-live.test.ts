@@ -342,6 +342,40 @@ test("live messages on a 1.2 host retry after pending human input and never set 
   expect(readTask(ctx, id)!.liveError).toBeUndefined();
 });
 
+test("typeIntoSession on a 1.2 host submits its paste even when Enter comes after windowMs; held human input follows it", async () => {
+  const session = fakeSession(tmpDir(), { modern: true, timing: { quietMs: 30, windowMs: 60, timeoutMs: 200 } });
+  await session.ready;
+  const human = await viewer(session, { label: "iTerm", versions: [1, 2] });
+  const typing = typeIntoSession(session.sock, "hi", { ...deps, submitDelayMs: 150 }, () => true);
+  for (let i = 0; i < 100 && !session.input.length; i++) await Bun.sleep(5);
+  await human.type("held");
+  expect(await typing).toEqual({ kind: "typed" });
+  expect(session.input.map(b => b.toString())).toEqual([`${PASTE_START}hi${PASTE_END}`, "\r", "held"]);
+});
+
+test("a live delivery that fails after input was attempted is not re-queued or retyped and records the error", async () => {
+  const { ctx, id, dir, run } = setup();
+  const session = fakeSession(dir, { modern: true, timing: { quietMs: 30, windowMs: 1000, timeoutMs: 200, maxWindowMs: 60 } });
+  await session.ready;
+  await sendMessage(ctx, { to: `task:${id}`, body: "hi" }, { appAuthenticated: true });
+  const slow = { ...deps, submitDelayMs: 150 };
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), slow);
+  const typed = session.input.length;
+  expect(Buffer.concat(session.input).toString()).toContain("hi");
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  const t = readTask(ctx, id)!;
+  expect(t.liveTurn).toBeUndefined();
+  expect(t.liveError?.message).toContain("not resent");
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), slow);
+  expect(session.input).toHaveLength(typed);
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  // A later message gets a fresh turn and does not carry the ambiguous one with it.
+  await sendMessage(ctx, { to: `task:${id}`, body: "next" }, { appAuthenticated: true });
+  await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
+  expect(Buffer.concat(session.input.slice(typed)).toString()).toContain("next");
+  expect(store.claimedMessages(ctx, readTask(ctx, id)!.liveTurn!.id).map(m => m.body)).toEqual(["next"]);
+});
+
 test("a 1.1 host refusing control blocks live delivery as viewer", async () => {
   const { ctx, id, dir, run } = setup();
   const session = fakeSession(dir);

@@ -37,7 +37,8 @@ function betweenTurns(t: TaskRecord, s: RunState): boolean {
 /**
  * One poll of a live interactive run (a conversation or an interactive delegated task): finish an in-flight live turn
  * when the agent ends it, otherwise type pending messages into the session while the agent is idle and nobody holds
- * control. Messages are never dropped: a failed delivery puts them back to pending.
+ * control. Messages are never dropped: a failed delivery that typed nothing puts them back to pending; one that failed
+ * after typing started keeps them delivered and records liveError instead of typing them twice.
  */
 export async function liveTick(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunState, deps: LiveDeps = {}): Promise<void> {
   try { await withLock(ctx, `msg-live-${task.id}`, () => liveTickLocked(ctx, task, run, s, deps), { timeoutMs: 0, staleMs: 10 * 60_000 }); }
@@ -102,8 +103,16 @@ async function liveTickLocked(ctx: Ctx, task: TaskRecord, run: RunRef, s: RunSta
       return;
     }
   } catch (e) {
+    const message = (e as Error).message || String(e);
+    if (e instanceof SessionInputError && e.inputAttempted) {
+      // The input may already be in the agent: never silently resend it. The turn ends so its id is not claimed again.
+      store.recordTurn(ctx, { id: turnId, taskId: t.id, rootId: root, at: now.now });
+      store.endTurn(ctx, turnId, "input-failed", now.now);
+      updateTask(ctx, t.id, x => { x.liveError = { at: now.now, message: `Delivery may have reached the agent and was not resent: ${message}` }; delete x.liveBlocked; });
+      return;
+    }
     release(ctx, turnId, messages);
-    updateTask(ctx, t.id, x => { x.liveError = { at: now.now, message: (e as Error).message || String(e) }; delete x.liveBlocked; });
+    updateTask(ctx, t.id, x => { x.liveError = { at: now.now, message }; delete x.liveBlocked; });
     return;
   }
   store.recordTurn(ctx, { id: turnId, taskId: t.id, rootId: root, at: now.now });

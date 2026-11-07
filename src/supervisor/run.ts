@@ -23,7 +23,9 @@ export interface RunSpec { interactionMode?: InteractionMode; takeover?: boolean
   /** The login shell's umask for the agent only (validated octal); absent keeps the service's. */
   umask?: string;
   /** Color flags the user's profile set, kept in an interactive PTY. */
-  keepColor?: string[] }
+  keepColor?: string[];
+  /** A built-in workspace terminal: its session host refuses pacer's deliveries (ADR 0023). */
+  terminal?: boolean }
 /**
  * `sessionMinor`: the session-socket protocol minor of an interactive run's host, from session.version. A 1.2 host has no
  * controller, so supervision uses `lastInputAt` instead (ADR 0023); absent means a 1.1 host or none.
@@ -74,7 +76,7 @@ export function startRun(spec: RunSpec): { pid: number } | { error: string } {
     let command=["/bin/sh", script, spec.dir, ...argv];
     if(pty) {
       chmodSync(spec.dir,0o700); if(taskRun) chmodSync(dirname(spec.dir),0o700);
-      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,interactionMode:spec.interactionMode,takeover:spec.takeover,argv,cwd:spec.cwd,...(spec.keepColor?.length?{keepColor:spec.keepColor}:{}),pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
+      writeFileSync(join(spec.dir,"session.json"),JSON.stringify({interactive,interactionMode:spec.interactionMode,takeover:spec.takeover,...(spec.terminal?{terminal:true}:{}),argv,cwd:spec.cwd,...(spec.keepColor?.length?{keepColor:spec.keepColor}:{}),pacerHome:ctx.pacerHome,capBytes:(spec.sessionLogMb ?? execution?.sessionLogMb ?? 8)*1024*1024}),{mode:0o600});
       // Bun source runs and compiled binaries both re-enter through the CLI.
       command=/(^|\/)bun(?:\.exe)?$/.test(process.execPath)
         ? [process.execPath,fileURLToPath(new URL("../cli.ts",import.meta.url)),"_session",spec.dir]

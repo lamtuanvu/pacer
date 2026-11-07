@@ -18,7 +18,8 @@ import { isCursorReport } from "./queries";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "../supervisor/wrapper";
 import type { InteractionMode } from "../tasks/types";
-export interface SessionLaunch { interactionMode?:InteractionMode; completionNonce?:string; takeover?:boolean; interactive?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string; keepColor?:string[] }
+/** `terminal`: a built-in workspace terminal, whose host refuses pacer's deliveries. */
+export interface SessionLaunch { interactionMode?:InteractionMode; completionNonce?:string; takeover?:boolean; interactive?:boolean; terminal?:boolean; argv:string[]; cwd:string; capBytes?:number; pacerHome?:string; keepColor?:string[] }
 export function socketPath(dir:string):string {
   const direct=join(dir,"session.sock");
   if(Buffer.byteLength(direct) < 104) return direct;
@@ -102,8 +103,8 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
       try{atomic('session.state',JSON.stringify({viewers,controller,active,cols:recording.term.cols,rows:recording.term.rows}));}catch{/* optional live metadata */}
     },{
       release:label=>{if(launch.takeover)writeReport(dir,"done",`Handed back by ${label}`,"user");},
-      input:bytes=>{
-        if(bytes.length)try{writeFileSync(join(dir,"session.input"),"",{mode:0o600});}catch{/* optional input marker */}
+      input:(bytes,delivery)=>{
+        if(bytes.length&&!delivery)try{writeFileSync(join(dir,"session.input"),"",{mode:0o600});}catch{/* optional input marker */}
         proc.terminal?.write(bytes);
         try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
       },
@@ -113,7 +114,7 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
         try{atomic('session.state',JSON.stringify({viewers:hub!.size,controller:hub!.controller,active:hub!.active,cols,rows}));}catch{/* optional metadata */}
         send(wire(FrameType.resize,{cols,rows}));
       },
-    },{pacer:currentVersion(),versions:SESSION_PROTOCOL});
+    },{pacer:currentVersion(),versions:SESSION_PROTOCOL},{},launch.terminal===true);
   try{atomic('session.state',JSON.stringify({viewers:0,controller:null,active:null,cols:120,rows:40}));}catch{/* optional live metadata */}
   const send=(bytes:Buffer)=>hub!.broadcast(bytes);
   let proc:Bun.Subprocess;

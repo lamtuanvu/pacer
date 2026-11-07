@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
 import type { TaskRecord } from "../tasks/types";
-import { readTask, updateTask } from "../tasks/store";
+import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import { loadStrategy } from "../config/strategy";
 import { parseRunnerId } from "../config/runner-id";
 import { providerEnv } from "../exec/launch";
@@ -52,14 +52,16 @@ export function parseOpencodeSessions(text: string, taskId: string): string | un
 /** Ends a takeover session with the same user report a 1.1 viewer's release writes; the runner then verifies the work. */
 export function handBackTask(ctx: Ctx, id: string, by: string) {
   validateTaskId(id);
-  const task = readTask(ctx, id);
-  if (!task) throw new CoreError("unknown_task", `unknown task ${id}`);
-  const run = task.run;
-  if (task.state !== "running" || !run?.takeover || task.takeover?.state === "ended") throw new CoreError("conflict", "This task is not in a takeover session; nothing to hand back.");
-  const report = readReport(run.dir);
-  if (report?.status === "done" || report?.status === "failed") throw new CoreError("conflict", "This task was already handed back and is finishing.");
-  writeReport(run.dir, "done", `Handed back by ${by.replace(/[\x00-\x1f\x7f]/g, "") || "a viewer"}`, "user");
-  return {id, state: "handed_back" as const};
+  return withTaskLock(ctx, id, () => {
+    const task = readTask(ctx, id);
+    if (!task) throw new CoreError("unknown_task", `unknown task ${id}`);
+    const run = task.run;
+    if (task.state !== "running" || !run?.takeover || task.takeover?.state === "ended") throw new CoreError("conflict", "This task is not in a takeover session; nothing to hand back.");
+    const report = readReport(run.dir);
+    if (report?.status === "done" || report?.status === "failed") throw new CoreError("conflict", "This task was already handed back and is finishing.");
+    writeReport(run.dir, "done", `Handed back by ${by.replace(/[\x00-\x1f\x7f]/g, "") || "a viewer"}`, "user");
+    return {id, state: "handed_back" as const};
+  });
 }
 export async function takeoverTask(ctx: Ctx, id: string, by?: string) {
   return withWork(ctx, { kind: "operation", id, label: `Taking over task ${id}` }, () => takeoverTaskAdmitted(ctx, id, by));

@@ -3,8 +3,11 @@ import { FrameType, WireDecoder, wire, type Frame } from './framing';
 import { negotiate, parseVersions } from './protocol';
 import { stripQueryReplies } from './queries';
 const CAP=1024*1024, SLICE=64*1024, CURSOR_REPORT_MS=2000;
-/** The delivery window (ADR 0023, decision 4): quiet period before a grant, how long others' input is held, and when a request fails. */
-export const DELIVERY_TIMING={quietMs:1500,windowMs:2000,timeoutMs:10000};
+/**
+ * The delivery window (ADR 0023, decision 4): quiet period before a grant, how long a granted requester may take to start
+ * typing, when a request fails, and how long a window whose requester started typing may hold others' input at most.
+ */
+export const DELIVERY_TIMING={quietMs:1500,windowMs:2000,timeoutMs:10000,maxWindowMs:10000};
 export type DeliveryTiming=typeof DELIVERY_TIMING;
 type DeliveryFailure={ok:false;cause:string;reason:string;from?:string};
 const CANCELLED:DeliveryFailure={ok:false,cause:'cancelled',reason:'the delivery was cancelled'};
@@ -15,7 +18,9 @@ interface Viewer {
  minor:number; readOnly:boolean; took:boolean; size?:{cols:number;rows:number};
 }
 /** Bounded output queues. Snapshot state is shared, and streamed in small writes. */
-export interface ControlHandlers { release?:(label:string)=>void; input:(bytes:Buffer)=>void; resize:(cols:number,rows:number)=>void }
+export interface ControlHandlers { release?:(label:string)=>void;
+ /** `delivery`: the bytes are pacer's own input inside its delivery window, not a person typing. */
+ input:(bytes:Buffer,delivery?:boolean)=>void; resize:(cols:number,rows:number)=>void }
 export class ViewerHub {
  private holder:Viewer|null=null;
  private current:Viewer|null=null;
@@ -31,18 +36,22 @@ export class ViewerHub {
  private timing:DeliveryTiming;
  /** Waiting deliver requests in arrival order; at most one holds the window. */
  private requests:{viewer:Viewer;deadline:number}[]=[];
- private window:{viewer:Viewer;timer:ReturnType<typeof setTimeout>}|null=null;
+ /** Before the requester's first input `timer` expires the window; once it types only done, cancel, disconnect or `cap` end it. */
+ private window:{viewer:Viewer;timer:ReturnType<typeof setTimeout>;cap:ReturnType<typeof setTimeout>;typing:boolean}|null=null;
  /** Other clients' input that arrived during the window, applied in order when it ends. */
  private held:{viewer:Viewer;bytes:Buffer}[]=[];
  private lastInputAt=0;
  private lastInputFrom:string|null=null;
- /** The client that typed printable input since the last Enter, if any. */
+ /** The client that typed printable input since the last line end, if any, and roughly how many characters are unsent. */
  private pendingLine:string|null=null;
+ private pendingChars=0;
  private deliveryTimer?:ReturnType<typeof setTimeout>;
  get size(){return this.viewers.size;}
  constructor(private snapshot:()=>Buffer,private since:(from:number)=>Buffer[]|null,
   private enqueue:(fn:()=>void)=>void,private marker:(kind:string,label:string)=>void=()=>{},private changed:(viewers:number,controller:string|null,active:string|null)=>void=()=>{},
-  private control?:ControlHandlers,private protocol?:{pacer:string;versions:readonly [number,number]},timing:Partial<DeliveryTiming>={}){
+  private control?:ControlHandlers,private protocol?:{pacer:string;versions:readonly [number,number]},timing:Partial<DeliveryTiming>={},
+  /** The built-in terminal: pacer never types into a login shell, so every `deliver` is refused. */
+  private refuseDeliver=false){
   this.timing={...DELIVERY_TIMING,...timing};
  }
  /** A 1.2 host has no controller: every viewer that is not read-only can type (ADR 0023). */
@@ -176,8 +185,10 @@ export class ViewerHub {
    const bytes=stripQueryReplies(f.data,Date.now()<this.cursorReportUntil);
    if(!bytes.length)return;
    // The requester's own paste and Enter do not delay the next delivery.
-   if(this.window?.viewer===v)this.apply(v,bytes);
-   else {
+   if(this.window?.viewer===v){
+    if(!this.window.typing){this.window.typing=true;clearTimeout(this.window.timer);}
+    this.apply(v,bytes);
+   }else {
     this.lastInputAt=Date.now();this.lastInputFrom=v.label;
     if(this.window)this.held.push({viewer:v,bytes});else this.apply(v,bytes);
    }
@@ -188,12 +199,15 @@ export class ViewerHub {
    v.size=size;if(this.current===v)this.control?.resize(size.cols,size.rows);
   }
  }
+ /** The window owner's delivery is attributed in the recording but neither makes it the active client nor counts as typing. */
  private apply(v:Viewer,bytes:Buffer){
+  const delivery=this.window?.viewer===v;
   if(this.author!==v){this.author=v;this.marker('input',v.label);}
-  if(this.viewers.has(v))this.activate(v);
-  this.control?.input(bytes);
-  const line=lineEffect(bytes);
-  if(line==='typed')this.pendingLine=v.label;else if(line==='ended')this.pendingLine=null;
+  if(this.viewers.has(v)&&!delivery)this.activate(v);
+  this.control?.input(bytes,delivery);
+  const line=pendingAfter(bytes,this.pendingChars);
+  this.pendingChars=line.count;
+  this.pendingLine=line.count===0?null:line.typed?v.label:this.pendingLine;
  }
  /**
   * A 1.2 client asks for a delivery window (`{}`), ends it after its paste and Enter (`{done:true}`), or withdraws it
@@ -202,6 +216,7 @@ export class ViewerHub {
   */
  private deliverFrame(v:Viewer,body:{done?:unknown;cancel?:unknown}){
   if(v.readOnly){this.send(v,wire(FrameType.delivered,{ok:false,cause:'read-only',reason:'read-only viewers cannot deliver input'}));return;}
+  if(this.refuseDeliver){this.send(v,wire(FrameType.delivered,{ok:false,cause:'refused',reason:'this terminal does not accept automated input'}));return;}
   const queued=this.requests.findIndex(r=>r.viewer===v),owns=this.window?.viewer===v;
   if(body.done===true||body.cancel===true){
    if(owns)this.finish(body.done===true?{ok:true}:CANCELLED);
@@ -233,17 +248,20 @@ export class ViewerHub {
   return {ok:false,cause:'input',from,reason:`recent input from ${from}`};
  }
  private grant(r:{viewer:Viewer}){
-  const timer=setTimeout(()=>this.enqueue(()=>{
-   if(this.window?.timer===timer)this.finish({ok:false,cause:'expired',reason:'the delivery window expired'});
-  }),this.timing.windowMs);
-  timer.unref?.();
-  this.window={viewer:r.viewer,timer};
+  const expire=(ms:number)=>{
+   const timer=setTimeout(()=>this.enqueue(()=>{
+    if(this.window&&(this.window.timer===timer||this.window.cap===timer))this.finish({ok:false,cause:'expired',reason:'the delivery window expired'});
+   }),ms);
+   timer.unref?.();
+   return timer;
+  };
+  this.window={viewer:r.viewer,timer:expire(this.timing.windowMs),cap:expire(this.timing.maxWindowMs),typing:false};
   this.send(r.viewer,wire(FrameType.granted,{windowMs:this.timing.windowMs}));
  }
  /** End the window, apply held input in arrival order, and report the result unless the requester is gone. */
  private finish(result?:{ok:true}|DeliveryFailure){
   const w=this.window;if(!w)return;
-  clearTimeout(w.timer);this.window=null;
+  clearTimeout(w.timer);clearTimeout(w.cap);this.window=null;
   for(const h of this.held.splice(0))this.apply(h.viewer,h.bytes);
   if(result?.ok){
    const body=wire(FrameType.delivered,{ok:true,label:w.viewer.label});
@@ -254,7 +272,7 @@ export class ViewerHub {
  broadcast(bytes:Buffer){this.cachedSnapshot=undefined;for(const v of this.viewers)if(v.joined)this.send(v,bytes);}
  destroy(){this.dropDeliveries();for(const v of [...this.pending,...this.viewers])v.socket.destroy();this.pending.clear();this.viewers.clear();this.holder=null;this.current=null;this.author=null;this.cachedSnapshot=undefined;this.changed(0,null,null);}
  private dropDeliveries(){
-  clearTimeout(this.deliveryTimer);if(this.window)clearTimeout(this.window.timer);
+  clearTimeout(this.deliveryTimer);if(this.window){clearTimeout(this.window.timer);clearTimeout(this.window.cap);}
   this.window=null;this.requests=[];this.held=[];
  }
  async end(code:number){
@@ -272,19 +290,22 @@ export class ViewerHub {
  }
 }
 /**
- * What input does to the agent's input line: printable text leaves it pending; Enter, Ctrl-C or Ctrl-U ends it.
- * Escape sequences (arrows, function keys, bracketed-paste markers) do neither. A heuristic: the host cannot see the
- * agent's editor, so deleting text or recalling history is invisible to it.
+ * Roughly how many characters wait unsent in the agent's input line after `bytes`, starting from `count`: each printable
+ * character adds one, Backspace or DEL removes one, and Enter, Ctrl-C, Ctrl-U or a lone Esc clears the line. Escape
+ * sequences (arrows, function keys, bracketed-paste markers) change nothing. `typed`: the bytes added text. A heuristic:
+ * the host cannot see the agent's editor, so cursor movement, history recall and menu keys are invisible to it.
  */
-function lineEffect(bytes:Buffer):'typed'|'ended'|null{
- let effect:'typed'|'ended'|null=null;
+function pendingAfter(bytes:Buffer,count:number):{count:number;typed:boolean}{
+ let typed=false;
  for(let i=0;i<bytes.length;i++){
   const b=bytes[i]!;
-  if(b===0x1b)i=escapeEnd(bytes,i);
-  else if(b===0x0d||b===0x0a||b===0x03||b===0x15)effect='ended';
-  else if(b>=0x20&&b!==0x7f)effect='typed';
+  if(b===0x1b){if(i===bytes.length-1)count=0;else i=escapeEnd(bytes,i);}
+  else if(b===0x0d||b===0x0a||b===0x03||b===0x15)count=0;
+  else if(b===0x7f||b===0x08)count=Math.max(0,count-1);
+  // UTF-8 continuation bytes belong to the character their lead byte already counted.
+  else if(b>=0x20&&(b&0xc0)!==0x80){count++;typed=true;}
  }
- return effect;
+ return {count,typed};
 }
 /** Index of the last byte of the escape sequence starting at `i`. */
 function escapeEnd(bytes:Buffer,i:number):number{

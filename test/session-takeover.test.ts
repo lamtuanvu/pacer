@@ -402,3 +402,19 @@ test("task.hand_back writes the user's done report for a takeover session and re
  updateTask(ctx,task.id,t=>{t.state="done";});
  await expect(callOp(ctx,"task.hand_back",{id:task.id})).rejects.toMatchObject({code:"conflict"});
 });
+test("task.hand_back checks and writes the report under the task lock, so a report written meanwhile is kept",async()=>{
+ const {handBackTask}=await import("../src/session/takeover");
+ const {ctx,task}=fixture(),dir=tmpDir(),startedAt=Date.now()/1000;
+ updateTask(ctx,task.id,t=>{t.state="running";t.run={dir,attempt:1,executor:"codex",startedAt,mode:"current",workdir:task.brief.repo,logFile:join(dir,"log"),takeover:true};t.takeover={state:"driving",at:startedAt,sessionId:id};});
+ const lock=join(ctx.pacerHome,"orca",`task-${task.id}.lock`);
+ mkdirSync(join(ctx.pacerHome,"orca"),{recursive:true});writeFileSync(lock,"");
+ // Another process holds the task lock and writes the runner's failed report before releasing it.
+ const script=`import { writeReport } from ${JSON.stringify(join(import.meta.dir,"../src/session/reports.ts"))};
+import { rmSync } from "node:fs";
+await Bun.sleep(300);writeReport(${JSON.stringify(dir)},"failed","The runner failed");rmSync(${JSON.stringify(lock)});`;
+ const holder=Bun.spawn([process.execPath,"-e",script],{stdout:"ignore",stderr:"inherit"});
+ try{
+  expect(()=>handBackTask(ctx,task.id,"cli:me")).toThrow("already handed back");
+  expect(JSON.parse(readFileSync(join(dir,"report.json"),"utf8"))).toMatchObject({status:"failed"});
+ }finally{await holder.exited;}
+});
