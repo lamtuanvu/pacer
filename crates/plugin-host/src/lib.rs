@@ -1,7 +1,5 @@
-//! Native plugin registry and capability library. The TypeScript host owns
-//! plugin processes until the P4d cutover. `pacer-plugin-runtime::ProcessOwner`
-//! can hold live [`PluginProcess`] children in library tests; serve still does
-//! not wire ownership or `PACER_HOST_SOCKET`.
+//! Native plugin registry, capability library and plugin frame codec.
+//! `pacer-plugin-runtime` owns the plugin child transport and process owner.
 
 mod admission;
 mod authority;
@@ -72,9 +70,7 @@ pub use policy::{
     PolicyCaller, PolicyCancellation, PolicyEntry, PolicyOptions, PolicyReceipt, PolicySnapshot,
     evaluate_policy, evaluate_policy_with,
 };
-pub use process::{
-    MAX_LINE_BYTES, PluginProcess, ProcessError, ProcessFrame, SpawnSpec, frame, parse_frame,
-};
+pub use process::{MAX_LINE_BYTES, ProcessError, ProcessFrame, SpawnSpec, frame, parse_frame};
 pub use registry::{HostMode, PluginState, Registry, RegistryError};
 pub use spawn_spec::{SpawnCapture, SpawnMode};
 pub use transfers::{TransferError, TransferKind, Transfers};

@@ -15,6 +15,7 @@
 //! Core issues call-scoped resources). Default-on stays off until TypeScript
 //! plugin consumers reach the owner over the bridge.
 
+mod bridge_call;
 mod bridge_listener;
 mod capability;
 mod executor_attach;
@@ -22,18 +23,21 @@ mod host_attach;
 mod host_bridge;
 mod orca_attach;
 mod owner;
+mod process;
 mod serve_host;
 mod worktree_attach;
 
+pub use bridge_call::ready_info;
 pub use bridge_listener::{
     BRIDGE_MAX_LINE_BYTES, BridgeDispatch, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,
     SharedOwner, bridge_methods_are_private, serve_starts_reverse_bridge_by_default,
 };
 pub use capability::{
-    CapabilitySessionError, FixtureHostProvider, LocalHostEffect, ObservationBootstrap,
-    OrcaCallContext, PluginCapabilitySession, call_resources_from_value, host_snapshots_from_value,
+    CapabilitySessionError, CoreForward, CoreRequest, FixtureHostProvider, LocalHostEffect,
+    ObservationBootstrap, OrcaCallContext, PluginCapabilitySession, ProcessContext,
+    call_resources_from_value, core_capability, host_snapshots_from_value,
     observation_bootstrap_from_value, orca_context_from_value, session_for_call,
-    session_from_hello,
+    session_for_call_in, session_from_hello,
 };
 pub use executor_attach::{ExecutorCallContext, executor_context_from_value};
 pub use host_attach::HostAttachSnapshot;
@@ -43,12 +47,13 @@ pub use host_bridge::{
     dark_bridge_enabled, host_socket_path, prepare_host_run_dir,
 };
 pub use orca_attach::{FixtureOrcaSession, OrcaBridge, SharedOrcaBridge};
-pub use owner::{OwnerError, Ownership, ProcessOwner};
+pub use owner::{OwnerError, Ownership, PluginLane, ProcessOwner};
 pub use pacer_plugin_host::{
     CallAuthority, CallResources, CapabilityBroker, NativeHttp, NativeProcess, NativeRead,
-    NativeWrite, PluginProcess, PluginState, ProcessError, ProviderSnapshot, ReadResource,
-    Registry, SpawnSpec, WriteResource, parse_manifest,
+    NativeWrite, PluginState, ProcessError, ProviderSnapshot, ReadResource, Registry, SpawnSpec,
+    WriteResource, parse_manifest,
 };
+pub use process::PluginProcess;
 pub use serve_host::{
     NATIVE_PLUGIN_HOST_ENABLE_ENV, NativeHostError, NativeHostSession, native_plugin_host_enabled,
     native_plugin_host_enabled_from_env,

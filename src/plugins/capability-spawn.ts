@@ -9,7 +9,7 @@ import { secretReference } from "./http-protocol";
 import { writeOwnerBytes } from "./capability-write";
 
 const MAX_OUTPUT = 1048576, MAX_CHUNK = 262144;
-const CODEX_LIVE_ARGV = ["codex", "-s", "read-only", "-a", "never", "app-server"];
+export const CODEX_LIVE_ARGV = ["codex", "-s", "read-only", "-a", "never", "app-server"];
 const CODEX_LIVE_REQUEST = [
   { jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "pacer", version: "1" }, capabilities: {} } },
   { jsonrpc: "2.0", method: "initialized", params: {} },
@@ -42,7 +42,7 @@ const deny = (message: string): never => { throw new CoreError("capability_denie
 const invalid = (message: string): never => { throw new CoreError("invalid_input", message); };
 export const NETWORK_ENV = ["HTTP_PROXY","HTTPS_PROXY","NO_PROXY","http_proxy","https_proxy","no_proxy","SSL_CERT_FILE","SSL_CERT_DIR","NODE_EXTRA_CA_CERTS","ssl_cert_file","ssl_cert_dir","node_extra_ca_certs"] as const;
 const ARK_ENV = ["ARK_API_KEY","ARK_BASE_URL","ARK_PROFILE","ARK_PROJECT_NAME","ARK_REGION"] as const;
-function minimalEnvironment(env: Readonly<Record<string, string | undefined>>, executable:string): Record<string, string> {
+export function minimalEnvironment(env: Readonly<Record<string, string | undefined>>, executable:string): Record<string, string> {
   const base=["HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "XDG_CONFIG_HOME", "XDG_DATA_HOME"];
   const extra=executable==="notify-send"?["DBUS_SESSION_BUS_ADDRESS","DISPLAY","WAYLAND_DISPLAY","XDG_RUNTIME_DIR"]
     :executable==="arkcli"?[...NETWORK_ENV,...ARK_ENV]

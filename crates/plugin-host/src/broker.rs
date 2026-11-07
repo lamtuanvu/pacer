@@ -156,6 +156,9 @@ impl CapabilityBroker {
         self.scope_roots = roots;
         self
     }
+    pub fn set_scope_roots(&mut self, roots: ScopeRoots) {
+        self.scope_roots = roots;
+    }
     /// Set only from the host's explicit unbundled net.http grant at issuance.
     pub fn with_explicit_http_wildcard_grant(mut self, granted: bool) -> Self {
         self.explicit_http_wildcard_grant = granted;

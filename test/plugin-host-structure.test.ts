@@ -10,5 +10,7 @@ test("plugin host inline test suites stay within CRATE-11", () => {
     if (start < 0) continue;
     expect(text.slice(start).split("\n").length - 1).toBeLessThanOrEqual(150);
   }
-  expect(readFileSync(join(source, "process/tests.rs"), "utf8")).toContain("#[tokio::test]");
+  // The stdio plugin transport and its async tests moved to pacer-plugin-runtime.
+  const runtime = join(import.meta.dir, "../crates/plugin-runtime/src");
+  expect(readFileSync(join(runtime, "process/tests.rs"), "utf8")).toContain("#[tokio::test]");
 });
