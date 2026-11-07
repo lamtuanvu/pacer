@@ -1,9 +1,21 @@
 use serde_json::{Value, json};
-use std::{collections::HashMap, future::Future, path::PathBuf, process::Stdio, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    future::Future,
+    path::PathBuf,
+    process::Stdio,
+    sync::{
+        Arc, Mutex as StdMutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
-    process::{Child, ChildStdin, Command},
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
+    process::{Child, ChildStdin, ChildStdout, Command},
+    sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot},
+    task::JoinHandle,
     time::{Instant, timeout, timeout_at},
 };
 
@@ -146,14 +158,207 @@ async fn read_line_bounded(
     }
 }
 
-/// A single owned child for transport characterization; registry integration waits for P4d.
+/// A plugin-to-host request waiting for the call that owns it.
+struct Incoming {
+    id: Value,
+    method: String,
+    params: Value,
+    metadata: Option<Value>,
+}
+
+enum Inbound {
+    Reply(Result<Value, Value>),
+    Request(Incoming),
+}
+
+struct Route {
+    token: Option<String>,
+    inbound: mpsc::UnboundedSender<Inbound>,
+}
+
+#[derive(Default)]
+struct Routes {
+    calls: HashMap<u64, Route>,
+    /// Requests that arrived while no call was pending. The next call, or
+    /// [`PluginProcess::handle_idle_request`], answers them in order.
+    idle: VecDeque<Incoming>,
+    closed: Option<String>,
+}
+
+#[derive(Default)]
+struct Shared {
+    routes: StdMutex<Routes>,
+    idle: Notify,
+}
+
+impl Shared {
+    fn routes(&self) -> std::sync::MutexGuard<'_, Routes> {
+        self.routes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn close(&self, reason: &str) {
+        let mut routes = self.routes();
+        routes.closed.get_or_insert_with(|| reason.to_owned());
+        routes.calls.clear();
+        routes.idle.clear();
+        drop(routes);
+        self.idle.notify_one();
+    }
+
+    fn closed(&self) -> ProcessError {
+        let reason = self.routes().closed.clone();
+        ProcessError::Unavailable(reason.unwrap_or_else(|| "stdout closed".into()))
+    }
+
+    fn reply(&self, id: u64, reply: Result<Value, Value>) {
+        if let Some(route) = self.routes().calls.get(&id) {
+            let _ = route.inbound.send(Inbound::Reply(reply));
+        }
+    }
+
+    /// A request echoing a call's `_meta.capabilityCall` goes to that call. A
+    /// call sent without a token owns every request while it is the only call;
+    /// its handler judges the request's metadata. An untokened request goes to
+    /// the only pending call, or to the only untokened one when calls overlap;
+    /// with no call pending it waits for the next one.
+    fn route(&self, request: Incoming) -> Result<(), (Value, &'static str)> {
+        let token = request
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.get("capabilityCall"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let mut routes = self.routes();
+        let alone = (routes.calls.len() == 1)
+            .then(|| routes.calls.values().next())
+            .flatten();
+        let owner = match token {
+            Some(token) => routes
+                .calls
+                .values()
+                .find(|route| route.token.as_deref() == Some(token.as_str()))
+                .or(alone.filter(|route| route.token.is_none())),
+            None if routes.calls.is_empty() => {
+                routes.idle.push_back(request);
+                drop(routes);
+                self.idle.notify_one();
+                return Ok(());
+            }
+            None if routes.calls.len() == 1 => routes.calls.values().next(),
+            None => {
+                let mut untokened = routes.calls.values().filter(|route| route.token.is_none());
+                untokened.next().filter(|_| untokened.next().is_none())
+            }
+        };
+        let Some(owner) = owner else {
+            return Err((request.id, "capability request has no active owning call"));
+        };
+        owner
+            .inbound
+            .send(Inbound::Request(request))
+            .map_err(|mpsc::error::SendError(inbound)| match inbound {
+                Inbound::Request(request) => (request.id, "owning plugin call ended"),
+                Inbound::Reply(_) => (Value::Null, "owning plugin call ended"),
+            })
+    }
+}
+
+/// Removes a call's route however the call ends.
+struct RouteGuard<'a> {
+    shared: &'a Shared,
+    id: u64,
+}
+
+impl Drop for RouteGuard<'_> {
+    fn drop(&mut self) {
+        self.shared.routes().calls.remove(&self.id);
+    }
+}
+
+type Write = (Vec<u8>, Option<oneshot::Sender<Result<(), ProcessError>>>);
+
+/// One owned child. Calls may overlap: a reader task routes responses by request
+/// id and plugin-to-host requests by `_meta.capabilityCall`, and a writer task
+/// keeps every frame whole, so a call that gives up never cuts another's frame.
 pub struct PluginProcess {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: tokio::process::ChildStdout,
-    next_id: u64,
-    partial_line: Vec<u8>,
-    dropping_line: bool,
+    child: AsyncMutex<Child>,
+    pid: Option<u32>,
+    writes: mpsc::UnboundedSender<Write>,
+    shared: Arc<Shared>,
+    next_id: AtomicU64,
+    tasks: [JoinHandle<()>; 2],
+}
+
+impl Drop for PluginProcess {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
+}
+
+async fn write_frames(
+    mut stdin: ChildStdin,
+    mut writes: mpsc::UnboundedReceiver<Write>,
+    shared: Arc<Shared>,
+) {
+    while let Some((bytes, ack)) = writes.recv().await {
+        let written = stdin
+            .write_all(&bytes)
+            .await
+            .map_err(|error| ProcessError::Unavailable(error.to_string()));
+        let failed = written.as_ref().err().map(ToString::to_string);
+        if let Some(ack) = ack {
+            let _ = ack.send(written);
+        }
+        if let Some(reason) = failed {
+            shared.close(&reason);
+            return;
+        }
+    }
+}
+
+async fn read_frames(
+    stdout: ChildStdout,
+    shared: Arc<Shared>,
+    writes: mpsc::UnboundedSender<Write>,
+) {
+    let mut stdout = BufReader::new(stdout);
+    let (mut line, mut dropping) = (Vec::new(), false);
+    loop {
+        let bytes = match read_line_bounded(&mut stdout, &mut line, &mut dropping).await {
+            Ok(bytes) => bytes,
+            Err(ProcessError::TooLarge) => continue,
+            Err(ProcessError::Unavailable(reason)) => return shared.close(&reason),
+            Err(error) => return shared.close(&error.to_string()),
+        };
+        match parse_frame(&bytes) {
+            Ok(ProcessFrame::Response { id, result }) => shared.reply(id, Ok(result)),
+            Ok(ProcessFrame::Error { id, error }) => shared.reply(id, Err(error)),
+            Ok(ProcessFrame::Request {
+                id,
+                method,
+                params,
+                metadata,
+            }) => {
+                let request = Incoming {
+                    id,
+                    method,
+                    params,
+                    metadata,
+                };
+                if let Err((id, message)) = shared.route(request)
+                    && let Ok(bytes) = frame(json!({"jsonrpc":"2.0","id":id,
+                        "error":rpc_error("capability_denied", message.into())}))
+                {
+                    let _ = writes.send((bytes, None));
+                }
+            }
+            Ok(ProcessFrame::Notification { .. }) | Err(_) => {}
+        }
+    }
 }
 
 impl PluginProcess {
@@ -183,22 +388,37 @@ impl PluginProcess {
             .stdout
             .take()
             .ok_or_else(|| ProcessError::Unavailable("stdout unavailable".into()))?;
+        let shared = Arc::new(Shared::default());
+        let (writes, queued) = mpsc::unbounded_channel();
+        let tasks = [
+            tokio::spawn(write_frames(stdin, queued, shared.clone())),
+            tokio::spawn(read_frames(stdout, shared.clone(), writes.clone())),
+        ];
         Ok(Self {
-            child,
-            stdin,
-            stdout,
-            next_id: 1,
-            partial_line: Vec::new(),
-            dropping_line: false,
+            pid: child.id(),
+            child: AsyncMutex::new(child),
+            writes,
+            shared,
+            next_id: AtomicU64::new(1),
+            tasks,
         })
     }
 
     pub fn pid(&self) -> Option<u32> {
-        self.child.id()
+        match self.child.try_lock() {
+            Ok(child) => child.id(),
+            Err(_) => self.pid,
+        }
+    }
+
+    fn send(&self, bytes: Vec<u8>) -> Result<(), ProcessError> {
+        self.writes
+            .send((bytes, None))
+            .map_err(|_| self.shared.closed())
     }
 
     pub async fn request(
-        &mut self,
+        &self,
         method: &str,
         params: Value,
         deadline: Duration,
@@ -224,7 +444,7 @@ impl PluginProcess {
     /// The handler runs for plugin-to-host requests while the parent call is pending.
     /// It must return a JSON-RPC error object for refused capabilities.
     pub async fn request_with_handler<F, Fut>(
-        &mut self,
+        &self,
         method: &str,
         params: Value,
         deadline: Duration,
@@ -238,8 +458,11 @@ impl PluginProcess {
         self.request_with_metadata(method, params, None, deadline, cancel, handler)
             .await
     }
+
+    /// `metadata.capabilityCall`, when present, is the token the child echoes on
+    /// the capability requests that belong to this call.
     pub async fn request_with_metadata<F, Fut>(
-        &mut self,
+        &self,
         method: &str,
         params: Value,
         metadata: Option<Value>,
@@ -254,66 +477,51 @@ impl PluginProcess {
         if cancel.is_some_and(|signal| *signal.borrow()) {
             return Err(ProcessError::Cancelled);
         }
-        let id = self.next_id;
-        self.next_id += 1;
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let token = metadata
+            .as_ref()
+            .and_then(|meta| meta.get("capabilityCall"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let mut envelope = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
         if let Some(metadata) = metadata {
             envelope["_meta"] = metadata;
         }
         let request = frame(envelope)?;
+        let (inbound, mut received) = mpsc::unbounded_channel();
+        {
+            let mut routes = self.shared.routes();
+            if let Some(reason) = &routes.closed {
+                return Err(ProcessError::Unavailable(reason.clone()));
+            }
+            if routes.calls.is_empty() {
+                for waiting in routes.idle.drain(..) {
+                    let _ = inbound.send(Inbound::Request(waiting));
+                }
+            }
+            routes.calls.insert(id, Route { token, inbound });
+        }
+        let _route = RouteGuard {
+            shared: &self.shared,
+            id,
+        };
         let expires = Instant::now() + deadline;
         let exchange = async {
-            self.stdin
-                .write_all(&request)
-                .await
-                .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
+            self.send(request)?;
             loop {
-                let line = match read_line_bounded(
-                    &mut self.stdout,
-                    &mut self.partial_line,
-                    &mut self.dropping_line,
-                )
-                .await
-                {
-                    Ok(line) => line,
-                    Err(ProcessError::TooLarge) => continue,
-                    Err(error) => return Err(error),
-                };
-                let parsed = match parse_frame(&line) {
-                    Ok(parsed) => parsed,
-                    Err(ProcessError::Malformed | ProcessError::TooLarge) => continue,
-                    Err(error) => return Err(error),
-                };
-                match parsed {
-                    ProcessFrame::Response {
-                        id: received,
-                        result,
-                    } if received == id => return Ok(result),
-                    ProcessFrame::Error {
-                        id: received,
-                        error,
-                    } if received == id => {
+                let request = match received.recv().await {
+                    None => return Err(self.shared.closed()),
+                    Some(Inbound::Reply(Ok(result))) => return Ok(result),
+                    Some(Inbound::Reply(Err(error))) => {
                         return Err(ProcessError::Unavailable(error.to_string()));
                     }
-                    ProcessFrame::Notification { .. } => {}
-                    ProcessFrame::Request {
-                        id: child_id,
-                        method,
-                        params,
-                        metadata,
-                    } => {
-                        let reply = match handler(method, params, metadata).await {
-                            Ok(result) => json!({"jsonrpc":"2.0","id":child_id,"result":result}),
-                            Err(error) => json!({"jsonrpc":"2.0","id":child_id,"error":error}),
-                        };
-                        let bytes = frame(reply)?;
-                        self.stdin
-                            .write_all(&bytes)
-                            .await
-                            .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
-                    }
-                    _ => {}
-                }
+                    Some(Inbound::Request(request)) => request,
+                };
+                let reply = match handler(request.method, request.params, request.metadata).await {
+                    Ok(result) => json!({"jsonrpc":"2.0","id":request.id,"result":result}),
+                    Err(error) => json!({"jsonrpc":"2.0","id":request.id,"error":error}),
+                };
+                self.send(frame(reply)?)?;
             }
         };
         let outcome = if let Some(cancel) = cancel {
@@ -331,15 +539,17 @@ impl PluginProcess {
             outcome,
             Err(ProcessError::Timeout | ProcessError::Cancelled)
         ) {
-            let cancel = frame(json!({"jsonrpc":"2.0","method":"$/cancel","params":{"id":id}}))?;
-            let _ = timeout(Duration::from_millis(100), self.stdin.write_all(&cancel)).await;
+            let _ = self.send(frame(
+                json!({"jsonrpc":"2.0","method":"$/cancel","params":{"id":id}}),
+            )?);
         }
         outcome
     }
 
-    /// Run one idle transport turn. The generation owner must reject effect RPCs.
+    /// Answer one plugin-to-host request that arrived while no call was pending.
+    /// The generation owner must reject effect RPCs.
     pub async fn handle_idle_request<F, Fut>(
-        &mut self,
+        &self,
         deadline: Duration,
         mut handler: F,
     ) -> Result<bool, ProcessError>
@@ -348,38 +558,32 @@ impl PluginProcess {
         Fut: Future<Output = Result<Value, Value>>,
     {
         timeout(deadline, async {
-            let line = read_line_bounded(
-                &mut self.stdout,
-                &mut self.partial_line,
-                &mut self.dropping_line,
-            )
-            .await?;
-            if let ProcessFrame::Request {
-                id,
-                method,
-                params,
-                metadata,
-            } = parse_frame(&line)?
-            {
-                let reply = match handler(method, params, metadata).await {
-                    Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
-                    Err(error) => json!({"jsonrpc":"2.0","id":id,"error":error}),
-                };
-                self.stdin
-                    .write_all(&frame(reply)?)
-                    .await
-                    .map_err(|e| ProcessError::Unavailable(e.to_string()))?;
-                Ok(true)
-            } else {
-                Ok(false)
-            }
+            let request = loop {
+                {
+                    let mut routes = self.shared.routes();
+                    if let Some(request) = routes.idle.pop_front() {
+                        break request;
+                    }
+                    if let Some(reason) = &routes.closed {
+                        return Err(ProcessError::Unavailable(reason.clone()));
+                    }
+                }
+                self.shared.idle.notified().await;
+            };
+            let reply = match handler(request.method, request.params, request.metadata).await {
+                Ok(result) => json!({"jsonrpc":"2.0","id":request.id,"result":result}),
+                Err(error) => json!({"jsonrpc":"2.0","id":request.id,"error":error}),
+            };
+            self.send(frame(reply)?)?;
+            Ok(true)
         })
         .await
         .unwrap_or(Err(ProcessError::Timeout))
     }
+
     /// Bounded event delivery retains the caller's guard through pipe backpressure.
     pub async fn notify_bounded(
-        &mut self,
+        &self,
         method: &str,
         params: Value,
         deadline: Duration,
@@ -387,15 +591,20 @@ impl PluginProcess {
     ) -> Result<(), ProcessError> {
         guard()?;
         let bytes = frame(json!({"jsonrpc":"2.0","method":method,"params":params}))?;
-        timeout(deadline, self.stdin.write_all(&bytes))
+        let (ack, written) = oneshot::channel();
+        self.writes
+            .send((bytes, Some(ack)))
+            .map_err(|_| self.shared.closed())?;
+        timeout(deadline, written)
             .await
             .map_err(|_| ProcessError::Timeout)?
-            .map_err(|e| ProcessError::Unavailable(e.to_string()))?;
+            .map_err(|_| self.shared.closed())??;
         guard()
     }
-    pub async fn terminate(mut self) -> Result<(), ProcessError> {
-        if self
-            .child
+
+    pub async fn terminate(&self) -> Result<(), ProcessError> {
+        let mut child = self.child.lock().await;
+        if child
             .try_wait()
             .map_err(|error| ProcessError::Unavailable(error.to_string()))?
             .is_some()
@@ -405,8 +614,7 @@ impl PluginProcess {
         // Rust owns this child. The two-second grace mirrors the TypeScript transport.
         #[cfg(unix)]
         {
-            let pid = self
-                .child
+            let pid = child
                 .id()
                 .ok_or_else(|| ProcessError::Unavailable("missing pid".into()))?;
             let _ = Command::new("kill")
@@ -415,14 +623,11 @@ impl PluginProcess {
                 .status()
                 .await;
         }
-        if timeout(Duration::from_secs(2), self.child.wait())
-            .await
-            .is_err()
-        {
-            self.child
+        if timeout(Duration::from_secs(2), child.wait()).await.is_err() {
+            child
                 .start_kill()
                 .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
-            self.child
+            child
                 .wait()
                 .await
                 .map_err(|error| ProcessError::Unavailable(error.to_string()))?;

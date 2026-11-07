@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { CoreError } from "../src/core/errors";
+import { PlannerResources } from "../src/plugins/planner-resources";
 import { PluginRegistry } from "../src/plugins/registry";
 import { manifestSchema } from "../src/plugins/protocol";
 import type { Ctx } from "../src/types";
@@ -12,7 +13,7 @@ import { fakeCtx, tmpDir } from "./helpers";
 const manifest = manifestSchema.parse({
   id: "fx-native", version: "1.0.0", publisher: "pacer", host: "^1.6",
   contributes: { diagnostic: {} },
-  capabilities: [{ name: "fs.read", scopes: ["${ACCOUNT_HOME}/**"] }, { name: "process.spawn", scopes: ["fx-tool", "fx-missing", "fx-elsewhere"] }],
+  capabilities: [{ name: "fs.read", scopes: ["${ACCOUNT_HOME}/**"] }, { name: "process.spawn", scopes: ["fx-tool", "fx-missing", "fx-elsewhere", "codex"] }, { name: "usage.state" }],
   reentrant: true, tier: "free",
 });
 
@@ -65,6 +66,33 @@ async function fakeOwner(path: string, reply: Reply): Promise<{ requests: any[] 
   return { requests };
 }
 
+// Forwards `next(answers)` to Core one at a time, then sends the final reply with `value`.
+type Ask = { method: string; params: unknown } | undefined;
+async function forwardingOwner(path: string, next: (answers: any[]) => Ask, value: unknown): Promise<{ answers: any[]; requests: any[] }> {
+  const answers: any[] = [], requests: any[] = [];
+  const server = createServer(socket => {
+    let text = "", callId: unknown;
+    const step = () => {
+      const ask = next(answers);
+      socket.write(JSON.stringify(ask ? { jsonrpc: "2.0", id: `core-${answers.length + 1}`, ...ask }
+        : { jsonrpc: "2.0", id: callId, result: { value, hello: null, logs: [] } }) + "\n");
+    };
+    socket.on("data", data => {
+      text += data.toString("utf8");
+      for (let cut = text.indexOf("\n"); cut >= 0; cut = text.indexOf("\n")) {
+        const frame = JSON.parse(text.slice(0, cut));
+        text = text.slice(cut + 1);
+        if (frame.method === "_host.plugin.call") { requests.push(frame); callId = frame.id; answers.length = 0; }
+        else answers.push(frame.result ?? frame.error);
+        step();
+      }
+    });
+  });
+  servers.push(server);
+  await new Promise<void>(done => server.listen(path, done));
+  return { answers, requests };
+}
+
 test("flag-on call goes to the native owner over host.sock with sealed spawn, authority and scope roots", async () => {
   const { ctx, registry, path, spawned, argv } = setup("fake");
   const note = join(ctx.home, "account", "note.txt");
@@ -88,9 +116,10 @@ test("flag-on call goes to the native owner over host.sock with sealed spawn, au
   expect(request.params.spawn.argv).toEqual(argv);
   expect(request.params.spawn.env.PACER_PLUGIN_ID).toBe("fx-native");
   expect(request.params.spawn.hello.manifest.id).toBe("fx-native");
-  expect(request.params.spawn.hello.grants).toEqual(["fs.read", "process.spawn"]);
+  expect(request.params.spawn.hello.grants).toEqual(["fs.read", "process.spawn", "usage.state"]);
   expect(request.params.authority.resources.reads).toEqual([{ path: note, kind: "file" }]);
-  expect(request.params.authority.grants).toEqual(["fs.read", "process.spawn"]);
+  expect(request.params.authority.grants).toEqual(["fs.read", "process.spawn", "usage.state"]);
+  expect(request.params.processEnv).toBeUndefined();
   expect(request.params.authority.ttlMs).toBeLessThanOrEqual(5000);
   expect(request.params.scopeRoots).toEqual({ home: ctx.home, pacerHome: ctx.pacerHome, accountHome: join(ctx.home, "account") });
   // Owner hello marks readiness; points the manifest does not contribute are dropped.
@@ -111,6 +140,122 @@ test("flag-on pins bare command names to the resolved absolute executable and dr
     ] },
   });
   expect(owner.requests[0].params.authority.resources.commands).toEqual([{ argv: ["/opt/fx/bin/fx-tool", "--json"], timeoutMs: 1000 }]);
+});
+
+test("flag-on seals a Codex live command for the call's account and the flag-off minimal environment", async () => {
+  const { ctx, registry, path, spawned } = setup("fake");
+  ctx.env = { ...ctx.env, HOME: ctx.home, LANG: "C", FX_SECRET: "leak" };
+  ctx.which = name => ({ codex: "/opt/fx/bin/codex", "fx-tool": "/opt/fx/bin/fx-tool" } as Record<string, string>)[name] ?? null;
+  const owner = await fakeOwner(path, () => ({ result: { value: { ok: true, uptimeS: 0 }, hello: null, logs: [] } }));
+  const accountHome = join(ctx.home, "accounts", "team");
+  const live = { argv: ["codex", "-s", "read-only", "-a", "never", "app-server"], timeoutMs: 10_000, mode: "codex-live" as const,
+    env: { PATH: "/usr/bin", CODEX_HOME: accountHome } };
+  const resources = (commands: object[]) => ({ reads: [{ path: join(accountHome, "sessions"), kind: "codex-logs" as const }], stores: [], commands } as never);
+  await registry.call(ctx, "fx-native", "diagnostic.ping", {}, { accountHome, resources: resources([live, { argv: ["fx-tool"], timeoutMs: 1000 }]) });
+  const sealed = owner.requests[0].params;
+  expect(sealed.authority.resources.commands).toEqual([
+    { ...live, argv: ["/opt/fx/bin/codex", ...live.argv.slice(1)] },
+    { argv: ["/opt/fx/bin/fx-tool"], timeoutMs: 1000 },
+  ]);
+  expect(sealed.authority.resources.reads).toEqual([{ path: join(accountHome, "sessions"), kind: "codex-logs" }]);
+  expect(sealed.processEnv).toEqual({ PATH: process.env.PATH, HOME: ctx.home, LANG: "C" });
+  expect(sealed.coreMethods).toEqual(["capability.fs.read", "capability.fs.list", "capability.fs.stat", "capability.fs.readRange"]);
+  // The same admission prepareSpawnAuthority applies flag-off, before dialing.
+  for (const [commands, accountHomeOption] of [
+    [[{ ...live, env: { CODEX_HOME: join(ctx.home, "other") } }], accountHome],
+    [[live], undefined],
+    [[{ ...live, cwd: ctx.home }], accountHome],
+    [[{ ...live, timeoutMs: 20_000 }], accountHome],
+    [[{ ...live, argv: [...live.argv, "--extra"] }], accountHome],
+    [[{ argv: ["fx-tool"], timeoutMs: 1000, mode: "session-duplex" }], accountHome],
+  ] as const) {
+    await expect(registry.call(ctx, "fx-native", "diagnostic.ping", {}, { accountHome: accountHomeOption, resources: resources([...commands]) }))
+      .rejects.toMatchObject({ code: "capability_denied" });
+  }
+  expect(owner.requests).toHaveLength(1);
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on answers owner-forwarded usage state with the flag-off broker and only for issued stores", async () => {
+  const { ctx, registry, path, spawned } = setup("fake");
+  const store = join(ctx.pacerHome, "cache", "arkcli-usage-plan.json");
+  mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true, mode: 0o700 });
+  writeFileSync(store, JSON.stringify({ capturedAt: 1, value: { plan: "pro" } }), { mode: 0o600 });
+  const { answers, requests } = await forwardingOwner(path, answers => [
+    { method: "capability.usage.state.begin", params: { store: "arkcli-usage-plan" } },
+    { method: "capability.usage.state.readChunk", params: { lease: answers[0]?.lease, offset: 0, length: answers[0]?.bytes } },
+    { method: "capability.usage.state.release", params: { lease: answers[0]?.lease } },
+    { method: "capability.usage.state.begin", params: { store: "codex-cursors" } },
+    { method: "capability.fs.read", params: { path: store } },
+  ][answers.length], { ok: true, uptimeS: 0 });
+  await registry.call(ctx, "fx-native", "diagnostic.ping", {}, {
+    resources: { reads: [], commands: [], stores: [{ id: "arkcli-usage-plan", path: store, kind: "cache" }] },
+  });
+  expect(requests[0].params.coreMethods).toEqual(["capability.usage.state.begin", "capability.usage.state.readChunk", "capability.usage.state.release"]);
+  expect(answers[0]).toMatchObject({ lease: expect.any(String), bytes: readFileSync(store).length });
+  expect(Buffer.from(answers[1].base64, "base64").toString("utf8")).toBe(readFileSync(store, "utf8"));
+  expect(answers[2]).toEqual({ ok: true });
+  expect(answers[3]).toMatchObject({ code: -32000, data: { code: "capability_denied" }, message: "usage state store is not authorized" });
+  expect(answers[4]).toMatchObject({ code: -32000, data: { code: "capability_denied" } });
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on answers owner-forwarded Codex log reads with the flag-off filesystem broker", async () => {
+  const { ctx, registry, path, spawned } = setup("fake");
+  const accountHome = join(ctx.home, "accounts", "team");
+  const sessions = join(accountHome, "sessions");
+  const log = join(sessions, "2026", "11", "07", "rollout-1.jsonl");
+  mkdirSync(join(sessions, "2026", "11", "07"), { recursive: true });
+  writeFileSync(log, "{\"type\":\"token_count\"}\n");
+  writeFileSync(join(accountHome, "auth.json"), "{}\n");
+  const { answers, requests } = await forwardingOwner(path, answers => [
+    { method: "capability.fs.list", params: { dir: sessions, glob: "**/*.jsonl" } },
+    { method: "capability.fs.read", params: { path: log } },
+    { method: "capability.fs.read", params: { path: join(accountHome, "auth.json") } },
+  ][answers.length], { ok: true, uptimeS: 0 });
+  await registry.call(ctx, "fx-native", "diagnostic.ping", {}, { accountHome, resources: { reads: [{ path: sessions, kind: "codex-logs" }], commands: [], stores: [] } });
+  expect(requests[0].params.authority.resources.reads).toEqual([{ path: sessions, kind: "codex-logs" }]);
+  expect(answers[0]).toMatchObject({ files: [{ path: log }], complete: true });
+  expect(answers[1]).toMatchObject({ text: "{\"type\":\"token_count\"}\n" });
+  expect(answers[2]).toMatchObject({ data: { code: "capability_denied" } });
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on serves read-only planner borrows with Core-answered reads and refuses effect borrows", async () => {
+  const { ctx, registry, path, spawned } = setup("fake");
+  const folder = join(ctx.home, ".claude");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, "settings.json"), "{\"theme\":\"dark\"}\n");
+  writeFileSync(join(ctx.home, "outside.txt"), "private\n");
+  const input = { agent: "claude-code", home: ctx.home, pacerHome: ctx.pacerHome, binary: null,
+    env: { now: ctx.now, pacerArgv: ["pacer"], plannerKey: "claude-code", folder }, prior: { planner: "claude-code", files: [] } };
+  const lease = (purpose: "preview" | "install") => new PlannerResources(ctx, { purpose, cwd: ctx.home, binaries: [], roots: [folder] });
+  const { answers, requests } = await forwardingOwner(path, answers => [
+    { method: "capability.fs.read", params: { path: join(folder, "settings.json") } },
+    { method: "capability.fs.read", params: { path: join(ctx.home, "outside.txt") } },
+    { method: "capability.usage.state.begin", params: { store: "codex-cursors" } },
+  ][answers.length], { schema: 1 });
+  const preview = lease("preview");
+  expect(await registry.call(ctx, "fx-native", "planner.plan", input, { plannerResources: preview, accountHome: folder })).toEqual({ schema: 1 });
+  await preview.dispose();
+  expect(requests[0].params.coreMethods).toEqual(["capability.fs.read", "capability.fs.list", "capability.fs.stat", "capability.fs.readRange"]);
+  expect(requests[0].params.params).toEqual(input);
+  expect(answers[0]).toMatchObject({ text: "{\"theme\":\"dark\"}\n" });
+  expect(answers[1]).toMatchObject({ data: { code: "capability_denied" }, message: "planner source outside selected root or declared scope" });
+  expect(answers[2]).toMatchObject({ data: { code: "capability_denied" } });
+  // An install borrow, an effect method, or a prior too large for one frame never reaches the owner.
+  const install = lease("install");
+  await expect(registry.call(ctx, "fx-native", "planner.plan", input, { plannerResources: install, accountHome: folder }))
+    .rejects.toMatchObject({ code: "plugin_unavailable" });
+  await expect(registry.call(ctx, "fx-native", "planner.install", input, { plannerResources: install, accountHome: folder }))
+    .rejects.toMatchObject({ code: "plugin_unavailable" });
+  await install.dispose();
+  const large = lease("preview");
+  await expect(registry.call(ctx, "fx-native", "planner.plan", { ...input, prior: { planner: "claude-code", note: "x".repeat(1024 * 1024) } },
+    { plannerResources: large, accountHome: folder })).rejects.toMatchObject({ code: "plugin_unavailable", message: expect.stringContaining("prior planner record") });
+  await large.dispose();
+  expect(requests).toHaveLength(1);
+  expect(spawned).toEqual([]);
 });
 
 test("flag-on bridge errors keep their CoreError codes", async () => {

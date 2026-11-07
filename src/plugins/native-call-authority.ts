@@ -1,8 +1,9 @@
 /** Core-sealed call-scoped CallResources for flag-on ProcessOwner (P4d-7/8). */
 import { randomUUID } from "node:crypto";
-import { isAbsolute, resolve } from "node:path";
+import { basename, isAbsolute, resolve } from "node:path";
 import { CoreError } from "../core/errors";
 import type { CallResources, HostOperationResource } from "./authority";
+import { CODEX_LIVE_ARGV } from "./capability-spawn";
 import type { Ctx } from "../types";
 import type { PluginManifest } from "./protocol";
 
@@ -112,7 +113,16 @@ function sealHostOperation(resource: HostOperationResource): HostOperationResour
   };
 }
 
-function sealProvided(resources: CallResources, grants: readonly string[]): SealedResources {
+/** Same admission `prepareSpawnAuthority` applies to a flag-off Codex live command. */
+function sealCodexLive(command: CallResources["commands"][number], accountHome: string | null | undefined): void {
+  if (basename(command.argv[0]!) !== CODEX_LIVE_ARGV[0]
+    || JSON.stringify(command.argv.slice(1)) !== JSON.stringify(CODEX_LIVE_ARGV.slice(1))
+    || !accountHome || !isAbsolute(accountHome) || command.env?.CODEX_HOME !== accountHome
+    || command.cwd !== undefined || command.secretEnv !== undefined || command.stdin !== undefined || command.timeoutMs > 15_000)
+    denied("Codex live command was not issued for this account");
+}
+
+function sealProvided(resources: CallResources, grants: readonly string[], accountHome?: string | null): SealedResources {
   const out = emptyResources();
   if (resources.reads.length && !grants.includes("fs.read")) return denied("fs.read is not granted");
   if ((resources.commands?.length ?? 0) > 0 && !grants.includes("process.spawn")) {
@@ -129,9 +139,12 @@ function sealProvided(resources: CallResources, grants: readonly string[]): Seal
     if (!Array.isArray(command.argv) || command.argv.length === 0) return invalid("command argv required");
     if (!isExactIssuedPath(command.argv[0]!)) return denied("process command argv[0] must be an exact absolute path");
     if (!(command.timeoutMs > 0 && command.timeoutMs <= 600_000)) return invalid("command timeoutMs out of range");
+    if (command.mode !== undefined && command.mode !== "codex-live") return denied(`process mode ${command.mode} is not carried by the native call authority`);
+    if (command.mode === "codex-live") sealCodexLive(command, accountHome);
     out.commands.push({
       argv: [...command.argv],
       timeoutMs: command.timeoutMs,
+      ...(command.mode ? { mode: command.mode } : {}),
       ...(command.cwd ? { cwd: absoluteResourcePath(command.cwd) } : {}),
       ...(command.env ? { env: { ...command.env } } : {}),
       ...(command.stdin !== undefined ? { stdin: command.stdin } : {}),
@@ -320,13 +333,13 @@ export function sealCallAuthority(
   ctx: Ctx,
   manifest: PluginManifest,
   grants: readonly string[],
-  options: { resources?: CallResources; ttlMs?: number; method?: string } = {},
+  options: { resources?: CallResources; ttlMs?: number; method?: string; accountHome?: string | null } = {},
 ): CallAuthoritySeal {
   const ttlMs = options.ttlMs && options.ttlMs > 0 && options.ttlMs <= 600_000
     ? Math.floor(options.ttlMs)
     : 30_000;
   const sealed = options.resources
-    ? sealProvided(options.resources, grants)
+    ? sealProvided(options.resources, grants, options.accountHome)
     : autoIssueFromManifest(manifest, grants);
   const observation = observationAdmission(options.method, grants, manifest)
     ? {

@@ -334,6 +334,322 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     session.shutdown().await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let account = temp_home();
+    let account_home = account.path().canonicalize().unwrap();
+    let file = |name: &str| {
+        let path = account_home.join(name);
+        fs::write(&path, name).unwrap();
+        path.to_str().unwrap().to_owned()
+    };
+    let (a, b) = (file("a.txt"), file("b.txt"));
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("plugin.js");
+    // `slow` reads its path through the host, echoing the call's `_meta`, then
+    // answers after `ms`.
+    fs::write(
+        &script,
+        r#"const r=Bun.stdin.stream().getReader();let b='',hellos=0;const pending={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello'){hellos++;send({id:m.id,result:{protocol:'1.10.0',id:m.params.manifest.id,version:'1.0.0',contributes:['diagnostic']}});}else if(m.method==='slow'){pending['r'+m.id]=m;send({id:'r'+m.id,method:'capability.fs.read',params:{path:m.params.path},...(m._meta?{_meta:m._meta}:{})});}else if(typeof m.id==='string'&&pending[m.id]){const p=pending[m.id];delete pending[m.id];setTimeout(()=>send({id:p.id,result:{text:m.result?.text??null,denied:m.error?.data?.code??null,token:p._meta?.capabilityCall??null,hellos}}),p.params.ms);}}}"#,
+    )
+    .unwrap();
+    let call = |plugin: &str, reentrant: bool, read: &str, ms: u64| {
+        let hello = json!({
+            "protocol":"1.10.0","pacer":"0.2.0",
+            "manifest":{
+                "id":plugin,"version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                "capabilities":[{"name":"fs.read","scopes":["${ACCOUNT_HOME}/**"]}],
+                "contributes":{"diagnostic":{}},"reentrant":reentrant
+            },
+            "config":{},"grants":["fs.read"],"features":[]
+        });
+        let request = json!({
+            "jsonrpc":"2.0","id":1,"method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":plugin,"method":"slow","params":{"path":read,"ms":ms},"deadlineMs":10000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap()],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":hello,
+                },
+                "authority":{
+                    "resources":{"reads":[{"path":read,"kind":"file"}],"writes":[],"commands":[],"hosts":[]},
+                    "grants":["fs.read"],"ttlMs":10000
+                },
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":account_home}
+            }
+        });
+        let path = path.clone();
+        async move {
+            let started = std::time::Instant::now();
+            let reply = dial_json(&path, request).await;
+            (reply, started.elapsed())
+        }
+    };
+    tokio::task::yield_now().await;
+
+    // A reentrant plugin's calls overlap on one child; each call's capability
+    // requests reach its own session, which allows only its own file.
+    let started = std::time::Instant::now();
+    let ((first, _), (second, _)) = tokio::join!(
+        call("fx-shared", true, &a, 1000),
+        call("fx-shared", true, &b, 1000)
+    );
+    let together = started.elapsed();
+    for (reply, text) in [(&first, "a.txt"), (&second, "b.txt")] {
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert_eq!(reply["result"]["value"]["text"], text, "{reply}");
+        assert_eq!(reply["result"]["value"]["hellos"], 1, "hello runs once");
+        assert!(reply["result"]["value"]["token"].is_string(), "{reply}");
+    }
+    assert_ne!(
+        first["result"]["value"]["token"],
+        second["result"]["value"]["token"]
+    );
+    assert!(
+        together < Duration::from_millis(1800),
+        "reentrant calls ran one at a time: {together:?}"
+    );
+
+    // Any other plugin still answers one call at a time, without a token.
+    let started = std::time::Instant::now();
+    let ((first, _), (second, _)) = tokio::join!(
+        call("fx-single", false, &a, 600),
+        call("fx-single", false, &b, 600)
+    );
+    let serialized = started.elapsed();
+    for (reply, text) in [(&first, "a.txt"), (&second, "b.txt")] {
+        assert_eq!(reply["result"]["value"]["text"], text, "{reply}");
+        assert_eq!(reply["result"]["value"]["token"], Value::Null, "{reply}");
+    }
+    assert!(
+        serialized >= Duration::from_millis(1150),
+        "non-reentrant calls overlapped: {serialized:?}"
+    );
+
+    // A slow call to one plugin does not hold calls to another.
+    let ((slow, _), (fast, fast_took)) = tokio::join!(call("fx-single", false, &a, 2000), async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        call("fx-shared", true, &b, 0).await
+    });
+    assert_eq!(slow["result"]["value"]["text"], "a.txt", "{slow}");
+    assert_eq!(fast["result"]["value"]["text"], "b.txt", "{fast}");
+    assert!(
+        fast_took < Duration::from_millis(1200),
+        "a call waited for another plugin: {fast_took:?}"
+    );
+
+    {
+        let mut owner = session.owner().lock().await;
+        owner.terminate("fx-shared").await.unwrap();
+        owner.terminate("fx-single").await.unwrap();
+    }
+    session.shutdown().await;
+}
+
+/// Dial one call; answer every owner-forwarded request with `answer` until the final reply.
+async fn dial_with_core(
+    path: &Path,
+    request: Value,
+    answer: impl Fn(&Value) -> Value,
+) -> (Value, Vec<Value>) {
+    let mut stream = UnixStream::connect(path).await.unwrap();
+    let mut bytes = serde_json::to_vec(&request).unwrap();
+    bytes.push(b'\n');
+    stream.write_all(&bytes).await.unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut forwarded = Vec::new();
+    loop {
+        let mut line = Vec::new();
+        reader.read_until(b'\n', &mut line).await.unwrap();
+        let frame: Value = serde_json::from_slice(&line).unwrap();
+        if frame.get("method").is_none() {
+            return (frame, forwarded);
+        }
+        let mut body = answer(&frame);
+        body["jsonrpc"] = json!("2.0");
+        body["id"] = frame["id"].clone();
+        let mut reply = serde_json::to_vec(&body).unwrap();
+        reply.push(b'\n');
+        reader.get_mut().write_all(&reply).await.unwrap();
+        forwarded.push(frame);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let account = temp_home();
+    let account_home = account.path().canonicalize().unwrap();
+    let tools = temp_home();
+    let tool = |name: &str, body: &str| {
+        let file = tools.path().canonicalize().unwrap().join(name);
+        fs::write(&file, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o700)).unwrap();
+        file.display().to_string()
+    };
+    let codex = tool(
+        "codex",
+        r#"read a; read b; read c; printf '{"id":2,"result":{"home":"%s","secret":"%s"}}\n' "$CODEX_HOME" "$FX_SECRET""#,
+    );
+    let fx_env = tool(
+        "fx-env",
+        r#"printf '%s|%s|%s' "$HOME" "$LANG" "$FX_SECRET""#,
+    );
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("plugin.js");
+    fs::write(
+        &script,
+        r#"const r=Bun.stdin.stream().getReader();let b='',pending,out={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:'fx-usage',version:'1.0.0',contributes:['usage']}});else if(m.method==='usage.read'){pending=m.id;send({id:7,method:'capability.usage.state.begin',params:{store:'codex-cursors'}});}else if(m.id===7){out.state=m.result??m.error;send({id:8,method:'capability.process.spawn',params:{argv:['codex','-s','read-only','-a','never','app-server'],timeoutMs:5000}});}else if(m.id===8){out.live=m.result??m.error;send({id:9,method:'capability.process.spawn',params:{argv:['fx-env'],timeoutMs:5000}});}else if(m.id===9){out.env=m.result??m.error;send({id:10,method:'capability.fs.stat',params:{path:'/fixture/account/auth.json'}});}else if(m.id===10){out.stat=m.result??m.error;send({id:pending,result:out});}}}"#,
+    )
+    .unwrap();
+    let hello = json!({
+        "protocol":"1.10.0","pacer":"0.2.0",
+        "manifest":{
+            "id":"fx-usage","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+            "capabilities":[{"name":"process.spawn","scopes":["codex","fx-env"]},{"name":"usage.state"},{"name":"fs.read","scopes":["/fixture/**"]}],
+            "contributes":{"usage":{"providers":["codex"]}}
+        },
+        "config":{},"grants":["process.spawn","usage.state","fs.read"],"features":[]
+    });
+    let codex_env = json!({"PATH": env::var("PATH").unwrap(), "CODEX_HOME": account_home});
+    let sealed = json!(["capability.usage.state.begin", "capability.fs.stat"]);
+    let request = |rpc: u64, account_home: Value, core_methods: Value| {
+        json!({
+            "jsonrpc":"2.0",
+            "id":rpc,
+            "method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":"fx-usage",
+                "method":"usage.read",
+                "params":{},
+                "deadlineMs":10000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap()],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":hello,
+                },
+                "authority":{
+                    "resources":{"reads":[],"writes":[],"hosts":[],"commands":[
+                        {"argv":[codex,"-s","read-only","-a","never","app-server"],"timeoutMs":10000,"mode":"codex-live","env":codex_env},
+                        {"argv":[fx_env],"timeoutMs":10000}
+                    ]},
+                    "grants":["process.spawn","usage.state","fs.read"],
+                    "ttlMs":10000
+                },
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":account_home},
+                "processEnv":{"HOME":"/fixture/home","LANG":"C","FX_SECRET":"leak"},
+                "coreMethods":core_methods
+            }
+        })
+    };
+    tokio::task::yield_now().await;
+
+    let (reply, forwarded) = dial_with_core(
+        &path,
+        request(40, json!(account_home), sealed.clone()),
+        |frame| {
+            if frame["method"] == "capability.fs.stat" {
+                json!({"result":{"info":null,"missing":true}})
+            } else {
+                json!({"result":{"lease":"lease-1","bytes":2,"version":4,"dirty":false}})
+            }
+        },
+    )
+    .await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let methods: Vec<_> = forwarded
+        .iter()
+        .map(|frame| frame["method"].clone())
+        .collect();
+    assert_eq!(
+        methods,
+        [
+            json!("capability.usage.state.begin"),
+            json!("capability.fs.stat")
+        ],
+        "{forwarded:?}"
+    );
+    assert_eq!(forwarded[0]["params"], json!({"store":"codex-cursors"}));
+    let value = &reply["result"]["value"];
+    assert_eq!(value["state"]["lease"], "lease-1", "{value}");
+    assert_eq!(value["stat"]["missing"], true, "{value}");
+    let live: Value =
+        serde_json::from_str(value["live"]["stdout"].as_str().unwrap().trim()).unwrap();
+    assert_eq!(live["result"]["home"], json!(account_home), "{value}");
+    assert_eq!(live["result"]["secret"], "", "issued env only");
+    assert_eq!(value["env"]["stdout"], "/fixture/home|C|", "{value}");
+
+    // Core's error reaches the plugin unchanged.
+    let (refused, _) =
+        dial_with_core(&path, request(41, json!(account_home), sealed.clone()), |_| {
+            json!({"error":{"code":-32000,"message":"usage state store is not authorized","data":{"code":"capability_denied"}}})
+        })
+        .await;
+    assert_eq!(
+        refused["result"]["value"]["state"]["data"]["code"], "capability_denied",
+        "{refused}"
+    );
+
+    // Without Core-sealed methods nothing is forwarded: usage state is refused
+    // and file reads stay with the native broker, which has no issued reads.
+    let (local, forwarded) = dial_with_core(
+        &path,
+        request(43, json!(account_home), Value::Null),
+        |_| json!({"result":{}}),
+    )
+    .await;
+    assert!(forwarded.is_empty(), "{forwarded:?}");
+    let value = &local["result"]["value"];
+    assert_eq!(
+        value["state"]["data"]["code"], "capability_denied",
+        "{local}"
+    );
+    assert_eq!(
+        value["stat"]["data"]["code"], "capability_denied",
+        "{local}"
+    );
+
+    // Core may only seal methods the owner knows how to forward.
+    let (invalid, forwarded) = dial_with_core(
+        &path,
+        request(44, json!(account_home), json!(["capability.process.spawn"])),
+        |_| json!({"result":{}}),
+    )
+    .await;
+    assert!(forwarded.is_empty(), "{forwarded:?}");
+    assert!(invalid["error"].is_object(), "{invalid}");
+
+    // A Codex live command needs the call's account home as CODEX_HOME.
+    let (unbound, _) = dial_with_core(
+        &path,
+        request(42, Value::Null, sealed.clone()),
+        |_| json!({"result":{}}),
+    )
+    .await;
+    assert_eq!(
+        unbound["error"]["data"]["code"], "plugin_refused",
+        "{unbound}"
+    );
+
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("fx-usage")
+        .await
+        .unwrap();
+    session.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bridge_spawn_and_stop_under_owner() {
     let home = temp_home();

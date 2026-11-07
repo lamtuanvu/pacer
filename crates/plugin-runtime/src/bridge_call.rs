@@ -7,26 +7,31 @@
 //! capability session, so Core never spawns a second owner for the plugin id.
 
 use crate::{
+    CoreForward, PluginCapabilitySession, ProcessContext,
     bridge_listener::SharedOwner,
-    call_resources_from_value, executor_context_from_value, host_snapshots_from_value,
-    observation_bootstrap_from_value, orca_context_from_value,
+    call_resources_from_value, core_capability, executor_context_from_value,
+    host_snapshots_from_value, observation_bootstrap_from_value, orca_context_from_value,
     owner::{OwnerError, ProcessOwner},
-    session_for_call, session_from_hello, worktree_context_from_value,
+    session_for_call_in, worktree_context_from_value,
 };
 use pacer_plugin_host::{ProcessError, ScopeRoots, SpawnSpec};
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Display,
+    future::Future,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
-use tokio::sync::{MutexGuard, watch};
+use tokio::sync::{Mutex, MutexGuard, watch};
 
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
-const IDLE_SESSION: Duration = Duration::from_secs(300);
 const DEFAULT_TTL_MS: u64 = 30_000;
 const LOG_MAX_BYTES: usize = 1000;
-/// Orca and hosts capability handlers lock the owner, which this call holds.
+/// Orca and hosts capability handlers lock the owner, which waits for this call's lane.
 const REENTRANT_RESOURCES: &str =
     "orca and hosts resources re-enter the process owner and are not served over the bridge";
 
@@ -98,20 +103,34 @@ fn remaining(until: Instant) -> Result<Duration, CallFailure> {
     }
 }
 
-/// Wait for the owner within the call's absolute deadline and cancellation.
-async fn acquire<'a>(
-    owner: &'a SharedOwner,
+/// Wait for a lock within the call's absolute deadline and cancellation.
+async fn within<T>(
     until: Instant,
     cancel: &watch::Receiver<bool>,
-) -> Result<MutexGuard<'a, ProcessOwner>, CallFailure> {
+    lock: impl Future<Output = T>,
+) -> Result<T, CallFailure> {
     let mut cancel = cancel.clone();
     if *cancel.borrow() {
         return Err(cancelled());
     }
     tokio::select! {
-        guard = tokio::time::timeout_at(until.into(), owner.lock()) => guard.map_err(|_| expired()),
+        guard = tokio::time::timeout_at(until.into(), lock) => guard.map_err(|_| expired()),
         Ok(()) = cancel.changed() => Err(cancelled()),
     }
+}
+
+async fn acquire<'a>(
+    owner: &'a SharedOwner,
+    until: Instant,
+    cancel: &watch::Receiver<bool>,
+) -> Result<MutexGuard<'a, ProcessOwner>, CallFailure> {
+    within(until, cancel, owner.lock()).await
+}
+
+/// Unique per call; the child echoes it on the call's capability requests.
+fn call_token() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    format!("native-call-{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 /// Core-sealed spawn, hello, authority and scope roots for one call.
@@ -120,6 +139,8 @@ pub(crate) struct SealedCall {
     hello: Value,
     authority: Value,
     roots: ScopeRoots,
+    environment: HashMap<String, String>,
+    core_methods: HashSet<String>,
 }
 
 impl SealedCall {
@@ -172,6 +193,31 @@ impl SealedCall {
             pacer_home: root("pacerHome")?,
             account_home: root("accountHome")?,
         };
+        let mut environment = HashMap::new();
+        match params.get("processEnv") {
+            None | Some(Value::Null) => {}
+            Some(Value::Object(object)) => {
+                for (key, value) in object {
+                    let text = value.as_str().ok_or("invalid processEnv")?;
+                    environment.insert(key.clone(), text.to_owned());
+                }
+            }
+            Some(_) => return Err("invalid processEnv"),
+        }
+        let mut core_methods = HashSet::new();
+        match params.get("coreMethods") {
+            None | Some(Value::Null) => {}
+            Some(Value::Array(items)) => {
+                for item in items {
+                    let method = item
+                        .as_str()
+                        .filter(|method| core_capability(method).is_some())
+                        .ok_or("invalid coreMethods")?;
+                    core_methods.insert(method.to_owned());
+                }
+            }
+            Some(_) => return Err("invalid coreMethods"),
+        }
         Ok(Some(Self {
             spec: SpawnSpec {
                 argv,
@@ -181,6 +227,8 @@ impl SealedCall {
             hello,
             authority,
             roots,
+            environment,
+            core_methods,
         }))
     }
 }
@@ -190,7 +238,10 @@ impl SealedCall {
 /// Returns `{value, hello, logs}`: `hello` carries the `{protocol, served}`
 /// recorded when this child answered `plugin.hello`, so Core can restore
 /// readiness even when it gave up on the call that ran the hello. `until` is
-/// the caller's absolute deadline and covers the owner wait and the hello.
+/// the caller's absolute deadline and covers the owner and lane waits and the
+/// hello. The owner lock is held only to start the child and find its lane.
+/// `core` carries the Core-sealed `coreMethods` back to the calling Core.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn call_sealed(
     owner: &SharedOwner,
     id: &str,
@@ -199,6 +250,7 @@ pub(crate) async fn call_sealed(
     until: Instant,
     cancel: &watch::Receiver<bool>,
     sealed: SealedCall,
+    core: Option<CoreForward>,
 ) -> Result<Value, CallFailure> {
     let authority = &sealed.authority;
     let resources = call_resources_from_value(authority.get("resources").unwrap_or(&json!({})))
@@ -231,9 +283,18 @@ pub(crate) async fn call_sealed(
         return Err(unavailable(REENTRANT_RESOURCES));
     }
 
-    let mut guard = acquire(owner, until, cancel).await?;
-    guard.ensure(id, &sealed.spec).map_err(unavailable)?;
-    let mut session = session_for_call(
+    let lane = {
+        let mut guard = acquire(owner, until, cancel).await?;
+        guard.ensure(id, &sealed.spec).map_err(unavailable)?;
+        guard
+            .lane(id)
+            .ok_or_else(|| unavailable(OwnerError::UnknownPlugin(id.into())))?
+    };
+    let process = ProcessContext {
+        account_home: sealed.roots.account_home.clone(),
+        environment: sealed.environment,
+    };
+    let mut session = session_for_call_in(
         &sealed.hello,
         resources,
         grants,
@@ -243,9 +304,13 @@ pub(crate) async fn call_sealed(
         orca_context,
         worktree_context,
         executor_context,
+        &process,
     )
     .map_err(refused)?;
     session.broker_mut().set_scope_roots(sealed.roots);
+    if let Some(core) = core.filter(|_| !sealed.core_methods.is_empty()) {
+        session.bind_core(core, sealed.core_methods);
+    }
     session
         .bind_process_owner_hosts(owner.clone())
         .map_err(refused)?;
@@ -257,47 +322,71 @@ pub(crate) async fn call_sealed(
         .await
         .map_err(refused)?;
     session.bind_process_owner_executor().map_err(refused)?;
-    guard
-        .install_capability_session(id, session)
-        .map_err(unavailable)?;
+    let session = Arc::new(Mutex::new(session));
+    let answer = |session: Arc<Mutex<PluginCapabilitySession>>| {
+        move |capability: String, body: Value, meta: Option<Value>| {
+            let session = session.clone();
+            async move { session.lock().await.answer(&capability, body, meta).await }
+        }
+    };
 
+    // A reentrant plugin's calls share the child and each carries its own
+    // capability token; any other plugin answers one call at a time.
+    let reentrant = sealed.hello["manifest"]["reentrant"] == true;
+    let (_shared, _exclusive) = if reentrant {
+        (Some(within(until, cancel, lane.gate().read()).await?), None)
+    } else {
+        (
+            None,
+            Some(within(until, cancel, lane.gate().write()).await?),
+        )
+    };
     let outcome = async {
-        let hello = match guard.ready_hello(id) {
-            Some(info) => info.clone(),
-            None if guard.is_ready(id) => Value::Null,
+        let hello = match lane.ready_hello() {
+            Some(info) => info,
+            None if lane.is_ready() => Value::Null,
             None => {
-                let wait = remaining(until)?.min(HELLO_DEADLINE);
-                let reply = guard
-                    .call_plugin_cancellable(
-                        id,
-                        "plugin.hello",
-                        sealed.hello.clone(),
-                        wait,
-                        Some(cancel),
-                    )
-                    .await
-                    .map_err(|error| call_failure(error, "plugin_refused"))?;
-                let info = ready_info(&reply);
-                guard.mark_ready_with(id, info.clone());
-                info
+                let _hello = within(until, cancel, lane.hello_turn().lock()).await?;
+                match lane.ready_hello() {
+                    Some(info) => info,
+                    None if lane.is_ready() => Value::Null,
+                    None => {
+                        let wait = remaining(until)?.min(HELLO_DEADLINE);
+                        let reply = lane
+                            .process()
+                            .request_with_handler(
+                                "plugin.hello",
+                                sealed.hello.clone(),
+                                wait,
+                                Some(cancel),
+                                answer(session.clone()),
+                            )
+                            .await
+                            .map_err(|error| call_failure(error.into(), "plugin_refused"))?;
+                        let info = ready_info(&reply);
+                        lane.mark_ready(Some(info.clone()));
+                        info
+                    }
+                }
             }
         };
-        let value = guard
-            .call_plugin_cancellable(id, method, params, remaining(until)?, Some(cancel))
+        let metadata = reentrant.then(|| json!({"capabilityCall": call_token()}));
+        let value = lane
+            .process()
+            .request_with_metadata(
+                method,
+                params,
+                metadata,
+                remaining(until)?,
+                Some(cancel),
+                answer(session.clone()),
+            )
             .await
-            .map_err(|error| call_failure(error, "plugin_unavailable"))?;
+            .map_err(|error| call_failure(error.into(), "plugin_unavailable"))?;
         Ok::<_, CallFailure>((value, hello))
     }
     .await;
-    let logs = match guard.capability_session(id) {
-        Some(session) => session.lock().await.take_logs(),
-        None => Vec::new(),
-    };
-    // Drop call-scoped natives; keep hello-only between calls.
-    if let Ok(idle) = session_from_hello(&sealed.hello, IDLE_SESSION) {
-        let _ = guard.install_capability_session(id, idle);
-    }
-    drop(guard);
+    let logs = session.lock().await.take_logs();
     let (value, hello) = outcome?;
     let logs = logs
         .into_iter()

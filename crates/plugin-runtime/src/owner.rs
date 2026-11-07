@@ -12,7 +12,10 @@ use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, Spaw
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
-use tokio::sync::{Mutex, watch};
+use tokio::{
+    sync::{Mutex, RwLock, watch},
+    time::{Instant, timeout_at},
+};
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum OwnerError {
@@ -70,16 +73,77 @@ impl Ownership {
     }
 }
 
+/// One tracked child. The owner lock covers lookup and replacement only; a call
+/// holds the child's `gate`, so calls to different plugins run in parallel.
+/// Exclusive turns keep one call at a time; a reentrant plugin's calls may share.
+pub struct PluginLane {
+    process: PluginProcess,
+    gate: RwLock<()>,
+    hello: Mutex<()>,
+    /// `Some` once the child answered `plugin.hello`, with the summary when the
+    /// caller recorded one.
+    ready: std::sync::Mutex<Option<Option<Value>>>,
+}
+
+impl PluginLane {
+    fn new(process: PluginProcess) -> Self {
+        Self {
+            process,
+            gate: RwLock::new(()),
+            hello: Mutex::new(()),
+            ready: std::sync::Mutex::new(None),
+        }
+    }
+
+    pub fn process(&self) -> &PluginProcess {
+        &self.process
+    }
+
+    pub fn gate(&self) -> &RwLock<()> {
+        &self.gate
+    }
+
+    /// Held while sending `plugin.hello`, so overlapping calls send it once.
+    pub fn hello_turn(&self) -> &Mutex<()> {
+        &self.hello
+    }
+
+    fn ready_slot(&self) -> std::sync::MutexGuard<'_, Option<Option<Value>>> {
+        self.ready
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.ready_slot().is_some()
+    }
+
+    pub fn ready_hello(&self) -> Option<Value> {
+        self.ready_slot().clone().flatten()
+    }
+
+    pub fn mark_ready(&self, hello: Option<Value>) {
+        *self.ready_slot() = Some(hello);
+    }
+
+    /// Wait for an exclusive turn until `expires`.
+    async fn exclusive(
+        &self,
+        expires: Instant,
+    ) -> Result<tokio::sync::RwLockWriteGuard<'_, ()>, OwnerError> {
+        timeout_at(expires, self.gate.write())
+            .await
+            .map_err(|_| ProcessError::Timeout.into())
+    }
+}
+
 /// Holds live plugin children. Default serve constructs
 /// [`ProcessOwner::typescript`]; the P4d-1 flag path uses
 /// [`ProcessOwner::native_for_serve`].
 pub struct ProcessOwner {
     ownership: Ownership,
     orca_bridge: Option<SharedOrcaBridge>,
-    children: HashMap<String, PluginProcess>,
-    /// Plugins that completed `plugin.hello` under this owner, with the hello
-    /// summary when the caller recorded one.
-    ready: HashMap<String, Option<Value>>,
+    children: HashMap<String, Arc<PluginLane>>,
     /// Optional mirror of [`Registry`] state ids without owning children.
     shadow: HashMap<String, PluginState>,
     /// Per-plugin capability broker sessions (P4d-6). Absent → deny caps.
@@ -93,7 +157,6 @@ impl ProcessOwner {
             ownership: Ownership::typescript(),
             orca_bridge: None,
             children: HashMap::new(),
-            ready: HashMap::new(),
             shadow: HashMap::new(),
             sessions: HashMap::new(),
         }
@@ -105,7 +168,6 @@ impl ProcessOwner {
             ownership: Ownership::native_for_tests(),
             orca_bridge: None,
             children: HashMap::new(),
-            ready: HashMap::new(),
             shadow: HashMap::new(),
             sessions: HashMap::new(),
         }
@@ -117,7 +179,6 @@ impl ProcessOwner {
             ownership: Ownership::native_for_serve(),
             orca_bridge: None,
             children: HashMap::new(),
-            ready: HashMap::new(),
             shadow: HashMap::new(),
             sessions: HashMap::new(),
         }
@@ -177,11 +238,12 @@ impl ProcessOwner {
     }
 
     pub fn get(&self, id: &str) -> Option<&PluginProcess> {
-        self.children.get(id)
+        self.children.get(id).map(|lane| lane.process())
     }
 
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut PluginProcess> {
-        self.children.get_mut(id)
+    /// The tracked child's lane, for calls that run without the owner lock.
+    pub fn lane(&self, id: &str) -> Option<Arc<PluginLane>> {
+        self.children.get(id).cloned()
     }
 
     /// Install or replace the capability broker session for a tracked plugin.
@@ -209,9 +271,8 @@ impl ProcessOwner {
             return Err(OwnerError::AlreadyTracked(id));
         }
         let child = PluginProcess::spawn(spec)?;
-        self.ready.remove(&id);
         self.sessions.remove(&id);
-        self.children.insert(id, child);
+        self.children.insert(id, Arc::new(PluginLane::new(child)));
         Ok(())
     }
 
@@ -233,49 +294,53 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
-        self.ready.remove(&id);
         self.sessions.remove(&id);
-        self.children.insert(id, child);
+        self.children.insert(id, Arc::new(PluginLane::new(child)));
         Ok(())
     }
 
     /// Terminate and drop a tracked child.
     pub async fn terminate(&mut self, id: &str) -> Result<(), OwnerError> {
         self.ensure_native_library()?;
-        self.ready.remove(id);
         self.sessions.remove(id);
-        let child = self
+        let lane = self
             .children
             .remove(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
-        child.terminate().await?;
+        lane.process().terminate().await?;
         Ok(())
     }
 
     pub fn is_ready(&self, id: &str) -> bool {
-        self.ready.contains_key(id)
+        self.children.get(id).is_some_and(|lane| lane.is_ready())
     }
 
-    pub fn mark_ready(&mut self, id: impl Into<String>) {
-        self.ready.insert(id.into(), None);
+    pub fn mark_ready(&mut self, id: &str) {
+        if let Some(lane) = self.children.get(id) {
+            lane.mark_ready(None);
+        }
     }
 
     /// Mark ready and keep the hello summary until the child is replaced.
-    pub fn mark_ready_with(&mut self, id: impl Into<String>, hello: Value) {
-        self.ready.insert(id.into(), Some(hello));
+    pub fn mark_ready_with(&mut self, id: &str, hello: Value) {
+        if let Some(lane) = self.children.get(id) {
+            lane.mark_ready(Some(hello));
+        }
     }
 
-    pub fn ready_hello(&self, id: &str) -> Option<&Value> {
-        self.ready.get(id).and_then(Option::as_ref)
+    pub fn ready_hello(&self, id: &str) -> Option<Value> {
+        self.children.get(id).and_then(|lane| lane.ready_hello())
     }
 
     pub fn clear_ready(&mut self, id: &str) {
-        self.ready.remove(id);
+        if let Some(lane) = self.children.get(id) {
+            *lane.ready_slot() = None;
+        }
     }
 
     /// Pid of a tracked child, if still alive to the OS.
     pub fn find_plugin(&self, id: &str) -> Option<u32> {
-        self.children.get(id).and_then(PluginProcess::pid)
+        self.children.get(id).and_then(|lane| lane.process().pid())
     }
 
     /// JSON-RPC request against a tracked child (`_host.plugin.call`).
@@ -305,13 +370,16 @@ impl ProcessOwner {
     ) -> Result<Value, OwnerError> {
         self.ensure_native_library()?;
         let session = self.sessions.get(id).cloned();
-        let child = self
-            .children
-            .get_mut(id)
+        let lane = self
+            .lane(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
+        let expires = Instant::now() + deadline;
+        let _turn = lane.exclusive(expires).await?;
+        let left = expires.saturating_duration_since(Instant::now());
+        let child = lane.process();
         match session {
             Some(session) => Ok(child
-                .request_with_handler(method, params, deadline, cancel, move |cap, body, meta| {
+                .request_with_handler(method, params, left, cancel, move |cap, body, meta| {
                     let session = session.clone();
                     async move {
                         let mut guard = session.lock().await;
@@ -319,7 +387,7 @@ impl ProcessOwner {
                     }
                 })
                 .await?),
-            None => Ok(child.request(method, params, deadline, cancel).await?),
+            None => Ok(child.request(method, params, left, cancel).await?),
         }
     }
 
@@ -339,11 +407,13 @@ impl ProcessOwner {
         deadline: Duration,
     ) -> Result<serde_json::Value, OwnerError> {
         self.ensure_native_library()?;
-        let child = self
-            .children
-            .get_mut(id)
+        let lane = self
+            .lane(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
-        Ok(child.request(method, params, deadline, None).await?)
+        let expires = Instant::now() + deadline;
+        let _turn = lane.exclusive(expires).await?;
+        let left = expires.saturating_duration_since(Instant::now());
+        Ok(lane.process().request(method, params, left, None).await?)
     }
 }
 

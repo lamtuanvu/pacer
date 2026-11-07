@@ -27,7 +27,7 @@ fn wire_limit_counts_complete_utf8_frame() {
 #[tokio::test]
 async fn child_parent_pid_and_cancel_frame() {
     let script = r#"const reader=Bun.stdin.stream().getReader();let text='';for(;;){const {value,done}=await reader.read();if(done)break;text+=new TextDecoder().decode(value);while(text.includes('\n')){const cut=text.indexOf('\n');const line=text.slice(0,cut);text=text.slice(cut+1);const m=JSON.parse(line);if(m.method==='probe'){console.log('malformed');console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{ppid:process.ppid}}));}if(m.method==='$/cancel')console.log(JSON.stringify({jsonrpc:'2.0',id:99,result:{cancelled:m.params.id}}));}}"#;
-    let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
     let pid = child.pid().unwrap();
     let result = child
         .request("probe", json!({}), Duration::from_secs(5), None)
@@ -41,7 +41,7 @@ async fn child_parent_pid_and_cancel_frame() {
 #[tokio::test]
 async fn deadline_cancels_without_leaving_a_child() {
     let script = r#"const reader=Bun.stdin.stream().getReader();await reader.read();await new Promise(resolve=>setTimeout(resolve,10000));"#;
-    let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
     let result = child
         .request("probe", json!({}), Duration::from_millis(100), None)
         .await;
@@ -52,7 +52,7 @@ async fn deadline_cancels_without_leaving_a_child() {
 #[tokio::test]
 async fn deadline_covers_blocked_stdin_write() {
     let script = "await new Promise(resolve => setTimeout(resolve, 10000));";
-    let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
     let result = child
         .request(
             "probe",
@@ -68,7 +68,7 @@ async fn deadline_covers_blocked_stdin_write() {
 #[tokio::test]
 async fn plugin_to_host_request_receives_result_and_denial() {
     let script = r#"const reader=Bun.stdin.stream().getReader();let buf='',denied;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await reader.read();if(done)break;buf+=new TextDecoder().decode(value);while(buf.includes('\n')){let i=buf.indexOf('\n'),m=JSON.parse(buf.slice(0,i));buf=buf.slice(i+1);if(m.method==='probe')send({id:7,method:'capability.log',params:{level:'info',message:'fixture'}});else if(m.id===7){if(m.result?.ok!==true)process.exit(2);send({id:8,method:'capability.fs.write',params:{}})}else if(m.id===8){denied=m.error?.data?.code;send({id:9,method:'mystery',params:{}})}else if(m.id===9){send({id:1,result:{denied,unknown:m.error?.code}})}}}"#;
-    let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
     let result = child
         .request_with_handler(
             "probe",
@@ -103,7 +103,7 @@ async fn plugin_to_host_request_receives_result_and_denial() {
 #[tokio::test]
 async fn default_handler_refuses_ungranted_and_unknown_methods() {
     let script = r#"const r=Bun.stdin.stream().getReader();let b='',denied;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='probe')send({id:7,method:'capability.log',params:{}});else if(m.id===7){denied=m.error;send({id:8,method:'unknown.method',params:{}})}else if(m.id===8)send({id:1,result:{denied,unknown:m.error}})}}"#;
-    let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
     let result = child
         .request("probe", json!({}), Duration::from_secs(5), None)
         .await
@@ -124,7 +124,7 @@ async fn owner_cancellation_sends_cancel_notification() {
         "PACER_CANCEL_RECEIPT".into(),
         receipt.to_string_lossy().into_owned(),
     );
-    let mut child = PluginProcess::spawn(&spec).unwrap();
+    let child = PluginProcess::spawn(&spec).unwrap();
     let (sender, receiver) = tokio::sync::watch::channel(false);
     let trigger = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -174,7 +174,7 @@ async fn conformance_fixture_handshake_and_ping() {
     let mut spec = peer("");
     spec.argv = vec!["bun".into(), "main.ts".into()];
     spec.cwd = dir.clone();
-    let mut child = PluginProcess::spawn(&spec).unwrap();
+    let child = PluginProcess::spawn(&spec).unwrap();
     let hello = child.request("plugin.hello", json!({"protocol":"1.10.0","pacer":"0.2.0","manifest":manifest,"config":{},"grants":[],"features":[]}), Duration::from_secs(5), None).await.unwrap();
     assert_eq!(hello["id"], "fx-serial");
     assert_eq!(hello["protocol"], "1.10.0");
@@ -243,7 +243,7 @@ async fn identity_fixture_uses_rust_capability_broker() {
     let mut spec = peer("");
     spec.argv = vec!["bun".into(), "main.ts".into()];
     spec.cwd = dir.clone();
-    let mut child = PluginProcess::spawn(&spec).unwrap();
+    let child = PluginProcess::spawn(&spec).unwrap();
     child.request("plugin.hello",json!({"protocol":"1.10.0","pacer":"0.2.0","manifest":raw,"config":{},"grants":[],"features":[]}),Duration::from_secs(5),None).await.unwrap();
     let value=child.request_with_handler("diagnostic.ping",json!({}),Duration::from_secs(5),None,move |method,params,_| {
         let broker=broker.clone();async move {
@@ -261,7 +261,7 @@ async fn identity_fixture_uses_rust_capability_broker() {
 #[tokio::test]
 async fn retained_read_owner_requests_and_events_work_after_parent_call_finishes() {
     let script = r#"const r=Bun.stdin.stream().getReader();let b='';for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){let i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='policy.before'){if(m._meta?.capabilityCall!=='issued')process.exit(3);console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{verdict:'allow'}}));setTimeout(()=>console.log(JSON.stringify({jsonrpc:'2.0',id:9,method:'capability.tasks.read',params:{id:'task'},_meta:{readOwner:'retained'}})),10);}else if(m.method==='$/event'){console.log(JSON.stringify({jsonrpc:'2.0',id:10,method:'capability.tasks.read',params:{id:m.params.type},_meta:{readOwner:'retained'}}));}}}"#;
-    let mut child = PluginProcess::spawn(&peer(script)).unwrap();
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
     let result = child
         .request_with_metadata(
             "policy.before",
@@ -304,6 +304,65 @@ async fn retained_read_owner_requests_and_events_work_after_parent_call_finishes
         .unwrap();
     child.terminate().await.unwrap();
 }
+#[tokio::test]
+async fn overlapping_calls_get_their_own_capability_requests_by_token() {
+    // Both probes are pending before either capability request is sent, and the
+    // child asks in reverse order, so each answer proves token routing. An
+    // untokened request while both are pending has no owner and is refused.
+    let script = r#"const r=Bun.stdin.stream().getReader();let b='';const probes=[];const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));let stray;for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='probe'){probes.push(m);if(probes.length===2){send({id:'stray',method:'capability.log',params:{}});for(const p of [...probes].reverse())send({id:'c'+p.id,method:'capability.log',params:{call:p.params.name},_meta:p._meta});send({id:'late',method:'capability.log',params:{},_meta:{capabilityCall:'gone'}});}}else if(m.id==='stray'||m.id==='late'){stray=stray??{};stray[m.id]=m.error?.data?.code;}else if(typeof m.id==='string'&&m.id.startsWith('c')){const p=probes.find(p=>'c'+p.id===m.id);setTimeout(()=>send({id:p.id,result:{asked:m.result.call,stray}}),20);}}}"#;
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
+    let call = |name: &'static str| {
+        child.request_with_metadata(
+            "probe",
+            json!({"name": name}),
+            Some(json!({"capabilityCall": format!("token-{name}")})),
+            Duration::from_secs(5),
+            None,
+            move |method, params, metadata| async move {
+                assert_eq!(method, "capability.log");
+                assert_eq!(
+                    metadata.unwrap()["capabilityCall"],
+                    format!("token-{name}")
+                );
+                Ok(json!({"call": params["call"].as_str().map(|asked| format!("{asked} via {name}"))}))
+            },
+        )
+    };
+    let (first, second) = tokio::join!(call("a"), call("b"));
+    let (first, second) = (first.unwrap(), second.unwrap());
+    assert_eq!(first["asked"], "a via a");
+    assert_eq!(second["asked"], "b via b");
+    let stray = if first["stray"].is_object() {
+        &first["stray"]
+    } else {
+        &second["stray"]
+    };
+    assert_eq!(stray["stray"], "capability_denied");
+    assert_eq!(stray["late"], "capability_denied");
+    child.terminate().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_call_that_times_out_leaves_the_child_usable() {
+    let script = r#"const r=Bun.stdin.stream().getReader();let b='';for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='slow')setTimeout(()=>console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:'late'})),300);if(m.method==='probe')console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:'ok'}));}}"#;
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
+    let slow = child.request("slow", json!({}), Duration::from_millis(50), None);
+    assert!(matches!(slow.await, Err(ProcessError::Timeout)));
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let probe = child
+        .request("probe", json!({}), Duration::from_secs(5), None)
+        .await
+        .unwrap();
+    assert_eq!(probe, "ok");
+    child.terminate().await.unwrap();
+    assert!(matches!(
+        child
+            .request("probe", json!({}), Duration::from_secs(1), None)
+            .await,
+        Err(ProcessError::Unavailable(_))
+    ));
+}
+
 #[test]
 fn frame_number_spellings_and_envelope_size_match_javascript() {
     assert_eq!(frame(json!({"n":1.0})).unwrap(), b"{\"n\":1}\n");

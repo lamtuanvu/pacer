@@ -30,10 +30,11 @@ pub use bridge_listener::{
     SharedOwner, bridge_methods_are_private, serve_starts_reverse_bridge_by_default,
 };
 pub use capability::{
-    CapabilitySessionError, FixtureHostProvider, LocalHostEffect, ObservationBootstrap,
-    OrcaCallContext, PluginCapabilitySession, call_resources_from_value, host_snapshots_from_value,
+    CapabilitySessionError, CoreForward, CoreRequest, FixtureHostProvider, LocalHostEffect,
+    ObservationBootstrap, OrcaCallContext, PluginCapabilitySession, ProcessContext,
+    call_resources_from_value, core_capability, host_snapshots_from_value,
     observation_bootstrap_from_value, orca_context_from_value, session_for_call,
-    session_from_hello,
+    session_for_call_in, session_from_hello,
 };
 pub use executor_attach::{ExecutorCallContext, executor_context_from_value};
 pub use host_attach::HostAttachSnapshot;

@@ -3,7 +3,7 @@ import {ReadOwner} from "./read-owner";
 import {EventSubscription} from "./event-subscription";
 import {answerTaskCapability} from "./task-capability";
 import {POLICY_CAPABILITY_METHODS, POLICY_OBSERVATIONS_FEATURE, POLICY_REDACTION_METADATA_FEATURE, pluginMetadata, type PolicyBeforeParams} from "./policy-protocol";
-import type { PlannerResources } from "./planner-resources";
+import { plannerBorrow, type PlannerResources } from "./planner-resources";
 import { endpointHttpScopes } from "./endpoint-authority";
 import { prepareCredentialBindings, type CredentialBinding } from "./credential-bindings";
 import { BUNDLED } from "../../plugins/bundled";
@@ -28,11 +28,11 @@ import { hostRangeAccepts, readManifestFile } from "./manifest";
 import { prepareStateAuthority } from "./usage-state";
 import { prepareWriteAuthority } from "./capability-write";
 import { prepareFilesystemAuthority } from "./capability-fs";
-import { prepareSpawnAuthority } from "./capability-spawn";
+import { minimalEnvironment, prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
 import { sealCallAuthority, type HostSnapshotSeal } from "./native-call-authority";
-import { callNativeOwner } from "./host-bridge";
+import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type SpawnSpec } from "./process";
@@ -94,6 +94,12 @@ const HOST_BINARY_UPLOAD_ISSUER = Symbol("host-binary-upload-issuer");
 const stagedFetchResult = z.object({ handle: z.string().regex(/^[a-f0-9-]{36}$/),
   bytes: z.number().int().nonnegative().max(50 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 type StagedFetchResult = z.infer<typeof stagedFetchResult>;
+/** Under the native owner Core answers these itself; `crates/plugin-runtime` `core_capability` admits the same set. */
+const NATIVE_USAGE_STATE_METHODS = ["capability.usage.state.begin", "capability.usage.state.readChunk", "capability.usage.state.release"];
+/** File reads under a planner borrow or a Codex log directory, which the native read broker does not serve. */
+const NATIVE_CORE_READ_METHODS = ["capability.fs.read", "capability.fs.list", "capability.fs.stat", "capability.fs.readRange"];
+/** Planner methods a read-only (`preview`) borrow serves without file settlement or commands. */
+const NATIVE_READ_ONLY_PLANNER = ["planner.plan", "planner.preview", "planner.detect", "planner.check"];
 interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProcess; generation: string;
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
@@ -1766,7 +1772,7 @@ export class PluginRegistry {
    * granted manifest; host-supplied resources are validated then echoed sealed.
    * Glob / `$VAR` scopes still need a later host-issued concrete resource path.
    */
-  nativeIssueCallAuthority(ctx: Ctx, id: string, options: { resources?: CallResources; ttlMs?: number; method?: string } = {}) {
+  nativeIssueCallAuthority(ctx: Ctx, id: string, options: { resources?: CallResources; ttlMs?: number; method?: string; accountHome?: string | null } = {}) {
     const e = this.findEntry(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const manifest = e.manifest!;
@@ -1775,6 +1781,7 @@ export class PluginRegistry {
       resources: options.resources,
       ttlMs: options.ttlMs,
       method: options.method,
+      accountHome: options.accountHome,
     });
     let out = sealed;
     if (sealed.resources.hosts.length && grants.includes("hosts")) {
@@ -2461,10 +2468,12 @@ export class PluginRegistry {
    * `/_internal/plugins` and never spawns a second owner for the plugin id.
    */
   private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number): Promise<T> {
-    const hostOnly = options.plannerResources ?? options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
+    const lease = options.plannerResources;
+    const hostOnly = options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
       ?? options.expectedProcess ?? options.spawnAdmission
       ?? Object.getOwnPropertySymbols(options).find(key => (options as Record<symbol, unknown>)[key] !== undefined);
-    if (hostOnly !== undefined) throw new CoreError("plugin_unavailable", `${method} needs host-side call options the native process owner bridge does not carry`);
+    if (hostOnly !== undefined || (lease && !NATIVE_READ_ONLY_PLANNER.includes(method)))
+      throw new CoreError("plugin_unavailable", `${method} needs host-side call options the native process owner bridge does not carry`);
     const issued = options.resources;
     if (issued?.orcaAttempt || issued?.orcaLive || issued?.hosts?.length)
       throw new CoreError("plugin_unavailable", `${method} needs orca or hosts resources, which the native process owner bridge does not serve`);
@@ -2476,14 +2485,47 @@ export class PluginRegistry {
         const remaining = deadlineAt === Infinity ? undefined : Math.max(1, deadlineAt - Date.now());
         const spawn = this.nativeSpawnSpec(ctx, e.id);
         const resources = issued && pinnedExecutables(ctx, issued);
-        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
-        const reply = await callNativeOwner(socket, {
+        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
+        // Commands without an issued environment get the flag-off minimal environment of Core.
+        const processEnv: Record<string, string> = Object.assign({}, ...authority.resources.commands
+          .filter(command => !command.cwd && !command.env && !command.secretEnv)
+          .map(command => minimalEnvironment(ctx.env, basename(command.argv[0]!))));
+        // Usage state, planner borrows and Codex log reads stay with Core: the owner forwards coreMethods to this authority.
+        const manifest = e.manifest!;
+        const logReads = issued?.reads.some(read => read.kind === "codex-logs") ?? false;
+        const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : [])];
+        const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [] }, {
+          deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
+          grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
+        }) : undefined;
+        const onRequest = local && ((name: string, params: unknown) => coreMethods.includes(name)
+          ? answerCapability(ctx, { id: e.id, manifest }, name, params, local)
+          : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`)));
+        const call: NativeOwnerCall = {
           id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
           scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },
-        }, signal);
+          ...(Object.keys(processEnv).length ? { processEnv } : {}),
+          ...(coreMethods.length ? { coreMethods } : {}),
+        };
+        let reply: Awaited<ReturnType<typeof callNativeOwner>>;
+        try {
+          if (lease) {
+            lease.bind(local!, method);
+            if (plannerBorrow(local!) !== lease) throw new CoreError("plugin_unavailable", `${method} needs a planner borrow the native process owner bridge does not carry`);
+            if (method === "planner.plan") {
+              call.params = lease.prepareInput(input, value => nativeOwnerCallFits({ ...call, params: value }));
+              if (Object.hasOwn(call.params as object, "priorRange"))
+                throw new CoreError("plugin_unavailable", "the prior planner record exceeds the native owner bridge frame");
+            }
+          }
+          if (logReads) await prepareFilesystemAuthority(local!);
+          if (issued?.stores.length) await prepareStateAuthority(local!);
+          reply = await callNativeOwner(socket, call, signal, onRequest);
+        } finally {
+          await local?.revoke();
+        }
         for (const line of reply.logs) appendPluginLog(ctx, e.id, "stderr", line);
         if (reply.hello && e.state !== "ready") {
-          const manifest = e.manifest!;
           this.nativeMarkReady(ctx, e.id, reply.hello.protocol,
             reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
         }
