@@ -44,7 +44,7 @@ Two Orca lessons shape this design:
 2. **PTY library: `Bun.Terminal`.** It ships in the Bun pacer already requires (`engines.bun >= 1.4.2`) and runs on macOS and Linux, the four release targets. It needs no native module in the `bun build --compile` release.
 3. **Recording.** `session.log` in the run directory is a framed byte log, with checkpoints from a headless xterm. The session host also derives the plain-text `stdout` that existing readers use.
 4. **Attach protocol.** One framed protocol on a Unix socket owned by the session host. `pacer serve` bridges it to a WebSocket for the app. `pacer attach <task>` speaks it directly from any terminal. The Orca plugin opens an Orca terminal that runs `pacer attach`.
-5. **Read-only by default.** At most one controller. Taking control is explicit, and stealing it notifies the previous holder.
+5. **Read-only by default.** At most one controller. Taking control is explicit, and stealing it notifies the previous holder. *Superseded by [ADR 0023](../decisions/0023-single-interactive-session-mode.md): every interactive client can type; read-only is an opt-in viewer property.*
 6. **Headless in a PTY first; interactive TUIs per runner later.** Interactive completion comes from an explicit report command and agent hooks, never from the screen.
 7. **Hosts and viewers are separate.** A `SessionHost` (`builtin` or `orca`) owns the PTY and the task's guarantees. Any terminal can be a viewer: the app, an Orca terminal, the calling terminal, a new window of the user's terminal app (presets or a template), or a tmux pane. A terminal app never hosts a task.
 8. **Remote hosts.** Read-only recording first, under util-linux `script(1)` (the package that provides the `setsid` hosts already need), mirrored over the existing SSH ControlMaster. Full sessions on hosts come later, by uploading the pacer binary, as Orca does with its server.
@@ -364,8 +364,8 @@ pacer attach <task> [--control] [--replay] [--export cast] [--attempt <n>] [--op
 Without `--open`, it attaches in the calling terminal (`here`). `--open` opens the session in another viewer and returns, as described under "Hosts and viewers".
 
 - **Viewing.** It puts the local terminal in raw mode, draws the snapshot, then streams. It sets the window title to `pacer <id> · <executor> · watching`. It works the same in iTerm, Ghostty, Terminal.app and tmux, and over SSH to the machine running pacer.
-- **Keys when read-only.** `q` or `Ctrl-C` detaches; `c` asks for control.
-- **Keys when in control.** Everything goes to the agent, except the escape prefix `Ctrl-]`: then `d` detaches, `r` releases control, and `Ctrl-]` sends a literal `Ctrl-]`. This follows `telnet`'s escape character.
+- **Keys when read-only.** `q` or `Ctrl-C` detaches; `c` asks for control. *Superseded by [ADR 0023](../decisions/0023-single-interactive-session-mode.md) for 1.2 sessions.*
+- **Keys when in control.** Everything goes to the agent, except the escape prefix `Ctrl-]`: then `d` detaches, `r` releases control, and `Ctrl-]` sends a literal `Ctrl-]`. This follows `telnet`'s escape character. *Superseded by [ADR 0023](../decisions/0023-single-interactive-session-mode.md) for 1.2 sessions.*
 - **Size mismatch.** If the local terminal is smaller than the PTY, a one-line notice says so. pacer does not reflow.
 - **Remote tasks.** For a task on an SSH host, it plays the mirrored recording (read-only) until phase 5.
 
@@ -374,7 +374,7 @@ Without `--open`, it attaches in the calling terminal (`here`). `--open` opens t
 - **Viewers.** Up to 16 per session. Each one gets a snapshot, then the live stream. The 17th is refused with a clear message.
 - **Fan-out never blocks the agent.** Each viewer has its own output queue, capped at 1 MiB. When a queue overflows, the host drops it, sends `resync` and then a fresh `snapshot`. The PTY is always read at full speed.
   - Orca pauses its PTY for its single client. pacer cannot, because a viewer is optional and the agent must not stall behind someone's slow Wi-Fi.
-- **One controller.**
+- **One controller.** *Superseded by [ADR 0023](../decisions/0023-single-interactive-session-mode.md).*
   - `take` succeeds when nobody has control.
   - `take { force: true }` steals it: the previous holder gets `control { reason: "taken" }` and drops back to read-only.
   - The app asks "Someone is in control from `<label>`. Take over?" before it sends `force`.
@@ -457,10 +457,10 @@ An executor without an id gets a clear refusal: "Take over needs the agent's ses
 2. **Request.** The op writes `takeover.json` (`{ at, by, sessionId }`, 0600) into the current run directory, sets `task.takeover = { state: "starting", at, sessionId }`, and stops the headless process tree with SIGTERM. The task is never marked `stopped`, so the runner keeps it.
 3. **Resume.** The runner's `finishRun` sees the headless attempt end with `takeover.json` present. Instead of returning an outcome, it starts a second run in the same attempt, `runs/<task>/<attempt>-takeover/`, under the session host in interactive mode (hooks, `PACER_RUN_DIR`, report token, as in section 3), with the agent's resume command as `argv` and the same worktree as `cwd`. `task.run` points at the new run (`takeover: true`), and `task.takeover.state` becomes `driving`.
 4. **Driving.** The task shows **You're driving** (`progress.phase: "driving"`) rather than running or stopped. Idle failure is off while driving; `task.timeoutS` remains the upper bound. Limit detection is skipped for this run: a person is at the keyboard.
-5. **Finish.** The session ends when the user exits the agent, when the user explicitly **releases** control (the session host then writes a `done` report from `source: "user"` and ends the TUI as it does after a report), or when the agent runs `pacer report`. A controller that merely disconnects (closed laptop, dropped network) does not end it; the task stays "you're driving" and can be attached again.
+5. **Finish.** The session ends when the user exits the agent, when the user explicitly **releases** control (the session host then writes a `done` report from `source: "user"` and ends the TUI as it does after a report), or when the agent runs `pacer report`. A controller that merely disconnects (closed laptop, dropped network) does not end it; the task stays "you're driving" and can be attached again. *Superseded by [ADR 0023](../decisions/0023-single-interactive-session-mode.md) for 1.2 sessions.*
 6. **Collect.** The attempt's outcome then follows the normal path: the report is the agent's transcript text when hooks captured it, otherwise the last assistant message in the agent's own session file, found by its id (Codex `sessions/**/rollout-*-<id>.jsonl` under `CODEX_HOME`, Claude `projects/*/<id>.jsonl` under `CLAUDE_CONFIG_DIR`), otherwise "You drove this task; the agent left no summary", and the exit code of a user-ended session counts as success. The runner verifies the worktree and runs acceptance, and the task settles to review as usual (`done`, or `partial` when acceptance fails). The attempt's log has both runs.
 
-The op returns as soon as the new session is live (`session.sock` present), or after 20 s with `{ state: "starting" }`. `pacer takeover <id>` then attaches in the calling terminal with control (`pacer attach <id> --control`). The app opens the task's Session view and sends `take`.
+The op returns as soon as the new session is live (`session.sock` present), or after 20 s with `{ state: "starting" }`. `pacer takeover <id>` then attaches in the calling terminal with control (`pacer attach <id> --control`). The app opens the task's Session view and sends `take`. *Superseded by [ADR 0023](../decisions/0023-single-interactive-session-mode.md) for 1.2 sessions.*
 
 Codex 0.162.1 shows a "Hooks need review" prompt in every interactive session that uses the per-run hook overrides; until the user trusts them, the hooks do not run. This is why the session-file fallback exists. The resume launch also sets `check_for_update_on_startup=false`, so an update prompt does not sit in front of the user.
 
