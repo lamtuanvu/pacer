@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { execProcess } from "../src/exec/process";
-import { DelegateError, delegate, selfCommand, superviseTask, taskStatus, taskStop, taskWait, validateInput } from "../src/tasks/api";
+import { DelegateError, delegate, runnerProcess, selfCommand, superviseTask, taskStatus, taskStop, taskWait, validateInput } from "../src/tasks/api";
 import { runTask } from "../src/tasks/runner";
 import { listTasks, readTask, updateTask } from "../src/tasks/store";
 import * as taskStore from "../src/tasks/store";
@@ -37,6 +37,28 @@ test("delegate creates a queued task and starts the runner; bad input creates no
 test("selfCommand re-runs the script under bun, or the compiled binary alone", () => {
   expect(selfCommand(["/bun", "/repo/src/cli.ts", "status"], "/bun")).toEqual(["/bun", "/repo/src/cli.ts"]);
   expect(selfCommand(["/usr/local/bin/pacer", "status"], "/usr/local/bin/pacer")).toEqual(["/usr/local/bin/pacer"]);
+  // The compiled supervision worker's argv[1] is its embedded entrypoint, not a script to pass on.
+  expect(selfCommand(["/home/u/.local/bin/pacer-core", "/$bunfs/root/tasks/supervision-worker.js"], "/home/u/.local/bin/pacer-core")).toEqual(["/home/u/.local/bin/pacer-core"]);
+  expect(selfCommand(["B:\\pacer.exe", "B:\\~BUN\\root\\tasks\\supervision-worker.js"], "B:\\pacer.exe")).toEqual(["B:\\pacer.exe"]);
+});
+
+test("runnerProcess launches _run with the given self command, not the caller's argv", async () => {
+  const ctx = fakeCtx(), out = join(tmpDir(), "argv");
+  const pid = runnerProcess(["/bin/sh", "-c", 'printf "%s " "$@" > "$OUT"', "sh"])({...ctx, env: {...ctx.env, OUT: out}}, "t-1");
+  expect(pid).toBeGreaterThan(0);
+  for (let i = 0; i < 100 && !existsSync(out); i++) await Bun.sleep(20);
+  expect(readFileSync(out, "utf8")).toBe("_run t-1 ");
+  expect(() => runnerProcess([])(ctx, "t-1")).toThrow("runner self command is empty");
+});
+
+test("the supervision worker refuses to start without the service's self command", async () => {
+  // In a worker, argv[1] is the worker module in source and compiled modes alike.
+  const worker = new Worker(new URL("../src/tasks/supervision-worker.ts", import.meta.url), {type: "module"});
+  try {
+    const reply = new Promise<{type: string; reason?: string}>(resolve => { worker.onmessage = event => resolve(event.data); });
+    worker.postMessage({type: "init", pacerHome: tmpDir(), env: {}});
+    expect(await reply).toEqual({type: "failed", reason: "Error: missing service self command"});
+  } finally { worker.terminate(); }
 });
 
 test("taskWait returns at a terminal state or at the timeout", async () => {

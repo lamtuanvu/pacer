@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { runDir } from "../src/exec/direct";
@@ -9,6 +9,7 @@ import { readRun, startRun } from "../src/supervisor/run";
 import { resetHandoverState } from "../src/tasks/handover";
 import { registerWork, issueWorkGrant } from "../src/dispatch/work";
 import { dispatchDatabase } from "../src/dispatch/store";
+import * as drain from "../src/tasks/drain";
 import { fakeCtx, tmpDir } from "./helpers";
 
 const DEAD = 2 ** 22 + 12345;
@@ -69,4 +70,20 @@ test("without a replacement in 60 seconds the sweep records the stop and does th
   expect(after.handover).toBeUndefined();
   const grant = dispatchDatabase(ctx).query<{ revoked: number }, [string]>("SELECT revoked FROM work_grants WHERE task_id=?").get(id);
   expect(grant?.revoked).toBe(1);
+});
+
+test("the recorded stop drains the queue with the sweep's launcher, not the default", async () => {
+  const { ctx, id, dir } = await gap("exit 143");
+  await exited(dir);
+  taskStop(ctx, id, { signal: false });
+  updateTask(ctx, id, x => { x.handover!.replacementAt = ctx.now - 61; });
+  // Inside the supervision worker the default launcher would re-run the worker module.
+  const launcher = () => 1;
+  const drained = spyOn(drain, "drainQueue").mockResolvedValue([]);
+  try {
+    await superviseTasks(ctx, launcher);
+    for (let i = 0; i < 50 && !drained.mock.calls.length; i++) await Bun.sleep(10);
+    expect(drained.mock.calls.some(call => call[1] === launcher)).toBe(true);
+  } finally { drained.mockRestore(); }
+  expect(readTask(ctx, id)?.state).toBe("stopped");
 });

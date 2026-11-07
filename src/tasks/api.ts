@@ -116,7 +116,10 @@ export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
 export function selfCommand(argv: string[] = process.argv, execPath: string = process.execPath): string[] {
   const script = argv[1] ?? "";
-  return /\.(ts|js|mjs)$/.test(script) ? [execPath, script] : [execPath];
+  // In a compiled binary a worker's argv[1] is its embedded entrypoint (/$bunfs/root/... or B:\~BUN\root\...),
+  // which the binary would read as an unknown command.
+  const embedded = script.startsWith("/$bunfs/") || /^[A-Za-z]:\\~BUN\\/.test(script);
+  return /\.(ts|js|mjs)$/.test(script) && !embedded ? [execPath, script] : [execPath];
 }
 
 /** Where detached runners write their output, so a runner that dies says why. */
@@ -129,8 +132,11 @@ function openRunnerLog(ctx: Ctx): number | "ignore" {
   } catch { return "ignore"; } // A missing log never blocks a launch.
 }
 
-const spawnRunnerProcess: SpawnRunner = (ctx, taskId) => {
-  const [cmd, ...pre] = selfCommand();
+/** Spawn detached `_run` processes with an explicit self command. A worker must use
+ * its parent's command: its own argv[1] is the worker module, not pacer's entry. */
+export const runnerProcess = (command: readonly string[]): SpawnRunner => (ctx, taskId) => {
+  const [cmd, ...pre] = command;
+  if (!cmd) throw new Error("runner self command is empty");
   const log = openRunnerLog(ctx);
   try {
     const child = spawn(cmd, [...pre, "_run", taskId], {
@@ -154,7 +160,10 @@ export function launchTaskRunner(ctx: Ctx, taskId: string, spawn: SpawnRunner, a
   const {operation:_requestLifetime,...launchCtx}=ctx;
   return spawn({ ...launchCtx, env: { ...ctx.env, PACER_ADMISSION_LEASE: lease, PACER_ADMISSION_TASK: taskId } }, taskId);
 }
+const spawnRunnerProcess: SpawnRunner = (ctx, taskId) => runnerProcess(selfCommand())(ctx, taskId);
 export const spawnRunner: SpawnRunner = (ctx, taskId) => launchTaskRunner(ctx, taskId, spawnRunnerProcess);
+/** The supervision worker's launcher, bound to the service's own self command. */
+export const spawnRunnerWith = (command: readonly string[]): SpawnRunner => (ctx, taskId) => launchTaskRunner(ctx, taskId, runnerProcess(command));
 
 export function validateInput(s: Strategy, input: DelegateInput): string[] {
   const p: string[] = [];
@@ -397,7 +406,7 @@ export async function superviseTask(ctx: Ctx, id: string, spawn: SpawnRunner = s
 }
 
 /** A stop during a handover gap: record the attempt from the run's evidence and do the cleanup the old runner skipped. */
-export function recordStoppedHandover(ctx: Ctx, t: TaskRecord, exit: number | null): TaskRecord {
+export function recordStoppedHandover(ctx: Ctx, t: TaskRecord, exit: number | null, spawn: SpawnRunner = spawnRunner): TaskRecord {
   const run = t.run!;
   const updated = updateTask(ctx, t.id, x => {
     if (x.state !== "stopped" || x.handover?.state !== "handed-over" || x.run?.dir !== run.dir || x.attempts.length >= run.attempt) return;
@@ -410,7 +419,8 @@ export function recordStoppedHandover(ctx: Ctx, t: TaskRecord, exit: number | nu
     dispatchDatabase(ctx).query("DELETE FROM work_reservations WHERE task_id=?").run(t.id);
     revokeWorkGrants(ctx, t.id); revokeEnforcementTokens(ctx, t.id);
   }
-  void import("./drain").then(m => m.drainQueue(ctx)).catch(() => {});
+  // The caller's launcher: inside the supervision worker the default would use the worker's argv.
+  void import("./drain").then(m => m.drainQueue(ctx, spawn)).catch(() => {});
   return updated;
 }
 
@@ -560,7 +570,7 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       if (!deadRun) return t;
       const replacementAt = t.handover!.replacementAt;
       if (replacementAt === undefined && runLive) return relaunch();
-      if (replacementAt === undefined || ctx.now - replacementAt >= 60) return recordStoppedHandover(ctx, t, r?.exit ?? null);
+      if (replacementAt === undefined || ctx.now - replacementAt >= 60) return recordStoppedHandover(ctx, t, r?.exit ?? null, spawn);
       return t;
     }
     if ((preparedOwnedRun || deadRun) && (runLive || preparedOwnedRun)) {

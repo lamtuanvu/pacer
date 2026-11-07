@@ -23,9 +23,10 @@ function fixture() {
 
 for (const phase of ['open', 'rows'] as const) {
   for (const process of ['local', 'child'] as const) {
-    test(`same-generation replacement during ${phase} (${process}) fails closed without poisoning the cache`, () => {
+    test(`same-generation replacement during ${phase} (${process}) never mixes generations or poisons the cache`, () => {
       // Removing the acquisition guard must fail this test even when SQLite itself
       // happens to reject reads on an unlinked handle in the open-phase variant.
+      const revisions: string[] = [];
       for (let iteration = 0; iteration < 8; iteration++) {
         const f = fixture();
         const original = readonly.openReadOnlyStore;
@@ -54,9 +55,11 @@ for (const phase of ['open', 'rows'] as const) {
           return db;
         });
         try {
-          const read = iteration % 2 ? agentSessionsRevision : activeAgentSessions;
-          expect(() => read(f.ctx)).toThrow(expect.objectContaining({code: 'conflict'}));
+          // The guard rejects the mixed acquisition; the retry then reads only the replacement.
+          if (iteration % 2) revisions.push(agentSessionsRevision(f.ctx));
+          else expect(activeAgentSessions(f.ctx).map(s => s.id)).toEqual(['replacement']);
         } finally {spy.mockRestore();}
+        if (iteration % 2) expect(revisions.at(-1)).toBe(agentSessionsRevision(f.ctx));
         expect(injected).toBe(true);
         for (let read = 0; read < 4; read++) expect(activeAgentSessions(f.ctx).map(s => s.id)).toEqual(['replacement']);
         const revision = agentSessionsRevision(f.ctx);

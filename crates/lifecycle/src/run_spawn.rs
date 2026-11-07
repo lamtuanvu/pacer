@@ -48,7 +48,15 @@ pub struct SupervisorRunSpawnSpec {
 /// Match `selfCommand` in `src/tasks/api.ts`: re-run the script under bun/node,
 /// or invoke the compiled binary alone.
 pub fn self_command(exec_path: &str, argv1: Option<&str>) -> Vec<String> {
-    let script = argv1.filter(|s| s.ends_with(".ts") || s.ends_with(".js") || s.ends_with(".mjs"));
+    // A compiled worker's argv[1] is its embedded entrypoint, never a script to pass on.
+    let embedded = |s: &str| {
+        s.starts_with("/$bunfs/")
+            || (s.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+                && s.get(1..8) == Some(":\\~BUN\\"))
+    };
+    let script = argv1.filter(|s| {
+        (s.ends_with(".ts") || s.ends_with(".js") || s.ends_with(".mjs")) && !embedded(s)
+    });
     match script {
         Some(path) => vec![exec_path.to_owned(), path.to_owned()],
         None => vec![exec_path.to_owned()],
@@ -221,6 +229,20 @@ mod tests {
         assert_eq!(
             self_command("/usr/local/bin/pacer", Some("status")),
             vec!["/usr/local/bin/pacer"]
+        );
+        assert_eq!(
+            self_command(
+                "/bin/pacer-core",
+                Some("/$bunfs/root/tasks/supervision-worker.js")
+            ),
+            vec!["/bin/pacer-core"]
+        );
+        assert_eq!(
+            self_command(
+                "B:\\pacer.exe",
+                Some("B:\\~BUN\\root\\tasks\\supervision-worker.js")
+            ),
+            vec!["B:\\pacer.exe"]
         );
     }
 
