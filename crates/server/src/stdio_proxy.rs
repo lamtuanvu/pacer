@@ -197,6 +197,11 @@ async fn forward_input<
                 && !crate::native::dependencies_waive_stays_forwarded(op.name, &params)
                 && !crate::native::insights_stays_forwarded(op.name, &params)
                 && !crate::native::planning_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::job_strategy_setup_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
             {
                 let request_ctx = ctx.at_now();
                 if op.name == "task.wait" {
