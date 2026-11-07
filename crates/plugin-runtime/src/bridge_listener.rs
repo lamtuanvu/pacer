@@ -583,11 +583,12 @@ async fn write_raw(stream: &mut UnixStream, value: &Value) -> Result<(), BridgeE
 /// When true, unset env enables the native plugin host; set
 /// `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape.
 ///
-/// Kept `false` until executor-class call resources, observation/hosts/orca
-/// brokers, and CT-11 live evidence land. P4d-7 lets Core seal call-scoped
-/// `CallResources` so fixture fs/process/http attach under flag-on ProcessOwner;
-/// default-on stays blocked. The disable parsing already works so cutover is a
-/// one-const flip plus validation.
+/// Kept `false`: with the host on, Core refuses to spawn plugin children, and
+/// only native HTTP `plugin.*` operations start them through the owner. Every
+/// TypeScript plugin consumer (usage refresh, doctor, setup.health, planners)
+/// must reach the owner over the bridge, with Core's spawn spec, call authority
+/// and per-call resources, before this can flip. P4d-13 flipped it without
+/// that and was reverted.
 pub const fn serve_starts_reverse_bridge_by_default() -> bool {
     false
 }

@@ -20,7 +20,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `repo.remove` | Native (P2-D, selective) | `pacer-config::repos::remove_repo` owns registry/alias file effects under the shared `repos` lock when the on-disk JSON matches the supported shape. Legacy or unusual registries selectively forward to TypeScript. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `activity.list` | Native | `src/api/ops.ts` is the forward fallback; `src/core/task-detail.ts` reads the same activity log. |
 | `plugin.list`, `plugin.doctor`, `plugin.ui.list`, `plugin.settings.get` | Native HTTP | Rust owns read models and surface checks; grants come from the authoritative TS snapshot. Core supplies generation-bound authoritative process snapshots and read RPC over authenticated private IPC. Stdio and forced-forward requests retain the TS reference. |
-| `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3…P4d-7) | X3 `MutationOperations` over Core private IPC. Flag-off: `/_internal/plugins` prepare/`call`/`stop`/`changed`/`publish`/`log` with TS child spawn. Flag-on (`PACER_NATIVE_PLUGIN_HOST=1`): serve `ProcessOwner` starts/supervises children; Core supplies sealed `spawn_spec` + `call_authority` + hello bookkeeping (`ready`) and refuses local spawn when `PACER_HOST_SOCKET` is set; private `call` is retired on that path. **P4d-6/7** install a hello-sealed `PluginCapabilitySession` and bind Core-issued call-scoped `CallResources` so `capability.log` / `config.get` and fixture fs/process/http natives answer. **Default serve stays flag-off** until executor-class resources, observation/hosts/orca brokers, and CT-11 land; `PACER_NATIVE_PLUGIN_HOST=0` is the documented escape for the future default-on flip (`serve_starts_reverse_bridge_by_default`). Bridge adds `_host.plugin.spawn` / `stop`. Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the op escape hatch. |
+| `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`, `plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` | Native HTTP (P4d-3…P4d-7) | X3 `MutationOperations` over Core private IPC. Flag-off: `/_internal/plugins` prepare/`call`/`stop`/`changed`/`publish`/`log` with TS child spawn. Flag-on (`PACER_NATIVE_PLUGIN_HOST=1`): serve `ProcessOwner` starts/supervises children; Core supplies sealed `spawn_spec` + `call_authority` + hello bookkeeping (`ready`) and refuses local spawn when `PACER_HOST_SOCKET` is set; private `call` is retired on that path. **P4d-6/7** install a hello-sealed `PluginCapabilitySession` and bind Core-issued call-scoped `CallResources` so `capability.log` / `config.get` and fixture fs/process/http natives answer. **Default serve stays flag-off** until TypeScript plugin consumers (usage refresh, doctor, setup.health, planners) reach the owner over the bridge, with CT-11 on the Rust front door; `PACER_NATIVE_PLUGIN_HOST=0` is the documented escape for the future default-on flip (`serve_starts_reverse_bridge_by_default`). Bridge adds `_host.plugin.spawn` / `stop`. Stdio keeps mutations in TypeScript. Nesting fallback replays only reads. `PACER_FORWARD_OPS` remains the op escape hatch. |
 | `plugin.install` | Native HTTP (P4d-4) | Retired Orca install refusal registered on the HTTP service registry (X3 parity). Stdio remains TypeScript. |
 | `strategy.list`, `strategy.show` | Native (P2-B) | `src/api/ops.ts` remains the reference and forward fallback via `PACER_FORWARD_OPS`; reads reuse `pacer-config` `list_strategy_reads` / `show_strategy`. |
 | `strategy.use`, `strategy.save`, `strategy.remove` | Native (P2-C) | `src/api/ops.ts` remains the reference and forward fallback; native effects use `pacer-config` and the P3-B publisher. |
@@ -447,11 +447,11 @@ private `call` on the flag-on path, but **keeps default serve TypeScript-owned**
 `capability.log` / `capability.config.get`, plus Core `call_authority` that
 seals exact-path `fs.read` / exact-host `net.http` (and host-supplied
 reads/commands/http) so native modules attach for fixture plugin calls.
-Default stays off because executor-class resources (usage/orca/worktree),
-observation/hosts brokers are unfinished, and CT-11 live cutover is still open.
-Flipping that const plus live evidence is the remaining default-on slice. Stdio
-native plugin ops and further `/_internal/plugins` deletion remain later. See
-inventories under `.work/reviews/`.
+Default stays off because TypeScript plugin consumers cannot reach the native
+owner: Core refuses local spawn when the host is on, and only native HTTP
+`plugin.*` operations start children. P4d-13 flipped the const without that and
+was reverted. Stdio native plugin ops and further `/_internal/plugins` deletion
+remain later. See inventories under `.work/reviews/`.
 
 ### Per-scope plugin process owner (P4d-1 … P4d-7)
 
@@ -510,7 +510,8 @@ inventories under `.work/reviews/`.
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against
   serve-owned children.
-- **Blocked on later P4d:** flipping `serve_starts_reverse_bridge_by_default`,
+- **Blocked on later P4d:** flipping `serve_starts_reverse_bridge_by_default`
+  (needs TypeScript plugin consumers to reach the owner over the bridge),
   deleting remaining `/_internal/plugins` kinds (still needed for
   prepare/spawn_spec/call_authority/ready/changed/publish/log), stdio native
   plugin ops, executor-class call resources, observation/hosts/orca on the

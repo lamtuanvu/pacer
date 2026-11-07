@@ -12,7 +12,8 @@
 //! that owner so TypeScript does not also spawn the same plugin id. P4d-6/7
 //! installs a [`PluginCapabilitySession`] so the owner answers `capability.*`
 //! via `pacer-plugin-host` (log/config.get always; native fs/process/http when
-//! Core issues call-scoped resources). Default-on stays off until CT-11.
+//! Core issues call-scoped resources). Default-on stays off until TypeScript
+//! plugin consumers reach the owner over the bridge.
 
 mod bridge_listener;
 mod capability;
