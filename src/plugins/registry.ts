@@ -2465,6 +2465,9 @@ export class PluginRegistry {
       ?? options.expectedProcess ?? options.spawnAdmission
       ?? Object.getOwnPropertySymbols(options).find(key => (options as Record<symbol, unknown>)[key] !== undefined);
     if (hostOnly !== undefined) throw new CoreError("plugin_unavailable", `${method} needs host-side call options the native process owner bridge does not carry`);
+    const issued = options.resources;
+    if (issued?.orcaAttempt || issued?.orcaLive || issued?.hosts?.length)
+      throw new CoreError("plugin_unavailable", `${method} needs orca or hosts resources, which the native process owner bridge does not serve`);
     const point = method.split(".")[0]!;
     return this.admission.run(deadlineAt, async signal => {
       const run = async () => {
@@ -2472,14 +2475,14 @@ export class PluginRegistry {
         if (e.state === "ready" && !e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${e.id} does not serve ${point}`);
         const remaining = deadlineAt === Infinity ? undefined : Math.max(1, deadlineAt - Date.now());
         const spawn = this.nativeSpawnSpec(ctx, e.id);
-        const resources = options.resources && pinnedExecutables(ctx, options.resources);
+        const resources = issued && pinnedExecutables(ctx, issued);
         const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
         const reply = await callNativeOwner(socket, {
           id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
           scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },
         }, signal);
         for (const line of reply.logs) appendPluginLog(ctx, e.id, "stderr", line);
-        if (reply.hello) {
+        if (reply.hello && e.state !== "ready") {
           const manifest = e.manifest!;
           this.nativeMarkReady(ctx, e.id, reply.hello.protocol,
             reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));

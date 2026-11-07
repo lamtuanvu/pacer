@@ -12,7 +12,7 @@ use pacer_plugin_host::{PluginProcess, PluginState, ProcessError, Registry, Spaw
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum OwnerError {
@@ -77,8 +77,9 @@ pub struct ProcessOwner {
     ownership: Ownership,
     orca_bridge: Option<SharedOrcaBridge>,
     children: HashMap<String, PluginProcess>,
-    /// Plugins that completed `plugin.hello` under this owner.
-    ready: HashMap<String, ()>,
+    /// Plugins that completed `plugin.hello` under this owner, with the hello
+    /// summary when the caller recorded one.
+    ready: HashMap<String, Option<Value>>,
     /// Optional mirror of [`Registry`] state ids without owning children.
     shadow: HashMap<String, PluginState>,
     /// Per-plugin capability broker sessions (P4d-6). Absent → deny caps.
@@ -256,7 +257,16 @@ impl ProcessOwner {
     }
 
     pub fn mark_ready(&mut self, id: impl Into<String>) {
-        self.ready.insert(id.into(), ());
+        self.ready.insert(id.into(), None);
+    }
+
+    /// Mark ready and keep the hello summary until the child is replaced.
+    pub fn mark_ready_with(&mut self, id: impl Into<String>, hello: Value) {
+        self.ready.insert(id.into(), Some(hello));
+    }
+
+    pub fn ready_hello(&self, id: &str) -> Option<&Value> {
+        self.ready.get(id).and_then(Option::as_ref)
     }
 
     pub fn clear_ready(&mut self, id: &str) {
@@ -280,6 +290,19 @@ impl ProcessOwner {
         params: Value,
         deadline: Duration,
     ) -> Result<Value, OwnerError> {
+        self.call_plugin_cancellable(id, method, params, deadline, None)
+            .await
+    }
+
+    /// [`Self::call_plugin`] that sends `$/cancel` to the child when `cancel` flips.
+    pub async fn call_plugin_cancellable(
+        &mut self,
+        id: &str,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        cancel: Option<&watch::Receiver<bool>>,
+    ) -> Result<Value, OwnerError> {
         self.ensure_native_library()?;
         let session = self.sessions.get(id).cloned();
         let child = self
@@ -288,7 +311,7 @@ impl ProcessOwner {
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
         match session {
             Some(session) => Ok(child
-                .request_with_handler(method, params, deadline, None, move |cap, body, meta| {
+                .request_with_handler(method, params, deadline, cancel, move |cap, body, meta| {
                     let session = session.clone();
                     async move {
                         let mut guard = session.lock().await;
@@ -296,7 +319,7 @@ impl ProcessOwner {
                     }
                 })
                 .await?),
-            None => Ok(child.request(method, params, deadline, None).await?),
+            None => Ok(child.request(method, params, deadline, cancel).await?),
         }
     }
 

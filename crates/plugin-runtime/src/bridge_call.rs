@@ -7,36 +7,110 @@
 //! capability session, so Core never spawns a second owner for the plugin id.
 
 use crate::{
-    bridge_listener::SharedOwner, call_resources_from_value, executor_context_from_value,
-    host_snapshots_from_value, observation_bootstrap_from_value, orca_context_from_value,
+    bridge_listener::SharedOwner,
+    call_resources_from_value, executor_context_from_value, host_snapshots_from_value,
+    observation_bootstrap_from_value, orca_context_from_value,
+    owner::{OwnerError, ProcessOwner},
     session_for_call, session_from_hello, worktree_context_from_value,
 };
-use pacer_plugin_host::{ScopeRoots, SpawnSpec};
+use pacer_plugin_host::{ProcessError, ScopeRoots, SpawnSpec};
 use serde_json::{Value, json};
-use std::{collections::HashMap, fmt::Display, time::Duration};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    time::{Duration, Instant},
+};
+use tokio::sync::{MutexGuard, watch};
 
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
 const IDLE_SESSION: Duration = Duration::from_secs(300);
 const DEFAULT_TTL_MS: u64 = 30_000;
 const LOG_MAX_BYTES: usize = 1000;
+/// Orca and hosts capability handlers lock the owner, which this call holds.
+const REENTRANT_RESOURCES: &str =
+    "orca and hosts resources re-enter the process owner and are not served over the bridge";
 
 /// A failed sealed call with the `CoreError` code Core should raise.
 pub(crate) struct CallFailure {
-    pub code: &'static str,
+    pub code: String,
     pub message: String,
+    pub hint: Option<String>,
 }
 
-fn refused(error: impl Display) -> CallFailure {
+fn failure(code: &str, error: impl Display) -> CallFailure {
     CallFailure {
-        code: "plugin_refused",
+        code: code.to_owned(),
         message: error.to_string(),
+        hint: None,
     }
 }
 
+fn refused(error: impl Display) -> CallFailure {
+    failure("plugin_refused", error)
+}
+
 fn unavailable(error: impl Display) -> CallFailure {
-    CallFailure {
-        code: "plugin_unavailable",
-        message: error.to_string(),
+    failure("plugin_unavailable", error)
+}
+
+fn expired() -> CallFailure {
+    failure("plugin_timeout", "plugin call passed its absolute deadline")
+}
+
+fn cancelled() -> CallFailure {
+    failure("plugin_timeout", "plugin call was cancelled")
+}
+
+/// Keep timeouts and the child's own `{message, data:{code, hint}}` error.
+fn call_failure(error: OwnerError, fallback: &str) -> CallFailure {
+    if let OwnerError::Process(text) = &error {
+        if *text == ProcessError::Timeout.to_string() {
+            return expired();
+        }
+        if *text == ProcessError::Cancelled.to_string() {
+            return cancelled();
+        }
+        let prefix = ProcessError::Unavailable(String::new()).to_string();
+        if let Some(Ok(reply)) = text
+            .strip_prefix(&prefix)
+            .map(serde_json::from_str::<Value>)
+            && let Some(message) = reply["message"].as_str()
+        {
+            return CallFailure {
+                code: reply["data"]["code"]
+                    .as_str()
+                    .unwrap_or(fallback)
+                    .to_owned(),
+                message: message.to_owned(),
+                hint: reply["data"]["hint"].as_str().map(str::to_owned),
+            };
+        }
+    }
+    failure(fallback, error)
+}
+
+fn remaining(until: Instant) -> Result<Duration, CallFailure> {
+    let left = until.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        Err(expired())
+    } else {
+        Ok(left)
+    }
+}
+
+/// Wait for the owner within the call's absolute deadline and cancellation.
+async fn acquire<'a>(
+    owner: &'a SharedOwner,
+    until: Instant,
+    cancel: &watch::Receiver<bool>,
+) -> Result<MutexGuard<'a, ProcessOwner>, CallFailure> {
+    let mut cancel = cancel.clone();
+    if *cancel.borrow() {
+        return Err(cancelled());
+    }
+    tokio::select! {
+        guard = tokio::time::timeout_at(until.into(), owner.lock()) => guard.map_err(|_| expired()),
+        Ok(()) = cancel.changed() => Err(cancelled()),
     }
 }
 
@@ -113,14 +187,17 @@ impl SealedCall {
 
 /// Start (when absent), hello (once) and call a plugin under the shared owner.
 ///
-/// Returns `{value, hello, logs}`: `hello` carries `{protocol, served}` only on
-/// the call that completed `plugin.hello`, so Core can record readiness.
+/// Returns `{value, hello, logs}`: `hello` carries the `{protocol, served}`
+/// recorded when this child answered `plugin.hello`, so Core can restore
+/// readiness even when it gave up on the call that ran the hello. `until` is
+/// the caller's absolute deadline and covers the owner wait and the hello.
 pub(crate) async fn call_sealed(
     owner: &SharedOwner,
     id: &str,
     method: &str,
     params: Value,
-    deadline: Duration,
+    until: Instant,
+    cancel: &watch::Receiver<bool>,
     sealed: SealedCall,
 ) -> Result<Value, CallFailure> {
     let authority = &sealed.authority;
@@ -146,8 +223,15 @@ pub(crate) async fn call_sealed(
     let orca_context = orca_context_from_value(authority).map_err(refused)?;
     let worktree_context = worktree_context_from_value(authority).map_err(refused)?;
     let executor_context = executor_context_from_value(authority).map_err(refused)?;
+    if resources.orca_attempt.is_some()
+        || resources.orca_live.is_some()
+        || !resources.hosts.is_empty()
+        || !host_attach.is_empty()
+    {
+        return Err(unavailable(REENTRANT_RESOURCES));
+    }
 
-    let mut guard = owner.lock().await;
+    let mut guard = acquire(owner, until, cancel).await?;
     guard.ensure(id, &sealed.spec).map_err(unavailable)?;
     let mut session = session_for_call(
         &sealed.hello,
@@ -177,20 +261,34 @@ pub(crate) async fn call_sealed(
         .install_capability_session(id, session)
         .map_err(unavailable)?;
 
-    let hello = if guard.is_ready(id) {
-        Value::Null
-    } else {
-        let reply = guard
-            .call_plugin(id, "plugin.hello", sealed.hello.clone(), HELLO_DEADLINE)
+    let outcome = async {
+        let hello = match guard.ready_hello(id) {
+            Some(info) => info.clone(),
+            None if guard.is_ready(id) => Value::Null,
+            None => {
+                let wait = remaining(until)?.min(HELLO_DEADLINE);
+                let reply = guard
+                    .call_plugin_cancellable(
+                        id,
+                        "plugin.hello",
+                        sealed.hello.clone(),
+                        wait,
+                        Some(cancel),
+                    )
+                    .await
+                    .map_err(|error| call_failure(error, "plugin_refused"))?;
+                let info = ready_info(&reply);
+                guard.mark_ready_with(id, info.clone());
+                info
+            }
+        };
+        let value = guard
+            .call_plugin_cancellable(id, method, params, remaining(until)?, Some(cancel))
             .await
-            .map_err(refused)?;
-        guard.mark_ready(id);
-        ready_info(&reply)
-    };
-    let value = guard
-        .call_plugin(id, method, params, deadline)
-        .await
-        .map_err(unavailable);
+            .map_err(|error| call_failure(error, "plugin_unavailable"))?;
+        Ok::<_, CallFailure>((value, hello))
+    }
+    .await;
     let logs = match guard.capability_session(id) {
         Some(session) => session.lock().await.take_logs(),
         None => Vec::new(),
@@ -200,6 +298,7 @@ pub(crate) async fn call_sealed(
         let _ = guard.install_capability_session(id, idle);
     }
     drop(guard);
+    let (value, hello) = outcome?;
     let logs = logs
         .into_iter()
         .map(|(level, message)| {
@@ -218,7 +317,7 @@ pub(crate) async fn call_sealed(
             Value::String(text)
         })
         .collect::<Vec<_>>();
-    Ok(json!({"value": value?, "hello": hello, "logs": logs}))
+    Ok(json!({"value": value, "hello": hello, "logs": logs}))
 }
 
 fn ready_info(reply: &Value) -> Value {

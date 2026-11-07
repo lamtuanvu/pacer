@@ -197,7 +197,7 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     let script = plugin_dir.path().join("plugin.js");
     fs::write(
         &script,
-        r#"const r=Bun.stdin.stream().getReader();let b='',pending,hellos=0;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello'){hellos++;send({id:m.id,result:{ok:true,protocol:'1.10.0',id:'fx-sealed',version:'1.0.0',contributes:['diagnostic']}});}else if(m.method==='diagnostic.ping'){pending=m.id;send({id:7,method:'capability.fs.read',params:{path:m.params.path}});}else if(m.id===7){send({id:pending,result:typeof m.result?.text==='string'?{ok:true,text:m.result.text,hellos}:{ok:false,hellos}});}}}"#,
+        r#"const r=Bun.stdin.stream().getReader();let b='',pending,hellos=0;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello'){hellos++;send({id:m.id,result:{ok:true,protocol:'1.10.0',id:'fx-sealed',version:'1.0.0',contributes:['diagnostic']}});}else if(m.method==='diagnostic.ping'){pending=m.id;send({id:7,method:'capability.fs.read',params:{path:m.params.path}});}else if(m.id===7){send({id:pending,result:typeof m.result?.text==='string'?{ok:true,text:m.result.text,hellos}:{ok:false,hellos}});}else if(m.method==='fail.me'){send({id:m.id,error:{code:-32000,message:'bad input',data:{code:'invalid_input',hint:'fix it'}}});}}}"#,
     )
     .unwrap();
     let hello = json!({
@@ -250,8 +250,61 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     let second = dial_json(&path, request(31, json!(account_home))).await;
     assert!(second.get("error").is_none(), "{second}");
     assert_eq!(second["result"]["value"]["hellos"], 1, "hello runs once");
-    assert_eq!(second["result"]["hello"], Value::Null);
+    assert_eq!(
+        second["result"]["hello"], first["result"]["hello"],
+        "every reply restores readiness"
+    );
     assert_eq!(session.owner().lock().await.find_plugin("fx-sealed"), pid);
+
+    // The child's own error code, message and hint survive the bridge.
+    let mut failing = request(35, json!(account_home));
+    failing["params"]["method"] = json!("fail.me");
+    let failing = dial_json(&path, failing).await;
+    assert_eq!(failing["error"]["message"], "bad input", "{failing}");
+    assert_eq!(failing["error"]["data"]["code"], "invalid_input");
+    assert_eq!(failing["error"]["data"]["hint"], "fix it");
+
+    // The deadline starts at receipt and covers the wait for the owner.
+    let mut late = request(36, json!(account_home));
+    late["params"]["deadlineMs"] = json!(200);
+    let held = session.owner().lock().await;
+    let waited = tokio::spawn({
+        let path = path.clone();
+        async move { dial_json(&path, late).await }
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    drop(held);
+    let late = waited.await.unwrap();
+    assert_eq!(late["error"]["data"]["code"], "plugin_timeout", "{late}");
+
+    // A caller that hangs up cancels its call and releases the owner.
+    let mut hang = request(38, json!(account_home));
+    hang["params"]["method"] = json!("hang.forever");
+    {
+        let mut stream = UnixStream::connect(&path).await.unwrap();
+        let mut bytes = serde_json::to_vec(&hang).unwrap();
+        bytes.push(b'\n');
+        stream.write_all(&bytes).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let started = std::time::Instant::now();
+    let after = dial_json(&path, request(39, json!(account_home))).await;
+    assert!(after.get("error").is_none(), "{after}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "a hung-up call kept the owner"
+    );
+
+    // Orca and hosts handlers lock the owner, so the bridge refuses them.
+    let mut hosts = request(37, json!(account_home));
+    hosts["params"]["authority"]["resources"]["hosts"] = json!([{
+        "alias":"box","hostFingerprint":"fp","script":"probe","args":[],"timeoutMs":1000,"maxBytes":10
+    }]);
+    let hosts = dial_json(&path, hosts).await;
+    assert_eq!(
+        hosts["error"]["data"]["code"], "plugin_unavailable",
+        "{hosts}"
+    );
 
     // `${ACCOUNT_HOME}` scopes need the call's account home.
     let unscoped = dial_json(&path, request(32, Value::Null)).await;

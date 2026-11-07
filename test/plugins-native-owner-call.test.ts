@@ -123,6 +123,44 @@ test("flag-on bridge errors keep their CoreError codes", async () => {
   await expect(call()).rejects.toMatchObject({ code: "plugin_unavailable", message: "unknown tracked plugin: fx-native" });
   next = { result: { activated: false, reason: "native-plugin-ownership-not-activated" } };
   await expect(call()).rejects.toMatchObject({ code: "plugin_unavailable", message: expect.stringContaining(path) });
+  next = { error: { code: -32002, message: "bad input", data: { code: "invalid_input", hint: "fix it" } } };
+  await expect(call()).rejects.toMatchObject({ code: "invalid_input", message: "bad input", hint: "fix it" });
+  next = { error: { code: -32002, message: "slow down", data: { code: "rate_limited" } } };
+  await expect(call()).rejects.toMatchObject({ code: "plugin_unavailable", message: "slow down" });
+  next = { error: { code: -32602, message: "invalid spawn argv" } };
+  await expect(call()).rejects.toMatchObject({ code: "invalid_input" });
+  next = { error: { code: -32601, message: "Method not found" } };
+  await expect(call()).rejects.toMatchObject({ code: "plugin_unavailable", message: expect.stringContaining("does not serve") });
+  next = { error: { code: -32001, message: "unauthorized" } };
+  await expect(call()).rejects.toMatchObject({ code: "plugin_unavailable", message: expect.stringContaining("refused this caller") });
+  next = { result: { value: 1 } };
+  await expect(call()).rejects.toMatchObject({ code: "plugin_unavailable", message: expect.stringContaining("malformed") });
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on caller abort hangs up the bridge call", async () => {
+  const { ctx, registry, path, spawned } = setup("fake");
+  let closed!: () => void;
+  const hungUp = new Promise<void>(done => { closed = done; });
+  await fakeOwner(path, (_request, socket) => { socket.on("close", closed); return undefined; });
+  const controller = new AbortController();
+  const call = registry.call(ctx, "fx-native", "diagnostic.ping", {}, { signal: controller.signal });
+  await new Promise(done => setTimeout(done, 100));
+  controller.abort();
+  await expect(call).rejects.toMatchObject({ code: "plugin_unavailable", message: "owning plugin call ended" });
+  await hungUp;
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on refuses orca and hosts resources and oversized frames without dialing", async () => {
+  const { ctx, registry, path, spawned } = setup("fake");
+  const owner = await fakeOwner(path, () => ({ result: { value: { ok: true, uptimeS: 0 }, hello: null, logs: [] } }));
+  const host = { alias: "box", hostFingerprint: "fp", script: "probe", args: [], timeoutMs: 1000, maxBytes: 10 };
+  await expect(registry.call(ctx, "fx-native", "diagnostic.ping", {}, { resources: { reads: [], commands: [], stores: [], hosts: [host] } }))
+    .rejects.toMatchObject({ code: "plugin_unavailable", message: expect.stringContaining("orca or hosts") });
+  await expect(registry.call(ctx, "fx-native", "diagnostic.ping", { blob: "x".repeat(1024 * 1024) }))
+    .rejects.toMatchObject({ code: "too_large" });
+  expect(owner.requests).toEqual([]);
   expect(spawned).toEqual([]);
 });
 

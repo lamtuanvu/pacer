@@ -30,7 +30,7 @@ use std::{
     },
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use thiserror::Error;
 use tokio::{
@@ -343,14 +343,40 @@ async fn handle_connection(
         if line.is_empty() {
             continue;
         }
-        let response = response_for_line(&line, &dispatch).await;
+        let (cancel, cancelled) = watch::channel(false);
+        let work = response_for_line(&line, &dispatch, &cancelled);
+        tokio::pin!(work);
+        let response = tokio::select! {
+            response = &mut work => Some(response),
+            closed = peer_closed(&mut reader) => {
+                if closed {
+                    let _ = cancel.send(true);
+                    work.await;
+                    None
+                } else {
+                    Some(work.await)
+                }
+            }
+        };
+        let Some(response) = response else {
+            break;
+        };
         let stream = reader.get_mut();
         write_raw(stream, &response).await?;
     }
     Ok(())
 }
 
-async fn response_for_line(line: &[u8], dispatch: &BridgeDispatch) -> Value {
+/// True once the peer hung up; buffered pipelined bytes are left for the next read.
+async fn peer_closed(reader: &mut BufReader<UnixStream>) -> bool {
+    reader.fill_buf().await.map_or(true, <[u8]>::is_empty)
+}
+
+async fn response_for_line(
+    line: &[u8],
+    dispatch: &BridgeDispatch,
+    cancel: &watch::Receiver<bool>,
+) -> Value {
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return json!({
             "jsonrpc": "2.0",
@@ -382,7 +408,7 @@ async fn response_for_line(line: &[u8], dispatch: &BridgeDispatch) -> Value {
     };
     let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
     match method {
-        METHOD_PLUGIN_CALL => dispatch_call(id, params, dispatch).await,
+        METHOD_PLUGIN_CALL => dispatch_call(id, params, dispatch, cancel).await,
         METHOD_PLUGIN_FIND => dispatch_find(id, params, dispatch).await,
         METHOD_PLUGIN_SPAWN => dispatch_spawn(id, params, dispatch).await,
         METHOD_PLUGIN_STOP => dispatch_stop(id, params, dispatch).await,
@@ -394,7 +420,12 @@ async fn response_for_line(line: &[u8], dispatch: &BridgeDispatch) -> Value {
     }
 }
 
-async fn dispatch_call(id: Value, params: Value, dispatch: &BridgeDispatch) -> Value {
+async fn dispatch_call(
+    id: Value,
+    params: Value,
+    dispatch: &BridgeDispatch,
+    cancel: &watch::Receiver<bool>,
+) -> Value {
     match dispatch {
         BridgeDispatch::Stub => json!({
             "jsonrpc": "2.0",
@@ -420,26 +451,34 @@ async fn dispatch_call(id: Value, params: Value, dispatch: &BridgeDispatch) -> V
             match SealedCall::from_params(&params) {
                 Err(message) => return rpc_error(id, INVALID_PARAMS, message),
                 Ok(Some(sealed)) => {
+                    let until = Instant::now() + deadline;
                     return match call_sealed(
                         owner,
                         plugin_id,
                         method,
                         call_params,
-                        deadline,
+                        until,
+                        cancel,
                         sealed,
                     )
                     .await
                     {
                         Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                        Err(failure) => json!({
-                            "jsonrpc": "2.0",
-                            "id": id,
-                            "error": {
-                                "code": PLUGIN_UNAVAILABLE,
-                                "message": failure.message,
-                                "data": {"code": failure.code}
+                        Err(failure) => {
+                            let mut data = json!({"code": failure.code});
+                            if let Some(hint) = failure.hint {
+                                data["hint"] = Value::String(hint);
                             }
-                        }),
+                            json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": {
+                                    "code": PLUGIN_UNAVAILABLE,
+                                    "message": failure.message,
+                                    "data": data
+                                }
+                            })
+                        }
                     };
                 }
                 Ok(None) => {}

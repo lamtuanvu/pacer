@@ -14,10 +14,10 @@ export const HOST_PLUGIN_CALL = "_host.plugin.call";
 /** Matches `BRIDGE_MAX_LINE_BYTES` in `crates/plugin-runtime`. */
 const MAX_FRAME_BYTES = 1024 * 1024;
 
+/** The plugin error codes the local stdio transport keeps (`process.ts`). */
 const CORE_CODES: ReadonlySet<string> = new Set<CoreErrorCode>([
   "unknown_op", "unknown_task", "invalid_input", "unknown_executor", "conflict", "not_allowed",
-  "not_found", "too_large", "unavailable", "rate_limited",
-  "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin",
+  "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin", "not_found", "too_large",
 ]);
 
 /** Core-sealed call: `spawn` is `nativeSpawnSpec`, `authority` is `nativeIssueCallAuthority`. */
@@ -44,7 +44,7 @@ const rpcReply = z.object({
   error: z.object({
     code: z.number(),
     message: z.string(),
-    data: z.object({ code: z.string().optional() }).passthrough().optional(),
+    data: z.object({ code: z.string().optional(), hint: z.string().optional() }).passthrough().optional(),
   }).optional(),
 });
 
@@ -57,7 +57,7 @@ function unreachable(socketPath: string, detail: string): CoreError {
 
 function bridgeError(socketPath: string, error: NonNullable<z.infer<typeof rpcReply>["error"]>): CoreError {
   const sealed = error.data?.code;
-  if (sealed && CORE_CODES.has(sealed)) return new CoreError(sealed as CoreErrorCode, error.message);
+  if (sealed && CORE_CODES.has(sealed)) return new CoreError(sealed as CoreErrorCode, error.message, error.data?.hint);
   if (error.code === -32600 || error.code === -32602) return new CoreError("invalid_input", error.message);
   if (error.code === -32601) return new CoreError("plugin_unavailable", `native process owner at ${socketPath} does not serve ${HOST_PLUGIN_CALL}`);
   if (error.code === -32001) return new CoreError("plugin_unavailable", `native process owner at ${socketPath} refused this caller`);
