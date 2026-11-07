@@ -83,7 +83,8 @@ test.skipIf(!HOST)("bun run release --host compiles a working binary with the ve
   expect(statSync(join(dir, file)).mode & 0o111).not.toBe(0);
   const v = Bun.spawnSync([join(dir, file), "--version"], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: tmpDir() } });
   expect(v.stdout.toString().trim()).toBe(`pacer ${PKG_VERSION}`);
-}, 180_000);
+  // A cold release compile of the Rust binaries on a CI runner can exceed three minutes.
+}, 300_000);
 
 test("release CLI selects runner targets and can write metadata without rebuilding", () => {
   const parsed = parseBuildArgs(["--targets", "linux-x64,linux-arm64", "--write-only"]);

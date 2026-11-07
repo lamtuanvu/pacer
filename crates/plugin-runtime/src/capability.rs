@@ -27,7 +27,7 @@ use pacer_plugin_host::{
 const ORCA_PROVIDER: &str = "pacer-exec-orca";
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::Path,
     sync::{
         Arc,
@@ -36,6 +36,43 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
+use tokio::sync::{mpsc, oneshot};
+
+/// The capability a method needs when Core answers it on the call's bridge
+/// connection: usage state Core keeps, file reads under a Core planner borrow
+/// or a Codex log directory, which the native read broker does not serve, and
+/// the planner transaction's pinned commands and prior record, whose
+/// compensation Core keeps.
+pub fn core_capability(method: &str) -> Option<&'static str> {
+    match method {
+        "capability.usage.state.begin"
+        | "capability.usage.state.readChunk"
+        | "capability.usage.state.stageChunk"
+        | "capability.usage.state.commit"
+        | "capability.usage.state.release" => Some("usage.state"),
+        "capability.fs.read"
+        | "capability.fs.list"
+        | "capability.fs.stat"
+        | "capability.fs.readRange"
+        | "capability.planner.readPriorRange" => Some("fs.read"),
+        "capability.planner.run" | "capability.process.outputChunk" => Some("process.spawn"),
+        _ => None,
+    }
+}
+
+/// A plugin capability request Core answers on the bridge connection of its call.
+pub type CoreRequest = (String, Value, oneshot::Sender<Result<Value, Value>>);
+/// Sender half the bridge connection drains while the sealed call is pending.
+pub type CoreForward = mpsc::Sender<CoreRequest>;
+
+/// Core-sealed process context for issued commands (flag-off `prepareSpawnAuthority`).
+#[derive(Clone, Debug, Default)]
+pub struct ProcessContext {
+    /// `ACCOUNT_HOME` of the call; Codex live commands must name it as `CODEX_HOME`.
+    pub account_home: Option<String>,
+    /// Core's minimal environment for commands issued without their own environment.
+    pub environment: HashMap<String, String>,
+}
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum CapabilitySessionError {
@@ -298,6 +335,8 @@ pub struct PluginCapabilitySession {
     pending_orca: Option<OrcaAttachPlan>,
     pending_worktree: Option<WorktreeAttachPlan>,
     pending_executor: Option<ExecutorAttachPlan>,
+    declared: Vec<String>,
+    core: Option<(CoreForward, HashSet<String>)>,
 }
 
 impl PluginCapabilitySession {
@@ -310,7 +349,15 @@ impl PluginCapabilitySession {
             pending_orca: None,
             pending_worktree: None,
             pending_executor: None,
+            declared: Vec::new(),
+            core: None,
         }
+    }
+
+    /// Forward the Core-sealed `methods` (each one [`core_capability`] admits)
+    /// to the Core that issued this call instead of the native broker.
+    pub fn bind_core(&mut self, core: CoreForward, methods: HashSet<String>) {
+        self.core = Some((core, methods));
     }
 
     pub fn broker_mut(&mut self) -> &mut CapabilityBroker {
@@ -398,6 +445,22 @@ impl PluginCapabilitySession {
         ) {
             return self.answer_observation(method, params, metadata).await;
         }
+        if let Some(capability) = core_capability(method) {
+            let sealed = self
+                .core
+                .as_ref()
+                .is_some_and(|(_, methods)| methods.contains(method));
+            if sealed {
+                return self.answer_by_core(method, capability, params).await;
+            }
+            if capability == "usage.state" {
+                return Err(json!({
+                    "code": -32000,
+                    "message": "usage state was not issued for this call",
+                    "data": {"code": "capability_denied"}
+                }));
+            }
+        }
         match self.broker.handle(method, params, &mut self.effect).await {
             Ok(value) => Ok(value),
             Err(error) => {
@@ -413,6 +476,51 @@ impl PluginCapabilitySession {
                     "data": {"code": code}
                 }))
             }
+        }
+    }
+
+    /// Core re-checks the declaration, grant, params and issued resources with its flag-off broker.
+    async fn answer_by_core(
+        &mut self,
+        method: &str,
+        capability: &str,
+        params: Value,
+    ) -> Result<Value, Value> {
+        let refuse = |code: &str, message: String| json!({"code": -32000, "message": message, "data": {"code": code}});
+        if !self.declared.iter().any(|name| name == capability) {
+            return Err(refuse(
+                "capability_denied",
+                format!("plugin did not declare {capability}"),
+            ));
+        }
+        let authority = self.broker.authority();
+        if let Err(error) = authority.granted(capability) {
+            return Err(refuse("capability_denied", error.to_string()));
+        }
+        let deadline = authority.deadline();
+        let Some((core, _)) = &self.core else {
+            return Err(refuse(
+                "capability_denied",
+                format!("{method} was not issued for this call"),
+            ));
+        };
+        let (reply, answer) = oneshot::channel();
+        if core.send((method.to_owned(), params, reply)).await.is_err() {
+            return Err(refuse(
+                "plugin_unavailable",
+                "the calling Core hung up".into(),
+            ));
+        }
+        match tokio::time::timeout_at(deadline.into(), answer).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(refuse(
+                "plugin_unavailable",
+                "the calling Core did not answer".into(),
+            )),
+            Err(_) => Err(refuse(
+                "plugin_timeout",
+                format!("{method} passed its capability deadline"),
+            )),
         }
     }
 
@@ -544,6 +652,7 @@ fn attach_natives(
     resources: &CallResources,
     selected: &HashMap<String, String>,
     host_snapshots: &[HostAttachSnapshot],
+    process: &ProcessContext,
 ) -> Result<CapabilityBroker, CapabilitySessionError> {
     if !resources.reads.is_empty() {
         broker = broker
@@ -551,8 +660,13 @@ fn attach_natives(
             .map_err(|error| CapabilitySessionError::Native(error.to_string()))?;
     }
     if !resources.commands.is_empty() {
-        let process = NativeProcess::prepare(&resources.commands, selected, &HashMap::new())
-            .map_err(|error| CapabilitySessionError::Native(error.to_string()))?;
+        let process = NativeProcess::prepare_account(
+            &resources.commands,
+            selected,
+            &process.environment,
+            process.account_home.as_deref(),
+        )
+        .map_err(|error| CapabilitySessionError::Native(error.to_string()))?;
         broker = broker.with_native_process(process);
     }
     if resources.http.is_some() {
@@ -609,6 +723,34 @@ pub fn session_for_call(
     worktree_context: Option<WorktreeCallContext>,
     executor_context: Option<ExecutorCallContext>,
 ) -> Result<PluginCapabilitySession, CapabilitySessionError> {
+    session_for_call_in(
+        hello,
+        resources,
+        grants,
+        lifetime,
+        observation,
+        host_attach,
+        orca_context,
+        worktree_context,
+        executor_context,
+        &ProcessContext::default(),
+    )
+}
+
+/// [`session_for_call`] with the Core-sealed [`ProcessContext`] for issued commands.
+#[allow(clippy::too_many_arguments)]
+pub fn session_for_call_in(
+    hello: &Value,
+    resources: CallResources,
+    grants: Option<Vec<String>>,
+    lifetime: Duration,
+    observation: Option<ObservationBootstrap>,
+    host_attach: Option<&[HostAttachSnapshot]>,
+    orca_context: Option<OrcaCallContext>,
+    worktree_context: Option<WorktreeCallContext>,
+    executor_context: Option<ExecutorCallContext>,
+    process: &ProcessContext,
+) -> Result<PluginCapabilitySession, CapabilitySessionError> {
     let (manifest, hello_grants, features, config) = hello_parts(hello)?;
     let grants = grants.unwrap_or(hello_grants);
     let (resources, selected) = normalize_commands(resources)?;
@@ -657,13 +799,24 @@ pub fn session_for_call(
     }
     let authority =
         CallAuthority::new(resources.clone(), grants.clone(), Instant::now() + lifetime);
+    let declared = manifest
+        .capabilities
+        .iter()
+        .filter_map(|capability| {
+            serde_json::to_value(capability.name)
+                .ok()
+                .and_then(|name| name.as_str().map(str::to_owned))
+        })
+        .collect();
     let broker = attach_natives(
         CapabilityBroker::new(manifest.clone(), authority, features.clone()),
         &resources,
         &selected,
         host_rows,
+        process,
     )?;
     let mut session = PluginCapabilitySession::new(broker, LocalHostEffect::new(config));
+    session.declared = declared;
     session.pending_host_attach = host_rows.to_vec();
     if resources.orca_attempt.is_some() || resources.orca_live.is_some() {
         let ctx = orca_context.ok_or_else(|| {

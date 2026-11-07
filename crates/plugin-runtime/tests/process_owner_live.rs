@@ -72,7 +72,7 @@ async fn native_test_token_spawns_tracks_and_terminates_fixture() {
     assert_eq!(owner.tracked_ids(), vec!["fx-owner".to_string()]);
     assert!(env::var_os(HOST_SOCKET_ENV).is_none());
 
-    let child = owner.get_mut("fx-owner").unwrap();
+    let child = owner.get("fx-owner").unwrap();
     let pid = child.pid().unwrap();
     let result = child
         .request("probe", json!({}), Duration::from_secs(5), None)
