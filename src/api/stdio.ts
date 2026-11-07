@@ -208,20 +208,6 @@ export async function runStdio(
           result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false);
           break;
         }
-        case "_internal.repo.bridge": {
-          const key = o.nativeConfigKey;
-          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
-            throw new CoreError("unknown_op", "unknown operation");
-          }
-          const op = (r.params as { op?: unknown }).op;
-          const bridgeParams = (r.params as { params?: unknown }).params;
-          if (typeof op !== "string" || op !== "repo.add" || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
-            throw new CoreError("invalid_input", "invalid repo bridge params");
-          }
-          const { repoBridge } = await import("./repo-bridge");
-          result = await repoBridge(getCtx(), op, bridgeParams as Record<string, unknown>);
-          break;
-        }
         case "hello": {
           const params=r.params??{};
           if(!params||typeof params!=="object"||Array.isArray(params))throw new CoreError("invalid_input","hello params must be an object");
