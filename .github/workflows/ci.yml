@@ -266,7 +266,7 @@ jobs:
       - name: Check spacing and keyboard behavior in Chromium
         run: |
           export PACER_TEST_BROWSER="$(bun -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')"
-          bun run test test/app-spacing.test.tsx test/app-compact-density.test.tsx test/app-planner-preview-keyboard.test.tsx
+          bun run test test/app-spacing.test.tsx test/app-compact-density.test.tsx test/app-planner-preview-keyboard.test.tsx test/app-setup-health-gate-browser.test.tsx
       - name: Build CLI
         run: bun run build
       - name: Install, sign in and delegate

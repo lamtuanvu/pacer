@@ -1369,6 +1369,8 @@ dependencies = [
  "pacer-config",
  "pacer-foundation",
  "pacer-lifecycle",
+ "pacer-store",
+ "rusqlite",
  "serde_json",
  "tempfile",
  "tokio",
