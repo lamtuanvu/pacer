@@ -181,21 +181,22 @@ describe("shouldSkipFullWindow", () => {
 describe("setupHealthRepairs", () => {
   const honesty = "Wiring OK · live enforcement unverified";
 
-  test("maps review and file-update remedies to one agent.reconnect per agent, with honesty", () => {
+  test("one remedy per agent reconnect, with honesty for file repairs", () => {
     const checks: Check[] = [
       { name: "Claude hook configuration", level: "warn", detail: "SessionStart missing", remedy: remedies.review("claude-code") },
       { name: "Legacy guard", level: "warn", detail: "legacy subagent_guard.py present", remedy: remedies.review("claude-code") },
       { name: "Integration freshness cursor", level: "warn", detail: "managed files changed", remedy: remedies.updateFiles("cursor") },
+      { name: "Install cursor", level: "warn", detail: "changed", remedy: remedies.review("cursor") },
       { name: "Install codex#work", level: "warn", detail: "changed", remedy: remedies.review("codex") },
     ];
     expect(setupHealthRepairs(checks)).toEqual([
-      { kind: "agent.reconnect", label: "Fix integration", agent: "claude-code", honesty, remedy: remedies.review("claude-code") },
-      { kind: "agent.reconnect", label: "Fix integration", agent: "cursor", honesty, remedy: remedies.updateFiles("cursor") },
-      { kind: "agent.reconnect", label: "Fix integration", agent: "codex", honesty, remedy: remedies.review("codex") },
+      { kind: "remedy", label: "Review and fix", check: "Claude hook configuration", honesty, remedy: remedies.review("claude-code") },
+      { kind: "remedy", label: "Update files", check: "Integration freshness cursor", honesty, remedy: remedies.updateFiles("cursor") },
+      { kind: "remedy", label: "Review and fix", check: "Install codex#work", honesty, remedy: remedies.review("codex") },
     ]);
   });
 
-  test("the gate's own doctor always sends a remedy, so check names never pick a repair", () => {
+  test("check names never pick a repair: problems without a remedy only open Diagnostics", () => {
     expect(setupHealthRepairs([
       { name: "Usage codex", level: "warn", detail: "stale usage" },
       { name: "Install cursor", level: "warn", detail: "changed" },
@@ -204,38 +205,31 @@ describe("setupHealthRepairs", () => {
     expect(setupHealthRepairs([{ name: "Usage codex", level: "ok", detail: "OK" }])).toEqual([]);
   });
 
-  test("prefers the doctor's remedy over the check name", () => {
-    const review = { kind: "review" as const, label: "Review and fix", op: "agent.preview", params: { agent: "codex" } };
-    const signIn = { kind: "user" as const, label: "Sign in to Codex", op: "account.signin", params: { name: "codex" } };
-    const refresh = { kind: "auto" as const, label: "Refresh usage", op: "limits.refresh", params: { account: "codex" } };
-    const service = { kind: "auto" as const, label: "Restart service", op: "service.install", consent: true as const };
-    const internal = { kind: "internal" as const, label: "Restart pacer service", op: "service.install", consent: true as const };
-    const agent = { kind: "agent" as const, label: "Fix with agent", op: "doctor.fix.delegate", params: { check: "Binary cursor", scope: "fix" } };
-    // A non-planner agent is reconnected because the server says so.
-    expect(setupHealthRepairs(
-      [{ name: "Install codex", level: "warn", detail: "changed", remedy: review }],
-    )).toEqual([{ kind: "agent.reconnect", label: "Fix integration", agent: "codex", honesty: "Wiring OK · live enforcement unverified", remedy: review }]);
-    // Names that the fallback would map elsewhere follow the remedy instead.
-    expect(setupHealthRepairs([{ name: "Usage codex", level: "warn", detail: "stale usage", remedy: signIn }]))
-      .toEqual([{ kind: "open.accounts", label: "Review accounts", remedy: signIn }]);
-    expect(setupHealthRepairs([{ name: "Usage codex", level: "warn", detail: "unknown", remedy: refresh }]))
-      .toEqual([{ kind: "limits.refresh", label: "Refresh usage", remedy: refresh }]);
-    expect(setupHealthRepairs([{ name: "Service", level: "fail", detail: "down", remedy: service }]))
-      .toEqual([{ kind: "open.setup", label: "Open Setup", remedy: service }]);
-    // The gate cannot start agent tasks or restart pacer yet, so those checks keep the setup link their name gave.
-    expect(setupHealthRepairs([{ name: "Binary cursor", level: "fail", detail: "not found", remedy: agent }]))
-      .toEqual([{ kind: "open.add_executor", label: "Open executor setup", remedy: agent }]);
-    expect(setupHealthRepairs([{ name: "Usage codex", level: "warn", evidence: "unverified", detail: "plugin unavailable", remedy: internal }]))
-      .toEqual([{ kind: "open.accounts", label: "Review accounts", remedy: internal }]);
-    // A system settings link is not an account problem.
-    const privacy = { kind: "user" as const, label: "Open Privacy settings", url: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders" };
-    expect(setupHealthRepairs([{ name: "Removable volume access", level: "warn", detail: "denied", remedy: privacy }]))
-      .toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics", remedy: privacy }]);
-    // Without a setup link they go to Diagnostics; the remedy says a reconnect cannot fix them.
-    expect(setupHealthRepairs([{ name: "Install codex#work", level: "warn", detail: "changed", remedy: agent }]))
-      .toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics", remedy: agent }]);
-    expect(setupHealthRepairs([{ name: "Integration freshness cursor", level: "warn", evidence: "unverified", detail: "plugin unavailable", remedy: internal }]))
-      .toEqual([{ kind: "open.diagnostics", label: "Open Diagnostics", remedy: internal }]);
+  test("every remedy kind becomes a remedy repair; internal problems share one restart", () => {
+    const signIn = remedies.signIn("codex", "Codex");
+    const refresh = remedies.refreshUsage("codex");
+    const service = remedies.service("Restart service");
+    const internal = remedies.internal();
+    const agent = remedies.agent("Binary cursor");
+    const privacy = remedies.privacySettings();
+    const checks: Check[] = [
+      { name: "Usage codex", level: "warn", detail: "stale usage", remedy: signIn },
+      { name: "Usage codex#tse", level: "warn", detail: "unknown", remedy: refresh },
+      { name: "Service", level: "fail", detail: "down", remedy: service },
+      { name: "Binary cursor", level: "fail", detail: "not found", remedy: agent },
+      { name: "Install codex", level: "warn", evidence: "unverified", detail: "plugin unavailable", remedy: internal },
+      { name: "Skill codex", level: "warn", evidence: "unverified", detail: "plugin unavailable", remedy: internal },
+      { name: "Removable volume access", level: "warn", detail: "denied", remedy: privacy },
+      { name: "Binary codex", level: "ok", detail: "found", remedy: agent },
+    ];
+    expect(setupHealthRepairs(checks)).toEqual([
+      { kind: "remedy", label: "Sign in to Codex", check: "Usage codex", remedy: signIn },
+      { kind: "remedy", label: "Refresh usage", check: "Usage codex#tse", remedy: refresh },
+      { kind: "remedy", label: "Restart service", check: "Service", remedy: service },
+      { kind: "remedy", label: "Fix with agent", check: "Binary cursor", remedy: agent },
+      { kind: "remedy", label: "Restart pacer service", check: "Install codex", remedy: internal },
+      { kind: "remedy", label: "Open Privacy settings", check: "Removable volume access", remedy: privacy },
+    ]);
   });
 
   test("aggregateSetupHealth includes the repairs its remedies name", () => {
@@ -245,6 +239,6 @@ describe("setupHealthRepairs", () => {
       trigger: "startup",
       checkedAt: 1,
     });
-    expect(report.repairs).toEqual([{ kind: "agent.reconnect", label: "Fix integration", agent: "opencode", honesty, remedy: remedies.review("opencode") }]);
+    expect(report.repairs).toEqual([{ kind: "remedy", label: "Review and fix", check: "Install opencode", honesty, remedy: remedies.review("opencode") }]);
   });
 });

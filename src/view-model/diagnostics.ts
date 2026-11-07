@@ -9,8 +9,9 @@ export const diagnosticLevel = {
 } as const;
 export const diagnosticEvidence = { configured: "Configured", tested: "Tested working · fixture", unverified: "Unverified" } as const;
 export function diagnosticTitle(name: string): string {
-  const prefixes: Record<string, string> = { Binary: "Agent command", CLI: "Compatibility", Login: "Sign-in indicator", Usage: "Budget", Install: "Integration", Skill: "Planner skill" };
-  const match = /^(\S+) (.+)$/.exec(name);
+  const prefixes: Record<string, string> = { Binary: "Agent command", CLI: "Compatibility", Login: "Sign-in indicator", Usage: "Budget", Install: "Integration", Skill: "Planner skill",
+    "Integration freshness": "Integration freshness", "Planner check": "Planner check" };
+  const match = /^(Integration freshness|Planner check|\S+) (.+)$/.exec(name);
   if (match && Object.hasOwn(prefixes, match[1])) return `${prefixes[match[1]]} · ${displayName(match[2])}`;
   return name.replace("handler probes", "handler tests").replace("guard scope", "delegation coverage");
 }
@@ -50,21 +51,278 @@ export function remedyAgent(check: Check): string | undefined {
   return typeof agent === "string" && REPAIR_AGENTS.includes(agent) ? agent : undefined;
 }
 
-/**
- * The server's remedy decides the repair. The app can be connected to an older service whose checks carry
- * no remedy; only those fall back to names, where only the selected planner is addressable by agent.connect.
- * Never infer an action from fix text.
- */
-export function diagnosticRepair(check: Check, planner?: string): { agent: string } | undefined {
-  if (check.remedy) {
-    const agent = remedyAgent(check);
-    return agent ? { agent } : undefined;
+/** The pill naming who does the fix. Internal remedies are grouped apart and never get a row pill. */
+export const remedyKindLabel: Record<Remedy["kind"], string> = {
+  auto: "Automatic", review: "Review changes", user: "Needs you", agent: "Agent", internal: "Couldn’t check",
+};
+
+/** What the person reads about a remedy before clicking; the button itself is the remedy's label. */
+const REMEDY_HINT: Record<Remedy["kind"], string> = {
+  auto: "Pacer can fix this by itself.",
+  review: "You see each file before anything changes.",
+  user: "Only you can do this. Pacer rechecks when you come back.",
+  agent: "Pacer has no built-in fix, so an agent can investigate and fix it. You review the result.",
+  internal: "Pacer itself could not run this check.",
+};
+
+/** Remedy links may only open web pages over https or a System Settings pane. */
+export function remedyUrl(url: string | undefined): string | undefined {
+  return url && /^(?:https:\/\/|x-apple\.systempreferences:)/.test(url) ? url : undefined;
+}
+
+export interface RemedyConsent { title: string; message: string; confirmLabel: string }
+/** One step a remedy takes. `consent` is shown and confirmed before the operation receives `consent: true`. */
+export type RemedyPlan =
+  | { kind: "run"; op: string; params: Record<string, unknown>; consent?: RemedyConsent }
+  | { kind: "review"; agent: string }
+  | { kind: "signin"; op: string; params: Record<string, unknown>; consent?: RemedyConsent }
+  | { kind: "open"; url: string }
+  | { kind: "delegate"; check: string };
+
+/** Params as the server sent them, minus any consent: only the person's click grants consent. */
+function remedyParams(params: Record<string, unknown> | undefined): Record<string, unknown> {
+  const { consent: _consent, ...rest } = params ?? {};
+  return rest;
+}
+
+/** The confirmation a consent-gated operation needs; agent.connect adds the files from its preview. */
+export function remedyConsent(remedy: Pick<Remedy, "kind" | "label" | "op" | "params">, files: string[] = []): RemedyConsent {
+  if (remedy.op === "agent.connect") {
+    const agent = typeof remedy.params?.agent === "string" ? displayName(remedy.params.agent) : "this agent";
+    return {
+      title: `Update pacer’s files for ${agent}`,
+      message: files.length
+        ? `Pacer updates only its own files and keeps your edits. ${files.length === 1 ? "This file changes" : `These ${files.length} files change`}:`
+        : "Pacer updates only its own files and keeps your edits.",
+      confirmLabel: remedy.label,
+    };
   }
-  if (!planner || !["warn", "fail"].includes(check.level)) return;
-  const agent = planner.split("#")[0]!;
-  if (!REPAIR_AGENTS.includes(agent)) return;
-  if (check.name === `Install ${planner}` || check.name === `Skill ${planner}` ||
-      agent === "claude-code" && ["Claude hook configuration", "Legacy guard"].includes(check.name)) return { agent };
+  if (remedy.op === "service.install") return {
+    title: remedy.kind === "internal" ? "Restart the pacer service" : remedy.label,
+    message: "Pacer reinstalls and restarts its background service. The app reconnects when the service is back.",
+    confirmLabel: remedy.kind === "internal" ? "Restart" : remedy.label,
+  };
+  return { title: remedy.label, message: "Pacer asks before it changes anything.", confirmLabel: remedy.label };
+}
+
+/** The step a remedy takes, decided only by its kind and operation. Unknown shapes get no action. */
+export function remedyPlan(remedy: Remedy): RemedyPlan | undefined {
+  const params = remedyParams(remedy.params);
+  if (remedy.kind === "auto" || remedy.kind === "internal")
+    return remedy.op ? { kind: "run", op: remedy.op, params, ...(remedy.consent ? { consent: remedyConsent(remedy) } : {}) } : undefined;
+  if (remedy.kind === "review") {
+    const agent = params.agent;
+    return remedy.op === "agent.preview" && typeof agent === "string" && REPAIR_AGENTS.includes(agent) ? { kind: "review", agent } : undefined;
+  }
+  if (remedy.kind === "user") {
+    if (remedy.op) return { kind: "signin", op: remedy.op, params, ...(remedy.consent ? { consent: remedyConsent(remedy) } : {}) };
+    const url = remedyUrl(remedy.url);
+    return url ? { kind: "open", url } : undefined;
+  }
+  if (remedy.kind === "agent")
+    return remedy.op === "doctor.fix.delegate" && typeof params.check === "string" ? { kind: "delegate", check: params.check } : undefined;
+}
+
+/** The quieter alternative a remedy may offer, such as turning an account off. */
+export function secondaryPlan(remedy: Remedy): RemedyPlan | undefined {
+  const second = remedy.secondary;
+  if (!second) return;
+  if (second.op) return { kind: "run", op: second.op, params: remedyParams(second.params),
+    ...(second.consent ? { consent: remedyConsent({ kind: remedy.kind, label: second.label, op: second.op, params: second.params }) } : {}) };
+  const url = remedyUrl(second.url);
+  return url ? { kind: "open", url } : undefined;
+}
+
+/** In-place progress while a remedy runs. */
+export function remedyProgress(remedy: Pick<Remedy, "kind" | "label" | "op" | "url">): string {
+  switch (remedy.op) {
+    case "limits.refresh": return "Refreshing usage…";
+    case "agent.connect": return "Updating pacer files…";
+    case "agent.preview": return "Loading the changes…";
+    case "service.install": return remedy.kind === "internal" || /restart/i.test(remedy.label) ? "Restarting the pacer service…" : "Installing the pacer service…";
+    case "account.signin": return "Waiting for you to sign in · rechecking when you return…";
+    case "runner.block": return "Turning it off…";
+    case "doctor.fix.delegate": return "Starting a fix task…";
+  }
+  return remedy.url ? "Opened · rechecking when you return…" : `${remedy.label}…`;
+}
+
+const describeParams = (params: Record<string, unknown> | undefined) =>
+  Object.entries(remedyParams(params)).map(([key, value]) => ` ${key}=${typeof value === "string" ? value : JSON.stringify(value)}`).join("");
+
+/** What the fix runs, for the Technical details disclosure only. */
+export function remedyRuns(remedy: Remedy): string {
+  const lines: string[] = [];
+  if (remedy.kind === "review") lines.push(`fix runs: ${remedy.op ?? "agent.preview"}${describeParams(remedy.params)}, then agent.connect after you apply`);
+  else if (remedy.op) lines.push(`fix runs: ${remedy.op}${describeParams(remedy.params)}${remedy.consent ? " (asks you first)" : ""}`);
+  else if (remedy.url) lines.push(`fix opens: ${remedy.url}`);
+  if (remedy.secondary) lines.push(`or: ${remedy.secondary.op ? `${remedy.secondary.op}${describeParams(remedy.secondary.params)}` : remedy.secondary.url ?? remedy.secondary.label}`);
+  if (remedy.kind === "auto" || remedy.kind === "user") lines.push("then: reruns the checks");
+  return lines.join("\n");
+}
+
+/** A task started by doctor.fix.delegate, as task reads expose it. */
+export interface DiagnosticTask {
+  id: string; state: string; updatedAt?: number; dismissed?: boolean;
+  review?: { accepted: boolean } | null;
+  diagnosticCheck?: string;
+  diagnosticRecheck?: { at: number; passed: boolean; level: Check["level"] | null; detail: string };
+}
+export interface DiagnosticTaskStatus { taskId: string; label: string; tone: "info" | "warn" | "good" | "bad"; open: boolean; detail?: string }
+
+/** The latest fix task for a check. A rejected or ended-without-result task leaves the check's own remedy. */
+export function diagnosticTaskStatus(tasks: readonly DiagnosticTask[], check: string): DiagnosticTaskStatus | undefined {
+  const task = tasks.filter(item => item.diagnosticCheck === check && !item.dismissed)
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+  if (!task) return;
+  const recheck = task.diagnosticRecheck;
+  if (recheck) return recheck.passed
+    ? { taskId: task.id, label: "Fixed and rechecked", tone: "good", open: false }
+    : { taskId: task.id, label: "Still failing", tone: "bad", open: false, detail: recheck.detail };
+  if (task.review?.accepted === false) return;
+  if (task.review?.accepted) return { taskId: task.id, label: "Rechecking", tone: "info", open: true };
+  if (task.state === "queued" || task.state === "running") return { taskId: task.id, label: "Fix task running", tone: "info", open: true };
+  if (task.state === "needs_input") return { taskId: task.id, label: "Needs your answer", tone: "warn", open: true };
+  if (task.state === "done" || task.state === "partial") return { taskId: task.id, label: "Waiting for your review", tone: "warn", open: true };
+}
+
+/** Per-row progress the page tracks while a remedy runs; the current report decides fixed or still failing. */
+export type DiagnosticRowOutcome =
+  | { phase: "running" | "waiting"; text: string }
+  | { phase: "rechecked" }
+  | { phase: "error"; message: string };
+
+export interface DiagnosticFixRow {
+  check: Check;
+  title: string;
+  /** Pill text: the remedy kind, or "Fixed". */
+  kind?: string;
+  tone: "warn" | "bad" | "good";
+  glyph: string;
+  /** Status in words, so the glyph is never the only signal. */
+  status: string;
+  detail: string;
+  technical: string;
+  remedy?: Remedy;
+  plan?: RemedyPlan;
+  secondary?: { label: string; plan: RemedyPlan };
+  fixed: boolean;
+  progress?: string;
+  /** A failed fix attempt or a recheck that still fails. */
+  problem?: string;
+  task?: DiagnosticTaskStatus;
+}
+
+const FIX_GLYPHS = { warn: "!", bad: "✕", good: "✓" } as const;
+
+/** A summary as a sentence, so the remedy's own sentence can follow it. */
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+  const capital = trimmed[0]!.toUpperCase() + trimmed.slice(1);
+  return /[.!?…]$/.test(capital) ? capital : `${capital}.`;
+}
+
+function technicalText(check: Check): string {
+  return [check.detail, check.fix ? `Reported hint: ${check.fix}` : "", check.remedy ? remedyRuns(check.remedy) : ""].filter(Boolean).join("\n");
+}
+
+function fixRow(check: Check, outcome: DiagnosticRowOutcome | undefined, task: DiagnosticTaskStatus | undefined): DiagnosticFixRow {
+  const { remedy } = check;
+  const plan = remedy && remedyPlan(remedy);
+  const secondary = remedy?.secondary && secondaryPlan(remedy);
+  const tone = check.level === "fail" ? "bad" : "warn";
+  return {
+    check, title: diagnosticTitle(check.name), tone, glyph: FIX_GLYPHS[tone], status: diagnosticLevel[check.level].label,
+    ...(remedy ? { kind: remedyKindLabel[remedy.kind], remedy } : {}),
+    detail: [sentence(diagnosticSummary(check)), remedy ? REMEDY_HINT[remedy.kind] : ""].filter(Boolean).join(" "),
+    technical: technicalText(check),
+    ...(plan ? { plan } : {}),
+    ...(secondary ? { secondary: { label: remedy!.secondary!.label, plan: secondary } } : {}),
+    fixed: false,
+    ...(outcome?.phase === "running" || outcome?.phase === "waiting" ? { progress: outcome.text } : {}),
+    ...(outcome?.phase === "error" ? { problem: outcome.message } : outcome?.phase === "rechecked" ? { problem: "Still failing after the fix. The check’s new result is above." } : {}),
+    ...(task ? { task } : {}),
+  };
+}
+
+function fixedRow(check: Check): DiagnosticFixRow {
+  return { check, title: diagnosticTitle(check.name), kind: "Fixed", tone: "good", glyph: FIX_GLYPHS.good, status: "Fixed",
+    detail: "Fixed and rechecked just now.", technical: technicalText(check), fixed: true };
+}
+
+const isIssue = (check: Check) => check.level === "warn" || check.level === "fail";
+
+/**
+ * The Diagnostics page: rows that need a fix (in the order of the last full run, so a fixed row stays in place),
+ * one group for checks pacer could not run, and collapsed passed and informational results.
+ */
+export function diagnosticsPage(input: {
+  checks: Check[];
+  /** Issue names from the last full run; rows that have since passed show as fixed. */
+  baseline?: readonly string[];
+  outcomes?: Readonly<Record<string, DiagnosticRowOutcome>>;
+  tasks?: readonly DiagnosticTask[];
+}) {
+  const { checks, outcomes = {}, tasks = [] } = input;
+  const byName = new Map(checks.map(check => [check.name, check]));
+  const internal = checks.filter(check => isIssue(check) && check.remedy?.kind === "internal");
+  const issueNames = checks.filter(check => isIssue(check) && check.remedy?.kind !== "internal").map(check => check.name);
+  const names = [...new Set([...(input.baseline ?? []), ...issueNames])];
+  const rows: DiagnosticFixRow[] = [];
+  for (const name of names) {
+    const current = byName.get(name);
+    if (current && isIssue(current)) {
+      if (current.remedy?.kind !== "internal") rows.push(fixRow(current, outcomes[name], diagnosticTaskStatus(tasks, name)));
+    } else if (input.baseline?.includes(name)) rows.push(fixedRow(current ?? { name, level: "ok", detail: "The check no longer reports a problem." }));
+  }
+  const open = rows.filter(row => !row.fixed);
+  const autoLeft = open.filter(row => row.remedy?.kind === "auto" && row.plan && !row.progress && !row.task?.open);
+  const passed = checks.filter(check => check.level === "ok" && check.evidence !== "unverified");
+  const information = checks.filter(check => !isIssue(check) && !passed.includes(check));
+  return {
+    rows, openCount: open.length, autoLeft,
+    fixAllLabel: autoLeft.length === 1 ? "Fix 1 issue automatically" : `Fix ${autoLeft.length} issues automatically`,
+    headline: diagnosticsHeadline(open.length, autoLeft.length, internal.length, rows.length > 0),
+    support: open.length ? "Each problem below has one fix. Pacer fixes what it safely can, shows you the changes before it touches your files, and hands the rest to an agent." : undefined,
+    internal: internal.length ? internalGroup(internal) : undefined,
+    passed, passedSummary: namesSummary(passed),
+    information,
+  };
+}
+
+function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+function diagnosticsHeadline(open: number, auto: number, internal: number, hadRows: boolean): string {
+  if (!open) {
+    if (internal) return `Pacer couldn’t run ${plural(internal, "check")}. Nothing else needs a fix.`;
+    return hadRows ? "Everything that can be fixed is fixed." : "No problems found.";
+  }
+  const lead = `${plural(open, "problem")}.`;
+  if (!auto) return `${lead} Each one takes one click.`;
+  if (auto === open) return `${lead} Pacer can fix ${open === 1 ? "it" : "all of them"} by itself.`;
+  return `${lead} Pacer can fix ${auto} by itself; the rest take one click each.`;
+}
+
+/** Checks pacer itself could not run share one cause and one remedy. */
+function internalGroup(checks: Check[]) {
+  const details = [...new Set(checks.map(check => check.detail))];
+  return {
+    checks,
+    titles: checks.map(check => diagnosticTitle(check.name)),
+    remedy: checks[0]!.remedy!,
+    title: `A pacer problem stopped ${plural(checks.length, "check")}. Your setup wasn’t tested.`,
+    cause: "Pacer itself could not run these checks, so they say nothing about your setup, and reinstalling your agents won’t change them. Restarting the pacer service usually clears this. If it doesn’t, copy the report and send it to pacer; the checks stay marked as not checked.",
+    technical: [...details, `Raised by pacer itself, not by an agent.${details.length === 1 && checks.length > 1 ? ` Same cause for all ${checks.length} checks.` : ""}`, remedyRuns(checks[0]!.remedy!)].join("\n"),
+  };
+}
+
+function namesSummary(checks: Check[]): string {
+  const titles = [...new Set(checks.map(check => diagnosticTitle(check.name)))];
+  if (titles.length <= 4) return titles.join(", ");
+  return `${titles.slice(0, 4).join(", ")} and ${titles.length - 4} more`;
 }
 
 export function diagnosticGuidance(check: Check): string {
@@ -82,33 +340,6 @@ export function diagnosticGuidance(check: Check): string {
   if (check.name === "Orca") return "The host is unavailable. Tasks can use the direct backend; inspect the host for details.";
   if (check.name === "macOS code signing") return "The installed Pacer command’s signature needs review. Inspect the signing details before reinstalling.";
   return "Review setup and the technical details for this check.";
-}
-
-/**
- * Where a remedy that opens a place sends the person; repairs and agent tasks have their own actions.
- * A pacer restart is not a setup step, so internal remedies keep the check's own link.
- */
-function remedySetupLink(remedy: Remedy): { href: string; label: string } | undefined {
-  if (remedy.kind === "internal") return;
-  const op = remedy.op ?? remedy.secondary?.op;
-  if (op === "account.signin" || op === "limits.refresh" || op === "runner.block") return { href: "#/settings/accounts", label: "Review accounts" };
-  if (op === "service.install") return { href: "#/setup", label: "Open setup" };
-}
-
-/**
- * A remedy's own place first. Remedies that open no place (agent tasks, reviewed repairs) keep the
- * check's setup link so no screen loses a button before it can run them.
- */
-export function diagnosticSetupLink(check: Check): { href: string; label: string } | undefined {
-  return (check.remedy && remedySetupLink(check.remedy)) ?? checkSetupLink(check);
-}
-
-/** The setup link a check's name implies: for older services that send no remedy, and remedies that open no place. */
-export function checkSetupLink(check: Pick<Check, "name">): { href: string; label: string } | undefined {
-  if (check.name.startsWith("Usage ") || check.name.startsWith("Login ") || check.name === "Claude config folder") return { href: "#/settings/accounts", label: "Review accounts" };
-  if (/^(Binary|CLI) /.test(check.name) || check.name === "Executor") return { href: "#/settings/add-executor", label: "Open executor setup" };
-  if (["Service", "Strategy", "Installs"].includes(check.name)) return { href: "#/setup", label: "Open setup" };
-  if (/^(Install|Skill) /.test(check.name) || check.name.startsWith("Claude ") || check.name === "Legacy guard") return { href: "#/settings/planner", label: "Review planner setup" };
 }
 
 /** Keep outcome, runtime evidence and remediation separate from raw diagnostic output. */

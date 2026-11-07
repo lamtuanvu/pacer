@@ -154,7 +154,7 @@ Component tests establish native attributes, disabled/busy behavior, label/help/
 
 This migration consolidates the shared-foundation inventory from #174 while preserving #134's semantic status, title, time, containment and one-action requirements. Product-specific remaining work in #134 is complete only when its own observed acceptance criteria and visual evidence pass; architectural reuse alone does not close it.
 
-The canonical Disclosure supports `pc-disclosure--wrap` for multi-part summaries, wrapping title, status and evidence within the container. Diagnostics uses this variant with `pc-ellipsis` and a full title attribute for long identities. Native disclosure keyboard and open/closed semantics remain unchanged; no new upstream adaptation is introduced.
+The canonical Disclosure supports `pc-disclosure--wrap` for multi-part summaries, wrapping title, status and evidence within the container. Native disclosure keyboard and open/closed semantics remain unchanged; no new upstream adaptation is introduced.
 
 Button backgrounds change immediately when theme tokens change; only opacity transitions. This avoids stale native WebKit background transitions during Appearance changes while preserving keyboard/focus semantics and the existing Button API.
 
@@ -368,20 +368,44 @@ badge's 700 and radius-full (999px) for 99px pills (both fully round).
 
 ### Diagnostics board
 
-`DiagnosticRow({title, caption, glyph, tone, status, action, nextStep, open, children})`
-keeps the cause and optional next step visible. A labelled, initially collapsed
-**Technical details** disclosure contains original service output and exact recovery
-instructions in horizontally scrollable mono text. Actions remain siblings of the
-row body, with no interactive targets inside a summary. Status labels accompany
-the glyphs; no per-check duration is invented when the service supplies none.
+`DiagnosticRow({title, caption, glyph, tone, status, kind, action, nextStep, notice, open, children})`
+keeps the cause and optional next step visible. With `kind`, a neutral Pill after
+the title names who does the fix (Automatic, Review changes, Needs you, Agent) and
+the status is read out to screen readers instead of shown. `notice` holds in-row
+progress, a failed fix's new error or an inline consent confirmation, below the
+cause. A labelled, initially collapsed **Technical details** disclosure contains
+original service output, the reported hint and what the fix runs, in mono text.
+Actions remain siblings of the row body, with no interactive targets inside a
+summary. Status labels accompany the glyphs; no per-check duration is invented
+when the service supplies none.
 
-Diagnostics composes existing SegmentedControl, SearchInput and DisclosurePanel
-controls. It starts with warnings and failures; All, Failed, Passed, Not checked
-and Information filters retain distinct evidence states. Search matches titles,
-categories, summaries and original evidence. Categories show matching counts and
-can collapse independently; failures precede warnings. An empty match explains
-how to change the filter. Full report copying includes the original evidence.
-The four-cell summary and responsive rows use existing tokens and settings density.
+The page renders only from each check's typed `remedy`; check names never pick a
+fix. `src/view-model/diagnostics.ts` owns the copy, grouping and remedy plans, and
+`app/src/data/remedies.ts` owns the dispatch shared with the Setup health gate.
+The order is: a summary sentence (counts and how many pacer can fix itself), a
+**Needs a fix** card with one row and one button per problem, one **Couldn't
+check** card for every pacer-internal remedy (the cause stated once, the affected
+checks listed, Restart pacer service and Copy report), then collapsed **Passed**
+and **Information and not checked** DisclosurePanels. The header has Copy report,
+Run all checks and, only while automatic remedies remain, one primary "Fix N
+issues automatically" button; Run all checks is primary otherwise, so there is
+always exactly one primary action.
+
+Remedies that need consent show what changes before anything is sent: an inline
+confirmation naming the files (from a fresh `agent.preview`) or the service
+restart, and one combined confirmation for Fix all. `consent: true` is added only
+after the click. Review remedies open a SideDialog listing every file and apply
+only that preview's revision. Agent remedies open a "Fix with agent" SideDialog
+with the brief, routing and a RadioGroup scope, and call `doctor.fix.delegate`.
+Rows with a fix task link to it and show the task state from `diagnosticCheck` and
+`diagnosticRecheck`. A fixed row stays in place as "Fixed and rechecked" until the
+next full run. Links open only https pages and System Settings panes (the desktop
+app opens only https links, so it says so instead of claiming it opened a pane),
+and user remedies recheck when the window regains focus. A remedy in progress
+keeps its button mounted with `aria-disabled`, so keyboard focus stays on it and
+sheets return focus to it; inline confirmations take focus when they open and
+give it back when they close.
+Responsive rows use existing tokens and settings density.
 The shared Page owns padding and AppFrame's work area owns scrolling, keeping
 Settings navigation outside that scroll area. Native window controls and the
 shared titlebar retain their drag region. The empty progress announcement remains

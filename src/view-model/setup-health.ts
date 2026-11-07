@@ -1,6 +1,6 @@
 import type { Check, Remedy } from "../install/doctor";
 import type { SetupChecklist } from "../setup/checklist";
-import { checkSetupLink, diagnosticSummary, remedyAgent } from "./diagnostics";
+import { diagnosticSummary, remedyAgent } from "./diagnostics";
 
 /** Fixed startup gate steps from the setup-health design. */
 export type SetupHealthStepId =
@@ -21,23 +21,20 @@ export type SetupHealthStepState =
 export type SetupHealthTrigger = "startup" | "update" | "manual";
 export type SetupHealthOutcome = "ok" | "warnings" | "hard_fail";
 
-/** Primary Fix actions for the gate; consent still happens at apply time. */
-export type SetupHealthRepairKind =
-  | "agent.reconnect"
-  | "limits.refresh"
-  | "open.setup"
-  | "open.accounts"
-  | "open.add_executor"
-  | "open.diagnostics";
+/**
+ * Fix actions for the gate. `remedy` runs the doctor's remedy through the same dispatch Diagnostics uses
+ * (consent still happens at apply time); `open.diagnostics` is for problems that carry no remedy.
+ */
+export type SetupHealthRepairKind = "remedy" | "open.diagnostics";
 
 export interface SetupHealthRepair {
   kind: SetupHealthRepairKind;
   label: string;
-  /** Agent id for agent.reconnect (no account fragment). */
-  agent?: string;
+  /** The check the remedy fixes. */
+  check?: string;
   /** Shown after file repairs until live enforcement is observed. */
   honesty?: string;
-  /** The server's remedy this repair came from, when the doctor sent one. */
+  /** The doctor's remedy; present exactly when kind is `remedy`. */
   remedy?: Remedy;
 }
 
@@ -191,52 +188,34 @@ function detailFor(id: SetupHealthStepId, checks: Check[], checklist?: SetupChec
   return undefined;
 }
 
-/** The gate action for a server remedy; consent still happens at apply time. */
-function remedyRepair(check: Check, remedy: Remedy): SetupHealthRepair {
-  const agent = remedyAgent(check);
-  if (agent) return { kind: "agent.reconnect", label: "Fix integration", agent, honesty: WIRING_HONESTY, remedy };
-  if (remedy.op === "limits.refresh") return { kind: "limits.refresh", label: remedy.label, remedy };
-  if (remedy.op === "service.install" && remedy.kind !== "internal") return { kind: "open.setup", label: "Open Setup", remedy };
-  if (remedy.kind === "user" && ["account.signin", "runner.block"].includes(remedy.op ?? remedy.secondary?.op ?? ""))
-    return { kind: "open.accounts", label: "Review accounts", remedy };
-  // Agent tasks, pacer-internal failures and system settings are handled from Diagnostics.
-  return { kind: "open.diagnostics", label: "Open Diagnostics", remedy };
-}
-
-function linkRepair(link: { href: string } | undefined): SetupHealthRepair | undefined {
-  const href = link?.href;
-  if (href === "#/setup") return { kind: "open.setup", label: "Open Setup" };
-  if (href === "#/settings/add-executor") return { kind: "open.add_executor", label: "Open executor setup" };
-  if (href === "#/settings/accounts") return { kind: "open.accounts", label: "Review accounts" };
+/** One remedy fixes every check it is attached to; pacer-internal problems share one restart. */
+function remedyKey(remedy: Remedy): string {
+  if (remedy.kind === "internal") return "internal";
+  if (remedy.kind === "agent") return `agent:${String(remedy.params?.check ?? "")}`;
+  // A reviewed reconnect and a file update for the same agent both reconnect it.
+  if (remedy.op === "agent.preview" || remedy.op === "agent.connect") return `agent.connect:${String(remedy.params?.agent ?? "")}`;
+  return `${remedy.op ?? remedy.url ?? remedy.label}:${JSON.stringify(remedy.params ?? {})}`;
 }
 
 /**
- * Map attention checks to primary Fix descriptors. Never applies changes;
- * agent.reconnect still goes through agent.preview + consent on connect.
- * Only this service's own doctor result reaches the gate, and it gives every warning or failure a remedy,
- * so a check's remedy alone decides its repair. Check names only supply a setup link for remedies the gate
- * cannot run yet.
+ * Map attention checks to the gate's Fix actions, decided only by each check's remedy. Never applies changes:
+ * the app dispatches the remedy, and consent-gated operations still ask at apply time.
+ * Problems without a remedy (an older doctor) only offer Diagnostics.
  */
 export function setupHealthRepairs(checks: Check[]): SetupHealthRepair[] {
   const repairs: SetupHealthRepair[] = [];
   const seen = new Set<string>();
-  const add = (repair: SetupHealthRepair) => {
-    const key = `${repair.kind}:${repair.agent ?? ""}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    repairs.push(repair);
-  };
-
   for (const check of checks) {
-    if ((check.level !== "warn" && check.level !== "fail") || !check.remedy) continue;
-    const repair = remedyRepair(check, check.remedy);
-    // Agent tasks and pacer restarts have no gate action yet; keep the setup link the check name gave.
-    const link = repair.kind === "open.diagnostics" ? linkRepair(checkSetupLink(check)) : undefined;
-    add(link ? { ...link, remedy: check.remedy } : repair);
+    const { remedy } = check;
+    if ((check.level !== "warn" && check.level !== "fail") || !remedy) continue;
+    const key = remedyKey(remedy);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    repairs.push({ kind: "remedy", label: remedy.label, check: check.name, remedy,
+      ...(remedyAgent(check) ? { honesty: WIRING_HONESTY } : {}) });
   }
-
   if (checks.some(c => c.level === "warn" || c.level === "fail") && repairs.length === 0) {
-    add({ kind: "open.diagnostics", label: "Open Diagnostics" });
+    repairs.push({ kind: "open.diagnostics", label: "Open Diagnostics" });
   }
   return repairs;
 }
