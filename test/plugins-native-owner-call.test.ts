@@ -343,8 +343,8 @@ async function plannerOwner(path: string, handlers: Record<string, PlannerHandle
         const frame = JSON.parse(text.slice(0, cut));
         text = text.slice(cut + 1);
         if (frame.method !== "_host.plugin.call") {
-          waiting.get(frame.id)?.(frame);
-          waiting.delete(frame.id);
+          const pending = typeof frame.id === "string" ? waiting.get(frame.id) : undefined;
+          if (pending) { pending(frame); waiting.delete(frame.id); }
           continue;
         }
         requests.push(frame);
@@ -354,7 +354,13 @@ async function plannerOwner(path: string, handlers: Record<string, PlannerHandle
           reply(frame.id, { error: { code: -32002, message: `${frame.params.method as string} requires the negotiated ${missing} feature`, data: { code: "capability_denied" } } });
           continue;
         }
-        handlers[frame.params.method]!(frame.params.params, host).then(
+        const method = String(frame.params.method);
+        const handler = Object.hasOwn(handlers, method) ? handlers[method] : undefined;
+        if (!handler) {
+          reply(frame.id, { error: { code: -32601, message: `unknown method ${method}`, data: { code: "plugin_unavailable" } } });
+          continue;
+        }
+        handler(frame.params.params, host).then(
           value => reply(frame.id, { result: { value, hello: { protocol: "1.10.0", served: ["diagnostic", "planner"], features: negotiated }, logs: [] } }),
           (error: Error) => reply(frame.id, { error: { code: -32002, message: error.message, data: { code: "plugin_unavailable" } } }));
       }
