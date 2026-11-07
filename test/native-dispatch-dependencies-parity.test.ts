@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
@@ -82,10 +82,19 @@ function dump(ctx: Ctx, seededAt: number) {
   } finally { db.close(); }
 }
 
+/**
+ * Task JSON mtimes must survive the copy to the nanosecond, or the store treats every task as edited and re-indexes it.
+ * Recursive cpSync resets them on Linux and preserveTimestamps truncates them to milliseconds; `cp -Rp` keeps them exact.
+ */
+function snapshot(from: string, to: string) {
+  const copy = Bun.spawnSync(["cp", "-Rp", from, to], { stderr: "pipe" });
+  expect(copy.exitCode, copy.stderr.toString()).toBe(0);
+}
+
 async function both(ctx: Ctx, backup: string, requests: string[], forwardedIndexes = new Set<number>(), extra: Record<string, string> = {}) {
   const run = async (forward: boolean) => {
     rmSync(ctx.pacerHome, { recursive: true, force: true });
-    cpSync(backup, ctx.pacerHome, { recursive: true });
+    snapshot(backup, ctx.pacerHome);
     const lines = await exchange(ctx.home, requests, forward, forwardedIndexes, extra);
     return { lines, state: dump(ctx, ctx.now) };
   };
@@ -99,7 +108,7 @@ test.skipIf(!front)("dependency edits and waivers match forced forwarding in rep
   const ctx = fakeCtx();
   const s = seed(ctx);
   const backup = join(ctx.home, "backup");
-  cpSync(ctx.pacerHome, backup, { recursive: true });
+  snapshot(ctx.pacerHome, backup);
   const ra = s.rev(s.a.id), rb = s.rev(s.b.id), rr = s.rev(s.root.id);
   const split = `a${"😀".repeat(1500)}`;
   const cases: [string, unknown][] = [
@@ -154,7 +163,7 @@ test.skipIf(!front)("dependency writes refuse executor and enforcement identitie
   const ctx = fakeCtx();
   const s = seed(ctx);
   const backup = join(ctx.home, "backup");
-  cpSync(ctx.pacerHome, backup, { recursive: true });
+  snapshot(ctx.pacerHome, backup);
   const requests = [
     request(2, "dispatch.dependencies", { id: s.a.id, dependencies: [], expect_rev: s.rev(s.a.id) }),
     request(3, "dispatch.dependencies.waive", { id: s.a.id, dependency: s.d.id, reason: "x", expect_rev: s.rev(s.a.id) }),
