@@ -13,6 +13,8 @@ mod desktop_reconcile_ops;
 use pacer_discovery_ops::discovery_ops;
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
+use pacer_dispatch_ops::insights_ops;
+use pacer_dispatch_ops::learning_ops;
 mod engine_ops;
 use pacer_config_ops::host_mut_ops;
 use pacer_task_ops::files_search_ops;
@@ -57,6 +59,7 @@ pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
+pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
 pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
@@ -65,7 +68,7 @@ use pacer_config_ops::{project_strategy_ops, repo_registry_ops};
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 
-/// `repo.list` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
+/// `repo.list`, `repo.add` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
 pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     repo_registry_ops::repo_list_stays_forwarded(ctx, op)
         || project_strategy_ops::project_strategy_stays_forwarded(ctx, op, params)
@@ -330,7 +333,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "repo.add",
-        call: p8_bridge_ops::bridge_stub,
+        call: repo_registry_ops::repo_add,
     },
     NativeOp {
         name: "repo.remove",
@@ -381,6 +384,10 @@ static OPS: &[NativeOp] = &[
         call: msg_ops::msg_policy,
     },
     NativeOp {
+        name: "tree.status",
+        call: msg_ops::tree_status,
+    },
+    NativeOp {
         name: "dispatch.config.get",
         call: dispatch_ops::dispatch_config_get,
     },
@@ -403,6 +410,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.dependencies.waive",
         call: dependency_writes::dispatch_dependencies_waive,
+    },
+    NativeOp {
+        name: "dispatch.analytics",
+        call: learning_ops::dispatch_analytics,
+    },
+    NativeOp {
+        name: "dispatch.learning.reset",
+        call: learning_ops::dispatch_learning_reset,
+    },
+    NativeOp {
+        name: "insights.summary",
+        call: insights_ops::insights_summary,
     },
     NativeOp {
         name: "discovery.set",

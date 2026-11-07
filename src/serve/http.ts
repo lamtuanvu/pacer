@@ -393,26 +393,6 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
-        if (pathname === "/_internal/repo-bridge" && req.method === "POST") {
-          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
-          try {
-            const body = await req.json().catch(() => null);
-            const op = body && typeof body === "object" && !Array.isArray(body) ? (body as { op?: unknown }).op : undefined;
-            const bridgeParams = body && typeof body === "object" && !Array.isArray(body) ? (body as { params?: unknown }).params : undefined;
-            if (typeof op !== "string" || op !== "repo.add" || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
-              const { CoreError } = await import("../core/errors");
-              throw new CoreError("invalid_input", "invalid repo bridge body");
-            }
-            const { repoBridge } = await import("../api/repo-bridge");
-            return Response.json({
-              result: await repoBridge(getCtx(), op, bridgeParams as Record<string, unknown>),
-            });
-          } catch (error) {
-            const { toApiError, httpStatus } = await import("../api/errors");
-            const body = toApiError(error);
-            return Response.json({ error: body }, { status: httpStatus(body.code) });
-          }
-        }
         if (pathname === "/_internal/setup-check" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

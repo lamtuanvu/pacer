@@ -116,7 +116,7 @@ async fn set_get_list_and_remove_with_revisions() {
 }
 
 #[test]
-fn forwards_paths_and_unusable_files() {
+fn forwards_unusable_files() {
     let (dir, ctx) = home();
     let get = "project.strategy.get";
     assert!(!project_strategy_stays_forwarded(
@@ -129,7 +129,7 @@ fn forwards_paths_and_unusable_files() {
         "repo.list",
         &json!({"repo": "/x"})
     ));
-    assert!(project_strategy_stays_forwarded(
+    assert!(!project_strategy_stays_forwarded(
         &ctx,
         get,
         &json!({"repo": "/tmp/checkout"})

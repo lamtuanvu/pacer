@@ -1,7 +1,7 @@
 //! Native repository executor overrides (`src/core/project-strategies.ts`,
-//! `src/config/project-strategies.ts`). Absolute checkout paths need git identity from the
-//! Core repository probe. An unusual registry, an unloadable strategy or an unusable policy
-//! file keep TypeScript's reading and error text. Those inputs stay forwarded.
+//! `src/config/project-strategies.ts`). Absolute checkout paths resolve and register through
+//! `pacer-repos` git identity. An unusual registry, an unloadable strategy or an unusable
+//! policy file keep TypeScript's reading and error text. Those inputs stay forwarded.
 #![allow(clippy::result_large_err)]
 use crate::repo_registry_ops::{params_object, received};
 use pacer_config::{project_messaging::project_key, strategy::load_strategy};
@@ -12,25 +12,20 @@ use pacer_foundation::{
     lock::{LockOptions, with_lock},
 };
 use pacer_lifecycle::{
-    AdmissionError, read_project_strategies, repo_registry, resolve_runner,
-    validate_project_strategies,
+    AdmissionError, read_project_strategies, resolve_runner, validate_project_strategies,
 };
+use pacer_repos as repo_registry;
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 const FILE: &str = "project-strategies.json";
 
-pub fn project_strategy_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+pub fn project_strategy_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
     if !op.starts_with("project.strategy.") {
         return false;
     }
-    let absolute = params
-        .get("repo")
-        .and_then(Value::as_str)
-        .is_some_and(|repo| Path::new(repo).is_absolute());
-    absolute
-        || repo_registry::registry_needs_core(&ctx.pacer_home)
+    repo_registry::registry_needs_core(&ctx.pacer_home)
         || load_strategy(&ctx.pacer_home).is_err()
         || read_project_strategies(&ctx.pacer_home).is_err()
 }
@@ -227,7 +222,16 @@ fn view(strategy: &Value, repo: Value, entry: Option<&Value>) -> Value {
     })
 }
 
-/// `resolve` in `src/core/project-strategies.ts` for a repository key.
+/// `registerRepo` of an absolute checkout path, under the shared `repos` lock.
+fn register(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreError> {
+    with_lock(ctx, "repos", LockOptions::default(), || {
+        repo_registry::register_repo(ctx, path, strict)
+    })
+    .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?
+}
+
+/// `resolve` in `src/core/project-strategies.ts`: a policy key, a registered repository key
+/// or an absolute checkout path (`resolveRepoInput`).
 fn resolve(ctx: &Ctx, value: &str) -> Result<Value, CoreError> {
     let data = policies(ctx)?;
     let found = |read_only: bool| -> Result<Option<Value>, CoreError> {
@@ -237,10 +241,9 @@ fn resolve(ctx: &Ctx, value: &str) -> Result<Value, CoreError> {
             .map(|repo| repo.to_json()))
     };
     if Path::new(value).is_absolute() {
-        return Err(CoreError::new(
-            Code::Unavailable,
-            "absolute repository paths require the forwarded project.strategy operation",
-        ));
+        let mut repo = register(ctx, value, false)?;
+        repo["path"] = json!(repo_registry::canonical(value)?);
+        return Ok(repo);
     }
     if data["projects"].get(value).is_some() {
         return Ok(found(true)?.unwrap_or_else(|| json!({"key": value, "label": value})));
@@ -357,7 +360,11 @@ pub fn project_strategy_get(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 pub fn project_strategy_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = parse("project.strategy.set", &params)?;
-        let repo = resolve(ctx, &p.repo)?;
+        let repo = if Path::new(&p.repo).is_absolute() {
+            register(ctx, &p.repo, true)?
+        } else {
+            resolve(ctx, &p.repo)?
+        };
         let strategy = strategy(ctx)?;
         let refs = references(&strategy, &p.executors)?;
         let entry = write(
