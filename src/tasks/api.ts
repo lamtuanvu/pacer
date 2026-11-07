@@ -406,7 +406,7 @@ export async function superviseTask(ctx: Ctx, id: string, spawn: SpawnRunner = s
 }
 
 /** A stop during a handover gap: record the attempt from the run's evidence and do the cleanup the old runner skipped. */
-export function recordStoppedHandover(ctx: Ctx, t: TaskRecord, exit: number | null): TaskRecord {
+export function recordStoppedHandover(ctx: Ctx, t: TaskRecord, exit: number | null, spawn: SpawnRunner = spawnRunner): TaskRecord {
   const run = t.run!;
   const updated = updateTask(ctx, t.id, x => {
     if (x.state !== "stopped" || x.handover?.state !== "handed-over" || x.run?.dir !== run.dir || x.attempts.length >= run.attempt) return;
@@ -419,7 +419,8 @@ export function recordStoppedHandover(ctx: Ctx, t: TaskRecord, exit: number | nu
     dispatchDatabase(ctx).query("DELETE FROM work_reservations WHERE task_id=?").run(t.id);
     revokeWorkGrants(ctx, t.id); revokeEnforcementTokens(ctx, t.id);
   }
-  void import("./drain").then(m => m.drainQueue(ctx)).catch(() => {});
+  // The caller's launcher: inside the supervision worker the default would use the worker's argv.
+  void import("./drain").then(m => m.drainQueue(ctx, spawn)).catch(() => {});
   return updated;
 }
 
@@ -569,7 +570,7 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       if (!deadRun) return t;
       const replacementAt = t.handover!.replacementAt;
       if (replacementAt === undefined && runLive) return relaunch();
-      if (replacementAt === undefined || ctx.now - replacementAt >= 60) return recordStoppedHandover(ctx, t, r?.exit ?? null);
+      if (replacementAt === undefined || ctx.now - replacementAt >= 60) return recordStoppedHandover(ctx, t, r?.exit ?? null, spawn);
       return t;
     }
     if ((preparedOwnedRun || deadRun) && (runLive || preparedOwnedRun)) {
