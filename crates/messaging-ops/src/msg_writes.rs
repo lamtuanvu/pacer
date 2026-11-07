@@ -67,12 +67,9 @@ pub async fn call(
 
 /// An effect whose failure leaves the committed write standing; the failure is only logged.
 async fn best_effort(bridge: &mut dyn Bridge, request: Value) {
-    if let Err(error) = bridge.call(request.clone()).await {
-        eprintln!(
-            "pacer: message {} effect failed: {}",
-            request["kind"].as_str().unwrap_or_default(),
-            error.message
-        );
+    let kind = request["kind"].as_str().unwrap_or_default().to_owned();
+    if let Err(error) = bridge.call(request).await {
+        eprintln!("pacer: message {kind} effect failed: {}", error.message);
     }
 }
 
@@ -295,11 +292,16 @@ async fn deliver_message(
     let result = match deliver(text(m, "to").unwrap_or_default(), bridge).await {
         Ok(result) => result,
         Err(error) => {
-            // A lost bridge reply may follow a turn TypeScript already started.
-            let pending = messages::get(store, text(m, "id").unwrap_or_default())
-                .map_err(store_error)?
-                .is_some_and(|row| text(&row, "status") == Some("pending"));
-            if pending && answered.as_ref().is_some_and(|(_, undo)| *undo) {
+            // A lost bridge reply may follow a turn TypeScript already started or queued,
+            // the two outcomes that keep the answer.
+            let id = text(m, "to")
+                .and_then(messages::task_of)
+                .unwrap_or_default();
+            let taken = store.read(id).map_err(store_error)?.is_some_and(|t| {
+                truthy(t.get("pendingTurn"))
+                    || matches!(text(&t, "state"), Some("queued" | "running"))
+            });
+            if !taken && answered.as_ref().is_some_and(|(_, undo)| *undo) {
                 undo_answer(ctx, store, m)?;
             }
             return Err(error);

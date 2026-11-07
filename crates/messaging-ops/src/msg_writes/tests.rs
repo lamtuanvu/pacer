@@ -8,7 +8,7 @@ const CHILD: &str = "t-20260101-000000-0002";
 #[derive(Default)]
 struct Fake {
     requests: Vec<Value>,
-    /// Delivery fails, after starting the turn when a home is set.
+    /// The delivery reply is lost, after the turn started when a home is set.
     fail: bool,
     taken: Option<std::path::PathBuf>,
 }
@@ -18,10 +18,13 @@ impl Bridge for Fake {
         self.requests.push(request.clone());
         let deliver = request["kind"] == "deliver";
         if deliver && let Some(home) = &self.taken {
-            let mut store = TaskStore::open(home).unwrap();
-            messages::ensure_schema(&mut store)
+            // `startTurnIfIdle` marks the task; the runner claims the message later.
+            TaskStore::open(home)
                 .unwrap()
-                .execute_batch("UPDATE messages SET status='delivered' WHERE status='pending'")
+                .update_current(ROOT, 2.0, |t| {
+                    t["pendingTurn"] = json!({"turnId": "turn-1"});
+                    Ok(())
+                })
                 .unwrap();
         }
         let fail = deliver && self.fail;
@@ -188,8 +191,8 @@ async fn send_stores_in_milliseconds_and_delivers_through_the_bridge() {
 }
 
 #[tokio::test]
-async fn a_failed_delivery_reopens_the_question_only_while_the_answer_is_pending() {
-    for taken in [false, true] {
+async fn an_answer_stays_recorded_unless_its_turn_never_started() {
+    for (fail, taken) in [(false, false), (true, false), (true, true)] {
         let (_dir, ctx) = home();
         let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
         store
@@ -207,19 +210,27 @@ async fn a_failed_delivery_reopens_the_question_only_while_the_answer_is_pending
         )
         .await
         .unwrap();
-        bridge.fail = true;
+        bridge.fail = fail;
         bridge.taken = taken.then(|| ctx.pacer_home.clone());
-        let error = run(
+        let sent = run(
             &ctx,
             "msg.send",
             json!({"to":format!("task:{ROOT}"),"body":"this","kind":"answer","reply_to":question["message"]["id"]}),
             &mut bridge,
         )
-        .await
-        .unwrap_err();
-        assert_eq!(error.code, Code::Unavailable);
+        .await;
+        match &sent {
+            Ok(sent) => assert_eq!(sent["delivery"], "queued"),
+            Err(error) => assert_eq!(error.code, Code::Unavailable),
+        }
+        assert_eq!(sent.is_err(), fail);
         let task = store.read(ROOT).unwrap().unwrap();
-        assert_eq!(task["question"].get("answer").is_some(), taken, "{taken}");
+        let kept = !fail || taken;
+        assert_eq!(
+            task["question"].get("answer").is_some(),
+            kept,
+            "{fail} {taken}"
+        );
     }
 }
 
