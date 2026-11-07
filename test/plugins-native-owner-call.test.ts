@@ -343,8 +343,11 @@ async function plannerOwner(path: string, handlers: Record<string, PlannerHandle
         const frame = JSON.parse(text.slice(0, cut));
         text = text.slice(cut + 1);
         if (frame.method !== "_host.plugin.call") {
-          const pending = typeof frame.id === "string" ? waiting.get(frame.id) : undefined;
-          if (pending) { pending(frame); waiting.delete(frame.id); }
+          for (const [id, settle] of waiting) {
+            if (id !== frame.id) continue;
+            waiting.delete(id);
+            settle(frame);
+          }
           continue;
         }
         requests.push(frame);
