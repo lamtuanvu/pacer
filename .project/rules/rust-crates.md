@@ -56,6 +56,9 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 1 | `pacer-foundation` (`crates/foundation`) | Ctx, file rules, lock, `CoreError`, op registry types | 1,000–1,500 | none |
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |
 | 3 | `pacer-config` (`crates/config`) | Strategy, YAML editor, config areas (publishes config changes through `pacer-store`) | 3,000–3,800 | none |
+| 2 | `pacer-discovery-ops` (`crates/discovery-ops`) | Native LAN discovery write operation handlers (`discovery.set`, `discovery.respond`) | ≤ 800 | none |
+| 3 | `pacer-machine-ops` (`crates/machine-ops`) | Machine identity store, key rotation and the native `machine.*` operation handlers | ≤ 1,500 | none |
+| 3 | `pacer-messaging-ops` (`crates/messaging-ops`) | Native project messaging read operation handlers (`msg.inbox`, `msg.log`, `msg.read`) over the message store | ≤ 1,000 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
 | 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities | 3,000–4,000 | `reqwest` |
 | 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations, settings reads and JSON compatibility | ≤ 5,000 | none |
@@ -65,11 +68,15 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 6 | `pacer-lifecycle` (`crates/lifecycle`) | Delegation, runner, supervision, attention, jobs, clients, pump | 3,500–4,500 | none |
 | 6 | `pacer-update` (`crates/update`) | Update, release manifest, service install | 1,500 | `reqwest` |
 | 7 | `pacer-read-model` (`crates/read-model`) | Snapshot and view model | 1,300–1,600 | none |
-| 8 | `pacer-server` (`crates/server`) | Op registry assembly, HTTP, SSE, WebSocket, stdio, MCP, bridge, embedded app assets | 2,000–2,500 | `axum`, `hyper`, `rmcp` |
+| 7 | `pacer-config-ops` (`crates/config-ops`) | Native config and host operation handlers (strategy, routing, runners, notifications, host reads and edits) | ≤ 1,500 | none |
+| 7 | `pacer-dispatch-ops` (`crates/dispatch-ops`) | Native dispatch work-graph read operation handlers (`dispatch.config.get`, `dispatch.tree`, `dispatch.list`, `dispatch.events`) | ≤ 1,000 | none |
+| 8 | `pacer-assistant-ops` (`crates/assistant-ops`) | Native assistant settings and history operation handlers (`assistant.status`, `assistant.settings.*`, `assistant.candidates`, `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete`, `assistant.card.*`) | ≤ 1,000 | none |
+| 8 | `pacer-task-ops` (`crates/task-ops`) | Native task, session and snapshot operation handlers (reads, list, detail, review, stop, dismiss, diff, wait) | ≤ 2,500 | none |
 | 8 | `pacer-tui` (`crates/tui`) | Dashboard (an API client: ARCH-1) | 1,000–1,200 | `ratatui`, `crossterm` |
 | 8 | `pacer-bundled` (`crates/bundled`) | Table of bundled plugins (manifest text and entry function), from M3 plan 1 | ≤ 300 | none (depends on `plugins-rs/*`) |
-| 9 | `pacer-cli` (`crates/cli`) | Commands, renderers, status line, core exec and self-repair (M1–M2) | 3,000–3,500 | `clap` |
-| 10 | `pacer` (`crates/pacer`) | Binary | ≤ 500 | none |
+| 9 | `pacer-server` (`crates/server`) | Op registry assembly, HTTP, SSE, WebSocket, stdio, MCP, bridge, embedded app assets | 2,000–2,500 | `axum`, `hyper`, `rmcp` |
+| 10 | `pacer-cli` (`crates/cli`) | Commands, renderers, status line, core exec and self-repair (M1–M2) | 3,000–3,500 | `clap` |
+| 11 | `pacer` (`crates/pacer`) | Binary | ≤ 500 | none |
 | SDK | `pacer-plugin` (`crates/plugin-sdk`) | Rust plugin SDK; features `testing`, `install`, `exec`, `wasm`; depends on the plugin protocol crates (`pacer-plugin-protocol`, `pacer-plugin-decision-protocol`, `pacer-plugin-agent-session-protocol`) only; `pacer_plugin::types` re-exports all three | 1,200 core, 3,500–4,000 with features | `wit-bindgen` (feature `wasm`) |
 | SDK | `pacer-fixtures` (`crates/fixtures`) | Conformance fixture plugins | 300–400 | none |
 | Plugins | `plugins-rs/<id>` | One bundled plugin each | 100–2,500 each | per plugin, listed in `xtask/crates.toml` |

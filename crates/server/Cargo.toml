@@ -23,6 +23,13 @@ pacer-engine = { path = "../engine" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-store = { path = "../store" }
 pacer-read-model = { path = "../read-model" }
+pacer-task-ops = { path = "../task-ops" }
+pacer-config-ops = { path = "../config-ops" }
+pacer-messaging-ops = { path = "../messaging-ops" }
+pacer-dispatch-ops = { path = "../dispatch-ops" }
+pacer-assistant-ops = { path = "../assistant-ops" }
+pacer-machine-ops = { path = "../machine-ops" }
+pacer-discovery-ops = { path = "../discovery-ops" }
 pacer-mdns = { path = "../mdns" }
 chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
 
@@ -38,7 +45,6 @@ sha2 = "0.10"
 hex = "0.4"
 rand = "0.9"
 base64 = "0.22"
-ring = "0.17"
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
 
 [build-dependencies]

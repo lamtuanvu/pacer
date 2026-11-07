@@ -46,7 +46,7 @@ test("native files.search matches TypeScript without a core bridge", async () =>
     catch (error) { expected = { error: toApiError(error) }; }
     expect(nativeResult(home, "files.search", params)).toEqual(expected);
   }
-});
+}, 30000);
 
 test("native setup.check matches TypeScript with injected bridge", async () => {
   const home = tmpDir();

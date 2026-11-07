@@ -7,6 +7,7 @@ import { startClientControl } from "./data/control";
 import { canLeaveScreen } from "./data/navigation-guard";
 import { NotificationProvider } from "./data/notification-context";
 import { SetupContext } from "./screens/setup/context";
+import { SetupHealthGate, type SetupHealthSummary } from "./screens/setup/SetupHealthGate";
 import { render } from "preact";
 import { useLayoutEffect, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { createApi } from "./data/api";
@@ -97,6 +98,9 @@ function App() {
   const [setupRevision, reloadSetup] = useState(0);
   const [runningSetup, setRunningSetup] = useState<{ id: string; executor: string }>();
   const [checklist, setChecklist] = useState<SetupChecklist | "error">();
+  const [healthSummary, setHealthSummary] = useState<SetupHealthSummary | null>();
+  const [healthGateKey, setHealthGateKey] = useState(0);
+  const [healthReady, setHealthReady] = useState(false);
   useEffect(() => {
     let active = true;
     const refresh = () => api.call<SetupChecklist>("setup.check", {}).then(result => { if (active) setChecklist(result); }, () => { if (active) setChecklist(c => c ?? "error"); });
@@ -135,20 +139,26 @@ function App() {
     document.addEventListener("click", follow, true);
     return () => document.removeEventListener("click", follow, true);
   }, []);
+  const healthEnabled = state.connected && !state.sessionEnded && !sessionEnded && state.features.ops.has("setup.health");
+  const showHealthGate = healthEnabled && !healthReady;
   return <WorkspaceIdentity.Provider value={identity}><TaskContext.Provider value={{ state, api }}><ActionContext.Provider value={actions}>
     <SetupContext.Provider value={{
       checklist: checklist === "error" ? undefined : checklist,
       refresh: () => reloadSetup(v => v + 1), running: runningSetup,
       setRunning: (id, executor) => setRunningSetup({ id, executor }),
+      health: healthSummary,
+      reopenHealth: () => { setHealthReady(false); setHealthGateKey(k => k + 1); },
     }}>
-      <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><WorkspaceScope.Provider value={routeWorkspaceKey(identity, route)}><Layout route={route} loadingRoute={pendingRoute} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></WorkspaceScope.Provider></NavigationProvider></PluginContext.Provider>
+      {showHealthGate
+        ? <SetupHealthGate key={healthGateKey} api={api} connected={state.connected} enabled={healthEnabled} onReady={summary => { setHealthSummary(summary); setHealthReady(true); }} />
+        : <PluginContext.Provider value={plugins}><NavigationProvider route={route} pluginTitle={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title : undefined}><WorkspaceScope.Provider value={routeWorkspaceKey(identity, route)}><Layout route={route} loadingRoute={pendingRoute} state={{ ...state, sessionEnded: state.sessionEnded || sessionEnded }} title={route.name === "plugin" ? plugins.surfaces.find(s => s.plugin === route.plugin && s.id === route.id && s.surface === "activity")?.title ?? "Plugin view" : titleFor(route)} onDelegate={() => openNewTask()}><Screen route={route} /></Layout></WorkspaceScope.Provider></NavigationProvider></PluginContext.Provider>}
     </SetupContext.Provider>
     {/* One shared bottom-right stack. Discovery prompts come and go and change height as they cycle, so they sit on top;
         the update notice stays in the corner and its Restart and Later never move. */}
-    <NoticeStack narrow={narrow}>
+    {!showHealthGate && <NoticeStack narrow={narrow}>
       {DiscoveryNotice && <DiscoveryNotice hidden={help || sessionEnded || discoveryNoticeHiddenOn(route)} />}
       {UpdateNotice && <UpdateNotice hidden={help || sessionEnded || updateNoticeHiddenOn(route)} />}
-    </NoticeStack>
+    </NoticeStack>}
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider></WorkspaceIdentity.Provider>;
 }

@@ -81,6 +81,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "dispatch.enforcement.denied",
     "dispatch.enforcement.consent",
     "dispatch.learning.reset",
+    "setup.health",
     "account.usage.check",
     "limits.refresh",
     "session.draft.create",
@@ -157,7 +158,7 @@ pub const V2_EVENT_TYPES: &[&str] = &[
 ];
 
 pub fn hello(input: &Value) -> Value {
-    let mut out = object_without(input, &["previous"]);
+    let mut out = object_without(input, &["previous", "coreBuild"]);
     out["protocol"] = json!(V2_PROTOCOL);
     out["ops"] = Value::Array(
         input["ops"]

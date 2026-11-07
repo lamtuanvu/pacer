@@ -16565,6 +16565,7 @@
         "session.prepare",
         "session.resume",
         "setup.check",
+        "setup.health",
         "setup.init",
         "snapshot.get",
         "strategy.build",
@@ -22477,6 +22478,24 @@
           "additionalProperties": false
         }
       },
+      "setup.health": {
+        "description": "Run the startup Checking setup gate: bounded doctor and setup checks as fixed steps, persist a last-pass fingerprint, and say whether the full-window stage can skip. Removable-volume probes stay out of the gate. trigger update forces the stage after an update.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "trigger": {
+              "type": "string",
+              "enum": [
+                "startup",
+                "update",
+                "manual"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
       "setup.init": {
         "description": "Create a missing strategy and select a planner without connecting agents.",
         "params": {
@@ -26589,6 +26608,7 @@
     "dispatch.enforcement.denied",
     "dispatch.enforcement.consent",
     "dispatch.learning.reset",
+    "setup.health",
     "account.usage.check",
     "limits.refresh",
     "session.draft.create",

@@ -1,51 +1,50 @@
+use pacer_assistant_ops::assistant_ops;
+use pacer_config_ops::config_get_ops;
 use pacer_foundation::{
     Ctx,
     api::{CoreError, NativeOp, Registry},
 };
 use serde_json::Value;
-mod assistant_ops;
-mod config_get_ops;
 pub(crate) mod config_host_sync;
-mod config_params;
 pub(crate) mod config_sync;
-mod config_writes;
+use pacer_config_ops::config_writes;
 pub(crate) mod core_bridge_sync;
 mod desktop_reconcile_ops;
-mod discovery_ops;
-mod dispatch_ops;
+use pacer_discovery_ops::discovery_ops;
+use pacer_dispatch_ops::dispatch_ops;
 mod engine_ops;
 mod files_search_ops;
-mod host_mut_ops;
+use pacer_config_ops::host_mut_ops;
 pub(crate) mod host_mut_sync;
-mod host_read_ops;
+use pacer_config_ops::host_read_ops;
 pub(crate) mod host_read_sync;
-mod lifecycle_ops;
-mod machine_identity;
-mod machine_ops;
+use pacer_machine_ops::machine_identity;
+use pacer_machine_ops::machine_ops;
+use pacer_task_ops::lifecycle_ops;
 mod meta_ops;
-pub(crate) mod msg_ops;
+pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) mod p8_bridge_ops;
 pub mod plugins;
 mod project_messaging_ops;
 mod repo_ops;
-pub(crate) mod session_ops;
+pub(crate) use pacer_task_ops::session_ops;
 pub(crate) mod session_sync;
 mod setup_ops;
-mod snapshot_get_ops;
+use pacer_task_ops::snapshot_get_ops;
 pub(crate) mod snapshot_sync;
 pub(crate) mod status_ops;
 pub(crate) mod status_sync;
 pub(crate) mod task_clean_sync;
-mod task_diff_ops;
-pub(crate) mod task_dismiss_ops;
-mod task_get_ops;
+use pacer_task_ops::task_diff_ops;
+pub(crate) use pacer_task_ops::task_dismiss_ops;
+use pacer_task_ops::task_get_ops;
 pub(crate) mod task_read_sync;
-mod task_reads;
-mod task_review_ops;
+use pacer_task_ops::task_reads;
+use pacer_task_ops::task_review_ops;
 pub(crate) mod task_review_sync;
-mod task_stop_ops;
+use pacer_task_ops::task_stop_ops;
 pub(crate) mod task_stop_sync;
-mod task_wait_ops;
+use pacer_task_ops::task_wait_ops;
 pub(crate) mod task_wait_sync;
 
 pub use assistant_ops::assistant_stays_forwarded;
@@ -684,268 +683,4 @@ pub async fn call_native(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::registry;
-
-    #[test]
-    fn forward_override_removes_only_selected_native_ops() {
-        for name in [
-            "strategy.list",
-            "strategy.show",
-            "strategy.use",
-            "strategy.save",
-            "strategy.remove",
-            "routing.get",
-            "routing.set",
-            "runner.set",
-            "runner.reorder",
-            "runner.remove",
-            "runner.settings.get",
-            "runner.settings.save",
-            "notifications.get",
-            "notifications.set",
-            "config.get",
-            "config.set",
-            "host.suggest",
-            "host.list",
-            "host.get",
-            "host.add",
-            "host.set",
-            "host.remove",
-            "host.repo.map",
-            "host.account.add",
-            "delegation.pause",
-            "delegation.resume",
-            "mode.hold",
-            "mode.release",
-            "limits.report",
-            "limits.check",
-            "routing.status",
-            "routing.route",
-            "task.retry_options",
-            "task.request_review",
-            "task.stop",
-            "task.review",
-            "task.dismiss",
-            "task.diff",
-            "task.list",
-            "task.get",
-            "snapshot.get",
-            "version.get",
-            "api.list",
-            "api.describe",
-            "machine.get",
-            "machine.set",
-            "machine.rotate",
-            "files.search",
-            "setup.check",
-            "onboarding.skip",
-            "repo.list",
-            "repo.add",
-            "repo.remove",
-            "project.messaging.get",
-            "project.messaging.set",
-            "project.messaging.remove",
-            "msg.inbox",
-            "msg.log",
-            "msg.read",
-            "dispatch.config.get",
-            "dispatch.tree",
-            "dispatch.list",
-            "dispatch.events",
-            "discovery.set",
-            "discovery.respond",
-            "desktop.reconcile.status",
-            "desktop.reconcile.request",
-            "desktop.reconcile.cancel",
-            "assistant.status",
-            "assistant.settings.get",
-            "assistant.settings.set",
-            "assistant.candidates",
-            "assistant.conversations",
-            "assistant.conversation",
-            "assistant.turn",
-            "assistant.delete",
-            "assistant.card.record",
-            "assistant.card.refresh",
-        ] {
-            assert!(registry("").get(name).is_some(), "{name}");
-            assert!(registry(name).get(name).is_none(), "{name}");
-        }
-        for name in [
-            "dispatch.submit",
-            "dispatch.child",
-            "dispatch.wait",
-            "dispatch.review",
-            "dispatch.retry",
-            "dispatch.answer",
-            "dispatch.stop",
-            "dispatch.dependencies",
-            "dispatch.explain",
-            "dispatch.models",
-            "dispatch.enforcement",
-            "discovery.list",
-            "discovery.network.get",
-            "discovery.network.set",
-            "desktop.update.status",
-            "desktop.capture.targets",
-            "account.list",
-        ] {
-            assert!(registry("").get(name).is_none(), "{name}");
-        }
-        assert!(registry("").get("config.get").is_some());
-        assert!(registry("config.get").get("config.get").is_none());
-        assert!(registry("").get("activity.list").is_some());
-        // Stdio keeps retired install in TypeScript; HTTP registers the refuse.
-        assert!(registry("").get("plugin.install").is_none());
-        assert!(registry("plugin.install").get("plugin.install").is_none());
-        assert!(registry("").get("task.log").is_some());
-        assert!(registry("").get("task.prune").is_some());
-        assert!(registry("").get("task.restore").is_some());
-        assert!(registry("activity.list").get("activity.list").is_none());
-        assert!(registry("activity.list").get("task.log").is_some());
-        assert!(registry("task.prune").get("task.prune").is_none());
-        assert!(registry("task.prune").get("task.restore").is_some());
-        assert!(registry("*").names().is_empty());
-        assert!(registry("").get("task.dismiss").is_some());
-        assert!(registry("task.dismiss").get("task.dismiss").is_none());
-        assert!(registry("").get("task.diff").is_some());
-        assert!(registry("task.diff").get("task.diff").is_none());
-        assert!(registry("task.list").get("task.list").is_none());
-        assert!(registry("task.get").get("task.get").is_none());
-        assert!(registry("task.list").get("task.get").is_some());
-        assert!(registry("snapshot.get").get("snapshot.get").is_none());
-        assert!(registry("snapshot.get").get("task.list").is_some());
-        assert!(registry("").get("task.delegate").is_none());
-        assert!(registry("").get("task.stop").is_some());
-        assert!(registry("task.stop").get("task.stop").is_none());
-        assert!(registry("").get("task.answer").is_none());
-        assert!(registry("").get("task.wait").is_some());
-        assert!(registry("task.wait").get("task.wait").is_none());
-        assert!(registry("").get("task.retry").is_none());
-        assert!(registry("").get("task.retry_all").is_none());
-        assert!(registry("").get("task.review").is_some());
-        assert!(registry("task.review").get("task.review").is_none());
-        assert!(registry("").get("task.ask").is_none());
-        assert!(registry("").get("limits.refresh").is_none());
-        assert!(registry("").get("assistant.ask").is_none());
-        assert!(registry("").get("assistant.cancel").is_none());
-        for name in [
-            "msg.send",
-            "msg.wait",
-            "msg.confirm",
-            "msg.close",
-            "msg.policy",
-        ] {
-            assert!(registry("").get(name).is_none(), "{name}");
-        }
-    }
-
-    #[test]
-    fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
-        for name in super::plugins::registered_names() {
-            assert!(super::service_registry("").get(name).is_some(), "{name}");
-            assert!(super::service_registry(name).get(name).is_none(), "{name}");
-            assert!(registry("").get(name).is_none(), "stdio {name}");
-        }
-        for name in [
-            "strategy.list",
-            "strategy.show",
-            "strategy.use",
-            "strategy.save",
-            "strategy.remove",
-            "routing.get",
-            "routing.set",
-            "runner.set",
-            "runner.reorder",
-            "runner.remove",
-            "runner.settings.get",
-            "runner.settings.save",
-            "notifications.get",
-            "notifications.set",
-            "config.get",
-            "config.set",
-            "host.suggest",
-            "host.list",
-            "host.get",
-            "host.add",
-            "host.set",
-            "host.remove",
-            "host.repo.map",
-            "host.account.add",
-            "delegation.pause",
-            "delegation.resume",
-            "mode.hold",
-            "mode.release",
-            "limits.report",
-            "limits.check",
-            "routing.status",
-            "routing.route",
-            "task.retry_options",
-            "task.request_review",
-            "task.stop",
-            "task.review",
-            "task.dismiss",
-            "task.diff",
-            "task.list",
-            "task.get",
-            "snapshot.get",
-            "version.get",
-            "api.list",
-            "api.describe",
-            "machine.get",
-            "machine.set",
-            "machine.rotate",
-            "files.search",
-            "setup.check",
-            "onboarding.skip",
-            "repo.list",
-            "repo.add",
-            "repo.remove",
-            "project.messaging.get",
-            "project.messaging.set",
-            "project.messaging.remove",
-            "msg.inbox",
-            "msg.log",
-            "msg.read",
-            "dispatch.config.get",
-            "dispatch.tree",
-            "dispatch.list",
-            "dispatch.events",
-            "discovery.set",
-            "discovery.respond",
-            "desktop.reconcile.status",
-            "desktop.reconcile.request",
-            "desktop.reconcile.cancel",
-            "assistant.status",
-            "assistant.settings.get",
-            "assistant.settings.set",
-            "assistant.candidates",
-            "assistant.conversations",
-            "assistant.conversation",
-            "assistant.turn",
-            "assistant.delete",
-            "assistant.card.record",
-            "assistant.card.refresh",
-        ] {
-            assert!(super::service_registry("").get(name).is_some(), "{name}");
-            assert!(super::service_registry(name).get(name).is_none(), "{name}");
-        }
-        assert!(super::service_registry("").get("config.get").is_some());
-        assert!(
-            super::service_registry("config.get")
-                .get("config.get")
-                .is_none()
-        );
-        // P4d-4: retired install is native HTTP refuse; stdio stays TypeScript.
-        assert!(super::service_registry("").get("plugin.install").is_some());
-        assert!(
-            super::service_registry("plugin.install")
-                .get("plugin.install")
-                .is_none()
-        );
-        assert!(registry("").get("plugin.install").is_none());
-        assert!(super::service_registry("*").names().is_empty());
-        assert!(registry("").get("plugin.list").is_none());
-    }
-}
+mod tests;
