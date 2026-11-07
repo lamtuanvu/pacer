@@ -140,6 +140,17 @@ async function browserFetch(page: Page, path: string, params?: Record<string, un
   }, { path, params });
 }
 
+// The startup Checking setup gate precedes Dispatch. This sandbox has no planner
+// wiring: with warnings the gate enters on its own, and without a claude binary
+// on PATH it hard-fails and stays until the user chooses Continue anyway.
+async function enterDispatch(page: Page) {
+  const dispatch = page.getByRole("heading", { level: 1, name: "Dispatch" });
+  const continueAnyway = page.getByRole("button", { name: "Continue anyway" });
+  await dispatch.or(continueAnyway).waitFor();
+  if (await continueAnyway.isVisible()) await continueAnyway.click();
+  await dispatch.waitFor();
+}
+
 for (const [name, engine] of Object.entries({ chromium, webkit })) {
   e2e(`${name}: cross-site desktop sign-in and fake delegation reach explicit review`, async () => {
     const s = await sandbox();
@@ -175,10 +186,10 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
       expect((await context.request.get(auth)).status()).toBe(403); // single use
       // Interactive work is available without installing planner hooks/service.
       // Wait for the actual landing screen before reload, including in WebKit.
-      await page.getByRole("heading", { level: 1, name: "Dispatch" }).waitFor();
+      await enterDispatch(page);
       expect(new URL(page.url()).hash).not.toBe("#/setup");
       expect((await page.reload())?.status()).toBe(200);
-      await page.getByRole("heading", { level: 1, name: "Dispatch" }).waitFor();
+      await enterDispatch(page);
 
       const { result: task } = await browserFetch(page, "/v3/ops/task.delegate", {
         repo: s.repo, goal: "Create takeover-change.txt", acceptance: "test -f takeover-change.txt",
