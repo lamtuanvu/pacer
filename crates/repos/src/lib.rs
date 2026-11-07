@@ -12,6 +12,7 @@ mod probe;
 mod tests;
 
 pub use branches::read_branches;
+pub use git::git_read_within;
 pub use identity::{add_repo, canonical, register_repo};
 pub use probe::{Probe, cached_canonical, cached_path, mark_unreachable, schedule_refresh};
 

@@ -1429,6 +1429,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-issues"
+version = "0.0.0"
+dependencies = [
+ "pacer-config",
+ "pacer-foundation",
+ "pacer-lifecycle",
+ "pacer-repos",
+ "regex",
+ "rustix",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "pacer-js-json"
 version = "0.1.0"
 dependencies = [
@@ -1715,6 +1731,7 @@ dependencies = [
  "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
+ "pacer-issues",
  "pacer-lifecycle",
  "pacer-machine-ops",
  "pacer-mdns",
