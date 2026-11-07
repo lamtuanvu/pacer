@@ -1,4 +1,4 @@
-import { clientHello } from "./protocol";
+import { clientHello, negotiate, parseVersions, SESSION_PROTOCOL } from "./protocol";
 import { createConnection } from "node:net";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -7,18 +7,23 @@ import { FrameType, WireDecoder, wire } from "./framing";
 import { readRecording } from "./recording";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
-export interface AttachOptions { replay?:boolean; attempt?:number; control?:boolean; force?:boolean }
+/** control and force apply only to 1.1 hosts. readOnly never sends input, size, focus or take. */
+export interface AttachOptions { replay?:boolean; attempt?:number; control?:boolean; force?:boolean; readOnly?:boolean }
 /** Stateful byte parser: escape sequences may cross stdin chunks. */
 export class AttachKeys {
   private controlling=false;
+  private shared=false;
   private escaped=false;
   private terminalEscape: 'esc'|'csi'|'ss3'|'string'|'stringEsc'|null=null;
   private requested=false;
   private confirming=false;
-  constructor(private send:(bytes:Buffer)=>void,private prompt:(message:string)=>void=()=>{},private takeover=false){}
-  take(force=false){this.requested=true;this.send(wire(FrameType.take,force?{force:true}:{}));}
+  constructor(private send:(bytes:Buffer)=>void,private prompt:(message:string)=>void=()=>{},private takeover=false,private readOnly=false){}
+  take(force=false){if(this.readOnly||this.shared)return;this.requested=true;this.send(wire(FrameType.take,force?{force:true}:{}));}
+  /** A 1.2 host has no controller: keys go straight to the agent unless the viewer is read-only. */
+  sharedHost(){this.shared=true;this.requested=false;this.confirming=false;this.setControl(!this.readOnly);}
   controlState(state:{you?:boolean;controller?:string|null;reason?:string}){
-    this.setControl(state.you===true);
+    if(this.shared)return;
+    this.setControl(state.you===true&&!this.readOnly);
     if(this.requested && (state.you||state.reason==='refused')){
       this.requested=false;
       if(!state.you&&state.controller){
@@ -50,7 +55,8 @@ export class AttachKeys {
       }else if(this.escaped){
         this.escaped=false;
         if(byte===100){flush();return true;}
-        if(byte===114){flush();if(this.takeover)this.prompt("Releasing hands the task back for review.\n");this.send(wire(FrameType.release,{}));}
+        if(byte===114&&this.shared){flush();this.prompt(this.takeover?"Hand the task back from the pacer app.\n":"Every attached terminal can type; there is no control to release.\n");}
+        else if(byte===114){flush();if(this.takeover)this.prompt("Releasing hands the task back for review.\n");this.send(wire(FrameType.release,{}));}
         else if(byte===29)pending.push(29);
         else pending.push(29,byte);
       }else if(byte===29){flush();this.escaped=true;}
@@ -92,16 +98,28 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
   let send:(bytes:Buffer)=>void=()=>{};
   let controlling=false;
   let takeover=false;
+  const readOnly=options.readOnly===true;
+  // Decided by the host's first control frame: true on a host that negotiated 1.2.
+  let shared:boolean|undefined;
   try{takeover=JSON.parse(readFileSync(join(dir,"session.json"),"utf8")).takeover===true;}catch{/* optional metadata */}
-  const keys=new AttachKeys(bytes=>send(bytes),message=>process.stderr.write(message),takeover);
+  const keys=new AttachKeys(bytes=>send(bytes),message=>process.stderr.write(message),takeover,readOnly);
   const input=(data:Buffer)=>{if(keys.push(data))detach();};
-  const title=()=>{if(stdout.isTTY)stdout.write(`\x1b]0;${label.replace(/[\x00-\x1f\x7f]/g,"")} · ${controlling?'controlling':'watching'}\x07`);};
+  const title=()=>{if(stdout.isTTY)stdout.write(`\x1b]0;${label.replace(/[\x00-\x1f\x7f]/g,"")} · ${controlling?(shared?'interactive':'controlling'):'watching'}\x07`);};
   const resize=()=>{if(controlling)send(wire(FrameType.size,{cols:stdout.columns??120,rows:stdout.rows??40}));};
   const stop=()=>detach();
   const draw=(type:number,data:Buffer)=>{
-    if(type===FrameType.control){
+    if(type===FrameType.control&&shared===undefined){
+      const state=JSON.parse(data.toString());
+      shared=(negotiate(SESSION_PROTOCOL,parseVersions(state.versions)??[1,1])??1)>=2;
+      if(shared){
+        keys.sharedHost();controlling=!readOnly;title();
+        // 1.2-only frames go only to a host that negotiated 1.2.
+        if(controlling){send(wire(FrameType.focus,{}));resize();}
+      }else if(options.control&&!readOnly)keys.take(options.force);
+    }
+    if(type===FrameType.control&&!shared){
       const state=JSON.parse(data.toString()),wasControlling=controlling;
-      controlling=state.you===true;title();
+      controlling=state.you===true&&!readOnly;title();
       if(controlling&&!wasControlling)resize();
       if(!controlling&&state.controller&&state.reason!=='refused')process.stderr.write(`Control is held from ${String(state.controller).replace(/[\x00-\x1f\x7f]/g,'')}.\n`);
       keys.controlState(state);
@@ -125,8 +143,7 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
         socket.on("close",detach);socket.on("error",detach);
         socket.resume();
         send=bytes=>{if(!socket.destroyed)socket.write(bytes);};
-        send(wire(FrameType.hello,{v:1,client:"cli",label:process.env.TERM_PROGRAM??process.env.TERM??"cli",cols:stdout.columns ?? 120,rows:stdout.rows ?? 40,...clientHello()}));
-        if(options.control)keys.take(options.force);
+        send(wire(FrameType.hello,{v:1,client:"cli",label:process.env.TERM_PROGRAM??process.env.TERM??"cli",cols:stdout.columns ?? 120,rows:stdout.rows ?? 40,...clientHello(),...(readOnly?{readOnly:true}:{})}));
         await detached;return;
       } catch (error) {
         if(existsSync(join(dir,"session.bridge.pid"))) throw error;

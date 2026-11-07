@@ -14,6 +14,7 @@ import { SESSION_PROTOCOL, writeSessionVersion } from "./protocol";
 import { Recording } from "./recording";
 import { FrameType, WireDecoder, wire } from "./framing";
 import { SecretMasker } from "./masking";
+import { isCursorReport } from "./queries";
 import { killTree } from "../exec/process";
 import { WRAPPER_SH } from "../supervisor/wrapper";
 import type { InteractionMode } from "../tasks/types";
@@ -92,13 +93,13 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
     process.off("unhandledRejection",disableRecording);
   };
   const enqueue=(fn:()=>void|Promise<void>)=>{queue=queue.then(fn).catch(disableRecording);};
-  hub=new ViewerHub(()=>wire(FrameType.snapshot,{...recording.snapshot(),controller:hub!.controller,viewers:hub!.size}),
-    from=>recordingEnabled?recording.since(from):null,enqueue,(kind,label)=>{if(recordingEnabled)try{recording.marker(kind,label);}catch{disableRecording();}},(viewers,controller)=>{
+  hub=new ViewerHub(()=>wire(FrameType.snapshot,{...recording.snapshot(),controller:hub!.controller,active:hub!.active,viewers:hub!.size}),
+    from=>recordingEnabled?recording.since(from):null,enqueue,(kind,label)=>{if(recordingEnabled)try{recording.marker(kind,label);}catch{disableRecording();}},(viewers,controller,active)=>{
       if(controller!==lastController){
         lastController=controller;
         try{writeFileSync(join(dir,'session.activity'),'',{mode:0o600});}catch{/* optional activity */}
       }
-      try{atomic('session.state',JSON.stringify({viewers,controller,cols:recording.term.cols,rows:recording.term.rows}));}catch{/* optional live metadata */}
+      try{atomic('session.state',JSON.stringify({viewers,controller,active,cols:recording.term.cols,rows:recording.term.rows}));}catch{/* optional live metadata */}
     },{
       release:label=>{if(launch.takeover)writeReport(dir,"done",`Handed back by ${label}`,"user");},
       input:bytes=>{
@@ -109,11 +110,11 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
       resize:(cols,rows)=>{
         proc.terminal?.resize(cols,rows);
         try{recording.resize(cols,rows);}catch{disableRecording();}
-        try{atomic('session.state',JSON.stringify({viewers:hub!.size,controller:hub!.controller,cols,rows}));}catch{/* optional metadata */}
+        try{atomic('session.state',JSON.stringify({viewers:hub!.size,controller:hub!.controller,active:hub!.active,cols,rows}));}catch{/* optional metadata */}
         send(wire(FrameType.resize,{cols,rows}));
       },
     },{pacer:currentVersion(),versions:SESSION_PROTOCOL});
-  try{atomic('session.state',JSON.stringify({viewers:0,controller:null,cols:120,rows:40}));}catch{/* optional live metadata */}
+  try{atomic('session.state',JSON.stringify({viewers:0,controller:null,active:null,cols:120,rows:40}));}catch{/* optional live metadata */}
   const send=(bytes:Buffer)=>hub!.broadcast(bytes);
   let proc:Bun.Subprocess;
   try {
@@ -154,11 +155,11 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   for(const sig of ["SIGTERM","SIGINT","SIGHUP"] as const) process.on(sig,stop);
   atomic("child",String(proc.pid));
   try {writeFileSync(join(dir,"session.host"),"builtin",{mode:0o600});} catch { /* optional session metadata */ }
-  // xterm supplies fixed DA replies. OSC colours need explicit handlers.
-  recording.term.onData(reply=>{if(!hub!.controller)proc.terminal?.write(reply);});
+  // The host answers terminal queries itself; the hub strips clients' replies. xterm supplies fixed DA replies.
+  recording.term.onData(reply=>{if(isCursorReport(reply))hub!.answeredCursorReport();proc.terminal?.write(reply);});
   for(const code of [10,11]) recording.term.parser.registerOscHandler(code,body=>{
     if(body!=="?") return false;
-    if(!hub!.controller)proc.terminal?.write(`\x1b]${code};rgb:${code===10?"ffff/ffff/ffff":"0000/0000/0000"}\x1b\\`);return true;
+    proc.terminal?.write(`\x1b]${code};rgb:${code===10?"ffff/ffff/ffff":"0000/0000/0000"}\x1b\\`);return true;
   });
   let path:string | undefined;
   try { path=socketPath(dir); } catch { /* unavailable socket directory does not stop the PTY */ }

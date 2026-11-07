@@ -1381,6 +1381,122 @@
           }
         ]
       }
+    },
+    {
+      "message": "{\"type\":\"focus\"}",
+      "result": {
+        "ok": [
+          {
+            "type": 12,
+            "body": {}
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"focus\"}",
+      "from": 0,
+      "result": {
+        "ok": [
+          {
+            "type": 12,
+            "body": {}
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"focus\"}",
+      "from": 8,
+      "result": {
+        "ok": [
+          {
+            "type": 12,
+            "body": {}
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"deliver\",\"text\":\"answer\"}",
+      "result": {
+        "error": "deliver is not accepted from WebSocket clients"
+      }
+    },
+    {
+      "message": "{\"type\":\"deliver\",\"text\":\"answer\"}",
+      "from": 0,
+      "result": {
+        "error": "deliver is not accepted from WebSocket clients"
+      }
+    },
+    {
+      "message": "{\"type\":\"deliver\",\"text\":\"answer\"}",
+      "from": 8,
+      "result": {
+        "error": "deliver is not accepted from WebSocket clients"
+      }
+    },
+    {
+      "message": "{\"type\":\"hello\",\"v\":1,\"versions\":[1,2],\"readOnly\":true}",
+      "result": {
+        "ok": [
+          {
+            "type": 1,
+            "body": {
+              "v": 1,
+              "versions": [
+                1,
+                2
+              ],
+              "readOnly": true,
+              "client": "app"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"hello\",\"v\":1,\"versions\":[1,2],\"readOnly\":true}",
+      "from": 0,
+      "result": {
+        "ok": [
+          {
+            "type": 1,
+            "body": {
+              "v": 1,
+              "versions": [
+                1,
+                2
+              ],
+              "readOnly": true,
+              "client": "app",
+              "from": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "message": "{\"type\":\"hello\",\"v\":1,\"versions\":[1,2],\"readOnly\":true}",
+      "from": 8,
+      "result": {
+        "ok": [
+          {
+            "type": 1,
+            "body": {
+              "v": 1,
+              "versions": [
+                1,
+                2
+              ],
+              "readOnly": true,
+              "client": "app",
+              "from": 8
+            }
+          }
+        ]
+      }
     }
   ],
   "render": [
@@ -1640,6 +1756,198 @@
         133,
         65279
       ]
+    }
+  ],
+  "queries": [
+    {
+      "hex": "",
+      "cursor": false,
+      "kept": ""
+    },
+    {
+      "hex": "",
+      "cursor": true,
+      "kept": ""
+    },
+    {
+      "hex": "706c61696e",
+      "cursor": false,
+      "kept": "706c61696e"
+    },
+    {
+      "hex": "706c61696e",
+      "cursor": true,
+      "kept": "706c61696e"
+    },
+    {
+      "hex": "1b5b3f36323b323263",
+      "cursor": false,
+      "kept": ""
+    },
+    {
+      "hex": "1b5b3f36323b323263",
+      "cursor": true,
+      "kept": ""
+    },
+    {
+      "hex": "1b5b3e303b3237363b3063",
+      "cursor": false,
+      "kept": ""
+    },
+    {
+      "hex": "1b5b3e303b3237363b3063",
+      "cursor": true,
+      "kept": ""
+    },
+    {
+      "hex": "1b5b3f63",
+      "cursor": false,
+      "kept": ""
+    },
+    {
+      "hex": "1b5b3f63",
+      "cursor": true,
+      "kept": ""
+    },
+    {
+      "hex": "1b5b63",
+      "cursor": false,
+      "kept": "1b5b63"
+    },
+    {
+      "hex": "1b5b63",
+      "cursor": true,
+      "kept": "1b5b63"
+    },
+    {
+      "hex": "611b5b3f313b3263621b5b3e316363",
+      "cursor": false,
+      "kept": "616263"
+    },
+    {
+      "hex": "611b5b3f313b3263621b5b3e316363",
+      "cursor": true,
+      "kept": "616263"
+    },
+    {
+      "hex": "1b5d31303b7267623a666666662f666666662f6666666607",
+      "cursor": false,
+      "kept": ""
+    },
+    {
+      "hex": "1b5d31303b7267623a666666662f666666662f6666666607",
+      "cursor": true,
+      "kept": ""
+    },
+    {
+      "hex": "1b5d31313b7267623a303030302f303030302f303030301b5c",
+      "cursor": false,
+      "kept": ""
+    },
+    {
+      "hex": "1b5d31313b7267623a303030302f303030302f303030301b5c",
+      "cursor": true,
+      "kept": ""
+    },
+    {
+      "hex": "1b5d31313b7267623a303030301b78",
+      "cursor": false,
+      "kept": "1b5d31313b7267623a303030301b78"
+    },
+    {
+      "hex": "1b5d31313b7267623a303030301b78",
+      "cursor": true,
+      "kept": "1b5d31313b7267623a303030301b78"
+    },
+    {
+      "hex": "1b5d31313b756e7465726d696e61746564",
+      "cursor": false,
+      "kept": "1b5d31313b756e7465726d696e61746564"
+    },
+    {
+      "hex": "1b5d31313b756e7465726d696e61746564",
+      "cursor": true,
+      "kept": "1b5d31313b756e7465726d696e61746564"
+    },
+    {
+      "hex": "1b5d31323b7267623a303030302f303030302f3030303007",
+      "cursor": false,
+      "kept": "1b5d31323b7267623a303030302f303030302f3030303007"
+    },
+    {
+      "hex": "1b5d31323b7267623a303030302f303030302f3030303007",
+      "cursor": true,
+      "kept": "1b5d31323b7267623a303030302f303030302f3030303007"
+    },
+    {
+      "hex": "1b5b31323b343052",
+      "cursor": false,
+      "kept": "1b5b31323b343052"
+    },
+    {
+      "hex": "1b5b31323b343052",
+      "cursor": true,
+      "kept": ""
+    },
+    {
+      "hex": "1b5b3f31323b343052",
+      "cursor": false,
+      "kept": "1b5b3f31323b343052"
+    },
+    {
+      "hex": "1b5b3f31323b343052",
+      "cursor": true,
+      "kept": ""
+    },
+    {
+      "hex": "1b5b3f31323b34303b3152",
+      "cursor": false,
+      "kept": "1b5b3f31323b34303b3152"
+    },
+    {
+      "hex": "1b5b3f31323b34303b3152",
+      "cursor": true,
+      "kept": ""
+    },
+    {
+      "hex": "1b5b3e31323b343052",
+      "cursor": false,
+      "kept": "1b5b3e31323b343052"
+    },
+    {
+      "hex": "1b5b3e31323b343052",
+      "cursor": true,
+      "kept": "1b5b3e31323b343052"
+    },
+    {
+      "hex": "1b5b313b3252781b5b313252",
+      "cursor": false,
+      "kept": "1b5b313b3252781b5b313252"
+    },
+    {
+      "hex": "1b5b313b3252781b5b313252",
+      "cursor": true,
+      "kept": "781b5b313252"
+    },
+    {
+      "hex": "1b5b411b5b3f36323b3232",
+      "cursor": false,
+      "kept": "1b5b411b5b3f36323b3232"
+    },
+    {
+      "hex": "1b5b411b5b3f36323b3232",
+      "cursor": true,
+      "kept": "1b5b411b5b3f36323b3232"
+    },
+    {
+      "hex": "ff1b5b3f316380",
+      "cursor": false,
+      "kept": "ff80"
+    },
+    {
+      "hex": "ff1b5b3f316380",
+      "cursor": true,
+      "kept": "ff80"
     }
   ]
 }

@@ -29,14 +29,17 @@ test("negotiation picks the highest shared version and treats a missing range as
   expect(negotiate([1, 3], [1, 2])).toBe(2);
   expect(parseVersions([1, 2])).toEqual([1, 2]);
   for (const bad of [[2, 1], [0, 1], [1], "1", [1.5, 2], null]) expect(parseVersions(bad)).toBeNull();
-  expect(SESSION_PROTOCOL).toEqual([1, 1]);
+  expect(SESSION_PROTOCOL).toEqual([1, 2]);
+  expect(negotiate(SESSION_PROTOCOL, [1, 1])).toBe(1);
+  expect(negotiate(null, SESSION_PROTOCOL)).toBe(1);
 });
 
 test("the support window covers the last three minors and hosts without session.version", () => {
   expect(hostSupported(null, "0.12.0")).toBe(true);
   expect(hostSupported({ pacer: "0.9.4", versions: [1, 1] }, "0.12.0")).toBe(true);
   expect(hostSupported({ pacer: "0.8.0", versions: [1, 1] }, "0.12.0")).toBe(false);
-  expect(hostSupported({ pacer: "0.12.0", versions: [2, 2] }, "0.12.0")).toBe(false);
+  expect(hostSupported({ pacer: "0.12.0", versions: [2, 2] }, "0.12.0")).toBe(true);
+  expect(hostSupported({ pacer: "0.12.0", versions: [3, 3] }, "0.12.0")).toBe(false);
   expect(hostOlder(null, "0.12.0")).toBe(true);
   expect(hostOlder({ pacer: "0.12.0", versions: [1, 1] }, "0.12.0")).toBe(false);
   expect(hostOlder({ pacer: "0.11.3", versions: [1, 1] }, "0.12.0")).toBe(true);
@@ -47,7 +50,7 @@ test("session.version is owner-only, renamed into place and read strictly", () =
   writeSessionVersion(dir, { pid: 42, bootId: "b", birth: "1" });
   expect(statSync(join(dir, "session.version")).mode & 0o777).toBe(0o600);
   expect(readdirSync(dir)).toEqual(["session.version"]);
-  expect(readSessionVersion(dir)).toMatchObject({ versions: [1, 1], identity: { pid: 42 } });
+  expect(readSessionVersion(dir)).toMatchObject({ versions: [1, 2], identity: { pid: 42 } });
   writeFileSync(join(dir, "session.version"), "{\"pacer\":1}");
   expect(readSessionVersion(dir)).toBeNull();
   expect(hostVersionView(dir, "0.12.0")).toEqual({ pacer: null, older: true, supported: true });
@@ -64,6 +67,18 @@ test("a host replies with its range only on the first control frame of a client 
   expect(controls(legacy)[0].versions).toBeUndefined();
   modern.emit("data", wire(FrameType.take, {}));
   expect(controls(modern).at(-1).versions).toBeUndefined();
+  for (const p of [modern, legacy]) expect(decoded(p).every(f => [FrameType.snapshot, FrameType.control, FrameType.output, FrameType.resize, FrameType.resync, FrameType.exit].includes(f.type as never))).toBe(true);
+});
+
+test("a 1.2 host advertises its range and never sends a 1.1 client a controller or a 1.2-only frame", () => {
+  const h = new ViewerHub(() => wire(FrameType.snapshot, { outputOffset: 0, controller: null }), () => null, fn => fn(), () => {}, () => {}, { input: () => {}, resize: () => {} }, { pacer: "0.14.0", versions: SESSION_PROTOCOL });
+  const modern = new Peer(), legacy = new Peer();
+  h.add(modern as never); h.add(legacy as never);
+  modern.emit("data", wire(FrameType.hello, { v: 1, versions: [1, 2], pacer: "0.14.0" }));
+  legacy.emit("data", wire(FrameType.hello, { v: 1 }));
+  expect(controls(modern)[0]).toMatchObject({ controller: null, you: true, versions: [1, 2] });
+  legacy.emit("data", wire(FrameType.take, {})); legacy.emit("data", wire(FrameType.input, Buffer.from("x")));
+  expect(controls(legacy).map(c => c.controller)).toEqual([null, null]);
   for (const p of [modern, legacy]) expect(decoded(p).every(f => [FrameType.snapshot, FrameType.control, FrameType.output, FrameType.resize, FrameType.resync, FrameType.exit].includes(f.type as never))).toBe(true);
 });
 

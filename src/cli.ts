@@ -96,7 +96,7 @@ const USAGE = `usage: pacer <command>
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   report --task <task-id> --outcome done|failed|needs-input|running --summary <text>
   takeover <task-id> [--no-attach]
-  attach <task-id> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
+  attach <task-id> [--read-only] [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]
   stop <task-id> [--json]                         stop a running task
   answer <task-id> "<text>"                       answer a question; resumes the session or retries
   send <task-id> "<message>" [--force] [--json]  deliver a message into a running interactive lane's live terminal
@@ -684,8 +684,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       }catch(e){return {code:2,out:"",err:explain(e)};}
     }
     case "attach": {
-      const {opts,pos}=parseFlags(rest,["replay","control","force"]);
-      if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","control","force","attempt","open"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"};
+      const {opts,pos}=parseFlags(rest,["replay","control","force","read-only"]);
+      if(pos.length!==1 || Object.keys(opts).some(k=>!["replay","control","force","read-only","attempt","open"].includes(k))) return {code:2,out:"",err:"usage: pacer attach <task> [--read-only] [--control] [--force] [--replay] [--attempt <n>] [--open [terminal|tmux|orca]]"};
       if(opts.attempt!==undefined && (typeof opts.attempt!=="string" || !/^[1-9]\d*$/.test(opts.attempt))) return {code:2,out:"",err:"--attempt requires a positive integer"};
       try {
         if(opts.open!==undefined){
@@ -699,7 +699,9 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         }
         const attempt=opts.attempt===undefined?undefined:Number(opts.attempt);
         const dir=attachDirectory(ctx,pos[0],attempt);
-        await attachSession(dir,{replay:opts.replay===true,control:opts.control===true,force:opts.force===true,attempt},`pacer ${pos[0]}`);
+        // Executors cannot send or answer (API-5); attaching must not type around that.
+        const readOnly=opts["read-only"]===true||isExecutorSession(ctx);
+        await attachSession(dir,{replay:opts.replay===true,control:opts.control===true,force:opts.force===true,readOnly,attempt},`pacer ${pos[0]}`);
         return {code:0,out:"",err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
     }

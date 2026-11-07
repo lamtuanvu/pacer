@@ -17,6 +17,7 @@ import {
 } from "../../src/serve/session-ws";
 import { WireDecoder, FrameType, wire } from "../../src/session/framing";
 import { renderSessionFrame } from "../../src/session/attach";
+import { stripQueryReplies } from "../../src/session/queries";
 import { fakeCtx } from "../../test/helpers";
 const attempt = (f: () => unknown) => {
   try {
@@ -220,6 +221,9 @@ export function recordControl() {
     JSON.stringify({ type: "bogus" }),
     "bad",
     JSON.stringify({ type: "hello", v: 1 }),
+    JSON.stringify({ type: "focus" }),
+    JSON.stringify({ type: "deliver", text: "answer" }),
+    JSON.stringify({ type: "hello", v: 1, versions: [1, 2], readOnly: true }),
   ].flatMap((message) =>
     [undefined, 0, 8].map((from) => ({
       message,
@@ -301,6 +305,33 @@ export function recordControl() {
       (_, i) => label.replace(/[\x00-\x1f\x7f]/g, "").charCodeAt(i),
     ),
   }));
+  const queries = [
+    "",
+    "plain",
+    "\u001b[?62;22c",
+    "\u001b[>0;276;0c",
+    "\u001b[?c",
+    "\u001b[c",
+    "a\u001b[?1;2cb\u001b[>1cc",
+    "\u001b]10;rgb:ffff/ffff/ffff\u0007",
+    "\u001b]11;rgb:0000/0000/0000\u001b\\",
+    "\u001b]11;rgb:0000\u001bx",
+    "\u001b]11;unterminated",
+    "\u001b]12;rgb:0000/0000/0000\u0007",
+    "\u001b[12;40R",
+    "\u001b[?12;40R",
+    "\u001b[?12;40;1R",
+    "\u001b[>12;40R",
+    "\u001b[1;2Rx\u001b[12R",
+    "\u001b[A\u001b[?62;22",
+    "\u00ff\u001b[?1c\u0080",
+  ].flatMap((text) =>
+    [false, true].map((cursor) => ({
+      hex: Buffer.from(text, "latin1").toString("hex"),
+      cursor,
+      kept: stripQueryReplies(Buffer.from(text, "latin1"), cursor).toString("hex"),
+    })),
+  );
   return {
     session,
     terminal,
@@ -313,6 +344,7 @@ export function recordControl() {
     binary,
     offsets,
     labels,
+    queries,
   };
 }
 if (import.meta.main)

@@ -430,7 +430,7 @@ test("controller-only input and size use the queued identity even for pipelined 
   } finally {hub.destroy();}
 });
 
-test.skipIf(!canBindSocket)("live control resizes PTY, preserves last size and records labeled changes", async () => {
+test.skipIf(!canBindSocket)("a 1.1 client's take on a 1.2 host makes it active: its size applies, others' sizes wait, and the last size survives", async () => {
   const dir=temp(),sockets:Socket[]=[];
   try {
     startRun({dir,cwd:dir,env:process.env,session:'pty',argv:['/bin/sh','-c','echo READY; sleep 30']});
@@ -450,7 +450,7 @@ test.skipIf(!canBindSocket)("live control resizes PTY, preserves last size and r
     a.socket.write(wire(FrameType.size,{cols:92,rows:31}));
     await until(()=>a.frames.some(f=>f.type===FrameType.resize));
     const state=JSON.parse(readFileSync(join(dir,'session.state'),'utf8'));
-    expect(state).toMatchObject({cols:92,rows:31,controller:'cli:driver'});
+    expect(state).toMatchObject({cols:92,rows:31,controller:null,active:'cli:driver'});
     b.socket.write(wire(FrameType.size,{cols:1,rows:1}));
     a.socket.write(wire(FrameType.release,{}));
     await until(()=>a.frames.some(f=>f.type===FrameType.control&&JSON.parse(f.data.toString()).reason==='released'));
@@ -458,10 +458,40 @@ test.skipIf(!canBindSocket)("live control resizes PTY, preserves last size and r
     expect(JSON.parse(c.frames[0].data.toString())).toMatchObject({cols:92,rows:31,controller:null});
     const replay=await replayRecording(dir);expect(replay.snapshot()).toMatchObject({cols:92,rows:31});replay.dispose();
     const markers=decodeLog(readFileSync(join(dir,'session.log'))).frames.filter(f=>f.type===3).map(f=>JSON.parse(f.data.toString()));
-    expect(markers).toContainEqual({event:'control-taken',label:'cli:driver'});
-    expect(markers).toContainEqual({event:'control-released',label:'cli:driver'});
+    expect(markers).toContainEqual({event:'attach',label:'cli:driver'});
+    expect(markers.some(m=>String(m.event).startsWith('control-'))).toBe(false);
   } finally {for(const socket of sockets)socket.destroy();await stopRun(dir,{graceMs:1500});rmSync(dir,{recursive:true,force:true});}
 },10000);
+
+test.skipIf(!canBindSocket)("the host answers a terminal query once and strips every client's reply while both clients type", async () => {
+  const dir=temp(),sockets:Socket[]=[];
+  try {
+    startRun({dir,cwd:dir,env:process.env,session:'interactive',argv:['/bin/sh','-c','stty raw -echo; printf "Q\\033[c"; sleep 1.5; dd bs=4096 count=1 of=got 2>/dev/null; sleep 30']});
+    const {sessionSocket}=await import('../src/session/service');
+    await until(()=>existsSync(sessionSocket(dir)));
+    const connect=async(label:string,hello:Record<string,unknown>)=>{
+      const socket=createConnection(sessionSocket(dir)),decoder=new WireDecoder(),frames:{type:number;data:Buffer}[]=[];sockets.push(socket);
+      socket.on('data',b=>frames.push(...decoder.push(Buffer.from(b))));
+      await new Promise<void>((resolve,reject)=>{socket.once('connect',resolve);socket.once('error',reject);});
+      socket.write(wire(FrameType.hello,{v:1,client:'cli',label,cols:80,rows:24,...hello}));
+      return {socket,frames};
+    };
+    const modern=await connect('modern',{versions:[1,2]}),legacy=await connect('legacy',{});
+    const sawQuery=(frames:{type:number;data:Buffer}[])=>Buffer.concat(frames.filter(f=>f.type===FrameType.output||f.type===FrameType.snapshot).map(f=>f.data)).includes('Q');
+    await until(()=>sawQuery(modern.frames)&&sawQuery(legacy.frames));
+    modern.socket.write(wire(FrameType.input,Buffer.from('\x1b[?62;22cA')));
+    await until(()=>JSON.parse(readFileSync(join(dir,'session.state'),'utf8')).active==='cli:modern');
+    legacy.socket.write(wire(FrameType.take,{}));legacy.socket.write(wire(FrameType.input,Buffer.from('\x1b[?1;2cB')));
+    await until(()=>existsSync(join(dir,'got'))&&readFileSync(join(dir,'got'),'latin1').length>0,5000);
+    const got=readFileSync(join(dir,'got'),'latin1');
+    expect(got.match(/\x1b\[\?[\d;]*c/g)).toHaveLength(1);
+    expect(got).toMatch(/^\x1b\[\?[\d;]*cAB$/);
+    expect(JSON.parse(readFileSync(join(dir,'session.state'),'utf8'))).toMatchObject({controller:null,active:'cli:legacy'});
+    const markers=decodeLog(readFileSync(join(dir,'session.log'))).frames.filter(f=>f.type===3).map(f=>JSON.parse(f.data.toString()));
+    expect(markers).toContainEqual({event:'input',label:'cli:modern'});
+    expect(markers).toContainEqual({event:'input',label:'cli:legacy'});
+  } finally {for(const socket of sockets)socket.destroy();await stopRun(dir,{graceMs:1500});rmSync(dir,{recursive:true,force:true});}
+},15000);
 
 test('recorded resize survives replay without output',async()=>{
   const dir=temp();try{
@@ -497,6 +527,26 @@ test('attach control forwards bytes and parses split escape commands',()=>{
   keys.setControl(false);keys.push(Buffer.from('c'));
   expect(new WireDecoder().push(sent[1])[0].type).toBe(FrameType.take);
   keys.setControl(true);expect(keys.push(Buffer.from('\x1dd'))).toBe(true);
+});
+test('attach keys on a 1.2 host type directly, never take or release, and still detach',()=>{
+  const sent:Buffer[]=[],prompts:string[]=[],keys=new AttachKeys(b=>sent.push(b),s=>prompts.push(s),true);
+  keys.sharedHost();
+  keys.controlState({controller:null,you:false,reason:'released'});
+  expect(keys.push(Buffer.from('qc'))).toBe(false);
+  keys.push(Buffer.from([29,114]));keys.take(true);
+  const frames=new WireDecoder().push(Buffer.concat(sent));
+  expect(frames.map(f=>f.type)).toEqual([FrameType.input]);expect(frames[0].data.toString()).toBe('qc');
+  expect(prompts).toHaveLength(1);
+  expect(keys.push(Buffer.from('\x1dd'))).toBe(true);
+});
+test('read-only attach keys never send input or take, on either host',()=>{
+  for(const shared of [false,true]){
+    const sent:Buffer[]=[],keys=new AttachKeys(b=>sent.push(b),()=>{},false,true);
+    if(shared)keys.sharedHost();
+    keys.push(Buffer.from('typed c'));keys.take(true);keys.controlState({controller:null,you:true});keys.push(Buffer.from('more'));
+    expect(sent).toEqual([]);
+    expect(keys.push(Buffer.from('q'))).toBe(true);
+  }
 });
 test('losing control resets an incomplete escape prefix',()=>{
   const sent:Buffer[]=[],keys=new AttachKeys(bytes=>sent.push(bytes));keys.setControl(true);

@@ -33,7 +33,7 @@ pacer session end <task-id>
 pacer session resume <task-id>
 ```
 
-Use `--checkout /path/to/checkout` instead of `--base` for existing files. Add `--json` for structured results. In the TUI, `n` starts an interactive session and Enter opens its terminal; the existing `d` delegation flow remains available.
+Use `--checkout /path/to/checkout` instead of `--base` for existing files. Add `--json` for structured results. On sessions started by this pacer version, every attached terminal can type and `--control` is not needed. The terminal size follows the terminal that most recently typed or gained focus. `pacer attach --read-only` only watches, and `pacer attach` run from an executor session is always read-only. Sessions started by an older pacer keep the take-control flow until they end. In the TUI, `n` starts an interactive session and Enter opens its terminal; the existing `d` delegation flow remains available.
 
 Implementation verification and live agent/version/platform coverage are recorded in the change's evidence report. Do not infer verified feature parity from an installed agent or a passing terminal-renderer test.
 

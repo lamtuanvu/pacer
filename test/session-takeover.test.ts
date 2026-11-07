@@ -180,29 +180,34 @@ test("takeover release key explains the handback before sending release",()=>{
  expect(events).toEqual(["Releasing hands the task back for review.\n","release"]);
 });
 
-test.skipIf(!canInspect)("controller release hands the task to verification; disconnect leaves it driving",async()=>{
+test.skipIf(!canInspect)("on a 1.2 host a 1.1 client's release hands the task to verification; disconnect leaves it driving",async()=>{
  const {ctx,task,deps}=fixture();
  const running=runTask(ctx,task.id,deps);
  let socket:ReturnType<typeof createConnection>|undefined;
+ let taken=false;
  const connect=async(dir:string)=>{
-  const peer=createConnection(sessionSocket(dir));peer.on("error",()=>{});
+  const peer=createConnection(sessionSocket(dir)),decoder=new WireDecoder();peer.on("error",()=>{});taken=false;
+  peer.on("data",b=>{for(const f of decoder.push(Buffer.from(b)))if(f.type===FrameType.control&&JSON.parse(f.data.toString()).you)taken=true;});
   await new Promise<void>((resolve,reject)=>{peer.once("connect",resolve);peer.once("error",reject);});
+  // No version range: the client negotiates 1.1 and keeps take/release.
   peer.write(wire(FrameType.hello,{v:1,client:"cli",label:"driver",cols:80,rows:24}));
   peer.write(wire(FrameType.take,{}));
   return peer;
  };
+ const viewers=(dir:string)=>{try{return JSON.parse(readFileSync(join(dir,"session.state"),"utf8")).viewers;}catch{return -1;}};
  try{
   await until(()=>readTask(ctx,task.id)?.run?.agentSession);
   await takeoverTask(ctx,task.id);
   const dir=readTask(ctx,task.id)!.run!.dir;
   socket=await connect(dir);
-  await until(()=>readRun(dir).controller);
+  await until(()=>taken);
+  expect(readRun(dir).controller ?? null).toBeNull();
   socket.destroy();
-  await until(()=>!readRun(dir).controller);
+  await until(()=>viewers(dir)===0);
   expect(readTask(ctx,task.id)?.takeover?.state).toBe("driving");
   expect(existsSync(join(dir,"report.json"))).toBe(false);
   socket=await connect(dir);
-  await until(()=>readRun(dir).controller);
+  await until(()=>taken);
   socket.write(wire(FrameType.release,{}));
   const result=await running;
   expect(result.state).toBe("done");
