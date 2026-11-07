@@ -20,7 +20,7 @@ fn providers(ctx: &Ctx) -> Vec<String> {
         .unwrap_or_default()
 }
 
-pub(super) fn files_search_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn files_search_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     let ctx = ctx.clone();
     Box::pin(async move {
         tokio::task::spawn_blocking(move || {
