@@ -2,8 +2,7 @@
 //! `src/discovery/state.ts`). Both are locked read-modify-writes of
 //! `discovery/state.json` followed by a `discovery` config publication.
 //!
-//! Reads and `discovery.network.*` need the current-network probe, and
-//! `respond` `pair` hands over to a pairing plugin; those stay forwarded. So
+//! `respond` `pair` hands over to a pairing plugin and stays forwarded. So
 //! does a state file that Rust cannot rewrite with `JSON.stringify` bytes and
 //! semantics: unreadable or unparsable text, non-integer or unsafe numbers,
 //! array-index or `__proto__` keys, or fields of a type the handlers would
@@ -19,11 +18,11 @@ use pacer_foundation::{
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 
-fn invalid(message: impl Into<String>) -> CoreError {
+pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-fn type_name(value: &Value) -> &'static str {
+pub(crate) fn type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -58,9 +57,9 @@ fn path(ctx: &Ctx) -> PathBuf {
 }
 
 /// `readState`: the merged document and whether the file failed closed.
-struct State {
-    doc: Map<String, Value>,
-    corrupt: bool,
+pub(crate) struct State {
+    pub(crate) doc: Map<String, Value>,
+    pub(crate) corrupt: bool,
 }
 
 impl State {
@@ -72,7 +71,7 @@ impl State {
         doc
     }
 
-    fn object(&self, key: &str) -> Option<&Map<String, Value>> {
+    pub(crate) fn object(&self, key: &str) -> Option<&Map<String, Value>> {
         self.doc.get(key).and_then(Value::as_object)
     }
 
@@ -108,7 +107,7 @@ fn canonical_members(map: &Map<String, Value>) -> bool {
 }
 
 /// `readState`, or None when this state must stay with TypeScript.
-fn read_state(ctx: &Ctx) -> Option<State> {
+pub(crate) fn read_state(ctx: &Ctx) -> Option<State> {
     let bytes = match std::fs::read(path(ctx)) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -192,25 +191,31 @@ pub fn discovery_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
                 Some(_) => true,
             }
         }
+        "discovery.list" | "discovery.network.get" | "discovery.network.set" => {
+            read_state(ctx).is_none_or(|state| !crate::network_ops::reads_native(&state))
+        }
         _ => false,
     }
 }
 
+/// The state file changed between the forwarding decision and the handler.
+pub(crate) fn unusable() -> CoreError {
+    CoreError::new(
+        Code::Unavailable,
+        "The discovery state file changed while it was being updated",
+    )
+    .hint("Try again.")
+}
+
 /// `updateState`: locked read-modify-write with the networksRev check.
-fn update_state(
+pub(crate) fn update_state(
     ctx: &Ctx,
     expect: Option<i64>,
     recover: bool,
     change: impl FnOnce(&mut State) -> Result<(), CoreError>,
 ) -> Result<State, CoreError> {
     with_lock(ctx, "discovery", LockOptions::default(), || {
-        let mut state = read_state(ctx).ok_or_else(|| {
-            CoreError::new(
-                Code::Unavailable,
-                "The discovery state file changed while it was being updated",
-            )
-            .hint("Try again.")
-        })?;
+        let mut state = read_state(ctx).ok_or_else(unusable)?;
         if state.corrupt && !recover {
             return Err(CoreError::new(
                 Code::Conflict,
@@ -251,7 +256,7 @@ fn update_state(
 }
 
 /// `z.number().int().nonnegative().safe()`
-fn expect_rev(value: &Value, issues: &mut Vec<String>) -> Option<i64> {
+pub(crate) fn expect_rev(value: &Value, issues: &mut Vec<String>) -> Option<i64> {
     let Some(n) = value.as_f64() else {
         issues.push(format!(
             "expect_rev: Invalid input: expected number, received {}",
@@ -280,7 +285,7 @@ fn expect_rev(value: &Value, issues: &mut Vec<String>) -> Option<i64> {
     (issues.len() == before).then_some(n as i64)
 }
 
-fn object(params: &Value) -> Result<Map<String, Value>, CoreError> {
+pub(crate) fn object(params: &Value) -> Result<Map<String, Value>, CoreError> {
     match params {
         Value::Null => Ok(Map::new()),
         Value::Object(map) => Ok(map.clone()),
@@ -291,7 +296,7 @@ fn object(params: &Value) -> Result<Map<String, Value>, CoreError> {
     }
 }
 
-fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
+pub(crate) fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
     if ctx
         .env
         .get("PACER_ENFORCEMENT_TOKEN")
@@ -305,7 +310,7 @@ fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn done(issues: Vec<String>) -> Result<(), CoreError> {
+pub(crate) fn done(issues: Vec<String>) -> Result<(), CoreError> {
     if issues.is_empty() {
         Ok(())
     } else {
@@ -384,13 +389,6 @@ pub fn discovery_respond(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         };
         done(issues)?;
         let (id, action) = (id.unwrap_or_default(), action.unwrap_or_default());
-        let unusable = || {
-            CoreError::new(
-                Code::Unavailable,
-                "The discovery state file changed while it was being updated",
-            )
-            .hint("Try again.")
-        };
         let state = read_state(ctx).ok_or_else(unusable)?;
         let seen = match state.object("seen").and_then(|seen| seen.get(&id)) {
             Some(Value::Object(seen)) => seen.clone(),
