@@ -1365,6 +1365,7 @@ dependencies = [
 name = "pacer-dispatch-ops"
 version = "0.0.0"
 dependencies = [
+ "icu_collator",
  "nix",
  "pacer-config",
  "pacer-foundation",
@@ -1485,6 +1486,7 @@ dependencies = [
  "pacer-store",
  "serde_json",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
