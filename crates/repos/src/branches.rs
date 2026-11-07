@@ -1,15 +1,12 @@
 //! `createRepoBranchReader` from `src/core/repos.ts`: picker metadata only, so successful reads
 //! are reused for two seconds. A git read that does not finish in two seconds marks the
 //! folder unreachable and fails the caller.
-use super::mark_unreachable;
-use crate::semantics::js_trim;
+use super::{git::git_read, mark_unreachable};
 use pacer_foundation::api::{Code, CoreError};
+use pacer_js_json::js_semantics::trim as js_trim;
 use std::{
-    io::Read,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::{LazyLock, Mutex, PoisonError, mpsc},
-    thread,
+    sync::{LazyLock, Mutex, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -20,52 +17,15 @@ const MAX_BRANCHES: usize = 50;
 type Cached = ((PathBuf, String), Instant, Vec<String>);
 static CACHE: LazyLock<Mutex<Vec<Cached>>> = LazyLock::new(Mutex::default);
 
-fn not_responding(path: &str) -> CoreError {
-    mark_unreachable(path);
-    CoreError::new(
-        Code::InvalidInput,
-        format!("repo folder is not responding: {path}"),
-    )
-}
-
-/// `boundedGitRead(ctx.run, ["git", "-C", path, ...args], 2000)` with the service environment.
+/// `repoGit`: a read that does not finish in time fails the caller.
 fn git(path: &str, args: &[&str]) -> Result<(i32, String), CoreError> {
-    let mut child = Command::new("git")
-        .arg("-C")
-        .arg(path)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| not_responding(path))?;
-    let mut stdout = child.stdout.take().ok_or_else(|| not_responding(path))?;
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
-        let _ = tx.send(bytes);
-    });
-    let deadline = Instant::now() + TIMEOUT;
-    let Ok(bytes) = rx.recv_timeout(TIMEOUT) else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(not_responding(path));
-    };
-    loop {
-        if let Some(status) = child.try_wait().map_err(|_| not_responding(path))? {
-            return Ok((
-                status.code().unwrap_or(1),
-                String::from_utf8_lossy(&bytes).into_owned(),
-            ));
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(not_responding(path));
-        }
-        thread::sleep(Duration::from_millis(2));
-    }
+    git_read(path, args).ok_or_else(|| {
+        mark_unreachable(path);
+        CoreError::new(
+            Code::InvalidInput,
+            format!("repo folder is not responding: {path}"),
+        )
+    })
 }
 
 /// The current branch first, then local branches, at most fifty.

@@ -60,6 +60,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 3 | `pacer-machine-ops` (`crates/machine-ops`) | Machine identity store, key rotation and the native `machine.*` operation handlers | ≤ 1,500 | none |
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
 | 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities | 3,000–4,000 | `reqwest` |
+| 4 | `pacer-repos` (`crates/repos`) | Repository registry: `repos.json` and linked-checkout aliases, the per-process path probe, branch reads, git identity and registration of absolute checkout paths | ≤ 1,500 | none |
 | 4 | `pacer-messaging-ops` (`crates/messaging-ops`) | Native project messaging read and policy operation handlers (`msg.inbox`, `msg.log`, `msg.read`, `msg.policy`, `tree.status`) over the message store, strategy and project messaging documents | ≤ 1,000 | none |
 | 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations, settings reads and JSON compatibility | ≤ 5,000 | none |
 | 5 | `pacer-engine` (`crates/engine`) | Pacing, usage broker, status | 1,500–2,000 | none |
