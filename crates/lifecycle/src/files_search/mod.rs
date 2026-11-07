@@ -19,10 +19,9 @@ use std::{
 
 mod git;
 mod matching;
-mod repos;
 
+pub use crate::repo_registry::{RepoRef, list_repos_read_only};
 pub use matching::{Scored, match_path, safe_repo_path};
-pub use repos::{RepoRef, list_repos_read_only};
 
 pub struct Limits {
     pub repos: usize,

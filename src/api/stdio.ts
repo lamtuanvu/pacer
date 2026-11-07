@@ -215,7 +215,7 @@ export async function runStdio(
           }
           const op = (r.params as { op?: unknown }).op;
           const bridgeParams = (r.params as { params?: unknown }).params;
-          if (typeof op !== "string" || (op !== "repo.list" && op !== "repo.add") || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
+          if (typeof op !== "string" || op !== "repo.add" || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
             throw new CoreError("invalid_input", "invalid repo bridge params");
           }
           const { repoBridge } = await import("./repo-bridge");

@@ -6,4 +6,6 @@ pub mod host_mut_ops;
 pub mod host_read_ops;
 pub mod p8_bridge_ops;
 pub mod project_messaging_ops;
+pub mod project_strategy_ops;
 pub mod repo_ops;
+pub mod repo_registry_ops;

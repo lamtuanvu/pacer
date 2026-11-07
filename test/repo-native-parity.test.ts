@@ -39,9 +39,10 @@ test("native repo.remove matches TypeScript on a supported registry", async () =
   expect(nativeResult(nativeHome, "repo.remove", { key: "one" })).toEqual({ result: ts });
 });
 
-test("native repo.list validates empty params", () => {
+test("native repo.list strips unknown params like TypeScript", async () => {
   const home = tmpDir();
   mkdirSync(home, { recursive: true });
-  expect(nativeResult(home, "repo.list", {}, [])).toEqual({ result: [] });
-  expect(nativeResult(home, "repo.list", { extra: true }).error?.code).toBe("invalid_input");
+  const ts = await callOp(fakeCtx({ home, pacerHome: home, now: 1_700_000_000 }), "repo.list", { extra: true });
+  expect(nativeResult(home, "repo.list", {})).toEqual({ result: [] });
+  expect(nativeResult(home, "repo.list", { extra: true })).toEqual({ result: ts });
 });

@@ -61,8 +61,15 @@ pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection
 pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
+use pacer_config_ops::{project_strategy_ops, repo_registry_ops};
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
+
+/// `repo.list` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
+pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    repo_registry_ops::repo_list_stays_forwarded(ctx, op)
+        || project_strategy_ops::project_strategy_stays_forwarded(ctx, op, params)
+}
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{
@@ -319,7 +326,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "repo.list",
-        call: p8_bridge_ops::bridge_stub,
+        call: repo_registry_ops::repo_list,
     },
     NativeOp {
         name: "repo.add",
@@ -340,6 +347,22 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "project.messaging.remove",
         call: project_messaging_ops::project_messaging_remove,
+    },
+    NativeOp {
+        name: "project.strategy.list",
+        call: project_strategy_ops::project_strategy_list,
+    },
+    NativeOp {
+        name: "project.strategy.get",
+        call: project_strategy_ops::project_strategy_get,
+    },
+    NativeOp {
+        name: "project.strategy.set",
+        call: project_strategy_ops::project_strategy_set,
+    },
+    NativeOp {
+        name: "project.strategy.remove",
+        call: project_strategy_ops::project_strategy_remove,
     },
     NativeOp {
         name: "msg.inbox",

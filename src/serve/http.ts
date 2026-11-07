@@ -399,7 +399,7 @@ export function startServer(
             const body = await req.json().catch(() => null);
             const op = body && typeof body === "object" && !Array.isArray(body) ? (body as { op?: unknown }).op : undefined;
             const bridgeParams = body && typeof body === "object" && !Array.isArray(body) ? (body as { params?: unknown }).params : undefined;
-            if (typeof op !== "string" || (op !== "repo.list" && op !== "repo.add") || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
+            if (typeof op !== "string" || op !== "repo.add" || !bridgeParams || typeof bridgeParams !== "object" || Array.isArray(bridgeParams)) {
               const { CoreError } = await import("../core/errors");
               throw new CoreError("invalid_input", "invalid repo bridge body");
             }
