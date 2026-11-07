@@ -2,6 +2,8 @@ import type { Socket } from 'node:net';
 import { FrameType, WireDecoder, wire } from './framing';
 import { negotiate, parseVersions } from './protocol';
 const CAP=1024*1024, SLICE=64*1024;
+/** The controller label a viewer's hello is recorded under, in control frames and `session.state`. */
+export const viewerLabel=(h:{client?:unknown;label?:unknown})=>`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').replace(/[\x00-\x1f\x7f]/g,'').slice(0,64)}`;
 interface Viewer {
  socket:Socket; joined:boolean; blocked:boolean; pending:Buffer[]; bytes:number; resync:boolean; label:string;
  snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void; negotiate?:boolean;
@@ -82,7 +84,7 @@ export class ViewerHub {
      if(versions&&negotiate(versions,this.protocol?.versions??[1,1])===null){socket.end(wire(FrameType.exit,{code:1,reason:'This session runs on an older pacer. Reopen to update.'}));return;}
      if(this.size>=16){socket.end(wire(FrameType.exit,{code:1,reason:'Session already has 16 viewers; detach a viewer and try again.'}));return;}
      this.pending.delete(v);this.viewers.add(v);v.joined=true;v.negotiate=!!versions&&!!this.protocol;
-     v.label=`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').replace(/[\x00-\x1f\x7f]/g,'').slice(0,64)}`;
+     v.label=viewerLabel(h);
      this.cachedSnapshot=undefined;this.changed(this.size,this.controller);
      const missing=h.from===undefined?null:this.since(h.from);
      if(missing===null){v.snapshot={bytes:Buffer.concat([this.freshSnapshot(),this.state(v)]),offset:0};this.flush(v);}
