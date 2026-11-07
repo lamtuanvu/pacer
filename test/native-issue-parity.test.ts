@@ -127,7 +127,7 @@ test("native issue.import matches TypeScript results, errors and gh calls", asyn
     {op: "issue.import", params: []}, {op: "issue.import", params: "x"}, {op: "issue.import", params: {}},
     {...imp("217"), env: {PACER_ROLE: "executor"}}, {...imp(1), env: {PACER_ROLE: "executor"}}, {...imp("217"), env: {PACER_ENFORCEMENT_TOKEN: "t"}},
   ]);
-  await compare([imp("217")], () => "/usr/bin:/bin");
+  await compare([imp("217")], home => join(home, "no-bin"));
 }, 600_000);
 
 test("native issue.search matches TypeScript filtering, validation and caching", async () => {
@@ -142,7 +142,7 @@ test("native issue.search matches TypeScript filtering, validation and caching",
     search({query: "x".repeat(257)}), search({query: 1, extra: true}), {op: "issue.search", params: {query: "q"}},
     search({query: "q", repo: "gitlab.com/acme/web"}), search({query: "q", repo: "github.com/acme/loose"}), {...search({query: "q", limit: 0}), env: {PACER_ROLE: "executor"}},
   ]);
-  await compare([search({query: "delegate"})], () => "/usr/bin:/bin");
+  await compare([search({query: "delegate"})], home => join(home, "no-bin"));
 }, 600_000);
 
 test("registries that only TypeScript reads keep issue ops forwarded", () => {

@@ -31,7 +31,7 @@ pub(crate) fn strip_controls(value: &str) -> String {
 }
 
 /// Plain text with controls removed, cut to `max` code points.
-pub fn clean_line(value: &str, max: usize) -> (String, bool) {
+pub(crate) fn clean_line(value: &str, max: usize) -> (String, bool) {
     let stripped = strip_controls(&replace(&LINE_BREAKS, value, " "));
     let trimmed = js_trim(&stripped);
     (
@@ -42,7 +42,7 @@ pub fn clean_line(value: &str, max: usize) -> (String, bool) {
 
 /// Multi-line plain text with controls and hidden Markdown removed and CRLF normalised, cut to
 /// `max_bytes` of UTF-8 on a code point boundary.
-pub fn clean_body(value: &str, max_bytes: usize) -> (String, bool) {
+pub(crate) fn clean_body(value: &str, max_bytes: usize) -> (String, bool) {
     let text = strip_controls(&replace(&NEWLINES, value, "\n"));
     let mut text = replace(&LINK_REFERENCE, &replace(&COMMENT, &text, ""), "");
     if text.len() <= max_bytes {
