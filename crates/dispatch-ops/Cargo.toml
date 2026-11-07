@@ -11,6 +11,8 @@ serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
 pacer-config = { path = "../config" }
 pacer-lifecycle = { path = "../lifecycle" }
+pacer-store = { path = "../store" }
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["signal"] }
