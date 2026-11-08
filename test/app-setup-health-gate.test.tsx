@@ -3,11 +3,14 @@ import { renderToString } from "preact-render-to-string";
 import type { BrowserApi } from "../app/src/data/api";
 import { SetupHealthStage } from "../app/src/screens/setup/SetupHealth";
 import {
+  applyRepair,
   commitSetupHealthLoad,
+  gateRemedyHost,
   loadSetupHealthGate,
   setupHealthFailureReport,
 } from "../app/src/screens/setup/SetupHealthGate";
-import type { SetupHealthReport } from "../src/view-model/setup-health";
+import { remedies } from "../src/install/doctor-remedy";
+import type { SetupHealthReport, SetupHealthRepair } from "../src/view-model/setup-health";
 
 const okReport = (): SetupHealthReport & { skipFullWindow?: boolean } => ({
   trigger: "startup",
@@ -111,4 +114,69 @@ test("SetupHealthGate commit path: skipFullWindow is the only silent ready entry
   expect(ok.action).toBe("stage");
   if (ok.action !== "stage") return;
   expect(ok.autoEnterMs).toBe(600);
+});
+
+function gateHarness(answer = true) {
+  const calls: [string, unknown][] = [], asked: [string, string | undefined, string | undefined][] = [], opened: string[] = [];
+  const api = { call: async (op: string, params: unknown) => {
+    calls.push([op, params]);
+    if (op === "agent.preview") return { revision: "rev-3", agent: (params as { agent: string }).agent, files: ["$HOME/.cursor/hooks.json"] };
+    if (op === "doctor.fix.delegate") return { task: { task_id: "t 7" } };
+    return {};
+  } } as unknown as Pick<BrowserApi, "call">;
+  const host = gateRemedyHost(api, async (message, title, label) => { asked.push([message, title, label]); return answer; }, url => opened.push(url));
+  return { host, calls, asked, opened };
+}
+const repair = (check: string, remedy: SetupHealthRepair["remedy"]): SetupHealthRepair => ({ kind: "remedy", label: remedy!.label, check, remedy });
+
+async function withLocation<T>(run: (location: { hash: string }) => Promise<T>): Promise<T> {
+  const previous = (globalThis as { location?: unknown }).location;
+  const location = { hash: "#/" };
+  (globalThis as { location?: unknown }).location = location;
+  try { return await run(location); } finally { (globalThis as { location?: unknown }).location = previous; }
+}
+
+test("gate repairs use the shared remedy dispatch: automatic remedies rerun, consent only after confirm", async () => {
+  const plain = gateHarness();
+  expect(await applyRepair(repair("Usage codex", remedies.refreshUsage("codex")), plain.host)).toBe("rerun");
+  expect(plain.calls).toEqual([["limits.refresh", { account: "codex" }]]);
+  expect(plain.asked).toEqual([]);
+  const files = gateHarness();
+  expect(await applyRepair(repair("Integration freshness cursor", remedies.updateFiles("cursor")), files.host)).toBe("rerun");
+  expect(files.asked[0]![0]).toContain("$HOME/.cursor/hooks.json");
+  expect(files.calls).toEqual([["agent.preview", { agent: "cursor" }], ["agent.connect", { agent: "cursor", preview_revision: "rev-3", consent: true }]]);
+  const declined = gateHarness(false);
+  expect(await applyRepair(repair("Service", remedies.service("Restart service")), declined.host)).toBe("done");
+  expect(declined.asked[0]![0]).toContain("restarts its background service");
+  expect(declined.calls).toEqual([]);
+});
+
+test("gate review repairs show the files and apply that preview's revision", async () => {
+  const gate = gateHarness();
+  expect(await applyRepair(repair("Install cursor", remedies.review("cursor")), gate.host)).toBe("rerun");
+  expect(gate.asked[0]![0]).toContain("$HOME/.cursor/hooks.json");
+  expect(gate.calls).toEqual([["agent.preview", { agent: "cursor" }], ["agent.connect", { agent: "cursor", consent: true, preview_revision: "rev-3" }]]);
+});
+
+test("gate user remedies sign in or open an allowed link and rerun when the person returns", async () => {
+  const gate = gateHarness();
+  expect(await applyRepair(repair("Usage codex", remedies.signIn("codex", "Codex")), gate.host)).toBe("rerun-on-return");
+  expect(await applyRepair(repair("Removable volume access", remedies.privacySettings()), gate.host)).toBe("rerun-on-return");
+  expect(gate.calls).toEqual([["account.signin", { name: "codex" }]]);
+  expect(gate.opened).toHaveLength(1);
+  expect(gate.opened[0]).toStartWith("x-apple.systempreferences:");
+});
+
+test("gate agent remedies start a fix task after confirm and open it; no remedy opens Diagnostics", async () => {
+  await withLocation(async location => {
+    const gate = gateHarness();
+    expect(await applyRepair(repair("Binary cursor", remedies.agent("Binary cursor")), gate.host)).toBe("navigate");
+    expect(gate.calls).toEqual([["doctor.fix.delegate", { check: "Binary cursor", scope: "fix" }]]);
+    expect(location.hash).toBe("#/tasks/t%207");
+    const declined = gateHarness(false);
+    expect(await applyRepair(repair("Binary cursor", remedies.agent("Binary cursor")), declined.host)).toBe("done");
+    expect(declined.calls).toEqual([]);
+    expect(await applyRepair({ kind: "open.diagnostics", label: "Open Diagnostics" }, gateHarness().host)).toBe("navigate");
+    expect(location.hash).toBe("#/settings/diagnostics");
+  });
 });

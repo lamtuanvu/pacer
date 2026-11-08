@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub const SESSION_PROTOCOL: [u64; 2] = [1, 1];
+pub const SESSION_PROTOCOL: [u64; 2] = [1, 2];
 pub const SESSION_SUPPORT_MINORS: i64 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

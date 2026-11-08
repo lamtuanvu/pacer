@@ -212,6 +212,9 @@ fn parse_task(data: &Value) -> Option<Value> {
             && session.get("viewers").is_some_and(number)
         {
             row["session"] = json!({"host":session["host"],"live":session["live"],"controller":optional_string(session,"controller",64),"viewers":session["viewers"].as_f64().unwrap_or(0.0).floor().clamp(0.0,99.0) as u64});
+            if session.get("active").is_some() {
+                row["session"]["active"] = json!(optional_string(session, "active", 64));
+            }
         }
     }
     if data.get("terminalPresent").is_some_and(Value::is_boolean) {
@@ -271,6 +274,22 @@ fn parse_task(data: &Value) -> Option<Value> {
     }
     if data.get("runnerAlive").is_some_and(Value::is_boolean) {
         row["runnerAlive"] = data["runnerAlive"].clone();
+    }
+    if let Some(v) = optional_string(data, "diagnosticCheck", 200) {
+        row["diagnosticCheck"] = json!(v);
+    }
+    if let Some(recheck) = data.get("diagnosticRecheck") {
+        let level = recheck.get("level");
+        if recheck.get("passed").is_some_and(Value::is_boolean)
+            && recheck.get("at").is_some_and(number)
+            && level.is_some_and(|l| {
+                l.is_null()
+                    || l.as_str()
+                        .is_some_and(|s| ["ok", "warn", "fail", "info"].contains(&s))
+            })
+        {
+            row["diagnosticRecheck"] = json!({"at":recheck["at"],"passed":recheck["passed"],"level":recheck["level"],"detail":optional_string(recheck,"detail",1000).unwrap_or_default()});
+        }
     }
     Some(row)
 }

@@ -226,7 +226,8 @@ test.skipIf(!hostTarget())("installs a real compiled host build", async () => {
   expect(r.code).toBe(0);
   expect(r.out).toContain(`installed: pacer ${PKG_VERSION} (${dir}/pacer)`);
   expect(Bun.spawnSync([join(dir, "pacer"), "--version"]).stdout.toString().trim()).toBe(`pacer ${PKG_VERSION}`);
-}, 180_000);
+// A cold release compile of the Rust binaries on a CI runner can exceed three minutes.
+}, 300_000);
 
 test("installer defaults to GitHub latest and versioned asset URLs", async () => {
   const root = tmpDir();

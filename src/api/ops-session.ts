@@ -2,7 +2,8 @@ import { agentSessionOps } from "./ops-agent-sessions";
 import { z } from "zod";
 import type { OpDef } from "./ops";
 import { sessionInfo, openSession } from "../session/service";
-import { takeoverTask } from "../session/takeover";
+import { handBackTask, takeoverTask } from "../session/takeover";
+import { callerIdentity } from "../session/send";
 import { createConversation, requireConversation } from "../session/create";
 import { prepareSession } from "../session/capabilities";
 import {
@@ -207,6 +208,12 @@ export const sessionOps: Record<string, OpDef> = {
       "Stop a local headless run and resume its conversation interactively.",
     params: z.object({ id }),
     handler: (ctx, p) => takeoverTask(ctx, p.id),
+  }),
+  "task.hand_back": op({
+    description:
+      "End a takeover session and hand the task back for verification.",
+    params: z.object({ id }),
+    handler: (ctx, p, deps) => handBackTask(ctx, p.id, callerIdentity(ctx, deps.client, deps.clientInstance)),
   }),
   "task.session": op({
     description: "Session host, capabilities and available viewers.",

@@ -9,8 +9,12 @@
 //!
 //! Without a live [`SharedOwner`], call/find/spawn/stop stay dark stubs.
 //! Flag-on serve attaches the owner so handlers reach tracked
-//! [`crate::PluginProcess`] children (P4d-2 / P4d-4).
+//! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A `_host.plugin.call`
+//! carrying `spawn` is a Core-sealed call (`crate::bridge_call`): the owner
+//! starts, hellos and authorizes the child before calling it.
 
+use crate::bridge_call::{SealedCall, call_sealed};
+use crate::capability::{CoreForward, CoreRequest};
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND,
     METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, dark_bridge_enabled, prepare_host_run_dir,
@@ -27,13 +31,13 @@ use std::{
     },
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
-    sync::{Mutex, watch},
+    sync::{Mutex, mpsc, oneshot, watch},
 };
 
 /// Soft cap matching the plugin process frame budget (1 MiB).
@@ -340,14 +344,126 @@ async fn handle_connection(
         if line.is_empty() {
             continue;
         }
-        let response = response_for_line(&line, &dispatch).await;
+        let (cancel, cancelled) = watch::channel(false);
+        let (forward, mut forwarded) = mpsc::channel::<CoreRequest>(1);
+        let work = response_for_line(&line, &dispatch, &cancelled, forward);
+        tokio::pin!(work);
+        // One forwarded request at a time; Core answers it before anything else.
+        let mut pending: Option<(Value, oneshot::Sender<Result<Value, Value>>)> = None;
+        let mut forwarded_count = 0_u64;
+        let mut reply_line = Vec::new();
+        let mut pipelined = false;
+        let response = loop {
+            let event = if pending.is_some() {
+                tokio::select! {
+                    response = &mut work => Turn::Done(response),
+                    read = reader.read_until(b'\n', &mut reply_line) => Turn::Read(read),
+                }
+            } else {
+                tokio::select! {
+                    response = &mut work => Turn::Done(response),
+                    Some(request) = forwarded.recv() => Turn::Forward(request),
+                    closed = peer_closed(&mut reader), if !pipelined => Turn::Peer(closed),
+                }
+            };
+            match event {
+                Turn::Done(response) => break Some(response),
+                Turn::Peer(false) => pipelined = true,
+                Turn::Peer(true) | Turn::Read(Ok(0) | Err(_)) => {
+                    let _ = cancel.send(true);
+                    drop(pending.take());
+                    work.await;
+                    break None;
+                }
+                Turn::Forward((method, params, reply)) => {
+                    forwarded_count += 1;
+                    let request_id = json!(format!("core-{forwarded_count}"));
+                    let frame = json!({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params});
+                    match write_raw(reader.get_mut(), &frame).await {
+                        Ok(()) => pending = Some((request_id, reply)),
+                        Err(BridgeError::TooLarge) => {
+                            let _ = reply.send(Err(core_failure(
+                                "too_large",
+                                "capability request exceeds the 1 MiB bridge frame",
+                            )));
+                        }
+                        Err(_) => {
+                            let _ = cancel.send(true);
+                            work.await;
+                            break None;
+                        }
+                    }
+                }
+                Turn::Read(Ok(_)) => {
+                    if reply_line.len() > BRIDGE_MAX_LINE_BYTES || reply_line.last() != Some(&b'\n')
+                    {
+                        let _ = cancel.send(true);
+                        drop(pending.take());
+                        work.await;
+                        break None;
+                    }
+                    let frame = std::mem::take(&mut reply_line);
+                    if let Some((request_id, reply)) = pending.take() {
+                        let _ = reply.send(core_reply(&frame, &request_id));
+                    }
+                }
+            }
+        };
+        let Some(response) = response else {
+            break;
+        };
         let stream = reader.get_mut();
         write_raw(stream, &response).await?;
     }
     Ok(())
 }
 
-async fn response_for_line(line: &[u8], dispatch: &BridgeDispatch) -> Value {
+enum Turn {
+    Done(Value),
+    Forward(CoreRequest),
+    Peer(bool),
+    Read(io::Result<usize>),
+}
+
+fn core_failure(code: &str, message: &str) -> Value {
+    json!({"code": -32000, "message": message, "data": {"code": code}})
+}
+
+/// Core's reply to a forwarded capability request, as the plugin should see it.
+fn core_reply(frame: &[u8], request_id: &Value) -> Result<Value, Value> {
+    let reply = serde_json::from_slice::<Value>(frame)
+        .ok()
+        .filter(|reply| reply.get("id") == Some(request_id));
+    match reply {
+        Some(mut reply) => match reply.get_mut("error").map(Value::take) {
+            Some(error) if error.is_object() => Err(error),
+            Some(_) => Err(core_failure(
+                "plugin_unavailable",
+                "Core sent a malformed capability reply",
+            )),
+            None => Ok(reply
+                .get_mut("result")
+                .map(Value::take)
+                .unwrap_or(Value::Null)),
+        },
+        None => Err(core_failure(
+            "plugin_unavailable",
+            "Core sent a malformed capability reply",
+        )),
+    }
+}
+
+/// True once the peer hung up; buffered pipelined bytes are left for the next read.
+async fn peer_closed(reader: &mut BufReader<UnixStream>) -> bool {
+    reader.fill_buf().await.map_or(true, <[u8]>::is_empty)
+}
+
+async fn response_for_line(
+    line: &[u8],
+    dispatch: &BridgeDispatch,
+    cancel: &watch::Receiver<bool>,
+    forward: CoreForward,
+) -> Value {
     let Ok(value) = serde_json::from_slice::<Value>(line) else {
         return json!({
             "jsonrpc": "2.0",
@@ -379,7 +495,7 @@ async fn response_for_line(line: &[u8], dispatch: &BridgeDispatch) -> Value {
     };
     let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
     match method {
-        METHOD_PLUGIN_CALL => dispatch_call(id, params, dispatch).await,
+        METHOD_PLUGIN_CALL => dispatch_call(id, params, dispatch, cancel, forward).await,
         METHOD_PLUGIN_FIND => dispatch_find(id, params, dispatch).await,
         METHOD_PLUGIN_SPAWN => dispatch_spawn(id, params, dispatch).await,
         METHOD_PLUGIN_STOP => dispatch_stop(id, params, dispatch).await,
@@ -391,7 +507,13 @@ async fn response_for_line(line: &[u8], dispatch: &BridgeDispatch) -> Value {
     }
 }
 
-async fn dispatch_call(id: Value, params: Value, dispatch: &BridgeDispatch) -> Value {
+async fn dispatch_call(
+    id: Value,
+    params: Value,
+    dispatch: &BridgeDispatch,
+    cancel: &watch::Receiver<bool>,
+    forward: CoreForward,
+) -> Value {
     match dispatch {
         BridgeDispatch::Stub => json!({
             "jsonrpc": "2.0",
@@ -414,6 +536,45 @@ async fn dispatch_call(id: Value, params: Value, dispatch: &BridgeDispatch) -> V
                 .and_then(Value::as_u64)
                 .map(Duration::from_millis)
                 .unwrap_or(DEFAULT_CALL_DEADLINE);
+            match SealedCall::from_params(&params) {
+                Err(message) => return rpc_error(id, INVALID_PARAMS, message),
+                Ok(Some(sealed)) => {
+                    let until = Instant::now() + deadline;
+                    return match call_sealed(
+                        owner,
+                        plugin_id,
+                        method,
+                        call_params,
+                        until,
+                        cancel,
+                        sealed,
+                        Some(forward),
+                    )
+                    .await
+                    {
+                        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                        Err(failure) => {
+                            let mut data = json!({"code": failure.code});
+                            if let Some(hint) = failure.hint {
+                                data["hint"] = Value::String(hint);
+                            }
+                            if failure.from_plugin {
+                                data["origin"] = Value::String("plugin".into());
+                            }
+                            json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": {
+                                    "code": PLUGIN_UNAVAILABLE,
+                                    "message": failure.message,
+                                    "data": data
+                                }
+                            })
+                        }
+                    };
+                }
+                Ok(None) => {}
+            }
             let mut guard = owner.lock().await;
             match guard
                 .call_plugin(plugin_id, method, call_params, deadline)

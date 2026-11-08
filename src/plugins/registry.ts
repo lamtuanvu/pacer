@@ -3,7 +3,7 @@ import {ReadOwner} from "./read-owner";
 import {EventSubscription} from "./event-subscription";
 import {answerTaskCapability} from "./task-capability";
 import {POLICY_CAPABILITY_METHODS, POLICY_OBSERVATIONS_FEATURE, POLICY_REDACTION_METADATA_FEATURE, pluginMetadata, type PolicyBeforeParams} from "./policy-protocol";
-import type { PlannerResources } from "./planner-resources";
+import { plannerBorrow, type PlannerResources } from "./planner-resources";
 import { endpointHttpScopes } from "./endpoint-authority";
 import { prepareCredentialBindings, type CredentialBinding } from "./credential-bindings";
 import { BUNDLED } from "../../plugins/bundled";
@@ -16,7 +16,7 @@ import { spawn as nodeSpawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, rmSync, statSync } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
+import { basename, isAbsolute, join, normalize } from "node:path";
 import { appendActivity } from "../activity/log";
 import { CoreError } from "../core/errors";
 import { publish } from "../link/publish";
@@ -28,13 +28,16 @@ import { hostRangeAccepts, readManifestFile } from "./manifest";
 import { prepareStateAuthority } from "./usage-state";
 import { prepareWriteAuthority } from "./capability-write";
 import { prepareFilesystemAuthority } from "./capability-fs";
-import { prepareSpawnAuthority } from "./capability-spawn";
+import { minimalEnvironment, prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
 import { sealCallAuthority, type HostSnapshotSeal } from "./native-call-authority";
+import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
-import { PluginProcess, type SpawnSpec } from "./process";
+import { PluginProcess, type CapabilityTransport, type SpawnSpec } from "./process";
+import { MAX_LINE_BYTES } from "./lines";
+import { PLANNER_INSTALL_FEATURE } from "./planner-protocol";
 import { EXTENSION_METHODS, HELLO_METHOD, NOTIFICATIONS, uiOf, parseViewDocument, parseStatusItemDocument, type ViewDocument, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult } from "./protocol";
 import type { BundledPlugin } from "./types";
 import { currentVersion } from "../update/version";
@@ -93,6 +96,17 @@ const HOST_BINARY_UPLOAD_ISSUER = Symbol("host-binary-upload-issuer");
 const stagedFetchResult = z.object({ handle: z.string().regex(/^[a-f0-9-]{36}$/),
   bytes: z.number().int().nonnegative().max(50 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 type StagedFetchResult = z.infer<typeof stagedFetchResult>;
+/** Under the native owner Core answers these itself; `crates/plugin-runtime` `core_capability` admits the same set. */
+const NATIVE_USAGE_STATE_METHODS = ["capability.usage.state.begin", "capability.usage.state.readChunk",
+  "capability.usage.state.stageChunk", "capability.usage.state.commit", "capability.usage.state.release"];
+/** File reads under a planner borrow or a Codex log directory, which the native read broker does not serve. */
+const NATIVE_CORE_READ_METHODS = ["capability.fs.read", "capability.fs.list", "capability.fs.stat", "capability.fs.readRange"];
+/** Planner methods a read-only (`preview`) borrow serves without file settlement or commands. */
+const NATIVE_READ_ONLY_PLANNER = ["planner.plan", "planner.preview", "planner.detect", "planner.check"];
+/** Planner effects stay a Core transaction: Core pins and runs their commands and keeps the undo work. */
+const NATIVE_PLANNER_EFFECTS = ["planner.install", "planner.uninstall"];
+const NATIVE_PLANNER_COMMAND_METHODS = ["capability.planner.run", "capability.process.outputChunk"];
+const NATIVE_PLANNER_PRIOR_METHOD = "capability.planner.readPriorRange";
 interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProcess; generation: string;
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
@@ -107,6 +121,21 @@ export function surfaceKinds(m: PluginManifest | null): SurfaceKind[] {
   return ui ? KINDS.filter(k => ui[k].length > 0) : [];
 }
 const grantCovers = (m: PluginManifest, g: PluginGrant | null | undefined) => g != null && m.capabilities.every(c => g.capabilities.includes(c.name)) && surfaceKinds(m).every(k => (g.surfaces ?? []).includes(k));
+/**
+ * The native owner pins commands by absolute argv[0] and matches plugin spawns by
+ * its file name, so a bare name must resolve to a path ending in that name. A
+ * command that does not resolve is not issued and its spawn is denied.
+ */
+function pinnedExecutables(ctx: Ctx, resources: CallResources): CallResources {
+  if (!resources.commands?.length) return resources;
+  const commands = resources.commands.flatMap(command => {
+    const exe = command.argv[0];
+    if (exe === undefined || isAbsolute(exe)) return [command];
+    const selected = ctx.which(exe);
+    return selected && isAbsolute(selected) && basename(selected) === exe ? [{ ...command, argv: [selected, ...command.argv.slice(1)] }] : [];
+  });
+  return { ...resources, commands };
+}
 
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { ui: Record<SurfaceKind, number>; surfaces: SurfaceKind[]; id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
@@ -1750,7 +1779,7 @@ export class PluginRegistry {
    * granted manifest; host-supplied resources are validated then echoed sealed.
    * Glob / `$VAR` scopes still need a later host-issued concrete resource path.
    */
-  nativeIssueCallAuthority(ctx: Ctx, id: string, options: { resources?: CallResources; ttlMs?: number; method?: string } = {}) {
+  nativeIssueCallAuthority(ctx: Ctx, id: string, options: { resources?: CallResources; ttlMs?: number; method?: string; accountHome?: string | null } = {}) {
     const e = this.findEntry(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const manifest = e.manifest!;
@@ -1759,6 +1788,7 @@ export class PluginRegistry {
       resources: options.resources,
       ttlMs: options.ttlMs,
       method: options.method,
+      accountHome: options.accountHome,
     });
     let out = sealed;
     if (sealed.resources.hosts.length && grants.includes("hosts")) {
@@ -2310,6 +2340,10 @@ export class PluginRegistry {
       // The canonical classifier may resolve only the key reference of its selected configuration.
       credentialBindings = classifierCredentialBindings(ctx, selected);
     }
+    if (ctx.env.PACER_HOST_SOCKET) {
+      if (credentialBindings !== undefined) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
+      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint);
+    }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
       const run = async () => {
         if(e.plannerRetirement)await e.plannerRetirement;
@@ -2429,6 +2463,122 @@ export class PluginRegistry {
         } finally {
           if (authority) { try { await authority.revoke(); } finally { e.authorities.delete(authority.token); } }
         }
+      };
+      if (e.manifest?.reentrant) return run();
+      return e.queue.run(signal, run);
+    }, options.signal);
+  }
+
+  /**
+   * Flag-on serve: the Rust ProcessOwner starts, hellos and authorizes the child.
+   * Core seals the same spawn spec and call authority it serves over
+   * `/_internal/plugins` and never spawns a second owner for the plugin id.
+   */
+  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string): Promise<T> {
+    const lease = options.plannerResources;
+    const hostOnly = options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
+      ?? options.expectedProcess ?? options.spawnAdmission
+      ?? Object.getOwnPropertySymbols(options).find(key => (options as Record<symbol, unknown>)[key] !== undefined);
+    const effects = lease !== undefined && NATIVE_PLANNER_EFFECTS.includes(method);
+    if (hostOnly !== undefined || (lease && !effects && !NATIVE_READ_ONLY_PLANNER.includes(method)))
+      throw new CoreError("plugin_unavailable", `${method} needs host-side call options the native process owner bridge does not carry`);
+    const issued = options.resources;
+    if (issued?.orcaAttempt || issued?.orcaLive || issued?.hosts?.length)
+      throw new CoreError("plugin_unavailable", `${method} needs orca or hosts resources, which the native process owner bridge does not serve`);
+    const point = method.split(".")[0]!;
+    // Mirrors the flag-off admission checks (line ~2349): a grant revocation or planner config
+    // change during this call must fail it before Core (in withPlannerInstall) commits writes.
+    const checkPlannerGeneration = async (): Promise<void> => {
+      if (e.plannerRetirement) await e.plannerRetirement;
+      if (e.plannerGenerationFailure) throw e.plannerGenerationFailure;
+      if (plannerFingerprint !== e.plannerFingerprint) throw new CoreError("plugin_unavailable", "planner configuration generation changed before admission");
+    };
+    return this.admission.run(deadlineAt, async signal => {
+      const run = async () => {
+        if (signal.aborted || Date.now() >= deadlineAt) throw new CoreError("plugin_timeout", "plugin call expired before execution");
+        if (e.state === "ready" && !e.served.includes(point)) throw new CoreError("plugin_unavailable", `plugin ${e.id} does not serve ${point}`);
+        await checkPlannerGeneration();
+        const remaining = deadlineAt === Infinity ? undefined : Math.max(1, deadlineAt - Date.now());
+        const spawn = this.nativeSpawnSpec(ctx, e.id);
+        const resources = issued && pinnedExecutables(ctx, issued);
+        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
+        // Commands without an issued environment get the flag-off minimal environment of Core.
+        const processEnv: Record<string, string> = Object.assign({}, ...authority.resources.commands
+          .filter(command => !command.cwd && !command.env && !command.secretEnv)
+          .map(command => minimalEnvironment(ctx.env, basename(command.argv[0]!))));
+        // Usage state, planner borrows and Codex log reads stay with Core: the owner forwards coreMethods to this authority.
+        // A planner transaction also keeps its pinned commands, prior record and compensation here.
+        const manifest = e.manifest!;
+        const logReads = issued?.reads.some(read => read.kind === "codex-logs") ?? false;
+        const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
+          ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : [])];
+        const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [] }, {
+          deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
+          grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
+        }) : undefined;
+        // Register `local` so a grant revocation or planner config change (refresh()'s
+        // e.authorities revoke loop) reaches this in-flight call, same as flag-off's `authority`.
+        if (local) e.authorities.set(local.token, local);
+        // Tie the bridge exchange to `local`'s abort so revoking it closes the socket and the
+        // owner compensates, instead of only taking effect after the call has already settled.
+        const bridgeSignal = local ? AbortSignal.any([signal, local.signal]) : signal;
+        // The owner refuses the call unless the child negotiated every requireFeatures entry, so the envelope may claim them.
+        const fits = (message: unknown) => Buffer.byteLength(`${JSON.stringify(message)}\n`, "utf8") <= MAX_LINE_BYTES;
+        let transport: CapabilityTransport | undefined;
+        const onRequest = local && ((name: string, params: unknown) => coreMethods.includes(name)
+          ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
+          : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`)));
+        const call: NativeOwnerCall = {
+          id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
+          scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },
+          ...(Object.keys(processEnv).length ? { processEnv } : {}),
+          ...(coreMethods.length ? { coreMethods } : {}),
+        };
+        let reply: Awaited<ReturnType<typeof callNativeOwner>>;
+        try {
+          if (lease) {
+            lease.bind(local!, method);
+            if (plannerBorrow(local!) !== lease) throw new CoreError("plugin_unavailable", `${method} needs a planner borrow the native process owner bridge does not carry`);
+            if (effects || method === "planner.plan") {
+              call.params = lease.prepareInput(input, value => nativeOwnerCallFits({ ...call, params: value,
+                coreMethods: [...coreMethods, NATIVE_PLANNER_PRIOR_METHOD], requireFeatures: [PLANNER_INSTALL_FEATURE] }));
+              if (effects || Object.hasOwn(call.params as object, "priorRange")) {
+                coreMethods.push(NATIVE_PLANNER_PRIOR_METHOD);
+                call.requireFeatures = [PLANNER_INSTALL_FEATURE];
+                transport = Object.freeze({
+                  features: [PLANNER_INSTALL_FEATURE],
+                  requestFits: (params: unknown) => fits({ jsonrpc: "2.0", id: Number.MAX_SAFE_INTEGER, method: NATIVE_PLANNER_PRIOR_METHOD, params }),
+                  resultFits: (result: unknown) => fits({ jsonrpc: "2.0", id: Number.MAX_SAFE_INTEGER, result }),
+                });
+              }
+            }
+          }
+          if (logReads) await prepareFilesystemAuthority(local!);
+          if (issued?.stores.length) await prepareStateAuthority(local!);
+          reply = await callNativeOwner(socket, call, bridgeSignal, onRequest);
+        } finally {
+          if (local) { try { await local.revoke(); } finally { e.authorities.delete(local.token); } }
+        }
+        // Re-check after the reply: a revocation racing the final reply line must still fail
+        // the call before the planner install/uninstall transaction commits any write.
+        if (effects) await checkPlannerGeneration();
+        for (const line of reply.logs) appendPluginLog(ctx, e.id, "stderr", line);
+        if (reply.hello && e.state !== "ready") {
+          this.nativeMarkReady(ctx, e.id, reply.hello.protocol,
+            reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
+        }
+        const def = EXTENSION_METHODS[method]!;
+        if (method === "usage.read" || method === "executor.available") {
+          const output = def.result.safeParse(reply.value);
+          if (!output.success) throw new CoreError("plugin_refused", method === "usage.read" ? "usage reader returned an invalid reading" : "executor returned an invalid availability result");
+          return output.data as T;
+        }
+        if (method.startsWith("ui.")) {
+          const checked = def.result.safeParse(reply.value);
+          if (!checked.success) { appendPluginLog(ctx, e.id, "stderr", `invalid ${method} result: ${checked.error.issues[0]?.path.join(".") || "result"}`); throw new CoreError("invalid_input", `plugin ${e.id} returned an invalid ${method} result`); }
+          return checked.data as T;
+        }
+        return reply.value as T;
       };
       if (e.manifest?.reentrant) return run();
       return e.queue.run(signal, run);

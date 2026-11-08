@@ -26,7 +26,7 @@ use pacer_plugin_ops::{
 use pacer_plugin_runtime::{
     SharedOwner, SpawnSpec, call_resources_from_value, executor_context_from_value,
     host_snapshots_from_value, observation_bootstrap_from_value, orca_context_from_value,
-    session_for_call, session_from_hello, worktree_context_from_value,
+    ready_info, session_for_call, session_from_hello, worktree_context_from_value,
 };
 use serde_json::{Value, json};
 use std::{
@@ -495,7 +495,8 @@ impl Owner {
                     .call_plugin(id, "plugin.hello", hello.clone(), Duration::from_secs(5))
                     .await
                     .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-                guard.mark_ready(id);
+                // Bridge calls that require a negotiated feature read it from this summary.
+                guard.mark_ready_with(id, ready_info(&hello_result, &hello));
                 let protocol = hello_result["protocol"].as_str().unwrap_or("").to_owned();
                 let mut served = vec!["diagnostic".to_owned()];
                 if let Some(points) = hello_result["contributes"].as_array() {

@@ -80,7 +80,7 @@ Binary WebSocket messages contain complete session wire frames (u8 type, u32 big
 
 Each session accepts 16 viewers. A 17th receives exit with a clear refusal. Each viewer has a 1 MiB output queue; overflow drops pending output and sends resync then a fresh snapshot. Phase 2 is read-only: take/release receive a refusal and input/size do not affect the PTY. Server shutdown closes WebSocket viewers without stopping the host.
 
-Task events include session `{host: "builtin" | "orca" | "none", live, controller, viewers}`; session changes are throttled to once per second. terminalPresent remains for one minor release and equals session.host === orca && session.live. terminal.open accepts a preset or argv template containing {cmd}; templates never run through a shell.
+Task events include session `{host: "builtin" | "orca" | "none", live, controller, active, viewers}`; `active` names the client that last typed or focused the terminal, and `controller` is deprecated and always null on session protocol 1.2 hosts. Session changes are throttled to once per second. terminalPresent remains for one minor release and equals session.host === orca && session.live. terminal.open accepts a preset or argv template containing {cmd}; templates never run through a shell.
 
 ## JSON-RPC methods
 
@@ -3971,9 +3971,41 @@ Params JSON Schema:
 }
 ```
 
+### `doctor.fix.delegate`
+
+Start a pacer task to fix (scope fix) or investigate (scope investigate, changes nothing) one failing diagnostics check. The brief is built from the service's latest doctor result for that check, never from client text, and goes through task.delegate routing, pacing and review. The task records diagnosticCheck; accepting it reruns the check and records diagnosticRecheck. Task reads (task.get, task.list, snapshot tasks) expose both.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "check": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "fix",
+        "investigate"
+      ]
+    }
+  },
+  "required": [
+    "check",
+    "scope"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `doctor.run`
 
-Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.
+Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed. Each warning or failure carries one remedy { kind: auto|review|user|agent|internal, label, op?, params?, consent?, url?, secondary? } naming a registered operation; params never include consent. consent: true marks an op that requires it: show what will change and send consent: true only after the user's click.
 
 Params JSON Schema:
 
@@ -7874,6 +7906,29 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `task.hand_back`
+
+End a takeover session and hand the task back for verification.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,128}$"
     }
   },
   "required": [

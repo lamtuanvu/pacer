@@ -27,8 +27,12 @@ details after a short debounce. Open session panels retain their output stream.
 The task page (`#/tasks/<id>`) also follows events rather than polling task details.
 Task pages show the complete display title, with a copy-ID button in the breadcrumb.
 Primary task links on Dispatch and Tasks open the selected workspace in every state. The secondary **Task history** link retains the complete task report and diagnostic routes. Queued tasks show the service-recorded waiting reason and next step, then automatically follow the session when it becomes available. No queue position or ETA is inferred. Completed work shows its result and checks; failures offer recovery. Stopped tasks stay labelled stopped. Unknown metrics are unavailable rather than zero.
-Live agent sessions open watching read-only with explicit secondary **Take control**.
-Followers retain authoritative PTY dimensions, normal-size text and scrolling.
+In live agent sessions, every attached window can type once its terminal has focus.
+The PTY size follows the window that most recently typed or gained focus, and the
+status names who typed last and when pacer delivered an answer or message. **Hand back** asks to confirm, then ends a takeover session and sends the
+task to review. Ctrl-] moves focus out of the terminal, after which app shortcuts work again. **Take over** appears only for a headless run or a session started by an older pacer. Sessions started by an older pacer keep the earlier flow until they
+end: they open watching read-only with explicit secondary **Take control**,
+followers retain authoritative PTY dimensions, normal-size text and scrolling, and
 **Hand back** releases input without clearing output or reclaiming it on reconnect.
 Hidden panels never fit or resize the PTY. Terminal surfaces share a dark palette
 in both app themes, including ANSI colors and a contrast floor for agent text.
@@ -112,10 +116,12 @@ control or resizes the agent, and reconnects after interruptions.
 Headless runs keep a plain output tail; failed checks show their acceptance
 output. Orca sessions link through the workspace to Orca.
 
-Opening a running task in the Session view takes control of its live Pacer terminal when
-no other viewer holds control. If another viewer is driving, the app opens in
-watching mode and offers **Take control** with a confirmation. Releasing control
-keeps the current view read-only until you take control again.
+Opening a running task in the Session view focuses its live Pacer terminal, and
+keystrokes go to the agent. Ctrl-] moves focus out of the terminal. On a session
+started by an older pacer, the view takes control when no other viewer holds it.
+If another viewer is driving, the app opens in watching mode and offers
+**Take control** with a confirmation. Releasing control keeps the current view
+read-only until you take control again.
 When a running session predates the service support window, a compact **Reopen to update** notice stays above its terminal. The task view offers **Create a new task** to start fresh work on the current service; the standalone terminal view offers **Open a new terminal** in the same folder. The old session keeps running. Both actions are reachable by Tab before the terminal input.
 Links in the built-in terminal open web pages or workspace files. Code opens at
 the linked line; Markdown and HTML open on Source, with Preview one tab away.
@@ -218,7 +224,7 @@ and footer actions use two rows so labels, shortcut hints and controls remain
 visible; the More menu stays above the footer and scrolls within short windows,
 even with a long expanded strategy list. Large count values ellipsize when space
 is tight; count links keep the exact value in their accessible name and tooltip.
-Opening a workspace watches output read-only. **Take control** is an explicit secondary action; **Hand back** releases control, and **Stop task** keeps recorded output and changes. Questions sent by the agent appear in the workspace, including while work is running or waiting to start and after an open result settles. `?tab=answer` focuses the answer box. The shared sender marks a question read only after delivery; held answers leave it open. Legacy `pacer ask` questions keep their separate task-answer flow. The workspace's **Messages** tab holds the task thread, with an unread badge, a composer that offers **Answer** while a question is open, and stalled or hand-back notices; `#/workspace?task=<id>&panel=messages` opens it, and the task page links there when a conversation stalls or messages are unread. A task a person started that runs as managed work keeps **Answer**, **Accept**, **Reject** and **Send back**; without a session to continue, they fall back to the matching `dispatch.*` steps. Execution status and quality verdict are separate:
+A workspace terminal accepts typing once you focus it; it does not take focus when the workspace opens. On a session started by an older pacer, the workspace watches output read-only, **Take control** is an explicit secondary action and **Hand back** releases control. On a takeover session, **Hand back** asks to confirm, then ends the session and sends the task to review. **Stop task** keeps recorded output and changes. Questions sent by the agent appear in the workspace, including while work is running or waiting to start and after an open result settles. `?tab=answer` focuses the answer box. The shared sender marks a question read only after delivery; held answers leave it open. Legacy `pacer ask` questions keep their separate task-answer flow. The workspace's **Messages** tab holds the task thread, with an unread badge, a composer that offers **Answer** while a question is open, and stalled or hand-back notices; `#/workspace?task=<id>&panel=messages` opens it, and the task page links there when a conversation stalls or messages are unread. A task a person started that runs as managed work keeps **Answer**, **Accept**, **Reject** and **Send back**; without a session to continue, they fall back to the matching `dispatch.*` steps. Execution status and quality verdict are separate:
 a run can be Completed with Outcome not recorded. Accepted does not mean merged;
 Pacer shows Integration not recorded unless integration is independently known.
 Existing verdicts do not identify the reviewer, so they are labelled Accepted.

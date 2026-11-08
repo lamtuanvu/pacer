@@ -333,6 +333,7 @@ fn editable_rc(home: &Path, shell: &str) -> Option<PathBuf> {
 
 fn setup_files(
     home: &Path,
+    pacer_home: &Path,
     bundled: &Path,
     config: &Path,
     rc: Option<&Path>,
@@ -357,7 +358,9 @@ fn setup_files(
     write_consent(config, rc.is_some(), false).map_err(SetupError::Failed)?;
     // ADR 0021: the Welcome/Consent screen's consent is the authorization; record the
     // desktop as owner unconditionally (never for "Keep mine", which never reaches here).
-    crate::owner::claim_desktop_ownership(&pacer_home(), bundled, std::time::SystemTime::now()).map_err(SetupError::Failed)
+    // The pacer home is passed in, never re-read from the environment: tests run with a temp
+    // `home` and must not write the user's real owner record.
+    crate::owner::claim_desktop_ownership(pacer_home, bundled, std::time::SystemTime::now()).map_err(SetupError::Failed)
 }
 
 pub struct Cli {
@@ -1521,7 +1524,7 @@ impl FirstRun {
                         .ok_or_else(|| {
                             SetupError::Failed("The bundled pacer command is missing".into())
                         })
-                        .and_then(|bundled| setup_files(&home, bundled, &config, rc, replace));
+                        .and_then(|bundled| setup_files(&home, &pacer_home(), bundled, &config, rc, replace));
                     match result {
                         Ok(()) => {
                             *app.state::<Shell>().onboarding_page.lock().unwrap() = None;
@@ -2417,7 +2420,9 @@ mod tests {
         let config = dir.0.join("config");
         let rc = dir.0.join(".zshrc");
         std::fs::write(&rc, "# custom\n").unwrap();
-        setup_files(&dir.0, &bundled, &config, None, false).unwrap();
+        setup_files(&dir.0, &dir.0.join(".pacer"), &bundled, &config, None, false).unwrap();
+        // The owner record lands in the passed pacer home, never the real one.
+        assert!(dir.0.join(".pacer/owner.json").exists());
         assert_eq!(std::fs::read_to_string(&rc).unwrap(), "# custom\n");
         let record: Value =
             serde_json::from_slice(&std::fs::read(config.join("consent.json")).unwrap()).unwrap();
@@ -2436,7 +2441,7 @@ mod tests {
             std::fs::metadata(&config).unwrap().permissions().mode() & 0o777,
             0o700
         );
-        setup_files(&dir.0, &bundled, &config, Some(&rc), false).unwrap();
+        setup_files(&dir.0, &dir.0.join(".pacer"), &bundled, &config, Some(&rc), false).unwrap();
         let record: Value =
             serde_json::from_slice(&std::fs::read(config.join("consent.json")).unwrap()).unwrap();
         assert_eq!(record["path"], true);
@@ -2455,12 +2460,12 @@ mod tests {
         std::fs::create_dir_all(dir.0.join(".local/bin")).unwrap();
         std::fs::write(link::link_path(&dir.0), "existing").unwrap();
         assert!(matches!(
-            setup_files(&dir.0, &bundled, &config, None, false),
+            setup_files(&dir.0, &dir.0.join(".pacer"), &bundled, &config, None, false),
             Err(SetupError::Existing(_))
         ));
         assert!(!config.join("consent.json").exists());
         assert!(matches!(
-            setup_files(&dir.0, &bundled, &config, Some(&dir.0), true),
+            setup_files(&dir.0, &dir.0.join(".pacer"), &bundled, &config, Some(&dir.0), true),
             Err(SetupError::Failed(_))
         ));
         assert!(!config.join("consent.json").exists());
@@ -2484,7 +2489,7 @@ mod tests {
             },
         )
         .unwrap();
-        setup_files(&dir.0, &bundled, &config, None, true).unwrap();
+        setup_files(&dir.0, &dir.0.join(".pacer"), &bundled, &config, None, true).unwrap();
         assert!(!link::remembered(&config, "/external/pacer", "0.2.3"));
     }
 

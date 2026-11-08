@@ -31,6 +31,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "desktop.update.cancel",
     "desktop.update.configure",
     "task.takeover",
+    "task.hand_back",
     "service.install",
     "onboarding.skip",
     "onboarding.try",
@@ -136,6 +137,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "session.agent.end",
     "session.agent.retry",
     "session.agent.resume",
+    "doctor.fix.delegate",
 ];
 pub const V2_PROTOCOL: &str = "2.8.0";
 pub const V2_EVENT_TYPES: &[&str] = &[

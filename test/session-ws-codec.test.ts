@@ -13,3 +13,16 @@ test('bridge relays arbitrary binary output and JSON bodies unchanged',()=>{
  expect(viewerMessageFrames(wire(10,data))[0]).toEqual(wire(10,data));
  expect(()=>viewerMessageFrames(wire(1,{}).subarray(0,6))).toThrow();
 });
+test('bridge passes focus and a read-only hello through',()=>{
+ const [focus]=new WireDecoder().push(viewerMessageFrames(JSON.stringify({type:'focus'}))[0]);
+ expect(focus).toMatchObject({type:FrameType.focus});expect(JSON.parse(focus.data.toString())).toEqual({});
+ expect(viewerMessageFrames(wire(FrameType.focus,{}))).toEqual([wire(FrameType.focus,{})]);
+ const [hello]=new WireDecoder().push(viewerMessageFrames(JSON.stringify({type:'hello',v:1,versions:[1,2],readOnly:true}))[0]);
+ expect(JSON.parse(hello.data.toString())).toEqual({v:1,versions:[1,2],readOnly:true,client:'app'});
+});
+test('bridge refuses deliver from WebSocket clients, as JSON or inside a binary message',()=>{
+ expect(FrameType.deliver).toBeGreaterThan(FrameType.focus);
+ expect(()=>viewerMessageFrames(JSON.stringify({type:'deliver',text:'hi'}))).toThrow();
+ expect(()=>viewerMessageFrames(wire(FrameType.deliver,{text:'hi'}))).toThrow();
+ expect(()=>viewerMessageFrames(Buffer.concat([wire(FrameType.input,Buffer.from('a')),wire(FrameType.deliver,{})]))).toThrow();
+});

@@ -11,7 +11,7 @@ import { CoreError } from '../core/errors';
 import { loadStrategy, strategyPath } from '../config/strategy';
 import { attachCommand, detectTerminal, hasDesktop, launchViewer, terminalRecipe, validateTaskId, type ViewerTarget } from './targets';
 import { takeoverAvailability } from './takeover';
-import { hostVersionView, type HostVersionView } from './protocol';
+import { hostVersionView, negotiate, readSessionVersion, type HostVersionView } from './protocol';
 export interface Capabilities { snapshot:boolean; control:boolean; record:boolean; resize:boolean }
 export type AttachTarget={kind:'socket';path:string}|{kind:'orca';terminal:string|null};
 export interface SessionHost extends RunIO {
@@ -65,11 +65,17 @@ function sessionProcessAlive(dir:string):boolean{
   try{process.kill(pid,0);return true;}catch(e){return (e as NodeJS.ErrnoException).code==='EPERM';}
  }catch{return false;}
 }
-export interface SessionInfo {takeover:{available:boolean;reason?:string};driving:boolean;host:'builtin'|'orca'|'none';capabilities:Capabilities;live:boolean;machine:string|null;attempt?:number|null;cols:number;rows:number;controller:string|null;viewers:number;targets:ViewerTarget[];attach:{cli:string;ws:string};hostVersion?:HostVersionView}
+export interface SessionInfo {takeover:{available:boolean;reason?:string};driving:boolean;host:'builtin'|'orca'|'none';capabilities:Capabilities;live:boolean;machine:string|null;attempt?:number|null;cols:number;rows:number;
+ /** Deprecated: always null for session protocol 1.2 hosts, which have no controller (ADR 0023). */
+ controller:string|null;
+ /** The client that most recently typed or focused the terminal; absent from older cores. */
+ active?:string|null;viewers:number;targets:ViewerTarget[];attach:{cli:string;ws:string};hostVersion?:HostVersionView;
+ /** Session protocol 1.x minor a built-in host negotiates with this service (2 = no controller, ADR 0023); absent for other hosts and older cores. */
+ sessionMinor?:number}
 function json(path:string):any{try{return JSON.parse(readFileSync(path,'utf8'));}catch{return {};}}
 export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTargets=true):Promise<SessionInfo>{
  validateTaskId(id);const task=readTask(ctx,id);if(!task)throw new CoreError('unknown_task',`unknown task ${id}`);
- const info:SessionInfo={takeover:takeoverAvailability(task),driving:task.takeover?.state==='driving',host:'none',capabilities:{snapshot:false,control:false,record:false,resize:false},live:false,machine:task.run?.host??null,attempt:task.run?.attempt??null,cols:120,rows:40,controller:null,viewers:0,targets:[],attach:{cli:attachCommand(id),ws:`/v2/tasks/${id}/session`}};
+ const info:SessionInfo={takeover:takeoverAvailability(task),driving:task.takeover?.state==='driving',host:'none',capabilities:{snapshot:false,control:false,record:false,resize:false},live:false,machine:task.run?.host??null,attempt:task.run?.attempt??null,cols:120,rows:40,controller:null,active:null,viewers:0,targets:[],attach:{cli:attachCommand(id),ws:`/v2/tasks/${id}/session`}};
  const worker=Object.values(loadOrcaState(ctx).workers).find(w=>w.taskId===id);
  if(worker || (task.result?.backend??task.backend)==='orca'){
   info.host='orca';if(worker?.terminal){try{info.live=orcaLive??isLiveTerminal(await new OrcaClient(ctx.run,ctx.env).terminalShow(worker.terminal));}catch{}}
@@ -82,7 +88,10 @@ export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTar
  const state=json(join(dir,'session.state')),ckpt=json(join(dir,'session.ckpt'));
  info.cols=state.cols??ckpt.cols??120;info.rows=state.rows??ckpt.rows??40;
  info.live=existsSync(sessionSocket(dir))&&!existsSync(join(dir,'exit'))&&sessionProcessAlive(dir);
- info.controller=info.live&&typeof state.controller==='string'?state.controller:null;
+ const minor=negotiate(readSessionVersion(dir)?.versions??null);if(minor!==null)info.sessionMinor=minor;
+ const shared=(minor??1)>=2;
+ info.controller=info.live&&!shared&&typeof state.controller==='string'?state.controller:null;
+ info.active=info.live&&typeof state.active==='string'?state.active:null;
  info.viewers=info.live?Math.max(0,Math.min(16,Number(state.viewers)||0)):0;
  info.targets=['here'];if(!includeTargets)return info;if(info.live)info.targets.unshift('app');
  try{const ready=await new OrcaClient(ctx.run,ctx.env).status();if(isReady(ready))info.targets.push('orca');}catch{}

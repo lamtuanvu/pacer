@@ -189,6 +189,8 @@ pacer doctor
 pacer status --json
 ```
 
+Each warning or failure from `pacer doctor` names one remedy. When it has a command-line equivalent, a `run:` line shows it: for example `pacer limits refresh <account>` for stale usage, `pacer install <agent>` to review and reconnect an integration, `pacer service restart` when pacer could not run a check itself, or a `doctor.fix.delegate` call that hands the check to an agent as a fix task. Accepting that task with `pacer review <id> --accept` reruns the check. Remedies that change your setup still ask for consent.
+
 `init` sets up all components with agent consent. Planner choices are `claude-code`, `codex`, `cursor` and `opencode`; a valid starter can be created before CLIs are installed.
 
 `install` adds the pacer skill and planner policy/hooks with tracked backups. MCP is optional: use `pacer install claude-code --mcp` to register the stdio server, or `--no-mcp` to remove an existing entry. A plain reinstall leaves an existing MCP entry unchanged. Restart an MCP client after updating. `pacer uninstall <planner>` reverses the integration while preserving later user edits.
