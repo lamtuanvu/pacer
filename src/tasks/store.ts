@@ -46,53 +46,44 @@ function values(task: TaskRecord, now: number): SQLQueryBindings[] {
     task.brief.repo ?? null, JSON.stringify(task), task.archived ? 1 : 0];
 }
 
-// Older binaries use atomic temp-file + rename writes. Only a directory change
-// triggers enumeration/stat, and only changed JSON files are read. Never alter
-// imported files: JSON remains the compatibility/rollback copy for this release.
-function importJson(ctx: Ctx, entry: Connection): number {
-  const { db } = entry;
-  if (db.inTransaction) return 0;
-  const dir = tasksDir(ctx);
-  const stat = statSync(dir, { bigint: true });
-  const stamp = `${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`;
-  if (entry.directoryStamp === stamp) return 0;
-  const pending: { name: string; task: TaskRecord; mtime: number }[] = [];
-  const present = new Set<string>();
-  jsonScanCount++;
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith(".json") || !isTaskId(name.slice(0, -5))) continue;
-    const file = join(dir, name);
-    let task: TaskRecord, mtime: number;
-    try {
-      mtime = statSync(file).mtimeMs;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      throw error;
-    }
-    present.add(name);
-    if (entry.imported.get(name) === mtime) continue;
-    const row = db.query<{ json_mtime: number | null }, [string]>(
-      "SELECT json_mtime FROM tasks WHERE id = ?").get(name.slice(0, -5));
-    if (row?.json_mtime === mtime) { entry.imported.set(name, mtime); continue; }
-    try {
-      task = JSON.parse(readFileSync(file, "utf8")) as TaskRecord;
-      if (!task || !isTaskId(task.id) || name !== `${task.id}.json` ||
-        !Number.isFinite(task.createdAt) || !Array.isArray(task.attempts) ||
-        !task.attempts.every(a => a && Number.isFinite(a.startedAt) && Number.isFinite(a.endedAt)) ||
-        !["queued", "running", ...TERMINAL_STATES].includes(task.state) ||
-        typeof task.brief?.repo !== "string") throw Error("invalid task record");
-      task.rev ??= 1;
-      if (!Number.isSafeInteger(task.rev) || task.rev < 1) throw Error("invalid task revision");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`pacer: skipping corrupt task ${name}: ${String(error)}`);
-      continue;
-    }
-    pending.push({ name, task, mtime });
+type PendingImport = { name: string; task: TaskRecord; mtime: number };
+
+/** A JSON copy newer than what SQLite recorded for it, parsed and validated; null when
+ *  the file is missing, already reconciled or corrupt. */
+function jsonCandidate(entry: Connection, dir: string, name: string): PendingImport | null {
+  const file = join(dir, name);
+  let task: TaskRecord, mtime: number;
+  try {
+    mtime = statSync(file).mtimeMs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
   }
-  for (const name of entry.imported.keys()) if (!present.has(name)) entry.imported.delete(name);
-  // Scanning/parsing may fault on disk or take arbitrarily long. Acquire the
-  // writer only for bounded commits, and let SQL recheck revisions against
-  // concurrent writers rather than trusting the scan's earlier snapshot.
+  if (entry.imported.get(name) === mtime) return null;
+  const row = entry.db.query<{ json_mtime: number | null }, [string]>(
+    "SELECT json_mtime FROM tasks WHERE id = ?").get(name.slice(0, -5));
+  if (row?.json_mtime === mtime) { entry.imported.set(name, mtime); return null; }
+  try {
+    task = JSON.parse(readFileSync(file, "utf8")) as TaskRecord;
+    if (!task || !isTaskId(task.id) || name !== `${task.id}.json` ||
+      !Number.isFinite(task.createdAt) || !Array.isArray(task.attempts) ||
+      !task.attempts.every(a => a && Number.isFinite(a.startedAt) && Number.isFinite(a.endedAt)) ||
+      !["queued", "running", ...TERMINAL_STATES].includes(task.state) ||
+      typeof task.brief?.repo !== "string") throw Error("invalid task record");
+    task.rev ??= 1;
+    if (!Number.isSafeInteger(task.rev) || task.rev < 1) throw Error("invalid task revision");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`pacer: skipping corrupt task ${name}: ${String(error)}`);
+    return null;
+  }
+  return { name, task, mtime };
+}
+
+// Scanning/parsing may fault on disk or take arbitrarily long. Acquire the
+// writer only for bounded commits, and let SQL recheck revisions against
+// concurrent writers rather than trusting the scan's earlier snapshot.
+function commitImports(entry: Connection, pending: PendingImport[]): void {
+  const { db } = entry;
   for (let offset = 0; offset < pending.length; offset += 64) {
     const batch = pending.slice(offset, offset + 64).map(item => ({
       ...item, bindings: values(item.task, activityAt(item.task)),
@@ -113,9 +104,40 @@ function importJson(ctx: Ctx, entry: Connection): number {
     // A row that kept a newer revision rejects the file; rescanning it cannot change that.
     for (const { name, mtime } of batch) entry.imported.set(name, mtime);
   }
+}
+
+// Older binaries use atomic temp-file + rename writes. Only a directory change
+// triggers enumeration/stat, and only changed JSON files are read. Never alter
+// imported files: JSON remains the compatibility/rollback copy for this release.
+function importJson(ctx: Ctx, entry: Connection): number {
+  if (entry.db.inTransaction) return 0;
+  const dir = tasksDir(ctx);
+  const stat = statSync(dir, { bigint: true });
+  const stamp = `${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  if (entry.directoryStamp === stamp) return 0;
+  const pending: PendingImport[] = [];
+  const present = new Set<string>();
+  jsonScanCount++;
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith(".json") || !isTaskId(name.slice(0, -5))) continue;
+    present.add(name);
+    const candidate = jsonCandidate(entry, dir, name);
+    if (candidate) pending.push(candidate);
+  }
+  for (const name of entry.imported.keys()) if (!present.has(name)) entry.imported.delete(name);
+  commitImports(entry, pending);
   // Keep the pre-scan stamp: an atomic write during the scan is seen next time.
   entry.directoryStamp = stamp;
   return pending.length;
+}
+
+/** One task's JSON copy, checked with a single stat: a single-task read sees a newer
+ *  revision left by an older binary or a write that crashed before its SQLite commit,
+ *  as the Rust log reader does, without scanning the folder. */
+function importTaskJson(ctx: Ctx, entry: Connection, id: string): void {
+  if (entry.db.inTransaction) return;
+  const candidate = jsonCandidate(entry, tasksDir(ctx), `${id}.json`);
+  if (candidate) commitImports(entry, [candidate]);
 }
 
 function writeCompatibilityJson(ctx: Ctx, task: TaskRecord): number {
@@ -255,7 +277,9 @@ export function createTask(
 
 export function readTask(ctx: Ctx, id: string): TaskRecord | null {
   if (!isTaskId(id)) return null;
-  const row = connection(ctx).db.query<{ record: string }, [string]>("SELECT record FROM tasks WHERE id = ?").get(id);
+  const entry = connection(ctx);
+  importTaskJson(ctx, entry, id);
+  const row = entry.db.query<{ record: string }, [string]>("SELECT record FROM tasks WHERE id = ?").get(id);
   if (!row) return null;
   const task = JSON.parse(row.record) as TaskRecord;
   task.rev ??= 1;

@@ -45,9 +45,10 @@ test("reconcileTaskJson imports a newer JSON-only revision", () => {
   const ctx = fakeCtx();
   const t = createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
   writeFileSync(join(tasksDir(ctx), `${t.id}.json`), JSON.stringify({ ...t, rev: t.rev + 5, title: "from old binary" }));
-  expect(readTask(ctx, t.id)!.title).toBeUndefined();
+  // List reads never import (a single-task read does; see the readTask test below).
+  expect(listTasks(ctx).find(x => x.id === t.id)!.title).toBeUndefined();
   expect(reconcileTaskJson(ctx)).toBe(1);
-  expect(readTask(ctx, t.id)!.title).toBe("from old binary");
+  expect(listTasks(ctx).find(x => x.id === t.id)!.title).toBe("from old binary");
 });
 
 test("a fresh connection imports on open after the home's tasks.db is replaced", () => {
@@ -72,4 +73,18 @@ test("a fresh connection imports on open after the home's tasks.db is replaced",
   // The next access reopens on the inode change and imports on that new handle,
   // with no explicit reconcile call.
   expect(readTask(ctx, extraId)?.title).toBe("fresh");
+});
+
+test("readTask picks up a newer JSON revision of that one task without a folder scan", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief, kind: "debug", requestedExecutor: null, timeoutS: 1800 });
+  listTasks(ctx);
+  const scans = taskJsonScanCount();
+  // An older binary or a write that crashed before its SQLite commit leaves a newer JSON copy.
+  const temp = join(tasksDir(ctx), `${t.id}.json.tmp`);
+  writeFileSync(temp, JSON.stringify({ ...t, rev: t.rev + 4, question: { text: "from JSON", at: 0 } }));
+  renameSync(temp, join(tasksDir(ctx), `${t.id}.json`));
+  expect(readTask(ctx, t.id)!.rev).toBe(t.rev + 4);
+  expect(readTask(ctx, t.id)!.question?.text).toBe("from JSON");
+  expect(taskJsonScanCount()).toBe(scans);
 });
