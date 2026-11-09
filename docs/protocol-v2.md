@@ -749,7 +749,7 @@ Params JSON Schema:
 
 ### `agent.connect`
 
-Connect an agent after explicit consent to write its integration files.
+Connect an agent after explicit consent to write its integration files. Returns installed plus an additive 'undo' flag reporting whether this connect left something undoable (with its revision) or, when it did not, a short reason.
 
 Params JSON Schema:
 

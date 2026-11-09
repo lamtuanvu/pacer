@@ -18,7 +18,7 @@ import { withLock } from "./lock";
 import { loadStrategy } from "../config/strategy";
 import { accountFolder } from "../install/role";
 import { plannerPreview } from "../plugins/planner-preview";
-import { restorePlannerInstall } from "../plugins/planner-install";
+import { restorePlannerInstall, UNDO_CAP_NOTE, UNDO_SWAP_NOTE } from "../plugins/planner-install";
 import { currentVersion } from "../update/version";
 import { PROTOCOL_VERSION } from "../api/protocol";
 import type { Ctx } from "../types";
@@ -72,6 +72,19 @@ const CHANGE_NOTE = {
   kept: "Yours. Pacer never edits it",
 } as const;
 export interface PreviewFile { path: string; change: keyof typeof CHANGE_NOTE; note: string }
+/** Additive result field on agent.connect: whether the just-applied connect left an undoable snapshot. */
+export interface AgentConnectUndo { available: boolean; revision?: string; reason?: string }
+/** Short plain-language reason shown when a connect left nothing undoable (UI-12). */
+const UNDO_REASON_TOO_LARGE = "too large to keep a copy";
+const UNDO_REASON_SWAP = "a saved copy could not be kept";
+const UNDO_REASON_NONE = "no pacer file changes to undo";
+function undoAfterConnect(r: {record?: { undoConnect?: { revision?: string } }; notes: string[]}): AgentConnectUndo {
+  const snap = r.record?.undoConnect;
+  if (snap) return { available: true, revision: snap.revision };
+  if (r.notes.includes(UNDO_CAP_NOTE)) return { available: false, reason: UNDO_REASON_TOO_LARGE };
+  if (r.notes.includes(UNDO_SWAP_NOTE)) return { available: false, reason: UNDO_REASON_SWAP };
+  return { available: false, reason: UNDO_REASON_NONE };
+}
 export async function agentPreview(ctx: Ctx, agent: AgentId) {
   // Preview remains available even when a CLI has not been installed yet.
   if (!Object.hasOwn(AGENT_BINS,agent)) throw new CoreError("invalid_input", `unknown agent: ${agent}`, `choose ${PLANNERS.join(', ')}`);
@@ -109,7 +122,11 @@ export async function agentConnect(ctx: Ctx, agent: AgentId, options: {consent?:
   const target = plannerTarget(ctx, agent);
   try {
     const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false, undoRevision: preview.revision}, target);
-    return {installed: r.touched};
+    // L4: tell the caller up front whether this connect left something undoable, instead
+    // of discovering it only after the Undo button is clicked. Undo availability comes
+    // from the host-built snapshot record, never from the client's guess.
+    const undo = undoAfterConnect(r);
+    return {installed: r.touched, undo};
   } catch (e) { throw toCoreError(e); }
 }
 
