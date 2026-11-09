@@ -17,6 +17,31 @@ export interface RemedyHost {
   review: (preview: RepairPreview) => Promise<boolean>;
   delegate: (check: string) => Promise<boolean>;
   open: (url: string) => void;
+  /** Waits for the pacer service to come back after a call that restarts it. */
+  awaitRestart?: () => Promise<void>;
+}
+
+/** `service.install` called by the service itself replies first, then the service restarts. */
+export function restartsService(result: unknown): boolean {
+  return typeof result === "object" && result !== null && (result as { restarting?: unknown }).restarting === true;
+}
+
+/** The service this page is connected to: its process id, and whether the connection is up. */
+export interface ServiceView { connected: boolean; pid?: number }
+
+/**
+ * Resolves true once a connected service with a process id other than `before` is seen, or false
+ * after `timeoutMs`. A recheck sent sooner could reach the old process just before it stops.
+ */
+export async function awaitServiceRestart(before: number | undefined, view: () => ServiceView,
+  { timeoutMs = 60_000, intervalMs = 500, sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), now = Date.now } = {}): Promise<boolean> {
+  const deadline = now() + timeoutMs;
+  for (;;) {
+    const current = view();
+    if (current.connected && current.pid !== undefined && current.pid !== before) return true;
+    if (now() >= deadline) return false;
+    await sleep(intervalMs);
+  }
 }
 
 /** File updates name the files from a fresh preview, and apply only that preview's revision. */
@@ -41,7 +66,7 @@ export async function dispatchRemedy(plan: RemedyPlan, host: RemedyHost): Promis
     case "run": {
       const run = await prepareRun(plan, host.call);
       if (run.consent && !await host.confirm(run.consent)) return "cancelled";
-      await commitRun(run, host.call);
+      if (restartsService(await commitRun(run, host.call))) await host.awaitRestart?.();
       return "recheck";
     }
     case "review": {

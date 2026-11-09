@@ -463,3 +463,36 @@ test('dispatch: user remedies sign in or open the link and recheck on return; ag
   cancel(); target.dispatchEvent(new Event('focus'));
   expect(rechecks).toBe(1);
 });
+
+test('dispatch: a service install that restarts pacer waits for the new service before the recheck', async () => {
+  const { dispatchRemedy } = await import('../app/src/data/remedies');
+  const { remedyPlan } = await import('../src/view-model/diagnostics');
+  const order: string[] = [];
+  const restarting = fakeHost();
+  const host = { ...restarting.host,
+    call: async <T,>(op: string) => { order.push(op); return {installed:true,running:true,restarting:true} as T; },
+    awaitRestart: async () => { order.push('await-restart'); } };
+  expect(await dispatchRemedy(remedyPlan(service)!, host)).toBe('recheck');
+  expect(order).toEqual(['service.install','await-restart']);
+  // A reply without `restarting` (another client installed the job) rechecks at once.
+  order.length = 0;
+  expect(await dispatchRemedy(remedyPlan(service)!, { ...host, call: async <T,>(op: string) => { order.push(op); return {installed:true,running:true} as T; } })).toBe('recheck');
+  expect(order).toEqual(['service.install']);
+});
+
+test('awaitServiceRestart waits for a connected service with a new process id, or gives up at the deadline', async () => {
+  const { awaitServiceRestart, restartsService } = await import('../app/src/data/remedies');
+  expect(restartsService({restarting:true})).toBe(true);
+  expect(restartsService({installed:true})).toBe(false);
+  expect(restartsService(null)).toBe(false);
+  let clock = 0;
+  const views = [{connected:true,pid:10},{connected:false,pid:10},{connected:false},{connected:true,pid:10},{connected:true,pid:11}];
+  let seen = 0;
+  const opts = { intervalMs: 500, now: () => clock, sleep: async (ms: number) => { clock += ms; } };
+  // The old process can still answer at first; only the new pid ends the wait.
+  expect(await awaitServiceRestart(10, () => views[Math.min(seen++, views.length - 1)], opts)).toBe(true);
+  expect(seen).toBe(5);
+  clock = 0;
+  expect(await awaitServiceRestart(10, () => ({connected:true,pid:10}), { ...opts, timeoutMs: 2000 })).toBe(false);
+  expect(clock).toBe(2000);
+});

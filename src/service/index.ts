@@ -1,5 +1,5 @@
 import { compiledNativeFixture, verifyNativeFixture } from "../update/desktop/native-fixture";
-import { mkdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, realpathSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { Ctx } from "../types";
 import { readText } from "../install/fsx";
@@ -29,6 +29,37 @@ export interface ServiceDeps {
   label?: string;
   /** CLI upgrade-path calls to the restarted service (tests inject these). */
   upgrade?: import("./upgrade").UpgradeDeps;
+  /** Starts a process outside this one's process group with output appended to `log` (tests inject this). */
+  spawnDetached?: (argv: string[], log: string) => void;
+}
+/** Install note that the job reloads after the call returns; clients wait for the new process. */
+export const RELOAD_AFTER_RETURN = "The pacer service restarts in a moment to load its new registration.";
+/**
+ * Reloads a launchd job from outside it. `launchctl bootout` stops every process in the job's
+ * process group, so the service cannot reload its own job in-process: it would die before its
+ * `bootstrap`. This runs in its own session, waits for the caller's reply to reach the client,
+ * and restores the previous registration when the new one never loads.
+ * Arguments: target, domain, plist path, previous plist copy (empty when there was none).
+ */
+const RELOAD_SCRIPT = `sleep 1
+launchctl bootout "$1" >/dev/null 2>&1
+n=0
+until launchctl bootstrap "$2" "$3"; do
+  n=$((n+1)); [ "$n" -ge 5 ] && break; sleep 1
+done
+if [ "$n" -ge 5 ]; then
+  echo "pacer service reload: could not load $3"
+  if [ -n "$4" ]; then cp "$4" "$3" && launchctl bootstrap "$2" "$3" && echo "pacer service reload: restored the previous registration"; fi
+fi
+rm -f "$4"`;
+function spawnDetached(argv: string[], log: string): void {
+  const fd = openSync(log, "a");
+  try { Bun.spawn(argv, { detached: true, stdin: "ignore", stdout: fd, stderr: fd }).unref(); }
+  finally { closeSync(fd); }
+}
+/** True when this process runs inside the launchd job `label`, which launchd names in XPC_SERVICE_NAME. */
+export function insideServiceJob(ctx: Pick<Ctx, "env">, label: string, platform: string = process.platform): boolean {
+  return platform === "darwin" && ctx.env.XPC_SERVICE_NAME === label;
 }
 /** Fixture labels are compile-time sandbox capabilities, never runtime environment choices. */
 export function desktopServiceLabel(ctx: Ctx): string {
@@ -234,6 +265,8 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
       } else if (!/not loaded|could not find (?:specified )?service|no such process|not found|does not exist/i.test(probe.stderr + probe.stdout)) {
         throw new CoreError("not_allowed", `Could not inspect the login service: ${probe.stderr || probe.stdout || `exit ${probe.code}`}`);
       }
+      // The service itself (a Diagnostics fix) must not boot out its own job; see RELOAD_SCRIPT.
+      const fromInside = probe.code === 0 && insideServiceJob(ctx, label, platform);
       let old: string | null = null;
       let activated = false;
       try {
@@ -243,6 +276,7 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
         old = before;
         tx.edit(path, () => mac ? plist(ctx, argv, label) : unit(ctx, argv), [], join(ctx.pacerHome, "backups/service"));
         installedCache.delete(path);
+        if (fromInside) return;
         // The manager must read the registration before the install transaction commits.
         // Stage it only while activating, then restore the pre-transaction state for commit.
         writeInstallFile(path, tx.read(path)!);
@@ -264,6 +298,15 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
           else writeInstallFile(path, before);
         }
       });
+      if (fromInside) {
+        let previous = "";
+        if (old !== null) {
+          previous = join(ctx.pacerHome, "backups/service", `${label}.reload-previous.plist`);
+          writeInstallFile(previous, old);
+        }
+        (deps.spawnDetached ?? spawnDetached)(["/bin/sh", "-c", RELOAD_SCRIPT, "pacer-service-reload", target, target.slice(0, target.lastIndexOf("/")), path, previous], backend.logsPath());
+        return [...report.notes, RELOAD_AFTER_RETURN];
+      }
       return report.notes;
       } catch (error) {
         installedCache.delete(path);
