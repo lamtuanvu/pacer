@@ -94,7 +94,7 @@ export async function agentPreview(ctx: Ctx, agent: AgentId) {
         at: undoSnapshot.at,
         files: undoSnapshot.files.map((file) => ({
           path: file.path,
-          change: file.before === null ? ("remove" as const) : ("restore" as const),
+          change: file.beforeHash ? ("restore" as const) : ("remove" as const),
         })),
       },
     } : {}),
@@ -124,6 +124,8 @@ function plannerKey(ctx: Ctx, agent: AgentId): string {
 /** Undo exactly the last file-changing connect, consent-gated to its snapshot, within 7 days. */
 export async function agentUndo(ctx: Ctx, agent: AgentId, options: {consent?: boolean; preview_revision?: string} = {}) {
   if (options.consent !== true) throw new CoreError("not_allowed", "undoing a repair requires consent", "Review that pacer will restore the previous copies, then pass consent: true");
+  // N4: undo is bound to the snapshot's revision; a missing or stale revision is refused.
+  if (!options.preview_revision) throw new CoreError("conflict", "The undo target changed after preview", "Review a fresh repair preview before undoing.");
   const key = plannerKey(ctx, agent);
   try {
     const { restored, removed, reverted, kept } = await restorePlannerInstall(ctx, agent, key, options.preview_revision);

@@ -6,6 +6,7 @@ import { validateInstallArgv } from "../install/self";
 import { recoverPlannerInstall, plannerTrustedRoots } from "./planner-recovery";
 import { readManifest, type PlannerRecord } from "../install/manifest";
 import { readInstallFile } from "../install/atomic";
+import { clearUndoSnapshot, readSnapshotFile, writeUndoSnapshot } from "../install/undo-store";
 import type { InstallEnv } from "../install/txn";
 import { sha256 } from "../install/fsx";
 import { commitInstall, type PendingFile } from "../../packages/plugin-sdk/src/install/journal";
@@ -21,6 +22,10 @@ import { preparedPlannerPlan } from "./planner-protocol";
 /** A repair can be undone for 7 days after the connect that changed files. `ctx.now` is Unix seconds. */
 export const UNDO_WINDOW_S = 7 * 86_400;
 
+/** Reported when a connect changed too much total before-content to snapshot, so undo is unavailable. */
+export const UNDO_CAP_NOTE =
+  "Undo is unavailable for this connect: it changed more data than the snapshot size limit.";
+
 /** Restore exactly the files one connect changed, from its snapshot, within the 7-day window. */
 export async function restorePlannerInstall(
   ctx: InstallEnv["ctx"],
@@ -29,30 +34,27 @@ export async function restorePlannerInstall(
   previewRevision?: string,
 ): Promise<{ restored: string[]; removed: string[]; reverted: string[]; kept: string[] }> {
   return withInstallLock(ctx, async () => {
-    await recoverPlannerInstall(ctx, [], []);
+    // N3: recovery must accept the same folders undo itself uses. Both derive from
+    // plannerTrustedRoots (standard agent homes plus every configured account folder);
+    // undo never trusts manifest-derived roots the record would have to authorize itself.
+    const roots = plannerTrustedRoots(ctx);
+    await recoverPlannerInstall(ctx, roots, []);
     const manifest = readManifest(ctx);
     const prior = manifest.planners[key];
     const snap = prior?.undoConnect;
     if (!prior || !snap)
       throw new CoreError("not_found", `No pacer repair is recorded for ${agent}`, "Connect the agent first, then undo a repair from Diagnostics.");
-    if (previewRevision !== undefined && snap.revision && previewRevision !== snap.revision)
+    // N4: the snapshot revision is always set; undo always requires it. A missing or
+    // stale revision is refused, even when the connect came from the CLI or setup.
+    if (!previewRevision || previewRevision !== snap.revision)
       throw new CoreError("conflict", "The undo target changed after preview", "Review a fresh repair preview before undoing.");
     if (typeof snap.at !== "number" || ctx.now - snap.at > UNDO_WINDOW_S)
       throw new CoreError("not_found", "This repair is older than 7 days and can no longer be undone", "Reconnect the agent from Diagnostics to repair it again.");
-    // F3: root-confine every recorded path (the same trusted roots recovery uses),
-    // plus the record's own folder and skill root, before writing anything.
-    const folderRoots = new Set<string>();
-    for (const file of prior.files) {
-      for (const suffix of ["/skills/pacer/SKILL.md", "/rules/pacer.md", "/AGENTS.md", "/hooks.json"]) {
-        if (file.path.endsWith(suffix)) folderRoots.add(file.path.slice(0, -suffix.length));
-      }
-    }
-    if (prior.folder) folderRoots.add(prior.folder);
     const lease = new PlannerResources(ctx, {
       purpose: "reconcile",
       binaries: [],
       cwd: ctx.home,
-      roots: [...plannerTrustedRoots(ctx, [], []), ...folderRoots],
+      roots,
       files: [],
     });
     try {
@@ -67,15 +69,18 @@ export async function restorePlannerInstall(
           ? text === null
           : text !== null && sha256(text) === entry.afterHash;
         if (!intact) { kept.push(entry.path); continue; }
-        if (entry.before === null) {
+        if (entry.beforeHash === undefined) {
           if (text !== null)
             pending.push({ path, before: text, after: null, beforeMode: lstatSync(path).mode & 0o700 });
           removed.push(entry.path);
         } else {
+          const copy = readSnapshotFile(ctx, key, entry.path);
+          if (!copy)
+            throw new CoreError("not_found", "undo snapshot copy missing for " + entry.path, "Reconnect the agent from Diagnostics to repair it again.");
           pending.push({
-            path, before: text, after: entry.before,
+            path, before: text, after: copy.text,
             beforeMode: text === null ? undefined : lstatSync(path).mode & 0o700,
-            mode: entry.beforeMode,
+            mode: copy.mode,
           });
           restored.push(entry.path);
         }
@@ -108,6 +113,7 @@ export async function restorePlannerInstall(
       } finally {
         await session.close();
       }
+      clearUndoSnapshot(ctx, key);
       return { restored, removed, reverted: [], kept };
     } finally {
       await lease.dispose();
@@ -206,6 +212,12 @@ export async function withPlannerInstall(
     ]);
     const base = readManifest(ctx),
       prior = base.planners[env.plannerKey];
+    // N1: never send snapshot contents to planner plugins. The snapshot lives in the
+    // undo store (the record holds metadata only), but strip the field entirely so a
+    // plugin can neither read nor affirm it.
+    const pluginPrior = prior
+      ? (() => { const copy = structuredClone(prior); delete copy.undoConnect; return copy; })()
+      : undefined;
     const lease = new PlannerResources(ctx, {
       purpose:
         options.operation === "uninstall"
@@ -276,7 +288,7 @@ export async function withPlannerInstall(
                 binary: options.binaries.length
                   ? ctx.which(options.binaries[0]!)
                   : null,
-                ...(prior ? { prior: structuredClone(prior) } : {}),
+                ...(pluginPrior ? { prior: pluginPrior } : {}),
               },
               {
                 plannerResources: lease,
@@ -320,6 +332,13 @@ export async function withPlannerInstall(
       for (const [key, value] of Object.entries(expected))
         if (!equal(record[key as keyof PlannerRecord], value))
           refused("planner changed captured installation identity");
+      // N2: snapshot fields are host-owned. Drop whatever the plugin returned so the
+      // host can re-derive them from its own pre-commit reads, on reconcile and
+      // no-op connects too, and a forged snapshot can never reach disk.
+      if (options.operation !== "uninstall") {
+        delete record.undoConnect;
+        delete record.undoneAt;
+      }
       const commands = structuredClone(prior?.commands ?? []);
       for (const undo of lease.commandUndos())
         if (!commands.some((value) => equal(value.undo, undo)))
@@ -423,27 +442,35 @@ export async function withPlannerInstall(
         lease.operationDeadline,
         () => lease.assertFileRoots(),
       );
+      const hostNotes: string[] = [];
+      let wroteFreshSnapshot = false;
       try {
         session.preflight();
         const changed = [...pending.values()].filter(
           (file) => file.before !== file.after,
         );
-        if (
-          options.operation !== "uninstall" &&
-          env.mode !== "reconcile" &&
-          changed.length
-        )
-          record.undoConnect = {
-            at: ctx.now,
-            revision: options.undoRevision ?? "",
-            files: changed.map((file) => ({
-              path: file.path,
-              before: file.before,
-              beforeMode: file.beforeMode,
-              afterHash: file.after === null ? null : sha256(file.after),
-            })),
-          };
-        if (options.operation !== "uninstall") delete record.undoneAt;
+        if (options.operation !== "uninstall") {
+          delete record.undoneAt;
+          if (env.mode !== "reconcile") {
+            if (changed.length) {
+              const snap = writeUndoSnapshot(
+                ctx,
+                env.plannerKey,
+                changed.map((file) => ({ path: file.path, before: file.before, mode: file.beforeMode, after: file.after })),
+                options.undoRevision,
+                ctx.now,
+              );
+              if (snap) { record.undoConnect = snap; wroteFreshSnapshot = true; }
+              else { delete record.undoConnect; hostNotes.push(UNDO_CAP_NOTE); }
+            } else {
+              record.undoConnect = prior?.undoConnect ? structuredClone(prior.undoConnect) : undefined;
+            }
+          } else {
+            record.undoConnect = prior?.undoConnect ? structuredClone(prior.undoConnect) : undefined;
+          }
+        } else {
+          clearUndoSnapshot(ctx, env.plannerKey);
+        }
         const planners = { ...base.planners, [env.plannerKey]: record };
         if (options.operation === "uninstall") delete planners[env.plannerKey];
         await commitInstall(
@@ -454,11 +481,14 @@ export async function withPlannerInstall(
         committed = true;
         return {
           record: structuredClone(record),
-          notes: [...plan.notes],
+          notes: [...plan.notes, ...hostNotes],
           touched: [...plan.touched],
           prepared: structuredClone(plan),
         };
       } finally {
+        // A failed commit leaves no orphan copies; the prior snapshot (if any) is
+        // preserved on disk and was not replaced by a fresh write.
+        if (!committed && wroteFreshSnapshot) clearUndoSnapshot(ctx, env.plannerKey);
         await session.close();
       }
     } catch (error) {

@@ -13,9 +13,13 @@ export interface FileChange {
   backup?: string; afterHash?: string; exact?: boolean; undo: UndoOp[];
 }
 export interface UndoSnapshotFile {
-  path: string; before: string | null; beforeMode?: number; afterHash: string | null;
+  path: string;
+  beforeHash?: string;
+  size?: number;
+  afterHash: string | null;
+  copy?: string;
 }
-export interface UndoSnapshot { at: number; revision: string; files: UndoSnapshotFile[] }
+export interface UndoSnapshot { at: number; revision: string; size: number; files: UndoSnapshotFile[] }
 export interface PlannerRecord {
   mcp?: boolean;
   integration?: { schema: 1; fingerprint: string };

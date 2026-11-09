@@ -15,21 +15,26 @@ export interface FileChange {
   managed?: { schema: 1; hash: string };
   backup?: string; afterHash?: string; exact?: boolean; undo: UndoOp[];
 }
-/** One file effect of a single connect, captured for agent.undo. */
+/** One file effect of a single connect, captured for agent.undo (metadata only). */
 export interface UndoSnapshotFile {
   path: string;
-  /** pre-connect content, or null when the connect created the file */
-  before: string | null;
-  beforeMode?: number;
+  /** sha256 of the pre-connect content; present only when the connect edited it (restore). */
+  beforeHash?: string;
   /** hash of the post-connect content; null when the connect removed the file */
   afterHash: string | null;
+  /** pre-connect size in bytes; present only when beforeHash is present */
+  size?: number;
+  /** name of the private copy under $PACER_HOME/undo/<key>/ holding the pre-connect content */
+  copy?: string;
 }
-/** Snapshot of exactly the files one consent-gated connect changed. */
+/** Snapshot of exactly the files one consent-gated connect changed. Content lives in the undo store. */
 export interface UndoSnapshot {
   /** the connect's time (Unix seconds); the 7-day undo window starts here */
   at: number;
-  /** the preview revision the consent was tied to (empty string when none) */
+  /** the preview revision the consent was tied to; always set (digest or preview revision) */
   revision: string;
+  /** combined byte size of the captured before-images (size cap gate) */
+  size: number;
   files: UndoSnapshotFile[];
 }
 export interface PlannerRecord {
