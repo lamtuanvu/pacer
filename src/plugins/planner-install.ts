@@ -80,9 +80,12 @@ export async function restorePlannerInstall(
           restored.push(entry.path);
         }
       }
-      const undone = new Set([...restored, ...removed]);
+      const undone = new Set(removed);
       const record = {
         ...prior,
+        // Only files that no longer exist leave the record; files restored in place
+        // (edited/moved) stay recorded so reconcile sees them as needing a refresh,
+        // not as unrecorded files to be replaced.
         files: prior.files.filter((file) => !undone.has(file.path)),
         integration: undefined,
         undoConnect: undefined,
