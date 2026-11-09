@@ -438,6 +438,7 @@ async fn forward_input<
                                     sync.2,
                                 ))
                                     as pacer_foundation::api::OpFuture<'_>),
+                                None,
                             )
                             .await;
                             if let Some(id) = request.get("id") {
@@ -530,6 +531,7 @@ async fn forward_input<
                                     as pacer_foundation::api::OpFuture<'_>),
                                 None,
                                 None,
+                                None,
                             )
                             .await;
                             if let Some(id) = request.get("id") {
@@ -581,6 +583,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                        None,
                     )
                     .await
                 } else if crate::native::needs_task_read_bridge(op.name) {
@@ -601,6 +604,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, &task_id, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                         None,
                         None,
@@ -636,6 +640,7 @@ async fn forward_input<
                                 None,
                                 None,
                                 None,
+                                None,
                             )
                             .await
                         }
@@ -656,6 +661,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                         None,
                         None,
@@ -687,6 +693,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                        None,
                     )
                     .await
                 } else if crate::native::needs_config_host_bridge(op.name) {
@@ -703,6 +710,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                         None,
                         None,
@@ -754,6 +762,7 @@ async fn forward_input<
                         None,
                         None,
                         None,
+                        None,
                     )
                     .await
                 } else if crate::native::needs_core_bridge(op.name) {
@@ -786,6 +795,7 @@ async fn forward_input<
                                 None,
                                 None,
                                 None,
+                                None,
                             )
                             .await
                         }
@@ -801,6 +811,7 @@ async fn forward_input<
                             &mut core, sync.0, sync.1, op.name, sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
+                        None,
                         None,
                         None,
                         None,
