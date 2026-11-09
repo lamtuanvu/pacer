@@ -374,7 +374,8 @@ function writeTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void, always
         .run(...values(t, Number.isFinite(ctx.now) ? ctx.now : Date.now() / 1000).slice(1), mtime, id);
       return t;
     }).immediate();
-    markImported(entry, updated, mtime);
+    // A no-op update wrote no JSON; recording mtime 0 would make the next read re-import it.
+    if (mtime) markImported(entry, updated, mtime);
     return updated;
   });
 }
