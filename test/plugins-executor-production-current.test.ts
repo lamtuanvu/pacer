@@ -456,7 +456,10 @@ test("a runner reattaching to a live owned run clears Lost contact", async () =>
     registry.call(c, id, method, params, { ...options, signal: owner.signal }) };
   try {
     const first = runOwnedDirectCurrent(ctx, cfg, task, endedOwner);
-    for (let i = 0; i < 200 && !readTask(ctx, task.id)?.run; i++) await Bun.sleep(25);
+    // Cut the owner only once the run is fully bound and its wrapper has started, as a real loss would find it.
+    const bound = () => { const t = readTask(ctx, task.id); return !!t?.run && t.startIntent?.dir === t.run.dir && existsSync(join(repo, "launch-count")); };
+    for (let i = 0; i < 400 && !bound(); i++) await Bun.sleep(25);
+    expect(bound()).toBe(true);
     owner.abort();
     await expect(first).rejects.toMatchObject({ code: "plugin_unavailable" });
     const lost = updateTask(ctx, task.id, current => {
