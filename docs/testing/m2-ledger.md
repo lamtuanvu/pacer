@@ -12,7 +12,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `host.add`, `host.set`, `host.remove`, `host.repo.map` | Native (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Native callers retain the private TypeScript endpoint-plugin synchronization bridge (`finishNativeConfigEdit`), publish the `hosts` area, and record `host.set` pause activity in Rust. `host.set` composes its summary via the host-read bridge after sync. Plugin-owned SSH execution stays forwarded. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.suggest` | Native (P2-D) | `pacer-config::ssh_config` reads `~/.ssh` aliases (Includes, HostName, no shell execution) and filters configured host `ssh` targets from `load_strategy`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.list`, `host.get` | Native (P2-D) | `pacer-lifecycle::hosts::list` / `detail` compose summaries and detail rows once Core supplies reachability, check caches, jobs, runners, repos and tasks through `/_internal/host-read-parts` (serve) or `_internal.host-read.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns live task/job/reachability reads and read-model executors for `host.get`. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `host.check`, `host.clean`, `host.repo.setup` | Forwarded (P2-D) | Plugin SSH grants, job orchestration and effectful clone/identity/cleanup stay in TypeScript. Library: `pacer-lifecycle::hosts::{check,setup,clean,setup_plan,validate_clone_preview}` over injected probe/task snapshots (no shell). |
+| `host.check`, `host.clean`, `host.repo.setup` | Native (M2, selective) | Rust (`pacer-config-ops::host_check_clean_setup_ops`) validates params with Zod issue text, loads the host config, and runs the check/setup/clean logic from `pacer-lifecycle::hosts` over injected snapshots. Two effects stay on Core through the host effects bridge (`/_internal/host-effects`, `_internal.host.effects`): `probe` runs the SSH probe via the plugin host, `clone`/`identity` execute remote git/identity via job orchestration, and `transfer` checks the work-transfer gate for clean. Inputs needing the probe or job orchestration selectively forward; `PACER_WORK_GRANT` callers forward. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.terminal` | Forwarded (P2-D) | Terminal open (`openInTerminal` / builtin registry) stays in TypeScript. Library: `pacer-lifecycle::hosts::terminal_ssh` owns SSH argv/title only; it does not open a session. |
 | `runner.settings.get`, `runner.settings.save` | Native (P2-D) | Native callers use `pacer-config::executor_settings` under the shared `executor-settings` lock; saves publish the `runners` area via the P3-B publisher (matching TS `mutation(..., "runners", ...)`). No endpoint-plugin sync (unlike `runner.set` / `remove`). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `repo.list` | Native (M2, selective) | `pacer-repos` owns the `listRepos` read: `state/repos.json` and `repo-paths.json`, keys of active and recent tasks from the task store, stale filtering, the once-a-minute prune (under the shared `repos` lock) and two-second bounded branch reads. The path-reachability cache (`exists`, canonical path, `unreachable`) is a per-process stale-while-revalidate cache with the same semantics as `src/core/path-probe.ts`: Rust probes the filesystem itself in the background, so a cold Rust process reports what the TypeScript service reports on its first read. Registries the JavaScript reader treats differently (non-object JSON, serde-rejected text, entries without string `key`/absolute `path`/number `lastUsed`, integer-index keys, non-path aliases) selectively forward. No longer on the Core bridge. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -650,7 +650,7 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **145** of 228 (133 on the Rust stdio registry plus 12 HTTP-native
+Total native: **148** of 228 (136 on the Rust stdio registry plus 12 HTTP-native
 `plugin.*` ops). Fifty-seven of these selectively forward some inputs or effects to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
@@ -665,7 +665,7 @@ Total native: **145** of 228 (133 on the Rust stdio registry plus 12 HTTP-native
 `assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
 `dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
 `issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`.
-Total still not native (v3 − native set): **83**.
+Total still not native (v3 − native set): **80**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
