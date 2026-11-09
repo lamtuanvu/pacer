@@ -401,6 +401,11 @@ mod tests {
             respond(false, Some(retry.clone()), route()),
             Response::Dispatch(retry)
         );
+        // A click on the banner itself opens the route even if a mapping exists.
+        assert_eq!(
+            respond(true, Some(serde_json::json!({"op": "task.retry"})), route()),
+            Response::Navigate("#/tasks/t-1".into())
+        );
         // An aged-out button opens the notification's route instead.
         assert_eq!(
             respond(false, None, route()),
