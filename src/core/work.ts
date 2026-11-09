@@ -26,6 +26,7 @@ import { projectSnapshot, resolvePolicyRepoInput, } from "./project-policy";
 import { requireRepoDirectory } from "./repos";
 import {boundedGitRead} from "./git";
 import { withLock, withLockSync } from "./lock";
+import { isExecutorSession } from "../install/role";
 import { getWork, registerWork, requireWorkScope, authorizeWorkGrant, workOptionsSchema, workTree, workTotals, workWaitTotals, workEvents, pendingChildren, pendingDependencies, syncDependentWaits, beginChildWait, endChildWait, type WorkOptions } from "../dispatch/work";
 import { appendWorkEvent, dispatchDatabase, boundedJson } from "../dispatch/store";
 import { recordWorkReview } from "../dispatch/learning";
@@ -33,6 +34,14 @@ import { pidAlive } from "../link/store";
 
 export interface WorkInput {goal:string;repo?:string;kind?:string;title?:string;acceptance?:string;acceptanceTimeoutMin?:number;context?:string;constraints?:string;executor?:string;options?:Partial<WorkOptions>;requestId?:string}
 const hash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+/** Executors review a child they personally dispatched through a valid work grant; never their own task (F4). */
+export const TASK_REVIEW_REFUSAL =
+  'PACER_ROLE=executor: executors cannot review their own task; only a child they dispatched this run (use pacer dispatch review).';
+
+/** Executors never send a child back or retry it through task.review; those go through the dispatch commands. */
+export const TASK_REVIEW_VARIANTS_REFUSAL =
+  'PACER_ROLE=executor: send_back and retry verdicts are for the planner or a person; retry or answer a child with pacer dispatch retry / pacer dispatch answer.';
 export async function submitWork(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=spawnRunner){
  if(ctx.env.PACER_WORK_GRANT)return delegateChild(ctx,input,spawn);
  if(ctx.env.PACER_ROLE==="executor")throw new CoreError("not_allowed","A scoped work grant is required");
@@ -304,12 +313,22 @@ export function authorizeWorkOperation(ctx:Ctx,name:string,params:unknown):void{
   return;
  }
  if(name==="dispatch.enforcement.denied")throw new CoreError("not_allowed","An enforcement identity is required");
+ if(name==="task.review"&&isExecutorSession(ctx))assertExecutorTaskReview(ctx,params);
  const token=ctx.env.PACER_WORK_GRANT;if(!token){if(ctx.env.PACER_ROLE==="executor"&&name.startsWith("dispatch."))throw new CoreError("not_allowed","A scoped work grant is required");return;}
  if(["msg.send","msg.inbox","msg.wait","msg.log","msg.read","msg.close","msg.policy","tree.status","liveness.status"].includes(name)){authorizeWorkGrant(ctx,token);return;}
  const caller=authorizeWorkGrant(ctx,token);
- const allowed=["dispatch.child","dispatch.tree","dispatch.events","dispatch.wait","dispatch.review","dispatch.retry","dispatch.answer","dispatch.stop","task.get","task.wait","task.log","task.diff"];
+ const allowed=["dispatch.child","dispatch.tree","dispatch.events","dispatch.wait","dispatch.review","dispatch.retry","dispatch.answer","dispatch.stop","task.get","task.wait","task.log","task.diff","task.review"];
  if(!allowed.includes(name))throw new CoreError("not_allowed","Operation is not allowed by this work grant");
  if(name==="dispatch.child")return;
  const id=(params as {id?:unknown})?.id;if(typeof id!=="string")throw new CoreError("invalid_input","Task id is required");
- requireWorkScope(ctx,token,id,["dispatch.review","dispatch.retry","dispatch.answer"].includes(name));void caller;
+ requireWorkScope(ctx,token,id,["dispatch.review","dispatch.retry","dispatch.answer","task.review"].includes(name));void caller;
+}
+
+/** F4: an executor may accept or reject only a child within its own valid work grant; never its own task. */
+function assertExecutorTaskReview(ctx: Ctx, params: unknown): void {
+ const p = (params as { verdict?: unknown; id?: unknown }) ?? {};
+ if (p.verdict === "send_back" || p.verdict === "retry") throw new CoreError("not_allowed", TASK_REVIEW_VARIANTS_REFUSAL);
+ const token = ctx.env.PACER_WORK_GRANT, id = p.id;
+ if (!token || typeof id !== "string" || !id) throw new CoreError("not_allowed", TASK_REVIEW_REFUSAL);
+ try { requireWorkScope(ctx, token, id, true); } catch { throw new CoreError("not_allowed", TASK_REVIEW_REFUSAL); }
 }

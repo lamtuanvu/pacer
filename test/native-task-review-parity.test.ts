@@ -17,6 +17,7 @@ async function reviewExchange(
   forward: boolean,
   verdict: "accept" | "reject" = "accept",
   native = !forward,
+  extraEnv: Record<string, string> = {},
 ) {
   const request = JSON.stringify({
     jsonrpc: "2.0",
@@ -35,6 +36,7 @@ async function reviewExchange(
       PACER_DISCOVERY: "off",
       PACER_DEBUG_NATIVE: "1",
       ...(forward ? { PACER_FORWARD_OPS: "task.review" } : {}),
+      ...extraEnv,
     },
     stdin: "pipe",
     stdout: "pipe",
@@ -127,5 +129,41 @@ test.skipIf(!front)("native task.review matches TypeScript for accept on a non-m
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!front)("native task.review refuses an executor session for a plain task", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
+  const task = createTask(ctx, { brief: { goal: "Review me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = "done"; });
+  const rev = readTask(ctx, task.id)!.rev;
+  const home = mkdtempSync(join(tmpdir(), "pacer-task-review-executor-"));
+  cpSync(ctx.home, home, { recursive: true });
+  try {
+    const reply = await reviewExchange(home, task.id, rev, false, "accept", true, { PACER_ROLE: "executor" });
+    expect(reply?.result).toBeUndefined();
+    expect(JSON.stringify(reply?.error?.message ?? reply?.error)).toContain("cannot review their own task");
+    const stored = readTask({ ...ctx, home, pacerHome: join(home, ".pacer") }, task.id)!;
+    expect(stored.review?.accepted).toBeUndefined();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!front)("native task.review still allows the same review without an executor role", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
+  const task = createTask(ctx, { brief: { goal: "Review me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => { t.state = "done"; });
+  const rev = readTask(ctx, task.id)!.rev;
+  const home = mkdtempSync(join(tmpdir(), "pacer-task-review-human-"));
+  cpSync(ctx.home, home, { recursive: true });
+  try {
+    const reply = await reviewExchange(home, task.id, rev, false, "accept", true);
+    expect(reply?.error).toBeUndefined();
+    expect(reply?.result?.task?.review?.accepted).toBe(true);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
   }
 });
