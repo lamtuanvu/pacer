@@ -2,7 +2,8 @@ import { remedyConsent, type RemedyConsent, type RemedyPlan } from "../../../src
 import type { Platform } from "../platform/types";
 
 export interface PreviewFile { path: string; change: "create" | "update" | "restore" | "unchanged" | "kept"; note: string }
-export interface RepairPreview { revision: string; agent: string; files: string[]; changes?: PreviewFile[]; undo?: string; detail?: string }
+export interface UndoSnapshot { revision: string; at: number; files: { path: string; change: "restore" | "remove" }[] }
+export interface RepairPreview { revision: string; agent: string; files: string[]; changes?: PreviewFile[]; undo?: string; detail?: string; undoSnapshot?: UndoSnapshot }
 export interface ConsentRequest extends RemedyConsent { files: string[] }
 type RunPlan = Extract<RemedyPlan, { kind: "run" }>;
 /** An operation ready to call, with the confirmation it needs first. */

@@ -7,6 +7,7 @@ import type { Check } from "../../../../src/install/doctor";
 import { diagnosticEvidence, diagnosticLevel, diagnosticsPage, diagnosticTitle, remedyPlan, remedyProgress, type DiagnosticFixRow, type DiagnosticRowOutcome, type DiagnosticTask, type RemedyPlan } from "../../../../src/view-model/diagnostics";
 import { displayName } from "../../../../src/view-model/format";
 import { executorLabel } from "../../../../src/view-model/words";
+import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, type ConsentRequest, type PreparedRun, type RemedyHost, type PreviewFile, type RepairPreview } from "../../data/remedies";
 import { useActions } from "../../data/action-context";
 import { platform } from "../../platform";
@@ -237,7 +238,7 @@ export function AgentSheet({ agent, report, routed, onScope, onStart, onClose }:
     <p className="pc-diagnostic-note">Pacer builds the final brief from its own check result and removes keys and tokens before the agent sees it.</p>
     <SectionHeading as="h3">Runs on</SectionHeading>
     {routed
-      ? <div className="pc-diagnostic-route"><span className="pc-diagnostic-route__mark" aria-hidden="true">Ag</span>
+      ? <div className="pc-diagnostic-route"><span className="pc-diagnostic-route__mark" aria-hidden="true">{agentInfo(markAgent(routed.id)).monogram}</span>
         <div className="pc-diagnostic-route__text"><b>{executorLabel(routed.id)}</b><span className="pc-diagnostic-caption">Chosen by pacer: {routed.reason}</span></div>
       </div>
       : <p className="pc-diagnostic-sheet-text">Pacer routes it to an executor by budget and pace, like any task.</p>}
@@ -467,20 +468,35 @@ export function DiagnosticsSection() {
     setReview(undefined);
     keepFocus();
   }
-  /** Undo the file changes of the last applied repair: consent, then restore the previous copies. */
+  /** Undo exactly the last applied repair: confirm the snapshot's files, then restore or remove them. */
   async function undoRepair() {
     if (!review || review.phase !== "done" || busy) return;
     const name = review.check.name;
     const agentName = review.preview.agent;
-    const changing = (review.preview.changes ?? []).filter(file => file.change !== "kept").map(file => file.path);
-    const ok = await ask(UNDO, [{ title: `Undo the ${settingsText(diagnosticTitle(name))} repair`, message: "Pacer restores the previous copies of the files its fix changed.", confirmLabel: "Restore copies", files: changing.length ? changing : review.preview.files }]);
+    let undoOption: RepairPreview["undoSnapshot"];
+    try {
+      const fresh = await call<RepairPreview>("agent.preview", { agent: agentName });
+      undoOption = fresh.undoSnapshot;
+    } catch (failure) {
+      setError(failure);
+      setProgress(`${settingsText(diagnosticTitle(name))}: could not prepare the undo.`);
+      return;
+    }
+    const files = undoOption?.files.map(file => file.path) ?? [];
+    if (!files.length) { setProgress("Nothing to undo."); setReview(undefined); return; }
+    const ok = await ask(UNDO, [{ title: `Undo the ${settingsText(diagnosticTitle(name))} repair`, message: "Pacer restores or removes exactly the files its last fix changed.", confirmLabel: "Restore copies", files }]);
     if (!ok) { setProgress("No changes were made."); return; }
     setBusy(true);
     try {
-      await call("agent.undo", { agent: agentName, consent: true });
+      const result = await call<{ restored: string[]; removed: string[]; kept: string[] }>("agent.undo", { agent: agentName, consent: true, preview_revision: undoOption!.revision });
       const next = await recheck();
       setReview(undefined);
-      setProgress(`${settingsText(diagnosticTitle(name))}: ${next && stillFailing(next, name) ? "undone; the check still needs attention." : "undone and rechecked."}`);
+      const counts = [
+        result.restored.length ? `${result.restored.length} restored` : "",
+        result.removed.length ? `${result.removed.length} removed` : "",
+        result.kept.length ? `${result.kept.length} kept (changed since)` : "",
+      ].filter(Boolean).join(", ");
+      setProgress(`${settingsText(diagnosticTitle(name))} undone: ${counts || "no files changed"}. ${next && stillFailing(next, name) ? "The check still needs attention." : "Rechecked."}`);
     } catch (failure) {
       setError(failure);
       setProgress(`${settingsText(diagnosticTitle(name))}: the undo did not finish.`);
