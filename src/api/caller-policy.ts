@@ -1,10 +1,12 @@
 import { isExecutorSession } from '../install/role';
 import { requireWorkScope } from '../dispatch/work';
+import { TASK_REVIEW_REFUSAL, TASK_REVIEW_VARIANTS_REFUSAL } from '../core/work';
 import { ApiError } from './client-types';
 import type { Ctx } from '../types';
 
-/**
- * Upgrade and reinstall operations. Owner-only: SEC-13 peer tiers must never list them. Refusing them for
+export { TASK_REVIEW_REFUSAL, TASK_REVIEW_VARIANTS_REFUSAL };
+
+/** Upgrade and reinstall operations. Owner-only: SEC-13 peer tiers must never list them. Refusing them for
  * delegated callers guards against accidental self-upgrade; it is not an authorization boundary against a
  * same-user agent, which can read the operator token.
  */
@@ -13,14 +15,6 @@ export const UPGRADE_REFUSAL = 'PACER_ROLE=executor: upgrades are not allowed fr
 export function isUpgradeOperation(name: string): boolean {
   return UPGRADE_OPERATIONS.includes(name) || (name.startsWith('desktop.reconcile.') && name !== 'desktop.reconcile.status') || (name.startsWith('desktop.update.') && name !== 'desktop.update.status');
 }
-
-/** Executors review a child they personally dispatched through a valid work grant; never their own task (F4). */
-export const TASK_REVIEW_REFUSAL =
-  'PACER_ROLE=executor: executors cannot review their own task; only a child they dispatched this run (use pacer dispatch review).';
-
-/** Executors never send a child back or retry it through task.review; those go through the dispatch commands. */
-export const TASK_REVIEW_VARIANTS_REFUSAL =
-  'PACER_ROLE=executor: send_back and retry verdicts are for the planner or a person; retry or answer a child with pacer dispatch retry / pacer dispatch answer.';
 
 export function executorMayReview(ctx: Ctx, params: Record<string, unknown>): boolean {
   const token = ctx.env.PACER_WORK_GRANT;
