@@ -89,3 +89,14 @@ test("cached for ten minutes unless refreshed", async () => {
   await availableModels(ctx, "opencode#acme", {refresh: true});
   expect(calls).toBe(2);
 });
+
+test("concurrent refreshes for the same runner both resolve with models", async () => {
+  const {ctx} = ctxWithOpencodeModels("acme/a\n");
+  writeStrategy(ctx, {acme: opencodeAcc}, {"opencode#acme": {model: "acme/a"}});
+  const [a, b] = await Promise.all([
+    availableModels(ctx, "opencode#acme", {refresh: true}),
+    availableModels(ctx, "opencode#acme", {refresh: true}),
+  ]);
+  expect(a.models!.map(m => m.id)).toEqual(["acme/a"]);
+  expect(b.models!.map(m => m.id)).toEqual(["acme/a"]);
+});

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../types";
@@ -13,7 +13,7 @@ export interface AvailableModel { id: string; name?: string; context?: number; o
 export type ModelSource = "opencode" | "connection" | "discovery" | "none";
 export interface AvailableModels { runner: string; source: ModelSource; models: AvailableModel[] | null; fetchedAt: number; note?: string }
 
-/** Cached for ten minutes regardless of when the plan last looked; refresh: true bypasses it. */
+/** Listings are cached for ten minutes; refresh: true bypasses the cache. */
 const TTL_S = 600;
 function cacheFile(ctx: Ctx, runnerId: string): string {
   const hash = createHash("sha256").update(runnerId).digest("hex");
@@ -32,10 +32,15 @@ function readCache(ctx: Ctx, path: string): AvailableModels | null {
 }
 function writeCache(ctx: Ctx, path: string, value: AvailableModels) {
   if (ctx.readOnly) return;
-  const temp = `${path}.${createHash("sha256").update(String(ctx.now)).digest("hex").slice(0, 8)}.tmp`;
-  mkdirSync(join(ctx.pacerHome, "cache", "available-models"), { recursive: true, mode: 0o700 });
-  try { writeFileSync(temp, JSON.stringify(value), { flag: "wx", mode: 0o600 }); renameSync(temp, path); }
-  finally { rmSync(temp, { force: true }); }
+  try {
+    mkdirSync(join(ctx.pacerHome, "cache", "available-models"), { recursive: true, mode: 0o700 });
+    // unique temp name so concurrent calls for the same runner don't collide on the same file
+    const temp = `${path}.${randomUUID()}.tmp`;
+    writeFileSync(temp, JSON.stringify(value), { flag: "wx", mode: 0o600 });
+    renameSync(temp, path);
+  } catch {
+    // best effort: a cache write failure must not fail the listing
+  }
 }
 
 /** Attach catalog facts to a served model id; only the presence of an entry is required, so unknown ids stay listed. */
