@@ -4,6 +4,7 @@ import { DiagnosticResults, DiagnosticsSection, diagnosticReportText } from "../
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
 import { callOp, opNames } from "../src/api/ops";
+import { writeUndoSnapshot } from "../src/install/undo-store";
 import { V3_ONLY_OPS } from "../src/api/v2-compat";
 import { fakeCtx, localTs, tmpDir } from "./helpers";
 import type { Remedy } from "../src/install/doctor";
@@ -434,10 +435,11 @@ test('agent.undo requires consent and restores the snapshot within 7 days, refus
   writeFileSync(path, installed);
   mkdirSync(ctx.pacerHome, { recursive: true });
   const key = 'claude-code';
+  const snap = writeUndoSnapshot(ctx, key, [{ path, before, mode: 0o600, after: installed }], 'rev-1', ctx.now)!;
   writeFileSync(join(ctx.pacerHome, 'install-manifest.json'), JSON.stringify({ version: 1, planners: { [key]: {
     planner: 'claude-code', installedAt: ctx.now, pacerArgv: [], commands: [], notes: [],
     files: [{ path, action: 'edited', exact: true, undo: [] }],
-    undoConnect: { at: ctx.now, revision: 'rev-1', files: [{ path, before, beforeMode: 0o600, afterHash: sha256(installed) }] } } } }));
+    undoConnect: snap } } }));
   await expect(callOp(ctx, 'agent.undo', { agent: 'claude-code' })).rejects.toMatchObject({ code: 'not_allowed' });
   const r = await restorePlannerInstall(ctx, 'claude-code', key, 'rev-1');
   expect(r.restored).toEqual([path]);
@@ -452,11 +454,12 @@ test('agent.undo requires consent and restores the snapshot within 7 days, refus
   const expiredPath = join(expiredFolder, 'settings.json');
   writeFileSync(expiredPath, installed);
   mkdirSync(expiredCtx.pacerHome, { recursive: true });
+  const expiredSnap = writeUndoSnapshot(expiredCtx, key, [{ path: expiredPath, before: installed, after: installed }], 'rev-1', localTs(2026, 10, 10, 12, 0))!;
   writeFileSync(join(expiredCtx.pacerHome, 'install-manifest.json'), JSON.stringify({ version: 1, planners: { [key]: {
     planner: 'claude-code', installedAt: localTs(2026, 10, 10, 12, 0), pacerArgv: [], commands: [], notes: [],
     files: [],
-    undoConnect: { at: localTs(2026, 10, 10, 12, 0), revision: '', files: [{ path: expiredPath, before, afterHash: sha256(installed) }] } } } }));
-  await expect(restorePlannerInstall(expiredCtx, 'claude-code', key)).rejects.toMatchObject({ code: 'not_found' });
+    undoConnect: expiredSnap } } }));
+  await expect(restorePlannerInstall(expiredCtx, 'claude-code', key, 'rev-1')).rejects.toMatchObject({ code: 'not_found' });
   expect(existsSync(expiredPath)).toBe(true);
 });
 

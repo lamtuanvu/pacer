@@ -206,7 +206,8 @@ test("repeated missing-file repair writes even when manifest metadata already ma
 test("undo marks a repair undone; later reconcile reports the need to repair without rewriting (F5)", async () => {
   const { ctx, root, skill } = await connected();
   const { restorePlannerInstall } = await import("../src/plugins/planner-install");
-  const deleted = await restorePlannerInstall(ctx, "codex", "codex");
+  const rev = readManifest(ctx).planners.codex.undoConnect!.revision;
+  const deleted = await restorePlannerInstall(ctx, "codex", "codex", rev);
   expect(deleted.removed).toContain(skill);
   expect(existsSync(skill)).toBe(false);
   const manifest = readManifest(ctx);
