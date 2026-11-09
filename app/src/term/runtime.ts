@@ -38,30 +38,57 @@ const schedule: NonNullable<SessionClientOptions['schedule']> = (fn, ms) => {
 };
 type ViewerStorage = Pick<Storage, 'getItem' | 'setItem'> | null;
 const WINDOW_LEASE_PREFIX = 'pacer:viewer-lease:';
+/** An allocated viewer slot: `n` is the human-readable ordinal, `id` a per-window token that lets us break ties. */
+interface ViewerLeaseEntry {
+  n: number;
+  id: string;
+}
 /** The short platform name an app window presents to a shared session (ADR 0023, follow-up F6). */
 export function viewerPlatformName(desktop: boolean): string {
   return desktop ? 'Pacer desktop' : 'Browser';
 }
-function readLeases(storage: ViewerStorage, key: string): number[] {
+function readLeases(storage: ViewerStorage, key: string): ViewerLeaseEntry[] {
   if (!storage) return [];
   try {
     const raw = storage.getItem(key);
     if (raw == null) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((n): n is number => Number.isSafeInteger(n) && n >= 1)
-      : [];
+    if (!Array.isArray(parsed)) return [];
+    const leases: ViewerLeaseEntry[] = [];
+    for (const item of parsed) {
+      // Accept both the current {n, id} form and the legacy bare-number array.
+      if (Number.isSafeInteger(item) && (item as number) >= 1)
+        leases.push({ n: item as number, id: '' });
+      else if (
+        item &&
+        typeof item === 'object' &&
+        Number.isSafeInteger((item as ViewerLeaseEntry).n) &&
+        (item as ViewerLeaseEntry).n >= 1 &&
+        typeof (item as ViewerLeaseEntry).id === 'string'
+      )
+        leases.push({ n: (item as ViewerLeaseEntry).n, id: (item as ViewerLeaseEntry).id });
+    }
+    return leases;
   } catch {
     return [];
   }
 }
-function writeLeases(storage: ViewerStorage, key: string, leases: number[]): void {
+function writeLeases(storage: ViewerStorage, key: string, leases: ViewerLeaseEntry[]): void {
   if (!storage) return;
   try {
     storage.setItem(key, JSON.stringify(leases));
   } catch {
     /* memory-only fallback */
   }
+}
+/** Short random token; unique per window, used as a tiebreak when two windows land on the same ordinal. */
+function windowToken(): string {
+  return Math.random().toString(36).slice(2, 6) || 'x';
+}
+function smallestFreeOrdinal(leases: ViewerLeaseEntry[]): number {
+  let n = 1;
+  while (leases.some((l) => l.n === n)) n++;
+  return n;
 }
 export interface ViewerWindowLease {
   label: string;
@@ -71,24 +98,31 @@ export interface ViewerWindowLease {
  * Allocates this app window a human-readable viewer label so a shared session's `active` status
  * (last input from …) can tell windows apart (ADR 0023, follow-up F6). The base is the platform
  * name; once more than one window of the same kind is live in this browser profile each gets a
- * short per-window ordinal. Release is best-effort and keeps the lease worst-case bounded.
+ * short per-window ordinal. Two windows opened in the same instant can both read the same store
+ * and pick the same ordinal; each detects the other's same-ordinal lease at its recheck and
+ * appends a unique per-window tiebreak so the labels never collide. Release is best-effort and
+ * keeps the lease worst-case bounded.
  */
 export function announceViewerWindow(desktop: boolean, storage: ViewerStorage): ViewerWindowLease {
   const key = WINDOW_LEASE_PREFIX + (desktop ? 'desktop' : 'browser');
+  const id = windowToken();
   const leases = readLeases(storage, key);
-  let ordinal = 1;
-  while (leases.includes(ordinal)) ordinal++;
-  leases.push(ordinal);
-  writeLeases(storage, key, leases);
+  const n = smallestFreeOrdinal(leases);
+  const next = [...leases, { n, id }];
+  writeLeases(storage, key, next);
+  // Re-check the store: if another window grabbed the same ordinal in the same instant, gate the
+  // ordinal with my unique token so this window stays distinguishable.
+  const after = readLeases(storage, key);
+  const collided = after.some((l) => l.n === n && l.id !== id);
   const base = viewerPlatformName(desktop);
-  const label = leases.length > 1 ? `${base} · ${ordinal}` : base;
+  const label = after.length > 1 ? (collided ? `${base} · ${n}·${id}` : `${base} · ${n}`) : base;
   let released = false;
   return {
     label,
     release() {
       if (released) return;
       released = true;
-      writeLeases(storage, key, readLeases(storage, key).filter((n) => n !== ordinal));
+      writeLeases(storage, key, readLeases(storage, key).filter((l) => l.id !== id));
     },
   };
 }
