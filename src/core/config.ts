@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { atomicStrategyWrite, editStrategy, StrategyDoc } from "../config/edit";
 import { formatRunnerId, parseRunnerId, runnerDefaults } from "../config/runner-id";
 import { loadStrategy, strategyPath, validateStrategy, type Strategy } from "../config/strategy";
+import { isExecutorSession } from "../install/role";
 import { readManifest } from "../install/manifest";
 import { installPlanner } from "../install";
 import { pacerArgv } from "../install/self";
@@ -108,6 +109,9 @@ export async function set(ctx: Ctx, keyInput: string, input: unknown, options: {
     };
     const k = keyInput;
     if (k === "planner" && !["install", "skip"].includes(options.integrations ?? "")) throw new CoreError("invalid_input", "planner requires an integration choice", 'integrations: "install" or "skip"');
+    // N5: a config.set planner change rewrites real agent folders; executors drive it from a brief, not from here.
+    if (k === "planner" && isExecutorSession(ctx))
+      throw new CoreError("not_allowed", "PACER_ROLE=executor: changing the planner with config.set connects real agent folders; run it outside a delegated task.");
     if(!(CONFIG_KEYS as readonly string[]).includes(k)) throw Error(`unknown config key: ${k}`);
     const key=k as ConfigKey;
     if (Array.isArray(input) && k !== 'pacing.order') throw new CoreError("invalid_input", `${k} requires a scalar value`, "Use a list only for pacing.order");

@@ -6,7 +6,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Check } from "../../../../src/install/doctor";
 import { diagnosticEvidence, diagnosticLevel, diagnosticsPage, diagnosticTitle, remedyPlan, remedyProgress, type DiagnosticFixRow, type DiagnosticRowOutcome, type DiagnosticTask, type RemedyPlan } from "../../../../src/view-model/diagnostics";
 import { displayName } from "../../../../src/view-model/format";
-import { commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, type ConsentRequest, type PreparedRun, type RemedyHost, type RepairPreview } from "../../data/remedies";
+import { executorLabel } from "../../../../src/view-model/words";
+import { agentInfo, markAgent } from "../../../../src/view-model/agents";
+import { commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, type AgentConnectUndo, type ConsentRequest, type PreparedRun, type RemedyHost, type PreviewFile, type RepairPreview } from "../../data/remedies";
 import { useActions } from "../../data/action-context";
 import { platform } from "../../platform";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -26,6 +28,8 @@ export interface DoctorReport { checkedAt: number; durationSeconds?: number; che
 const REPORT_NOTE = "Configuration and fixture tests do not prove hook invocation. It stays unverified until observed in the planner.";
 /** The confirmation key for the "Couldn't check" group and for Fix all. */
 const INTERNAL = "\u0000internal", FIX_ALL = "\u0000fix-all";
+/** Confirmation key for undo a repair from a review sheet. */
+const UNDO = "\u0000undo";
 const glyphs = {good: "✓", warn: "!", bad: "✕", neutral: "–"} as const;
 function diagnosticTiming(report: DoctorReport): string {
   const checked = time(report.checkedAt);
@@ -163,38 +167,65 @@ export function DiagnosticResults({ report, baseline, outcomes, tasks, busy = fa
   </div>;
 }
 
-type ReviewState = { check: Check; preview: RepairPreview; phase: "review" | "applying" | "done" | "error"; error?: unknown; resolve?: (ok: boolean) => void };
-/** Review changes: every file the reconnect writes, applied only with this preview's revision. */
-export function ReviewSheet({ review, report, onApply, onClose }: { review: ReviewState; report?: DoctorReport; onApply: () => void; onClose: () => void }) {
+type ReviewState = { check: Check; preview: RepairPreview; phase: "review" | "applying" | "done" | "error"; error?: unknown; resolve?: (ok: boolean) => void; undo?: AgentConnectUndo };
+/** Board 17b (SettingsDiagnosticsReview) pills: how each file changes on apply. */
+const CHANGE_PILL: Record<PreviewFile["change"], { label: string; tone: "good" | "warn" | "bad" | "info" | "neutral" }> = {
+  create: { label: "Create", tone: "info" },
+  update: { label: "Update", tone: "neutral" },
+  restore: { label: "Restore", tone: "warn" },
+  unchanged: { label: "No change", tone: "neutral" },
+  kept: { label: "Not touched", tone: "neutral" },
+};
+/** Review changes: every file the reconnect writes, its change, the 7-day undo note and an Undo once applied. */
+export function ReviewSheet({ review, report, onApply, onUndo, undoing = false, consent, onClose }: { review: ReviewState; report?: DoctorReport; onApply: () => void; onUndo?: () => void; undoing?: boolean; consent?: PendingConsent; onClose: () => void }) {
   const agent = displayName(review.preview.agent);
   const title = settingsText(diagnosticTitle(review.check.name));
   const current = report?.checks.find(check => check.name === review.check.name);
   const passes = !current || current.level === "ok" || current.level === "info";
   const files = review.preview.files ?? [];
-  if (review.phase === "done") return <SideDialog title={`${agent} reconnected`} close={onClose}
-    footer={<Button variant="primary" onClick={onClose}>Back to Diagnostics</Button>}>
-    <p role="status" className="pc-diagnostic-sheet-text">{`Updated ${files.length === 1 ? "1 file" : `${files.length} files`} and rechecked: ${title} ${passes ? "passes" : "still needs attention"}.`}
-      {passes && " Hooks show as verified after your next session with this agent."}</p>
-  </SideDialog>;
+  const changes: PreviewFile[] = (review.preview.changes?.length ?? 0) > 0
+    ? review.preview.changes!
+    : review.preview.files.map(path => ({ path, change: "update" as const, note: "Pacer updates its entries and keeps your edits." }));
+  const changeCount = changes.filter(file => file.change !== "kept").length;
+  if (review.phase === "done") {
+    const undoAvailable = !!review.undo?.available;
+    return <SideDialog title={`${agent} reconnected`} close={onClose}
+      footer={<>{undoAvailable && <Button variant="ghost" aria-disabled={undoing || !!consent || undefined} onClick={onUndo}>{undoing ? "Restoring…" : "Undo"}</Button>}
+        <Button variant="primary" onClick={onClose}>Back to Diagnostics</Button></>}>
+      <p role="status" className="pc-diagnostic-sheet-text">{`Updated ${files.length === 1 ? "1 file" : `${files.length} files`} and rechecked: ${title} ${passes ? "passes" : "still needs attention"}.`}
+        {passes && " Hooks show as verified after your next session with this agent."}</p>
+      {undoAvailable
+        ? <p className="pc-diagnostic-note">Pacer keeps the previous copies, so you can undo this from Diagnostics for 7 days.</p>
+        : <p className="pc-diagnostic-note">{`Undo isn't available for this fix: ${review.undo?.reason ?? "no pacer file changes to undo"}.`}</p>}
+      {consent && <ConsentConfirm consent={consent}/>}
+    </SideDialog>;
+  }
   return <SideDialog title={`Reconnect ${agent}`} close={onClose}
     footer={<><Button onClick={onClose} disabled={review.phase === "applying"}>Cancel</Button>
       {review.phase !== "error" && <Button variant="primary" busy={review.phase === "applying"} onClick={onApply}>{review.phase === "applying" ? "Fixing and rechecking…" : "Apply and recheck"}</Button>}</>}>
     <p className="pc-diagnostic-caption">{title}</p>
     <p className="pc-diagnostic-sheet-text">{`Pacer restores its own files for ${agent}. Nothing else in your folder changes.`}{review.preview.detail ? ` ${settingsText(review.preview.detail)}` : ""}</p>
-    <SectionHeading as="h3">{files.length === 1 ? "1 file changes" : `${files.length} files change`}</SectionHeading>
-    <ul className="pc-diagnostic-files">{files.map(file => <li key={file}><SettingsPath path={file}/></li>)}</ul>
-    <p className="pc-diagnostic-note">You can disconnect the integration later from Budget &amp; pacing.</p>
+    <SectionHeading as="h3">{changeCount === 1 ? "1 file changes" : `${changeCount} files change`}</SectionHeading>
+    <ul className="pc-diagnostic-changes">
+      {changes.map((file, index) => <li key={`${file.path}:${index}`} className="pc-diagnostic-change">
+        <div className="pc-diagnostic-change__text"><span><SettingsPath path={file.path}/></span><span className="pc-diagnostic-caption">{settingsText(file.note)}</span></div>
+        <Pill tone={CHANGE_PILL[file.change].tone}>{CHANGE_PILL[file.change].label}</Pill>
+      </li>)}
+    </ul>
+    <p className="pc-diagnostic-note">Pacer keeps the current copies. You can undo this from Diagnostics for 7 days.</p>
     <ErrorMessage error={review.error}/>
   </SideDialog>;
 }
 
+/** The executor pacer would route the fix task to (board 17c). Read-only: pacer chooses it and there is no Change override control. */
+export interface RoutedExecutor { id: string; reason: string }
 type AgentState = { check: Check; scope: "fix" | "investigate"; phase: "compose" | "starting" | "started"; error?: unknown; taskId?: string; resolve?: (ok: boolean) => void };
 const SCOPES = {
   fix: { title: "Fix it, ask before changing anything else", note: "Repairing the failing tool or integration goes ahead. Changes to other tools or your settings wait for you.", short: "asks before other changes" },
   investigate: { title: "Investigate only", note: "The agent finds the cause and proposes a fix. Nothing on your machine changes.", short: "investigate only" },
 } as const;
 /** Fix with agent: the service builds the brief from its own doctor result; the client sends only the check and scope. */
-export function AgentSheet({ agent, report, onScope, onStart, onClose }: { agent: AgentState; report?: DoctorReport; onScope: (scope: AgentState["scope"]) => void; onStart: () => void; onClose: () => void }) {
+export function AgentSheet({ agent, report, routed, onScope, onStart, onClose }: { agent: AgentState; report?: DoctorReport; routed?: RoutedExecutor; onScope: (scope: AgentState["scope"]) => void; onStart: () => void; onClose: () => void }) {
   const title = settingsText(diagnosticTitle(agent.check.name));
   if (agent.phase === "started" && agent.taskId) return <SideDialog title="Fix task started" close={onClose}
     footer={<><Button onClick={onClose}>Back to Diagnostics</Button><ButtonLink variant="primary" href={`#/tasks/${encodeURIComponent(agent.taskId)}`} onClick={onClose}>Open task</ButtonLink></>}>
@@ -211,7 +242,11 @@ export function AgentSheet({ agent, report, onScope, onStart, onClose }: { agent
       agent.check.detail, "Attached: related checks, the agent’s version and install path."].join("\n")}</pre>
     <p className="pc-diagnostic-note">Pacer builds the final brief from its own check result and removes keys and tokens before the agent sees it.</p>
     <SectionHeading as="h3">Runs on</SectionHeading>
-    <p className="pc-diagnostic-sheet-text">Pacer routes it to an executor by budget and pace, like any task.</p>
+    {routed
+      ? <div className="pc-diagnostic-route"><span className="pc-diagnostic-route__mark" aria-hidden="true">{agentInfo(markAgent(routed.id)).monogram}</span>
+        <div className="pc-diagnostic-route__text"><b>{executorLabel(routed.id)}</b><span className="pc-diagnostic-caption">Chosen by pacer: {routed.reason}</span></div>
+      </div>
+      : <p className="pc-diagnostic-sheet-text">Pacer routes it to an executor by budget and pace, like any task.</p>}
     <SectionHeading as="h3" id="diagnostics-agent-scope">What it may change</SectionHeading>
     <RadioGroup label="What it may change" aria-labelledby="diagnostics-agent-scope" className="pc-diagnostic-scopes">
       {(["fix", "investigate"] as const).map(scope => <RadioCard key={scope} checked={agent.scope === scope} disabled={agent.phase === "starting"}
@@ -236,6 +271,7 @@ export function DiagnosticsSection() {
   const [consent, setConsent] = useState<PendingConsent>();
   const [review, setReview] = useState<ReviewState>();
   const [agent, setAgent] = useState<AgentState>();
+  const [routed, setRouted] = useState<RoutedExecutor>();
   const [started, setStarted] = useState<Record<string, DiagnosticTask>>({});
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -246,6 +282,8 @@ export function DiagnosticsSection() {
   const waiting = useRef(new Set<string>());
   const returnListener = useRef<() => void>();
   const runButton = useRef<HTMLButtonElement>(null);
+  /** One undo at a time, including the preview fetch before the confirmation is shown. */
+  const undoingRef = useRef(false);
   useEffect(() => () => returnListener.current?.(), []);
   /** When the focused control went away (a fixed row, the last fix-all), keep focus on the page. */
   const keepFocus = () => requestAnimationFrame(() => {
@@ -309,9 +347,22 @@ export function DiagnosticsSection() {
       delegate: () => new Promise(resolve => {
         outcome(check.name, { phase: "running", text: "Waiting for you to start the task…" });
         setProgress("");
+        setRouted(undefined);
         setAgent({ check, scope: "fix", phase: "compose", resolve });
+        // Read-only preview of where the fix task would go, with the same kind ("debug") and
+        // scratch-repo routing semantics doctor.fix.delegate uses (no project selection).
+        void (async () => {
+          try {
+            const result = await call<{ ranked?: { id: string; reason?: string }[] }>("routing.route", { kind: "debug" });
+            const top = result.ranked?.[0];
+            setRouted(top?.id ? { id: top.id, reason: top.reason ?? "It ranked first among the executors that can take this work." } : undefined);
+          } catch { /* Routing stays unknown; the sheet keeps its generic line. */ }
+        })();
       }),
       open: url => openRemedyUrl(url, platform),
+      // runRemedy wraps this host with reportUndo to capture agent.connect's undo
+      // availability for the done sheet; this bare default keeps host() a RemedyHost.
+      reportUndo: () => {},
     };
   }
   function awaitReturn(name: string) {
@@ -339,8 +390,10 @@ export function DiagnosticsSection() {
     setBusy(true); setError(undefined);
     outcome(name, { phase: "running", text: first });
     setProgress(`${settingsText(row.title)}: ${first}`);
+    let undoAfterConnect: AgentConnectUndo | undefined;
+    const remedyHost: RemedyHost = { ...host(row.check, text), reportUndo: undo => { undoAfterConnect = undo; } };
     try {
-      const result = await dispatchRemedy(plan, host(row.check, text));
+      const result = await dispatchRemedy(plan, remedyHost);
       if (result === "cancelled") { outcome(name); setProgress("No changes were made."); return; }
       if (result === "delegated") { outcome(name); setProgress(`${settingsText(row.title)}: fix task started.`); return; }
       if (result === "await-return") {
@@ -354,7 +407,7 @@ export function DiagnosticsSection() {
         outcome(name, { phase: "rechecked" });
         setProgress(`${settingsText(row.title)}: ${stillFailing(rechecked, name) ? "still failing after the fix. The new result is in the row." : "fixed and rechecked."}`);
       } else outcome(name);
-      setReview(current => current?.check.name !== name ? current : rechecked ? { ...current, phase: "done" }
+      setReview(current => current?.check.name !== name ? current : rechecked ? { ...current, phase: "done", undo: undoAfterConnect ?? { available: false, reason: "no pacer file changes to undo" } }
         : { ...current, phase: "error", error: new Error("The files were updated, but the recheck failed. Run all checks again.") });
     } catch (failure) {
       outcome(name, { phase: "error", message: errorText(failure) });
@@ -423,9 +476,52 @@ export function DiagnosticsSection() {
   }
   function closeReview() {
     if (review?.phase === "applying") return;
+    // Escape/close while an undo (or other) confirmation is open must cancel it, not
+    // leave its promise pending; ask() clears consent through resolve(false).
+    consent?.resolve(false);
     review?.resolve?.(false);
     setReview(undefined);
     keepFocus();
+  }
+  /** Undo exactly the last applied repair: confirm the snapshot's files, then restore or remove them. */
+  async function undoRepair() {
+    if (!review || review.phase !== "done" || busy || consent || undoingRef.current) return;
+    // The whole flow (preview, confirmation and restore) is one locked step; a second
+    // activation is a no-op, the same locked pattern FixRow uses for its remedy buttons.
+    undoingRef.current = true;
+    try {
+      const name = review.check.name;
+      const agentName = review.preview.agent;
+      let undoOption: RepairPreview["undoSnapshot"];
+      try {
+        const fresh = await call<RepairPreview>("agent.preview", { agent: agentName });
+        undoOption = fresh.undoSnapshot;
+      } catch (failure) {
+        setError(failure);
+        setProgress(`${settingsText(diagnosticTitle(name))}: could not prepare the undo.`);
+        keepFocus();
+        return;
+      }
+      const files = undoOption?.files.map(file => file.path) ?? [];
+      if (!files.length) { setProgress("Nothing to undo."); setReview(undefined); keepFocus(); return; }
+      const ok = await ask(UNDO, [{ title: `Undo the ${settingsText(diagnosticTitle(name))} repair`, message: "Pacer restores or removes exactly the files its last fix changed.", confirmLabel: "Restore copies", files }]);
+      if (!ok) { setProgress("No changes were made."); return; }
+      setBusy(true);
+      try {
+        const result = await call<{ restored: string[]; removed: string[]; kept: string[] }>("agent.undo", { agent: agentName, consent: true, preview_revision: undoOption!.revision });
+        const next = await recheck();
+        setReview(undefined);
+        const counts = [
+          result.restored.length ? `${result.restored.length} restored` : "",
+          result.removed.length ? `${result.removed.length} removed` : "",
+          result.kept.length ? `${result.kept.length} kept (changed since)` : "",
+        ].filter(Boolean).join(", ");
+        setProgress(`${settingsText(diagnosticTitle(name))} undone: ${counts || "no files changed"}. ${next && stillFailing(next, name) ? "The check still needs attention." : "Rechecked."}`);
+      } catch (failure) {
+        setError(failure);
+        setProgress(`${settingsText(diagnosticTitle(name))}: the undo did not finish.`);
+      } finally { setBusy(false); keepFocus(); }
+    } finally { undoingRef.current = false; }
   }
   async function copyReport() {
     if (!report) return;
@@ -456,7 +552,7 @@ export function DiagnosticsSection() {
       onCopyReport={() => void copyReport()}/></div>}
     <NativeValidationSetup/>
   </section>
-  {review && <ReviewSheet review={review} report={report} onApply={() => review.resolve?.(true)} onClose={closeReview}/>}
-  {agent && <AgentSheet agent={agent} report={report} onScope={scope => setAgent(current => current && { ...current, scope })} onStart={() => void startAgentTask()} onClose={closeAgent}/>}
+  {review && <ReviewSheet review={review} report={report} onApply={() => review.resolve?.(true)} onUndo={() => void undoRepair()} undoing={busy} consent={consent?.key === UNDO ? consent : undefined} onClose={closeReview}/>}
+  {agent && <AgentSheet agent={agent} report={report} routed={routed} onScope={scope => setAgent(current => current && { ...current, scope })} onStart={() => void startAgentTask()} onClose={closeAgent}/>}
   </>;
 }

@@ -9,6 +9,7 @@ import { migrateStrategy } from "../config/migrate";
 import { detect, starterStrategy } from "../install/init";
 import { AGENT_BINS, type AgentId } from "../install/detection";
 import { installPlanner } from "../install";
+import { readManifest } from "../install/manifest";
 import { uninstallPlanner } from "../install/uninstall";
 import { pacerArgv } from "../install/self";
 import { serviceBackend, type ServiceBackend } from "../service";
@@ -17,6 +18,7 @@ import { withLock } from "./lock";
 import { loadStrategy } from "../config/strategy";
 import { accountFolder } from "../install/role";
 import { plannerPreview } from "../plugins/planner-preview";
+import { restorePlannerInstall, UNDO_CAP_NOTE, UNDO_SWAP_NOTE } from "../plugins/planner-install";
 import { currentVersion } from "../update/version";
 import { PROTOCOL_VERSION } from "../api/protocol";
 import type { Ctx } from "../types";
@@ -61,6 +63,28 @@ export function pluginInstall(): never {
 function plannerTarget(ctx:Ctx,agent:AgentId) {
   try {const s=loadStrategy(ctx);return s.planner.agent===agent?s.planner:agent;}catch{return agent;}
 }
+/** A plain-language note for each change; shown in the review sheet (board 17b). */
+const CHANGE_NOTE = {
+  create: "Pacer adds this file.",
+  update: "Pacer updates its entries and keeps your edits.",
+  restore: "Changed outside pacer; restored to the installed version",
+  unchanged: "Matches the installed version",
+  kept: "Yours. Pacer never edits it",
+} as const;
+export interface PreviewFile { path: string; change: keyof typeof CHANGE_NOTE; note: string }
+/** Additive result field on agent.connect: whether the just-applied connect left an undoable snapshot. */
+export interface AgentConnectUndo { available: boolean; revision?: string; reason?: string }
+/** Short plain-language reason shown when a connect left nothing undoable (UI-12). */
+const UNDO_REASON_TOO_LARGE = "too large to keep a copy";
+const UNDO_REASON_SWAP = "a saved copy could not be kept";
+const UNDO_REASON_NONE = "no pacer file changes to undo";
+function undoAfterConnect(r: {record?: { undoConnect?: { revision?: string } }; notes: string[]}): AgentConnectUndo {
+  const snap = r.record?.undoConnect;
+  if (snap) return { available: true, revision: snap.revision };
+  if (r.notes.includes(UNDO_CAP_NOTE)) return { available: false, reason: UNDO_REASON_TOO_LARGE };
+  if (r.notes.includes(UNDO_SWAP_NOTE)) return { available: false, reason: UNDO_REASON_SWAP };
+  return { available: false, reason: UNDO_REASON_NONE };
+}
 export async function agentPreview(ctx: Ctx, agent: AgentId) {
   // Preview remains available even when a CLI has not been installed yet.
   if (!Object.hasOwn(AGENT_BINS,agent)) throw new CoreError("invalid_input", `unknown agent: ${agent}`, `choose ${PLANNERS.join(', ')}`);
@@ -70,8 +94,24 @@ export async function agentPreview(ctx: Ctx, agent: AgentId) {
   const root=join(ctx.home,agent==="claude-code"?".claude":`.${agent}`);
 
   const desired=await plannerPreview(ctx,agent,folder??(agent==="opencode"?join(ctx.env.XDG_CONFIG_HOME??join(ctx.home,".config"),"opencode"):root),folder&&typeof target==="object"?`${agent}#${target.account}`:agent,agent==="codex"?folder??ctx.env.CODEX_HOME:undefined);
-  const preview={agent,...desired};
-  return {...preview, revision: sha256(JSON.stringify({target, folder, ...preview}))};
+  const changes=(desired.changes ?? desired.files.map(path => ({ path, change: "update" as const })))
+    .map(file => ({ path: file.path, change: file.change, note: CHANGE_NOTE[file.change] ?? CHANGE_NOTE.update }));
+  const preview={agent,...desired,files: desired.files, changes};
+  const undoSnapshot = readManifest(ctx).planners[plannerKey(ctx, agent)]?.undoConnect;
+  return {
+    ...preview,
+    revision: sha256(JSON.stringify({target, folder, ...preview})),
+    ...(undoSnapshot ? {
+      undoSnapshot: {
+        revision: undoSnapshot.revision,
+        at: undoSnapshot.at,
+        files: undoSnapshot.files.map((file) => ({
+          path: file.path,
+          change: file.beforeHash ? ("restore" as const) : ("remove" as const),
+        })),
+      },
+    } : {}),
+  };
 }
 
 export async function agentConnect(ctx: Ctx, agent: AgentId, options: {consent?: boolean; preview_revision?: string} = {}) {
@@ -81,8 +121,32 @@ export async function agentConnect(ctx: Ctx, agent: AgentId, options: {consent?:
     throw new CoreError("conflict", "The integration target changed after preview", "Review a fresh repair preview before applying changes.");
   const target = plannerTarget(ctx, agent);
   try {
-    const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false}, target);
-    return {installed: r.touched};
+    const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false, undoRevision: preview.revision}, target);
+    // L4: tell the caller up front whether this connect left something undoable, instead
+    // of discovering it only after the Undo button is clicked. Undo availability comes
+    // from the host-built snapshot record, never from the client's guess.
+    const undo = undoAfterConnect(r);
+    return {installed: r.touched, undo};
+  } catch (e) { throw toCoreError(e); }
+}
+
+/** The manifest key for an agent, mirroring installPlanner's plannerKey selection. */
+function plannerKey(ctx: Ctx, agent: AgentId): string {
+  const target = plannerTarget(ctx, agent);
+  if (typeof target === "string") return target;
+  const account = loadStrategy(ctx).accounts[target.account];
+  return !account || account.source === "default" ? agent : `${agent}#${target.account}`;
+}
+
+/** Undo exactly the last file-changing connect, consent-gated to its snapshot, within 7 days. */
+export async function agentUndo(ctx: Ctx, agent: AgentId, options: {consent?: boolean; preview_revision?: string} = {}) {
+  if (options.consent !== true) throw new CoreError("not_allowed", "undoing a repair requires consent", "Review that pacer will restore the previous copies, then pass consent: true");
+  // N4: undo is bound to the snapshot's revision; a missing or stale revision is refused.
+  if (!options.preview_revision) throw new CoreError("conflict", "The undo target changed after preview", "Review a fresh repair preview before undoing.");
+  const key = plannerKey(ctx, agent);
+  try {
+    const { restored, removed, reverted, kept } = await restorePlannerInstall(ctx, agent, key, options.preview_revision);
+    return { restored, removed, reverted, kept };
   } catch (e) { throw toCoreError(e); }
 }
 

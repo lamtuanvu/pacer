@@ -796,7 +796,7 @@ Params JSON Schema:
 
 ### `agent.connect`
 
-Connect an agent after explicit consent to write its integration files.
+Connect an agent after explicit consent to write its integration files. Returns installed plus an additive 'undo' flag reporting whether this connect left something undoable (with its revision) or, when it did not, a short reason.
 
 Params JSON Schema:
 
@@ -879,7 +879,7 @@ Params JSON Schema:
 
 ### `agent.preview`
 
-Preview agent integration files and the undo command before consenting.
+Preview agent integration files, the undo command and each file's change (create, update, restore, unchanged or kept) before consenting.
 
 Params JSON Schema:
 
@@ -896,6 +896,40 @@ Params JSON Schema:
         "cursor",
         "opencode"
       ]
+    }
+  },
+  "required": [
+    "agent"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `agent.undo`
+
+Undo exactly the files changed by the most recent connect, from its recorded snapshot, after explicit consent bound to that connect's preview revision, within 7 days. Reports restored, removed, reverted and kept files.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
+      ]
+    },
+    "consent": {
+      "type": "boolean"
+    },
+    "preview_revision": {
+      "type": "string"
     }
   },
   "required": [

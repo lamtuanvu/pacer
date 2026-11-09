@@ -403,8 +403,9 @@ export const OPS: Record<string, OpDef> = {
       counts: {tasks: c.tasks, sessions: c.sessions, older_runners: c.olderRunners, older_sessions: c.olderSessions, reopen_to_update: c.reopenToUpdate}};
   } }),
   "plugin.install": op({ description: "Retired: pacer no longer ships an Orca plugin. Always fails with not_allowed; removed in the next protocol major.", params: z.object({}), handler: () => setup.pluginInstall() }),
-  "agent.preview": op({ description: "Preview agent integration files and the undo command before consenting.", params: z.object({agent}), handler: (ctx, p) => setup.agentPreview(ctx, p.agent) }),
-  "agent.connect": op({ description: "Connect an agent after explicit consent to write its integration files.", params: z.object({agent, consent: z.boolean().optional(), preview_revision: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentConnect(ctx, p.agent, p)) }),
+  "agent.preview": op({ description: "Preview agent integration files, the undo command and each file's change (create, update, restore, unchanged or kept) before consenting.", params: z.object({agent}), handler: (ctx, p) => setup.agentPreview(ctx, p.agent) }),
+  "agent.connect": op({ description: "Connect an agent after explicit consent to write its integration files. Returns installed plus an additive 'undo' flag reporting whether this connect left something undoable (with its revision) or, when it did not, a short reason.", params: z.object({agent, consent: z.boolean().optional(), preview_revision: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentConnect(ctx, p.agent, p)) }),
+  "agent.undo": op({ description: "Undo exactly the files changed by the most recent connect, from its recorded snapshot, after explicit consent bound to that connect's preview revision, within 7 days. Reports restored, removed, reverted and kept files.", params: z.object({agent, consent: z.boolean().optional(), preview_revision: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentUndo(ctx, p.agent, p)) }),
   "agent.disconnect": op({ description: "Remove an agent integration using its recorded undo actions.", params: z.object({agent}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentDisconnect(ctx, p.agent)) }),
   "version.get": op({ description: "Pacer and protocol version metadata.", params: z.object({}), handler: ctx => setup.version(ctx) }),
   "host.list": op({ description: "Configured SSH hosts and running task counts.", params: z.object({}), handler: ctx => core.hosts.list(ctx) }),
@@ -640,6 +641,8 @@ export function opJsonSchemas(): Record<string, { description: string; params: u
 
 export function parseOpParams(ctx: Ctx, name: string, params: unknown): unknown {
   if (isUpgradeOperation(name) && isExecutorSession(ctx)) throw new CoreError("not_allowed", UPGRADE_REFUSAL);
+  if ((name === "agent.undo" || name === "agent.connect" || name === "agent.disconnect") && isExecutorSession(ctx))
+    throw new CoreError("not_allowed", "PACER_ROLE=executor: connecting, disconnecting or undoing agent integrations rewrites real agent folders; it is for the operator, not executor sessions.");
   authorizeWorkOperation(ctx,name,params);
   // Executors cannot spend the assistant's budget or read its history through pacer's own clients.
   if (name.startsWith("assistant.") && isExecutorSession(ctx)) throw new CoreError("not_allowed", "PACER_ROLE=executor: executors cannot use the assistant or read its history.");
