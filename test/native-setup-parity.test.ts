@@ -1,0 +1,243 @@
+import { afterAll, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Ctx } from "../src/types";
+import { createSession } from "../src/serve/app-auth";
+import { fakeCtx, tmpDir, withLoginIndicators } from "./helpers";
+
+// Native setup.init, strategy.build and executor.setup.candidates against the
+// same requests forced through PACER_FORWARD_OPS to the TypeScript core.
+
+const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
+const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
+const OPS = "setup.init,strategy.build,executor.setup.candidates";
+const NOW = Math.floor(Date.now() / 1000);
+
+const STRATEGY = `planner: claude-code
+accounts:
+  claude: {kind: claude}
+  codex: {kind: codex}
+  cursor: {kind: cursor}
+  acme-work: {kind: endpoint, source: opencode, provider: acme, usage: metered}
+runners:
+  claude-code: {}
+  codex: {}
+  cursor: {}
+routing:
+  - default: [codex, cursor]
+terminal: {open: "fake-term {cmd}"}
+`;
+
+// A local Ollama tags endpoint for setup.init detection.
+const ollama = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: req => new URL(req.url).pathname === "/api/tags"
+  ? Response.json({ models: [{ name: "" }, { name: "qwen3:8b" }] }) : new Response("no", { status: 404 }) });
+afterAll(() => ollama.stop(true));
+
+function bin(dir: string, name: string, script: string) {
+  mkdirSync(join(dir, "bin"), { recursive: true });
+  writeFileSync(join(dir, "bin", name), `#!/bin/sh\n${script}\n`);
+  chmodSync(join(dir, "bin", name), 0o755);
+}
+
+async function exchange(home: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, expectNative = !forward) {
+  const child = Bun.spawn([front!, "api", "--stdio"], {
+    cwd: home,
+    env: { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:/usr/bin:/bin`,
+      PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
+      PACER_DEBUG_NATIVE: "1", ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },
+    stdin: "pipe", stdout: "pipe", stderr: "pipe",
+  });
+  try {
+    await child.stdin.write([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } }), ...requests].join("\n") + "\n");
+    await child.stdin.end();
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code, stderr).toBe(0);
+    const lines = stdout.trim().split("\n");
+    expect(JSON.parse(lines[0]!).result?.protocol).toBe("3.0.0");
+    const ops = new Set(requests.map(r => JSON.parse(r).method as string));
+    const markers = stderr.split("\n").filter(line => { const m = /^native (\S+) \d+$/.exec(line); return m != null && ops.has(m[1]!); });
+    expect(markers).toEqual(expectNative ? requests.map((r, i) => `native ${JSON.parse(r).method} ${i + 2}`) : []);
+    return lines.slice(1).sort((a, b) => JSON.parse(a).id - JSON.parse(b).id).map(line => JSON.parse(line));
+  } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
+}
+const request = (id: number, method: string, params: unknown) =>
+  JSON.stringify({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) });
+const requests = (cases: [string, unknown][]) => cases.map(([op, params], i) => request(i + 2, op, params));
+
+const events = (dir: string) => {
+  const path = join(dir, ".pacer", "link", "outbox.jsonl");
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8").trim().split("\n").map(line => JSON.stringify(JSON.parse(line).envelope)
+    .replace(/"at":\d+(\.\d+)?/g, '"at":"<now>"').replace(/"\d+(\.\d+)?-[0-9a-f]{4}"/g, '"<id>"'));
+};
+const files = (dir: string, sub: string) => {
+  const path = join(dir, ".pacer", sub);
+  return existsSync(path) ? Object.fromEntries(readdirSync(path, { withFileTypes: true }).filter(e => e.isFile() && !e.name.endsWith(".lock"))
+    .map(e => e.name).sort().map(name => [name, readFileSync(join(path, name), "utf8")])) : {};
+};
+
+function home(strategy = true): string {
+  const dir = tmpDir();
+  mkdirSync(join(dir, ".pacer"), { recursive: true });
+  if (strategy) writeFileSync(join(dir, ".pacer", "strategy.yaml"), STRATEGY);
+  for (const name of ["claude", "codex", "cursor-agent"]) bin(dir, name, "exit 1");
+  bin(dir, "fake-term", `printf '%s\\n' "$@" >> "${join(dir, "terminal.log")}"`);
+  withLoginIndicators({ home: dir } as Ctx);
+  return dir;
+}
+
+test.skipIf(!front)("setup.init creates or edits the strategy like forced forwarding", async () => {
+  const fresh = (extra = "") => {
+    const dir = home(false);
+    for (const name of ["opencode", "ollama", "arkcli"]) bin(dir, name, "exit 1");
+    bin(dir, "lms", `echo '[{"type":"embedding","modelKey":"e"},{"type":"llm","modelKey":"plain"},{"type":"llm","modelKey":"tools","trainedForToolUse":true}]'`);
+    if (extra) writeFileSync(join(dir, ".pacer", "strategy.yaml"), extra);
+    return dir;
+  };
+  const env = { OLLAMA_HOST: `127.0.0.1:${ollama.port}` };
+  const cases: [string, unknown][] = [
+    ["setup.init", { planner: "agy" }], ["setup.init", { planner: "codex@devbox" }], ["setup.init", { planner: "" }],
+    ["setup.init", { planner: 5 }], ["setup.init", {}], ["setup.init", null], ["setup.init", { planner: "x".repeat(129) }], ["setup.init", { planner: "😀".repeat(128) }],
+  ];
+  // The TypeScript core rejects overlapping edits of one setting, so each write gets its own exchange.
+  const writes: [string, unknown][] = [["setup.init", { planner: "codex#work" }], ["setup.init", { planner: "cursor@local" }], ["setup.init", { planner: "codex" }]];
+  for (const [label, prepare] of [["new", () => fresh()], ["existing", () => fresh(STRATEGY)]] as const) {
+    const homes = [prepare(), prepare()];
+    const native = [await exchange(homes[0]!, requests(cases), false, env)];
+    const forwarded = [await exchange(homes[1]!, requests(cases), true, env)];
+    for (const write of writes) {
+      native.push(await exchange(homes[0]!, requests([write]), false, env));
+      forwarded.push(await exchange(homes[1]!, requests([write]), true, env));
+    }
+    const local = (value: unknown, dir: string) => JSON.parse(JSON.stringify(value).replaceAll(dir, "$HOME"));
+    expect(local(native, homes[0]!), label).toEqual(local(forwarded, homes[1]!));
+    const strategies = (dir: string) => Object.fromEntries(Object.entries(files(dir, "")).filter(([name]) => name.startsWith("strategy.yaml")));
+    expect(strategies(homes[0]!), label).toEqual(strategies(homes[1]!));
+    expect(Object.keys(strategies(homes[0]!)).length, label).toBeGreaterThan(0);
+    expect(events(homes[0]!), label).toEqual(events(homes[1]!));
+  }
+}, 120000);
+
+test.skipIf(!front)("strategy.build writes the same intent files, prompt and terminal hand-off as forced forwarding", async () => {
+  const request_id = "00000000-0000-4000-8000-000000000001";
+  const cases: [string, unknown][] = [
+    ["strategy.build", { agent: "cursor", from: "default", brief: "Help 😀", request_id }],
+    ["strategy.build", { agent: "cursor", from: "default", brief: "Help 😀", request_id }],
+    ["strategy.build", { agent: "cursor", brief: "changed", request_id }],
+    ["strategy.build", { brief: "😀".repeat(1001) }],
+    ["strategy.build", { brief: "😀".repeat(2001) }],
+    ["strategy.build", { agent: "nope", from: "", worktree: "", request_id: "x" }],
+    ["strategy.build", { from: "gone", request_id: "00000000-0000-4000-8000-000000000002" }],
+    ["strategy.build", null],
+  ];
+  const homes = [home(), home()];
+  const native = await exchange(homes[0]!, requests(cases), false);
+  const forwarded = await exchange(homes[1]!, requests(cases), true);
+  // The prompt embeds the live status clock; compare everything else exactly.
+  const stable = (text: string) => text.replace(/Current status:\n[\s\S]*?\n\nUse the pacer MCP/g, "Current status:\n<status>\n\nUse the pacer MCP");
+  const normalize = (value: unknown) => JSON.parse(stable(JSON.stringify(value)).replace(/Current status:\\n[\s\S]*?\\n\\nUse the pacer MCP/g, "Current status:\\n<status>\\n\\nUse the pacer MCP")
+    .replace(/[0-9a-f-]{36}\.sh/g, "<script>.sh"));
+  expect(normalize(native)).toEqual(normalize(forwarded));
+  const sessions = homes.map(dir => Object.fromEntries(Object.entries(files(dir, "link/sessions")).map(([name, text]) => [name.replace(/^\d{13}-[0-9a-f]{4}/, "<generated>"), stable(text)])));
+  expect(normalize(sessions[0])).toEqual(normalize(sessions[1]));
+  expect(Object.keys(sessions[0]!)).toEqual([`${request_id}.json`, `${request_id}.md`, "<generated>.md"]);
+  expect(events(homes[0]!)).toEqual(events(homes[1]!));
+  expect(native[0].result).toMatchObject({ opened: true, target: "terminal" });
+  expect(native[0].result.command).toStartWith("cursor-agent --force --trust --sandbox disabled -- ");
+  expect(native[1]).toEqual({ ...native[0], id: 3 });
+  const logs = homes.map(dir => readFileSync(join(dir, "terminal.log"), "utf8").trim().split("\n").length);
+  expect(logs[0]).toBe(logs[1]!);
+  const enforced = requests([["strategy.build", {}], ["executor.setup.candidates", {}], ["setup.init", { planner: "codex" }]]);
+  const env = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
+  expect(await exchange(homes[0]!, enforced, false, env)).toEqual(await exchange(homes[0]!, enforced, true, env));
+}, 120000);
+
+test.skipIf(!front)("executor.setup.candidates from a fresh catalog matches forced forwarding", async () => {
+  const model = (id: string, extra: Record<string, unknown> = {}) => ({ id, name: id.toUpperCase(), toolCall: true, input: ["text"], output: ["text"], context: 200000, outputLimit: 32000, costIn: 1.25, costOut: 10, release: "2025-03-01", ...extra });
+  const catalog = (dir: string, fetchedAt: number) => {
+    mkdirSync(join(dir, ".pacer", "cache"), { recursive: true });
+    writeFileSync(join(dir, ".pacer", "cache", "models.json"), JSON.stringify({ fetchedAt, providers: {
+      acme: { id: "acme", name: "Acme", env: [], api: null, models: [model("a1")] },
+      "volcengine-coding-plan": { id: "volcengine-coding-plan", name: "Volc", env: [], api: null, models: [model("v", { costIn: 0, costOut: 0 })] },
+      free: { id: "free", name: "Free", env: [], api: null, models: [model("f", { costIn: 0, costOut: null })] },
+      ollama: { id: "ollama", name: "Ollama", env: [], api: null, models: [model("o")] },
+      empty: { id: "empty", name: "Empty", env: [], api: null, models: [] },
+    } }));
+  };
+  const signed = (dir: string, script: string) => {
+    bin(dir, "opencode", script);
+    mkdirSync(join(dir, ".config", "opencode"), { recursive: true });
+    writeFileSync(join(dir, ".config", "opencode", "opencode.json"), JSON.stringify({ provider: { custom: { name: "Custom", options: { apiKey: "secret" } }, acme: {} } }));
+  };
+  const cases = requests([["executor.setup.candidates", {}], ["executor.setup.candidates", { extra: 1 }], ["executor.setup.candidates", null], ["executor.setup.candidates", 5]]);
+  const scenarios: [string, (dir: string) => void][] = [
+    ["signed in", dir => signed(dir, `echo '[{"id":"acme","name":"Acme Co"},{"id":"free"},{"name":"x"},"bad",{"id":"custom"}]'`)],
+    ["sign-in failure", dir => signed(dir, "exit 3")],
+    ["no opencode", () => {}],
+  ];
+  for (const [label, setup] of scenarios) {
+    const dir = home();
+    catalog(dir, NOW);
+    setup(dir);
+    expect(await exchange(dir, cases, false), label).toEqual(await exchange(dir, cases, true));
+  }
+  const stale = home();
+  catalog(stale, NOW - 90000);
+  const one = requests([["executor.setup.candidates", {}]]);
+  expect(await exchange(stale, one, false, {}, false)).toEqual(await exchange(stale, one, true));
+}, 120000);
+
+async function serve(dir: string, forward: boolean) {
+  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  const port = reservation.port!; reservation.stop(true);
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
+    env: { HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
+      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) } });
+  const stderr = new Response(child.stderr).text();
+  const base = `http://127.0.0.1:${port}`;
+  let token = "", ready = false;
+  for (let n = 0; n < 1000 && !ready; n++) {
+    try {
+      token = readFileSync(join(dir, ".pacer/token"), "utf8").trim();
+      ready = (await fetch(base + "/v3/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok;
+    } catch {}
+    if (!ready) await Bun.sleep(20);
+  }
+  if (!ready) { child.kill("SIGTERM"); await child.exited; throw new Error(`serve did not start: ${await stderr}`); }
+  return {
+    post: async (op: string, body: unknown, headers: Record<string, string>) => {
+      const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body), signal: AbortSignal.timeout(20000) });
+      return `${response.status} ${await response.text()}`;
+    },
+    bearer: { Authorization: `Bearer ${token}` },
+    app: (cookie: string) => ({ Cookie: `pacer_session=${cookie}`, Origin: base, "X-Pacer-Client": "app" }),
+    stop: async () => { child.kill("SIGTERM"); await child.exited; return (await stderr).split("\n").filter(line => /^native (strategy|executor|setup)\./.test(line)); },
+  };
+}
+
+test.skipIf(!front)("HTTP callers reach the setup effects bridge like the TypeScript core", async () => {
+  const results: { bodies: string[]; markers: string[]; sessions: string[] }[] = [];
+  for (const forward of [false, true]) {
+    const dir = home();
+    bin(dir, "opencode", `echo '[{"id":"acme"}]'`);
+    mkdirSync(join(dir, ".pacer", "cache"), { recursive: true });
+    writeFileSync(join(dir, ".pacer", "cache", "models.json"), JSON.stringify({ fetchedAt: NOW, providers: { acme: { id: "acme", name: "Acme", env: [], api: null, models: [{ id: "a1", name: "A1", toolCall: true, input: ["text"], output: ["text"], context: 200000, outputLimit: 32000, costIn: 1, costOut: 2, release: "2025-03-01" }] } } }));
+    const cookie = createSession(fakeCtx({ home: dir, now: Date.now() / 1000 }));
+    const server = await serve(dir, forward);
+    const bodies = [
+      await server.post("strategy.build", { agent: "codex", request_id: "00000000-0000-4000-8000-00000000000a" }, server.bearer),
+      await server.post("strategy.build", { agent: "opencode", request_id: "00000000-0000-4000-8000-00000000000b" }, server.app(cookie)),
+      await server.post("strategy.build", { brief: 5 }, server.app(cookie)),
+      await server.post("executor.setup.candidates", {}, server.bearer),
+      await server.post("setup.init", { planner: "codex" }, server.app(cookie)),
+    ];
+    results.push({ bodies: bodies.map(body => body.replaceAll(dir, "$HOME")), markers: await server.stop(), sessions: Object.keys(files(dir, "link/sessions")) });
+  }
+  const norm = (body: string) => body.replace(/Current status:\\n[\s\S]*?\\n\\nUse the pacer MCP/g, "<status>").replace(/[0-9a-f-]{36}\.sh/g, "<script>.sh")
+    .replace(/"terminalId":"[^"]+"/g, '"terminalId":"<id>"');
+  expect(results[0]!.bodies.map(norm)).toEqual(results[1]!.bodies.map(norm));
+  expect(results[0]!.sessions).toEqual(results[1]!.sessions);
+  expect(results[1]!.markers).toEqual([]);
+  expect(results[0]!.markers).toEqual(["strategy.build", "strategy.build", "strategy.build", "executor.setup.candidates", "setup.init"].map(op => `native ${op}`));
+}, 120000);
