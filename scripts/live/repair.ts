@@ -43,7 +43,7 @@ export async function authorizeSeedRepair(session:Session,request:Request):Promi
     try {
       while(true){const next=await reader.read();if(next.done)break;size+=next.value.length;if(size>4096)return false;chunks.push(next.value);}
     }finally{await reader.cancel();}
-    const params=(undo?z.object({agent:z.literal('codex'),consent:z.literal(true),preview_revision:z.string().optional()}).strict():repair)
+    const params=(undo?z.object({agent:z.literal('codex'),consent:z.literal(true),preview_revision:z.string().min(1)}).strict():repair)
       .parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
     const recorded=loadSession(session.id,dirname(session.root));
     if(recorded.seed!=='ui'||recorded.stopped||recorded.root!==session.root||recorded.port!==session.port||recorded.innerPort!==session.innerPort||
@@ -71,7 +71,7 @@ export async function authorizeSeedRepair(session:Session,request:Request):Promi
     }
     if(undo){
       const snap=(manifest.planners?.['codex#team'] as {undoConnect?:{revision:string}}|undefined)?.undoConnect;
-      if(!snap||params.preview_revision!==undefined&&params.preview_revision!==snap.revision)return false;
+      if(!snap||params.preview_revision!==snap.revision)return false;
       return true;
     }
     return true;
