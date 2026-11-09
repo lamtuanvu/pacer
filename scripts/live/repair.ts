@@ -34,8 +34,8 @@ function safePath(root:string,path:string,recursive=false): boolean {
 
 export async function authorizeSeedRepair(session:Session,request:Request):Promise<boolean> {
   try {
-    const url=new URL(request.url),origin=`http://127.0.0.1:${session.port}`;
-    if(session.seed!=='ui'||session.stopped||request.method!=='POST'||url.pathname!=='/v3/ops/agent.connect'||url.search||
+    const url=new URL(request.url),origin=`http://127.0.0.1:${session.port}`,undo=url.pathname==='/v3/ops/agent.undo';
+    if(session.seed!=='ui'||session.stopped||request.method!=='POST'||(url.pathname!=='/v3/ops/agent.connect'&&!undo)||url.search||
       ![origin,`http://localhost:${session.port}`].includes(request.headers.get('origin')??'')||request.headers.get('x-pacer-client')!=='app')return false;
     const reader=request.clone().body?.getReader();
     if(!reader)return false;
@@ -43,7 +43,8 @@ export async function authorizeSeedRepair(session:Session,request:Request):Promi
     try {
       while(true){const next=await reader.read();if(next.done)break;size+=next.value.length;if(size>4096)return false;chunks.push(next.value);}
     }finally{await reader.cancel();}
-    const params=repair.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+    const params=(undo?z.object({agent:z.literal('codex'),consent:z.literal(true),preview_revision:z.string().min(1)}).strict():repair)
+      .parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
     const recorded=loadSession(session.id,dirname(session.root));
     if(recorded.seed!=='ui'||recorded.stopped||recorded.root!==session.root||recorded.port!==session.port||recorded.innerPort!==session.innerPort||
       !sameProcess(recorded.serviceIdentity??null,session.serviceIdentity??null)||!sameProcess(session.serviceIdentity??null,processIdentity(session.pid)))return false;
@@ -56,14 +57,22 @@ export async function authorizeSeedRepair(session:Session,request:Request):Promi
       run:async()=>{throw Error('Repair authorization cannot run subprocesses');}};
     const strategy=loadStrategy(ctx),account=strategy.accounts.team;
     if(strategy.planner.agent!=='codex'||strategy.planner.account!=='team'||account?.source!=='pacer'||account.home!==folder)return false;
-    const preview=await agentPreview(ctx,'codex');
-    if(preview.revision!==params.preview_revision)return false;
-    const expected=[join(folder,'AGENTS.md'),join(folder,'hooks.json'),join(folder,'skills/pacer/SKILL.md')].sort();
-    if(JSON.stringify([...preview.files].sort())!==JSON.stringify(expected))return false;
+    if(!undo){
+      const preview=await agentPreview(ctx,'codex');
+      if(preview.revision!==params.preview_revision)return false;
+      const expected=[join(folder,'AGENTS.md'),join(folder,'hooks.json'),join(folder,'skills/pacer/SKILL.md')].sort();
+      if(JSON.stringify([...preview.files].sort())!==JSON.stringify(expected))return false;
+    }
     // Prior records cannot introduce external paths (including rollback/backup metadata).
     const manifest=JSON.parse(readFileSync(join(home,'install-manifest.json'),'utf8'));
-    for(const record of Object.values(manifest.planners??{}) as {files?:{path:string;backup?:string}[]}[]) {
+    for(const record of Object.values(manifest.planners??{}) as {files?:{path:string;backup?:string}[];undoConnect?:{files:{path:string}[]}}[]) {
       for(const file of record.files??[])if(!safePath(root,file.path)||file.backup&&!safePath(root,file.backup))return false;
+      for(const undoFile of record.undoConnect?.files??[])if(!safePath(root,undoFile.path))return false;
+    }
+    if(undo){
+      const snap=(manifest.planners?.['codex#team'] as {undoConnect?:{revision:string}}|undefined)?.undoConnect;
+      if(!snap||params.preview_revision!==snap.revision)return false;
+      return true;
     }
     return true;
   }catch{return false;}

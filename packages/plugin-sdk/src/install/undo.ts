@@ -12,11 +12,21 @@ export interface FileChange {
   managed?: { schema: 1; hash: string };
   backup?: string; afterHash?: string; exact?: boolean; undo: UndoOp[];
 }
+export interface UndoSnapshotFile {
+  path: string;
+  beforeHash?: string;
+  size?: number;
+  afterHash: string | null;
+  copy?: string;
+}
+export interface UndoSnapshot { at: number; revision: string; size: number; files: UndoSnapshotFile[] }
 export interface PlannerRecord {
   mcp?: boolean;
   integration?: { schema: 1; fingerprint: string };
   planner: string; account?: string; folder?: string; configEnv?: Record<string, string>; installedAt: number; pacerArgv: string[]; files: FileChange[];
   commands: { undo: string[] }[]; notes: string[];
+  undoConnect?: UndoSnapshot;
+  undoneAt?: number;
 }
 export interface Manifest { version: 1; planners: Record<string, PlannerRecord> }
 export function removeTomlTable(text: string, table: string): string {

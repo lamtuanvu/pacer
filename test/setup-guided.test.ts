@@ -107,7 +107,11 @@ test("planner connection uses manifest integrity, login and the selected account
  writeFileSync(join(ctx.pacerHome,"strategy.yaml"),"planner: codex\nproviders:\n  codex: {}\n");
  expect((await checkSetup(ctx,{snapshotProbe:false,deferStatus:true})).items.find(i=>i.id==="planner")?.status).toBe("pending");
  mkdirSync(join(home,".codex"),{recursive:true});writeFileSync(join(home,".codex/auth.json"),"{}");
- await agentConnect(ctx,"codex",{consent:true});
+ const connected=await agentConnect(ctx,"codex",{consent:true});
+ // L4: agent.connect reports whether it left something undoable, from the host snapshot.
+ expect(connected.installed).toBeInstanceOf(Array);
+ expect(connected.undo?.available).toBe(true);
+ expect(connected.undo?.revision).toBeTruthy();
  let setup=await checkSetup(ctx,{snapshotProbe:false,deferStatus:true});
  expect(setup.items.find(i=>i.id==="planner")?.status).toBe("done");expect(setup.items.find(i=>i.id==="connect")?.status).toBe("done");
  writeFileSync(join(home,".codex/AGENTS.md"),"removed integration");

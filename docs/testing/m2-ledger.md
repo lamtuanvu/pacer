@@ -45,7 +45,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `mode.hold` | Native (P5, selective) | Explicit `until` is native. Omitting `until` selectively forwards to TypeScript so `computeStatus` can default to the planner reset window (P5b). |
 | `limits.report` | Native (P5) | Resolves the runner through `pacer-config`, marks `exhausted.json` + evidence via `pacer-engine::exhausted` (manual). No publish. |
 | `limits.check` | Native (P5c) | Row projection via `pacer_engine::usage_broker::limits_check` once Core supplies `accounts` + `providers` through `/_internal/status-broker-parts` (serve) or `_internal.status-broker.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns `computeStatus` / plugin readings. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `limits.refresh` | Forwarded (P5b) | `refreshAccountUsage` / `refreshAllUsage` coordinator (`src/usage/refresh.ts`): per-account dedupe, 15-minute automatic throttle, outcome projection from prior/current readings. Effectful reads via `readAccountUsage(..., refresh: true)` and `readPluginUsage` (provider CLI, Ark CLI, passive Claude logs). Beyond P5c read-only status-broker injection; HTTP `usageRefreshDone` rebuilds cached status after manual refresh. Library: `pacer_engine::usage_refresh` mirrors capability/outcome rules only. `PACER_FORWARD_OPS` remains the escape hatch. M2 re-evaluation: not a pure read; every supported path calls plugin usage readers, the pending/automatic-throttle map is per TypeScript process and `usageRefreshDone` rebuilds the service's in-memory status cache. |
+| `limits.refresh` | Native (M2 service and agent, selective) | `pacer-config-ops::limits_refresh_ops` owns the enforcement refusal, the Zod `account` issue text, the `Unknown account` error with its hint and the reply for accounts without a refresh source (`usageRefreshCapability` is `unavailable`: reactive, unmetered and unknown usage), which `refreshAccountUsage` answers as `unsupported` before any usage read. With no `account`, rows follow `Object.keys` order (integer-index names first). Any account a provider command, Ark CLI or passive Claude log must read selectively forwards, because those reads run the usage plugins and the per-process pending and automatic-throttle maps; an unloadable strategy and `Object.prototype` names (`constructor`, `__proto__`, ...) also forward. Residual: a native reply does not call the HTTP `usageRefreshDone` status rebuild; nothing it reports changed usage. Parity: `test/native-agent-limits-parity.test.ts`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.status` | Native (P5d) | Composed via `pacer_engine::usage_broker::routing_status` with the same P5c `accounts` + `providers` bridge (`/_internal/status-broker-parts` / `_internal.status-broker.parts`). TypeScript still owns live `computeStatus`. `calendarPace` defaults in Rust until the bridge carries planner profile hints. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.route` | Native (P5d, selective) | Broker-backed `usage_broker::routing_route` / `status::rank_route` when params omit `goal` and `repo`. Params with `goal` (classifier) or `repo` (project policy + remote eligibility) selectively forward to TypeScript. A routed id without a configured runner is excluded as `not configured`, as in TypeScript `rankExecutors`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `routing.get` | Native (P5b) | Pure strategy routing document read via `pacer-config::config_writes::get_routing` (rules + available executor ids). No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -97,15 +97,18 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete` | Native (P7/P8 assistant reads, selective) | Rust reads conversation pages and turns with usage, cards, citations and scope parsed in `JSON.parse` key order. `conversations` first enforces retention like TypeScript; deletes drop turn text, keep usage aggregates and run `wal_checkpoint(TRUNCATE)` (`src/assistant/store.ts`). `conversations` forwards when stored settings are unusable. |
 | `assistant.ask`, `assistant.cancel` | Forwarded (P7/P8) | Turn lifecycle: redacted read-tool loop, bundled `pacer-assistant` plugin `respond`, checkpointing and SSE answer stream at `/v3/assistant/turns/<turnId>/stream` (`src/assistant/service.ts`, `src/api/http.ts`). `cancel` aborts the in-process live-turn map of the TypeScript service. Proposed actions stay client-confirmed; nothing executes from the turn itself. |
 | `assistant.card.record`, `assistant.card.refresh` | Native (P7/P8 assistant reads, selective) | Rust rewrites the stored `cards` JSON in place, keeping key positions and `JSON.stringify` spelling (`src/assistant/actions.ts`). `refresh` reads the task revision from the task store; a task without a brief or title forwards because TypeScript `taskTitle` throws there. |
-| `account.list` | Forwarded (P7/P9) | Account inventory with usage/sign-in commands and no emails (`src/core/accounts.ts`). Each row needs `readAccountUsage` (usage plugin and CLI readers), endpoint-plugin rows (`endpointRow`), Orca account reads and sign-in evidence, so it is not a pure store read. |
+| `account.list` | Forwarded (P7/P9) | Account inventory with usage/sign-in commands and no emails (`src/core/accounts.ts`). Each row needs `readAccountUsage` (usage plugin and CLI readers behind a per-process cache), endpoint-plugin rows (`endpointRow`), Orca account reads and sign-in evidence, so it is not a pure store read. M2 re-evaluation: the usage-broker bridge carries reconciled `computeStatus` readings, not the per-account `readAccountUsage` reading each row reports, so no input has a native path without a new bridge. |
 | `account.signin` | Forwarded (P7/P9) | Opens provider login in a terminal/tmux/Orca target or returns the command; interactive account-add/init flows share the handler (`src/api/ops.ts`, `accounts.signin`). |
-| `account.add`, `account.edit`, `account.adopt`, `account.remove` | Forwarded (P7/P9) | Strategy `accounts` mutations: Claude/Codex homes, managed endpoints and OpenCode adoption with endpoint-plugin sync, protected-path home deletion and runner references (`src/endpoints/`, `src/core/accounts.ts`). |
-| `account.models`, `account.test` | Forwarded (P7/P9) | Supplied-key or stored-key model discovery and isolated endpoint test tasks in a temporary git repo (`endpoints.listModels`, `testEndpoint`). |
-| `account.usage.check` | Forwarded (P5/P9) | Quota-consuming usage observation jobs per account (Claude consent gate), plugin/CLI reads and warmed status via `usageRefreshDone` (`src/core/account-usage-check.ts`, `src/usage/`). |
+| `account.remove` | Native (M2 accounts, selective) | `pacer-account-ops` owns `accounts.remove` (`src/core/accounts.ts`): legacy strategy migration, `unknown account` and `in use` refusals, the `deletionHome` checks (pacer-managed source, symlinked, root, protected and shared folders, including other accounts' Orca and pacer homes), the `accounts` mapping removal in one validated strategy edit, evidence retirement (`state/evidence/<identity>.json` under the `evidence-<identity>` lock, the SHA-256 identity of `accountEvidenceScope` with ICU-collated host rows) and the home deletion. The `accounts` config publication and the endpoint-plugin sync follow as for `runner.set`. Malformed params, prototype-key names and strategy files TypeScript reports in its own parser's words forward. Residual: the endpoint-plugin sync runs after the evidence retirement and home deletion, where TypeScript synced right after the strategy edit. |
+| `account.add`, `account.edit`, `account.adopt` | Native (M2 accounts, selective) | Managed endpoints (`src/core/endpoints.ts` `save`): `account.add` with `kind: endpoint` and `test: false`, `account.edit` and `account.adopt` without `test: true`, all without a `key` param. Rust owns the name, usage and key-source checks, the connection, budget, quota source, OpenCode runner models and the `opencode#<name>` runner and default route in one validated strategy edit, the `endpoints/state.json` reset (private atomic write), `adoptEndpoint`'s read of the external provider's `baseURL` and model ids from `~/.config/opencode/opencode.json` (never `options.apiKey`), and the reply row with key presence (`env:`, `file`, and `security find-generic-password` without `-w` for `keychain`; no key is read). Errors are redacted as `redactEndpointMessage` does. Claude, Codex, Orca and `source: opencode` adds (their reply embeds the plugin usage row of `account.list`), key writes, test tasks, malformed params, prototype-key names, an unloadable strategy, an unreadable or non-JSON `state.json`, and external provider files with non-object `models` or prototype-key providers forward. Residual: the endpoint-plugin sync runs after the endpoint state write and keychain presence check, where TypeScript synced right after the strategy edit. |
+| `account.models`, `account.test` | Native (M2 accounts, selective) | `pacer-account-ops` refuses natively when the named account is not a configured endpoint, when `account.models` has no base URL, and when an `env:` or `file` key source has no key (unset variable, missing or empty key file). Model discovery (supplied or stored key, including every `keychain` source) and the endpoint test task in a temporary git repo forward. |
+| `account.usage.check` | Native (M2 accounts, selective) | `pacer-account-ops` refuses natively with `accountUsageCapability`'s outcomes: unknown accounts, unmetered accounts, accounts whose usage cannot be refreshed (`pacer_engine::usage_refresh::refresh_capability`), and Claude quota probes without consent. Starting the usage job (probe or refresh through plugin/CLI readers and `usageRefreshDone`) forwards. |
 | `terminal.list`, `terminal.create`, `terminal.rename`, `terminal.close` | Forwarded (P7) | Built-in workspace terminal tabs: idempotent shell spawn, revision-guarded rename/close and live state reads (`src/api/ops-terminal.ts`, `src/terminal/workspace.ts`). Refused for executor sessions. |
-| `agent.detect`, `agent.preview` | Forwarded (P9) | Agent CLI detection and integration preview/undo command before consent (`src/setup/`, `detectAgents`). |
-| `agent.connect`, `agent.disconnect` | Forwarded (P9) | Consent-gated integration file writes and recorded undo disconnect under the `setup` config area (`setup.agentConnect`, `agentDisconnect`). |
-| `service.install`, `service.status` | Forwarded (P9) | Login-item/service install with explicit consent and install/running/pid status probes (`src/setup/service.ts`). |
+| `agent.detect` | Native (M2 service and agent, selective) | `pacer-install` owns the host half of `detectAgents`: the Zod `host` issue text, the enforcement refusal, the `AGENT_BINS` probe on the service `PATH` and the hour-long `cache/agent-detect-<sha256>.json` read keyed by `JSON.stringify([binaries, PATH, host])`; a fresh entry is answered natively. A miss, an expired or future entry, an entry without `rows`, or a relative process `PATH` entry selectively forwards, because interpreting the agent CLIs is the planner plugin's `planner.detect` capability (ARCH-12) in the TypeScript plugin host, which also writes the cache. Residual: if the entry disappears between the forward decision and the handler, the reply is `unavailable` with a retry hint. Parity: `test/native-agent-limits-parity.test.ts`. |
+| `agent.preview` | Forwarded (P9) | Integration preview and undo command before consent. The preview is the planner plugin's `planner.preview` capability, which has no host fallback (ARCH-12), so it stays with the TypeScript plugin host. |
+| `agent.connect`, `agent.disconnect` | Forwarded (P9) | Consent-gated integration file writes and recorded undo disconnect under the `setup` config area (`setup.agentConnect`, `agentDisconnect`). The file plan and undo come from the planner plugin (`planner.preview` and install capabilities, ARCH-12) through the TypeScript plugin host and install transaction, so neither is native yet. |
+| `service.status` | Native (M2 service and agent, selective) | `pacer-update` owns `serviceStatus` (`src/core/setup.ts`, `src/service/index.ts`): `installed` is whether the registration file (`~/Library/LaunchAgents/com.pacer.serve.plist` or `~/.config/systemd/user/pacer-serve.service`) reads; `launchctl print gui/<uid>/com.pacer.serve` or `systemctl --user show pacer-serve.service --property=...` is spawned from Rust as argv with a 2 s deadline (SEC-5), and `parseLaunchd`/`parseSystemd` semantics (JavaScript `\s`, `Number`, the `Object.fromEntries` quirk) produce `running` and `pid`. The health probe TypeScript runs does not change this reply. Other platforms (TypeScript refuses them) and macOS OTA fixture builds, whose sandbox label only the compiled fixture policy knows, selectively forward. Residuals: a timed-out manager is killed but not its process group, and its partial stdout is dropped (TypeScript keeps it); the OTA fixture forward is a path heuristic. On macOS hosts Linux parsing is covered by unit tests only. Parity: `test/native-service-update-parity.test.ts` (fake `launchctl`/`systemctl` on `PATH`). |
+| `service.install` | Forwarded (P9) | Login-item/service install with explicit consent: the install transaction and manifest, the `pacerArgv` of the running core, `launchctl bootstrap`/`systemctl enable` and the health wait stay in TypeScript (`src/service/index.ts`, `src/install/`). |
 | `service.handover`, `service.work` | Forwarded (P9) | Post-upgrade runner handover wait and running-task/session version inventory for reopen prompts (`src/setup/service.ts`, owner-only handover). |
 | `update.check`, `update.apply` | Forwarded (P9) | Release feed check (optional force) and shared `update.apply` job with download/verify/replace/refuse package-manager and source installs (`src/api/ops.ts`, update preflight). |
 | `task.attach`, `task.session`, `task.takeover`, `task.hand_back` | Forwarded (P6/P7) | Live session viewers, session-host metadata, headless-to-interactive takeover and hand-back (`src/api/ops-session.ts`, `src/tasks/session.ts`, `takeoverTask`, `handBackTask`). Shares the attach/viewer path with `session.*`; native vt100 replay gate remains **NO-GO**. |
@@ -300,7 +303,26 @@ config alone. This slice only expands the ledger with explicit Forwarded rows;
 it does not register native handlers. Native cutover waits on plugin host
 ownership, usage refresh bridges, and P9 setup/service owners. The later
 assistant-reads slice registers ten `assistant.*` ops (see below);
-`assistant.ask` and `assistant.cancel` stay Forwarded.
+`assistant.ask` and `assistant.cancel` stay Forwarded. The later M2 accounts
+slice registers seven `account.*` ops (see below); `account.list` and
+`account.signin` stay Forwarded.
+
+## M2 accounts (native, selective)
+
+`account.remove`, `account.add`, `account.edit`, `account.adopt`,
+`account.models`, `account.test` and `account.usage.check` are registered
+native on stdio and HTTP in the `pacer-account-ops` crate. Rust owns the logic
+and the writes: the strategy edit, `endpoints/state.json`, evidence retirement
+and home deletion. No op calls TypeScript to execute; the
+`account_stays_forwarded` predicate forwards only the inputs listed in their
+rows, and an enforcement identity is refused natively. After a native write the
+existing endpoint-sync hook (`_internal.native-config.finish`) regenerates the
+OpenCode endpoint configuration, and the `accounts` config area is published.
+No handler reads, logs or returns an endpoint key. `account.list` stays
+Forwarded on plugin usage readings and `account.signin` on the terminal
+hand-off. `test/native-account-parity.test.ts` compares replies, errors,
+strategy, endpoint state, evidence, OpenCode configuration and outbox events
+against the TypeScript handlers.
 
 ## P7/P8 assistant settings and history cutover (native, selective)
 
@@ -386,6 +408,10 @@ ops. This slice only expands the ledger; it does not register native handlers.
 The M2 setup slice later registers `setup.init` (see its row).
 The M2 analytics-reads slice later registers `insights.summary`, and the M2
 issue-reads slice registers `issue.import` and `issue.search` (see their rows).
+The M2 service-and-agent slice registers `service.status`, `update.check`,
+`agent.detect` (cache hits) and `limits.refresh` (accounts without a refresh
+source); `agent.preview`, `agent.connect`, `agent.disconnect`,
+`service.install` and `update.apply` keep their Forwarded rows.
 
 ## P5b usage refresh triage (library, no new native ops)
 
@@ -403,7 +429,9 @@ The incremental library step is `pacer_engine::usage_refresh` (`refresh_capabili
 `test/usage-refresh-parity.test.ts` and `cargo test -p pacer-engine usage_refresh`.
 Native registration waits on a refresh bridge that can run plugin reads and
 publish warmed status (same gap as `account.usage.check` and live
-`computeStatus` warming).
+`computeStatus` warming). The M2 service-and-agent slice registers the
+`unsupported` path natively, which needs no read, and forwards every account
+with a refresh source.
 
 ## P8 desktop and discovery triage (ledger, no new native ops)
 
@@ -622,7 +650,7 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **134** of 225 (122 on the Rust stdio registry plus 12 HTTP-native
+Total native: **145** of 228 (133 on the Rust stdio registry plus 12 HTTP-native
 `plugin.*` ops). Fifty-seven of these selectively forward some inputs or effects to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
@@ -636,8 +664,8 @@ Total native: **134** of 225 (122 on the Rust stdio registry plus 12 HTTP-native
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,
 `assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
 `dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
-`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`.
-Total still not native (v3 − native set): **91**.
+`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`.
+Total still not native (v3 − native set): **83**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

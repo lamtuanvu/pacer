@@ -15,11 +15,37 @@ export interface FileChange {
   managed?: { schema: 1; hash: string };
   backup?: string; afterHash?: string; exact?: boolean; undo: UndoOp[];
 }
+/** One file effect of a single connect, captured for agent.undo (metadata only). */
+export interface UndoSnapshotFile {
+  path: string;
+  /** sha256 of the pre-connect content; present only when the connect edited it (restore). */
+  beforeHash?: string;
+  /** hash of the post-connect content; null when the connect removed the file */
+  afterHash: string | null;
+  /** pre-connect size in bytes; present only when beforeHash is present */
+  size?: number;
+  /** name of the private copy under $PACER_HOME/undo/<key>/ holding the pre-connect content */
+  copy?: string;
+}
+/** Snapshot of exactly the files one consent-gated connect changed. Content lives in the undo store. */
+export interface UndoSnapshot {
+  /** the connect's time (Unix seconds); the 7-day undo window starts here */
+  at: number;
+  /** the preview revision the consent was tied to; always set (digest or preview revision) */
+  revision: string;
+  /** combined byte size of the captured before-images (size cap gate) */
+  size: number;
+  files: UndoSnapshotFile[];
+}
 export interface PlannerRecord {
   mcp?: boolean;
   integration?: { schema: 1; fingerprint: string };
   planner: string; account?: string; folder?: string; configEnv?: Record<string, string>; installedAt: number; pacerArgv: string[]; files: FileChange[];
   commands: { undo: string[] }[]; notes: string[];
+  /** The most recent file-changing connect and the files it changed; undone by agent.undo. */
+  undoConnect?: UndoSnapshot;
+  /** Set when agent.undo reverted the last connect; reconcile reports needs-repair and does not auto-rewrite. */
+  undoneAt?: number;
 }
 export interface Manifest { version: 1; planners: Record<string, PlannerRecord> }
 export function readManifest(ctx: Pick<Ctx, "pacerHome">): Manifest {

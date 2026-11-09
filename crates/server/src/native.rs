@@ -24,6 +24,7 @@ use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
 pub(crate) mod host_mut_sync;
 use pacer_config_ops::host_read_ops;
+use pacer_config_ops::limits_refresh_ops;
 pub(crate) mod host_read_sync;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
@@ -72,6 +73,7 @@ pub use insights_ops::insights_stays_forwarded;
 pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
+pub use pacer_account_ops::account_stays_forwarded;
 use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview_ops};
 #[doc(hidden)]
 pub use pacer_discovery_ops::network::set_probe_outputs_for_tests;
@@ -97,6 +99,15 @@ pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -
             pacer_config_ops::setup_effects::setup_stays_forwarded(ctx, op, params)
         }
         _ => job_ops::job_stays_forwarded(ctx, op, params),
+    }
+}
+
+/// `service.status`, `update.check`, `agent.detect` and `limits.refresh` inputs only TypeScript answers.
+pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    match op {
+        "agent.detect" => pacer_install::agent_detect_stays_forwarded(ctx, params),
+        "limits.refresh" => limits_refresh_ops::limits_refresh_stays_forwarded(ctx, params),
+        _ => pacer_update::service_update_stays_forwarded(ctx, op),
     }
 }
 
@@ -297,6 +308,34 @@ static OPS: &[NativeOp] = &[
         call: config_writes::config_set,
     },
     NativeOp {
+        name: "account.add",
+        call: pacer_account_ops::account_add,
+    },
+    NativeOp {
+        name: "account.edit",
+        call: pacer_account_ops::account_edit,
+    },
+    NativeOp {
+        name: "account.adopt",
+        call: pacer_account_ops::account_adopt,
+    },
+    NativeOp {
+        name: "account.remove",
+        call: pacer_account_ops::account_remove,
+    },
+    NativeOp {
+        name: "account.models",
+        call: pacer_account_ops::account_models,
+    },
+    NativeOp {
+        name: "account.test",
+        call: pacer_account_ops::account_test,
+    },
+    NativeOp {
+        name: "account.usage.check",
+        call: pacer_account_ops::account_usage_check,
+    },
+    NativeOp {
         name: "activity.list",
         call: task_reads::activity_list,
     },
@@ -373,6 +412,10 @@ static OPS: &[NativeOp] = &[
         call: status_ops::limits_check_stub,
     },
     NativeOp {
+        name: "limits.refresh",
+        call: limits_refresh_ops::limits_refresh,
+    },
+    NativeOp {
         name: "routing.status",
         call: status_ops::routing_status_stub,
     },
@@ -435,6 +478,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "setup.init",
         call: pacer_config_ops::setup_init_ops::setup_init,
+    },
+    NativeOp {
+        name: "service.status",
+        call: pacer_update::service_status,
+    },
+    NativeOp {
+        name: "update.check",
+        call: pacer_update::update_check,
+    },
+    NativeOp {
+        name: "agent.detect",
+        call: pacer_install::agent_detect,
     },
     NativeOp {
         name: "repo.list",

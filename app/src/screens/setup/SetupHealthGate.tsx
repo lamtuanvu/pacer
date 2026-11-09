@@ -90,6 +90,8 @@ export function gateRemedyHost(api: Pick<BrowserApi, "call">, confirm: Confirm, 
       return true;
     },
     open,
+    // The setup gate has no undo sheet after applying, so it ignores connect undo availability.
+    reportUndo: () => {},
   };
 }
 
