@@ -12,6 +12,7 @@
  */
 import { mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { repoFor } from "../../src/core/repos";
 import { createTask, updateTask } from "../../src/tasks/store";
 import { TERMINAL_STATES, type Attempt, type TaskRecord, type TaskState } from "../../src/tasks/types";
 import type { Ctx } from "../../src/types";
@@ -193,8 +194,11 @@ export function buildSyntheticHome(o: SyntheticHomeOptions): SyntheticHomeSummar
       placement: { requested: "auto" },
     });
     ids.push(task.id);
+    // Real tasks record their repository when they launch (tasks/drain.ts, tasks/runner.ts).
+    const repoRef = repoFor(ctx, repo);
     if (i >= o.settled) {
       updateTask(ctx, task.id, t => {
+        t.repo = repoRef;
         t.queue = { reason: "waiting_retry", nextAt: now + 30 * 86_400, since: createdAt, position: i - o.settled + 1, detail: "synthetic unsettled task" };
       });
       park(task.id);
@@ -215,6 +219,7 @@ export function buildSyntheticHome(o: SyntheticHomeOptions): SyntheticHomeSummar
     const last = runs.at(-1)!;
     const settledCtx = ctxAt(o, last.endedAt + 5);
     const updated = updateTask(settledCtx, task.id, (t: TaskRecord) => {
+      t.repo = repoRef;
       t.attempts = runs;
       t.executor = last.executor;
       t.backend = "direct";

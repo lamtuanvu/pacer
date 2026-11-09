@@ -26,6 +26,7 @@
     "test:sharded": "python3 scripts/ci/shard-tests.py | python3 -c \"import sys, json; print(' '.join(json.load(sys.stdin)))\" | TZ=Asia/Ho_Chi_Minh xargs bun test --timeout 30000 --jobs=4",
     "live": "bun scripts/live/cli.ts",
     "perf": "bun scripts/perf/run.ts",
+    "perf:tick": "bun scripts/perf/pump-tick.ts",
     "ui:check": "bun scripts/ui-check.ts",
     "ui:ready": "bun scripts/ui-ready.ts",
     "typecheck": "tsc --noEmit && tsc -p app",
