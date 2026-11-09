@@ -1963,5 +1963,175 @@
       "cursor": true,
       "kept": "ff80"
     }
+  ],
+  "pending": [
+    {
+      "hex": "",
+      "from": 0,
+      "result": {
+        "count": 0,
+        "typed": false
+      }
+    },
+    {
+      "hex": "61",
+      "from": 0,
+      "result": {
+        "count": 1,
+        "typed": true
+      }
+    },
+    {
+      "hex": "6162",
+      "from": 2,
+      "result": {
+        "count": 4,
+        "typed": true
+      }
+    },
+    {
+      "hex": "61620d",
+      "from": 0,
+      "result": {
+        "count": 0,
+        "typed": true
+      }
+    },
+    {
+      "hex": "61627f",
+      "from": 3,
+      "result": {
+        "count": 4,
+        "typed": true
+      }
+    },
+    {
+      "hex": "7f7f7f",
+      "from": 0,
+      "result": {
+        "count": 0,
+        "typed": false
+      }
+    },
+    {
+      "hex": "c3a9",
+      "from": 0,
+      "result": {
+        "count": 1,
+        "typed": true
+      }
+    },
+    {
+      "hex": "c3a97f",
+      "from": 1,
+      "result": {
+        "count": 1,
+        "typed": true
+      }
+    },
+    {
+      "hex": "1b5b44",
+      "from": 5,
+      "result": {
+        "count": 5,
+        "typed": false
+      }
+    },
+    {
+      "hex": "1b4f41",
+      "from": 4,
+      "result": {
+        "count": 4,
+        "typed": false
+      }
+    },
+    {
+      "hex": "1b5d393b313007",
+      "from": 2,
+      "result": {
+        "count": 2,
+        "typed": false
+      }
+    },
+    {
+      "hex": "1b",
+      "from": 3,
+      "result": {
+        "count": 0,
+        "typed": false
+      }
+    },
+    {
+      "hex": "611b",
+      "from": 1,
+      "result": {
+        "count": 0,
+        "typed": true
+      }
+    },
+    {
+      "hex": "611b5b4462",
+      "from": 0,
+      "result": {
+        "count": 2,
+        "typed": true
+      }
+    },
+    {
+      "hex": "0d0a",
+      "from": 3,
+      "result": {
+        "count": 0,
+        "typed": false
+      }
+    },
+    {
+      "hex": "03",
+      "from": 4,
+      "result": {
+        "count": 0,
+        "typed": false
+      }
+    },
+    {
+      "hex": "15",
+      "from": 4,
+      "result": {
+        "count": 0,
+        "typed": false
+      }
+    },
+    {
+      "hex": "0a",
+      "from": 4,
+      "result": {
+        "count": 0,
+        "typed": false
+      }
+    },
+    {
+      "hex": "6108",
+      "from": 1,
+      "result": {
+        "count": 1,
+        "typed": true
+      }
+    },
+    {
+      "hex": "61626262",
+      "from": 0,
+      "result": {
+        "count": 4,
+        "typed": true
+      }
+    },
+    {
+      "hex": "efbbbf",
+      "from": 0,
+      "result": {
+        "count": 1,
+        "typed": true
+      }
+    }
   ]
 }

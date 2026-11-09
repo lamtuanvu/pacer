@@ -305,7 +305,7 @@ export class ViewerHub {
  * sequences (arrows, function keys, bracketed-paste markers) change nothing. `typed`: the bytes added text. A heuristic:
  * the host cannot see the agent's editor, so cursor movement, history recall and menu keys are invisible to it.
  */
-function pendingAfter(bytes:Buffer,count:number):{count:number;typed:boolean}{
+export function pendingAfter(bytes:Buffer,count:number):{count:number;typed:boolean}{
  let typed=false;
  for(let i=0;i<bytes.length;i++){
   const b=bytes[i]!;

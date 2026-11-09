@@ -2146,5 +2146,1895 @@
         "messages": []
       }
     ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "steps": [
+      [
+        "join",
+        "pacer",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "join",
+        "human",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "deliver",
+        "pacer",
+        {}
+      ],
+      [
+        "input",
+        "pacer",
+        "paste"
+      ],
+      [
+        "input",
+        "pacer",
+        "\r"
+      ],
+      [
+        "input",
+        "human",
+        "held"
+      ],
+      [
+        "deliver",
+        "pacer",
+        {
+          "done": true
+        }
+      ],
+      [
+        "input",
+        "human",
+        "x"
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:pacer"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:human"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "windowMs": 100
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:pacer"
+          ],
+          [
+            "input",
+            "paste"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "\r"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:human"
+          ],
+          [
+            "input",
+            "held"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "ok": true,
+              "label": "cli:pacer"
+            }
+          },
+          {
+            "id": "human",
+            "body": {
+              "ok": true,
+              "label": "cli:pacer"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "x"
+          ]
+        ],
+        "messages": []
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "steps": [
+      [
+        "join",
+        "pacer",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "join",
+        "human",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "input",
+        "human",
+        "typing"
+      ],
+      [
+        "deliver",
+        "pacer",
+        {}
+      ],
+      [
+        "advance",
+        20
+      ],
+      [
+        "input",
+        "human",
+        "\r"
+      ],
+      [
+        "advance",
+        90
+      ],
+      [
+        "input",
+        "pacer",
+        "ans"
+      ],
+      [
+        "deliver",
+        "pacer",
+        {
+          "done": true
+        }
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:pacer"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:human"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:human"
+          ],
+          [
+            "input",
+            "typing"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "\r"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "windowMs": 100
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:pacer"
+          ],
+          [
+            "input",
+            "ans"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "ok": true,
+              "label": "cli:pacer"
+            }
+          },
+          {
+            "id": "human",
+            "body": {
+              "ok": true,
+              "label": "cli:pacer"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "steps": [
+      [
+        "join",
+        "pacer",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "join",
+        "human",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "deliver",
+        "pacer",
+        {}
+      ],
+      [
+        "input",
+        "human",
+        "waiting"
+      ],
+      [
+        "advance",
+        160
+      ],
+      [
+        "input",
+        "pacer",
+        "late"
+      ],
+      [
+        "input",
+        "pacer",
+        "\r"
+      ],
+      [
+        "deliver",
+        "pacer",
+        {
+          "done": true
+        }
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:pacer"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:human"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "windowMs": 100
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:human"
+          ],
+          [
+            "input",
+            "waiting"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "ok": false,
+              "cause": "expired-unused",
+              "reason": "the delivery window expired before any input was typed"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": []
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "steps": [
+      [
+        "join",
+        "pacer",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "join",
+        "human",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "input",
+        "human",
+        "ab"
+      ],
+      [
+        "input",
+        "human",
+        ""
+      ],
+      [
+        "deliver",
+        "pacer",
+        {}
+      ],
+      [
+        "input",
+        "human",
+        ""
+      ],
+      [
+        "advance",
+        90
+      ],
+      [
+        "input",
+        "pacer",
+        "paste"
+      ],
+      [
+        "deliver",
+        "pacer",
+        {
+          "done": true
+        }
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:pacer"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:human"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:human"
+          ],
+          [
+            "input",
+            "ab"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            ""
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            ""
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "windowMs": 100
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:pacer"
+          ],
+          [
+            "input",
+            "paste"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "ok": true,
+              "label": "cli:pacer"
+            }
+          },
+          {
+            "id": "human",
+            "body": {
+              "ok": true,
+              "label": "cli:pacer"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "steps": [
+      [
+        "join",
+        "pacer",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "join",
+        "app",
+        "app:Pacer desktop",
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "input",
+        "app",
+        "half a line"
+      ],
+      [
+        "deliver",
+        "pacer",
+        {}
+      ],
+      [
+        "advance",
+        380
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:pacer"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "app:Pacer desktop"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "app",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": "app:Pacer desktop",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "app:Pacer desktop"
+          ],
+          [
+            "input",
+            "half a line"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "app:Pacer desktop",
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "app:Pacer desktop",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "ok": false,
+              "cause": "pending",
+              "from": "app:Pacer desktop",
+              "reason": "pending input from app:Pacer desktop"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "steps": [
+      [
+        "join",
+        "one",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "join",
+        "two",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "deliver",
+        "one",
+        {}
+      ],
+      [
+        "deliver",
+        "two",
+        {}
+      ],
+      [
+        "deliver",
+        "two",
+        {}
+      ],
+      [
+        "deliver",
+        "one",
+        {
+          "done": true
+        }
+      ],
+      [
+        "deliver",
+        "two",
+        {
+          "done": true
+        }
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:one"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "one",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:two"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "two",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "one",
+            "body": {
+              "windowMs": 100
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "two",
+            "body": {
+              "ok": false,
+              "cause": "duplicate",
+              "reason": "a delivery is already pending"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "one",
+            "body": {
+              "ok": true,
+              "label": "cli:one"
+            }
+          },
+          {
+            "id": "two",
+            "body": {
+              "ok": true,
+              "label": "cli:one"
+            }
+          },
+          {
+            "id": "two",
+            "body": {
+              "windowMs": 100
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "one",
+            "body": {
+              "ok": true,
+              "label": "cli:two"
+            }
+          },
+          {
+            "id": "two",
+            "body": {
+              "ok": true,
+              "label": "cli:two"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "steps": [
+      [
+        "join",
+        "pacer",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "join",
+        "human",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "deliver",
+        "pacer",
+        {}
+      ],
+      [
+        "input",
+        "human",
+        "mine"
+      ],
+      [
+        "deliver",
+        "pacer",
+        {
+          "cancel": true
+        }
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:pacer"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:human"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "windowMs": 100
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:human"
+          ],
+          [
+            "input",
+            "mine"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "ok": false,
+              "cause": "cancelled",
+              "reason": "the delivery was cancelled"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "steps": [
+      [
+        "join",
+        "ro",
+        "cli:ro",
+        {
+          "versions": [
+            1,
+            2
+          ],
+          "readOnly": true
+        }
+      ],
+      [
+        "deliver",
+        "ro",
+        {}
+      ],
+      [
+        "join",
+        "old",
+        "cli:old",
+        {}
+      ],
+      [
+        "deliver",
+        "old",
+        {}
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:ro"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "ro",
+            "body": {
+              "controller": null,
+              "you": false,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [],
+        "messages": [
+          {
+            "id": "ro",
+            "body": {
+              "ok": false,
+              "cause": "read-only",
+              "reason": "read-only viewers cannot deliver input"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:old"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "old",
+            "body": {
+              "controller": null,
+              "you": false
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": []
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 300
+    },
+    "steps": [
+      [
+        "join",
+        "pacer",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "join",
+        "human",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "deliver",
+        "pacer",
+        {}
+      ],
+      [
+        "input",
+        "pacer",
+        "PASTE"
+      ],
+      [
+        "input",
+        "human",
+        "held"
+      ],
+      [
+        "advance",
+        80
+      ],
+      [
+        "advance",
+        260
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:pacer"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:human"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "windowMs": 100
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:pacer"
+          ],
+          [
+            "input",
+            "PASTE"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:human"
+          ],
+          [
+            "input",
+            "held"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "ok": false,
+              "cause": "expired",
+              "reason": "the delivery window expired"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "steps": [
+      [
+        "join",
+        "human",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "join",
+        "pacer",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "size",
+        "human",
+        {
+          "cols": 100,
+          "rows": 30
+        }
+      ],
+      [
+        "focus",
+        "human"
+      ],
+      [
+        "deliver",
+        "pacer",
+        {}
+      ],
+      [
+        "input",
+        "pacer",
+        "paste\r"
+      ],
+      [
+        "deliver",
+        "pacer",
+        {
+          "done": true
+        }
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:human"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [
+          [
+            "attach",
+            "cli:pacer"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 2,
+        "events": [],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "resize",
+            100,
+            30
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "windowMs": 100
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [
+          [
+            "input",
+            "cli:pacer"
+          ],
+          [
+            "input",
+            "paste\r"
+          ]
+        ],
+        "messages": []
+      },
+      {
+        "controller": null,
+        "active": "cli:human",
+        "size": 2,
+        "events": [],
+        "messages": [
+          {
+            "id": "human",
+            "body": {
+              "ok": true,
+              "label": "cli:pacer"
+            }
+          },
+          {
+            "id": "pacer",
+            "body": {
+              "ok": true,
+              "label": "cli:pacer"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "host": [
+      1,
+      2
+    ],
+    "timing": {
+      "quietMs": 50,
+      "windowMs": 100,
+      "timeoutMs": 300,
+      "maxWindowMs": 400
+    },
+    "refuseDeliver": true,
+    "steps": [
+      [
+        "join",
+        "pacer",
+        null,
+        {
+          "versions": [
+            1,
+            2
+          ]
+        }
+      ],
+      [
+        "deliver",
+        "pacer",
+        {}
+      ]
+    ],
+    "trace": [
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [
+          [
+            "attach",
+            "cli:pacer"
+          ]
+        ],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "versions": [
+                1,
+                2
+              ],
+              "pacer": "0.0.0-golden"
+            }
+          }
+        ]
+      },
+      {
+        "controller": null,
+        "active": null,
+        "size": 1,
+        "events": [],
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "ok": false,
+              "cause": "refused",
+              "reason": "this terminal does not accept automated input"
+            }
+          }
+        ]
+      }
+    ]
   }
 ]
