@@ -94,6 +94,9 @@ async function assess(
           plan.files.some((file) => file.path === old.path)
         )
           continue;
+        // The plan may retire an entry outright (a stale MCP registration whose
+        // record it drops) and stage no write for it; nothing is clobbered.
+        if (!plan.record.files.some((file) => file.path === old.path)) continue;
         const text = readInstallFile(old.path);
         if (text === null) continue;
         if (

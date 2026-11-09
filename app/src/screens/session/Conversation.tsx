@@ -39,11 +39,13 @@ export function Conversation({
   task,
   session,
   onReload,
+  onSessionLive,
   slots,
 }: {
   task: TaskDetail;
   session?: SessionInfo;
   onReload: () => void;
+  onSessionLive?: () => void;
   slots?: SessionSlots;
 }) {
   const { api } = useTaskContext(),
@@ -157,6 +159,7 @@ export function Conversation({
             }}
             onReadFile={request => api.call("session.file.read", request)}
             onReopen={() => navigation.navigate(routes.newTask())}
+            onSessionLive={onSessionLive}
           />
         </div>
       </div>

@@ -27,8 +27,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- Record every real task change in a shared `task_changes` log in the task database, filled by SQLite triggers so changes from either runtime and from older binaries are captured without re-reading all tasks. `taskChangesSince` reads changes after a cursor and reports a gap when the cursor is outside the retained window; the daily maintenance run prunes the log to 7 days or 100,000 rows. This is the base for a background pass that processes only changed tasks.
-
 - Diagnostics remedies: every warning or failure from `doctor.run` and `pacer doctor` carries an optional typed `remedy` (`auto`, `review`, `user`, `agent` or `internal`) naming the one operation, URL or agent task that fixes it, and `pacer doctor` prints its CLI equivalent on a `run:` line. A remedy whose operation requires consent (`agent.connect`, `service.install`) carries `consent: true`; clients show what will change and send consent only after the person's click. Failures pacer raises itself (such as `plugin_unavailable`) are classified by error code as warnings pacer could not check, with a restart of the pacer service rather than an agent reinstall; a plugin's own error reply never counts as pacer's failure, whatever code it carries. The new `doctor.fix.delegate` operation turns a failing check into a delegated fix or investigation task whose brief pacer builds from its own redacted result for that check and the checks about the same agent, with reported output fenced as untrusted data; accepting the task (in the app or with `pacer review --accept`) reruns the check and records whether it passes. Task reads (`task.get`, `task.list`, snapshot tasks) expose `diagnosticCheck` and `diagnosticRecheck`. Diagnostics and Setup Health keep their existing setup links for checks whose remedy they cannot run yet.
 
 - Opt-in P4d-1 native plugin-host wiring in `pacer serve`: set `PACER_NATIVE_PLUGIN_HOST=1` and/or `PACER_HOST_BRIDGE=1` to claim a Rust `ProcessOwner`, bind `$PACER_HOME/run/host.sock`, and pass `PACER_HOST_SOCKET` to the Core child. Default (flags unset) remains TypeScript-owned.
@@ -58,7 +56,13 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - The Fix-with-agent sheet shows the executor pacer would route the fix task to (`routing.route`), read-only.
 - Executor sessions are denied operations that rewrite real agent folders or the installation: `agent.connect`, `agent.disconnect`, `agent.undo`, `pacer install`, `pacer uninstall` and `pacer setup`, plus the `config.set` planner switch.
 
+- Record every real task change in a shared `task_changes` log in the task database, filled by SQLite triggers so changes from either runtime and from older binaries are captured without re-reading all tasks. `taskChangesSince` reads changes after a cursor and reports a gap when the cursor is outside the retained window; the daily maintenance run prunes the log to 7 days or 100,000 rows. This is the base for a background pass that processes only changed tasks.
+
 ### Fixed
+
+- Reconnecting an agent without MCP now retires a stale MCP record instead of warning about it forever. When something else removed pacer's MCP registration from an agent config (`opencode.json`, `config.toml`, `mcp.json`), `pacer install opencode` re-edited the agent's other files but left the install record's entry for that config behind, so `pacer doctor` kept reporting "managed integration content changed", "planner reports missing or changed files" and "missing or changed", each recommending the same reinstall that could not clear it. A record entry whose only managed content was pacer's MCP registration is now dropped when an install or reconnect runs with an explicit `--no-mcp`: the registration, if still present, is removed exactly as uninstall would first. Without a flag, the entry is dropped only when the registration was already removed elsewhere; a registration still present — or a file pacer cannot parse — is a live integration, so the entry and the file are left untouched, matching how the automatic refresh treats a legacy record. Other MCP servers, providers and settings in those files are never touched, and installs with MCP on behave as before.
+
+- Host check, cleanup and repo setup no longer fail with a "bridge unavailable" error when the Rust front door serves the request.
 
 - Diagnostics no longer takes pacer down when it installs or restarts the service on macOS. The service ran `launchctl bootout` on its own job, which stopped it before it could load the new registration, so the app stayed on "Reconnecting" until the service was started by hand. The service now saves the registration, replies, and a detached helper reloads the job, restoring the previous registration if the new one does not stay running. `service.install` reports `restarting: true` in that case; Diagnostics and the setup check run that fix last and wait for the new service process before they recheck.
 
@@ -100,6 +104,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Preserve TypeScript session recording and version parsing semantics in the Rust library, including integral decimal JSON numbers and numeric prereleases. Write session artifacts atomically with owner-only modes.
 
 - Add a Rust SQLite task store and retention adapter with cross-runtime parity tests; the TypeScript runtime remains unchanged.
+
+- Route selection no longer fails with "Task changed during route selection" when its own bookkeeping write changes nothing and so keeps the task's revision, which could leave a dispatched reservation waiting.
 
 ## [0.14.0] - 2026-11-01
 

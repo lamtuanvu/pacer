@@ -90,6 +90,17 @@ test("Codex uninstall removes unmarked MCP table while preserving appended hooks
   expect((Bun.TOML.parse(text) as any).mcp_servers.gk.command).toBe("gk");
 });
 
+test("Codex uninstall removes a quoted-form pacer table exactly as the undo specifies", async () => {
+  const { ctx, env, config } = setup();
+  await runInstall(env, "codex", installCodex);
+  // The user rewrote the managed table header in the quoted TOML spelling.
+  writeFileSync(config, readFileSync(config, "utf8").replace("[mcp_servers.pacer]", '[mcp_servers."pacer"]'));
+  await uninstallPlanner(ctx, "codex");
+  const text = readFileSync(config, "utf8");
+  expect(text).toBe('model = "gpt-6"\n[mcp_servers.gk]\ncommand = "gk"\n');
+  expect((Bun.TOML.parse(text) as any).mcp_servers.pacer).toBeUndefined();
+});
+
 test("Codex fresh-home uninstall deletes all created files", async () => {
   const { ctx, env, config, agents, hooks } = setup(false);
   await runInstall(env, "codex", installCodex);
