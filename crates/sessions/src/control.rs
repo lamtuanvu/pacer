@@ -107,7 +107,13 @@ impl Controller {
             }
             _ => self.holder.as_deref() == Some(id),
         };
+        let is_modern = self.viewer(id).is_some_and(|v| v.minor >= 2);
         let mut body = json!({"controller":self.holder(),"you":you});
+        // Additive 1.2-only field (ADR 0023, F6 follow-up): 1.1 clients (and 1.1 hosts) never see it, so the
+        // frame stays byte-compatible.
+        if shared && is_modern {
+            body["active"] = json!(self.active());
+        }
         if let Some(reason) = reason {
             body["reason"] = json!(reason);
         }
@@ -146,6 +152,23 @@ impl Controller {
         if let Some((cols, rows)) = self.viewer(id).and_then(|v| v.size) {
             self.events.push(json!(["resize", cols, rows]));
         }
+        self.broadcast_active();
+    }
+    /// Every 1.2 viewer learns who typed last when the active client changes (ADR 0023, F6 follow-up).
+    /// Mirrors `ViewerHub.broadcastActive`; every admitted `Viewer` here is already joined.
+    fn broadcast_active(&mut self) {
+        if !self.shared() {
+            return;
+        }
+        let ids: Vec<String> = self
+            .viewers
+            .iter()
+            .filter(|v| v.minor >= 2)
+            .map(|v| v.id.clone())
+            .collect();
+        for id in ids {
+            self.state(&id, None);
+        }
     }
     /// Caller has already validated hello's `v` and `from`. Returns false when the range is malformed or
     /// unsupported, or at capacity.
@@ -180,6 +203,7 @@ impl Controller {
     }
     pub fn disconnect(&mut self, id: &str) {
         let label = self.label(id).map(String::from);
+        let was_active = self.active.as_deref() == Some(id);
         let was_holder = self.holder.as_deref() == Some(id);
         if was_holder {
             self.holder = None;
@@ -211,6 +235,9 @@ impl Controller {
         self.viewers.retain(|v| v.id != id);
         if joined {
             self.events.push(json!(["detach", label]));
+            if was_active {
+                self.broadcast_active();
+            }
         }
     }
     pub fn take(&mut self, id: &str, body: &Value) {
@@ -488,17 +515,26 @@ impl Controller {
     }
     fn failure(&self) -> Value {
         if let Some(line) = &self.pending_line {
-            return json!({"ok":false,"cause":"pending","from":line,"reason":format!("pending input from {line}")});
+            return json!({"ok":false,"cause":"pending","from":line,"reason":format!(
+                "unsent input in the agent from {}",
+                viewer_name(line)
+            )});
         }
         if let Some(w) = &self.window {
             let from = self.label(&w.viewer).unwrap_or(&w.viewer);
-            return json!({"ok":false,"cause":"busy","from":from,"reason":format!("another delivery from {from} is in progress")});
+            return json!({"ok":false,"cause":"busy","from":from,"reason":format!(
+                "another delivery from {} is in progress",
+                viewer_name(from)
+            )});
         }
         let from = self
             .last_input_from
             .clone()
             .unwrap_or_else(|| "another client".into());
-        json!({"ok":false,"cause":"input","from":from,"reason":format!("recent input from {from}")})
+        json!({"ok":false,"cause":"input","from":from,"reason":format!(
+            "recent input from {}",
+            viewer_name(&from)
+        )})
     }
     fn deliver_ok(&mut self, id: &str, body: Value) {
         self.messages.push(json!({"id": id, "body": body}));
@@ -507,6 +543,19 @@ impl Controller {
 fn dimension(v: &Value, max: u16) -> Option<u16> {
     let n = v.as_f64()?;
     (n >= 1.0 && n <= f64::from(max) && n.fract() == 0.0).then_some(n as u16)
+}
+/// `viewerName` in src/session/viewers.ts: a viewer's display name minus its raw kind prefix (`app:`, `cli:`),
+/// or `another viewer` when the stripped name is empty.
+fn viewer_name(label: &str) -> String {
+    let bare = label
+        .strip_prefix("app:")
+        .or_else(|| label.strip_prefix("cli:"))
+        .unwrap_or(label);
+    if bare.is_empty() {
+        "another viewer".into()
+    } else {
+        bare.into()
+    }
 }
 /// Client replies to the terminal queries the host answers itself: DA1 and DA2 (`ESC [ ? … c`, `ESC [ > … c`),
 /// OSC 10/11 colours, and cursor position reports (`ESC [ ?row ; col [; page] R`) only when `cursor` is set.

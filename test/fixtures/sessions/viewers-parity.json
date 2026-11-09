@@ -1437,6 +1437,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -1462,6 +1463,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -1487,6 +1489,7 @@
             "body": {
               "controller": null,
               "you": false,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -1510,7 +1513,32 @@
             "ab"
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:a"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:a"
+            }
+          },
+          {
+            "id": "r",
+            "body": {
+              "controller": null,
+              "you": false,
+              "active": "cli:a"
+            }
+          }
+        ]
       },
       {
         "controller": null,
@@ -1526,7 +1554,32 @@
             "cd"
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:b"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:b"
+            }
+          },
+          {
+            "id": "r",
+            "body": {
+              "controller": null,
+              "you": false,
+              "active": "cli:b"
+            }
+          }
+        ]
       },
       {
         "controller": null,
@@ -1579,6 +1632,7 @@
             "body": {
               "controller": null,
               "you": false,
+              "active": "cli:b",
               "reason": "read-only"
             }
           }
@@ -1615,7 +1669,32 @@
             30
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:a"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:a"
+            }
+          },
+          {
+            "id": "r",
+            "body": {
+              "controller": null,
+              "you": false,
+              "active": "cli:a"
+            }
+          }
+        ]
       },
       {
         "controller": null,
@@ -1659,7 +1738,32 @@
             "x"
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:b"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:b"
+            }
+          },
+          {
+            "id": "r",
+            "body": {
+              "controller": null,
+              "you": false,
+              "active": "cli:b"
+            }
+          }
+        ]
       },
       {
         "controller": null,
@@ -1687,7 +1791,32 @@
             "yz\u001b[1;2R"
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "a",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:a"
+            }
+          },
+          {
+            "id": "b",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:a"
+            }
+          },
+          {
+            "id": "r",
+            "body": {
+              "controller": null,
+              "you": false,
+              "active": "cli:a"
+            }
+          }
+        ]
       },
       {
         "controller": null,
@@ -1724,7 +1853,8 @@
             "id": "a",
             "body": {
               "controller": null,
-              "you": true
+              "you": true,
+              "active": "cli:a"
             }
           }
         ]
@@ -1740,6 +1870,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": "cli:a",
               "reason": "released"
             }
           }
@@ -1755,7 +1886,16 @@
             "cli:a"
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "r",
+            "body": {
+              "controller": null,
+              "you": false,
+              "active": null
+            }
+          }
+        ]
       }
     ]
   },
@@ -2072,6 +2212,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": "app:pane",
               "versions": [
                 1,
                 2
@@ -2091,7 +2232,16 @@
             "id": "new",
             "body": {
               "controller": null,
-              "you": true
+              "you": true,
+              "active": "app:pane"
+            }
+          },
+          {
+            "id": "new",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:new"
             }
           }
         ]
@@ -2107,6 +2257,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": "cli:new",
               "reason": "released"
             }
           }
@@ -2231,6 +2382,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -2256,6 +2408,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -2332,8 +2485,24 @@
           {
             "id": "pacer",
             "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          },
+          {
+            "id": "pacer",
+            "body": {
               "ok": true,
               "label": "cli:pacer"
+            }
+          },
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
             }
           },
           {
@@ -2446,6 +2615,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -2471,6 +2641,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -2494,7 +2665,24 @@
             "typing"
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          },
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          }
+        ]
       },
       {
         "controller": null,
@@ -2659,6 +2847,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -2684,6 +2873,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -2732,9 +2922,25 @@
           {
             "id": "pacer",
             "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          },
+          {
+            "id": "pacer",
+            "body": {
               "ok": false,
               "cause": "expired-unused",
               "reason": "the delivery window expired before any input was typed"
+            }
+          },
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
             }
           }
         ]
@@ -2850,6 +3056,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -2875,6 +3082,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -2898,7 +3106,24 @@
             "ab"
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          },
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          }
+        ]
       },
       {
         "controller": null,
@@ -3051,6 +3276,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3076,6 +3302,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3099,7 +3326,24 @@
             "half a line"
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "app:Pacer desktop"
+            }
+          },
+          {
+            "id": "app",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "app:Pacer desktop"
+            }
+          }
+        ]
       },
       {
         "controller": null,
@@ -3120,7 +3364,7 @@
               "ok": false,
               "cause": "pending",
               "from": "app:Pacer desktop",
-              "reason": "pending input from app:Pacer desktop"
+              "reason": "unsent input in the agent from Pacer desktop"
             }
           }
         ]
@@ -3208,6 +3452,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3233,6 +3478,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3400,6 +3646,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3425,6 +3672,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3473,9 +3721,25 @@
           {
             "id": "pacer",
             "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          },
+          {
+            "id": "pacer",
+            "body": {
               "ok": false,
               "cause": "cancelled",
               "reason": "the delivery was cancelled"
+            }
+          },
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
             }
           }
         ]
@@ -3540,6 +3804,7 @@
             "body": {
               "controller": null,
               "you": false,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3669,6 +3934,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3694,6 +3960,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3765,9 +4032,25 @@
           {
             "id": "pacer",
             "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          },
+          {
+            "id": "pacer",
+            "body": {
               "ok": false,
               "cause": "expired",
               "reason": "the delivery window expired"
+            }
+          },
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
             }
           }
         ]
@@ -3855,6 +4138,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3880,6 +4164,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
@@ -3907,7 +4192,24 @@
             30
           ]
         ],
-        "messages": []
+        "messages": [
+          {
+            "id": "human",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          },
+          {
+            "id": "pacer",
+            "body": {
+              "controller": null,
+              "you": true,
+              "active": "cli:human"
+            }
+          }
+        ]
       },
       {
         "controller": null,
@@ -4010,6 +4312,7 @@
             "body": {
               "controller": null,
               "you": true,
+              "active": null,
               "versions": [
                 1,
                 2
