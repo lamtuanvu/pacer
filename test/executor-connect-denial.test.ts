@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { COMMANDS as PLAN3 } from "../src/commands/plan3";
+import { setupCmd } from "../src/commands/setup";
 import { callOp } from "../src/api/ops";
 import * as config from "../src/core/config";
 
@@ -31,6 +32,16 @@ test("N5: a config.set planner change refuses an executor session", async () => 
     .rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining("executor") });
   await expect(config.set(ctx, "planner", "codex", { integrations: "install" }))
     .rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining("executor") });
+});
+
+test("N5: pacer setup refuses an executor session (L1)", async () => {
+  const refused = await setupCmd([], executorCtx());
+  expect(refused.code).toBe(2);
+  expect(refused.err).toMatch(/executor/);
+  // A non-executor proceeds past the executor gate (a happy path check, e.g. into arg handling).
+  const non = await setupCmd(["--planner", "not-an-agent"], fakeCtx());
+  expect(non.code).toBe(2);
+  expect(non.err).toMatch(/unknown planner/);
 });
 
 test("N5: a non-executor can still install and change the planner", async () => {
