@@ -71,4 +71,4 @@ objc2 = "0.6.5"
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "objc2", "CGImage"] }
 objc2-foundation = { version = "0.3.2", features = ["NSBundle", "NSError"] }
 objc2-service-management = { version = "0.3.2", features = ["SMAppService"] }
-objc2-user-notifications = { version = "0.3.2", features = ["UNUserNotificationCenter", "block2"] }
+objc2-user-notifications = { version = "0.3.2", features = ["UNUserNotificationCenter", "UNNotificationSettings", "block2"] }

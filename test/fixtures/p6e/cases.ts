@@ -29,6 +29,24 @@ export function p6eCases(): any[] {
       actions: [{ type: "list" }, { type: "heartbeat", id: "missing" }],
     },
     {
+      op: "clients",
+      now: 100,
+      raw: [],
+      actions: [
+        {
+          type: "register",
+          id: "d",
+          options: { kind: "desktop", version: "1", notifier: true },
+        },
+        { type: "heartbeat", id: "d", notifier: false, now: 110 },
+        { type: "active" },
+        { type: "heartbeat", id: "d", now: 120 },
+        { type: "active" },
+        { type: "heartbeat", id: "d", notifier: true, now: 130 },
+        { type: "active" },
+      ],
+    },
+    {
       op: "attention",
       now: 100.25,
       input: {

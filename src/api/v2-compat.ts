@@ -92,6 +92,10 @@ export function v2Params(name:string,params:unknown):unknown {
   const {capture:_,...legacy}=params as Record<string,unknown>;
   return legacy;
  }
+ if(name==='client.heartbeat'&&params&&typeof params==='object'&&!Array.isArray(params)){
+  const {notifier:_,...legacy}=params as Record<string,unknown>;
+  return legacy;
+ }
  if(name!=='task.review'||!params||typeof params!=='object'||Array.isArray(params))return params;
  const p=params as Record<string,unknown>;
  if(p.accepted!==undefined&&typeof p.accepted!=='boolean')throw new CoreError('invalid_input','accepted: expected boolean');
@@ -129,6 +133,8 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const registration=schemas['client.register'].params as {properties:Record<string,unknown>};
  delete registration.properties.capture;
  schemas['client.register'].description="Register a client with an optional notifier lease; heartbeat every 30 seconds.";
+ delete (schemas['client.heartbeat'].params as {properties:Record<string,unknown>}).properties.notifier;
+ schemas['client.heartbeat'].description="Renew a client lease, which lapses after 45 seconds without a heartbeat.";
  const review=schemas['task.review'].params as {properties:Record<string,unknown>;required:string[]};
  review.properties.accepted={type:'boolean'};
  // Property order is part of the generated document.

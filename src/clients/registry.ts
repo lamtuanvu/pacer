@@ -40,11 +40,13 @@ export function register(ctx: Ctx, options: RegisterOptions): { client_id: strin
   return { client_id, lease_s: LEASE_S };
 }
 
-export function heartbeat(ctx: Ctx, id: string): { ok: true } {
+/** A boolean `notifier` replaces the stored flag so a client can stop or resume presenting. */
+export function heartbeat(ctx: Ctx, id: string, notifier?: boolean): { ok: true } {
   const entries = read(ctx);
   const entry = entries.find(entry => entry.client_id === id);
   if (!entry) throw new CoreError("invalid_input", `unknown client "${id}"`);
   entry.heartbeatAt = ctx.now;
+  if (notifier !== undefined) entry.notifier = notifier;
   writeJsonAtomic(path(ctx), entries);
   return { ok: true };
 }

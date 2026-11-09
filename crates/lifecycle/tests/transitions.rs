@@ -62,10 +62,26 @@ fn waking_client_renews_without_changing_notifier_priority() {
     let options = json!({"kind":"desktop","version":"1","notifier":true});
     clients::register(&mut rows, &options, "first", 0.0);
     clients::register(&mut rows, &options, "second", 0.0);
-    clients::heartbeat(&mut rows, "first", 30.0).unwrap();
+    clients::heartbeat(&mut rows, "first", None, 30.0).unwrap();
     assert_eq!(clients::active(&rows, 45.0)["client_id"], "second");
     assert_eq!(clients::active(&rows, 45.000001)["client_id"], "first");
     assert!(clients::active(&rows, 75.000001).is_null());
+}
+#[test]
+fn heartbeat_notifier_updates_delivery_eligibility_in_place() {
+    let mut rows = vec![];
+    let options = json!({"kind":"desktop","version":"1","notifier":true});
+    clients::register(&mut rows, &options, "desktop", 0.0);
+    clients::heartbeat(&mut rows, "desktop", Some(false), 1.0).unwrap();
+    assert_eq!(clients::presenters(&rows, 1.0), json!([]));
+    clients::heartbeat(&mut rows, "desktop", None, 2.0).unwrap();
+    assert!(clients::active(&rows, 2.0).is_null());
+    clients::heartbeat(&mut rows, "desktop", Some(true), 3.0).unwrap();
+    assert_eq!(
+        clients::presenters(&rows, 3.0),
+        json!([{"client_id":"desktop","kind":"desktop","medium":"os"}])
+    );
+    assert_eq!(rows.len(), 1);
 }
 #[test]
 fn registration_retains_one_day_boundary_and_discards_older_entries() {
@@ -85,7 +101,7 @@ fn one_malformed_client_discards_entire_read_but_unknown_heartbeat_does_not_crea
     assert!(clients::read(&json!([row,{"client_id":"bad"}])).is_empty());
     let mut rows = vec![];
     assert_eq!(
-        clients::heartbeat(&mut rows, "missing", 1.0)
+        clients::heartbeat(&mut rows, "missing", None, 1.0)
             .unwrap_err()
             .code,
         "invalid_input"

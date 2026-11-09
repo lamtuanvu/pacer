@@ -38,7 +38,12 @@ pub fn clients(c: &Value) -> Value {
                 raw = json!(rows);
                 result
             }
-            "heartbeat" => match heartbeat(&mut rows, s(&action["id"]), time) {
+            "heartbeat" => match heartbeat(
+                &mut rows,
+                s(&action["id"]),
+                action["notifier"].as_bool(),
+                time,
+            ) {
                 Ok(result) => {
                     raw = json!(rows);
                     result

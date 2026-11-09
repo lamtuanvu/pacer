@@ -29,12 +29,21 @@ pub fn register(rows: &mut Vec<Value>, options: &Value, id: &str, now: f64) -> V
     rows.push(row);
     json!({"client_id":id,"lease_s":30})
 }
-pub fn heartbeat(rows: &mut [Value], id: &str, now: f64) -> Result<Value, Error> {
+/// A `Some` notifier replaces the stored flag so a client can stop or resume presenting.
+pub fn heartbeat(
+    rows: &mut [Value],
+    id: &str,
+    notifier: Option<bool>,
+    now: f64,
+) -> Result<Value, Error> {
     let row = rows
         .iter_mut()
         .find(|r| s(&r["client_id"]) == id)
         .ok_or_else(|| Error::new("invalid_input", format!("unknown client \"{id}\"")))?;
     row["heartbeatAt"] = now.into();
+    if let Some(notifier) = notifier {
+        row["notifier"] = notifier.into();
+    }
     Ok(json!({"ok":true}))
 }
 pub fn list(rows: &[Value], now: f64) -> Vec<Value> {
