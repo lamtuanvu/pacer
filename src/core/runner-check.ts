@@ -14,12 +14,14 @@ import { list as listAccounts } from "./accounts";
 import { CoreError } from "./errors";
 import { check as checkLimits, type LimitsRow } from "./limits";
 import { withLock } from "./lock";
+import { availableModels, closestModels, isOffered } from "../models/available";
 
 export interface RunnerCheck { at: number; passed: boolean; detail: string }
 export interface RunnerCheckDeps {
   detectAgents?: typeof detectAgents;
   listAccounts?: (ctx: Ctx) => Promise<{name: string; signedIn: boolean | null}[]>;
   checkLimits?: typeof checkLimits;
+  availableModels?: typeof availableModels;
   runTestTask?: typeof runTestTask;
 }
 const file = (ctx: Ctx) => join(ctx.pacerHome, "state", "runner-checks.json");
@@ -37,7 +39,7 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
   const strategy = loadStrategy(ctx), runner = resolveRunner(strategy, id);
   if (!runner) throw new CoreError("unknown_executor", `unknown runner ${id}`);
   const account = strategy.accounts[runner.account];
-  return startJob(ctx, "runner.check", runner.id, ["CLI found", "Signed in", "Usage readable", "Test task"], async step => {
+  return startJob(ctx, "runner.check", runner.id, ["CLI found", "Signed in", "Usage readable", "Model offered", "Test task"], async step => {
     let current = "CLI found";
     const perform = async (name: string, detail: string, run: () => Promise<void>) => {
       current = name; step.start(name, detail);
@@ -83,6 +85,24 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
           if (row?.error) throw Error(row.error);
           if (hasUsage && !row) throw Error("Usage reading unavailable");
         });
+      }
+      // The provider must still offer the runner's model; only a missing
+      // listing (agent default or unknown) keeps the check from judging it.
+      current = "Model offered";
+      const listing = await (deps.availableModels ?? availableModels)(ctx, runner.id);
+      step.start("Model offered");
+      if (listing.source === "none") {
+        step.skip("Model offered", "No model list for this agent");
+      } else if (!runner.model) {
+        step.skip("Model offered", "Uses the agent's default model");
+      } else if (listing.models === null) {
+        step.skip("Model offered", `Could not check: ${listing.note ?? "unknown"}`);
+      } else {
+        const closest = closestModels(listing, runner.model);
+        if (!isOffered(listing, runner.model)) {
+          throw Error(`${runner.model} is no longer offered by ${account.provider ?? account.name}${closest.length ? `; try ${closest[0]}` : ""}`);
+        }
+        step.pass("Model offered", `${runner.model} is offered`);
       }
       await perform("Test task", "Write and run a one-line test in a scratch worktree", () => (deps.runTestTask ?? runTestTask)(ctx, runner.id));
       if (collectUsage) {
