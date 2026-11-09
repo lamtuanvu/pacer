@@ -58,6 +58,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Restore `host.check`, `host.clean` and `host.repo.setup` over HTTP. Making `service.install` native replaced the host effects bridge and its dispatch branch instead of adding alongside, so those three ops fell through to the registered stub and failed with "host effects bridge unavailable". Native dispatch now handles both bridges: the host ops take the host effects bridge again, and `service.install` keeps its service effects wiring unregistered — TypeScript still owns install consent and the in-job self-reload until Core has a `service.effects` bridge.
+
 - Diagnostics no longer takes pacer down when it installs or restarts the service on macOS. The service ran `launchctl bootout` on its own job, which stopped it before it could load the new registration, so the app stayed on "Reconnecting" until the service was started by hand. The service now saves the registration, replies, and a detached helper reloads the job, restoring the previous registration if the new one does not stay running. `service.install` reports `restarting: true` in that case; Diagnostics and the setup check run that fix last and wait for the new service process before they recheck.
 
 - Settings › Agents no longer shows an endpoint whose test task has not run as **Skipped**. Routing still sends it work, so it now shows a neutral **Not tested** status and Overview counts it among agents that can take work. **Skipped** stays for agents routing really passes over (unconfirmed availability, all parallel slots in use).

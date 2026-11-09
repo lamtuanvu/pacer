@@ -767,6 +767,7 @@ pub async fn call_native(
     task_review_probe: Option<Value>,
     task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     service_effects: Option<&mut dyn pacer_install::ServiceEffects>,
+    host_effects_sync: Option<&mut dyn pacer_config_ops::host_check_clean_setup_ops::HostEffects>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -889,6 +890,21 @@ pub async fn call_native(
             "host.list" => host_read_ops::host_list(ctx, params, parts).await?,
             "host.get" => host_read_ops::host_get(ctx, params, parts).await?,
             _ => unreachable!("needs_host_read_bridge"),
+        }
+    } else if host_check_clean_setup_ops::uses_host_effects(op.name) {
+        let effects = host_effects_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "host effects bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "host.check" => host_check_clean_setup_ops::host_check(ctx, params, effects).await?,
+            "host.clean" => host_check_clean_setup_ops::host_clean(ctx, params, effects).await?,
+            "host.repo.setup" => {
+                host_check_clean_setup_ops::host_repo_setup(ctx, params, effects).await?
+            }
+            _ => unreachable!("uses_host_effects"),
         }
     } else if pacer_install::needs_service_effects_bridge(op.name) {
         let effects = service_effects.ok_or_else(|| {

@@ -1,4 +1,5 @@
 mod config_writes;
+mod host_effects;
 use super::registry;
 
 #[test]
@@ -171,6 +172,14 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("limits.refresh").get("limits.refresh").is_none());
     assert!(registry("").get("assistant.ask").is_none());
     assert!(registry("").get("assistant.cancel").is_none());
+}
+
+#[test]
+fn service_install_is_not_a_registered_native_op() {
+    // service.install stays on TypeScript until Core has a 'service.effects'
+    // bridge; TS owns install consent and the in-job self-reload.
+    assert!(registry("").get("service.install").is_none());
+    assert!(super::service_registry("").get("service.install").is_none());
 }
 
 #[test]
