@@ -142,6 +142,29 @@ test("--no-mcp on codex and cursor removes a present member and retires the reco
   }
 });
 
+test("--no-mcp removes a quoted codex pacer table exactly as the record's undo specifies", async () => {
+  for (const keepMarkers of [true, false] as const) {
+    const ctx = fakeCtx({ env: { PACER_BIN: PACER[0] } });
+    await installPlanner({ ctx, pacerArgv: PACER, mcp: true }, "codex");
+    const configPath = join(ctx.home, ".codex", "config.toml");
+    // Rewrite the table header in the quoted form, with or without the
+    // pacer markers left around it: the recorded undo covers both files.
+    const tampered = keepMarkers
+      ? readFileSync(configPath, "utf8").replace("[mcp_servers.pacer]", '[mcp_servers."pacer"]')
+      : readFileSync(configPath, "utf8")
+          .replace(/^# (?:>>>|<<<) pacer (?:>>>|<<<)\n/gm, "")
+          .replace("[mcp_servers.pacer]", '[mcp_servers."pacer"]');
+    writeFileSync(configPath, tampered);
+    await installPlanner({ ctx, pacerArgv: PACER, mcp: false }, "codex");
+    const text = readFileSync(configPath, "utf8");
+    expect((Bun.TOML.parse(text) as any).mcp_servers?.pacer).toBeUndefined();
+    const record = readManifest(ctx).planners.codex;
+    expect(record.mcp).toBe(false);
+    expect(record.files.some(item => item.path === configPath)).toBe(false);
+    expect((await integrationFreshness(ctx, "codex")).state).not.toBe("conflict");
+  }
+});
+
 test("a reconcile alone retires a stale legacy opencode MCP record without conflict", async () => {
   const { ctx, configPath } = await connectedOpencode();
   // Something else removed the mcp.pacer member; no manual install runs first.

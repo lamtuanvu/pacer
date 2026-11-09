@@ -5,9 +5,15 @@ import { removeBlock, upsertBlock } from "@pacer/plugin/install";
 import { shellCommand } from "@pacer/plugin/install";
 import { editHooksFile, type HookSpec } from "@pacer/plugin/install";
 import { removeTomlTable } from "@pacer/plugin/install";
-import { dropStaleMcpEntry } from "./mcp";
+import type { UndoOp } from "@pacer/plugin/install";
+import { dropStaleMcpEntry, noMcpEdit } from "./mcp";
 import { policyText } from "./policy";
 import type { PlannerBuilder } from "./types";
+
+/** The undo ops a prior record entry needs for this config's pacer MCP registration. */
+const isCodexMcpOp = (op: UndoOp): boolean =>
+  (op.kind === "toml-table" && op.table === "mcp_servers.pacer") ||
+  (op.kind === "block" && op.style === "hash");
 
 export function codexMcpBlock(argv: string[]): string {
   const [command, ...rest] = argv;
@@ -25,14 +31,16 @@ export async function installCodex(tx: PlannerBuilder): Promise<void> {
         (op) => op.kind === "toml-table" && op.table === "mcp_servers.pacer",
       ),
   );
+  const pacerTable = "mcp_servers.pacer";
   if (tx.env.mcp === false && (await tx.read(configPath)) !== null)
     await tx.edit(
       configPath,
-      (old) =>
-        removeTomlTable(
-          removeTomlTable(removeBlock(old!, "hash"), "mcp_servers.pacer"),
-          'mcp_servers."pacer"',
-        ),
+      noMcpEdit(
+        tx,
+        configPath,
+        isCodexMcpOp,
+        (old) => removeTomlTable(removeBlock(old!, "hash"), pacerTable),
+      ),
       [],
     );
   if (tx.env.mcp === true)
@@ -45,8 +53,8 @@ export async function installCodex(tx: PlannerBuilder): Promise<void> {
         ) {
           if (ownsTable) {
             const withoutTable = removeTomlTable(
-              removeTomlTable(removeBlock(text, "hash"), "mcp_servers.pacer"),
-              'mcp_servers."pacer"',
+              removeBlock(text, "hash"),
+              pacerTable,
             );
             return upsertBlock(withoutTable, codexMcpBlock(argv), "hash");
           }
@@ -59,17 +67,11 @@ export async function installCodex(tx: PlannerBuilder): Promise<void> {
       },
       [
         { kind: "block", style: "hash" },
-        { kind: "toml-table", table: "mcp_servers.pacer" },
+        { kind: "toml-table", table: pacerTable },
       ],
     );
-  await dropStaleMcpEntry(
-    tx,
-    configPath,
-    (op) =>
-      (op.kind === "toml-table" && op.table === "mcp_servers.pacer") ||
-      (op.kind === "block" && op.style === "hash"),
-    (text) => !!(Bun.TOML.parse(text) as any).mcp_servers?.pacer,
-  );
+  await dropStaleMcpEntry(tx, configPath, isCodexMcpOp,
+    (text) => !!(Bun.TOML.parse(text) as any).mcp_servers?.pacer);
 
   await installSkill(
     tx,
