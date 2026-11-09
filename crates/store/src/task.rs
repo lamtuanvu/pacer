@@ -361,7 +361,8 @@ impl TaskStore {
         // Skip the IMMEDIATE schema transaction once the schema is ready, so a
         // request-path open never waits behind another writer's reservation
         // just to re-run idempotent DDL.
-        if !schema_ready(&db)? {
+        let fresh_schema = !schema_ready(&db)?;
+        if fresh_schema {
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
             tx.execute_batch("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0); CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state); CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at); CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);")?;
             let fields: Vec<String> = tx
@@ -387,18 +388,32 @@ impl TaskStore {
             inode,
             directory_stamp: None,
         };
-        // Import JSON only on the first open in this process for this (path,
-        // inode) pair. Later request-path opens in the same process rely on
-        // an explicit `reconcile_json` (periodic Worker, maintenance child,
-        // `pacer tasks import`) instead of importing on every open.
-        let first_open = {
-            let mut imported = IMPORTED
-                .lock()
-                .map_err(|_| StoreError::ImportTrackingPoisoned)?;
-            imported.insert((path.clone(), inode))
+        // Import JSON on the first successful open in this process for this
+        // (path, inode) pair, and whenever the database is new or holds no
+        // tasks: a database recreated at a reused inode (common on Linux) must
+        // still be rebuilt from the JSON copies. Later opens rely on the
+        // TypeScript core's periodic reconcile, which imports into the same
+        // database, instead of importing on every request.
+        let key = (path.clone(), inode);
+        let seen = IMPORTED
+            .lock()
+            .map_err(|_| StoreError::ImportTrackingPoisoned)?
+            .contains(&key);
+        let rebuild = fresh_schema || {
+            let empty: bool =
+                store
+                    .db
+                    .query_row("SELECT NOT EXISTS(SELECT 1 FROM tasks)", [], |r| r.get(0))?;
+            empty && has_task_json(&store.home.join("tasks"))?
         };
-        if first_open {
+        if !seen || rebuild {
             store.import_json()?;
+            // Recorded only after a successful import, so a failed first
+            // import (a busy writer, an unreadable directory) is retried.
+            IMPORTED
+                .lock()
+                .map_err(|_| StoreError::ImportTrackingPoisoned)?
+                .insert(key);
         }
         Ok(store)
     }
@@ -420,9 +435,8 @@ impl TaskStore {
     }
     /// Force a full JSON import regardless of the cached directory stamp,
     /// returning the number of task rows actually imported (rows where the
-    /// SQL upsert's revision guard accepted the write). Used by the
-    /// supervision Worker, the maintenance child and `pacer tasks import`
-    /// recovery; never called from a request path.
+    /// SQL upsert's revision guard accepted the write). For explicit recovery
+    /// and tests; never called from a request path.
     pub fn reconcile_json(&mut self) -> Result<usize> {
         self.import_json_with(true)
     }
@@ -826,6 +840,15 @@ impl TaskStore {
     pub(crate) fn home(&self) -> &Path {
         &self.home
     }
+}
+/// Whether the tasks directory holds any JSON task copy to rebuild from.
+fn has_task_json(dir: &Path) -> io::Result<bool> {
+    for entry in fs::read_dir(dir)? {
+        if entry?.file_name().to_string_lossy().ends_with(".json") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 fn current_seconds() -> f64 {
     std::time::SystemTime::now()

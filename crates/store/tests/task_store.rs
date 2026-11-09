@@ -329,6 +329,65 @@ fn second_open_in_process_skips_import() {
 }
 
 #[test]
+fn failed_first_import_is_retried_on_the_next_open() {
+    // A database this process has never opened (a new inode) that already
+    // holds the task at revision 1, plus a newer JSON-only revision on disk.
+    let seed = tempfile::tempdir().unwrap();
+    let mut source = TaskStore::open(seed.path()).unwrap();
+    source.insert(&task(), 1000.0).unwrap();
+    drop(source);
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    fs::create_dir_all(home.join("state")).unwrap();
+    fs::create_dir_all(home.join("tasks")).unwrap();
+    fs::copy(
+        seed.path().join("state/tasks.db"),
+        home.join("state/tasks.db"),
+    )
+    .unwrap();
+    let mut newer = task();
+    newer["rev"] = json!(5);
+    fs::write(
+        home.join(format!("tasks/{ID}.json")),
+        serde_json::to_vec(&newer).unwrap(),
+    )
+    .unwrap();
+    // The first open's import meets a writer that holds the database past the
+    // busy timeout, as during the TypeScript core's own startup import.
+    let mut blocker = rusqlite::Connection::open(home.join("state/tasks.db")).unwrap();
+    let hold = blocker
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    let failed = TaskStore::open(&home);
+    hold.rollback().unwrap();
+    assert!(failed.is_err());
+    // The failed import was not recorded, so the next open imports revision 5.
+    let mut store = TaskStore::open(&home).unwrap();
+    assert_eq!(store.read(ID).unwrap().unwrap()["rev"], 5);
+}
+
+#[test]
+fn an_empty_database_imports_even_when_its_path_and_inode_were_seen() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    TaskStore::open(&home).unwrap();
+    // Stands in for a database recreated at a reused inode (common on Linux):
+    // the (path, inode) pair is already known but the table holds no tasks.
+    fs::write(
+        home.join("tasks/empty.tmp"),
+        serde_json::to_vec(&task()).unwrap(),
+    )
+    .unwrap();
+    fs::rename(
+        home.join("tasks/empty.tmp"),
+        home.join(format!("tasks/{ID}.json")),
+    )
+    .unwrap();
+    let mut store = TaskStore::open(&home).unwrap();
+    assert_eq!(store.read(ID).unwrap().unwrap()["rev"], 1);
+}
+
+#[test]
 fn open_after_inode_change_imports() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_path_buf();
