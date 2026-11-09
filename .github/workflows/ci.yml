@@ -189,9 +189,10 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/pacer-cross"
           "$RUNNER_TEMP/pacer-cross/bin/pip" install --only-binary=:all: cargo-zigbuild==0.24.0 ziglang==0.14.1
           echo "$RUNNER_TEMP/pacer-cross/bin" >> "$GITHUB_PATH"
-      # The frozen playwright-core dependency pins the matching Chromium revision.
+      # The frozen playwright-core dependency pins the matching Chromium revision. The full suite includes
+      # browser tests, so install it whenever that suite runs, not only when the change selects e2e.
       - name: Install locked Chromium test browser
-        if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.e2e == 'true' }}
+        if: ${{ env.RUN_CHECKS == 'true' && (needs.changes.outputs.e2e == 'true' || needs.changes.outputs.full == 'true') }}
         run: |
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
