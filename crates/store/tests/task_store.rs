@@ -318,6 +318,18 @@ fn second_open_in_process_skips_import() {
     newer["unknown"] = json!("second-open");
     let temp = home.join("tasks/second-open.tmp");
     fs::write(&temp, serde_json::to_vec(&newer).unwrap()).unwrap();
+    // Linux records mtimes on a coarse clock, so a rewrite right after the insert can keep the
+    // mtime SQLite recorded; pin it to that value so every platform sees the same case.
+    let original = fs::metadata(home.join(format!("tasks/{ID}.json")))
+        .unwrap()
+        .modified()
+        .unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&temp)
+        .unwrap()
+        .set_modified(original)
+        .unwrap();
     fs::rename(&temp, home.join(format!("tasks/{ID}.json"))).unwrap();
     // A second open in this process, same (path, inode): no import runs, so
     // the stale SQL row (rev 1) is still what is read.

@@ -474,11 +474,15 @@ impl TaskStore {
                     r.get(0)
                 })
                 .optional()?;
-            if row.is_some_and(|old| match old {
-                SqlValue::Real(value) => value == mtime,
-                SqlValue::Integer(value) => value as f64 == mtime,
-                _ => false,
-            }) {
+            // A forced reconcile parses every copy and lets the UPSERT's revision guard
+            // decide: on a coarse-mtime filesystem a same-tick rewrite keeps the recorded mtime.
+            if !force
+                && row.is_some_and(|old| match old {
+                    SqlValue::Real(value) => value == mtime,
+                    SqlValue::Integer(value) => value as f64 == mtime,
+                    _ => false,
+                })
+            {
                 continue;
             }
             let bytes = match fs::read(&path) {
