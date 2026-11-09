@@ -1,4 +1,5 @@
 import { SessionClient, type SessionClientOptions, type SessionState } from './client';
+import { platform } from '../platform';
 export type ControlIntent = 'watching' | 'driving' | 'released';
 export interface SessionRenderer {
   reset(cols: number, rows: number): void;
@@ -35,6 +36,82 @@ const schedule: NonNullable<SessionClientOptions['schedule']> = (fn, ms) => {
   const timer = setTimeout(fn, ms);
   return () => clearTimeout(timer);
 };
+type ViewerStorage = Pick<Storage, 'getItem' | 'setItem'> | null;
+const WINDOW_LEASE_PREFIX = 'pacer:viewer-lease:';
+/** The short platform name an app window presents to a shared session (ADR 0023, follow-up F6). */
+export function viewerPlatformName(desktop: boolean): string {
+  return desktop ? 'Pacer desktop' : 'Browser';
+}
+function readLeases(storage: ViewerStorage, key: string): number[] {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(key);
+    if (raw == null) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((n): n is number => Number.isSafeInteger(n) && n >= 1)
+      : [];
+  } catch {
+    return [];
+  }
+}
+function writeLeases(storage: ViewerStorage, key: string, leases: number[]): void {
+  if (!storage) return;
+  try {
+    storage.setItem(key, JSON.stringify(leases));
+  } catch {
+    /* memory-only fallback */
+  }
+}
+export interface ViewerWindowLease {
+  label: string;
+  release(): void;
+}
+/**
+ * Allocates this app window a human-readable viewer label so a shared session's `active` status
+ * (last input from …) can tell windows apart (ADR 0023, follow-up F6). The base is the platform
+ * name; once more than one window of the same kind is live in this browser profile each gets a
+ * short per-window ordinal. Release is best-effort and keeps the lease worst-case bounded.
+ */
+export function announceViewerWindow(desktop: boolean, storage: ViewerStorage): ViewerWindowLease {
+  const key = WINDOW_LEASE_PREFIX + (desktop ? 'desktop' : 'browser');
+  const leases = readLeases(storage, key);
+  let ordinal = 1;
+  while (leases.includes(ordinal)) ordinal++;
+  leases.push(ordinal);
+  writeLeases(storage, key, leases);
+  const base = viewerPlatformName(desktop);
+  const label = leases.length > 1 ? `${base} · ${ordinal}` : base;
+  let released = false;
+  return {
+    label,
+    release() {
+      if (released) return;
+      released = true;
+      writeLeases(storage, key, readLeases(storage, key).filter((n) => n !== ordinal));
+    },
+  };
+}
+function defaultViewerStorage(): ViewerStorage {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+function onPageHide(fn: () => void): void {
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function')
+    window.addEventListener('pagehide', fn);
+}
+let windowLease: ViewerWindowLease | undefined;
+/** This app window's viewer label, computed once and shared by all of its terminal panes. */
+export function viewerWindowLabel(): string {
+  if (!windowLease) {
+    windowLease = announceViewerWindow(platform.desktop, defaultViewerStorage());
+    onPageHide(() => windowLease?.release());
+  }
+  return windowLease.label;
+}
 /** In-memory only. The connection factory can be replaced by a desktop attachment. */
 export class SessionRuntime {
   intent: ControlIntent = 'watching';
@@ -232,8 +309,11 @@ export class SessionRuntime {
     this.attemptStartedAt = nextTime;
     this.attempt = nextAttempt;
     const { control, live, autoControl, ...metadata } = options;
-    this.options = { ...this.options, ...metadata };
-    this.client.configure(true, undefined, { url: this.options.url, label: this.options.label });
+    // A window's viewer label is fixed at connect; only an explicit caller label replaces it.
+    const label =
+      typeof metadata.label === 'string' && metadata.label ? metadata.label : this.options.label;
+    this.options = { ...this.options, ...metadata, label };
+    this.client.configure(true, undefined, { url: this.options.url, label });
     if (reset) {
       this.controlVersion++;
       this.clearBuffer();
@@ -392,7 +472,7 @@ export function sessionRuntime(id: string, url?: string, shell = false, peek = f
   if (peek) return sessionRuntimes.peek(endpoint.origin, `${shell ? 'terminal' : 'task'}:${id}`);
   return sessionRuntimes.get(endpoint.origin, `${shell ? 'terminal' : 'task'}:${id}`, {
     url: endpoint.href,
-    label: 'pacer app',
+    label: viewerWindowLabel(),
     cols: 120,
     rows: 40,
     control: true,

@@ -325,6 +325,9 @@ test('the 1.2 status names who typed last', async () => {
  expect(sessionActive(data.session)).toBeNull();
  expect(lastInputWords('app:pacer app',{kind:'answer'})).toBe('Interactive · last input from pacer app · pacer delivered an answer');
  expect(lastInputWords(null,{kind:'message'})).toBe('Interactive · pacer delivered a message');
+ // F6: the app's window labels read plainly, including the per-window ordinal of a second window.
+ expect(lastInputWords('app:Pacer desktop')).toBe('Interactive · last input from Pacer desktop');
+ expect(lastInputWords('app:Browser · 2')).toBe('Interactive · last input from Browser · 2');
 });
 test('a 1.2 interactive session renders no control row with a disabled Take over, even when a takeover node is passed', async () => {
  const { TerminalControls }=await import('../app/src/term/term');

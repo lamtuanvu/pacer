@@ -135,3 +135,22 @@ test('a 1.2 host names pacer deliveries until this pane types, and a 1.1 host ne
  o.frame({type:'delivered',ok:true,label:'pacer answer'});expect(old.client.state.delivered).toBeUndefined();
  old.client.dispose();
 });
+test('an app window gets a distinguishable viewer label only among windows of the same kind', async () => {
+ const { announceViewerWindow, viewerPlatformName, viewerWindowLabel } = await import('../app/src/term/runtime');
+ const map = new Map<string, string>();
+ const storage = { getItem: (key: string) => map.get(key) ?? null, setItem: (key: string, value: string) => { map.set(key, value); } };
+ expect(viewerPlatformName(true)).toBe('Pacer desktop');
+ expect(viewerPlatformName(false)).toBe('Browser');
+ // The first window of a kind keeps the plain platform name; a second gets a short ordinal.
+ const first = announceViewerWindow(false, storage);
+ const second = announceViewerWindow(false, storage);
+ expect(first.label).toBe('Browser');
+ expect(second.label).toBe('Browser · 2');
+ // A desktop window shares no counter with browser windows, and a lone one needs no suffix.
+ expect(announceViewerWindow(true, storage).label).toBe('Pacer desktop');
+ // Releasing the second window frees its ordinal; the next window reuses it and stays distinct.
+ second.release();
+ expect(announceViewerWindow(false, storage).label).toBe('Browser · 2');
+ // In a bare test context (no desktop host, no storage) the window labels itself as a browser.
+ expect(viewerWindowLabel()).toBe('Browser');
+});
