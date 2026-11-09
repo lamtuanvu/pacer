@@ -197,7 +197,7 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
   const stale = (e: ExecutorRow) => e.stale || snapshot?.accounts?.some(a => a.name === e.account && a.stale);
   const readiness = (e: ExecutorRow) => executorReadiness(e, snapshot!);
   // Readiness follows execution evidence, independently of whether a task is running.
-  const ready = executors?.filter(e => ["Ready", "Ahead of pace"].includes(readiness(e).label)) ?? [];
+  const ready = executors?.filter(e => ["Ready", "Ahead of pace", "Not tested"].includes(readiness(e).label)) ?? [];
   const needs = executors?.filter(e => ["down", "failing", "blocked"].includes(e.state)) ?? [];
   const active = snapshot?.strategies?.find(s => typeof s !== "string" && s.active);
   const setup = typeof active === "object" ? active : initialData.strategies?.find(s => s.active);

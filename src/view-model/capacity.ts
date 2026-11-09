@@ -102,8 +102,10 @@ export function executorReadiness(executor: ExecutorRow, snapshot: ClientSnapsho
     label = "Cannot take work"; tone = "bad";
     reason = executor.state === "blocked" || codes.includes("blocked") ? "Blocked by you" : executor.state === "exhausted" || codes.includes("budget_exhausted") ? "Out of quota" : codes.includes("not_installed") ? "Agent needs installing" : executor.lastCheck?.passed === false ? "Last test task failed" : "Agent needs attention";
   }
-  else if (executor.untested || !decision || decision.state === "uncertain") { label = "Skipped"; tone = "warn"; reason = executor.untested ? "Run a test task to check readiness" : "Refresh to confirm availability"; }
+  else if (!decision || decision.state === "uncertain") { label = "Skipped"; tone = "warn"; reason = "Refresh to confirm availability"; }
   else if (executor.state === "full") { label = "Skipped"; tone = "neutral"; reason = "All parallel slots are in use"; }
+  // An untested endpoint still receives work; only the endpoint test task has not run yet.
+  else if (executor.untested) { label = "Not tested"; tone = "neutral"; reason = "Still takes work · run a test task to confirm"; }
   else if (executorPace(executor, snapshot).label === "Ahead of pace") { label = "Ahead of pace"; tone = "warn"; reason = "Used before others only for capable work"; }
   if ((label === "Ready" || label === "Ahead of pace") && executor.state === "failing" && executor.recentFailures > 0) reason = `${executor.recentFailures} recent failures`;
   return { label, tone, glyph: tone === "good" ? "✓" : tone === "neutral" ? "■" : "!", reason,

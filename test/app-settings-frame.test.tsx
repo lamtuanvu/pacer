@@ -143,6 +143,14 @@ test('Overview treats a busy executor as able to take work', () => {
   expect(html).not.toContain('busy cannot take work');
 });
 
+test('Overview counts an untested endpoint as able to take work', () => {
+  const eligible = {state:'eligible',reasons:[],evaluatedAt:1000,evidenceAgeS:0,budget:'permitted'};
+  const untested = { ...executor, id: 'opencode#tse', untested: true as const, eligibility:eligible };
+  const html = render(<SettingsGeneral initialData={settings} />, { ...state, snapshot: { ...state.snapshot, executors: [{...executor,eligibility:eligible}, untested], machine: { used: 0, max: 4 } } });
+  expect(html).toContain('2 of 2 agents can take work. 0 need you.');
+  expect(html).toContain('Not tested');
+});
+
 test('Overview shows only real readiness and setup facts', () => {
   const eligible = {state:'eligible',reasons:[],evaluatedAt:1000,evidenceAgeS:0,budget:'permitted'};
   const down = { ...executor, state: 'down', eligibility:{...eligible,state:'ineligible',reasons:[{code:'subscription_missing'}]} };
