@@ -24,7 +24,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `plugin.install` | Native HTTP (P4d-4) | Retired Orca install refusal registered on the HTTP service registry (X3 parity). Stdio remains TypeScript. |
 | `strategy.list`, `strategy.show` | Native (P2-B) | `src/api/ops.ts` remains the reference and forward fallback via `PACER_FORWARD_OPS`; reads reuse `pacer-config` `list_strategy_reads` / `show_strategy`. |
 | `strategy.use`, `strategy.save`, `strategy.remove` | Native (P2-C) | `src/api/ops.ts` remains the reference and forward fallback; native effects use `pacer-config` and the P3-B publisher. |
-| `routing.set`, `runner.set`, `runner.reorder`, `runner.remove` | Native (P2-C) | Native document effects retain the private TypeScript endpoint-plugin synchronization bridge before publishing config changes. Host YAML mutations share the same bridge. |
+| `routing.set`, `runner.set`, `runner.reorder`, `runner.remove` | Native (P2-C) | Native document effects retain the private TypeScript endpoint-plugin synchronization bridge before publishing config changes. Host YAML mutations share the same bridge. `runner.set` with a string `model` selectively forwards to TypeScript first, because validating the model needs the provider's model listing (`availableModels`) that only TypeScript owns; all other `runner.set` inputs stay native. |
 | `notifications.get`, `notifications.set` | Native (P2-C) | Native settings migration and writes; TypeScript remains the forward fallback. |
 | `task.log` | Native | `src/api/ops.ts` is the forward fallback; `src/api/http.ts` uses it for follow mode SSE. |
 | `task.prune`, `task.restore` | Native (P3-D) | Shared `TaskStore` retention helpers; TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. |
@@ -652,14 +652,14 @@ ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
 Total native: **145** of 229 (133 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Fifty-seven of these selectively forward some inputs or effects to TypeScript:
+`plugin.*` ops). Fifty-eight of these selectively forward some inputs or effects to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
 `project.messaging.remove`, `project.strategy.list`, `project.strategy.get`,
 `project.strategy.set`, `project.strategy.remove`, `msg.inbox`, `msg.log`, `msg.read`, `msg.policy`, `tree.status`,
 `msg.send`, `msg.confirm`, `msg.close`, `msg.wait`,
 `discovery.set`, `discovery.respond`, `discovery.list`, `discovery.network.get`,
-`discovery.network.set`, `runner.add`, `attention.dismiss`, `attention.snooze`, `desktop.reconcile.request`,
+`discovery.network.set`, `runner.add`, `runner.set`, `attention.dismiss`, `attention.snooze`, `desktop.reconcile.request`,
 `desktop.reconcile.cancel`, `assistant.status`, `assistant.candidates`,
 `assistant.settings.get`, `assistant.settings.set`, `assistant.conversations`,
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,

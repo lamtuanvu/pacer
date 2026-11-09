@@ -139,6 +139,47 @@ fn add_forwards_check_jobs_terminals_invalid_params_and_unparsable_strategies() 
     ));
 }
 
+#[test]
+fn runner_set_with_model_forwards() {
+    // A runner.set carrying a string model must reach TypeScript, which alone can
+    // consult the provider model listing (a fork of closestModels/isOffered).
+    assert!(runner_set_stays_forwarded(&json!({"id": "codex", "model": "acme/b"})));
+    assert!(runner_set_stays_forwarded(&json!({"id": "codex", "enabled": false, "model": "acme/b"})));
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    assert!(runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "model": "acme/b"})
+    ));
+}
+
+#[test]
+fn runner_set_without_model_stays_native() {
+    // Without a string model there is nothing to check against a listing, so
+    // runner.set stays on the native write path like every other option.
+    assert!(!runner_set_stays_forwarded(&json!({"id": "codex"})));
+    assert!(!runner_set_stays_forwarded(&json!({"id": "codex", "model": null})));
+    assert!(!runner_set_stays_forwarded(&json!({"id": "codex", "model": 1})));
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    assert!(!runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "enabled": false})
+    ));
+    assert!(!runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "max_tasks": 2})
+    ));
+    assert!(!runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "model": null})
+    ));
+}
+
 #[tokio::test]
 async fn add_declares_routes_and_refuses_duplicates() {
     let dir = tempfile::tempdir().unwrap();

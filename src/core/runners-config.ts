@@ -4,6 +4,7 @@ import { StrategyDoc } from "../config/edit";
 import { formatRunnerId, parseRunnerId, resolveRunner, runnerDefaults, isPlannerRunner } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { ensureAccounts } from "./accounts";
+import { availableModels, closestModels, isOffered } from "../models/available";
 import { CoreError, toCoreError } from "./errors";
 import type { Ctx } from "../types";
 
@@ -112,6 +113,21 @@ export async function set(ctx:Ctx,reference:string,o:{enabled?:boolean;model?:st
   const r=resolveRunner(s,reference); if(!r) throw new CoreError("invalid_input","unknown runner");
   if(isPlannerRunner(s,r)) throw new CoreError("not_allowed","cannot edit the planner runner");
   if(o.rank!==undefined) validRank(o.rank);
+  // A string model is validated against the runner account's provider listing
+  // before the edit; model null (clear) and non-model options skip this.
+  let unverified: string | null = null;
+  if (typeof o.model === "string") {
+    const list = await availableModels(ctx, r.id);
+    const offered = isOffered(list, o.model);
+    if (offered === false) {
+      const account = s.accounts[r.account];
+      const provider = account?.provider ?? r.account;
+      throw new CoreError("invalid_input", `${o.model} is not offered by ${provider}`, `Available: ${closestModels(list, o.model).join(", ")}`);
+    }
+    if (offered === null && list.source !== "none") {
+      unverified = `${o.model} could not be checked: ${list.note ?? ""}`;
+    }
+  }
   await edit(doc=>{
     // Update the existing declaration even when it uses a transitional alias.
     const raw=docValue(doc,['runners']) ?? {};
@@ -120,7 +136,9 @@ export async function set(ctx:Ctx,reference:string,o:{enabled?:boolean;model?:st
     if(o.rank!==undefined) moveRank(doc,s,r.id,o.rank);
   });
   const updated=loadStrategy(ctx);
-  const warnings=o.enabled===false ? updated.routing.filter(rule=>rule.executors.some(id=>resolveRunner(updated,id)?.id===r.id) && !rule.executors.some(id=>{const candidate=resolveRunner(updated,id);return candidate && candidate.enabled!==false && !(candidate.agent===s.planner.agent && candidate.account===s.planner.account);})).map(rule=>`routing rule '${rule.kinds?.join(',') ?? 'default'}' has no enabled executor left`) : [];
+  const warnings: string[] = [];
+  if(o.enabled===false) warnings.push(...updated.routing.filter(rule=>rule.executors.some(id=>resolveRunner(updated,id)?.id===r.id) && !rule.executors.some(id=>{const candidate=resolveRunner(updated,id);return candidate && candidate.enabled!==false && !(candidate.agent===s.planner.agent && candidate.account===s.planner.account);})).map(rule=>`routing rule '${rule.kinds?.join(',') ?? 'default'}' has no enabled executor left`));
+  if(unverified) warnings.push(unverified);
   return {id:r.id,warnings,...(migrated ? {migrated} : {})};
 }
 export async function reorder(ctx:Ctx,ids:string[]) {
