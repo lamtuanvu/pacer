@@ -640,7 +640,30 @@ impl TaskStore {
             now,
         );
         with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
-            self.update_admitted_locked(id, expected_rev, now, mutate, after)
+            self.update_admitted_locked_inner(id, expected_rev, now, mutate, after, false)
+        })?
+    }
+    /// `update_admitted_then`, but forces the write and revision bump even
+    /// when the record reads back unchanged. For callers whose domain state
+    /// lives outside the task record (the work dependency graph), so an
+    /// `expect_rev` held by another caller must still see a conflict after
+    /// it changes, matching TypeScript `touchTask`.
+    pub fn touch_admitted_then(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
+        after: impl FnOnce(&Connection, &Value) -> Result<()>,
+    ) -> Result<Value> {
+        let ctx = Ctx::with(
+            self.home.clone(),
+            self.home.clone(),
+            Default::default(),
+            now,
+        );
+        with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
+            self.update_admitted_locked_inner(id, expected_rev, now, mutate, after, true)
         })?
     }
     fn update_admitted_locked(
@@ -650,6 +673,18 @@ impl TaskStore {
         now: f64,
         mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
         after: impl FnOnce(&Connection, &Value) -> Result<()>,
+    ) -> Result<Value> {
+        self.update_admitted_locked_inner(id, expected_rev, now, mutate, after, false)
+    }
+    /// `force`: skip the no-op comparison and always write and bump `rev`.
+    fn update_admitted_locked_inner(
+        &mut self,
+        id: &str,
+        expected_rev: i64,
+        now: f64,
+        mutate: impl FnOnce(&Connection, &mut Value) -> Result<()>,
+        after: impl FnOnce(&Connection, &Value) -> Result<()>,
+        force: bool,
     ) -> Result<Value> {
         if !is_task_id(id) {
             return Err(StoreError::InvalidRecord);
@@ -668,6 +703,7 @@ impl TaskStore {
         if rev != expected_rev {
             return Err(StoreError::Conflict);
         }
+        let before = task.clone();
         let prior = field(&task, "state").unwrap_or("").to_owned();
         mutate(&tx, &mut task)?;
         let terminal = TERMINAL.contains(&field(&task, "state").ok_or(StoreError::InvalidRecord)?);
@@ -680,6 +716,11 @@ impl TaskStore {
                 .remove("settledAt");
         }
         task["id"] = json!(id);
+        // An update that changes nothing writes nothing: no JSON rewrite,
+        // revision bump or row update (TypeScript `updateTask` parity).
+        if !force && task == before {
+            return Ok(task);
+        }
         task["rev"] = json!(rev + 1);
         if !valid(&task, id) {
             return Err(StoreError::InvalidRecord);

@@ -170,6 +170,34 @@ fn schema_write_read_filters_and_cas() {
 }
 
 #[test]
+fn update_without_change_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    store.insert(&task(), 1000.0).unwrap();
+    let json_path = dir.path().join(format!("tasks/{ID}.json"));
+    let before_mtime = fs::metadata(&json_path).unwrap().modified().unwrap();
+    let before_version = store.version().unwrap();
+    let state = task()["state"].as_str().unwrap().to_owned();
+    let returned = store
+        .update(ID, 1, 2000.0, |v| v["state"] = json!(state.clone()))
+        .unwrap();
+    assert_eq!(returned["rev"], 1);
+    let after = store.read(ID).unwrap().unwrap();
+    assert_eq!(after["rev"], 1);
+    assert_eq!(
+        fs::metadata(&json_path).unwrap().modified().unwrap(),
+        before_mtime
+    );
+    assert_eq!(store.version().unwrap(), before_version);
+
+    // A real change still writes and bumps the revision as before.
+    let changed = store
+        .update(ID, 1, 2001.0, |v| v["state"] = json!("done"))
+        .unwrap();
+    assert_eq!(changed["rev"], 2);
+}
+
+#[test]
 fn json_import_revision_and_external_invalidation() {
     let dir = tempfile::tempdir().unwrap();
     let mut first = TaskStore::open(dir.path()).unwrap();

@@ -55,6 +55,17 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
             updated.ok_or("too many revision conflicts")?
         }
+        "noop-update" => {
+            // Mutate sets the field to the value it already holds: the no-op
+            // write-skip (RUST-7 parity with TS `updateTask`) must leave rev,
+            // the JSON file and the row untouched.
+            let id = args.next().ok_or("task id required")?;
+            let current = store.read(&id)?.ok_or("unknown task")?;
+            let rev = current["rev"].as_i64().ok_or("missing revision")?;
+            let state = current["state"].as_str().ok_or("missing state")?.to_owned();
+            let now = current["createdAt"].as_f64().ok_or("missing time")?;
+            store.update(&id, rev, now, |v| v["state"] = json!(state))?
+        }
         "prune" => {
             let now = args.next().ok_or("time required")?.parse::<f64>()?;
             json!(

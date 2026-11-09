@@ -85,6 +85,32 @@ fn position_snapshot_does_not_recreate_a_removed_queue() {
 }
 
 #[test]
+fn update_positions_leaves_unchanged_positions_unwritten() {
+    // Parity with TS "drainQueue leaves unchanged queue positions unwritten":
+    // the store's no-op write-skip means re-asserting an already-correct
+    // `queue.position` must not bump `rev` or rewrite the task.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = AdmissionState::open(dir.path()).unwrap();
+    let ids = [
+        "t-20261102-000000-0001",
+        "t-20261102-000000-0002",
+        "t-20261102-000000-0003",
+    ];
+    let mut remaining = Vec::new();
+    for (index, id) in ids.iter().enumerate() {
+        let mut t = task(id);
+        t["queue"]["position"] = json!(index + 1);
+        state.create(&t, None, None, 1.0).unwrap();
+        remaining.push(state.read(id).unwrap().unwrap());
+    }
+    update_positions(&mut state.tasks, &remaining, 2.0).unwrap();
+    for id in ids {
+        let current = state.read(id).unwrap().unwrap();
+        assert_eq!(current["rev"], 1, "{id} should be unwritten");
+    }
+}
+
+#[test]
 fn pause_state_accepts_js_strings_and_rejects_expired_or_malformed_values() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::with(
