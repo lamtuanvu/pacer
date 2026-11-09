@@ -306,6 +306,65 @@ fn open_does_not_wait_for_a_writer_when_schema_is_ready() {
 }
 
 #[test]
+fn opening_an_unrelated_home_is_not_blocked_by_a_busy_import() {
+    // Seed home A elsewhere and copy its database and a newer JSON copy in,
+    // so the open below is this process's first open of A: its import runs,
+    // and the external writer makes it wait on SQLite's busy timeout.
+    let seed = tempfile::tempdir().unwrap();
+    let mut seed_store = TaskStore::open(seed.path()).unwrap();
+    seed_store.insert(&task(), 1000.0).unwrap();
+    drop(seed_store);
+    let dir = tempfile::tempdir().unwrap();
+    let home_a = dir.path().join("a");
+    fs::create_dir_all(home_a.join("state")).unwrap();
+    fs::create_dir_all(home_a.join("tasks")).unwrap();
+    fs::copy(
+        seed.path().join("state/tasks.db"),
+        home_a.join("state/tasks.db"),
+    )
+    .unwrap();
+    let mut newer = task();
+    newer["rev"] = json!(5);
+    fs::write(
+        home_a.join(format!("tasks/{ID}.json")),
+        serde_json::to_vec(&newer).unwrap(),
+    )
+    .unwrap();
+    let mut blocker = rusqlite::Connection::open(home_a.join("state/tasks.db")).unwrap();
+    blocker.busy_timeout(Duration::from_millis(5000)).unwrap();
+    let hold = blocker
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    // First open of A in this process: its JSON import waits for the writer.
+    let waiting = {
+        let home = home_a.clone();
+        thread::spawn(move || {
+            TaskStore::open(&home)
+                .map(|mut store| store.read(ID).unwrap().map(|task| task["rev"].clone()))
+        })
+    };
+    // Let the import reach its transaction, then exercise an unrelated home:
+    // open it and write to it, each of which touches the signature memory.
+    // Holding the process-global mutex across the busy wait would stall both.
+    thread::sleep(Duration::from_millis(300));
+    let start = Instant::now();
+    let mut other = TaskStore::open(dir.path().join("b")).unwrap();
+    other.insert(&task(), 1000.0).unwrap();
+    let elapsed = start.elapsed();
+    // The unrelated home was never delayed by the waiting import.
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "open and write of an unrelated home took {elapsed:?} while another \
+         import waited on a busy writer"
+    );
+    // The waiter completes normally once the writer releases.
+    hold.rollback().unwrap();
+    drop(blocker);
+    let imported = waiting.join().unwrap().unwrap();
+    assert_eq!(imported, Some(json!(5)));
+}
+
+#[test]
 fn second_open_in_process_skips_import() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_path_buf();
@@ -318,19 +377,22 @@ fn second_open_in_process_skips_import() {
     newer["unknown"] = json!("second-open");
     let temp = home.join("tasks/second-open.tmp");
     fs::write(&temp, serde_json::to_vec(&newer).unwrap()).unwrap();
-    // Linux records mtimes on a coarse clock, so a rewrite right after the insert can keep the
-    // mtime SQLite recorded; pin it to that value so every platform sees the same case.
-    let original = fs::metadata(home.join(format!("tasks/{ID}.json")))
+    // Capture the original file's timestamp before overwriting so it can be
+    // restored on the replacement below.
+    let original_mtime = fs::metadata(home.join(format!("tasks/{ID}.json")))
         .unwrap()
         .modified()
         .unwrap();
+    fs::rename(&temp, home.join(format!("tasks/{ID}.json"))).unwrap();
+    // A replacement written within the same clock tick keeps the replaced
+    // file's coarse mtime (a few ms on Linux), so pin it exactly: only the
+    // changed inode may reveal the rewrite.
     fs::File::options()
         .write(true)
-        .open(&temp)
+        .open(home.join(format!("tasks/{ID}.json")))
         .unwrap()
-        .set_modified(original)
+        .set_modified(original_mtime)
         .unwrap();
-    fs::rename(&temp, home.join(format!("tasks/{ID}.json"))).unwrap();
     // A second open in this process, same (path, inode): no import runs, so
     // the stale SQL row (rev 1) is still what is read.
     let mut second = TaskStore::open(&home).unwrap();
@@ -338,6 +400,131 @@ fn second_open_in_process_skips_import() {
     assert_eq!(second.reconcile_json().unwrap(), 1);
     assert_eq!(second.read(ID).unwrap().unwrap()["rev"], 5);
     assert_eq!(second.read(ID).unwrap().unwrap()["unknown"], "second-open");
+}
+
+#[test]
+fn scan_over_unchanged_files_writes_nothing() {
+    // A store whose SQL row, like TypeScript's, records only the copy's
+    // json_mtime: from a fresh Rust process's point of view every file is an
+    // unseen copy trusted through the json_mtime shortcut.
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    {
+        let mut first = TaskStore::open(&home).unwrap();
+        first.insert(&task(), 1000.0).unwrap();
+    }
+    // Replace the database file (as a reset or restore would, new inode) so
+    // the store below must rebuild its per-file memory from scratch.
+    fs::copy(
+        home.join("state/tasks.db"),
+        home.join("state/replacement.tmp"),
+    )
+    .unwrap();
+    fs::remove_file(home.join("state/tasks.db")).unwrap();
+    for suffix in ["-wal", "-shm"] {
+        let _ = fs::remove_file(home.join(format!("state/tasks.db{suffix}")));
+    }
+    fs::rename(
+        home.join("state/replacement.tmp"),
+        home.join("state/tasks.db"),
+    )
+    .unwrap();
+    // A read-only onlooker distinguishes real SQLite writes from reads.
+    let onlooker = rusqlite::Connection::open(home.join("state/tasks.db")).unwrap();
+    let data_version_before: i64 = onlooker
+        .query_row("PRAGMA data_version", [], |r| r.get(0))
+        .unwrap();
+    let mut store = TaskStore::open(&home).unwrap();
+    // The first open's scan trusted every unseen copy whose mtime the row
+    // records: it parsed no JSON and wrote no ALTER, no marker update, nothing.
+    let writes_before: i64 = store
+        .connection()
+        .unwrap()
+        .query_row("SELECT total_changes()", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(writes_before, 0);
+    // An explicit full scan over the unchanged copies reconciles nothing and
+    // still writes nothing.
+    assert_eq!(store.reconcile_json().unwrap(), 0);
+    let writes_after: i64 = store
+        .connection()
+        .unwrap()
+        .query_row("SELECT total_changes()", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(writes_after, writes_before);
+    let data_version_after: i64 = onlooker
+        .query_row("PRAGMA data_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(data_version_after, data_version_before);
+    assert_eq!(store.read(ID).unwrap().unwrap()["rev"], 1);
+
+    // The same-tick rewrite that round #825 missed: a replacement pinned to
+    // the recorded mtime looks reconciled to the row alone, but the file's
+    // remembered (mtime, inode) signature reveals it and the next scan
+    // imports it. The import is real work: only now does the store write.
+    let original_mtime = fs::metadata(home.join(format!("tasks/{ID}.json")))
+        .unwrap()
+        .modified()
+        .unwrap();
+    let mut newer = task();
+    newer["rev"] = json!(2);
+    let temp = home.join("tasks/scan.tmp");
+    fs::write(&temp, serde_json::to_vec(&newer).unwrap()).unwrap();
+    fs::rename(&temp, home.join(format!("tasks/{ID}.json"))).unwrap();
+    fs::File::options()
+        .write(true)
+        .open(home.join(format!("tasks/{ID}.json")))
+        .unwrap()
+        .set_modified(original_mtime)
+        .unwrap();
+    assert_eq!(store.reconcile_json().unwrap(), 1);
+    assert_eq!(store.read(ID).unwrap().unwrap()["rev"], 2);
+}
+
+#[test]
+fn guard_rejected_file_is_remembered_and_not_reread() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    let mut store = TaskStore::open(&home).unwrap();
+    store.insert(&task(), 1000.0).unwrap();
+    // A replacement carrying the same revision, pinned to the row's exact
+    // json_mtime: the upsert's guard rejects it (no newer revision, no newer
+    // mtime), but the scan must still remember the file it opened.
+    let json_path = home.join(format!("tasks/{ID}.json"));
+    let recorded_mtime = fs::metadata(&json_path).unwrap().modified().unwrap();
+    let mut same = task();
+    same["unknown"] = json!("same-revision");
+    let temp = home.join("tasks/reject.tmp");
+    fs::write(&temp, serde_json::to_vec(&same).unwrap()).unwrap();
+    fs::rename(&temp, &json_path).unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&json_path)
+        .unwrap()
+        .set_modified(recorded_mtime)
+        .unwrap();
+    assert_eq!(store.reconcile_json().unwrap(), 0);
+    assert!(store.read(ID).unwrap().unwrap().get("unknown").is_none());
+    // Age the row's json_mtime with plain SQL: if the next scan reread the
+    // file, the guard would now accept it and upgrade the row's json_mtime.
+    let onlooker = rusqlite::Connection::open(home.join("state/tasks.db")).unwrap();
+    onlooker
+        .execute(
+            "UPDATE tasks SET json_mtime=? WHERE id=?",
+            rusqlite::params![0.0f64, ID],
+        )
+        .unwrap();
+    store.reconcile_json().unwrap();
+    let json_mtime: Option<f64> = onlooker
+        .query_row("SELECT json_mtime FROM tasks WHERE id=?", [ID], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        json_mtime,
+        Some(0.0),
+        "the scan reread a file whose rejection it already remembered"
+    );
 }
 
 #[test]
