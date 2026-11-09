@@ -261,7 +261,10 @@ export async function pruneUndoSnapshotsAtStartup(ctx: Ctx): Promise<void> {
     await withInstallLock(ctx, async () => {
       pruneExpiredUndoSnapshots(ctx, ctx.now);
     });
-  } catch {
-    /* best-effort; never block startup on pruning */
+  } catch (error) {
+    // Best-effort: never block startup on pruning. A busy install lock (a normal
+    // concurrent connect) is expected; log anything else so it can surface.
+    if (!(error instanceof Error) || !/integration installation is busy/.test(error.message))
+      console.error(`pacer: undo snapshot pruning at startup skipped: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

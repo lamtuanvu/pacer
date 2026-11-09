@@ -264,6 +264,30 @@ test("M1: a tampered copy in the private undo store is refused", async () => {
   expect(readFileSync(settings, "utf8")).toBe(post);
 });
 
+test("M1: a mismatch refuses the whole undo; no file is restored or removed", async () => {
+  const c = ctx();
+  const a = join(c.home, ".claude", "a.txt"), b = join(c.home, ".claude", "b.txt");
+  writeFileSync(a, "A-current"); writeFileSync(b, "B-current");
+  const snap = seedSnapshot(c, [
+    { path: a, before: "A-old", after: "A-current" },
+    { path: b, before: "B-old", after: "B-current" },
+  ], "rev");
+  writeManifest(c, record(snap, { files: [
+    { path: a, action: "edited", exact: true, undo: [] },
+    { path: b, action: "edited", exact: true, undo: [] },
+  ] }));
+  // Tamper with one copy so the whole undo must refuse.
+  writeFileSync(join(undoKeyDir(c, "claude-code"), snap.files[0]!.copy!), "TAMPERED-A");
+  let err: unknown;
+  try { await restorePlannerInstall(c, "claude-code", "claude-code", "rev"); throw Error("undo should have refused"); }
+  catch (e) { err = e; }
+  expect(err).toMatchObject({ code: "conflict" });
+  expect((err as Error).message).toBe(UNDO_MISMATCH);
+  // No file was restored or removed by the refused undo.
+  expect(readFileSync(a, "utf8")).toBe("A-current");
+  expect(readFileSync(b, "utf8")).toBe("B-current");
+});
+
 test("expired snapshots are pruned at service startup and by doctor (L2)", async () => {
   const c = ctx();
   const file = join(c.home, ".claude", "a.txt"), small = "x\n";

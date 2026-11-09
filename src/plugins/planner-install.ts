@@ -4,7 +4,7 @@ import { CoreError } from "../core/errors";
 import { withInstallLock } from "../install/lock";
 import { validateInstallArgv } from "../install/self";
 import { recoverPlannerInstall, plannerTrustedRoots } from "./planner-recovery";
-import { readManifest, type PlannerRecord } from "../install/manifest";
+import { readManifest, writeManifest, type PlannerRecord } from "../install/manifest";
 import { readInstallFile } from "../install/atomic";
 import { clearUndoSnapshot, readSnapshotFile, stageUndoSnapshot, commitStagedUndoSnapshot, discardStagedUndoSnapshot } from "../install/undo-store";
 import type { InstallEnv } from "../install/txn";
@@ -508,6 +508,14 @@ export async function withPlannerInstall(
         } catch {
           if (stagedDir) discardStagedUndoSnapshot(stagedDir);
           clearUndoSnapshot(ctx, env.plannerKey);
+          // The commit already landed; drop the snapshot reference so undo is
+          // reported unavailable rather than surfacing only later as a missing
+          // copy. Rewriting the manifest is best-effort and stays under the
+          // install lock.
+          record.undoConnect = undefined;
+          try {
+            writeManifest(ctx, { version: 1, planners });
+          } catch { /* best-effort */ }
           hostNotes.push(UNDO_SWAP_NOTE);
         }
         return {

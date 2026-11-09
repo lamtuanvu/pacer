@@ -21,6 +21,7 @@ import { executorsFor } from "../engine/rank";
 import { readText, sha256 } from "./fsx";
 import { piecesPresent, readManifest, type FileChange } from "./manifest";
 import { pruneExpiredUndoSnapshots } from "./undo-store";
+import { withInstallLock } from "./lock";
 import { internalCheck, internalErrorCode, isInternalCode, remedies, remedyCommand, withRemedies } from "./doctor-remedy";
 import { displayName } from "../render/accounts";
 import type { ProviderStatus } from "../engine/rank";
@@ -59,8 +60,11 @@ const CLAUDE_HOOK_CHECKS = ["Claude hook configuration", "Claude message hooks"]
 
 export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise<Status>; service?: () => Promise<ServiceStatus> } = {}): Promise<Check[]> {
   // Expire old undo snapshots so credential-bearing configs never sit on disk
-  // indefinitely when no file-changing connect runs to prune them (L2).
-  pruneExpiredUndoSnapshots(ctx, ctx.now);
+  // indefinitely when no file-changing connect runs to prune them (L2). Run
+  // under the install lock so pacer never races a concurrent staged connect.
+  try {
+    await withInstallLock(ctx, async () => { pruneExpiredUndoSnapshots(ctx, ctx.now); });
+  } catch { /* pruning is best-effort; never let it fail doctor */ }
   const checks: Check[] = [];
   let strategy: Strategy | undefined;
   try {

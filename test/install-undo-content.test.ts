@@ -135,6 +135,10 @@ test("L3: a post-commit snapshot swap failure still reports the commit successfu
     expect(await readFile(join(folder, "settings.json"), "utf8")).toBe("installed");
     // Undo is reported unavailable, not the connect as a failure.
     expect(report.notes.join("\n")).toContain("could not be finalized");
+    // The snapshot reference is dropped so undo is reported unavailable, not
+    // surfaced only later as a missing copy.
+    expect(report.record.undoConnect).toBeUndefined();
+    expect(readManifest(ctx).planners.forge.undoConnect).toBeUndefined();
     // The staged copies were discarded and no snapshot survives in the store.
     const entries = await readdir(join(ctx.pacerHome, "undo"));
     expect(entries.filter((name) => name.startsWith("staging-"))).toEqual([]);
