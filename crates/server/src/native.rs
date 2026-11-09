@@ -447,7 +447,7 @@ static OPS: &[NativeOp] = &[
         call: setup_ops::onboarding_skip,
     },
     NativeOp {
-name: "setup.init",
+        name: "setup.init",
         call: pacer_config_ops::setup_init_ops::setup_init,
     },
     NativeOp {
