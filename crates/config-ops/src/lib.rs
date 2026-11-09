@@ -4,6 +4,7 @@ pub mod config_params;
 pub mod config_writes;
 pub mod executor_candidates_ops;
 pub mod executor_setup_ops;
+pub mod host_check_clean_setup_ops;
 pub mod host_mut_ops;
 pub mod host_read_ops;
 pub mod limits_refresh_ops;
