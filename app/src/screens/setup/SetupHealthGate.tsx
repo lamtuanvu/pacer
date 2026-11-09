@@ -73,10 +73,13 @@ const fileList = (files: string[]) => files.length ? `\n\n${files.join("\n")}` :
 
 /** The gate's side of the shared remedy dispatch: confirmations are dialogs, agent tasks open their task page. */
 export function gateRemedyHost(api: Pick<BrowserApi, "call">, confirm: Confirm, open: (url: string) => void = url => openRemedyUrl(url, platform)): RemedyHost {
+  // One function identity per host: `servicePid` keys its single-flight read by identity,
+  // so a fresh arrow per restart-wait poll would send a new `snapshot.get` every time.
+  const call: RemedyHost["call"] = (op, params) => api.call(op, params);
   return {
-    call: (op, params) => api.call(op, params),
+    call,
     // A rerun sent before the restarted service answers would reach the process that is stopping.
-    awaitRestart: async before => { await awaitServiceRestart(before, () => servicePid((op, params) => api.call(op, params))); },
+    awaitRestart: async before => { await awaitServiceRestart(before, () => servicePid(call)); },
     confirm: request => confirm(`${request.message}${fileList(request.files)}`, request.title, request.confirmLabel),
     review: preview => confirm(
       `${preview.detail ?? "Reconnect this integration."}${fileList(preview.files ?? [])}\n\nReview the files that will change before applying.`,

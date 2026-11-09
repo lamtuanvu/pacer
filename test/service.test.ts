@@ -454,9 +454,11 @@ test("the reload script keeps a registration that loads and stays running", asyn
 // must not carry the restore through to a file outside the registration’s fixture.
 const restoreFails = `[ "$1" = bootstrap ] && ! grep -q "previous registration" "$3" && exit 5\n[ "$1" = print ] && echo "state = running"`;
 test("the reload script clears a stale .restore file and a symlink there without touching the symlink target", async () => {
-  const plain = await reloadFixture(restoreFails, restore => writeFileSync(restore, "stale junk"));
-  expect(plain.out).toContain("restored the previous registration");
-  expect(readFileSync(plain.path, "utf8")).toBe("previous registration");
+  // The success path never reaches the restore copy, so the stale .restore file is gone only
+  // because of the leading rm; the restore takeover itself stays with the symlink half below.
+  const plain = await reloadFixture(`[ "$1" = print ] && echo "state = running"`, restore => writeFileSync(restore, "stale junk"));
+  expect(plain.out).toBe("");
+  expect(readFileSync(plain.path, "utf8")).not.toBe("previous registration");
   expect(existsSync(`${plain.path}.restore`)).toBe(false);
   const outside = join(tmpDir(), "outside-target.txt");
   writeFileSync(outside, "outside");

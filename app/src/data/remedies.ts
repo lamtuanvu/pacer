@@ -32,29 +32,33 @@ export function restartsService(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { restarting?: unknown }).restarting === true;
 }
 
+/** A hung read is dropped from the reuse map after this long; a fresh request then replaces it. */
+export const PENDING_READ_REUSE_MS = 10_000;
 /**
  * At most one `snapshot.get` per `call` is in flight; the next read reuses the pending one.
  * `servicePid` gives up after a few seconds, but the request behind it keeps running while
  * pacer is mid-restart, so a fresh request per poll would pile up during the restart wait.
+ * A read that never settles is reused only while it is young: once it is older than
+ * `PENDING_READ_REUSE_MS` a new request replaces it, so one hung call costs its own span
+ * instead of every read for the rest of the page's life.
  */
-const pendingReads = new WeakMap<RemedyHost["call"], Promise<{ snapshot?: { service?: { pid?: number } } }>>();
-function serviceSnapshot(call: RemedyHost["call"]): Promise<{ snapshot?: { service?: { pid?: number } } }> {
-  let reading = pendingReads.get(call);
-  if (!reading) {
-    reading = call<{ snapshot?: { service?: { pid?: number } } }>("snapshot.get", {});
-    pendingReads.set(call, reading);
-    const settled = () => { if (pendingReads.get(call) === reading) pendingReads.delete(call); };
-    void reading.then(settled, settled);
-  }
+const pendingReads = new WeakMap<RemedyHost["call"], { promise: Promise<{ snapshot?: { service?: { pid?: number } } }>; startedAt: number }>();
+function serviceSnapshot(call: RemedyHost["call"], now: () => number): Promise<{ snapshot?: { service?: { pid?: number } } }> {
+  const pending = pendingReads.get(call);
+  if (pending && now() - pending.startedAt < PENDING_READ_REUSE_MS) return pending.promise;
+  const reading = call<{ snapshot?: { service?: { pid?: number } } }>("snapshot.get", {});
+  pendingReads.set(call, { promise: reading, startedAt: now() });
+  const settled = () => { if (pendingReads.get(call)?.promise === reading) pendingReads.delete(call); };
+  void reading.then(settled, settled);
   return reading;
 }
 
 /** The process id of the service answering now; throws while pacer is unreachable. */
-export async function servicePid(call: RemedyHost["call"], timeoutMs = 3000): Promise<number | undefined> {
+export async function servicePid(call: RemedyHost["call"], timeoutMs = 3000, now: () => number = Date.now): Promise<number | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("pacer did not answer")), timeoutMs); });
   try {
-    const result = await Promise.race([serviceSnapshot(call), late]);
+    const result = await Promise.race([serviceSnapshot(call, now), late]);
     return result?.snapshot?.service?.pid;
   } finally { clearTimeout(timer); }
 }

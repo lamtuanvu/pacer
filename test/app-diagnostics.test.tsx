@@ -662,6 +662,39 @@ test('a restart wait reuses a restarted service read that answers after several 
   expect(calls).toBe(1);
 });
 
+test('a failed service read is evicted, so the next poll starts a new request', async () => {
+  const { servicePid } = await import('../app/src/data/remedies');
+  let calls = 0;
+  const failThenAnswer = async <T,>(op: string) => {
+    if (op !== 'snapshot.get') return {} as T;
+    if (++calls === 1) throw new Error('unreachable');
+    return { snapshot: { service: { pid: 11 } } } as T;
+  };
+  await expect(servicePid(failThenAnswer)).rejects.toThrow('unreachable');
+  expect(await servicePid(failThenAnswer)).toBe(11);
+  expect(calls).toBe(2);
+});
+
+test('a read that never settles is reused only while fresh, then a new request replaces it', async () => {
+  const { servicePid } = await import('../app/src/data/remedies');
+  let clock = 0, calls = 0;
+  const waiters: ((value: unknown) => void)[] = [];
+  const call = async <T,>(op: string) => (op === 'snapshot.get'
+    ? (calls++, new Promise<T>(resolve => waiters.push(value => resolve(value as T)))) : {} as T);
+  const now = () => clock;
+  const fresh = servicePid(call, 60_000, now);
+  const reused = servicePid(call, 60_000, now);
+  expect(calls).toBe(1);
+  clock = 9_999;
+  const stillFresh = servicePid(call, 60_000, now);
+  expect(calls).toBe(1);
+  clock = 10_001;
+  const expired = servicePid(call, 60_000, now);
+  expect(calls).toBe(2);
+  waiters.forEach(waiter => waiter({ snapshot: { service: { pid: 11 } } }));
+  expect(await fresh).toBe(11); expect(await reused).toBe(11); expect(await stillFresh).toBe(11); expect(await expired).toBe(11);
+});
+
 test('fix-all runs the service install last so its restart cannot cut off the other fixes', async () => {
   const { serviceInstallLast } = await import('../app/src/data/remedies');
   const items = [{run:{op:'service.install',params:{}}},{run:{op:'limits.refresh',params:{}}},{run:{op:'agent.connect',params:{}}}];
