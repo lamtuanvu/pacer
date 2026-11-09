@@ -35,6 +35,7 @@ pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
 pub(crate) mod msg_write_sync;
 pub mod plugins;
+pub(crate) mod setup_effects_sync;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
 use pacer_config_ops::runner_ops;
@@ -91,6 +92,9 @@ pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -
         "strategy.preview" => strategy_preview_ops::strategy_preview_stays_forwarded(ctx, params),
         "executor.setup.models" => {
             executor_setup_ops::executor_setup_models_stays_forwarded(ctx, params)
+        }
+        "strategy.build" | "executor.setup.candidates" | "setup.init" => {
+            pacer_config_ops::setup_effects::setup_stays_forwarded(ctx, op, params)
         }
         _ => job_ops::job_stays_forwarded(ctx, op, params),
     }
@@ -179,6 +183,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "executor.setup.connect",
         call: executor_setup_ops::executor_setup_connect,
+    },
+    NativeOp {
+        name: "executor.setup.candidates",
+        call: pacer_config_ops::setup_effects::effects_stub,
+    },
+    NativeOp {
+        name: "strategy.build",
+        call: pacer_config_ops::setup_effects::effects_stub,
     },
     NativeOp {
         name: "job.list",
@@ -419,6 +431,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "onboarding.skip",
         call: setup_ops::onboarding_skip,
+    },
+    NativeOp {
+        name: "setup.init",
+        call: pacer_config_ops::setup_init_ops::setup_init,
     },
     NativeOp {
         name: "repo.list",

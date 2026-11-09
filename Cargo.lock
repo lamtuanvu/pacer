@@ -1324,6 +1324,7 @@ name = "pacer-config-ops"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "hex",
  "icu_collator",
  "pacer-config",
  "pacer-engine",
@@ -1331,6 +1332,7 @@ dependencies = [
  "pacer-lifecycle",
  "pacer-repos",
  "pacer-store",
+ "rand 0.9.5",
  "ryu-js",
  "serde_json",
  "tempfile",

@@ -405,6 +405,19 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/setup-effects" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { setupEffectsBridge } = await import("../api/setup-bridge");
+            return Response.json({ result: await setupEffectsBridge(getCtx(), request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/setup-check" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

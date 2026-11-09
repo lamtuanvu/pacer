@@ -14,13 +14,13 @@ use serde_json::{Map, Value, json};
 use std::cmp::Ordering;
 
 const GROUPS: &[&str] = &["signed_in", "local", "catalog"];
-const CATALOG_MAX_AGE_S: f64 = 24.0 * 3600.0;
+pub(crate) const CATALOG_MAX_AGE_S: f64 = 24.0 * 3600.0;
 
-fn invalid(message: impl Into<String>) -> CoreError {
+pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-fn type_name(value: Option<&Value>) -> &'static str {
+pub(crate) fn type_name(value: Option<&Value>) -> &'static str {
     match value {
         None => "undefined",
         Some(Value::Null) => "null",
@@ -32,7 +32,7 @@ fn type_name(value: Option<&Value>) -> &'static str {
     }
 }
 
-fn enforcement(ctx: &Ctx) -> Result<(), CoreError> {
+pub(crate) fn enforcement(ctx: &Ctx) -> Result<(), CoreError> {
     if ctx
         .env
         .get("PACER_ENFORCEMENT_TOKEN")
@@ -46,7 +46,7 @@ fn enforcement(ctx: &Ctx) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn params_map(params: &Value) -> Result<Map<String, Value>, CoreError> {
+pub(crate) fn params_map(params: &Value) -> Result<Map<String, Value>, CoreError> {
     match params {
         Value::Null => Ok(Map::new()),
         Value::Object(map) => Ok(map.clone()),
@@ -136,7 +136,7 @@ fn models_params(params: &Value) -> Result<(String, String), CoreError> {
 }
 
 /// A cached catalog model in the shape `parseCatalog` writes.
-fn catalog_model(model: &Value) -> bool {
+pub(crate) fn catalog_model(model: &Value) -> bool {
     let strings = |key: &str| {
         model[key]
             .as_array()
@@ -191,7 +191,7 @@ fn opencode_quota_source(provider: &str) -> bool {
 }
 
 /// `classify` for a non-local provider with a catalog entry.
-fn classify(provider: &str, models: &[Value]) -> Value {
+pub(crate) fn classify(provider: &str, models: &[Value]) -> Value {
     if opencode_quota_source(provider) {
         return json!({"usage":"quota","quota_source":"arkcli","known":true});
     }

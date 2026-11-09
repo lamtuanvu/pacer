@@ -447,6 +447,26 @@ pub fn set_setting(
     input: &Value,
     terminal_presets_only: bool,
 ) -> Result<Value, SettingsError> {
+    set(path, name, key, input, terminal_presets_only, false)
+}
+
+/// `config.set planner` with `integrations: "skip"`: the strategy edit alone.
+pub fn set_planner_without_integrations(
+    path: &Path,
+    name: &str,
+    planner: &Value,
+) -> Result<Value, SettingsError> {
+    set(path, name, "planner", planner, false, true)
+}
+
+fn set(
+    path: &Path,
+    name: &str,
+    key: &str,
+    input: &Value,
+    terminal_presets_only: bool,
+    planner: bool,
+) -> Result<Value, SettingsError> {
     let before = fs::read_to_string(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             SettingsError::invalid(format!("no strategy found at {}", path.display()))
@@ -465,7 +485,7 @@ pub fn set_setting(
         .get(key)
         .cloned()
         .unwrap_or(Value::Null);
-    if ["planner", "execution.backend"].contains(&key) {
+    if (key == "planner" && !planner) || key == "execution.backend" {
         return Err(SettingsError {
             code: "unavailable",
             message: format!("{key} requires the forwarded config.set operation"),
