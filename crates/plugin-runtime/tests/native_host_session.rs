@@ -907,7 +907,7 @@ async fn sealed_planner_transaction_forwards_commands_to_core_after_negotiation(
 /// pieces (≤ 256 KiB) to Core, waiting for each `{ bytes }` ack, then a
 /// `_chunkedResult` completion, exactly like the SDK. `argv[2] == "1"`
 /// negotiates the planner transactions and chunked result features.
-const CHUNKED_CHILD: &str = r#"const fs=require('node:fs');try{const r=Bun.stdin.stream().getReader();let b='',call,payload,off=0;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));function sendChunk(){const part=payload.subarray(off,off+262144);send({id:'chunk',method:'$/resultChunk',params:{request:call.id,offset:off,base64:part.toString('base64')}});}for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:m.params.manifest.id,version:'1.0.0',contributes:['planner'],features:['chunkedResults','plannerInstallTransactions']}});else if(m.method==='planner.install'){call=m;const size=m.params.size??(600*1024);payload=Buffer.from(JSON.stringify({schema:1,pad:'x'.repeat(size)}),'utf8');off=0;if(payload.length>768*1024)sendChunk();else send({id:call.id,result:JSON.parse(payload.toString('utf8'))});}else if(m.id==='chunk'){const staged=m.result?.bytes??0;if(staged>=payload.length)send({id:call.id,result:{_chunkedResult:{bytes:payload.length}}});else{off=staged;sendChunk();}}else if(m.method==='diagnostic.ping')send({id:m.id,result:{ok:true}});}}}catch(e){try{fs.writeFileSync('/tmp/chunked-child-err.txt',String(e&&e.stack||e));}catch{}}"#;
+const CHUNKED_CHILD: &str = r#"try{const r=Bun.stdin.stream().getReader();let b='',call,payload,off=0;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));function sendChunk(){const part=payload.subarray(off,off+262144);send({id:'chunk',method:'$/resultChunk',params:{request:call.id,offset:off,base64:part.toString('base64')}});}for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:m.params.manifest.id,version:'1.0.0',contributes:['planner'],features:['chunkedResults','plannerInstallTransactions']}});else if(m.method==='planner.install'){call=m;const size=m.params.size??(600*1024);payload=Buffer.from(JSON.stringify({schema:1,pad:'x'.repeat(size)}),'utf8');off=0;if(payload.length>768*1024)sendChunk();else send({id:call.id,result:JSON.parse(payload.toString('utf8'))});}else if(m.id==='chunk'){const staged=m.result?.bytes??0;if(staged>=payload.length)send({id:call.id,result:{_chunkedResult:{bytes:payload.length}}});else{off=staged;sendChunk();}}else if(m.method==='diagnostic.ping')send({id:m.id,result:{ok:true}});}}}catch(e){try{process.stderr.write(String(e&&e.stack||e));}catch{}}"#;
 
 /// N3: a planner install or uninstall result over 768 KiB must survive the
 /// bridge. The child switches to `$/resultChunk` pieces (as the SDK does) and
@@ -1275,5 +1275,140 @@ async fn bridge_spawn_and_stop_under_owner() {
     .await;
     assert_eq!(missing["result"]["stopped"], false);
 
+    session.shutdown().await;
+}
+
+/// Child that negotiates `chunkedResults` but whose call did not seal
+/// `$/resultChunk` (Core seals it only for usage.read and planner effects),
+/// then sends a chunk and records the answer it got.
+const UNSEALED_CHUNK_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',call;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:m.params.manifest.id,version:'1.0.0',contributes:['diagnostic'],features:['chunkedResults']}});else if(m.method==='diagnostic.ping'){call=m;send({id:'ck',method:'$/resultChunk',params:{request:m.id,offset:0,base64:'e30='}});}else if(m.id==='ck')send({id:call.id,result:{ok:true,chunkErr:m.error??null}});}}"#;
+
+/// F1 case 1: a diagnostic call with Core sealed (some fs-read methods) but
+/// `$/resultChunk` unsealed must refuse a chunk locally instead of relaying it,
+/// so a read-only call keeps flag-off's plain single-frame limit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_call_refuses_result_chunk_when_core_did_not_seal_it() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("unsealed-chunk.js");
+    fs::write(&script, UNSEALED_CHUNK_CHILD).unwrap();
+    let request = json!({
+        "jsonrpc":"2.0","id":1,"method":METHOD_PLUGIN_CALL,
+        "params":{
+            "id":"fx-unsealed","method":"diagnostic.ping","params":{},"deadlineMs":10000,
+            "spawn":{
+                "argv":["bun", script.to_str().unwrap()],
+                "cwd":plugin_dir.path().display().to_string(),
+                "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                "hello":{
+                    "protocol":"1.10.0","pacer":"0.2.0",
+                    "manifest":{
+                        "id":"fx-unsealed","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                        "capabilities":[{"name":"fs.read","scopes":["/fixture/**"]}],
+                        "contributes":{"diagnostic":{}}
+                    },
+                    "config":{},"grants":["fs.read"],"features":[]
+                },
+            },
+            "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read"],"ttlMs":10000},
+            "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
+            "coreMethods":["capability.fs.read"]
+        }
+    });
+    tokio::task::yield_now().await;
+
+    let (reply, forwarded) = dial_with_core(&path, request, |_| json!({"result":{}})).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(
+        !forwarded
+            .iter()
+            .any(|frame| frame["method"] == "$/resultChunk"),
+        "a chunk on an unsealed call must not be relayed to Core: {forwarded:?}"
+    );
+    assert_eq!(
+        reply["result"]["value"]["chunkErr"]["data"]["code"], "capability_denied",
+        "{reply}"
+    );
+
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("fx-unsealed")
+        .await
+        .unwrap();
+    session.shutdown().await;
+}
+
+/// Child that negotiates `plannerInstallTransactions` but **not**
+/// `chunkedResults`, then sends a chunk on `planner.install` and records the
+/// answer it got.
+const UNNEGOTIATED_CHUNK_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',call;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:m.params.manifest.id,version:'1.0.0',contributes:['planner'],features:['plannerInstallTransactions']}});else if(m.method==='planner.install'){call=m;send({id:'ck',method:'$/resultChunk',params:{request:m.id,offset:0,base64:'e30='}});}else if(m.id==='ck')send({id:call.id,result:{schema:1,chunkErr:m.error??null}});}}"#;
+
+/// F1 case 2: Core sealed `$/resultChunk` for this planner effect, but the
+/// child never negotiated `chunkedResults`. The owner must refuse the relay so
+/// the child cannot chunk without having negotiated the feature.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_call_refuses_result_chunk_when_chunked_results_not_negotiated() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("unnegotiated-chunk.js");
+    fs::write(&script, UNNEGOTIATED_CHUNK_CHILD).unwrap();
+    let request = json!({
+        "jsonrpc":"2.0","id":2,"method":METHOD_PLUGIN_CALL,
+        "params":{
+            "id":"fx-unneg","method":"planner.install","params":{},"deadlineMs":10000,
+            "spawn":{
+                "argv":["bun", script.to_str().unwrap()],
+                "cwd":plugin_dir.path().display().to_string(),
+                "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                "hello":{
+                    "protocol":"1.10.0","pacer":"0.2.0",
+                    "manifest":{
+                        "id":"fx-unneg","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                        "capabilities":[{"name":"fs.read","scopes":["/fixture/**"]},{"name":"process.spawn","scopes":["fx-cmd"]}],
+                        "contributes":{"planner":{}}
+                    },
+                    "config":{},"grants":["fs.read","process.spawn"],
+                    "features":["chunkedResults","plannerInstallTransactions"]
+                },
+            },
+            "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
+            "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
+            "coreMethods":[
+                "capability.planner.run",
+                "capability.process.outputChunk",
+                "capability.planner.readPriorRange",
+                "$/resultChunk"
+            ],
+            "requireFeatures":["plannerInstallTransactions"]
+        }
+    });
+    tokio::task::yield_now().await;
+
+    let (reply, forwarded) = dial_with_core(&path, request, |_| json!({"result":{}})).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(
+        !forwarded
+            .iter()
+            .any(|frame| frame["method"] == "$/resultChunk"),
+        "a chunk from a child that did not negotiate chunkedResults must not be relayed: {forwarded:?}"
+    );
+    assert_eq!(
+        reply["result"]["value"]["chunkErr"]["data"]["code"], "capability_denied",
+        "{reply}"
+    );
+
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("fx-unneg")
+        .await
+        .unwrap();
     session.shutdown().await;
 }
