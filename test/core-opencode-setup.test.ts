@@ -112,3 +112,25 @@ test("Coding Plan onboarding persists the ArkCLI source without catalog pricing"
   expect(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")).toContain("quota_source: arkcli");
   expect(loadStrategy(ctx).accounts["coding-plan"]).toMatchObject({usage: "quota", quotaSource: "arkcli", usageSource: "arkcli"});
 });
+
+test("takes over an account left behind by a removed executor instead of refusing it", async () => {
+  const {ctx} = setup(["opencode-go"]);
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "accounts:\n  personal: {kind: claude}\n  opencode-go: { kind: endpoint, source: opencode, provider: opencode-go, usage: metered }\nplanner: claude-code\nrouting:\n  - default: [claude-code]\n");
+  await addOpencodeAccount(ctx, {provider: "opencode-go", model: "kimi-k2.7-code", name: "opencode-go", test: false}, {catalog});
+  const s = loadStrategy(ctx);
+  expect(s.runners["opencode#opencode-go"].model).toBe("opencode-go/kimi-k2.7-code");
+  expect(s.accounts["opencode-go"]).toMatchObject({source: "opencode", provider: "opencode-go"});
+});
+
+test("an account with a live executor is still refused", async () => {
+  const {ctx} = setup(["openrouter"]);
+  await addOpencodeAccount(ctx, {provider: "openrouter", model: "qwen/qwen3-coder", name: "or", test: false}, {catalog});
+  await expect(addOpencodeAccount(ctx, {provider: "openrouter", model: "z-ai/glm-5.3", name: "or", test: false}, {catalog})).rejects.toThrow("already exists");
+});
+
+test("catalog models OpenCode does not serve are not offered", async () => {
+  const listing = "openrouter/qwen/qwen3-coder\n";
+  const ctx = fakeCtx({run: async argv => argv.join(" ") === "opencode models" ? {code: 0, stdout: listing, stderr: ""} : {code: 1, stdout: "", stderr: ""}});
+  const r = await setupModels(ctx, {provider: "openrouter", group: "signed_in"}, {catalog});
+  expect([r.pick, ...r.rest].filter(Boolean).map(m => m!.id)).toEqual(["qwen/qwen3-coder"]);
+});

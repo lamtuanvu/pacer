@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import type { AccountCfg } from "../config/accounts";
+import type { AccountCfg, RunnerCfg } from "../config/accounts";
 import { opencodeConfigPath } from "../install/opencode";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
@@ -8,7 +8,9 @@ import { discoverEndpointModels } from "../plugins/endpoint-adapter";
 import { classify, type UsageClass } from "./recommend";
 
 export type CandidateGroup = "signed_in" | "local" | "catalog";
-export interface Candidate { group: CandidateGroup; provider: string; name: string; added: string | null; usage: UsageClass; base_url?: string; models?: number }
+/** `added` names the account whose executor already uses this provider; `model` is that executor's model id (without
+ * the provider prefix), so setup can offer to change it. */
+export interface Candidate { group: CandidateGroup; provider: string; name: string; added: string | null; usage: UsageClass; base_url?: string; models?: number; model?: string | null }
 export interface Detection { candidates: Candidate[]; opencode: boolean; catalog: "fresh" | "stale" | "offline"; notes: string[] }
 export const LOCAL_SERVERS = [
   { provider: "ollama" as const, name: "Ollama", base_url: "http://127.0.0.1:11434/v1" },
@@ -42,10 +44,18 @@ export async function opencodeModelIds(ctx: Ctx, provider: string): Promise<stri
   const prefix = `${provider}/`;
   return r.stdout.split(/\r?\n/).map(l => l.trim()).filter(l => l.startsWith(prefix)).map(l => l.slice(prefix.length));
 }
-function addedBy(accounts: Record<string, AccountCfg>, provider: string, baseUrl?: string): string | null {
-  return Object.values(accounts).find(a => (a.source === "opencode" && a.provider === provider) || (!!baseUrl && a.connection?.base_url === baseUrl))?.name ?? null;
+type Runners = Record<string, Pick<RunnerCfg, "agent" | "account" | "model">>;
+/** With `runners`, an account counts only while an OpenCode executor still uses it: an account left behind by a removed
+ * executor must not lock its provider out of setup. */
+function addedBy(accounts: Record<string, AccountCfg>, provider: string, baseUrl?: string, runners?: Runners): { added: string | null; model?: string | null } {
+  const account = Object.values(accounts).find(a => ((a.source === "opencode" && a.provider === provider) || (!!baseUrl && a.connection?.base_url === baseUrl))
+    && (!runners || Object.values(runners).some(r => r.agent === "opencode" && r.account === a.name)));
+  if (!account) return { added: null };
+  if (!runners) return { added: account.name };
+  const model = Object.values(runners).find(r => r.agent === "opencode" && r.account === account.name)?.model ?? null;
+  return { added: account.name, model: model?.startsWith(`${provider}/`) ? model.slice(provider.length + 1) : model };
 }
-export async function detectCandidates(ctx: Ctx, deps: { discover?: typeof discoverEndpointModels; catalog: Catalog | null; accounts: Record<string, AccountCfg> }): Promise<Detection> {
+export async function detectCandidates(ctx: Ctx, deps: { discover?: typeof discoverEndpointModels; catalog: Catalog | null; accounts: Record<string, AccountCfg>; runners?: Runners }): Promise<Detection> {
   const notes: string[] = [], candidates: Candidate[] = [];
   const opencode = ctx.which("opencode") !== null;
   const catalog = deps.catalog;
@@ -60,15 +70,15 @@ export async function detectCandidates(ctx: Ctx, deps: { discover?: typeof disco
   if (opencode) for (const p of [...(signed ?? []), ...configProviders(ctx)]) {
     if (seen.has(p.id)) continue;
     seen.add(p.id);
-    candidates.push({ group: "signed_in", provider: p.id, name: p.name, added: addedBy(deps.accounts, p.id), usage: classify({ id: p.id }, catalog?.providers[p.id]) });
+    candidates.push({ group: "signed_in", provider: p.id, name: p.name, ...addedBy(deps.accounts, p.id, undefined, deps.runners), usage: classify({ id: p.id }, catalog?.providers[p.id]) });
   }
   const probes = await local;
   for (const failure of probeFailures) notes.push(`Could not check local model servers: ${failure}`);
   for (const { s, r } of probes) if (r.listed)
-    candidates.push({ group: "local", provider: s.provider, name: s.name, base_url: s.base_url, models: r.models.length, added: addedBy(deps.accounts, s.provider, s.base_url), usage: classify({ id: s.provider, local: true }) });
+    candidates.push({ group: "local", provider: s.provider, name: s.name, base_url: s.base_url, models: r.models.length, ...addedBy(deps.accounts, s.provider, s.base_url, deps.runners), usage: classify({ id: s.provider, local: true }) });
   if (opencode && catalog) for (const p of Object.values(catalog.providers)) {
     if (seen.has(p.id) || p.id === "ollama" || p.id === "lmstudio" || !p.models.length) continue;
-    candidates.push({ group: "catalog", provider: p.id, name: p.name, added: addedBy(deps.accounts, p.id), usage: classify({ id: p.id }, p) });
+    candidates.push({ group: "catalog", provider: p.id, name: p.name, ...addedBy(deps.accounts, p.id, undefined, deps.runners), usage: classify({ id: p.id }, p) });
   }
   return { candidates, opencode, catalog: catalog ? catalog.stale ? "stale" : "fresh" : "offline", notes };
 }

@@ -18,7 +18,7 @@ const NAME = /^[a-z0-9][a-z0-9-]*$/;
 const catalogFor = async (ctx: Ctx, deps: SetupDeps) => deps.catalog !== undefined ? deps.catalog : loadCatalog(ctx, { fetch: deps.fetch as typeof fetch | undefined });
 
 export async function setupCandidates(ctx: Ctx, deps: SetupDeps = {}): Promise<Detection> {
-  return detectCandidates(ctx, { discover: deps.discover, catalog: await catalogFor(ctx, deps), accounts: loadStrategy(ctx).accounts });
+  return detectCandidates(ctx, { discover: deps.discover, catalog: await catalogFor(ctx, deps), ...(({ accounts, runners }) => ({ accounts, runners }))(loadStrategy(ctx)) });
 }
 
 export interface SetupModelsResult { pick: ModelChoice | null; rest: ModelChoice[]; filtered: "catalog" | "ids"; usage: UsageClass; note?: string }
@@ -26,7 +26,10 @@ export async function setupModels(ctx: Ctx, input: { provider: string; group: Ca
   const catalog = await catalogFor(ctx, deps), entry = catalog?.providers[input.provider];
   const usage: UsageClass = classify({ id: input.provider, local: input.group === "local" }, entry);
   if (input.group !== "local" && entry?.models.length) {
-    const usable = usableModels(entry.models);
+    // The catalog can list models OpenCode no longer serves; offering one gives an executor that cannot run.
+    const served = await opencodeModelIds(ctx, input.provider);
+    const live = served?.length ? entry.models.filter(m => served.includes(m.id)) : entry.models;
+    const usable = usableModels(live.length ? live : entry.models);
     return { ...recommend(usable.map(toChoice), Object.fromEntries(usable.map(m => [m.id, m.release]))), filtered: "catalog" as const, usage };
   }
   let ids: string[];
@@ -61,7 +64,11 @@ export async function addOpencodeAccount(ctx: Ctx, input: OpencodeAccountInput, 
   try {
     if (!NAME.test(name)) throw Error("invalid account name");
     const { strategy: s, edit } = ensureAccounts(ctx);
-    if (s.accounts[name]) throw Error(`account ${name} already exists; use pacer account edit ${name}`);
+    const existing = s.accounts[name];
+    // An account whose executor was removed is taken over rather than refused: setup offers its provider again.
+    const orphan = !!existing && existing.source === "opencode" && existing.provider === input.provider
+      && !Object.values(s.runners).some(r => r.agent === "opencode" && r.account === name);
+    if (existing && !orphan) throw Error(`account ${name} already exists; use pacer account edit ${name}`);
     if (await knownProvider(ctx, input.provider) === false) throw Error(`OpenCode is not signed in to ${input.provider}; run opencode auth login ${input.provider}`);
     if (input.cap_usd !== undefined && !(Number.isFinite(input.cap_usd) && input.cap_usd > 0)) throw Error("cap_usd must be a positive number");
     const usage = classify({ id: input.provider }, (deps.catalog ?? readCachedCatalog(ctx))?.providers[input.provider]);
@@ -72,7 +79,11 @@ export async function addOpencodeAccount(ctx: Ctx, input: OpencodeAccountInput, 
     if (kind === "metered" && input.cap_usd !== undefined) account.budget = { weekly_usd: input.cap_usd };
     if (kind === "quota" && usage.quota_source) account.quota_source = usage.quota_source;
     const id = `opencode#${name}`;
-    const change = (doc: StrategyDoc) => { doc.addMappingEntry("accounts", name, account); addRunnerAndRoute(doc, s, id, `${input.provider}/${input.model}`); };
+    const change = (doc: StrategyDoc) => {
+      if (orphan) doc.setIn(["accounts", name], account);
+      else doc.addMappingEntry("accounts", name, account);
+      addRunnerAndRoute(doc, s, id, `${input.provider}/${input.model}`);
+    };
     const preview = new StrategyDoc(readFileSync(strategyPath(ctx), "utf8")); change(preview);
     validateStrategy(Bun.YAML.parse(preview.toString()), strategyPath(ctx));
     await edit(change);

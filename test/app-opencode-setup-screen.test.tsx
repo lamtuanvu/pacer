@@ -21,7 +21,7 @@ const detection: Detection = {
 const models = { pick: { id: "qwen/qwen3-coder", context: 262144, output: 65536, tools: true, costIn: 0.22, costOut: 0.95 },
   rest: [{ id: "deepseek/deepseek-chat", context: 128000, output: 8192, tools: true, costIn: null, costOut: null }], usage: { usage: "metered" as const, known: true } };
 
-test("groups render in order with usage pills, notes and added providers disabled with their reason", () => {
+test("groups render in order with usage pills, notes and added providers named with their account", () => {
   const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={detection} />);
   const at = (text: string) => html.indexOf(text);
   expect(at("Already signed in to OpenCode")).toBeGreaterThan(-1);
@@ -29,7 +29,8 @@ test("groups render in order with usage pills, notes and added providers disable
   expect(at("Running on this machine")).toBeLessThan(at("Connect a provider"));
   for (const text of ["OpenRouter", "Metered", "Free", "DeepSeek", "Added as zhipu", "Using the cached models catalog.", "Use a URL instead", "Search providers", "3 models"]) expect(html).toContain(text);
   expect(html).not.toContain("pc-card");
-  expect(html).toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>)[\s\S])*Zhipu AI/);
+  // An added signed-in provider stays selectable so its model can be changed.
+  expect(html).not.toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>)[\s\S])*Zhipu AI/);
   expect((html.match(/pc-btn--primary/g) || []).length).toBe(0);
 });
 
@@ -86,4 +87,16 @@ test("on the OpenCode picker step the wizard's Continue is hidden, so Add execut
   expect(html).not.toContain(">Continue<");
   const url = render(<AddExecutor initialDraft={{ agent: "opencode", step: "2" }} initialAccounts={[]} initialUrlForm />);
   expect(url).toContain("Back to providers");
+});
+
+test("an added signed-in provider can change its executor's model and flags one OpenCode no longer offers", () => {
+  const added: Candidate = { ...openrouter, added: "or", model: "gone/model" };
+  const list = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={{ ...detection, candidates: [added] }} />);
+  expect(list).toContain("Added as or · gone/model");
+  expect(list).not.toMatch(/<button[^>]*disabled[^>]*>(?:(?!<\/button>)[\s\S])*OpenRouter/);
+  const html = render(<OpencodeSetup onCreated={() => {}} onUseUrl={() => {}} initialDetection={{ ...detection, candidates: [added] }} initialChoice={added} initialModels={models} />);
+  expect(html).toContain("Save model");
+  expect(html).toContain("model gone/model is not offered by OpenRouter");
+  expect(html).not.toContain("Weekly spend cap");
+  expect(html).not.toContain(">Name</label>");
 });

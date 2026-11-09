@@ -1,9 +1,10 @@
 //! Native `executor.setup.connect` and `executor.setup.models`
 //! (`src/core/opencode-setup.ts`). Connect only names the OpenCode sign-in
 //! command. Models is native when a fresh cached catalog lists the provider's
-//! models; a stale or missing catalog (network fetch), a local model server
-//! (endpoint plugin), OpenCode model listing (subprocess) and a `base_url`
-//! (URL schema) forward to TypeScript.
+//! models and OpenCode is not installed; a stale or missing catalog (network
+//! fetch), a local model server (endpoint plugin), OpenCode model listing
+//! (subprocess: the catalog is narrowed to the models OpenCode serves) and a
+//! `base_url` (URL schema) forward to TypeScript.
 #![allow(clippy::result_large_err)]
 use icu_collator::CollatorBorrowed;
 use pacer_foundation::{
@@ -171,6 +172,17 @@ fn cached_models(ctx: &Ctx, provider: &str) -> Option<Vec<Value>> {
     (!models.is_empty() && models.iter().all(catalog_model)).then(|| models.clone())
 }
 
+/// Whether `opencode` is an executable on the context's PATH, as `ctx.which`.
+fn opencode_installed(ctx: &Ctx) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    ctx.env.get("PATH").is_some_and(|path| {
+        std::env::split_paths(path).any(|dir| {
+            std::fs::metadata(dir.join("opencode"))
+                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
+    })
+}
+
 /// Inputs whose models only TypeScript can list. Invalid params stay native.
 pub fn executor_setup_models_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     if params.get("base_url").is_some() {
@@ -179,7 +191,7 @@ pub fn executor_setup_models_stays_forwarded(ctx: &Ctx, params: &Value) -> bool 
     match models_params(params) {
         Err(_) => false,
         Ok((_, group)) if group == "local" => true,
-        Ok((provider, _)) => cached_models(ctx, &provider).is_none(),
+        Ok((provider, _)) => opencode_installed(ctx) || cached_models(ctx, &provider).is_none(),
     }
 }
 

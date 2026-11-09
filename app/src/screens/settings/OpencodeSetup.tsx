@@ -67,7 +67,8 @@ export function OpencodeSetup({
       <ChoiceCard
         className="u3-choice"
         key={`${c.group}:${c.provider}`}
-        disabled={!!c.added}
+        // A signed-in provider that is already added opens its model instead; a local server is edited as an account.
+        disabled={!!c.added && c.group === "local"}
         aria-pressed={
           choice?.provider === c.provider && choice.group === c.group
         }
@@ -83,7 +84,7 @@ export function OpencodeSetup({
           <div>
             <Pill tone={pill.tone}>{pill.label}</Pill>
           </div>
-          {c.added && <div className="u3-muted">Added as {c.added}</div>}
+          {c.added && <div className="u3-muted">Added as {c.added}{c.group !== "local" ? ` · ${c.model ?? "no model"}` : ""}</div>}
         </div>
       </ChoiceCard>
     );
@@ -223,7 +224,9 @@ function ModelStep({
     initialModels,
   );
   const action = useOperation();
-  const [modelId, setModelId] = useState("");
+  // An added provider changes its executor's model; nothing else about the account is edited here.
+  const changing = candidate.group !== "local" ? candidate.added ?? null : null;
+  const [modelId, setModelId] = useState(changing ? candidate.model ?? "" : "");
   const [usage, setUsage] = useState<UsageClass["usage"] | "">("");
   const [cap, setCap] = useState("");
   const [name, setName] = useState(
@@ -261,12 +264,16 @@ function ModelStep({
       setError(manual ? "Enter a model id." : "Choose a model.");
       return;
     }
-    const result = addParams({ candidate, model, usage: kind, cap, name });
+    const result = addParams({ candidate, model, usage: kind, cap, name: changing ?? name });
     if ("error" in result) {
       setError(result.error);
       return;
     }
     setError("");
+    if (changing) {
+      void action.run("runner.set", { id: `opencode#${changing}`, model: `${candidate.provider}/${model.id}` }, () => onCreated(changing));
+      return;
+    }
     void action.run("account.add", result.params, () => onCreated(name));
   }
 
@@ -302,7 +309,12 @@ function ModelStep({
             />
           </Field>
         )}
-        {candidate.group !== "local" && !known && (
+        {changing && candidate.model && !list.some((m) => m.id === candidate.model) && (
+          <p role="alert">
+            {changing}’s model {candidate.model} is not offered by {candidate.name}; choose another.
+          </p>
+        )}
+        {!changing && candidate.group !== "local" && !known && (
           <Field label="Usage">
             <ChoicePicker
               value={kind}
@@ -311,7 +323,7 @@ function ModelStep({
             />
           </Field>
         )}
-        {kind === "metered" && (
+        {!changing && kind === "metered" && (
           <Field
             label="Weekly spend cap in $"
             help="Leave blank for no cap; spend is always shown."
@@ -324,7 +336,7 @@ function ModelStep({
             />
           </Field>
         )}
-        <Field
+        {!changing && <Field
           label="Name"
           help="The executor id becomes opencode#name."
           error={error.startsWith("Use lowercase") ? error : undefined}
@@ -335,12 +347,12 @@ function ModelStep({
             pattern="[a-z0-9][a-z0-9-]*"
             onInput={(e) => setName(e.currentTarget.value)}
           />
-        </Field>
+        </Field>}
         {error &&
           !error.startsWith("Enter a positive") &&
           !error.startsWith("Use lowercase") && <p role="alert">{error}</p>}
         <Button type="submit" variant="primary" disabled={!!action.unavailable || (action.busy)}>
-          Add executor
+          {changing ? "Save model" : "Add executor"}
         </Button>
         <p className="u3-muted">
           Next, a short test task checks it before it is Ready.

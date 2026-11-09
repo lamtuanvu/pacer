@@ -166,10 +166,17 @@ test.skipIf(!front)("executor.setup.models from a fresh catalog and executor.set
     ["executor.setup.connect", { provider: 1, key: 2 }],
     ["executor.setup.connect", {}],
   ];
-  const native = await exchange(dir, requests(cases), false);
-  const forwarded = await exchange(dir, requests(cases), true);
+  // Native only while OpenCode is not installed: with it, the catalog is narrowed to what it serves (TypeScript).
+  const noOpencode = { PATH: `${join(dir, "bin")}:/usr/bin:/bin` };
+  const native = await exchange(dir, requests(cases), false, noOpencode);
+  const forwarded = await exchange(dir, requests(cases), true, noOpencode);
   expect(native).toEqual(forwarded);
   expect(JSON.parse(native[0]!).result.pick.id).toBe("alpha-coder");
+  const withOpencode = tmpDir();
+  writeFileSync(join(withOpencode, "opencode"), "#!/bin/sh\nexit 1\n");
+  chmodSync(join(withOpencode, "opencode"), 0o755);
+  const listed = requests([["executor.setup.models", { provider: "acme", group: "catalog" }]]);
+  expect(await exchange(dir, listed, false, { PATH: `${withOpencode}:/usr/bin:/bin` }, false)).toEqual(native.slice(0, 1));
   const enforced = requests([["job.list", {}], ["strategy.preview", { draft: { from: "default" } }], ["executor.setup.connect", { provider: "acme" }]]);
   const env = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
   expect(await exchange(dir, enforced, false, env)).toEqual(await exchange(dir, enforced, true, env));
