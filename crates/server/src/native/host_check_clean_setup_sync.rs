@@ -3,6 +3,7 @@ use pacer_config_ops::host_check_clean_setup_ops::HostEffects;
 use pacer_foundation::api::OpFuture;
 use serde_json::{Value, json};
 
+#[allow(dead_code)]
 pub(crate) struct HttpHostEffects {
     pub(crate) target: Option<(u16, String)>,
 }
