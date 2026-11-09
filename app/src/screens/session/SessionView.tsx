@@ -16,6 +16,7 @@ export function SessionView({
   onFiles,
   onReadFile,
   onReopen,
+  onSessionLive,
 }: {
   task: TaskDetail;
   session?: SessionInfo;
@@ -26,6 +27,7 @@ export function SessionView({
   onFiles: (files: File[]) => void;
   onReadFile?: ReadSessionFile;
   onReopen?: () => void;
+  onSessionLive?: () => void;
 }) {
   if (session?.host === "builtin")
     return (
@@ -43,6 +45,7 @@ export function SessionView({
         control={active && session.capabilities.control}
         resize={active && session.capabilities.resize}
         live={active && session.live}
+        onLive={onSessionLive}
         controller={session.controller}
         active={sessionActive(session)}
         takeRequested={takeRequested && session.live}

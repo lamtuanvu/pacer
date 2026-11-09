@@ -3,7 +3,7 @@ import { Alert } from "../ds/Alert";
 import { TextAction } from "../ds/Button";
 import { useActions } from "../data/action-context";
 import { createContext, type ComponentChildren } from "preact";
-import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StoreState } from "../data/store";
 import { ApiError, readOperation, type BrowserApi } from "../data/api";
 import { queryCacheFor, type QueryState } from "../data/query";
@@ -59,6 +59,15 @@ export function queryRevision(state: StoreState, op: string, params: unknown): s
   if (op === "account.list") return JSON.stringify([revisions, state.snapshot?.accounts?.map(account => [account.name, account.capturedAt, account.usedPct, account.resetsAt, account.stale, account.signedIn])]);
   return JSON.stringify(op.startsWith('plugin.') ? [...revisions, ['plugin', state.invalidations.plugin ?? 0]] : revisions);
 }
+/** task.session is refetched only when the task record changes. A read that landed before the session host was
+ * up reports it not live, and a provider-owned run may not change its record again; a pane's live connection is
+ * the signal to read it again. Stable while live is unchanged, so a terminal effect cannot loop on it. */
+export function useSessionLiveReread(session: { data?: { live?: boolean }; reload: () => void }): () => void {
+  const live = session.data?.live === true, reload = useRef(session.reload);
+  reload.current = session.reload;
+  return useCallback(() => { if (!live) reload.current(); }, [live]);
+}
+
 export function useQuery<T>(op: string, params: unknown, revision = "", keepPreviousData = op === "task.get", enabled = true) {
   const { api, state } = useContext(TaskContext);
   const viewActive = useViewActive();

@@ -19,9 +19,9 @@ import { terminalDocument } from "./document";
 import { classifyTerminalLink, findWrappedFileLinks, shouldActivateTerminalLink, type TerminalLink } from "./links";
 import { FIND_EVENT } from "../shell/shell-commands";
 export interface TerminalActions { find: () => void; clear: () => void; reader: () => void; release: () => void }
-export interface TerminalViewProps { preview?:boolean; externalControls?:boolean; autoControl?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; id:string; attempt?:number|null; attemptStartedAt?:number; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; active?:string|null; driving?:boolean; onHandBack?:()=>unknown; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null; /** Agent id or name; names the terminal region ("Codex terminal, interactive"). */ agent?:string }
+export interface TerminalViewProps { preview?:boolean; externalControls?:boolean; autoControl?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; /** The pane's connection reached a live session host. */ onLive?: () => void; id:string; attempt?:number|null; attemptStartedAt?:number; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; active?:string|null; driving?:boolean; onHandBack?:()=>unknown; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null; /** Agent id or name; names the terminal region ("Codex terminal, interactive"). */ agent?:string }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,rows=40,control=false,resize=true,live=true,controller=null,active=null,driving=false,onHandBack,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,preview=false,externalControls=false,autoControl=true,agent}:TerminalViewProps){
+export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,rows=40,control=false,resize=true,live=true,controller=null,active=null,driving=false,onHandBack,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,onLive,preview=false,externalControls=false,autoControl=true,agent}:TerminalViewProps){
  const dialogs=useDialogs();
  const [acquisition,setAcquisition]=useState(0);
  const [acquired,setRuntime]=useState<SessionRuntime|null>(null);
@@ -35,6 +35,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,row
  const handBackPending=useRef(false);
  const terminal=useRef<Terminal>(),searchAddon=useRef<SearchAddon>(),taken=useRef(false);
  const viewRef=useRef({control,live});viewRef.current={control,live};
+ const scaleRef=useRef<(()=>void)|undefined>();
  const resizeRef=useRef(resize);resizeRef.current=resize;
  const openFileRef=useRef(onOpenFile);openFileRef.current=onOpenFile;
  const [findOpen,setFindOpen]=useState(false),[caseSensitive,setCaseSensitive]=useState(false),[matches,setMatches]=useState({count:0,index:0});
@@ -140,12 +141,15 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,row
   const resizer=new ResizeObserver(()=>{visibility();clearTimeout(resizeTimer);resizeTimer=setTimeout(scale,150);});resizer.observe(pane.current);
   const focusIn=()=>{setFocused(true);if(viewRef.current.control&&viewRef.current.live)connection.focus();},focusOut=()=>setFocused(false);
   host.addEventListener('focusin',focusIn);host.addEventListener('focusout',focusOut);
-  term.attachCustomKeyEventHandler(keys);visibility();scale();
-  return ()=>{clearTimeout(resizeTimer);resizer.disconnect();host.removeEventListener('focusin',focusIn);host.removeEventListener('focusout',focusOut);setFocused(false);observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();detach();results?.dispose();webLinks.dispose();fileLinks?.dispose();if(host.parentElement===mount.current)host.remove();client.current=undefined;terminal.current=undefined;searchAddon.current=undefined;};
+  term.attachCustomKeyEventHandler(keys);visibility();scale();scaleRef.current=scale;
+  return ()=>{scaleRef.current=undefined;clearTimeout(resizeTimer);resizer.disconnect();host.removeEventListener('focusin',focusIn);host.removeEventListener('focusout',focusOut);setFocused(false);observer.disconnect();media.removeEventListener('change',applyTheme);input.dispose();detach();results?.dispose();webLinks.dispose();fileLinks?.dispose();if(host.parentElement===mount.current)host.remove();client.current=undefined;terminal.current=undefined;searchAddon.current=undefined;};
  },[runtime,shell,preview,conversation]);
  useEffect(()=>{if(terminal.current)terminal.current.options.screenReaderMode=reader;},[reader]);
  useLayoutEffect(()=>{onActions?.({find:()=>setFindOpen(true),clear:()=>terminal.current?.clear(),reader:()=>setReader(value=>!value),release:()=>client.current?.release()});return()=>onActions?.(null);},[id]);
  useEffect(()=>{onInputLocked?.(state.status==='live'&&!state.you);},[state.status,state.you,onInputLocked]);
+ // A pane can attach before its session is reported live; once it can type, fit the pane and send that size.
+ useEffect(()=>{if(control&&live)scaleRef.current?.();},[control,live]);
+ useEffect(()=>{if(state.status==='live')onLive?.();},[state.status,onLive]);
  useLayoutEffect(()=>{if(findOpen) pane.current?.closest('.pc-terminal-view')?.querySelector<HTMLInputElement>('.pc-terminal-search input')?.focus();},[findOpen]);
  // Focus on the next frame, after the control state renders. A 1.2 pane can always type, so it takes focus
  // only in views that open it to type (autoControl); elsewhere the user focuses it.
