@@ -56,6 +56,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Diagnostics no longer takes pacer down when it installs or restarts the service on macOS. The service ran `launchctl bootout` on its own job, which stopped it before it could load the new registration, so the app stayed on "Reconnecting" until the service was started by hand. The service now saves the registration, replies, and a detached helper reloads the job, restoring the previous registration if the new one does not stay running. `service.install` reports `restarting: true` in that case; Diagnostics and the setup check run that fix last and wait for the new service process before they recheck.
+
 - Settings › Agents no longer shows an endpoint whose test task has not run as **Skipped**. Routing still sends it work, so it now shows a neutral **Not tested** status and Overview counts it among agents that can take work. **Skipped** stays for agents routing really passes over (unconfirmed availability, all parallel slots in use).
 
 - Settings › Add executor no longer locks out an OpenCode provider whose account outlived its executor, or one already added with a broken model. Adding over a left-behind account takes it over; an added provider opens a **Save model** step that changes its executor's model and flags a model the provider no longer offers. The model list leaves out catalog models that `opencode models` does not serve, and a failing test task shows the agent's real error instead of a bare colour-reset code.

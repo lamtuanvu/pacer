@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { remedyPlan } from "../../../../src/view-model/diagnostics";
 import type { SetupHealthRepair, SetupHealthReport } from "../../../../src/view-model/setup-health";
 import type { BrowserApi } from "../../data/api";
-import { dispatchRemedy, openRemedyUrl, recheckOnReturn, type RemedyHost } from "../../data/remedies";
+import { awaitServiceRestart, dispatchRemedy, openRemedyUrl, recheckOnReturn, servicePid, type RemedyHost } from "../../data/remedies";
 import { platform } from "../../platform";
 import { useDialogs } from "../../ds/useDialogs";
 import { pendingSetupHealthReport, SetupHealthStage } from "./SetupHealth";
@@ -75,6 +75,8 @@ const fileList = (files: string[]) => files.length ? `\n\n${files.join("\n")}` :
 export function gateRemedyHost(api: Pick<BrowserApi, "call">, confirm: Confirm, open: (url: string) => void = url => openRemedyUrl(url, platform)): RemedyHost {
   return {
     call: (op, params) => api.call(op, params),
+    // A rerun sent before the restarted service answers would reach the process that is stopping.
+    awaitRestart: async before => { await awaitServiceRestart(before, () => servicePid((op, params) => api.call(op, params))); },
     confirm: request => confirm(`${request.message}${fileList(request.files)}`, request.title, request.confirmLabel),
     review: preview => confirm(
       `${preview.detail ?? "Reconnect this integration."}${fileList(preview.files ?? [])}\n\nReview the files that will change before applying.`,
