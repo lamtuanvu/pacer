@@ -717,8 +717,12 @@ impl TaskStore {
         }
         task["id"] = json!(id);
         // An update that changes nothing writes nothing: no JSON rewrite,
-        // revision bump or row update (TypeScript `updateTask` parity).
+        // revision bump or row update (TypeScript `updateTask` parity). The
+        // transaction still commits and `after` still runs, so writes the
+        // callbacks made to other tables are kept, as in TypeScript.
         if !force && task == before {
+            after(&tx, &task)?;
+            tx.commit()?;
             return Ok(task);
         }
         task["rev"] = json!(rev + 1);

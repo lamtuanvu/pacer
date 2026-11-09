@@ -198,6 +198,36 @@ fn update_without_change_writes_nothing() {
 }
 
 #[test]
+fn update_without_record_change_keeps_side_writes_and_runs_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    store.insert(&task(), 1000.0).unwrap();
+    let mut after_ran = false;
+    let returned = store
+        .update_admitted_then(
+            ID,
+            1,
+            2000.0,
+            |db, _| {
+                db.execute_batch("CREATE TABLE side(x INTEGER); INSERT INTO side VALUES (7);")?;
+                Ok(())
+            },
+            |_, _| {
+                after_ran = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(returned["rev"], 1);
+    assert!(after_ran);
+    let db = rusqlite::Connection::open(dir.path().join("state/tasks.db")).unwrap();
+    let x: i64 = db
+        .query_row("SELECT x FROM side", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(x, 7);
+}
+
+#[test]
 fn json_import_revision_and_external_invalidation() {
     let dir = tempfile::tempdir().unwrap();
     let mut first = TaskStore::open(dir.path()).unwrap();
