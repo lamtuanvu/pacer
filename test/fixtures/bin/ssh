@@ -27,4 +27,8 @@ if [ -n "$op" ]; then
   [ -f "$local_socket.pid" ] || exit 1
   exit 0
 fi
-HOME="$PACER_FAKE_HOST_HOME" exec sh -c "$*"
+command="$*"
+# The fake host's environment is the test's. A login shell would run this machine's /etc/profile, whose
+# macOS path_helper puts system directories (and real agent CLIs) ahead of the test's fake binaries.
+case "$command" in "bash -lc "*) command="bash -c ${command#bash -lc }" ;; esac
+HOME="$PACER_FAKE_HOST_HOME" exec sh -c "$command"
