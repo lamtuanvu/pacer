@@ -860,7 +860,7 @@ Params JSON Schema:
 
 ### `agent.undo`
 
-Restore the previous copies of an agent's integration files changed by the most recent connect, after explicit consent, within 7 days.
+Undo exactly the files changed by the most recent connect, from its recorded snapshot, after explicit consent bound to that connect's preview revision, within 7 days. Reports restored, removed, reverted and kept files.
 
 Params JSON Schema:
 
@@ -880,6 +880,9 @@ Params JSON Schema:
     },
     "consent": {
       "type": "boolean"
+    },
+    "preview_revision": {
+      "type": "string"
     }
   },
   "required": [
