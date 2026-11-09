@@ -26,7 +26,7 @@ import { Icon } from '../../ds/icons';
 import { SettingRow } from '../../ds/SettingRow';
 import { useDialogs } from '../../ds/useDialogs';
 import { useResource, useOperation, Feedback, SettingsBoard, time, useScoped, containTooltipEscape } from './shared';
-import { ExecutorModels } from './ExecutorModels';
+import { ExecutorModels, ModelFactLink } from './ExecutorModels';
 
 export function ExecutorsSection() {
   const scoped = useScoped();
@@ -211,7 +211,7 @@ function ExecutorDetail({executor,planner,position,count,announce,value,error,di
     {dialogs.dialog}
     <div className="u3-agent"><AgentMark agent={markAgent(executor.id,executor.account)} size={32}/><div><SectionHeading as="h2" variant="headline">{name}</SectionHeading><span>{name}</span></div><IconButton geometry="board" size="sm" variant="quiet" aria-label={`Close ${name} details`} disabled={savingEnabled} onClick={closePanel}><Icon name="close"/></IconButton></div>
     {(readiness.tone==='bad'||readiness.tone==='warn')&&<Card tone={readiness.tone==='bad'?'bad':'warn'}><strong>{readiness.label}</strong><span onKeyDown={containTooltipEscape}><Tooltip text={readiness.tooltip}><p tabIndex={0} className="u3-muted">{readiness.reason}</p></Tooltip></span>{(blocked||signIn)&&<div className="u3-actions">{blocked&&<Button size="sm" disabled={!!action.unavailable || (action.busy||disabled)} onClick={()=>void independent(async()=>{await action.run('runner.unblock',{id:executor.id});})}>Unblock {name}</Button>}{signIn&&<TextAction href={scoped("#/settings/accounts")}>Fix sign-in</TextAction>}</div>}</Card>}
-    <dl className="u3-agent-facts"><dt>Account</dt><dd>{accountLabel({name:executor.account,agent:executor.agent,runners:[executor.id]})}</dd><dt>Model</dt><dd><TextAction href="#models">{executor.model??'Agent default'}</TextAction></dd><dt>Runs on</dt><dd>{executor.host?<TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(executor.host)}`)}>{executor.host}</TextAction>:'This machine'}</dd></dl>
+    <dl className="u3-agent-facts"><dt>Account</dt><dd>{accountLabel({name:executor.account,agent:executor.agent,runners:[executor.id]})}</dd><dt>Model</dt><dd><ModelFactLink model={executor.model}/></dd><dt>Runs on</dt><dd>{executor.host?<TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(executor.host)}`)}>{executor.host}</TextAction>:'This machine'}</dd></dl>
     {!planner&&<SettingRow layout="inline-help" label="Parallel tasks" ><TextInput className="u3-detail-parallel" type="number" min="1" max="16" step="1" required aria-label={`Parallel tasks for ${name}`} value={value?.maxTasks??String(executor.slots.max)} disabled={disabled} onInput={e=>{const text=e.currentTarget.value;edit(d=>{d.runners[executor.id].maxTasks=text;});}}/>{error&&<small className="pc-field__error" role="alert">{error}</small>}<span className="u3-muted">{machineHardCap(state.snapshot?.machine)!==null?`Up to ${machineHardCap(state.snapshot?.machine)}, this machine's limit`:"Saved with the page"}</span></SettingRow>}
     <SettingRow layout="stacked" label="Test task" description={executor.lastCheck?`${executor.lastCheck.passed?'Passed':'Failed'} ${time(executor.lastCheck.at)}`:'Not run yet'}><Button size="sm" disabled={!!action.unavailable || (action.busy)} onClick={()=>void action.run('runner.check',{id:executor.id})}>Run test task<span className="sr-only"> for {name}</span></Button></SettingRow>
     <ExecutorModels runner={executor.id} model={executor.model} provider={executor.account} />

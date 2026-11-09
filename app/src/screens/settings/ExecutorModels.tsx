@@ -7,7 +7,9 @@ import { Button } from "../../ds/Button";
 import { Alert } from "../../ds/Alert";
 import { ChoicePicker } from "../../ds/ChoicePicker";
 import { Field, TextInput } from "../../ds/Controls";
+import { TextAction } from "../../ds/Button";
 import { Feedback, ResourceState, Section, useOperation, useResource } from "./shared";
+import { useTaskContext } from "../task-shared";
 import { displayModel, modelWarning } from "../../model/executor-models";
 import { contextLabel, modelFacts } from "../../model/opencode-setup";
 
@@ -18,9 +20,31 @@ function optionDescription(model: AvailableModel): string | undefined {
     : model.context !== undefined ? contextLabel(model.context) : undefined;
 }
 
+/** In-page jump for hash-labelled sections: the app routes on location.hash, so a bare #id link
+ * would replace the settings route instead of scrolling (same pattern as Dispatcher.tsx). */
+export function focusSection(event: { preventDefault: () => void }, id: string): void {
+  event.preventDefault();
+  const target = document.getElementById(id);
+  if (target) { target.tabIndex = -1; target.focus(); target.scrollIntoView({ block: "start" }); }
+}
+
+/** The Model fact on the executor detail: opens the Models section in page, not a new route. */
+export function ModelFactLink({model}:{model:string|null}) {
+  return <TextAction href="#models" onClick={event => focusSection(event, "models")}>{model ?? "Agent default"}</TextAction>;
+}
+
 export function ExecutorModels({runner, model, provider, initialAvailable}:{runner:string; model:string|null; provider:string; initialAvailable?:AvailableModels}) {
-  const [refresh, setRefresh] = useState(false);
-  const list = useResource<AvailableModels>("executor.models.available", refresh ? {runner, refresh: true} : {runner}, initialAvailable);
+  const list = useResource<AvailableModels>("executor.models.available", {runner}, initialAvailable);
+  const {api} = useTaskContext();
+  const [refreshing, setRefreshing] = useState(false);
+  // Refresh list is one-shot: only this call passes refresh:true and bypasses the listing cache;
+  // later reloads (reconnects, invalidations) keep the cached listing instead of re-busting it.
+  const refreshList = async () => {
+    setRefreshing(true);
+    try { list.setData(await api.call<AvailableModels>("executor.models.available", {runner, refresh: true})); }
+    catch { list.reload(); }
+    finally { setRefreshing(false); }
+  };
   const [picked, setPicked] = useState(model ?? "");
   useEffect(() => { setPicked(model ?? ""); }, [model]);
   const picker = useRef<HTMLButtonElement>(null);
@@ -34,7 +58,7 @@ export function ExecutorModels({runner, model, provider, initialAvailable}:{runn
     if (!chosen) return;
     void save.run("runner.set", {id: runner, model: chosen}, () => { void check.run("runner.check", {id: runner}); });
   };
-  return <Section id="models" title="Models" actions={<Button size="sm" onClick={() => { setRefresh(true); list.reload(); }}>Refresh list</Button>}>
+  return <Section id="models" title="Models" actions={<Button size="sm" disabled={refreshing} onClick={() => void refreshList()}>Refresh list</Button>}>
     <ResourceState resource={list}>
       {models?.length ? <>
         {warning && <Alert tone="warning" title={warning}><Button size="sm" onClick={() => picker.current?.focus()}>Replace…</Button></Alert>}
