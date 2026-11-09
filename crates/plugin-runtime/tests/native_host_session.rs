@@ -974,12 +974,22 @@ async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit()
     // switches to `$/resultChunk` and it must be forwarded and assemble.
     let (at, forwarded) = dial_with_core(&path, request(62, json!(768 * 1024)), core).await;
     assert!(at.get("error").is_none(), "{at}");
-    assert!(forwarded
-        .iter()
-        .any(|frame| frame["method"] == "$/resultChunk"), "{forwarded:?}");
-    assert!(at["result"]["value"]["_chunkedResult"]["bytes"].as_u64().is_some(), "{at}");
+    assert!(
+        forwarded
+            .iter()
+            .any(|frame| frame["method"] == "$/resultChunk"),
+        "{forwarded:?}"
+    );
+    assert!(
+        at["result"]["value"]["_chunkedResult"]["bytes"]
+            .as_u64()
+            .is_some(),
+        "{at}"
+    );
     assert_eq!(
-        at["result"]["value"]["_chunkedResult"]["bytes"].as_u64().unwrap(),
+        at["result"]["value"]["_chunkedResult"]["bytes"]
+            .as_u64()
+            .unwrap(),
         serde_json::to_string(&json!({"schema":1,"pad":"x".repeat(768*1024)}))
             .unwrap()
             .len() as u64,
@@ -995,9 +1005,20 @@ async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit()
         .map(|frame| frame["method"].clone())
         .collect();
     assert!(!chunked_methods.is_empty(), "{forwarded:?}");
-    assert!(above["result"]["value"]["_chunkedResult"]["bytes"].as_u64().is_some(), "{above}");
+    assert!(
+        above["result"]["value"]["_chunkedResult"]["bytes"]
+            .as_u64()
+            .is_some(),
+        "{above}"
+    );
 
-    session.owner().lock().await.terminate("fx-chunk").await.unwrap();
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("fx-chunk")
+        .await
+        .unwrap();
     session.shutdown().await;
 }
 
@@ -1059,7 +1080,10 @@ async fn sealed_call_ready_without_a_summary_is_fail_closed_under_require_featur
     // A call that requires `chunkedResults` is now fail-closed: with no recorded
     // negotiation it cannot prove the feature, even though the child would.
     let refused = dial_json(&path, request(71, json!(["chunkedResults"]))).await;
-    assert_eq!(refused["error"]["data"]["code"], "capability_denied", "{refused}");
+    assert_eq!(
+        refused["error"]["data"]["code"], "capability_denied",
+        "{refused}"
+    );
     assert_eq!(
         refused["error"]["message"],
         "diagnostic.ping requires the negotiated chunkedResults feature",
@@ -1072,7 +1096,13 @@ async fn sealed_call_ready_without_a_summary_is_fail_closed_under_require_featur
     assert_eq!(second["result"]["value"]["ok"], true, "{second}");
     assert_eq!(second["result"]["hello"], Value::Null, "{second}");
 
-    session.owner().lock().await.terminate("fx-ready").await.unwrap();
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("fx-ready")
+        .await
+        .unwrap();
     session.shutdown().await;
 }
 
@@ -1153,7 +1183,10 @@ async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
     // nor a log read was served during the hello.
     for attempt in ["earlyRun", "earlyRead"] {
         assert_eq!(value[attempt]["code"], -32000, "{value}");
-        assert_eq!(value[attempt]["data"]["code"], "capability_denied", "{value}");
+        assert_eq!(
+            value[attempt]["data"]["code"], "capability_denied",
+            "{value}"
+        );
     }
     assert_eq!(value["run"]["code"], 0, "{value}");
 

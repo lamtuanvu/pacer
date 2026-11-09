@@ -510,13 +510,8 @@ impl PluginCapabilitySession {
     /// Relay a `$/resultChunk` request to the bound Core. Chunk assembly is a
     /// negotiated transport, not a declared capability, so it skips the
     /// declared/granted checks of [`Self::answer_by_core`].
-    async fn answer_result_chunk(
-        &mut self,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, Value> {
-        let refuse =
-            |code: &str, message: String| json!({"code": -32000, "message": message, "data": {"code": code}});
+    async fn answer_result_chunk(&mut self, method: &str, params: Value) -> Result<Value, Value> {
+        let refuse = |code: &str, message: String| json!({"code": -32000, "message": message, "data": {"code": code}});
         let Some((core, _)) = &self.core else {
             return Err(refuse(
                 "capability_denied",
