@@ -35,10 +35,19 @@ export function taskJsonScanCount(): number { return jsonScanCount; }
 const columns = "id, rev, state, created_at, updated_at, settled_at, repo, record, archived";
 const placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?";
 
+// A corrupted or adversarial record can hold a non-number where a timestamp is expected
+// (for example `review` set to a string, which has its own `.at` method). `Math.max`
+// coerces such a value with `Number()` instead of treating it as absent, which can yield
+// NaN; NaN then binds as SQL NULL, and NULL is no longer silently accepted now that the
+// `task_changes` trigger requires `updated_at` to be NOT NULL. Treat anything that is not
+// a finite number as absent (0), matching the `number()` guard the Rust store already has.
+function finite(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
 function activityAt(task: TaskRecord): number {
-  return Math.max(task.createdAt, task.attemptStartedAt ?? 0, task.review?.at ?? 0, task.reviewRequest?.at ?? 0,
-    ...task.attempts.map(a => a.startedAt ?? 0),
-    ...task.attempts.map(a => a.endedAt ?? 0));
+  return Math.max(task.createdAt, finite(task.attemptStartedAt), finite(task.review?.at), finite(task.reviewRequest?.at),
+    ...task.attempts.map(a => finite(a.startedAt)),
+    ...task.attempts.map(a => finite(a.endedAt)));
 }
 function values(task: TaskRecord, now: number): SQLQueryBindings[] {
   const updated = Math.max(now, activityAt(task));
@@ -168,8 +177,9 @@ function schemaReady(db: Database): boolean {
   const fields = db.query<{ name: string }, []>("PRAGMA table_info(tasks)").all();
   if (!["json_mtime", "archived"].every(name => fields.some(field => field.name === name))) return false;
   const objects = new Set(db.query<{ name: string }, []>(
-    "SELECT name FROM sqlite_master WHERE type IN ('index', 'table')").all().map(row => row.name));
-  return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "task_first_settle"]
+    "SELECT name FROM sqlite_master WHERE type IN ('index', 'table', 'trigger')").all().map(row => row.name));
+  return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "task_first_settle",
+    "task_changes", "task_changes_insert", "task_changes_update"]
     .every(name => objects.has(name));
 }
 
@@ -218,6 +228,15 @@ function connection(ctx: Ctx) {
       db.run("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at)");
       // settledAt is overwritten when a task settles again; Insights counts a task once, at its first settle.
       db.run("CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL)");
+      // Shared change log, filled by triggers so every writer (any runtime, any
+      // binary version) is recorded once. Readers keep a `seq` cursor (changes.ts).
+      db.run(`CREATE TABLE IF NOT EXISTS task_changes(seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, rev INTEGER NOT NULL, state TEXT NOT NULL, at REAL NOT NULL);
+        CREATE INDEX IF NOT EXISTS task_changes_at ON task_changes(at);
+        CREATE TRIGGER IF NOT EXISTS task_changes_insert AFTER INSERT ON tasks BEGIN
+          INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,NEW.rev,NEW.state,NEW.updated_at); END;
+        CREATE TRIGGER IF NOT EXISTS task_changes_update AFTER UPDATE ON tasks
+          WHEN NEW.rev IS NOT OLD.rev OR NEW.state IS NOT OLD.state OR NEW.archived IS NOT OLD.archived BEGIN
+          INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,NEW.rev,NEW.state,NEW.updated_at); END;`);
     }).immediate();
   } catch (error) { db.close(); throw error; }
   for (const [key, entry] of connections) {

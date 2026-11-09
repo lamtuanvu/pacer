@@ -317,7 +317,7 @@ fn schema_ready(db: &Connection) -> Result<bool> {
         return Ok(false);
     }
     let objects: Vec<String> = db
-        .prepare("SELECT name FROM sqlite_master WHERE type IN ('index', 'table')")?
+        .prepare("SELECT name FROM sqlite_master WHERE type IN ('index', 'table', 'trigger')")?
         .query_map([], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     Ok([
@@ -326,6 +326,9 @@ fn schema_ready(db: &Connection) -> Result<bool> {
         "tasks_created_at",
         "tasks_retention",
         "task_first_settle",
+        "task_changes",
+        "task_changes_insert",
+        "task_changes_update",
     ]
     .iter()
     .all(|name| objects.iter().any(|o| o == name)))
@@ -378,6 +381,18 @@ impl TaskStore {
                 )?;
             }
             tx.execute_batch("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at); CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL);")?;
+            // Shared change log, filled by triggers so every writer (any
+            // runtime, any binary version) is recorded once. Same DDL as
+            // TypeScript `connection()` in `src/tasks/store.ts`.
+            tx.execute_batch(
+                "CREATE TABLE IF NOT EXISTS task_changes(seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, rev INTEGER NOT NULL, state TEXT NOT NULL, at REAL NOT NULL);
+                 CREATE INDEX IF NOT EXISTS task_changes_at ON task_changes(at);
+                 CREATE TRIGGER IF NOT EXISTS task_changes_insert AFTER INSERT ON tasks BEGIN
+                   INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,NEW.rev,NEW.state,NEW.updated_at); END;
+                 CREATE TRIGGER IF NOT EXISTS task_changes_update AFTER UPDATE ON tasks
+                   WHEN NEW.rev IS NOT OLD.rev OR NEW.state IS NOT OLD.state OR NEW.archived IS NOT OLD.archived BEGIN
+                   INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,NEW.rev,NEW.state,NEW.updated_at); END;",
+            )?;
             tx.commit()?;
         }
         let inode = file_inode(&path)?;

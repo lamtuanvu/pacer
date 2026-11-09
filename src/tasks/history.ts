@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { SQLiteError } from "bun:sqlite";
 import { backfillFirstSettled } from "../insights/summary";
 import { backfillAttemptUsage } from "../tokens/store";
+import { pruneTaskChanges } from "./changes";
 import { retentionScheduler } from "./retention";
 import type { Ctx } from "../types";
 
@@ -64,7 +65,10 @@ export async function maintainTaskHistory(ctx: Ctx): Promise<void> {
   let historyFailure: unknown;
   try { await backfillTaskHistory(ctx); }
   catch (error) { historyFailure = error; }
-  try { await retentionScheduler().tick(ctx); }
+  try {
+    await retentionScheduler().tick(ctx);
+    pruneTaskChanges(ctx);
+  }
   catch (error) {
     if (historyFailure) {
       const message = (value: unknown) => value instanceof Error ? value.message : String(value);

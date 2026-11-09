@@ -413,6 +413,91 @@ fn open_after_inode_change_imports() {
 }
 
 #[test]
+fn open_creates_change_log_objects() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    let count: i64 = store
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name IN ('task_changes','task_changes_insert','task_changes_update')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 3);
+    // The insert trigger logs a real change.
+    store.insert(&task(), 1000.0).unwrap();
+    let seq_after_insert: i64 = store
+        .connection()
+        .unwrap()
+        .query_row("SELECT max(seq) FROM task_changes", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(seq_after_insert, 1);
+    // A real update (state change) logs a second row; a no-op does not.
+    store
+        .update(ID, 1, 1000.0, |v| v["state"] = json!("done"))
+        .unwrap();
+    let rows_after_update: i64 = store
+        .connection()
+        .unwrap()
+        .query_row("SELECT count(*) FROM task_changes", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows_after_update, 2);
+    store
+        .update(ID, 2, 1000.0, |v| v["state"] = json!("done"))
+        .unwrap();
+    let rows_after_noop: i64 = store
+        .connection()
+        .unwrap()
+        .query_row("SELECT count(*) FROM task_changes", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows_after_noop, 2);
+}
+
+#[test]
+fn old_schema_without_change_log_gets_it_added_on_open() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("state")).unwrap();
+    fs::create_dir_all(dir.path().join("tasks")).unwrap();
+    let old = rusqlite::Connection::open(dir.path().join("state/tasks.db")).unwrap();
+    old.execute_batch("CREATE TABLE tasks(id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL, repo TEXT, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0); CREATE INDEX tasks_state ON tasks(state); CREATE INDEX tasks_updated_at ON tasks(updated_at); CREATE INDEX tasks_created_at ON tasks(created_at); CREATE INDEX tasks_retention ON tasks(archived, settled_at); CREATE TABLE task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL);").unwrap();
+    let mut existing = task();
+    existing["rev"] = json!(3);
+    existing["state"] = json!("done");
+    let record = serde_json::to_string(&existing).unwrap();
+    old.execute(
+        "INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,json_mtime,archived) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        rusqlite::params![ID, 3_i64, "done", 1000.0, 1000.0, 1000.0, "/tmp/repo", record, 1234.0, 0_i64],
+    )
+    .unwrap();
+    drop(old);
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    let count: i64 = store
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name IN ('task_changes','task_changes_insert','task_changes_update')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 3);
+    let (rev, record, json_mtime): (i64, String, f64) = store
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT rev, record, json_mtime FROM tasks WHERE id=?",
+            [ID],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(rev, 3);
+    assert_eq!(record, serde_json::to_string(&existing).unwrap());
+    assert_eq!(json_mtime, 1234.0);
+}
+
+#[test]
 fn retention_predicate_matches_terminal_review_remote_and_paths() {
     let mut t = task();
     t["state"] = json!("done");
