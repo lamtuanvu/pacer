@@ -573,7 +573,7 @@ static OPS: &[NativeOp] = &[
         call: setup_ops::ops()[0].call,
     },
     NativeOp {
-name: "setup.init",
+        name: "setup.init",
         call: pacer_config_ops::setup_init_ops::setup_init,
     },
     NativeOp {
