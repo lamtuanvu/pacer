@@ -5,6 +5,7 @@ import { shellCommand } from "@pacer/plugin/install";
 import { editHooksFile } from "@pacer/plugin/install";
 import { getMember, removeMember, setMember } from "@pacer/plugin/install";
 import type { UndoOp } from "@pacer/plugin/install";
+import { dropStaleMcpEntry, noMcpEdit } from "./mcp";
 import type { PlannerBuilder } from "./types";
 
 export async function installCursor(tx: PlannerBuilder): Promise<void> {
@@ -13,12 +14,13 @@ export async function installCursor(tx: PlannerBuilder): Promise<void> {
   const dir = tx.env.folder ?? join(ctx.home, ".cursor");
   const server = { command: argv[0], args: [...argv.slice(1), "mcp"] };
   const undo: UndoOp = { kind: "json-member", path: ["mcpServers", "pacer"] };
-  if (tx.env.mcp === false && (await tx.read(join(dir, "mcp.json"))) !== null)
-    await tx.edit(
-      join(dir, "mcp.json"),
-      (old) => removeMember(old!, ["mcpServers", "pacer"]),
-      [],
-    );
+  const mcpPath = join(dir, "mcp.json");
+  const isPacerMcpOp = (op: UndoOp): boolean =>
+    op.kind === "json-member" && op.path.length === 2 &&
+    op.path[0] === "mcpServers" && op.path[1] === "pacer";
+  if (tx.env.mcp === false && (await tx.read(mcpPath)) !== null)
+    await tx.edit(mcpPath, noMcpEdit(tx, mcpPath, isPacerMcpOp,
+      old => removeMember(old!, ["mcpServers", "pacer"])), []);
   if (tx.env.mcp === true)
     await tx.edit(
       join(dir, "mcp.json"),
@@ -35,6 +37,12 @@ export async function installCursor(tx: PlannerBuilder): Promise<void> {
       },
       [undo],
     );
+  await dropStaleMcpEntry(
+    tx,
+    mcpPath,
+    isPacerMcpOp,
+    (text) => getMember(text, ["mcpServers", "pacer"]) !== undefined,
+  );
 
   await installSkill(tx, dir);
   const specs = [
