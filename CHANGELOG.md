@@ -47,6 +47,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Rust strategy activation and removal library effects, with atomic activation and restrictive 0700 home and 0600 active-file modes. The TypeScript runtime is unchanged.
 
+- Per-file change statuses: `agent.preview` now reports how each file a reconnect writes changes (`create`, `update`, `restore`, `unchanged` or `kept`), shown as change pills in the Diagnostics review sheet, and `agent.connect` returns an additive `undo` flag so the done sheet offers Undo only when that repair left something undoable (with a short reason when it did not).
+- Consent-gated 7-day undo of the last repair: the last file-changing `agent.connect` keeps private snapshots under the pacer home's undo store (verified by revision, hash and size before restore), and `agent.undo` restores or removes exactly those files within 7 days after explicit consent. Expired or superseded snapshots are pruned at service startup and by `doctor`.
+- The Fix-with-agent sheet shows the executor pacer would route the fix task to (`routing.route`), read-only.
+- Executor sessions are denied operations that rewrite real agent folders or the installation: `agent.connect`, `agent.disconnect`, `agent.undo`, `pacer install`, `pacer uninstall` and `pacer setup`, plus the `config.set` planner switch.
+
 ### Fixed
 
 - Running tasks no longer get stuck on **Lost contact** while their session keeps working. The supervision worker launched runners using its own `argv[1]`, which names the worker module, so every runner it started failed: in the compiled binary with "unknown command" (`/$bunfs/root/tasks/supervision-worker.js`), and from source as a process that never ran the task. A run that lost its owning plugin call was then never supervised again. The service now passes its own self command to the worker, and `selfCommand` (TypeScript) and `self_command` (Rust) also ignore embedded entrypoints.
