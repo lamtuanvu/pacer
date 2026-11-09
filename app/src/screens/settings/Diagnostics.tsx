@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Check } from "../../../../src/install/doctor";
 import { diagnosticEvidence, diagnosticLevel, diagnosticsPage, diagnosticTitle, remedyPlan, remedyProgress, type DiagnosticFixRow, type DiagnosticRowOutcome, type DiagnosticTask, type RemedyPlan } from "../../../../src/view-model/diagnostics";
 import { displayName } from "../../../../src/view-model/format";
-import { awaitServiceRestart, commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, restartsService, type ConsentRequest, type PreparedRun, type RemedyHost, type RepairPreview } from "../../data/remedies";
+import { awaitServiceRestart, commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, restartsService, serviceInstallLast, servicePid, type ConsentRequest, type PreparedRun, type RemedyHost, type RepairPreview } from "../../data/remedies";
 import { useActions } from "../../data/action-context";
 import { platform } from "../../platform";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -247,13 +247,12 @@ export function DiagnosticsSection() {
   const returnListener = useRef<() => void>();
   const runButton = useRef<HTMLButtonElement>(null);
   useEffect(() => () => returnListener.current?.(), []);
-  /** The latest connection and service process, read while a fix waits for a restart. */
-  const service = useRef({ connected: state.connected, pid: state.snapshot?.service?.pid });
-  service.current = { connected: state.connected, pid: state.snapshot?.service?.pid };
+  /** The pid of the service answering now, or undefined while it is unreachable. */
+  const currentPid = () => servicePid(api.call).catch(() => undefined);
   /** Waits for the service that `before` named to be replaced, so the recheck reaches the new one. */
   async function awaitRestart(before: number | undefined) {
     setProgress("Waiting for pacer to restart…");
-    if (!await awaitServiceRestart(before, () => service.current))
+    if (!await awaitServiceRestart(before, () => servicePid(api.call)))
       setProgress("pacer has not come back after a minute. Checking anyway; if checks fail, run all checks again shortly.");
   }
   /** When the focused control went away (a fixed row, the last fix-all), keep focus on the page. */
@@ -298,10 +297,9 @@ export function DiagnosticsSection() {
     return new Promise(resolve => setConsent({ key, requests, resolve: ok => { setConsent(undefined); resolve(ok); } }));
   }
   function host(check: Check, progressText: string): RemedyHost {
-    const before = service.current.pid;
     return {
       call,
-      awaitRestart: () => awaitRestart(before),
+      awaitRestart,
       confirm: async request => {
         outcome(check.name);
         const ok = await ask(check.name, [request]);
@@ -383,21 +381,24 @@ export function DiagnosticsSection() {
         try { prepared.push({ row, run: await prepareRun(row.plan as Extract<RemedyPlan, { kind: "run" }>, call) }); }
         catch (failure) { outcome(row.check.name, { phase: "error", message: errorText(failure) }); }
       }
-      // Installing the service restarts it, which would cut off any fix still to run.
-      prepared.sort((a, b) => Number(a.run.op === "service.install") - Number(b.run.op === "service.install"));
-      const requests = prepared.flatMap(item => item.run.consent ? [item.run.consent] : []);
+      const ordered = serviceInstallLast(prepared);
+      const requests = ordered.flatMap(item => item.run.consent ? [item.run.consent] : []);
       if (requests.length && !await ask(FIX_ALL, requests)) { setProgress("No changes were made."); return; }
-      for (const { row } of prepared) outcome(row.check.name, { phase: "running", text: remedyProgress(row.remedy!) });
-      const before = service.current.pid;
+      for (const { row } of ordered) outcome(row.check.name, { phase: "running", text: remedyProgress(row.remedy!) });
+      const before = ordered.some(item => item.run.op === "service.install") ? await currentPid() : undefined;
       let restarting = false;
-      for (const { row, run } of prepared) {
+      for (const { row, run } of ordered) {
         setProgress(`${settingsText(row.title)}: ${remedyProgress(row.remedy!)}`);
-        try { restarting = restartsService(await commitRun(run, call)) || restarting; outcome(row.check.name, { phase: "running", text: "Rechecking…" }); }
+        try {
+          const restarts = restartsService(await commitRun(run, call));
+          restarting ||= restarts;
+          outcome(row.check.name, { phase: "running", text: restarts ? "Waiting for pacer to restart…" : "Rechecking…" });
+        }
         catch (failure) { outcome(row.check.name, { phase: "error", message: errorText(failure) }); }
       }
       if (restarting) await awaitRestart(before);
       const rechecked = await recheck();
-      for (const { row } of prepared) setOutcomes(current => {
+      for (const { row } of ordered) setOutcomes(current => {
         if (current[row.check.name]?.phase !== "running") return current;
         const { [row.check.name]: _running, ...rest } = current;
         return rechecked ? { ...rest, [row.check.name]: { phase: "rechecked" } } : rest;
@@ -414,7 +415,7 @@ export function DiagnosticsSection() {
       if (run.consent && !await ask(INTERNAL, [run.consent])) { setProgress("No changes were made."); return; }
       outcome(INTERNAL, { phase: "running", text: "Restarted · rechecking…" });
       setProgress("Restarting the pacer service…");
-      const before = service.current.pid;
+      const before = await currentPid();
       if (restartsService(await commitRun(run, call))) await awaitRestart(before);
       if (await recheck()) setProgress("The pacer service restarted and checks were refreshed.");
     } catch (failure) { setError(failure); setProgress("The restart did not finish."); }

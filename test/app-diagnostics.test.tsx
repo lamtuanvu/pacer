@@ -464,46 +464,62 @@ test('dispatch: user remedies sign in or open the link and recheck on return; ag
   expect(rechecks).toBe(1);
 });
 
-test('dispatch: a service install that restarts pacer waits for the new service before the recheck', async () => {
+test('dispatch: a service install that restarts pacer passes the old pid to the wait before the recheck', async () => {
   const { dispatchRemedy } = await import('../app/src/data/remedies');
   const { remedyPlan } = await import('../src/view-model/diagnostics');
-  const order: string[] = [];
-  const restarting = fakeHost();
-  const host = { ...restarting.host,
-    call: async <T,>(op: string) => { order.push(op); return {installed:true,running:true,restarting:true} as T; },
-    awaitRestart: async () => { order.push('await-restart'); } };
+  const order: unknown[] = [];
+  const reply = (restarting: boolean) => async <T,>(op: string) => {
+    order.push(op);
+    return (op === 'snapshot.get' ? {snapshot:{service:{pid:10}}} : {installed:true,running:true,...(restarting ? {restarting:true} : {})}) as T;
+  };
+  const host = { ...fakeHost().host, call: reply(true), awaitRestart: async (before: number | undefined) => { order.push(['await-restart', before]); } };
   expect(await dispatchRemedy(remedyPlan(service)!, host)).toBe('recheck');
-  expect(order).toEqual(['service.install','await-restart']);
+  expect(order).toEqual(['snapshot.get','service.install',['await-restart',10]]);
   // A reply without `restarting` (another client installed the job) rechecks at once.
   order.length = 0;
-  expect(await dispatchRemedy(remedyPlan(service)!, { ...host, call: async <T,>(op: string) => { order.push(op); return {installed:true,running:true} as T; } })).toBe('recheck');
+  expect(await dispatchRemedy(remedyPlan(service)!, { ...host, call: reply(false) })).toBe('recheck');
+  expect(order).toEqual(['snapshot.get','service.install']);
+  // A host that cannot wait skips the pid read.
+  order.length = 0;
+  expect(await dispatchRemedy(remedyPlan(service)!, { ...fakeHost().host, call: reply(true) })).toBe('recheck');
   expect(order).toEqual(['service.install']);
 });
 
-test('awaitServiceRestart waits for a connected service with a new process id, or gives up at the deadline', async () => {
-  const { awaitServiceRestart, restartsService } = await import('../app/src/data/remedies');
+test('servicePid reads the answering service and gives up on a call that never settles', async () => {
+  const { servicePid, restartsService } = await import('../app/src/data/remedies');
   expect(restartsService({restarting:true})).toBe(true);
   expect(restartsService({installed:true})).toBe(false);
   expect(restartsService(null)).toBe(false);
-  let clock = 0;
-  const views = [{connected:true,pid:10},{connected:false,pid:10},{connected:false},{connected:true,pid:10},{connected:true,pid:11}];
-  let seen = 0;
-  const opts = { intervalMs: 500, now: () => clock, sleep: async (ms: number) => { clock += ms; } };
-  // The old process can still answer at first; only the new pid ends the wait.
-  expect(await awaitServiceRestart(10, () => views[Math.min(seen++, views.length - 1)], opts)).toBe(true);
-  expect(seen).toBe(5);
-  clock = 0;
-  expect(await awaitServiceRestart(10, () => ({connected:true,pid:10}), { ...opts, timeoutMs: 2000 })).toBe(false);
-  expect(clock).toBe(2000);
+  expect(await servicePid(async <T,>(op: string) => (op === 'snapshot.get' ? {snapshot:{service:{pid:42}}} : {}) as T)).toBe(42);
+  await expect(servicePid(() => new Promise(() => {}), 10)).rejects.toThrow('did not answer');
 });
 
-test('awaitServiceRestart without a known process id waits for the connection to drop and return', async () => {
+test('awaitServiceRestart polls the service itself until a new process answers, or gives up at the deadline', async () => {
   const { awaitServiceRestart } = await import('../app/src/data/remedies');
-  let clock = 0, seen = 0;
-  const views = [{connected:true,pid:10},{connected:false},{connected:true,pid:11}];
-  const opts = { now: () => clock, sleep: async (ms: number) => { clock += ms; } };
-  expect(await awaitServiceRestart(undefined, () => views[Math.min(seen++, views.length - 1)], opts)).toBe(true);
-  expect(seen).toBe(3);
+  let clock = 0;
+  const opts = { intervalMs: 500, now: () => clock, sleep: async (ms: number) => { clock += ms; } };
+  const sequence = (answers: (number | 'down' | undefined)[]) => {
+    let seen = 0;
+    return { read: async () => { const a = answers[Math.min(seen++, answers.length - 1)]; if (a === 'down') throw new Error('unreachable'); return a; }, seen: () => seen };
+  };
+  // The old process can still answer at first; only the new pid ends the wait.
+  const known = sequence([10, 'down', 'down', 10, 11]);
+  expect(await awaitServiceRestart(10, known.read, opts)).toBe(true);
+  expect(known.seen()).toBe(5);
+  // Without a known pid, the service must stop answering first.
+  const unknown = sequence([10, 'down', 12]);
+  expect(await awaitServiceRestart(undefined, unknown.read, opts)).toBe(true);
+  expect(unknown.seen()).toBe(3);
   clock = 0;
-  expect(await awaitServiceRestart(undefined, () => ({connected:true,pid:10}), { ...opts, timeoutMs: 1000 })).toBe(false);
+  expect(await awaitServiceRestart(10, async () => 10, { ...opts, timeoutMs: 2000 })).toBe(false);
+  expect(clock).toBe(2000);
+  clock = 0;
+  expect(await awaitServiceRestart(undefined, async () => 10, { ...opts, timeoutMs: 1000 })).toBe(false);
+});
+
+test('fix-all runs the service install last so its restart cannot cut off the other fixes', async () => {
+  const { serviceInstallLast } = await import('../app/src/data/remedies');
+  const items = [{run:{op:'service.install',params:{}}},{run:{op:'limits.refresh',params:{}}},{run:{op:'agent.connect',params:{}}}];
+  expect(serviceInstallLast(items).map(item => item.run.op)).toEqual(['limits.refresh','agent.connect','service.install']);
+  expect(items[0].run.op).toBe('service.install');
 });

@@ -17,8 +17,8 @@ export interface RemedyHost {
   review: (preview: RepairPreview) => Promise<boolean>;
   delegate: (check: string) => Promise<boolean>;
   open: (url: string) => void;
-  /** Waits for the pacer service to come back after a call that restarts it. */
-  awaitRestart?: () => Promise<void>;
+  /** Waits for the pacer service that `before` named to be replaced after a call that restarts it. */
+  awaitRestart?: (before: number | undefined) => Promise<void>;
 }
 
 /** `service.install` called by the service itself replies first, then the service restarts. */
@@ -26,22 +26,30 @@ export function restartsService(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { restarting?: unknown }).restarting === true;
 }
 
-/** The service this page is connected to: its process id, and whether the connection is up. */
-export interface ServiceView { connected: boolean; pid?: number }
+/** The process id of the service answering now; throws while pacer is unreachable. */
+export async function servicePid(call: RemedyHost["call"], timeoutMs = 3000): Promise<number | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("pacer did not answer")), timeoutMs); });
+  try {
+    const result = await Promise.race([call<{ snapshot?: { service?: { pid?: number } } }>("snapshot.get", {}), late]);
+    return result?.snapshot?.service?.pid;
+  } finally { clearTimeout(timer); }
+}
 
 /**
- * Resolves true once a connected service with a process id other than `before` is seen, or false
- * after `timeoutMs`. A recheck sent sooner could reach the old process just before it stops.
- * Without a known `before`, the connection must drop first.
+ * Resolves true once the service answers with a process id other than `before`, or false after
+ * `timeoutMs`. A recheck sent sooner could reach the old process just before it stops. The page's
+ * snapshot is not used: it is not refetched when a service of the same version reconnects.
+ * Without a known `before`, the service must stop answering first.
  */
-export async function awaitServiceRestart(before: number | undefined, view: () => ServiceView,
+export async function awaitServiceRestart(before: number | undefined, readPid: () => Promise<number | undefined>,
   { timeoutMs = 60_000, intervalMs = 500, sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), now = Date.now } = {}): Promise<boolean> {
   const deadline = now() + timeoutMs;
   let dropped = false;
   for (;;) {
-    const current = view();
-    dropped ||= !current.connected;
-    if (current.connected && current.pid !== undefined && (before === undefined ? dropped : current.pid !== before)) return true;
+    let pid: number | undefined;
+    try { pid = await readPid(); } catch { dropped = true; }
+    if (pid !== undefined && (before === undefined ? dropped : pid !== before)) return true;
     if (now() >= deadline) return false;
     await sleep(intervalMs);
   }
@@ -59,6 +67,11 @@ export async function prepareRun(plan: RunPlan, call: RemedyHost["call"]): Promi
   return { op: plan.op, params: plan.params, consent: { ...plan.consent, files: [] } };
 }
 
+/** Fix-all order: installing the service restarts it, which would cut off any fix still to run. */
+export function serviceInstallLast<T extends { run: PreparedRun }>(items: T[]): T[] {
+  return [...items].sort((a, b) => Number(a.run.op === "service.install") - Number(b.run.op === "service.install"));
+}
+
 /** Consent is added here, after the caller has confirmed; the remedy never carries it. */
 export function commitRun(run: PreparedRun, call: RemedyHost["call"]): Promise<unknown> {
   return call(run.op, run.consent ? { ...run.params, consent: true } : run.params);
@@ -69,7 +82,8 @@ export async function dispatchRemedy(plan: RemedyPlan, host: RemedyHost): Promis
     case "run": {
       const run = await prepareRun(plan, host.call);
       if (run.consent && !await host.confirm(run.consent)) return "cancelled";
-      if (restartsService(await commitRun(run, host.call))) await host.awaitRestart?.();
+      const before = run.op === "service.install" && host.awaitRestart ? await servicePid(host.call).catch(() => undefined) : undefined;
+      if (restartsService(await commitRun(run, host.call))) await host.awaitRestart?.(before);
       return "recheck";
     }
     case "review": {
