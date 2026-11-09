@@ -2,7 +2,7 @@
 
 The Rust registry owns only the operations listed as native below. `PACER_FORWARD_OPS` can return any native operation to the TypeScript core. The TypeScript handlers remain the reference during M2.
 
-**P7 replay gate (2026-11-06):** TypeScript `Screen` checkpoint roundtrip is **GO** on the synthetic vt100 corpus (`test/session-replay-gate.test.ts`). Native vt100 replay remains **NO-GO** (insert mode, SGR 9 strikeout, ZWJ width, disabled autowrap, and public-exporter scroll-region gaps). Keep session WebSocket and offline replay on the TypeScript host until a full native gate passes; `pacer-sessions` continues file/frame/control characterization only.
+**P7 replay gate (2026-11-06):** TypeScript `Screen` checkpoint roundtrip is **GO** on the synthetic vt100 corpus (`test/session-replay-gate.test.ts`). Native vt100 replay remains **NO-GO** (insert mode, SGR 9 strikeout, ZWJ width, disabled autowrap, and public-exporter scroll-region gaps). Keep session WebSocket and offline replay on the TypeScript host until a full native gate passes; `pacer-sessions` continues file/frame/control characterization only. Since 2026-11-09 the control characterization also mirrors the ADR 0023 delivery window (`deliver`/`granted`/`delivered`, quiet period, pending line, held input, `expired-unused`, `maxWindowMs`), checked against `test/fixtures/sessions/*-parity.json`; the TypeScript `ViewerHub` stays the runtime implementation.
 
 | Operation | M2 P3-D route | Retained TypeScript caller or reason |
 | --- | --- | --- |

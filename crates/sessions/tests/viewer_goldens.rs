@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use pacer_sessions::control::Controller;
+use pacer_sessions::control::{DeliveryTiming, Controller};
 use serde_json::{Value, json};
 #[test]
 fn arbitration_matches_ts_wire_and_events() {
@@ -16,28 +16,45 @@ fn arbitration_matches_ts_wire_and_events() {
             ),
             None => Controller::default(),
         };
+        if let Some(t) = row.get("timing") {
+            hub.set_delivery(DeliveryTiming {
+                quiet_ms: t["quietMs"].as_u64().unwrap(),
+                window_ms: t["windowMs"].as_u64().unwrap(),
+                timeout_ms: t["timeoutMs"].as_u64().unwrap(),
+                max_window_ms: t["maxWindowMs"].as_u64().unwrap(),
+            });
+        }
+        if row.get("refuseDeliver") == Some(&Value::Bool(true)) {
+            hub.set_refuse_deliver(true);
+        }
         let mut trace = vec![];
         let mut order = vec![];
         for step in row["steps"].as_array().unwrap() {
-            let id = step[1].as_str().unwrap();
             match step[0].as_str().unwrap() {
-                "join" => {
-                    let _admitted = hub.join(
-                        id,
-                        step.get(2)
-                            .and_then(Value::as_str)
-                            .unwrap_or(&format!("cli:{id}")),
-                        step.get(3).unwrap_or(&json!({})),
-                    );
-                    order.push(id);
+                "advance" => hub.advance(step[1].as_u64().unwrap()),
+                _ => {
+                    let id = step[1].as_str().unwrap();
+                    match step[0].as_str().unwrap() {
+                        "join" => {
+                            let _admitted = hub.join(
+                                id,
+                                step.get(2)
+                                    .and_then(Value::as_str)
+                                    .unwrap_or(&format!("cli:{id}")),
+                                step.get(3).unwrap_or(&json!({})),
+                            );
+                            order.push(id);
+                        }
+                        "take" => hub.take(id, &step[2]),
+                        "release" => hub.release(id),
+                        "disconnect" => hub.disconnect(id),
+                        "input" => hub.input(id, step[2].as_str().unwrap().as_bytes(), false),
+                        "focus" => hub.focus(id),
+                        "size" => hub.resize(id, &step[2]),
+                        "deliver" => hub.deliver(id, step.get(2).unwrap_or(&json!({}))),
+                        _ => panic!(),
+                    }
                 }
-                "take" => hub.take(id, &step[2]),
-                "release" => hub.release(id),
-                "disconnect" => hub.disconnect(id),
-                "input" => hub.input(id, step[2].as_str().unwrap().as_bytes(), false),
-                "focus" => hub.focus(id),
-                "size" => hub.resize(id, &step[2]),
-                _ => panic!(),
             }
             let mut messages = std::mem::take(&mut hub.messages);
             messages.sort_by_key(|v| order.iter().position(|id| v["id"] == *id).unwrap());

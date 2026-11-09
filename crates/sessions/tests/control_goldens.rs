@@ -94,3 +94,18 @@ fn terminal_query_reply_stripping_matches_ts() {
         assert_eq!(hex(&kept), row["kept"].as_str().unwrap(), "{row}");
     }
 }
+#[test]
+fn pending_line_heuristic_matches_ts() {
+    let rows = golden()["pending"].as_array().unwrap().clone();
+    assert!(!rows.is_empty());
+    for row in rows {
+        let text = row["hex"].as_str().unwrap();
+        let bytes: Vec<u8> = (0..text.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+            .collect();
+        let from = row["from"].as_u64().unwrap() as usize;
+        let (count, typed) = pacer_sessions::control::pending_after(&bytes, from);
+        assert_eq!(json!({"count": count, "typed": typed}), row["result"], "{row}");
+    }
+}
