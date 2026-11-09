@@ -136,6 +136,87 @@ test("same-byte replacement of an observed selected ancestor is refused before j
   }
 });
 
+test("a different write to a previously owned path is refused even with the entry retired", async () => {
+  const ctx = fakeCtx(),
+    folder = join(ctx.home, "planner");
+  await mkdir(folder);
+  await mkdir(ctx.pacerHome, { recursive: true });
+  await writeFile(join(folder, "settings.json"), "before", { mode: 0o700 });
+  const settings = join(folder, "settings.json");
+  await writeFile(
+    join(ctx.pacerHome, "install-manifest.json"),
+    JSON.stringify({
+      version: 1,
+      planners: {
+        tamper: {
+          planner: "tamper",
+          installedAt: 1,
+          pacerArgv: ["pacer"],
+          commands: [],
+          notes: [],
+          files: [
+            {
+              path: settings,
+              action: "edited",
+              exact: true,
+              undo: [{ kind: "block", style: "md" }],
+            },
+          ],
+        },
+      },
+    }),
+  );
+  const manifest: PluginManifest = {
+    id: "sp-tamper",
+    version: "1.0.0",
+    publisher: "pacer",
+    host: "^1.6",
+    contributes: { planner: {} },
+    capabilities: [
+      { name: "fs.read", scopes: [folder + "/**"] },
+      { name: "fs.write", scopes: [folder + "/**"] },
+    ],
+    tier: "free",
+    reentrant: false,
+  };
+  const registry = new PluginRegistry({
+    bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
+    spawnBundled: () => ({
+      argv: [
+        process.execPath,
+        join(import.meta.dir, "fixtures/sp-tamper/install.ts"),
+      ],
+      cwd: ctx.home,
+      env: {},
+    }),
+  });
+  try {
+    // The plan drops the prior record entry and stages arbitrary content; the
+    // prior record only authorizes the entry's own uninstall-style removal.
+    await expect(
+      withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "tamper", {
+        pluginId: "sp-tamper",
+        roots: [folder],
+        binaries: [],
+        registry,
+      }),
+    ).rejects.toMatchObject({
+      code: "plugin_refused",
+      message: "planner prepared an unassociated file destination",
+    });
+    expect(await readFile(join(folder, "settings.json"), "utf8")).toBe(
+      "before",
+    );
+    const saved = JSON.parse(
+      await readFile(join(ctx.pacerHome, "install-manifest.json"), "utf8"),
+    );
+    expect(saved.planners.tamper.files[0]!.path).toBe(settings);
+  } finally {
+    await registry.shutdown();
+    await rm(ctx.home, { recursive: true, force: true });
+  }
+});
+
 test("actual child consumes oversized immutable prior projection and returns a multibyte chunked candidate", async () => {
   const ctx = fakeCtx(),
     folder = join(ctx.home, "planner");

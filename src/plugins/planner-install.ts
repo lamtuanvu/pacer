@@ -6,6 +6,7 @@ import { validateInstallArgv } from "../install/self";
 import { recoverPlannerInstall, plannerTrustedRoots } from "./planner-recovery";
 import { readManifest, writeManifest, type PlannerRecord } from "../install/manifest";
 import { readInstallFile } from "../install/atomic";
+import { applyUndo } from "../../packages/plugin-sdk/src/install/undo";
 import { clearUndoSnapshot, readSnapshotFile, stageUndoSnapshot, commitStagedUndoSnapshot, discardStagedUndoSnapshot } from "../install/undo-store";
 import type { InstallEnv } from "../install/txn";
 import { sha256 } from "../install/fsx";
@@ -375,9 +376,8 @@ export async function withPlannerInstall(
       if (pending.size !== plan.files.length)
         refused("planner returned duplicate file destination");
       const associated = new Set<string>();
-      // A plan may retire a prior record entry while staging its final
-      // uninstall-style removal (a stale MCP registration the record owned);
-      // the prior record still authorizes writing that path once more.
+      // A plan may retire a prior record entry outright (a stale MCP record);
+      // the prior record still authorizes declaring a write to that path.
       const recordedBefore = (raw: string) =>
         !!prior?.files.some((value) => value.path === raw);
       for (const file of record.files) {
@@ -418,9 +418,24 @@ export async function withPlannerInstall(
             refused("planner replaced prior backup association");
         }
       }
-      for (const path of pending.keys())
-        if (!associated.has(path) && !recordedBefore(path))
+      for (const [path, change] of pending.entries()) {
+        if (associated.has(path)) continue;
+        const old = prior?.files.find((value) => value.path === path);
+        // A retired entry may stage its final uninstall-style removal (a stale
+        // MCP registration the record owned), but only a write reproducing
+        // exactly the content the entry's own undo produces — or no change at
+        // all — and never over a moved entry: anything else would leave a write
+        // to a previously owned path that the record can neither attribute nor
+        // undo.
+        if (
+          !old ||
+          old.action === "moved" ||
+          change.before === null ||
+          (change.after !== change.before &&
+            change.after !== applyUndo(change.before, old.undo))
+        )
           refused("planner prepared an unassociated file destination");
+      }
       if (
         plan.touched.some(
           (path) =>
