@@ -377,6 +377,7 @@ async fn config_set(ctx: &Ctx, params: Value) -> Result<Value, CoreError> {
         None,
         None,
         None,
+        None,
     )
     .await
 }
