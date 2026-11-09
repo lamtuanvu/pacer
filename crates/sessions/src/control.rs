@@ -355,14 +355,18 @@ impl Controller {
         let cancel = body.get("cancel") == Some(&Value::Bool(true));
         let owns = self.window.as_ref().is_some_and(|w| w.viewer == id);
         let queued = self.requests.iter().position(|(viewer, _)| viewer == id);
-        if !done || cancel {
-            if let Some(v) = self.viewer_mut(id) {
-                v.expired_unused = false;
-            }
+        if (!done || cancel)
+            && let Some(v) = self.viewer_mut(id)
+        {
+            v.expired_unused = false;
         }
         if done || cancel {
             if owns {
-                let result = if done { json!({"ok": true}) } else { cancelled_value() };
+                let result = if done {
+                    json!({"ok": true})
+                } else {
+                    cancelled_value()
+                };
                 self.finish(Some(&result));
             } else if let Some(index) = queued {
                 self.requests.remove(index);
@@ -378,7 +382,8 @@ impl Controller {
             );
             return;
         }
-        self.requests.push((id.into(), self.now + self.timing.timeout_ms));
+        self.requests
+            .push((id.into(), self.now + self.timing.timeout_ms));
         self.pump();
     }
     fn apply(&mut self, id: &str, bytes: &[u8]) {
@@ -404,7 +409,9 @@ impl Controller {
         };
     }
     fn finish(&mut self, result: Option<&Value>) {
-        let Some(window) = self.window.take() else { return };
+        let Some(window) = self.window.take() else {
+            return;
+        };
         let held = std::mem::take(&mut self.held);
         for (viewer, bytes) in held {
             self.apply(&viewer, &bytes);
@@ -469,7 +476,7 @@ impl Controller {
         }
         let quiet = self
             .last_input_at
-            .map_or(true, |at| self.now >= at + self.timing.quiet_ms);
+            .is_none_or(|at| self.now >= at + self.timing.quiet_ms);
         if self.window.is_none()
             && !self.requests.is_empty()
             && self.pending_line.is_none()
@@ -624,15 +631,17 @@ fn escape_end(bytes: &[u8], i: usize) -> usize {
     }
     if matches!(kind, 0x5d | 0x50 | 0x5e | 0x5f | 0x58) {
         let mut j = i + 2;
-        while j < bytes.len() && bytes[j] != 0x07 && !(bytes[j] == 0x1b && bytes.get(j + 1) == Some(&0x5c))
+        while j < bytes.len()
+            && bytes[j] != 0x07
+            && !(bytes[j] == 0x1b && bytes.get(j + 1) == Some(&0x5c))
         {
             j += 1;
         }
-        return if bytes.get(j) == Some(&0x1b) { j + 1 } else { j };
+        return if bytes.get(j) == Some(&0x1b) {
+            j + 1
+        } else {
+            j
+        };
     }
-    if kind == 0x4f {
-        i + 2
-    } else {
-        i + 1
-    }
+    if kind == 0x4f { i + 2 } else { i + 1 }
 }

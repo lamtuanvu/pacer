@@ -106,6 +106,10 @@ fn pending_line_heuristic_matches_ts() {
             .collect();
         let from = row["from"].as_u64().unwrap() as usize;
         let (count, typed) = pacer_sessions::control::pending_after(&bytes, from);
-        assert_eq!(json!({"count": count, "typed": typed}), row["result"], "{row}");
+        assert_eq!(
+            json!({"count": count, "typed": typed}),
+            row["result"],
+            "{row}"
+        );
     }
 }

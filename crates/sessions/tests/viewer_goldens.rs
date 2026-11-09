@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use pacer_sessions::control::{DeliveryTiming, Controller};
+use pacer_sessions::control::{Controller, DeliveryTiming};
 use serde_json::{Value, json};
 #[test]
 fn arbitration_matches_ts_wire_and_events() {
