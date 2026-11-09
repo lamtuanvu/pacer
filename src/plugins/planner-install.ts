@@ -4,11 +4,11 @@ import { CoreError } from "../core/errors";
 import { withInstallLock } from "../install/lock";
 import { validateInstallArgv } from "../install/self";
 import { recoverPlannerInstall } from "./planner-recovery";
-import { readManifest, type PlannerRecord } from "../install/manifest";
+import { readManifest, type PlannerRecord, type FileChange } from "../install/manifest";
 import { readInstallFile } from "../install/atomic";
 import type { InstallEnv } from "../install/txn";
 import { sha256 } from "../install/fsx";
-import { commitInstall } from "../../packages/plugin-sdk/src/install/journal";
+import { commitInstall, type PendingFile } from "../../packages/plugin-sdk/src/install/journal";
 import type { PreparedPlannerPlan } from "../../packages/plugin-sdk/src/install/prepared";
 import type { InstallReport } from "../../packages/plugin-sdk/src/install/txn";
 import { pluginRegistry } from "./index";
@@ -17,6 +17,64 @@ import { createCallAuthority } from "./authority";
 import { absolutePath, declaredPath } from "./capability-paths";
 import { PlannerResources } from "./planner-resources";
 import { preparedPlannerPlan } from "./planner-protocol";
+
+/** A repair can be undone for 7 days after the connect that changed files. `ctx.now` is Unix seconds. */
+export const UNDO_WINDOW_S = 7 * 86_400;
+
+/** Restore the install-manifest backups of the most recent connect, within the undo window. */
+export async function restorePlannerInstall(
+  ctx: InstallEnv["ctx"],
+  agent: string,
+  key: string,
+): Promise<{ restored: string[]; removed: string[]; reverted: string[] }> {
+  return withInstallLock(ctx, async () => {
+    await recoverPlannerInstall(ctx, [], []);
+    const manifest = readManifest(ctx);
+    const prior = manifest.planners[key];
+    if (!prior)
+      throw new CoreError("not_found", `No pacer repair is recorded for ${agent}`, "Connect the agent first, then undo a repair from Diagnostics.");
+    if (ctx.now - (prior.installedAt ?? ctx.now) > UNDO_WINDOW_S)
+      throw new CoreError("not_found", "This repair is older than 7 days and can no longer be undone", "Reconnect the agent from Diagnostics to repair it again.");
+    const restored: string[] = [], removed: string[] = [], reverted: string[] = [];
+    const pending: PendingFile[] = [], kept: FileChange[] = [];
+    for (const file of [...prior.files].reverse()) {
+      const text = readInstallFile(file.path);
+      const mode = text === null ? undefined : lstatSync(file.path).mode & 0o700;
+      const intact = text !== null && (!file.afterHash || sha256(text) === file.afterHash);
+      if (file.action === "moved") {
+        const backup = file.backup ? readInstallFile(file.backup) : null;
+        if (backup && text === null) {
+          pending.push({ path: file.path, before: null, after: backup, mode: lstatSync(file.backup!).mode & 0o700 });
+          pending.push({ path: file.backup!, before: backup, after: null, beforeMode: lstatSync(file.backup!).mode & 0o700 });
+          restored.push(file.path);
+        } else kept.push(file);
+        continue;
+      }
+      if (file.action === "created" && intact && (file.exact !== false || file.undo.length === 0)) {
+        pending.push({ path: file.path, before: text, after: null, beforeMode: mode });
+        removed.push(file.path);
+      } else if (file.action === "edited" && intact && file.exact && file.backup) {
+        const backup = readInstallFile(file.backup);
+        if (backup) {
+          pending.push({ path: file.path, before: text, after: backup, beforeMode: mode, mode: lstatSync(file.backup).mode & 0o700 });
+          pending.push({ path: file.backup, before: backup, after: null, beforeMode: lstatSync(file.backup).mode & 0o700 });
+          restored.push(file.path);
+        } else kept.push(file);
+      } else kept.push(file);
+    }
+    if (!pending.length) return { restored, removed, reverted };
+    const record = { ...prior, files: kept };
+    const session = await plannerJournalIO(ctx, pending, Date.now() + 600000, () => {});
+    try {
+      session.preflight();
+      const planners = { ...manifest.planners, [key]: record };
+      await commitInstall(session.io, pending, JSON.stringify({ version: 1, planners }, null, 2) + "\n");
+    } finally {
+      await session.close();
+    }
+    return { restored, removed, reverted };
+  });
+}
 
 export interface PlannerInstallOptions {
   pluginId: string;

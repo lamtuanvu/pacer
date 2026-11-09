@@ -17,6 +17,7 @@ import { withLock } from "./lock";
 import { loadStrategy } from "../config/strategy";
 import { accountFolder } from "../install/role";
 import { plannerPreview } from "../plugins/planner-preview";
+import { restorePlannerInstall } from "../plugins/planner-install";
 import { currentVersion } from "../update/version";
 import { PROTOCOL_VERSION } from "../api/protocol";
 import type { Ctx } from "../types";
@@ -61,6 +62,15 @@ export function pluginInstall(): never {
 function plannerTarget(ctx:Ctx,agent:AgentId) {
   try {const s=loadStrategy(ctx);return s.planner.agent===agent?s.planner:agent;}catch{return agent;}
 }
+/** A plain-language note for each change; shown in the review sheet (board 17b). */
+const CHANGE_NOTE = {
+  create: "Pacer adds this file.",
+  update: "Pacer updates its entries and keeps your edits.",
+  restore: "Changed outside pacer; restored to the installed version",
+  unchanged: "Matches the installed version",
+  kept: "Yours. Pacer never edits it",
+} as const;
+export interface PreviewFile { path: string; change: keyof typeof CHANGE_NOTE; note: string }
 export async function agentPreview(ctx: Ctx, agent: AgentId) {
   // Preview remains available even when a CLI has not been installed yet.
   if (!Object.hasOwn(AGENT_BINS,agent)) throw new CoreError("invalid_input", `unknown agent: ${agent}`, `choose ${PLANNERS.join(', ')}`);
@@ -70,7 +80,9 @@ export async function agentPreview(ctx: Ctx, agent: AgentId) {
   const root=join(ctx.home,agent==="claude-code"?".claude":`.${agent}`);
 
   const desired=await plannerPreview(ctx,agent,folder??(agent==="opencode"?join(ctx.env.XDG_CONFIG_HOME??join(ctx.home,".config"),"opencode"):root),folder&&typeof target==="object"?`${agent}#${target.account}`:agent,agent==="codex"?folder??ctx.env.CODEX_HOME:undefined);
-  const preview={agent,...desired};
+  const changes=(desired.changes ?? desired.files.map(path => ({ path, change: "update" as const })))
+    .map(file => ({ path: file.path, change: file.change, note: CHANGE_NOTE[file.change] ?? CHANGE_NOTE.update }));
+  const preview={agent,...desired,files: desired.files, changes};
   return {...preview, revision: sha256(JSON.stringify({target, folder, ...preview}))};
 }
 
@@ -83,6 +95,25 @@ export async function agentConnect(ctx: Ctx, agent: AgentId, options: {consent?:
   try {
     const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false}, target);
     return {installed: r.touched};
+  } catch (e) { throw toCoreError(e); }
+}
+
+/** The manifest key for an agent, mirroring installPlanner's plannerKey selection. */
+function plannerKey(ctx: Ctx, agent: AgentId): string {
+  const target = plannerTarget(ctx, agent);
+  if (typeof target === "string") return target;
+  const account = loadStrategy(ctx).accounts[target.account];
+  return !account || account.source === "default" ? agent : `${agent}#${target.account}`;
+}
+
+/** Undo the file changes of the most recent connect, consent-gated, within 7 days. */
+export async function agentUndo(ctx: Ctx, agent: AgentId, options: {consent?: boolean} = {}) {
+  if (options.consent !== true) throw new CoreError("not_allowed", "undoing a repair requires consent", "Review that pacer will restore the previous copies, then pass consent: true");
+  const target = plannerTarget(ctx, agent);
+  const key = plannerKey(ctx, agent);
+  try {
+    const { restored, removed, reverted } = await restorePlannerInstall(ctx, typeof target === "string" ? target : target.agent, key);
+    return { restored, removed, reverted };
   } catch (e) { throw toCoreError(e); }
 }
 

@@ -403,8 +403,9 @@ export const OPS: Record<string, OpDef> = {
       counts: {tasks: c.tasks, sessions: c.sessions, older_runners: c.olderRunners, older_sessions: c.olderSessions, reopen_to_update: c.reopenToUpdate}};
   } }),
   "plugin.install": op({ description: "Retired: pacer no longer ships an Orca plugin. Always fails with not_allowed; removed in the next protocol major.", params: z.object({}), handler: () => setup.pluginInstall() }),
-  "agent.preview": op({ description: "Preview agent integration files and the undo command before consenting.", params: z.object({agent}), handler: (ctx, p) => setup.agentPreview(ctx, p.agent) }),
+  "agent.preview": op({ description: "Preview agent integration files, the undo command and each file's change (create, update, restore, unchanged or kept) before consenting.", params: z.object({agent}), handler: (ctx, p) => setup.agentPreview(ctx, p.agent) }),
   "agent.connect": op({ description: "Connect an agent after explicit consent to write its integration files.", params: z.object({agent, consent: z.boolean().optional(), preview_revision: z.string().optional()}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentConnect(ctx, p.agent, p)) }),
+  "agent.undo": op({ description: "Restore the previous copies of an agent's integration files changed by the most recent connect, after explicit consent, within 7 days.", params: z.object({agent, consent: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentUndo(ctx, p.agent, p)) }),
   "agent.disconnect": op({ description: "Remove an agent integration using its recorded undo actions.", params: z.object({agent}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.agentDisconnect(ctx, p.agent)) }),
   "version.get": op({ description: "Pacer and protocol version metadata.", params: z.object({}), handler: ctx => setup.version(ctx) }),
   "host.list": op({ description: "Configured SSH hosts and running task counts.", params: z.object({}), handler: ctx => core.hosts.list(ctx) }),
