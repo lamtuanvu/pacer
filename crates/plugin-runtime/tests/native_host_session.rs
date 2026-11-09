@@ -902,11 +902,186 @@ async fn sealed_planner_transaction_forwards_commands_to_core_after_negotiation(
     session.shutdown().await;
 }
 
+/// Planner child that returns a result of `params.size` bytes: below/at the
+/// 768 KiB chunk boundary it replies in one frame; above it sends `$/resultChunk`
+/// pieces (≤ 256 KiB) to Core, waiting for each `{ bytes }` ack, then a
+/// `_chunkedResult` completion, exactly like the SDK. `argv[2] == "1"`
+/// negotiates the planner transactions and chunked result features.
+const CHUNKED_CHILD: &str = r#"const fs=require('node:fs');try{const r=Bun.stdin.stream().getReader();let b='',call,payload,off=0;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));function sendChunk(){const part=payload.subarray(off,off+262144);send({id:'chunk',method:'$/resultChunk',params:{request:call.id,offset:off,base64:part.toString('base64')}});}for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:m.params.manifest.id,version:'1.0.0',contributes:['planner'],features:['chunkedResults','plannerInstallTransactions']}});else if(m.method==='planner.install'){call=m;const size=m.params.size??(600*1024);payload=Buffer.from(JSON.stringify({schema:1,pad:'x'.repeat(size)}),'utf8');off=0;if(payload.length>768*1024)sendChunk();else send({id:call.id,result:JSON.parse(payload.toString('utf8'))});}else if(m.id==='chunk'){const staged=m.result?.bytes??0;if(staged>=payload.length)send({id:call.id,result:{_chunkedResult:{bytes:payload.length}}});else{off=staged;sendChunk();}}else if(m.method==='diagnostic.ping')send({id:m.id,result:{ok:true}});}}}catch(e){try{fs.writeFileSync('/tmp/chunked-child-err.txt',String(e&&e.stack||e));}catch{}}"#;
+
+/// N3: a planner install or uninstall result over 768 KiB must survive the
+/// bridge. The child switches to `$/resultChunk` pieces (as the SDK does) and
+/// the owner forwards them to Core; a result at or below the limit still comes
+/// back in one frame.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("chunked.js");
+    fs::write(&script, CHUNKED_CHILD).unwrap();
+    let core_methods = json!([
+        "capability.planner.run",
+        "capability.process.outputChunk",
+        "capability.planner.readPriorRange",
+        "$/resultChunk"
+    ]);
+    let request = |rpc: u64, size: Value| {
+        json!({
+            "jsonrpc":"2.0","id":rpc,"method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":"fx-chunk","method":"planner.install","params":{"size":size},"deadlineMs":10000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap(), "1"],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":{
+                        "protocol":"1.10.0","pacer":"0.2.0",
+                        "manifest":{
+                            "id":"fx-chunk","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                            "capabilities":[{"name":"fs.read","scopes":["/fixture/**"]},{"name":"process.spawn","scopes":["fx-cmd"]}],
+                            "contributes":{"planner":{}}
+                        },
+                        "config":{},"grants":["fs.read","process.spawn"],
+                        "features":["chunkedResults","plannerInstallTransactions"]
+                    },
+                },
+                "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
+                "coreMethods":core_methods.clone(),
+                "requireFeatures":["plannerInstallTransactions"]
+            }
+        })
+    };
+    let core = |frame: &Value| {
+        if frame["method"] == "$/resultChunk" {
+            let offset = frame["params"]["offset"].as_u64().unwrap_or(0);
+            json!({"result": {"bytes": offset + 262144}})
+        } else {
+            json!({"result": {}})
+        }
+    };
+    tokio::task::yield_now().await;
+
+    // Below the limit: one complete frame, nothing forwarded to Core.
+    let (below, forwarded) = dial_with_core(&path, request(61, json!(600 * 1024)), core).await;
+    assert!(below.get("error").is_none(), "{below}");
+    assert_eq!(below["result"]["value"]["schema"], 1, "{below}");
+    assert!(forwarded.is_empty(), "{forwarded:?}");
+
+    // At the limit: the serialised result edges just over 768 KiB, so the child
+    // switches to `$/resultChunk` and it must be forwarded and assemble.
+    let (at, forwarded) = dial_with_core(&path, request(62, json!(768 * 1024)), core).await;
+    assert!(at.get("error").is_none(), "{at}");
+    assert!(forwarded
+        .iter()
+        .any(|frame| frame["method"] == "$/resultChunk"), "{forwarded:?}");
+    assert!(at["result"]["value"]["_chunkedResult"]["bytes"].as_u64().is_some(), "{at}");
+    assert_eq!(
+        at["result"]["value"]["_chunkedResult"]["bytes"].as_u64().unwrap(),
+        serde_json::to_string(&json!({"schema":1,"pad":"x".repeat(768*1024)}))
+            .unwrap()
+            .len() as u64,
+        "{at}"
+    );
+
+    // Above the limit: several chunked pieces, all forwarded, final completion.
+    let (above, forwarded) = dial_with_core(&path, request(63, json!(1300 * 1024)), core).await;
+    assert!(above.get("error").is_none(), "{above}");
+    let chunked_methods: Vec<Value> = forwarded
+        .iter()
+        .filter(|frame| frame["method"] == "$/resultChunk")
+        .map(|frame| frame["method"].clone())
+        .collect();
+    assert!(!chunked_methods.is_empty(), "{forwarded:?}");
+    assert!(above["result"]["value"]["_chunkedResult"]["bytes"].as_u64().is_some(), "{above}");
+
+    session.owner().lock().await.terminate("fx-chunk").await.unwrap();
+    session.shutdown().await;
+}
+
+/// N4: a child that is `ready` but has no recorded hello summary (the server
+/// path marks readiness without one) must fail closed when a call requires a
+/// negotiated feature — the bridge must not let such a lane silently pass the
+/// gate — and otherwise report `hello: null`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_call_ready_without_a_summary_is_fail_closed_under_require_features() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("simple.js");
+    fs::write(
+        &script,
+        r#"const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:m.params.manifest.id,version:'1.0.0',contributes:['diagnostic'],features:['chunkedResults']}});else if(m.method==='diagnostic.ping')send({id:m.id,result:{ok:true}});}}"#,
+    )
+    .unwrap();
+    let request = |rpc: u64, required: Value| {
+        json!({
+            "jsonrpc":"2.0","id":rpc,"method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":"fx-ready","method":"diagnostic.ping","params":{},"deadlineMs":10000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap()],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":{
+                        "protocol":"1.10.0","pacer":"0.2.0",
+                        "manifest":{
+                            "id":"fx-ready","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                            "contributes":{"diagnostic":{}}
+                        },
+                        "config":{},"grants":[],"features":["chunkedResults"]
+                    },
+                },
+                "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":[],"ttlMs":10000},
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
+                "coreMethods":Value::Null,
+                "requireFeatures":required
+            }
+        })
+    };
+    tokio::task::yield_now().await;
+
+    // First call readies the child and records a summary (with `chunkedResults`).
+    let first = dial_json(&path, request(70, Value::Null)).await;
+    assert!(first.get("error").is_none(), "{first}");
+    assert_eq!(
+        first["result"]["hello"]["features"],
+        json!(["chunkedResults"]),
+        "{first}"
+    );
+
+    // Forget the recorded summary: the lane stays `ready` but has no hello.
+    session.owner().lock().await.mark_ready("fx-ready");
+
+    // A call that requires `chunkedResults` is now fail-closed: with no recorded
+    // negotiation it cannot prove the feature, even though the child would.
+    let refused = dial_json(&path, request(71, json!(["chunkedResults"]))).await;
+    assert_eq!(refused["error"]["data"]["code"], "capability_denied", "{refused}");
+    assert_eq!(
+        refused["error"]["message"],
+        "diagnostic.ping requires the negotiated chunkedResults feature",
+        "{refused}"
+    );
+
+    // Without a required feature the call proceeds, reporting `hello: null`.
+    let second = dial_json(&path, request(72, Value::Null)).await;
+    assert!(second.get("error").is_none(), "{second}");
+    assert_eq!(second["result"]["value"]["ok"], true, "{second}");
+    assert_eq!(second["result"]["hello"], Value::Null, "{second}");
+
+    session.owner().lock().await.terminate("fx-ready").await.unwrap();
+    session.shutdown().await;
+}
+
 /// Hello-phase child: before answering `plugin.hello`, it asks for a Core-sealed
-/// `capability.planner.run` the same way an admitted planner command would. It then
-/// negotiates `plannerInstallTransactions` and answers `planner.install` normally,
-/// carrying the hello-phase attempt's outcome in the final value so the test can see it.
-const HELLO_FORWARD_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',hello,early,call,out={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const ask=(id,method,params)=>send({id,method,params});for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello'){hello=m;ask('early','capability.planner.run',{argv:['fx-cmd','forward'],undo:['fx-cmd','undo'],timeoutMs:1000});}else if(m.id==='early'){early=m.result??m.error;send({id:hello.id,result:{protocol:'1.10.0',id:hello.params.manifest.id,version:'1.0.0',contributes:['planner'],features:['chunkedResults','plannerInstallTransactions']}});}else if(m.method==='planner.install'){call=m;out={};ask('run','capability.planner.run',{argv:['fx-cmd','forward'],undo:['fx-cmd','undo'],timeoutMs:1000});}else if(m.id==='run'){out.run=m.result??m.error;send({id:call.id,result:{schema:1,early,...out}});}}}"#;
+/// `capability.planner.run` and `capability.fs.read` the same way an admitted
+/// planner command or Core-issued log read would. It then negotiates
+/// `plannerInstallTransactions` and answers `planner.install` normally, carrying
+/// the hello-phase attempts' outcomes in the final value so the test can see them.
+const HELLO_FORWARD_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',hello,earlyRun,earlyRead,call,out={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const ask=(id,method,params)=>send({id,method,params});for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello'){hello=m;ask('earlyRun','capability.planner.run',{argv:['fx-cmd','forward'],undo:['fx-cmd','undo'],timeoutMs:1000});ask('earlyRead','capability.fs.read',{path:'/fixture/log'});}else if(m.id==='earlyRun'){earlyRun=m.result??m.error;if(earlyRead)send({id:hello.id,result:{protocol:'1.10.0',id:hello.params.manifest.id,version:'1.0.0',contributes:['planner'],features:['chunkedResults','plannerInstallTransactions']}});}else if(m.id==='earlyRead'){earlyRead=m.result??m.error;if(earlyRun)send({id:hello.id,result:{protocol:'1.10.0',id:hello.params.manifest.id,version:'1.0.0',contributes:['planner'],features:['chunkedResults','plannerInstallTransactions']}});}else if(m.method==='planner.install'){call=m;out={};ask('run','capability.planner.run',{argv:['fx-cmd','forward'],undo:['fx-cmd','undo'],timeoutMs:1000});}else if(m.id==='run'){out.run=m.result??m.error;send({id:call.id,result:{schema:1,earlyRun,earlyRead,...out}});}}}"#;
 
 /// N1: a child that tries to use Core forwarding while it answers `plugin.hello`, before
 /// Core knows whether the feature gate will pass, must get nothing run. Binding Core
@@ -964,7 +1139,7 @@ async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
     let (installed, forwarded) = dial_with_core(&path, request, core).await;
     assert!(installed.get("error").is_none(), "{installed}");
     // Only the post-gate `planner.install` forward reached Core; the hello-phase
-    // attempt never appeared on the wire.
+    // attempts never appeared on the wire.
     assert_eq!(
         forwarded
             .iter()
@@ -973,9 +1148,13 @@ async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
         [json!("capability.planner.run")]
     );
     let value = &installed["result"]["value"];
-    // The hello-phase attempt was answered locally and refused, not run by Core.
-    assert_eq!(value["early"]["code"], -32000, "{value}");
-    assert_eq!(value["early"]["data"]["code"], "invalid_input", "{value}");
+    // The hello-phase attempts were refused locally (`capability_denied`, R1), not
+    // run by Core or answered by the native broker, so neither a pinned command
+    // nor a log read was served during the hello.
+    for attempt in ["earlyRun", "earlyRead"] {
+        assert_eq!(value[attempt]["code"], -32000, "{value}");
+        assert_eq!(value[attempt]["data"]["code"], "capability_denied", "{value}");
+    }
     assert_eq!(value["run"]["code"], 0, "{value}");
 
     session
