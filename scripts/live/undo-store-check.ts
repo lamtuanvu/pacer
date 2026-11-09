@@ -83,5 +83,24 @@ export async function exerciseUndoStore(session: Session): Promise<void> {
   must(!existsSync(undoDir) || readdirSync(undoDir).length === 0, "undo did not clear the private snapshot store");
   record(session, { kind: "note", behavior: "undo restore", surface: "undo", verdict: "PASS",
     text: "Undo restored the reconnect's pre-image from the private store and cleared it; the manifest is metadata-only across connect, edit, reconnect and undo." });
+
+  // 5. Tamper with a fresh snapshot's copy; undo must refuse (M1).
+  writeFileSync(skillPath, edited + "# user marker " + secret + "\n");
+  await installPlanner({ ctx, pacerArgv: pacerArgv(env), mcp: false, folder: codex }, "codex");
+  const third = readManifest(ctx).planners.codex.undoConnect;
+  must(!!third && !!third.revision, "tamper-step reconnect did not record a snapshot");
+  const copyName = third.files.find((file) => file.copy)?.copy;
+  must(!!copyName, "tamper-step snapshot has no private copy");
+  writeFileSync(join(pacerHome, "undo", "codex", copyName), "LIVE_TAMPERED");
+  let refused = false;
+  try {
+    await restorePlannerInstall(ctx, "codex", "codex", third.revision);
+  } catch (error) {
+    refused = String((error as Error).message).includes("don't match this repair");
+  }
+  must(refused, "undo did not refuse a tampered private copy");
+  must(readFileSync(skillPath, "utf8") !== "", "file state after refused undo unexpected");
+  record(session, { kind: "note", behavior: "tamper refusal", surface: "undo", verdict: "PASS",
+    text: "After tampering with the private snapshot copy, undo refused with the mismatch error instead of restoring foreign content." });
   await shutdownPlugins({ pacerHome });
 }
