@@ -31,8 +31,6 @@ export class SessionClient {
  state:SessionState;
  private ws?:SessionSocket; private offset?:number; private stopped=false; private ended=false; private attempt=0; private cancel?:()=>void;
  private autoControlAllowed:boolean; private autoControlAttempted=false;
- /** The host's last answer to whether this viewer may type; 1.2 grants it without take. */
- private hostYou=false;
  /** The minor version of the current connection, decided by its first control frame. */
  private minor?:number;
  constructor(private options:SessionClientOptions){this.offset=options.from;this.autoControlAllowed=options.autoControl!==false;this.state={status:'connecting',you:false,controller:null,cols:options.cols,rows:options.rows,viewers:0};}
@@ -71,8 +69,8 @@ export class SessionClient {
     case 'control':{
      // Only the first control frame of a connection carries the host's version range.
      this.minor??=negotiatedMinor(frame.versions);
-     const shared=this.minor>=2;this.hostYou=frame.you===true;
-     this.attempt=0;this.update({...(this.offset!==undefined&&this.state.status!=='resyncing'?{status:'live' as const}:{}),controller:shared?null:frame.controller,...(Number.isInteger(frame.viewers)?{viewers:frame.viewers}:{}),you:this.options.control&&this.hostYou,shared,message:!shared&&frame.reason==='taken'&&!frame.you?'Control was taken by another viewer.':undefined,...(typeof frame.active==='string'||frame.active===null?{active:frame.active}:{})});this.tryAutoControl();break;
+     const shared=this.minor>=2;
+     this.attempt=0;this.update({...(this.offset!==undefined&&this.state.status!=='resyncing'?{status:'live' as const}:{}),controller:shared?null:frame.controller,...(Number.isInteger(frame.viewers)?{viewers:frame.viewers}:{}),you:this.options.control&&frame.you===true,shared,message:!shared&&frame.reason==='taken'&&!frame.you?'Control was taken by another viewer.':undefined,...(typeof frame.active==='string'||frame.active===null?{active:frame.active}:{})});this.tryAutoControl();break;
     }
     // 1.2 hosts broadcast pacer's own input; granted belongs to the deliverer, never a viewer, and is ignored.
     case 'delivered':if(this.shared&&frame.ok===true){const label=typeof frame.label==='string'?frame.label:undefined;this.update({delivered:{kind:frame.kind==='answer'||frame.kind!=='message'&&/answer/i.test(label??'')?'answer':'message',...(label?{label}:{})}});}break;
@@ -121,9 +119,6 @@ export class SessionClient {
  }
  resize(cols:number,rows:number){return this.state.you&&this.options.control?this.send('size',{cols,rows}):false;}
  get outputOffset(){return this.offset;}
- configure(control:boolean,autoControl?:boolean,metadata:Partial<Pick<SessionClientOptions,'url'|'label'>>={}){Object.assign(this.options,metadata);this.options.control=control;if(autoControl!==undefined&&!this.autoControlAttempted)this.autoControlAllowed=autoControl;
-  // 1.2 sends no further control frame: a pane that connected before its task went live follows control from here.
-  if(this.shared&&this.state.status==='live'){if(this.state.you!==(control&&this.hostYou))this.update({you:control&&this.hostYou});return;}
-  if(!control&&this.state.you)this.release();}
+ configure(control:boolean,autoControl?:boolean,metadata:Partial<Pick<SessionClientOptions,'url'|'label'>>={}){Object.assign(this.options,metadata);this.options.control=control;if(autoControl!==undefined&&!this.autoControlAttempted)this.autoControlAllowed=autoControl;if(!control&&this.state.you)this.release();}
  dispose(){this.stopped=true;this.cancel?.();if(this.ws){this.ws.onopen=this.ws.onmessage=this.ws.onclose=this.ws.onerror=null;this.ws.close();}this.ws=undefined;}
 }

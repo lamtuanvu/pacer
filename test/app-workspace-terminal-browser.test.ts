@@ -262,6 +262,21 @@ browserTest('real split shell renderers fit their own panes and keep the same te
   } finally { await browser.close(); }
 }, 45_000);
 
+browserTest('a 1.2 pane whose first session read was not live becomes interactive and fits the pane once connected', async () => {
+  const source = await bundle();
+  const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, source, false, 'dark', false, undefined, [1, 2], 'startinglive');
+    // The task record does not change again, so only the live connection can prompt a second session read.
+    await page.locator('.pc-terminal-strip [role="status"]').filter({ hasText: 'Interactive' }).waitFor();
+    expect(await page.locator('.pc-terminal-pane').getAttribute('aria-label')).toBe('Codex terminal, interactive');
+    expect(await page.evaluate(() => (window as any).workspaceCalls.filter((op: string) => op === 'task.session').length)).toBeGreaterThanOrEqual(2);
+    await page.waitForFunction(() => (window as any).terminalSockets.some((s: any) => s.sent.some((f: any) => f.type === 'size')));
+    await page.close();
+  } finally { await browser.close(); }
+}, 30_000);
+
 browserTest('a 1.2 takeover workspace hands back after confirming, once, with its error and focus handled', async () => {
   const source = await bundle();
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });

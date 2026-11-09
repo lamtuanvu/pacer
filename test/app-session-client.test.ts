@@ -89,23 +89,6 @@ test('a 1.2 host types without take, sends focus and size, and never sends take 
  expect(s.json().filter(frame=>['take','release'].includes(frame.type))).toEqual([]);
  f.client.dispose();
 });
-test('a 1.2 pane opened before the task was live becomes interactive when it goes live, and read-only again when it ends', () => {
- // The desktop keeps a pane's connection across navigation: it may connect while the task is still queued.
- const sockets:FakeSocket[]=[];
- const client=new SessionClient({url:'ws://localhost/v2/tasks/t-1/session',cols:120,rows:40,label:'app',control:false,
-  socket:()=>{const s=new FakeSocket();sockets.push(s);return s;},schedule:()=>()=>{}});
- client.connect();const s=sockets[0]!;s.onopen?.();
- s.frame(live);s.frame(shared);
- expect(client.state).toMatchObject({shared:true,you:false});
- client.configure(true);
- expect(client.state.you).toBe(true);
- expect(client.input('x')).toBe(true);
- client.configure(false);
- expect(client.state.you).toBe(false);
- expect(client.input('y')).toBe(false);
- expect(s.json().filter(frame=>['take','release'].includes(frame.type))).toEqual([]);
- client.dispose();
-});
 test('a 1.2 reconnect keeps take off and sends focus only after the host answers', async () => {
  const f=fixture(),s=f.sockets[0]!;
  s.frame(live);s.frame(shared);s.onclose?.();f.timers[0]!();
