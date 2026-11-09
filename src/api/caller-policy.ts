@@ -1,4 +1,5 @@
 import { isExecutorSession } from '../install/role';
+import { requireWorkScope } from '../dispatch/work';
 import { ApiError } from './client-types';
 import type { Ctx } from '../types';
 
@@ -11,6 +12,27 @@ export const UPGRADE_OPERATIONS: readonly string[] = ['update.apply', 'service.i
 export const UPGRADE_REFUSAL = 'PACER_ROLE=executor: upgrades are not allowed from a delegated task.';
 export function isUpgradeOperation(name: string): boolean {
   return UPGRADE_OPERATIONS.includes(name) || (name.startsWith('desktop.reconcile.') && name !== 'desktop.reconcile.status') || (name.startsWith('desktop.update.') && name !== 'desktop.update.status');
+}
+
+/** Executors review a child they personally dispatched through a valid work grant; never their own task (F4). */
+export const TASK_REVIEW_REFUSAL =
+  'PACER_ROLE=executor: executors cannot review their own task; only a child they dispatched this run (use pacer dispatch review).';
+
+/** Executors never send a child back or retry it through task.review; those go through the dispatch commands. */
+export const TASK_REVIEW_VARIANTS_REFUSAL =
+  'PACER_ROLE=executor: send_back and retry verdicts are for the planner or a person; retry or answer a child with pacer dispatch retry / pacer dispatch answer.';
+
+export function executorMayReview(ctx: Ctx, params: Record<string, unknown>): boolean {
+  const token = ctx.env.PACER_WORK_GRANT;
+  const id = params?.id;
+  if (!token || typeof id !== "string" || !id) return false;
+  try {
+    // review scope: id must be a strict descendant (child) of the granted task, never the task itself.
+    requireWorkScope(ctx, token, id, true);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Preserve caller role when a planner-owned daemon performs the operation. */
@@ -27,8 +49,12 @@ export function assertCallerCanInvoke(ctx: Ctx, name: string, params: Record<str
   if (name === 'machine.set' || name === 'machine.rotate') throw new ApiError('not_allowed', 'PACER_ROLE=executor: renaming or rotating this machine is for the operator, not executor sessions.');
   if (name === 'discovery.set' || name === 'discovery.respond' || name === 'discovery.network.set') throw new ApiError('not_allowed', 'PACER_ROLE=executor: pairing and LAN discovery settings are for the operator, not executor sessions.');
   if (name === 'task.hand_back') throw new ApiError('not_allowed', 'PACER_ROLE=executor: handing a taken-over task back is for the person driving it.');
+  if (name === 'task.review') {
+    if (params?.verdict === 'send_back' || params?.verdict === 'retry') throw new ApiError('not_allowed', TASK_REVIEW_VARIANTS_REFUSAL);
+    if (!executorMayReview(ctx, params)) throw new ApiError('not_allowed', TASK_REVIEW_REFUSAL);
+  }
   const launches = ['account.usage.check', 'task.delegate', 'task.retry', 'task.retry_all', 'task.answer', 'task.send', 'session.create', 'session.resume', 'task.takeover', 'strategy.build', 'onboarding.try', 'doctor.fix.delegate'];
-  if (launches.includes(name) || (name === 'task.review' && ['send_back', 'retry'].includes(String(params.verdict)))) {
+  if (launches.includes(name)) {
     throw new ApiError('not_allowed', 'PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.');
   }
 }

@@ -12,6 +12,11 @@ use super::lifecycle_ops::{
     invalid, object, optional_expect_rev, project_api_task, require_string, type_name,
 };
 
+/// Executor sessions may review only a child they dispatched through a valid work grant (F4); the
+/// native front door only ever handles plain non-work reviews, which an executor may never make.
+const TASK_REVIEW_REFUSAL: &str =
+    "PACER_ROLE=executor: executors cannot review their own task; only a child they dispatched this run (use pacer dispatch review).";
+
 pub fn needs_task_review_bridge(op: &str) -> bool {
     matches!(op, "task.review")
 }
@@ -121,6 +126,14 @@ pub fn task_review<'a>(
     effects: OpFuture<'a>,
 ) -> OpFuture<'a> {
     Box::pin(async move {
+        if ctx
+            .env
+            .get("PACER_ROLE")
+            .map(String::as_str)
+            == Some("executor")
+        {
+            return Err(CoreError::new(Code::NotAllowed, TASK_REVIEW_REFUSAL));
+        }
         let p = object(&params)?;
         let id = require_task_id(p, "id")?;
         let (_verdict, accepted) = parse_verdict(p)?;
@@ -164,4 +177,57 @@ pub fn task_review<'a>(
         publish_report(publish(ctx, &[event]));
         effects.await
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use pacer_foundation::api::OpFuture;
+    use std::collections::HashMap;
+
+    fn ctx(env: &[(&str, &str)]) -> Ctx {
+        let home = tempfile::tempdir().unwrap();
+        let pacer_home = home.path().join(".pacer");
+        let env = env
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect::<HashMap<_, _>>();
+        Ctx::with(home.path().into(), pacer_home, env, 1.0)
+    }
+
+    fn noop_effects() -> OpFuture<'static> {
+        Box::pin(async { Ok(Value::Null) })
+    }
+
+    #[tokio::test]
+    async fn executor_session_is_refused_before_any_effects() {
+        let ctx = ctx(&[("PACER_ROLE", "executor")]);
+        let result = task_review(
+            &ctx,
+            json!({ "id": "t-20261106-000000-abcd", "verdict": "accept" }),
+            Value::Null,
+            noop_effects(),
+        )
+        .await;
+        let error = result.unwrap_err();
+        assert_eq!(error.code, Code::NotAllowed);
+        assert_eq!(error.message, TASK_REVIEW_REFUSAL);
+    }
+
+    #[tokio::test]
+    async fn non_executor_session_proceeds_past_the_refusal() {
+        let ctx = ctx(&[]);
+        // Without a stored task the handler fails after the refusal with unknown_task; the
+        // point here is that an empty env is NOT refused with the executor message.
+        let result = task_review(
+            &ctx,
+            json!({ "id": "t-20261106-000000-abcd", "verdict": "accept" }),
+            Value::Null,
+            noop_effects(),
+        )
+        .await;
+        let error = result.unwrap_err();
+        assert_ne!(error.code, Code::NotAllowed);
+    }
 }
