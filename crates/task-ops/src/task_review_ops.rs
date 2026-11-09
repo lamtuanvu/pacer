@@ -4,10 +4,12 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
 };
 use pacer_lifecycle::{RecordReviewError, record_review_verdict};
+use pacer_lifecycle::files_search::executor_session;
 use pacer_read_model::tasks::task_data;
 use pacer_store::{TaskStore, publish};
 use serde_json::{Map, Value, json};
 
+use super::files_search_ops::providers;
 use super::lifecycle_ops::{
     invalid, object, optional_expect_rev, project_api_task, require_string, type_name,
 };
@@ -16,6 +18,12 @@ use super::lifecycle_ops::{
 /// native front door only ever handles plain non-work reviews, which an executor may never make.
 const TASK_REVIEW_REFUSAL: &str =
     "PACER_ROLE=executor: executors cannot review their own task; only a child they dispatched this run (use pacer dispatch review).";
+
+/// TypeScript `isExecutorSession`: PACER_ROLE=executor, a cwd inside a pacer task worktree, or an
+/// Orca workspace lane. `cwd` is the serving process's working directory.
+fn is_executor_session(ctx: &Ctx, cwd: &std::path::Path) -> bool {
+    executor_session(ctx, cwd, || providers(ctx))
+}
 
 pub fn needs_task_review_bridge(op: &str) -> bool {
     matches!(op, "task.review")
@@ -126,12 +134,7 @@ pub fn task_review<'a>(
     effects: OpFuture<'a>,
 ) -> OpFuture<'a> {
     Box::pin(async move {
-        if ctx
-            .env
-            .get("PACER_ROLE")
-            .map(String::as_str)
-            == Some("executor")
-        {
+        if is_executor_session(ctx, &std::env::current_dir().unwrap_or_default()) {
             return Err(CoreError::new(Code::NotAllowed, TASK_REVIEW_REFUSAL));
         }
         let p = object(&params)?;
@@ -229,5 +232,37 @@ mod tests {
         .await;
         let error = result.unwrap_err();
         assert_ne!(error.code, Code::NotAllowed);
+    }
+
+    /// Parity with TypeScript `isExecutorSession`: an executor is detected by PACER_ROLE **or** by a
+    /// cwd inside a pacer task worktree under `<pacerHome>/worktrees` (no env var required).
+    #[test]
+    fn executor_detection_matches_type_script_for_env_and_cwd() {
+        use std::path::Path;
+        // Env mode: PACER_ROLE alone marks an executor, whatever the cwd.
+        let env_ctx = ctx(&[("PACER_ROLE", "executor")]);
+        assert!(is_executor_session(&env_ctx, Path::new("/tmp/unrelated")));
+        // Plain sessions are not executors.
+        let plain = ctx(&[]);
+        assert!(!is_executor_session(&plain, Path::new("/tmp/unrelated")));
+
+        // cwd mode: no env var, but the cwd resolves under <pacerHome>/worktrees/<repo>/<taskId>.
+        let dir = tempfile::tempdir().unwrap();
+        let pacer_home = dir.path().join(".pacer");
+        let cwd = pacer_home
+            .join("worktrees")
+            .join("repo")
+            .join("t-20261106-000000-abcd")
+            .join("src");
+        let cwd_ctx = Ctx::with(dir.path().into(), pacer_home.clone(), HashMap::new(), 1.0);
+        assert!(
+            is_executor_session(&cwd_ctx, &cwd),
+            "cwd inside a pacer task worktree must classify as an executor"
+        );
+        // A sibling path under the same pacer home but outside a task worktree is not.
+        assert!(!is_executor_session(
+            &cwd_ctx,
+            &pacer_home.join("worktrees").join("repo")
+        ));
     }
 }

@@ -9,7 +9,7 @@ use pacer_foundation::{
 use pacer_lifecycle::files_search::{executor_session, files_search};
 use serde_json::Value;
 
-fn providers(ctx: &Ctx) -> Vec<String> {
+pub(crate) fn providers(ctx: &Ctx) -> Vec<String> {
     load_strategy(&ctx.pacer_home)
         .ok()
         .and_then(|s| {
