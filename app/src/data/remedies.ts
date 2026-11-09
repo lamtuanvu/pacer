@@ -1,7 +1,8 @@
 import { remedyConsent, type RemedyConsent, type RemedyPlan } from "../../../src/view-model/diagnostics";
 import type { Platform } from "../platform/types";
 
-export interface RepairPreview { revision: string; agent: string; files: string[]; undo?: string; detail?: string }
+export interface PreviewFile { path: string; change: "create" | "update" | "restore" | "unchanged" | "kept"; note: string }
+export interface RepairPreview { revision: string; agent: string; files: string[]; changes?: PreviewFile[]; undo?: string; detail?: string }
 export interface ConsentRequest extends RemedyConsent { files: string[] }
 type RunPlan = Extract<RemedyPlan, { kind: "run" }>;
 /** An operation ready to call, with the confirmation it needs first. */

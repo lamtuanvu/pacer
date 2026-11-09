@@ -6,7 +6,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Check } from "../../../../src/install/doctor";
 import { diagnosticEvidence, diagnosticLevel, diagnosticsPage, diagnosticTitle, remedyPlan, remedyProgress, type DiagnosticFixRow, type DiagnosticRowOutcome, type DiagnosticTask, type RemedyPlan } from "../../../../src/view-model/diagnostics";
 import { displayName } from "../../../../src/view-model/format";
-import { commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, type ConsentRequest, type PreparedRun, type RemedyHost, type RepairPreview } from "../../data/remedies";
+import { executorLabel } from "../../../../src/view-model/words";
+import { commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, type ConsentRequest, type PreparedRun, type RemedyHost, type PreviewFile, type RepairPreview } from "../../data/remedies";
 import { useActions } from "../../data/action-context";
 import { platform } from "../../platform";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -164,37 +165,58 @@ export function DiagnosticResults({ report, baseline, outcomes, tasks, busy = fa
 }
 
 type ReviewState = { check: Check; preview: RepairPreview; phase: "review" | "applying" | "done" | "error"; error?: unknown; resolve?: (ok: boolean) => void };
-/** Review changes: every file the reconnect writes, applied only with this preview's revision. */
-export function ReviewSheet({ review, report, onApply, onClose }: { review: ReviewState; report?: DoctorReport; onApply: () => void; onClose: () => void }) {
+/** Board 17b (SettingsDiagnosticsReview) pills: how each file changes on apply. */
+const CHANGE_PILL: Record<PreviewFile["change"], { label: string; tone: "good" | "warn" | "bad" | "info" | "neutral" }> = {
+  create: { label: "Create", tone: "info" },
+  update: { label: "Update", tone: "neutral" },
+  restore: { label: "Restore", tone: "warn" },
+  unchanged: { label: "No change", tone: "neutral" },
+  kept: { label: "Not touched", tone: "neutral" },
+};
+/** Review changes: every file the reconnect writes, its change, the 7-day undo note and an Undo once applied. */
+export function ReviewSheet({ review, report, onApply, onUndo, undoing = false, onClose }: { review: ReviewState; report?: DoctorReport; onApply: () => void; onUndo?: () => void; undoing?: boolean; onClose: () => void }) {
   const agent = displayName(review.preview.agent);
   const title = settingsText(diagnosticTitle(review.check.name));
   const current = report?.checks.find(check => check.name === review.check.name);
   const passes = !current || current.level === "ok" || current.level === "info";
   const files = review.preview.files ?? [];
+  const changes: PreviewFile[] = (review.preview.changes?.length ?? 0) > 0
+    ? review.preview.changes!
+    : review.preview.files.map(path => ({ path, change: "update" as const, note: "Pacer updates its entries and keeps your edits." }));
+  const changeCount = changes.filter(file => file.change !== "kept").length;
   if (review.phase === "done") return <SideDialog title={`${agent} reconnected`} close={onClose}
-    footer={<Button variant="primary" onClick={onClose}>Back to Diagnostics</Button>}>
+    footer={<>{onUndo && <Button variant="ghost" aria-disabled={undoing || undefined} onClick={onUndo}>{undoing ? "Restoring…" : "Undo"}</Button>}
+      <Button variant="primary" onClick={onClose}>Back to Diagnostics</Button></>}>
     <p role="status" className="pc-diagnostic-sheet-text">{`Updated ${files.length === 1 ? "1 file" : `${files.length} files`} and rechecked: ${title} ${passes ? "passes" : "still needs attention"}.`}
       {passes && " Hooks show as verified after your next session with this agent."}</p>
+    <p className="pc-diagnostic-note">Pacer keeps the previous copies, so you can undo this from Diagnostics for 7 days.</p>
   </SideDialog>;
   return <SideDialog title={`Reconnect ${agent}`} close={onClose}
     footer={<><Button onClick={onClose} disabled={review.phase === "applying"}>Cancel</Button>
       {review.phase !== "error" && <Button variant="primary" busy={review.phase === "applying"} onClick={onApply}>{review.phase === "applying" ? "Fixing and rechecking…" : "Apply and recheck"}</Button>}</>}>
     <p className="pc-diagnostic-caption">{title}</p>
     <p className="pc-diagnostic-sheet-text">{`Pacer restores its own files for ${agent}. Nothing else in your folder changes.`}{review.preview.detail ? ` ${settingsText(review.preview.detail)}` : ""}</p>
-    <SectionHeading as="h3">{files.length === 1 ? "1 file changes" : `${files.length} files change`}</SectionHeading>
-    <ul className="pc-diagnostic-files">{files.map(file => <li key={file}><SettingsPath path={file}/></li>)}</ul>
-    <p className="pc-diagnostic-note">You can disconnect the integration later from Budget &amp; pacing.</p>
+    <SectionHeading as="h3">{changeCount === 1 ? "1 file changes" : `${changeCount} files change`}</SectionHeading>
+    <ul className="pc-diagnostic-changes">
+      {changes.map((file, index) => <li key={`${file.path}:${index}`} className="pc-diagnostic-change">
+        <div className="pc-diagnostic-change__text"><span><SettingsPath path={file.path}/></span><span className="pc-diagnostic-caption">{settingsText(file.note)}</span></div>
+        <Pill tone={CHANGE_PILL[file.change].tone}>{CHANGE_PILL[file.change].label}</Pill>
+      </li>)}
+    </ul>
+    <p className="pc-diagnostic-note">Pacer keeps the current copies. You can undo this from Diagnostics for 7 days.</p>
     <ErrorMessage error={review.error}/>
   </SideDialog>;
 }
 
+/** The executor pacer would route the fix task to (board 17c). `override` toggles a Change control. */
+export interface RoutedExecutor { id: string; reason: string }
 type AgentState = { check: Check; scope: "fix" | "investigate"; phase: "compose" | "starting" | "started"; error?: unknown; taskId?: string; resolve?: (ok: boolean) => void };
 const SCOPES = {
   fix: { title: "Fix it, ask before changing anything else", note: "Repairing the failing tool or integration goes ahead. Changes to other tools or your settings wait for you.", short: "asks before other changes" },
   investigate: { title: "Investigate only", note: "The agent finds the cause and proposes a fix. Nothing on your machine changes.", short: "investigate only" },
 } as const;
 /** Fix with agent: the service builds the brief from its own doctor result; the client sends only the check and scope. */
-export function AgentSheet({ agent, report, onScope, onStart, onClose }: { agent: AgentState; report?: DoctorReport; onScope: (scope: AgentState["scope"]) => void; onStart: () => void; onClose: () => void }) {
+export function AgentSheet({ agent, report, routed, onScope, onStart, onClose }: { agent: AgentState; report?: DoctorReport; routed?: RoutedExecutor; onScope: (scope: AgentState["scope"]) => void; onStart: () => void; onClose: () => void }) {
   const title = settingsText(diagnosticTitle(agent.check.name));
   if (agent.phase === "started" && agent.taskId) return <SideDialog title="Fix task started" close={onClose}
     footer={<><Button onClick={onClose}>Back to Diagnostics</Button><ButtonLink variant="primary" href={`#/tasks/${encodeURIComponent(agent.taskId)}`} onClick={onClose}>Open task</ButtonLink></>}>
@@ -211,7 +233,11 @@ export function AgentSheet({ agent, report, onScope, onStart, onClose }: { agent
       agent.check.detail, "Attached: related checks, the agent’s version and install path."].join("\n")}</pre>
     <p className="pc-diagnostic-note">Pacer builds the final brief from its own check result and removes keys and tokens before the agent sees it.</p>
     <SectionHeading as="h3">Runs on</SectionHeading>
-    <p className="pc-diagnostic-sheet-text">Pacer routes it to an executor by budget and pace, like any task.</p>
+    {routed
+      ? <div className="pc-diagnostic-route"><span className="pc-diagnostic-route__mark" aria-hidden="true">Ag</span>
+        <div className="pc-diagnostic-route__text"><b>{executorLabel(routed.id)}</b><span className="pc-diagnostic-caption">Chosen by pacer: {routed.reason}</span></div>
+      </div>
+      : <p className="pc-diagnostic-sheet-text">Pacer routes it to an executor by budget and pace, like any task.</p>}
     <SectionHeading as="h3" id="diagnostics-agent-scope">What it may change</SectionHeading>
     <RadioGroup label="What it may change" aria-labelledby="diagnostics-agent-scope" className="pc-diagnostic-scopes">
       {(["fix", "investigate"] as const).map(scope => <RadioCard key={scope} checked={agent.scope === scope} disabled={agent.phase === "starting"}
@@ -236,6 +262,7 @@ export function DiagnosticsSection() {
   const [consent, setConsent] = useState<PendingConsent>();
   const [review, setReview] = useState<ReviewState>();
   const [agent, setAgent] = useState<AgentState>();
+  const [routed, setRouted] = useState<RoutedExecutor>();
   const [started, setStarted] = useState<Record<string, DiagnosticTask>>({});
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -309,7 +336,17 @@ export function DiagnosticsSection() {
       delegate: () => new Promise(resolve => {
         outcome(check.name, { phase: "running", text: "Waiting for you to start the task…" });
         setProgress("");
+        setRouted(undefined);
         setAgent({ check, scope: "fix", phase: "compose", resolve });
+        // Read-only preview of where the fix task would go, with the same kind ("debug") and
+        // scratch-repo routing semantics doctor.fix.delegate uses (no project selection).
+        void (async () => {
+          try {
+            const result = await call<{ ranked?: { id: string; reason?: string }[] }>("routing.route", { kind: "debug" });
+            const top = result.ranked?.[0];
+            setRouted(top?.id ? { id: top.id, reason: top.reason ?? "It ranked first among the executors that can take this work." } : undefined);
+          } catch { /* Routing stays unknown; the sheet keeps its generic line. */ }
+        })();
       }),
       open: url => openRemedyUrl(url, platform),
     };
@@ -427,6 +464,25 @@ export function DiagnosticsSection() {
     setReview(undefined);
     keepFocus();
   }
+  /** Undo the file changes of the last applied repair: consent, then restore the previous copies. */
+  async function undoRepair() {
+    if (!review || review.phase !== "done" || busy) return;
+    const name = review.check.name;
+    const agentName = review.preview.agent;
+    const changing = (review.preview.changes ?? []).filter(file => file.change !== "kept").map(file => file.path);
+    const ok = await ask(`undo-${name}`, [{ title: `Undo the ${settingsText(diagnosticTitle(name))} repair`, message: "Pacer restores the previous copies of the files its fix changed.", confirmLabel: "Restore copies", files: changing.length ? changing : review.preview.files }]);
+    if (!ok) { setProgress("No changes were made."); return; }
+    setBusy(true);
+    try {
+      await call("agent.undo", { agent: agentName, consent: true });
+      const next = await recheck();
+      setReview(undefined);
+      setProgress(`${settingsText(diagnosticTitle(name))}: ${next && stillFailing(next, name) ? "undone; the check still needs attention." : "undone and rechecked."}`);
+    } catch (failure) {
+      setError(failure);
+      setProgress(`${settingsText(diagnosticTitle(name))}: the undo did not finish.`);
+    } finally { setBusy(false); keepFocus(); }
+  }
   async function copyReport() {
     if (!report) return;
     setCopyError(undefined);
@@ -456,7 +512,7 @@ export function DiagnosticsSection() {
       onCopyReport={() => void copyReport()}/></div>}
     <NativeValidationSetup/>
   </section>
-  {review && <ReviewSheet review={review} report={report} onApply={() => review.resolve?.(true)} onClose={closeReview}/>}
-  {agent && <AgentSheet agent={agent} report={report} onScope={scope => setAgent(current => current && { ...current, scope })} onStart={() => void startAgentTask()} onClose={closeAgent}/>}
+  {review && <ReviewSheet review={review} report={report} onApply={() => review.resolve?.(true)} onUndo={() => void undoRepair()} undoing={busy} onClose={closeReview}/>}
+  {agent && <AgentSheet agent={agent} report={report} routed={routed} onScope={scope => setAgent(current => current && { ...current, scope })} onStart={() => void startAgentTask()} onClose={closeAgent}/>}
   </>;
 }
