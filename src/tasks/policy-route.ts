@@ -44,9 +44,12 @@ export async function authorizeRoute(ctx:Ctx,id:string,candidates:readonly strin
   return {
     candidates:[...receipt.params.input.candidates],excludedBy:{...receipt.excludedBy},
     revalidate:()=>{current();receipt.revalidate();},
-    /** Accept only the immediately adjacent synchronous write made by this operation. */
+    /** Accept only the immediately adjacent synchronous write made by this operation. That
+     *  write may change nothing (and so keep the revision) when the record already matches.
+     *  Callers must call revalidate() inside that write's mutate, under the task lock, so a
+     *  concurrent writer's revision is never taken for this operation's own. */
     checkpoint(task:TaskRecord) {
-      if(task.id!==id || task.rev!==expectedRev+1 || readTask(ctx,id)?.rev!==task.rev) throw new CoreError("conflict","Task changed during route selection");
+      if(task.id!==id || (task.rev!==expectedRev+1 && task.rev!==expectedRev) || readTask(ctx,id)?.rev!==task.rev) throw new CoreError("conflict","Task changed during route selection");
       receipt.revalidate();
       expectedRev=task.rev;
     },

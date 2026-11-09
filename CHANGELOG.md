@@ -103,6 +103,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Add a Rust SQLite task store and retention adapter with cross-runtime parity tests; the TypeScript runtime remains unchanged.
 
+- Route selection no longer fails with "Task changed during route selection" when its own bookkeeping write changes nothing and so keeps the task's revision, which could leave a dispatched reservation waiting.
+
 ## [0.14.0] - 2026-11-01
 
 ### Added
