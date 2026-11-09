@@ -38,6 +38,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
+#[cfg(not(target_os = "macos"))]
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_positioner::{Position, WindowExt};
 use tray_model::TrayModel;
@@ -1544,30 +1545,34 @@ fn main() {
                         navigate(&handle, url.as_str());
                     }
                 }
-                let notifications = handle.clone();
-                app.notification().on_action(move |action| {
-                    let mapped = notifications
-                        .state::<Shell>()
-                        .actions
-                        .lock()
-                        .unwrap()
-                        .get(action.action_id())
-                        .cloned();
-                    if let Some(mapped) = mapped {
-                        dispatch_action(&notifications, mapped);
-                        return;
-                    }
-                    let target = logic::route(action.action_id()).or_else(|| {
-                        action
-                            .notification()
-                            .and_then(|n| n.extra().get("route"))
-                            .and_then(Value::as_str)
-                            .and_then(logic::route)
-                    });
-                    if let Some(target) = target {
-                        navigate(&notifications, &target);
-                    }
-                })?;
+                // macOS reports notification responses to mac_notifications' delegate.
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let notifications = handle.clone();
+                    app.notification().on_action(move |action| {
+                        let mapped = notifications
+                            .state::<Shell>()
+                            .actions
+                            .lock()
+                            .unwrap()
+                            .get(action.action_id())
+                            .cloned();
+                        if let Some(mapped) = mapped {
+                            dispatch_action(&notifications, mapped);
+                            return;
+                        }
+                        let target = logic::route(action.action_id()).or_else(|| {
+                            action
+                                .notification()
+                                .and_then(|n| n.extra().get("route"))
+                                .and_then(Value::as_str)
+                                .and_then(logic::route)
+                        });
+                        if let Some(target) = target {
+                            navigate(&notifications, &target);
+                        }
+                    })?;
+                }
                 #[cfg(target_os = "macos")]
                 {
                     // The delegate must be in place before the first notification is posted.

@@ -20,6 +20,7 @@ use objc2_user_notifications::{
     UNNotificationRequest, UNNotificationResponse, UNUserNotificationCenter,
     UNUserNotificationCenterDelegate,
 };
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Manager};
@@ -29,11 +30,31 @@ use tauri::{AppHandle, Manager};
 /// still-delivered banners never resolves to an id that no longer maps.
 pub const CATEGORY_WINDOW: u64 = 32;
 
-/// Identifier of the category a notification of ordinal `index` is posted
-/// under. Stable and unique per notification so button ids inside the
-/// category cannot be remapped by a later notification.
-pub fn category_id(index: u64) -> String {
-    format!("pacer-attention-{index}")
+/// Identifier of the category (and request) for the notification of ordinal
+/// `index` in the launch `launch`. Delivered notifications outlive the process,
+/// so the launch keeps a button on an earlier launch's banner from resolving to
+/// a later launch's action.
+pub fn category_id(launch: &str, index: u64) -> String {
+    format!("pacer-attention-{launch}-{index}")
+}
+
+/// A per-process value that differs between launches.
+fn launch_id() -> &'static str {
+    static LAUNCH: OnceLock<String> = OnceLock::new();
+    LAUNCH.get_or_init(|| {
+        let started = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or_default();
+        format!("{started:x}{:x}", std::process::id())
+    })
+}
+
+/// UNUserNotificationCenter raises an exception for an unbundled dev executable.
+fn bundled() -> bool {
+    objc2_foundation::NSBundle::mainBundle()
+        .bundleIdentifier()
+        .is_some()
 }
 
 /// Identifier of the `button`th action inside `category`; this is the id a
@@ -44,13 +65,14 @@ pub fn action_id(category: &str, button: usize) -> String {
 
 /// The categories that must stay registered once a notification with this
 /// newest index exists: the last [`CATEGORY_WINDOW`], oldest first.
-pub fn retained_categories(newest: u64) -> Vec<String> {
+pub fn retained_categories(launch: &str, newest: u64) -> Vec<String> {
     let from = newest.saturating_sub(CATEGORY_WINDOW - 1);
-    (from..=newest).map(category_id).collect()
+    (from..=newest)
+        .map(|index| category_id(launch, index))
+        .collect()
 }
 
-/// Pure extraction of the route the plugin stored in the extra payload; kept
-/// separate from Objective-C plumbing so it is unit-testable.
+/// The route `post` stored in the notification's userInfo.
 pub(crate) fn route_from_user_info(user_info: &NSDictionary) -> Option<String> {
     let key = NSString::from_str("route");
     user_info
@@ -82,9 +104,8 @@ static REGISTERED: Mutex<Vec<Category>> = Mutex::new(Vec::new());
 static CENTER_DELEGATE: Mutex<Option<Retained<CenterDelegate>>> = Mutex::new(None);
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
-// Handles banners while pacer is frontmost and taps on posted banners.
-// Delegate methods run on the main thread, where the existing Shell handlers
-// operate.
+// Handles banners while pacer is frontmost and taps on posted banners. The
+// handlers it calls only use the AppHandle, which any thread may use.
 define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = AnyThread]
@@ -136,6 +157,10 @@ impl CenterDelegate {
 
 /// Install the delegate (before any notification is posted) and keep it alive.
 pub fn setup(app: &AppHandle) {
+    if !bundled() {
+        desktop_log!("pacer notifications: presenting requires an app bundle");
+        return;
+    }
     let _ = APP_HANDLE.set(app.clone());
     let delegate = CenterDelegate::new();
     let center = UNUserNotificationCenter::currentNotificationCenter();
@@ -143,29 +168,34 @@ pub fn setup(app: &AppHandle) {
     *CENTER_DELEGATE.lock().unwrap() = Some(delegate);
 }
 
-/// Post `notification` through UNUserNotificationCenter, mirroring the plugin
-/// behavior: buttons map through Shell.actions and the route rides in the
-/// userInfo payload for click-to-open.
+/// Post `notification` through UNUserNotificationCenter: buttons map through
+/// Shell.actions and the route rides in userInfo for click-to-open.
 pub fn present(app: &AppHandle, notification: crate::notifications::Notification) {
-    let index = NEXT_INDEX.fetch_add(1, Ordering::Relaxed);
-    let category = category_id(index);
-    let shell = app.state::<crate::Shell>();
-    // setNotificationCategories replaces the whole set, so the registry keeps
-    // exactly the last CATEGORY_WINDOW categories and re-registers them all.
-    let kept: Vec<String> = retained_categories(index);
+    if !bundled() {
+        return;
+    }
+    let launch = launch_id();
+    // Allocating under the registry lock keeps concurrent posts from dropping a
+    // newer category while registering an older one.
     let mut registered = REGISTERED.lock().unwrap();
-    registered.retain(|entry| kept.contains(&entry.id));
-    // Mirror the plugin's destructive window: drop button mappings that are no
-    // longer registered so a late tap cannot hit a remapped category slot.
+    let index = NEXT_INDEX.fetch_add(1, Ordering::Relaxed);
+    let category = category_id(launch, index);
+    let shell = app.state::<crate::Shell>();
     if index >= CATEGORY_WINDOW {
-        let stale = category_id(index - CATEGORY_WINDOW);
+        let stale = format!("{}-", category_id(launch, index - CATEGORY_WINDOW));
         shell
             .actions
             .lock()
             .unwrap()
-            .retain(|id, _| !id.starts_with(&format!("{stale}-")));
+            .retain(|id, _| !id.starts_with(&stale));
     }
-    let mut actions: Vec<(String, String)> = Vec::new();
+    let request = request(&notification, &category);
+    if notification.actions.is_empty() {
+        drop(registered);
+        add(&request);
+        return;
+    }
+    let mut actions = Vec::new();
     for (button, action) in notification.actions.iter().enumerate() {
         let id = action_id(&category, button);
         let label =
@@ -177,58 +207,53 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
             .insert(id.clone(), action.clone());
         actions.push((id, label));
     }
-    if !actions.is_empty() {
-        registered.push(Category {
-            id: category.clone(),
-            actions,
-        });
-        drop(registered);
-        register_categories();
-    } else {
-        drop(registered);
-    }
-    post(&notification, &category, !notification.actions.is_empty());
+    let kept = retained_categories(launch, index);
+    registered.retain(|entry| kept.contains(&entry.id));
+    registered.push(Category {
+        id: category,
+        actions,
+    });
+    let center = UNUserNotificationCenter::currentNotificationCenter();
+    // setNotificationCategories replaces the whole set and applies asynchronously;
+    // reading the set back orders the post after it, so the banner gets its buttons.
+    center.setNotificationCategories(&categories(&registered));
+    drop(registered);
+    let after = RcBlock::new(move |_: NonNull<NSSet<UNNotificationCategory>>| add(&request));
+    center.getNotificationCategoriesWithCompletionHandler(&after);
 }
 
-/// Re-register every live category. `setNotificationCategories` replaces the
-/// whole set, so the last [`CATEGORY_WINDOW`] categories are rebuilt from the
-/// registry together.
-fn register_categories() {
-    let registered = REGISTERED.lock().unwrap();
-    let mut category_objects: Vec<Retained<UNNotificationCategory>> = Vec::new();
-    for entry in registered.iter() {
-        let action_objects: Vec<Retained<UNNotificationAction>> = entry
-            .actions
-            .iter()
-            .map(|(id, label)| {
-                UNNotificationAction::actionWithIdentifier_title_options(
-                    &NSString::from_str(id),
-                    &NSString::from_str(label),
-                    UNNotificationActionOptions::empty(),
-                )
-            })
-            .collect();
-        let action_refs: Vec<&UNNotificationAction> = action_objects.iter().map(|a| &**a).collect();
-        let category =
+fn categories(registered: &[Category]) -> Retained<NSSet<UNNotificationCategory>> {
+    let objects: Vec<Retained<UNNotificationCategory>> = registered
+        .iter()
+        .map(|entry| {
+            let actions: Vec<Retained<UNNotificationAction>> = entry
+                .actions
+                .iter()
+                .map(|(id, label)| {
+                    UNNotificationAction::actionWithIdentifier_title_options(
+                        &NSString::from_str(id),
+                        &NSString::from_str(label),
+                        UNNotificationActionOptions::empty(),
+                    )
+                })
+                .collect();
+            let actions: Vec<&UNNotificationAction> = actions.iter().map(|a| &**a).collect();
             UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
                 &NSString::from_str(&entry.id),
-                &NSArray::from_slice(&action_refs),
+                &NSArray::from_slice(&actions),
                 &NSArray::new(),
                 UNNotificationCategoryOptions::empty(),
-            );
-        category_objects.push(category);
-    }
-    let category_refs: Vec<&UNNotificationCategory> =
-        category_objects.iter().map(|c| &**c).collect();
-    let set = NSSet::from_slice(&category_refs);
-    UNUserNotificationCenter::currentNotificationCenter().setNotificationCategories(&set);
-    desktop_log!(
-        "pacer notifications: registered {} categories",
-        registered.len()
-    );
+            )
+        })
+        .collect();
+    let objects: Vec<&UNNotificationCategory> = objects.iter().map(|c| &**c).collect();
+    NSSet::from_slice(&objects)
 }
 
-fn post(notification: &crate::notifications::Notification, category: &str, has_actions: bool) {
+fn request(
+    notification: &crate::notifications::Notification,
+    category: &str,
+) -> Retained<UNNotificationRequest> {
     let content = UNMutableNotificationContent::new();
     content.setTitle(&NSString::from_str(&notification.title));
     content.setBody(&NSString::from_str(&notification.body));
@@ -236,14 +261,19 @@ fn post(notification: &crate::notifications::Notification, category: &str, has_a
         // SAFETY: the dictionary is NSString-keyed with a plist value.
         unsafe { content.setUserInfo(&route_user_info(&notification.route)) };
     }
-    if has_actions {
+    if !notification.actions.is_empty() {
         content.setCategoryIdentifier(&NSString::from_str(category));
     }
-    let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
+    // The category id is unique per launch and notification, so a post never
+    // replaces an earlier delivered notification.
+    UNNotificationRequest::requestWithIdentifier_content_trigger(
         &NSString::from_str(category),
         &content,
         None,
-    );
+    )
+}
+
+fn add(request: &UNNotificationRequest) {
     let completion = RcBlock::new(|error: *mut NSError| {
         if let Some(error) = unsafe { error.as_ref() } {
             desktop_log!(
@@ -254,12 +284,12 @@ fn post(notification: &crate::notifications::Notification, category: &str, has_a
         }
     });
     UNUserNotificationCenter::currentNotificationCenter()
-        .addNotificationRequest_withCompletionHandler(&request, Some(&completion));
+        .addNotificationRequest_withCompletionHandler(request, Some(&completion));
 }
 
 /// Map a delivered response: the default action opens the notification's
-/// route; a registered button id dispatches its Shell action; anything else
-/// falls back to the route so an out-of-window tap still overrides nothing bad.
+/// route; a registered button id dispatches its Shell action; a button whose
+/// mapping aged out of the window opens the route instead.
 fn handle_response(response: &UNNotificationResponse) {
     let Some(app) = APP_HANDLE.get() else { return };
     let action = response.actionIdentifier().to_string();
@@ -300,23 +330,29 @@ mod tests {
 
     #[test]
     fn category_and_action_ids_are_stable_and_unique() {
-        assert_eq!(category_id(0), "pacer-attention-0");
-        assert_eq!(category_id(31), "pacer-attention-31");
-        assert_eq!(action_id(&category_id(3), 0), "pacer-attention-3-0");
-        assert_eq!(action_id(&category_id(3), 1), "pacer-attention-3-1");
-        assert_ne!(action_id(&category_id(2), 1), action_id(&category_id(3), 1));
+        assert_eq!(category_id("a1", 0), "pacer-attention-a1-0");
+        assert_eq!(
+            action_id(&category_id("a1", 3), 1),
+            "pacer-attention-a1-3-1"
+        );
+        assert_ne!(
+            action_id(&category_id("a1", 2), 1),
+            action_id(&category_id("a1", 3), 1)
+        );
+        // A later launch never reuses an earlier launch's ids.
+        assert_ne!(category_id("a1", 3), category_id("b2", 3));
     }
 
     #[test]
     fn category_window_keeps_only_the_last_32() {
         for newest in 0..=40 {
-            let kept = retained_categories(newest);
+            let kept = retained_categories("a1", newest);
             let expected = (newest + 1).min(CATEGORY_WINDOW) as usize;
             assert_eq!(kept.len(), expected, "newest={newest}");
-            assert_eq!(kept.last(), Some(&category_id(newest)));
+            assert_eq!(kept.last(), Some(&category_id("a1", newest)));
             // The set is exactly the last CATEGORY_WINDOW ids, oldest first.
             let first = newest.saturating_sub(CATEGORY_WINDOW - 1);
-            assert_eq!(kept.first(), Some(&category_id(first)));
+            assert_eq!(kept.first(), Some(&category_id("a1", first)));
         }
     }
 
