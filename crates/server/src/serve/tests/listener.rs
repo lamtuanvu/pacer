@@ -100,6 +100,84 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
 }
 
 #[tokio::test]
+async fn host_check_clean_and_setup_forward_to_core_over_http() {
+    // Until Core has a real host effects bridge, host.check, host.clean and
+    // host.repo.setup stay on TypeScript: none of them is a registered native
+    // op, so the HTTP front door forwards the request to Core instead of
+    // answering it from a registry stub.
+    let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){const path=new URL(req.url).pathname;return new Response(JSON.stringify({forwarded:path}))}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
+    let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|dir| dir.join("bun"))
+        .find(|path| path.is_file())
+        .unwrap();
+    let core = Arc::new(core_child::CoreChild::spawn(
+        vec![
+            bun.to_string_lossy().into_owned(),
+            "-e".into(),
+            script.into(),
+        ],
+        HashMap::new(),
+    ));
+    for _ in 0..100 {
+        if core.target().await.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(core.target().await.is_some(), "fixture core did not start");
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().join("pacer"),
+        Default::default(),
+        1_800_000_000.0,
+    );
+    let socket = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let state = Arc::new(Listener {
+        core: core.clone(),
+        heartbeat: Arc::new(heartbeat::Heartbeat::new()),
+        ctx,
+        port,
+        token: "token".into(),
+        registry: service_registry(""),
+        scoped_work: false,
+        plugins: crate::native::plugins::Service::default(),
+        forward_log_follow: false,
+        forward_events: false,
+    });
+    let server = tokio::spawn(async move {
+        axum::serve(
+            socket,
+            Router::new().fallback(any(handle)).with_state(state),
+        )
+        .await
+        .unwrap();
+    });
+    let body = r#"{"alias":"nosuchhost"}"#;
+    for op in ["host.check", "host.clean", "host.repo.setup"] {
+        let path = format!("/v3/ops/{op}");
+        let response = request(
+            port,
+            "POST",
+            &path,
+            &format!(
+                "Authorization: Bearer token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        )
+        .await;
+        assert!(response.starts_with("HTTP/1.1 200"), "{op}: {response}");
+        let marker = format!("\"forwarded\":\"{path}\"");
+        assert!(response.contains(&marker), "{op}: {response}");
+    }
+    core.shutdown().await;
+    server.abort();
+}
+
+#[tokio::test]
 async fn public_listener_forwards_to_available_core() {
     let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req,s){const path=new URL(req.url).pathname;if(path.endsWith('/session')){if(s.upgrade(req,{data:req.headers.get('x-test')}))return;return new Response('upgrade required',{status:426})}return new Response('core:'+path,{status:path.includes('missing.js')?404:200})},websocket:{message(ws,message){ws.send(message === 'headers' ? ws.data : message)}}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
     let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
