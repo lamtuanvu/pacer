@@ -347,7 +347,7 @@ test("typeIntoSession on a 1.2 host reports pending human input by client, and a
   await session.ready;
   const pane = await viewer(session, { label: "pane", client: "app", versions: [1, 2] });
   await pane.type("half a line");
-  expect(await typeIntoSession(session.sock, "hi", deps, () => true)).toEqual({ kind: "pending", reason: "pending input from app:pane" });
+  expect(await typeIntoSession(session.sock, "hi", deps, () => true)).toEqual({ kind: "pending", reason: "unsent input in the agent from pane" });
   await pane.type("\r");
   await Bun.sleep(40);
   expect(await typeIntoSession(session.sock, "hi", deps, () => false)).toEqual({ kind: "busy" });
@@ -365,7 +365,7 @@ test("live messages on a 1.2 host retry after pending human input and never set 
   expect(session.input.map(b => b.toString())).toEqual(["draft"]);
   expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
   expect(readTask(ctx, id)!.liveBlocked).toBeUndefined();
-  expect(readTask(ctx, id)!.liveError?.message).toContain("pending input from cli:iTerm");
+  expect(readTask(ctx, id)!.liveError?.message).toContain("unsent input in the agent from iTerm");
   await human.type("\r");
   await Bun.sleep(40);
   await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);

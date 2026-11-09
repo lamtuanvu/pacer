@@ -199,7 +199,7 @@ test('1.2 deliver: a pending human line refuses after the timeout and names the 
  expect(grantedOf(pacer)).toHaveLength(0);expect(deliveredOf(pacer)).toEqual([]);
  await Bun.sleep(200);
  expect(grantedOf(pacer)).toHaveLength(0);
- expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'pending',from:'app:Pacer desktop',reason:'pending input from app:Pacer desktop'}]);
+ expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'pending',from:'app:Pacer desktop',reason:'unsent input in the agent from Pacer desktop'}]);
  expect(deliveredOf(app)).toEqual([]);
  expect(inputs).toEqual(['half a line\x1b[D']);
 });
@@ -219,7 +219,7 @@ test('1.2 deliver: steady input times out naming the most recent typist',async()
  pacer.emit('data',wire(FrameType.deliver,{}));
  for(let i=0;i<14;i++){await Bun.sleep(20);human.emit('data',wire(FrameType.input,Buffer.from('\x1b[A')));}
  await Bun.sleep(30);
- expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'input',from:'cli:human',reason:'recent input from cli:human'}]);
+ expect(deliveredOf(pacer)).toEqual([{ok:false,cause:'input',from:'cli:human',reason:'recent input from human'}]);
 });
 const EXPIRED_UNUSED={ok:false,cause:'expired-unused',reason:'the delivery window expired before any input was typed'};
 test('1.2 deliver: the window expires after windowMs and releases held input',async()=>{
