@@ -9,14 +9,14 @@ import { readRecording } from '../session/recording';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { admitRemoteViewer } from '../remote/viewer-admission';
-export interface SessionWS { socket?:Socket; decoder:WireDecoder; from?:number; replay?:{frames:Frame[];next:number;started:boolean} }
+export interface SessionWS { socket?:Socket; decoder:WireDecoder; from?:number; bridged?:boolean; replay?:{frames:Frame[];next:number;started:boolean} }
 const names=new Map<number,string>(Object.entries(FrameType).map(([k,v])=>[v,k]));
 /** JSON messages carry the named frame type plus the original body fields. */
 export function socketFrameMessage(frame:Frame):string|Buffer{
  if(frame.type===FrameType.output||frame.type===FrameType.input)return wire(frame.type,frame.data);
  return JSON.stringify({type:names.get(frame.type),...JSON.parse(frame.data.toString())});
 }
-export function viewerMessageFrames(message:string|Buffer,from?:number):Buffer[]{
+export function viewerMessageFrames(message:string|Buffer,from?:number,bridged=false):Buffer[]{
  let frames:Frame[];
  if(typeof message==='string'){
   const {type,...body}=JSON.parse(message);
@@ -29,8 +29,9 @@ export function viewerMessageFrames(message:string|Buffer,from?:number):Buffer[]
  }
  // Only pacer's own delivery path may type through deliver (API-5, SEC-5); browser clients never can.
  if(frames.some(f=>f.type===FrameType.deliver))throw Error('deliver is not accepted from WebSocket clients');
+ // A viewer reaching a session through an SSH bridge is on a paired or remote machine; it is read-only (ADR 0023, decision 2).
  return frames.map(f=>f.type===FrameType.hello
-  ?wire(f.type,{...JSON.parse(f.data.toString()),client:'app',...(from===undefined?{}:{from})})
+  ?wire(f.type,{...JSON.parse(f.data.toString()),client:'app',...(bridged?{readOnly:true}:{}),...(from===undefined?{}:{from})})
   :wire(f.type,f.data));
 }
 /** Bun queues a backpressured send; continue with the next frame on drain. */
@@ -67,7 +68,14 @@ export const sessionWebSocket:WebSocketHandler<SessionWS>={
    return;
   }
   const socket=ws.data.socket!;
-  for(const bytes of viewerMessageFrames(message,ws.data.from)){
+  for(const bytes of viewerMessageFrames(message,ws.data.from,ws.data.bridged)){
+   // A bridged viewer is read-only: only its hello reaches the remote session, and its
+   // input, size and focus are dropped with a read-only acknowledgement (ADR 0023, decision 2).
+   const frame=new WireDecoder().push(bytes)[0]!;
+   if(ws.data.bridged&&frame.type!==FrameType.hello){
+    ws.sendText(JSON.stringify({type:'control',controller:null,you:false,reason:'read-only'}));
+    continue;
+   }
    if(socket.writableLength+bytes.length>1024*1024){ws.close(1009,'Session input queue exceeded');ws.data.socket?.destroy();return;}
    socket.write(bytes);
   }
@@ -117,13 +125,15 @@ async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string)
    const timer=setTimeout(()=>{socket.destroy();reject(Error('session connection timeout'));},2000);
    socket.once('connect',()=>{clearTimeout(timer);resolve();});socket.once('error',e=>{clearTimeout(timer);reject(e);});
   });}catch{socket.destroy();return offline();}
+  let bridged=false;
   if(existsSync(join(dir,'session.bridge.pid'))){
+   bridged=true;
    try{
     const reason=await admitRemoteViewer(socket);
     if(reason){socket.destroy();return new Response(reason,{status:reason.includes('capacity')?503:409});}
    }catch(error){socket.destroy();return new Response(String(error),{status:503});}
   }
-  if(server.upgrade(req,{data:{socket,decoder:new WireDecoder(),from}}))return;
+  if(server.upgrade(req,{data:{socket,decoder:new WireDecoder(),from,bridged}}))return;
   socket.destroy();return new Response('WebSocket upgrade required',{status:426});
  }catch{return new Response('Session not found',{status:404});}
 }

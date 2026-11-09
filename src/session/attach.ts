@@ -104,7 +104,9 @@ export async function attachSession(dir:string,options:AttachOptions={},label="p
   let send:(bytes:Buffer)=>void=()=>{};
   let controlling=false;
   let takeover=false;
-  const readOnly=options.readOnly===true;
+  const readOnly=options.readOnly===true||existsSync(join(dir,"session.bridge.pid"));
+  // A viewer connecting through the SSH bridge reaches a session on a paired or remote machine, which ADR 0023,
+  // decision 2 keeps read-only until a later decision grants it input.
   // Decided by the host's first control frame: true on a host that negotiated 1.2.
   let shared:boolean|undefined;
   try{takeover=JSON.parse(readFileSync(join(dir,"session.json"),"utf8")).takeover===true;}catch{/* optional metadata */}
