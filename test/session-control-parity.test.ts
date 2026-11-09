@@ -12,8 +12,8 @@ test("session view/control golden matches the TS reference", () => {
   );
 });
 import { recordViewers } from "../scripts/golden/session-viewers";
-test("viewer arbitration golden matches TS reference", () => {
-  expect(recordViewers()).toEqual(
+test("viewer arbitration golden matches TS reference", async () => {
+  expect(await recordViewers()).toEqual(
     JSON.parse(
       readFileSync(
         new URL("./fixtures/sessions/viewers-parity.json", import.meta.url),

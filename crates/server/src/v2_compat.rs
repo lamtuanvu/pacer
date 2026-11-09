@@ -30,6 +30,7 @@ pub fn params(name: &str, value: &Value) -> Result<Value, &'static str> {
     match name {
         "task.delegate" => Ok(object_without(value, &["dispatch"])),
         "client.register" => Ok(object_without(value, &["capture"])),
+        "client.heartbeat" => Ok(object_without(value, &["notifier"])),
         "task.review" => {
             let accepted = value.get("accepted");
             if accepted.is_some_and(|v| !v.is_boolean()) {
