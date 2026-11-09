@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, test } from "bun:test";
 import { drainQueue } from "../src/tasks/drain";
 import { pause } from "../src/core/pause";
 import { runTask } from "../src/tasks/runner";
@@ -82,6 +82,15 @@ test("a dispatched reservation can be claimed exactly once by its runner", async
   expect((await runTask(ctx, task.id, deps)).state).toBe("running");
   expect(calls).toBe(1); release(); expect((await first).state).toBe("done");
 });
+test("a reservation is claimed even when the claim lands in the same clock tick as the drain", async () => {
+  // With a frozen clock the runner's claim write changes nothing, so it keeps the task's revision.
+  setSystemTime(new Date(Date.now()));
+  try {
+    const ctx = fakeCtx(), task = waiting(ctx, "waiting", ctx.now), deps = queueDeps();
+    expect(await drainQueue(ctx, () => process.pid, deps)).toEqual([task.id]);
+    expect((await runTask(ctx, task.id, deps)).state).toBe("done");
+  } finally { setSystemTime(); }
+}, 10_000);
 test("an unpinned task drops its removed executor when draining", async () => {
   const ctx = fakeCtx(), task = waiting(ctx, "waiting", ctx.now);
   updateTask(ctx, task.id, t => {t.executor = "removed";});
