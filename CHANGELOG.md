@@ -58,7 +58,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
-- Host checks, cleanups and repo setup are handled by TypeScript again.
+- Host check, cleanup and repo setup no longer fail with a "bridge unavailable" error when the Rust front door serves the request.
 
 - Diagnostics no longer takes pacer down when it installs or restarts the service on macOS. The service ran `launchctl bootout` on its own job, which stopped it before it could load the new registration, so the app stayed on "Reconnecting" until the service was started by hand. The service now saves the registration, replies, and a detached helper reloads the job, restoring the previous registration if the new one does not stay running. `service.install` reports `restarting: true` in that case; Diagnostics and the setup check run that fix last and wait for the new service process before they recheck.
 
