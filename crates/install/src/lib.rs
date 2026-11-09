@@ -158,3 +158,128 @@ fn cached_rows_on(ctx: &Ctx, host: Option<&str>, search: &str) -> Option<Value> 
     }
     cached.get("rows").cloned()
 }
+
+// Service installation: `service.install`.
+//
+// Native validation and manifest handling. The actual launchctl/systemctl
+// execution goes through a Core effects bridge (`/_internal/service-effects`,
+// `_internal.service.effects`) because it requires root/sudo on Linux and
+// launchd bootstrap on macOS.
+
+/// Core effects for service installation.
+pub trait ServiceEffects: Send {
+    fn call(&mut self, request: serde_json::Value) -> pacer_foundation::api::OpFuture<'_>;
+}
+
+/// Registry entry for service.install op.
+pub fn service_install_stub(
+    _: &pacer_foundation::Ctx,
+    _: serde_json::Value,
+) -> pacer_foundation::api::OpFuture<'_> {
+    Box::pin(async move {
+        Err(pacer_foundation::api::CoreError::new(
+            pacer_foundation::api::Code::Unavailable,
+            "service effects bridge unavailable",
+        ))
+    })
+}
+
+/// Inputs only TypeScript reproduces (needs sudo/root).
+pub fn service_install_stays_forwarded(
+    ctx: &pacer_foundation::Ctx,
+    _params: &serde_json::Value,
+) -> bool {
+    if ctx
+        .env
+        .get("PACER_WORK_GRANT")
+        .is_some_and(|grant| !grant.is_empty())
+    {
+        return true;
+    }
+    false
+}
+
+pub fn needs_service_effects_bridge(op: &str) -> bool {
+    matches!(op, "service.install")
+}
+
+pub(crate) fn invalid(message: impl Into<String>) -> pacer_foundation::api::CoreError {
+    pacer_foundation::api::CoreError::new(pacer_foundation::api::Code::InvalidInput, message)
+}
+
+pub(crate) fn object(
+    params: &serde_json::Value,
+) -> Result<&serde_json::Map<String, serde_json::Value>, pacer_foundation::api::CoreError> {
+    params.as_object().ok_or_else(|| {
+        invalid(format!(
+            "params: Invalid input: expected object, received {}",
+            match params {
+                serde_json::Value::Null => "null",
+                serde_json::Value::Bool(_) => "boolean",
+                serde_json::Value::Number(_) => "number",
+                serde_json::Value::String(_) => "string",
+                serde_json::Value::Array(_) => "array",
+                serde_json::Value::Object(_) => "object",
+            }
+        ))
+    })
+}
+
+/// Native `service.install` — validates params and calls install effect.
+pub async fn service_install(
+    ctx: &pacer_foundation::Ctx,
+    params: serde_json::Value,
+    effects: &mut dyn ServiceEffects,
+) -> Result<serde_json::Value, pacer_foundation::api::CoreError> {
+    let map = object(&params)?;
+    let replace = map
+        .get("replace")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let release_ownership = map
+        .get("releaseOwnership")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let force = map
+        .get("force")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+
+    // Validate we're not in an executor session
+    if ctx.env.get("PACER_ROLE").is_some_and(|r| r == "executor") {
+        return Err(invalid(
+            "pacer service: executor sessions cannot install the service",
+        ));
+    }
+
+    // Build input for Core effect
+    let input = serde_json::json!({
+        "replace": replace,
+        "releaseOwnership": release_ownership,
+        "force": force,
+        "argv": std::env::args().collect::<Vec<_>>(),
+        "home": ctx.home.to_string_lossy(),
+        "pacerHome": ctx.pacer_home.to_string_lossy(),
+    });
+
+    effects
+        .call(serde_json::json!({"kind": "install", "input": input}))
+        .await
+}
+
+/// Dispatch a service.install op through the effects bridge.
+pub async fn call(
+    ctx: &pacer_foundation::Ctx,
+    op: &str,
+    params: serde_json::Value,
+    _app: bool,
+    effects: &mut dyn ServiceEffects,
+) -> Result<serde_json::Value, pacer_foundation::api::CoreError> {
+    match op {
+        "service.install" => service_install(ctx, params, effects).await,
+        _ => Err(pacer_foundation::api::CoreError::new(
+            pacer_foundation::api::Code::UnknownOp,
+            "unknown operation",
+        )),
+    }
+}
