@@ -18,7 +18,7 @@ export interface ServiceStatus {
   lastExitCode: number | null; healthy: boolean; plistPath: string; binaryPath: string | null; binaryMatches: boolean;
 }
 export interface ServiceBackend {
-  install(options?: { replace?: boolean }): Promise<string[]>; uninstall(): Promise<void>; status(timeoutMs?: number): Promise<ServiceStatus>;
+  install(options?: { replace?: boolean }): Promise<InstallNotes>; uninstall(): Promise<void>; status(timeoutMs?: number): Promise<ServiceStatus>;
   restart(): Promise<void>; logsPath(): string;
 }
 export interface ServiceDeps {
@@ -31,35 +31,35 @@ export interface ServiceDeps {
   upgrade?: import("./upgrade").UpgradeDeps;
   /** Starts a process outside this one's process group with output appended to `log` (tests inject this). */
   spawnDetached?: (argv: string[], log: string) => void;
+  /** This process and its parent; the service's TypeScript core runs as a child of the front door. */
+  self?: { pid: number; ppid: number };
 }
 /** Install note that the job reloads after the call returns; clients wait for the new process. */
 export const RELOAD_AFTER_RETURN = "The pacer service restarts in a moment to load its new registration.";
+/** Install notes; `reloadPending` when a detached helper reloads the caller's own job after it replies. */
+export type InstallNotes = string[] & { reloadPending?: true };
 /**
  * Reloads a launchd job from outside it. `launchctl bootout` stops every process in the job's
  * process group, so the service cannot reload its own job in-process: it would die before its
- * `bootstrap`. This runs in its own session, waits for the caller's reply to reach the client,
- * and restores the previous registration when the new one never loads.
+ * `bootstrap`. This runs in its own session and waits for the caller's reply to reach the client.
+ * When the new registration does not load or stay running, it restores the previous one.
  * Arguments: target, domain, plist path, previous plist copy (empty when there was none).
  */
-const RELOAD_SCRIPT = `sleep 1
-launchctl bootout "$1" >/dev/null 2>&1
-n=0
-until launchctl bootstrap "$2" "$3"; do
-  n=$((n+1)); [ "$n" -ge 5 ] && break; sleep 1
-done
-if [ "$n" -ge 5 ]; then
-  echo "pacer service reload: could not load $3"
-  if [ -n "$4" ]; then cp "$4" "$3" && launchctl bootstrap "$2" "$3" && echo "pacer service reload: restored the previous registration"; fi
+const RELOAD_SCRIPT = `/bin/sleep 2
+/bin/launchctl bootout "$1" >/dev/null 2>&1
+load() { n=0; until /bin/launchctl bootstrap "$2" "$3"; do n=$((n+1)); [ "$n" -ge 5 ] && return 1; /bin/sleep 1; done; }
+stays() { /bin/sleep 5; /bin/launchctl print "$1" 2>/dev/null | /usr/bin/grep -q "state = running"; }
+if load "$@" && stays "$@"; then /bin/rm -f "$4"; exit 0; fi
+echo "pacer service reload: the new registration in $3 did not stay running"
+if [ -n "$4" ]; then
+  /bin/launchctl bootout "$1" >/dev/null 2>&1
+  /bin/cp "$4" "$3.restore" && /bin/mv -f "$3.restore" "$3" && load "$@" && echo "pacer service reload: restored the previous registration"
 fi
-rm -f "$4"`;
+/bin/rm -f "$4"`;
 function spawnDetached(argv: string[], log: string): void {
   const fd = openSync(log, "a");
   try { Bun.spawn(argv, { detached: true, stdin: "ignore", stdout: fd, stderr: fd }).unref(); }
   finally { closeSync(fd); }
-}
-/** True when this process runs inside the launchd job `label`, which launchd names in XPC_SERVICE_NAME. */
-export function insideServiceJob(ctx: Pick<Ctx, "env">, label: string, platform: string = process.platform): boolean {
-  return platform === "darwin" && ctx.env.XPC_SERVICE_NAME === label;
 }
 /** Fixture labels are compile-time sandbox capabilities, never runtime environment choices. */
 export function desktopServiceLabel(ctx: Ctx): string {
@@ -266,7 +266,10 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
         throw new CoreError("not_allowed", `Could not inspect the login service: ${probe.stderr || probe.stdout || `exit ${probe.code}`}`);
       }
       // The service itself (a Diagnostics fix) must not boot out its own job; see RELOAD_SCRIPT.
-      const fromInside = probe.code === 0 && insideServiceJob(ctx, label, platform);
+      // Sessions the service started inherit its environment but survive bootout, so match the job's pid.
+      const self = deps.self ?? { pid: process.pid, ppid: process.ppid };
+      const jobPid = mac && probe.code === 0 ? parseLaunchd(probe.stdout).pid : null;
+      const fromInside = jobPid !== null && (jobPid === self.pid || jobPid === self.ppid);
       let old: string | null = null;
       let activated = false;
       try {
@@ -300,12 +303,17 @@ export function serviceBackend(ctx: Ctx, deps: ServiceDeps = {}): ServiceBackend
       });
       if (fromInside) {
         let previous = "";
-        if (old !== null) {
-          previous = join(ctx.pacerHome, "backups/service", `${label}.reload-previous.plist`);
-          writeInstallFile(previous, old);
+        try {
+          if (old !== null) {
+            previous = join(ctx.pacerHome, "backups/service", `${label}.reload-${crypto.randomUUID()}.plist`);
+            writeInstallFile(previous, old);
+          }
+          (deps.spawnDetached ?? spawnDetached)(["/bin/sh", "-c", RELOAD_SCRIPT, "pacer-service-reload", target, target.slice(0, target.lastIndexOf("/")), path, previous], backend.logsPath());
+        } catch (error) {
+          if (previous) rmSync(previous, { force: true });
+          throw new CoreError("unavailable", `The new service registration is saved, but pacer could not reload it: ${(error as Error).message}`, "Quit and reopen the pacer app, or restart your Mac, to load it.");
         }
-        (deps.spawnDetached ?? spawnDetached)(["/bin/sh", "-c", RELOAD_SCRIPT, "pacer-service-reload", target, target.slice(0, target.lastIndexOf("/")), path, previous], backend.logsPath());
-        return [...report.notes, RELOAD_AFTER_RETURN];
+        return Object.assign([...report.notes, RELOAD_AFTER_RETURN], { reloadPending: true as const });
       }
       return report.notes;
       } catch (error) {

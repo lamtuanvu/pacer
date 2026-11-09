@@ -32,13 +32,16 @@ export interface ServiceView { connected: boolean; pid?: number }
 /**
  * Resolves true once a connected service with a process id other than `before` is seen, or false
  * after `timeoutMs`. A recheck sent sooner could reach the old process just before it stops.
+ * Without a known `before`, the connection must drop first.
  */
 export async function awaitServiceRestart(before: number | undefined, view: () => ServiceView,
   { timeoutMs = 60_000, intervalMs = 500, sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)), now = Date.now } = {}): Promise<boolean> {
   const deadline = now() + timeoutMs;
+  let dropped = false;
   for (;;) {
     const current = view();
-    if (current.connected && current.pid !== undefined && current.pid !== before) return true;
+    dropped ||= !current.connected;
+    if (current.connected && current.pid !== undefined && (before === undefined ? dropped : current.pid !== before)) return true;
     if (now() >= deadline) return false;
     await sleep(intervalMs);
   }

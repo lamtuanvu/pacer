@@ -11,7 +11,7 @@ import { AGENT_BINS, type AgentId } from "../install/detection";
 import { installPlanner } from "../install";
 import { uninstallPlanner } from "../install/uninstall";
 import { pacerArgv } from "../install/self";
-import { RELOAD_AFTER_RETURN, serviceBackend, type ServiceBackend } from "../service";
+import { serviceBackend, type ServiceBackend } from "../service";
 import { checkSetup } from "../setup/check";
 import { withLock } from "./lock";
 import { loadStrategy } from "../config/strategy";
@@ -101,7 +101,7 @@ export function version(_ctx: Ctx) {
 export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<ServiceBackend,"install"|"status">=serviceBackend(ctx)) {
   if(consent!==true)throw new CoreError("not_allowed","installing the login service requires consent","Pass consent: true to run pacer in the background at login");
   try {
-    return await withLock(ctx,"setup-install",async()=>{const notes=await backend.install();const s=await backend.status(2000);return {installed:s.installed,running:s.running,...(notes.includes(RELOAD_AFTER_RETURN)?{restarting:true}:{})};},{timeoutMs:0});
+    return await withLock(ctx,"setup-install",async()=>{const notes=await backend.install();if(notes.reloadPending)return {installed:true,running:true,restarting:true};const s=await backend.status(2000);return {installed:s.installed,running:s.running};},{timeoutMs:0});
   }catch(e){if(e instanceof Error&&e.message.startsWith("timed out waiting for"))throw new CoreError("conflict","setup installation is already running");throw toCoreError(e);}
 }
 

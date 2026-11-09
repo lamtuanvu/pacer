@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { main } from "../src/cli";
 import { readManifest } from "../src/install/manifest";
 import { runDoctor } from "../src/install/doctor";
-import { health, binaryInFile, insideServiceJob, parseLaunchd, parseSystemd, plist, RELOAD_AFTER_RETURN, restartAfterUpdate, serviceBackend, serviceInstalled, servicePath, servicePATH, unit, type ServiceDeps } from "../src/service";
+import { health, binaryInFile, parseLaunchd, parseSystemd, plist, RELOAD_AFTER_RETURN, restartAfterUpdate, serviceBackend, serviceInstalled, servicePath, servicePATH, unit, type ServiceDeps } from "../src/service";
 import { serviceCli } from "../src/service/cli";
 import { MANAGED_BY_DESKTOP_MESSAGE, readOwner, writeOwner } from "../src/install/owner";
 import { fakeCtx } from "./helpers";
@@ -362,9 +362,10 @@ test("service install rejects --release-ownership combined with an unknown flag"
   const { ctx, d } = fixture();
   expect((await serviceCli(["install", "--release-ownership", "--bogus"], ctx, d)).code).toBe(2);
 });
+// The fixture's `launchctl print` reports the job's pid as 456.
+const inJob = { pid: 456, ppid: 1 }, frontDoorChild = { pid: 900, ppid: 456 }, outside = { pid: 900, ppid: 901 };
 test("the service reloads its own launchd job from a detached process instead of booting itself out", async () => {
   const { ctx, calls, d, path } = fixture();
-  ctx.env.XPC_SERVICE_NAME = "com.pacer.serve";
   const previous = '<plist><dict><key>Label</key><string>com.pacer.serve</string></dict></plist>';
   put(path, previous);
   const spawned: { argv: string[]; log: string; previous: string | null }[] = [];
@@ -372,54 +373,79 @@ test("the service reloads its own launchd job from a detached process instead of
     const copy = argv.at(-1)!;
     spawned.push({ argv, log, previous: copy && existsSync(copy) ? readFileSync(copy, "utf8") : null });
   };
-  const notes = await serviceBackend(ctx, { ...d, spawnDetached }).install();
+  const notes = await serviceBackend(ctx, { ...d, spawnDetached, self: inJob }).install();
   // Only the probe ran in-process: bootout here would kill this very process before its bootstrap.
   expect(calls).toEqual([["launchctl", "print", "gui/501/com.pacer.serve"]]);
   expect(readFileSync(path, "utf8")).toBe(plist(ctx, ["/opt/pacer"], "com.pacer.serve"));
-  expect(notes).toContain(RELOAD_AFTER_RETURN);
+  expect(notes).toContain(RELOAD_AFTER_RETURN); expect(notes.reloadPending).toBe(true);
   expect(spawned).toHaveLength(1);
   const [{ argv, log }] = spawned;
   expect(argv.slice(0, 2)).toEqual(["/bin/sh", "-c"]);
   expect(argv.slice(3, 7)).toEqual(["pacer-service-reload", "gui/501/com.pacer.serve", "gui/501", path]);
-  expect(argv[2]).toContain('launchctl bootout "$1"'); expect(argv[2]).toContain('launchctl bootstrap "$2" "$3"');
+  expect(argv[2]).toContain('/bin/launchctl bootout "$1"'); expect(argv[2]).toContain('/bin/launchctl bootstrap "$2" "$3"');
+  expect(argv[7]).toMatch(/backups\/service\/com\.pacer\.serve\.reload-[0-9a-f-]+\.plist$/);
   expect(spawned[0].previous).toBe(previous);
   expect(log).toBe(join(ctx.pacerHome, "logs/serve.log"));
 });
-test("a fresh in-job install has no previous registration to restore, and other callers still reload in-process", async () => {
-  const { ctx, d } = fixture();
-  ctx.env.XPC_SERVICE_NAME = "com.pacer.serve";
+test("the TypeScript core under the front door reloads from outside too; a fresh install has nothing to restore", async () => {
+  const { ctx, calls, d } = fixture();
   const spawned: string[][] = [];
-  await serviceBackend(ctx, { ...d, spawnDetached: argv => spawned.push(argv) }).install();
+  await serviceBackend(ctx, { ...d, self: frontDoorChild, spawnDetached: argv => spawned.push(argv) }).install();
+  expect(calls).toHaveLength(1);
   expect(spawned[0].at(-1)).toBe("");
-  // A terminal or the app (another launchd job) is outside the service job.
-  for (const name of ["application.com.apple.Terminal.1", undefined]) {
-    const f = fixture(); f.ctx.env.XPC_SERVICE_NAME = name;
-    const other: string[][] = [];
-    expect(await serviceBackend(f.ctx, { ...f.d, spawnDetached: argv => other.push(argv) }).install()).not.toContain(RELOAD_AFTER_RETURN);
-    expect(other).toEqual([]);
-    expect(f.calls[1]).toEqual(["launchctl", "bootout", "gui/501/com.pacer.serve"]);
-  }
 });
-test("insideServiceJob matches the launchd label on macOS only", () => {
-  expect(insideServiceJob({ env: { XPC_SERVICE_NAME: "com.pacer.serve" } }, "com.pacer.serve", "darwin")).toBe(true);
-  expect(insideServiceJob({ env: { XPC_SERVICE_NAME: "com.pacer.serve" } }, "dev.pacer.fixture", "darwin")).toBe(false);
-  expect(insideServiceJob({ env: { XPC_SERVICE_NAME: "com.pacer.serve" } }, "com.pacer.serve", "linux")).toBe(false);
+test("callers outside the job, including sessions that inherited its environment, still reload in-process", async () => {
+  const f = fixture(); f.ctx.env.XPC_SERVICE_NAME = "com.pacer.serve";
+  const other: string[][] = [];
+  const notes = await serviceBackend(f.ctx, { ...f.d, self: outside, spawnDetached: argv => other.push(argv) }).install();
+  expect(notes).not.toContain(RELOAD_AFTER_RETURN); expect(notes.reloadPending).toBeUndefined();
+  expect(other).toEqual([]);
+  expect(f.calls[1]).toEqual(["launchctl", "bootout", "gui/501/com.pacer.serve"]);
 });
-test("the reload script retries bootstrap and restores the previous registration when the new one never loads", async () => {
+test("a helper that cannot start leaves no copy behind and says the registration is saved", async () => {
   const { ctx, d, path } = fixture();
-  ctx.env.XPC_SERVICE_NAME = "com.pacer.serve";
+  put(path, "previous registration");
+  let copy = "";
+  const install = serviceBackend(ctx, { ...d, self: inJob, spawnDetached: argv => { copy = argv.at(-1)!; throw new Error("spawn EAGAIN"); } }).install();
+  await expect(install).rejects.toMatchObject({ code: "unavailable", message: expect.stringContaining("registration is saved") });
+  expect(copy).not.toBe(""); expect(existsSync(copy)).toBe(false);
+});
+function reloadRun(argv: string[], bin: string) {
+  const script = argv[2].replaceAll("/bin/launchctl", join(bin, "launchctl")).replace(/\/bin\/sleep \d+/g, ":");
+  return Bun.spawnSync(["/bin/sh", "-c", script, ...argv.slice(3)]);
+}
+async function reloadFixture(launchctl: string) {
+  const { ctx, d, path } = fixture();
   put(path, "previous registration");
   let argv: string[] = [];
-  await serviceBackend(ctx, { ...d, spawnDetached: a => { argv = a; } }).install();
+  await serviceBackend(ctx, { ...d, self: inJob, spawnDetached: a => { argv = a; } }).install();
   const bin = join(ctx.pacerHome, "fake-bin"), log = join(ctx.pacerHome, "launchctl.log");
-  // Fails every bootstrap of the new registration and accepts the previous one.
-  put(join(bin, "launchctl"), `#!/bin/sh\necho "$*" >> "${log}"\n[ "$1" = bootstrap ] && ! grep -q "previous registration" "$3" && exit 5\nexit 0\n`);
+  put(join(bin, "launchctl"), `#!/bin/sh\necho "$*" >> "${log}"\n${launchctl}\nexit 0\n`);
   Bun.spawnSync(["chmod", "+x", join(bin, "launchctl")]);
-  const out = Bun.spawnSync(["/bin/sh", "-c", argv[2].replaceAll("sleep 1", ":"), ...argv.slice(3)], { env: { PATH: `${bin}:/bin:/usr/bin` } });
-  expect(out.stdout.toString()).toContain("restored the previous registration");
-  expect(readFileSync(path, "utf8")).toBe("previous registration");
-  const lines = readFileSync(log, "utf8").trim().split("\n");
-  expect(lines[0]).toBe("bootout gui/501/com.pacer.serve");
-  expect(lines.filter(line => line.startsWith("bootstrap"))).toHaveLength(6);
-  expect(existsSync(argv.at(-1)!)).toBe(false);
+  const out = reloadRun(argv, bin);
+  return { path, argv, out: out.stdout.toString(), calls: () => readFileSync(log, "utf8").trim().split("\n") };
+}
+test("the reload script retries bootstrap and restores the previous registration when the new one never loads", async () => {
+  const r = await reloadFixture(`[ "$1" = bootstrap ] && ! grep -q "previous registration" "$3" && exit 5\n[ "$1" = print ] && echo "state = running"`);
+  expect(r.out).toContain("restored the previous registration");
+  expect(readFileSync(r.path, "utf8")).toBe("previous registration");
+  const calls = r.calls();
+  expect(calls[0]).toBe("bootout gui/501/com.pacer.serve");
+  expect(calls.filter(line => line.startsWith("bootstrap"))).toHaveLength(6);
+  expect(existsSync(r.argv.at(-1)!)).toBe(false);
+});
+test("the reload script restores the previous registration when the new one loads but does not stay running", async () => {
+  // Every bootstrap succeeds; the job is reported running only once the previous registration is back.
+  const r = await reloadFixture(`[ "$1" = bootstrap ] && cp "$3" "$(dirname "$0")/loaded"\n[ "$1" = print ] && grep -q "previous registration" "$(dirname "$0")/loaded" && echo "state = running"`);
+  expect(r.out).toContain("did not stay running"); expect(r.out).toContain("restored the previous registration");
+  expect(readFileSync(r.path, "utf8")).toBe("previous registration");
+  expect(r.calls().filter(line => line.startsWith("bootout"))).toHaveLength(2);
+  expect(existsSync(`${r.path}.restore`)).toBe(false);
+});
+test("the reload script keeps a registration that loads and stays running", async () => {
+  const r = await reloadFixture(`[ "$1" = print ] && echo "state = running"`);
+  expect(r.out).toBe("");
+  expect(readFileSync(r.path, "utf8")).not.toBe("previous registration");
+  expect(r.calls()).toEqual(["bootout gui/501/com.pacer.serve", `bootstrap gui/501 ${r.path}`, "print gui/501/com.pacer.serve"]);
+  expect(existsSync(r.argv.at(-1)!)).toBe(false);
 });

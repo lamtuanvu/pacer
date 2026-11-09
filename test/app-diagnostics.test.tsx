@@ -496,3 +496,14 @@ test('awaitServiceRestart waits for a connected service with a new process id, o
   expect(await awaitServiceRestart(10, () => ({connected:true,pid:10}), { ...opts, timeoutMs: 2000 })).toBe(false);
   expect(clock).toBe(2000);
 });
+
+test('awaitServiceRestart without a known process id waits for the connection to drop and return', async () => {
+  const { awaitServiceRestart } = await import('../app/src/data/remedies');
+  let clock = 0, seen = 0;
+  const views = [{connected:true,pid:10},{connected:false},{connected:true,pid:11}];
+  const opts = { now: () => clock, sleep: async (ms: number) => { clock += ms; } };
+  expect(await awaitServiceRestart(undefined, () => views[Math.min(seen++, views.length - 1)], opts)).toBe(true);
+  expect(seen).toBe(3);
+  clock = 0;
+  expect(await awaitServiceRestart(undefined, () => ({connected:true,pid:10}), { ...opts, timeoutMs: 1000 })).toBe(false);
+});

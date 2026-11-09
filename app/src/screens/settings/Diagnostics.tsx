@@ -253,7 +253,8 @@ export function DiagnosticsSection() {
   /** Waits for the service that `before` named to be replaced, so the recheck reaches the new one. */
   async function awaitRestart(before: number | undefined) {
     setProgress("Waiting for pacer to restart…");
-    await awaitServiceRestart(before, () => service.current);
+    if (!await awaitServiceRestart(before, () => service.current))
+      setProgress("pacer has not come back after a minute. Checking anyway; if checks fail, run all checks again shortly.");
   }
   /** When the focused control went away (a fixed row, the last fix-all), keep focus on the page. */
   const keepFocus = () => requestAnimationFrame(() => {
