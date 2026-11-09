@@ -343,6 +343,10 @@ pub struct PluginCapabilitySession {
     /// hello so `answer` can refuse them until Core is bound (R1), and `$`
     /// transport methods (`$/resultChunk`) can reach Core after the gate.
     sealed_core_methods: HashSet<String>,
+    /// Whether the child negotiated `chunkedResults` in its hello. `$/resultChunk`
+    /// is relayed to Core only when it did, matching flag-off's negotiated
+    /// feature gate.
+    chunked_result_negotiated: bool,
     core: Option<(CoreForward, HashSet<String>)>,
 }
 
@@ -358,6 +362,7 @@ impl PluginCapabilitySession {
             pending_executor: None,
             declared: Vec::new(),
             sealed_core_methods: HashSet::new(),
+            chunked_result_negotiated: false,
             core: None,
         }
     }
@@ -371,9 +376,12 @@ impl PluginCapabilitySession {
     }
 
     /// Forward the Core-sealed `methods` (each one [`core_capability`] admits)
-    /// to the Core that issued this call instead of the native broker.
-    pub fn bind_core(&mut self, core: CoreForward, methods: HashSet<String>) {
+    /// to the Core that issued this call instead of the native broker. The
+    /// chunked-result transport is relayed only when the child also negotiated
+    /// `chunkedResults` in its hello (`chunked_result`).
+    pub fn bind_core(&mut self, core: CoreForward, methods: HashSet<String>, chunked_result: bool) {
         self.sealed_core_methods = methods;
+        self.chunked_result_negotiated = chunked_result;
         self.core = Some((core, self.sealed_core_methods.clone()));
     }
 
@@ -509,9 +517,18 @@ impl PluginCapabilitySession {
 
     /// Relay a `$/resultChunk` request to the bound Core. Chunk assembly is a
     /// negotiated transport, not a declared capability, so it skips the
-    /// declared/granted checks of [`Self::answer_by_core`].
+    /// declared/granted checks of [`Self::answer_by_core`]. Mirror flag-off: it
+    /// is relayed only when Core sealed the method for this call **and** the
+    /// child negotiated `chunkedResults` in its hello; otherwise the child must
+    /// keep its result within the plain single-frame limit.
     async fn answer_result_chunk(&mut self, method: &str, params: Value) -> Result<Value, Value> {
         let refuse = |code: &str, message: String| json!({"code": -32000, "message": message, "data": {"code": code}});
+        if !self.sealed_core_methods.contains(method) || !self.chunked_result_negotiated {
+            return Err(refuse(
+                "capability_denied",
+                format!("{method} was not negotiated for this call"),
+            ));
+        }
         let Some((core, _)) = &self.core else {
             return Err(refuse(
                 "capability_denied",
