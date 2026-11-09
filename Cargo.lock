@@ -1240,6 +1240,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-account-ops"
+version = "0.0.0"
+dependencies = [
+ "icu_collator",
+ "pacer-config",
+ "pacer-engine",
+ "pacer-foundation",
+ "regex",
+ "ryu-js",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "pacer-assistant-ops"
 version = "0.0.0"
 dependencies = [
@@ -1738,6 +1755,7 @@ dependencies = [
  "icu_collator",
  "libproc",
  "nix",
+ "pacer-account-ops",
  "pacer-assistant-ops",
  "pacer-config",
  "pacer-config-ops",

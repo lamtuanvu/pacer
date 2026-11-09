@@ -97,11 +97,12 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete` | Native (P7/P8 assistant reads, selective) | Rust reads conversation pages and turns with usage, cards, citations and scope parsed in `JSON.parse` key order. `conversations` first enforces retention like TypeScript; deletes drop turn text, keep usage aggregates and run `wal_checkpoint(TRUNCATE)` (`src/assistant/store.ts`). `conversations` forwards when stored settings are unusable. |
 | `assistant.ask`, `assistant.cancel` | Forwarded (P7/P8) | Turn lifecycle: redacted read-tool loop, bundled `pacer-assistant` plugin `respond`, checkpointing and SSE answer stream at `/v3/assistant/turns/<turnId>/stream` (`src/assistant/service.ts`, `src/api/http.ts`). `cancel` aborts the in-process live-turn map of the TypeScript service. Proposed actions stay client-confirmed; nothing executes from the turn itself. |
 | `assistant.card.record`, `assistant.card.refresh` | Native (P7/P8 assistant reads, selective) | Rust rewrites the stored `cards` JSON in place, keeping key positions and `JSON.stringify` spelling (`src/assistant/actions.ts`). `refresh` reads the task revision from the task store; a task without a brief or title forwards because TypeScript `taskTitle` throws there. |
-| `account.list` | Forwarded (P7/P9) | Account inventory with usage/sign-in commands and no emails (`src/core/accounts.ts`). Each row needs `readAccountUsage` (usage plugin and CLI readers), endpoint-plugin rows (`endpointRow`), Orca account reads and sign-in evidence, so it is not a pure store read. |
+| `account.list` | Forwarded (P7/P9) | Account inventory with usage/sign-in commands and no emails (`src/core/accounts.ts`). Each row needs `readAccountUsage` (usage plugin and CLI readers behind a per-process cache), endpoint-plugin rows (`endpointRow`), Orca account reads and sign-in evidence, so it is not a pure store read. M2 re-evaluation: the usage-broker bridge carries reconciled `computeStatus` readings, not the per-account `readAccountUsage` reading each row reports, so no input has a native path without a new bridge. |
 | `account.signin` | Forwarded (P7/P9) | Opens provider login in a terminal/tmux/Orca target or returns the command; interactive account-add/init flows share the handler (`src/api/ops.ts`, `accounts.signin`). |
-| `account.add`, `account.edit`, `account.adopt`, `account.remove` | Forwarded (P7/P9) | Strategy `accounts` mutations: Claude/Codex homes, managed endpoints and OpenCode adoption with endpoint-plugin sync, protected-path home deletion and runner references (`src/endpoints/`, `src/core/accounts.ts`). |
-| `account.models`, `account.test` | Forwarded (P7/P9) | Supplied-key or stored-key model discovery and isolated endpoint test tasks in a temporary git repo (`endpoints.listModels`, `testEndpoint`). |
-| `account.usage.check` | Forwarded (P5/P9) | Quota-consuming usage observation jobs per account (Claude consent gate), plugin/CLI reads and warmed status via `usageRefreshDone` (`src/core/account-usage-check.ts`, `src/usage/`). |
+| `account.remove` | Native (M2 accounts, selective) | `pacer-account-ops` owns `accounts.remove` (`src/core/accounts.ts`): legacy strategy migration, `unknown account` and `in use` refusals, the `deletionHome` checks (pacer-managed source, symlinked, root, protected and shared folders, including other accounts' Orca and pacer homes), the `accounts` mapping removal in one validated strategy edit, evidence retirement (`state/evidence/<identity>.json` under the `evidence-<identity>` lock, the SHA-256 identity of `accountEvidenceScope` with ICU-collated host rows) and the home deletion. The `accounts` config publication and the endpoint-plugin sync follow as for `runner.set`. Malformed params, prototype-key names and strategy files TypeScript reports in its own parser's words forward. Residual: the endpoint-plugin sync runs after the evidence retirement and home deletion, where TypeScript synced right after the strategy edit. |
+| `account.add`, `account.edit`, `account.adopt` | Native (M2 accounts, selective) | Managed endpoints (`src/core/endpoints.ts` `save`): `account.add` with `kind: endpoint` and `test: false`, `account.edit` and `account.adopt` without `test: true`, all without a `key` param. Rust owns the name, usage and key-source checks, the connection, budget, quota source, OpenCode runner models and the `opencode#<name>` runner and default route in one validated strategy edit, the `endpoints/state.json` reset (private atomic write), `adoptEndpoint`'s read of the external provider's `baseURL` and model ids from `~/.config/opencode/opencode.json` (never `options.apiKey`), and the reply row with key presence (`env:`, `file`, and `security find-generic-password` without `-w` for `keychain`; no key is read). Errors are redacted as `redactEndpointMessage` does. Claude, Codex, Orca and `source: opencode` adds (their reply embeds the plugin usage row of `account.list`), key writes, test tasks, malformed params, prototype-key names, an unloadable strategy, an unreadable or non-JSON `state.json`, and external provider files with non-object `models` or prototype-key providers forward. Residual: the endpoint-plugin sync runs after the endpoint state write and keychain presence check, where TypeScript synced right after the strategy edit. |
+| `account.models`, `account.test` | Native (M2 accounts, selective) | `pacer-account-ops` refuses natively when the named account is not a configured endpoint, when `account.models` has no base URL, and when an `env:` or `file` key source has no key (unset variable, missing or empty key file). Model discovery (supplied or stored key, including every `keychain` source) and the endpoint test task in a temporary git repo forward. |
+| `account.usage.check` | Native (M2 accounts, selective) | `pacer-account-ops` refuses natively with `accountUsageCapability`'s outcomes: unknown accounts, unmetered accounts, accounts whose usage cannot be refreshed (`pacer_engine::usage_refresh::refresh_capability`), and Claude quota probes without consent. Starting the usage job (probe or refresh through plugin/CLI readers and `usageRefreshDone`) forwards. |
 | `terminal.list`, `terminal.create`, `terminal.rename`, `terminal.close` | Forwarded (P7) | Built-in workspace terminal tabs: idempotent shell spawn, revision-guarded rename/close and live state reads (`src/api/ops-terminal.ts`, `src/terminal/workspace.ts`). Refused for executor sessions. |
 | `agent.detect` | Native (M2 service and agent, selective) | `pacer-install` owns the host half of `detectAgents`: the Zod `host` issue text, the enforcement refusal, the `AGENT_BINS` probe on the service `PATH` and the hour-long `cache/agent-detect-<sha256>.json` read keyed by `JSON.stringify([binaries, PATH, host])`; a fresh entry is answered natively. A miss, an expired or future entry, an entry without `rows`, or a relative process `PATH` entry selectively forwards, because interpreting the agent CLIs is the planner plugin's `planner.detect` capability (ARCH-12) in the TypeScript plugin host, which also writes the cache. Residual: if the entry disappears between the forward decision and the handler, the reply is `unavailable` with a retry hint. Parity: `test/native-agent-limits-parity.test.ts`. |
 | `agent.preview` | Forwarded (P9) | Integration preview and undo command before consent. The preview is the planner plugin's `planner.preview` capability, which has no host fallback (ARCH-12), so it stays with the TypeScript plugin host. |
@@ -302,7 +303,26 @@ config alone. This slice only expands the ledger with explicit Forwarded rows;
 it does not register native handlers. Native cutover waits on plugin host
 ownership, usage refresh bridges, and P9 setup/service owners. The later
 assistant-reads slice registers ten `assistant.*` ops (see below);
-`assistant.ask` and `assistant.cancel` stay Forwarded.
+`assistant.ask` and `assistant.cancel` stay Forwarded. The later M2 accounts
+slice registers seven `account.*` ops (see below); `account.list` and
+`account.signin` stay Forwarded.
+
+## M2 accounts (native, selective)
+
+`account.remove`, `account.add`, `account.edit`, `account.adopt`,
+`account.models`, `account.test` and `account.usage.check` are registered
+native on stdio and HTTP in the `pacer-account-ops` crate. Rust owns the logic
+and the writes: the strategy edit, `endpoints/state.json`, evidence retirement
+and home deletion. No op calls TypeScript to execute; the
+`account_stays_forwarded` predicate forwards only the inputs listed in their
+rows, and an enforcement identity is refused natively. After a native write the
+existing endpoint-sync hook (`_internal.native-config.finish`) regenerates the
+OpenCode endpoint configuration, and the `accounts` config area is published.
+No handler reads, logs or returns an endpoint key. `account.list` stays
+Forwarded on plugin usage readings and `account.signin` on the terminal
+hand-off. `test/native-account-parity.test.ts` compares replies, errors,
+strategy, endpoint state, evidence, OpenCode configuration and outbox events
+against the TypeScript handlers.
 
 ## P7/P8 assistant settings and history cutover (native, selective)
 
@@ -630,7 +650,7 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **138** of 227 (126 on the Rust stdio registry plus 12 HTTP-native
+Total native: **145** of 228 (133 on the Rust stdio registry plus 12 HTTP-native
 `plugin.*` ops). Fifty-seven of these selectively forward some inputs or effects to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
@@ -644,8 +664,8 @@ Total native: **138** of 227 (126 on the Rust stdio registry plus 12 HTTP-native
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,
 `assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
 `dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
-`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`.
-Total still not native (v3 − native set): **89**.
+`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`.
+Total still not native (v3 − native set): **83**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

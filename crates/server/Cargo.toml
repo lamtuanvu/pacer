@@ -33,6 +33,7 @@ pacer-update = { path = "../update" }
 pacer-assistant-ops = { path = "../assistant-ops" }
 pacer-machine-ops = { path = "../machine-ops" }
 pacer-discovery-ops = { path = "../discovery-ops" }
+pacer-account-ops = { path = "../account-ops" }
 pacer-mdns = { path = "../mdns" }
 chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
 

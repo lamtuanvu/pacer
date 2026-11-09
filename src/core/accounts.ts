@@ -73,6 +73,10 @@ export async function applyEdit(ctx: Ctx, change: Parameters<typeof editStrategy
 export async function finishNativeConfigEdit(ctx: Ctx, op: unknown): Promise<void> {
   if (
     ![
+      "account.add",
+      "account.edit",
+      "account.adopt",
+      "account.remove",
       "host.add",
       "host.set",
       "host.remove",
