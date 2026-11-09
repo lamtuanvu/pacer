@@ -55,7 +55,16 @@ beforeAll(async()=>{
   if(op==='agent.preview'){
    if(mode==='preview-error')return Response.json({code:'internal',message:'Preview unavailable'},{status:500});
    const agent=params.agent;
-   return Response.json({agent,files:agent==='cursor'?['$HOME/.cursor/rules/pacer.mdc','$HOME/.cursor/hooks.json']:['$HOME/work/AGENTS.md'],undo:`pacer uninstall ${agent}`,revision:`rev-${agent}`});
+   if(agent==='cursor')return Response.json({agent,files:['$HOME/.cursor/rules/pacer.mdc','$HOME/.cursor/hooks.json'],
+    changes:[
+     {path:'$HOME/.cursor/rules/pacer.mdc',change:'update',note:'Pacer updates its entries and keeps your edits.'},
+     {path:'$HOME/.cursor/hooks.json',change:'update',note:'Pacer updates its entries and keeps your edits.'}],
+    undo:`pacer uninstall ${agent}`,revision:`rev-${agent}`});
+   return Response.json({agent,files:['$HOME/work/AGENTS.md'],
+    changes:[
+     {path:'$HOME/work/AGENTS.md',change:'restore',note:'Changed outside pacer; restored to the installed version'},
+     {path:'$HOME/CLAUDE.md',change:'kept',note:'Yours. Pacer never edits it'}],
+    undo:`pacer uninstall ${agent}`,revision:`rev-${agent}`});
   }
   if(op==='agent.connect'){
    if(mode==='hold')await pending;
@@ -63,6 +72,8 @@ beforeAll(async()=>{
    fixed.add(params.agent==='cursor'?'Integration freshness cursor':'Install codex#work');
    return Response.json({installed:[]});
   }
+  if(op==='agent.undo'){fixed.delete(params.agent==='cursor'?'Integration freshness cursor':'Install codex#work');return Response.json({restored:[],removed:[],reverted:[]});}
+  if(op==='routing.route')return Response.json({kind:'debug',ranked:[{id:'codex#team',reason:'22% of its budget used, with room this week'}]});
   if(op==='limits.refresh'){if(mode!=='refresh-stays')fixed.add('Usage codex#tse');return Response.json({});}
   if(op==='doctor.fix.delegate')return Response.json({task:{task_id:'t-fix-1',title:'Fix check',state:'queued'},check:params.check,scope:params.scope});
   return Response.json({});
@@ -119,6 +130,54 @@ browserTest('review remedies preview first, cancel without writes, apply that re
   await row.getByText('Fixed and rechecked just now.').waitFor();
   expect(await row.getByRole('button',{name:/^Review and fix/}).count()).toBe(0);
  }finally{release();await page.close();}
+},15000);
+
+browserTest('the review sheet shows per-file change pills, the 7-day note and undoes an applied fix',async()=>{
+ reset();
+ const page=await open();
+ try{
+  await page.getByRole('button',{name:/^Review and fix/}).click();
+  const sheet=page.getByRole('dialog',{name:'Reconnect Codex'});
+  await sheet.waitFor();
+  const changesList=sheet.locator('.pc-diagnostic-changes');
+  await changesList.waitFor();
+  expect(await changesList.getByText('Restore',{exact:true}).count()).toBe(1);
+  expect(await changesList.getByText('Not touched',{exact:true}).count()).toBe(1);
+  expect(await sheet.getByText('Changed outside pacer; restored to the installed version').count()).toBe(1);
+  expect(await sheet.getByText('Yours. Pacer never edits it').count()).toBe(1);
+  expect(await sheet.getByText(/You can undo this from Diagnostics for 7 days/).count()).toBe(1);
+  expect(await sheet.getByText('1 file changes').count()).toBe(1);
+  expect(opCalls('agent.undo')).toEqual([]);
+  await sheet.getByRole('button',{name:'Apply and recheck',exact:true}).click();
+  const done=page.getByRole('dialog',{name:'Codex reconnected'});
+  await done.waitFor();
+  expect(await done.getByText(/previous copies, so you can undo this from Diagnostics for 7 days/).count()).toBe(1);
+  await done.getByRole('button',{name:'Undo',exact:true}).click();
+  const confirm=page.getByRole('group',{name:'Undo the Integration · Codex (work) repair'});
+  await confirm.waitFor();
+  expect(await confirm.innerText()).toContain('AGENTS.md');
+  await confirm.getByRole('button',{name:'Restore copies',exact:true}).click();
+  await page.getByText(/undone/).waitFor();
+  expect(opCalls('agent.undo')).toEqual([{op:'agent.undo',params:{agent:'codex',consent:true}}]);
+  expect(reads).toBe(3);
+  await page.getByRole('button',{name:/^Review and fix/}).waitFor();
+ }finally{await page.close();}
+},15000);
+
+browserTest('the agent sheet names the executor pacer would route to, chosen by pacer',async()=>{
+ reset();
+ const page=await open();
+ try{
+  await page.getByRole('button',{name:/^Fix with agent/}).click();
+  const sheet=page.getByRole('dialog',{name:'Fix with agent'});
+  await sheet.waitFor();
+  await until(()=>opCalls('routing.route').length===1);
+  expect(opCalls('routing.route')).toEqual([{op:'routing.route',params:{kind:'debug'}}]);
+  await sheet.getByText(/Chosen by pacer: 22% of its budget used/).waitFor();
+  expect(await sheet.getByText('Codex · team').count()).toBeGreaterThan(0);
+  await sheet.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByText('No changes were made.',{exact:true}).waitFor();
+ }finally{await page.close();}
 },15000);
 
 for(const failure of ['preview-error','connect-error','recheck-error'])browserTest(`review remedy shows ${failure} and allows recovery`,async()=>{
@@ -371,10 +430,13 @@ for(const scheme of ['light','dark'] as const)browserTest(`axe finds no WCAG A/A
   await page.getByRole('button',{name:/^Review and fix/}).click();
   await page.getByRole('dialog',{name:'Reconnect Codex'}).waitFor();
   await axe(page,'.pc-side-dialog');
+  await axe(page,'.pc-diagnostic-changes');
   await page.keyboard.press('Escape');
   await page.getByRole('button',{name:/^Fix with agent/}).click();
   await page.getByRole('dialog',{name:'Fix with agent'}).waitFor();
+  await page.locator('.pc-diagnostic-route').waitFor();
   await axe(page,'.pc-side-dialog');
+  await axe(page,'.pc-diagnostic-route');
  }finally{await page.close();}
 },20000);
 

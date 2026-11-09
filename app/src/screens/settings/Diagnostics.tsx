@@ -27,6 +27,8 @@ export interface DoctorReport { checkedAt: number; durationSeconds?: number; che
 const REPORT_NOTE = "Configuration and fixture tests do not prove hook invocation. It stays unverified until observed in the planner.";
 /** The confirmation key for the "Couldn't check" group and for Fix all. */
 const INTERNAL = "\u0000internal", FIX_ALL = "\u0000fix-all";
+/** Confirmation key for undo a repair from a review sheet. */
+const UNDO = "\u0000undo";
 const glyphs = {good: "✓", warn: "!", bad: "✕", neutral: "–"} as const;
 function diagnosticTiming(report: DoctorReport): string {
   const checked = time(report.checkedAt);
@@ -174,7 +176,7 @@ const CHANGE_PILL: Record<PreviewFile["change"], { label: string; tone: "good" |
   kept: { label: "Not touched", tone: "neutral" },
 };
 /** Review changes: every file the reconnect writes, its change, the 7-day undo note and an Undo once applied. */
-export function ReviewSheet({ review, report, onApply, onUndo, undoing = false, onClose }: { review: ReviewState; report?: DoctorReport; onApply: () => void; onUndo?: () => void; undoing?: boolean; onClose: () => void }) {
+export function ReviewSheet({ review, report, onApply, onUndo, undoing = false, consent, onClose }: { review: ReviewState; report?: DoctorReport; onApply: () => void; onUndo?: () => void; undoing?: boolean; consent?: PendingConsent; onClose: () => void }) {
   const agent = displayName(review.preview.agent);
   const title = settingsText(diagnosticTitle(review.check.name));
   const current = report?.checks.find(check => check.name === review.check.name);
@@ -185,11 +187,12 @@ export function ReviewSheet({ review, report, onApply, onUndo, undoing = false, 
     : review.preview.files.map(path => ({ path, change: "update" as const, note: "Pacer updates its entries and keeps your edits." }));
   const changeCount = changes.filter(file => file.change !== "kept").length;
   if (review.phase === "done") return <SideDialog title={`${agent} reconnected`} close={onClose}
-    footer={<>{onUndo && <Button variant="ghost" aria-disabled={undoing || undefined} onClick={onUndo}>{undoing ? "Restoring…" : "Undo"}</Button>}
+    footer={<>{onUndo && <Button variant="ghost" aria-disabled={undoing || !!consent || undefined} onClick={onUndo}>{undoing ? "Restoring…" : "Undo"}</Button>}
       <Button variant="primary" onClick={onClose}>Back to Diagnostics</Button></>}>
     <p role="status" className="pc-diagnostic-sheet-text">{`Updated ${files.length === 1 ? "1 file" : `${files.length} files`} and rechecked: ${title} ${passes ? "passes" : "still needs attention"}.`}
       {passes && " Hooks show as verified after your next session with this agent."}</p>
     <p className="pc-diagnostic-note">Pacer keeps the previous copies, so you can undo this from Diagnostics for 7 days.</p>
+    {consent && <ConsentConfirm consent={consent}/>}
   </SideDialog>;
   return <SideDialog title={`Reconnect ${agent}`} close={onClose}
     footer={<><Button onClick={onClose} disabled={review.phase === "applying"}>Cancel</Button>
@@ -470,7 +473,7 @@ export function DiagnosticsSection() {
     const name = review.check.name;
     const agentName = review.preview.agent;
     const changing = (review.preview.changes ?? []).filter(file => file.change !== "kept").map(file => file.path);
-    const ok = await ask(`undo-${name}`, [{ title: `Undo the ${settingsText(diagnosticTitle(name))} repair`, message: "Pacer restores the previous copies of the files its fix changed.", confirmLabel: "Restore copies", files: changing.length ? changing : review.preview.files }]);
+    const ok = await ask(UNDO, [{ title: `Undo the ${settingsText(diagnosticTitle(name))} repair`, message: "Pacer restores the previous copies of the files its fix changed.", confirmLabel: "Restore copies", files: changing.length ? changing : review.preview.files }]);
     if (!ok) { setProgress("No changes were made."); return; }
     setBusy(true);
     try {
@@ -512,7 +515,7 @@ export function DiagnosticsSection() {
       onCopyReport={() => void copyReport()}/></div>}
     <NativeValidationSetup/>
   </section>
-  {review && <ReviewSheet review={review} report={report} onApply={() => review.resolve?.(true)} onUndo={() => void undoRepair()} undoing={busy} onClose={closeReview}/>}
+  {review && <ReviewSheet review={review} report={report} onApply={() => review.resolve?.(true)} onUndo={() => void undoRepair()} undoing={busy} consent={consent?.key === UNDO ? consent : undefined} onClose={closeReview}/>}
   {agent && <AgentSheet agent={agent} report={report} routed={routed} onScope={scope => setAgent(current => current && { ...current, scope })} onStart={() => void startAgentTask()} onClose={closeAgent}/>}
   </>;
 }
