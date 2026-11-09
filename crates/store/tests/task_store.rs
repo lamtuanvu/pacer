@@ -344,6 +344,85 @@ fn second_open_in_process_skips_import() {
 }
 
 #[test]
+fn scan_over_unchanged_files_writes_nothing() {
+    // A store whose SQL row, like TypeScript's, records only the copy's
+    // json_mtime: from a fresh Rust process's point of view every file is an
+    // unseen copy trusted through the json_mtime shortcut.
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    {
+        let mut first = TaskStore::open(&home).unwrap();
+        first.insert(&task(), 1000.0).unwrap();
+    }
+    // Replace the database file (as a reset or restore would, new inode) so
+    // the store below must rebuild its per-file memory from scratch.
+    fs::copy(
+        home.join("state/tasks.db"),
+        home.join("state/replacement.tmp"),
+    )
+    .unwrap();
+    fs::remove_file(home.join("state/tasks.db")).unwrap();
+    for suffix in ["-wal", "-shm"] {
+        let _ = fs::remove_file(home.join(format!("state/tasks.db{suffix}")));
+    }
+    fs::rename(
+        home.join("state/replacement.tmp"),
+        home.join("state/tasks.db"),
+    )
+    .unwrap();
+    // A read-only onlooker distinguishes real SQLite writes from reads.
+    let onlooker = rusqlite::Connection::open(home.join("state/tasks.db")).unwrap();
+    let data_version_before: i64 = onlooker
+        .query_row("PRAGMA data_version", [], |r| r.get(0))
+        .unwrap();
+    let mut store = TaskStore::open(&home).unwrap();
+    // The first open's scan trusted every unseen copy whose mtime the row
+    // records: it parsed no JSON and wrote no ALTER, no marker update, nothing.
+    let writes_before: i64 = store
+        .connection()
+        .unwrap()
+        .query_row("SELECT total_changes()", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(writes_before, 0);
+    // An explicit full scan over the unchanged copies reconciles nothing and
+    // still writes nothing.
+    assert_eq!(store.reconcile_json().unwrap(), 0);
+    let writes_after: i64 = store
+        .connection()
+        .unwrap()
+        .query_row("SELECT total_changes()", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(writes_after, writes_before);
+    let data_version_after: i64 = onlooker
+        .query_row("PRAGMA data_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(data_version_after, data_version_before);
+    assert_eq!(store.read(ID).unwrap().unwrap()["rev"], 1);
+
+    // The same-tick rewrite that round #825 missed: a replacement pinned to
+    // the recorded mtime looks reconciled to the row alone, but the file's
+    // remembered (mtime, inode) signature reveals it and the next scan
+    // imports it. The import is real work: only now does the store write.
+    let original_mtime = fs::metadata(home.join(format!("tasks/{ID}.json")))
+        .unwrap()
+        .modified()
+        .unwrap();
+    let mut newer = task();
+    newer["rev"] = json!(2);
+    let temp = home.join("tasks/scan.tmp");
+    fs::write(&temp, serde_json::to_vec(&newer).unwrap()).unwrap();
+    fs::rename(&temp, home.join(format!("tasks/{ID}.json"))).unwrap();
+    fs::File::options()
+        .write(true)
+        .open(home.join(format!("tasks/{ID}.json")))
+        .unwrap()
+        .set_modified(original_mtime)
+        .unwrap();
+    assert_eq!(store.reconcile_json().unwrap(), 1);
+    assert_eq!(store.read(ID).unwrap().unwrap()["rev"], 2);
+}
+
+#[test]
 fn failed_first_import_is_retried_on_the_next_open() {
     // A database this process has never opened (a new inode) that already
     // holds the task at revision 1, plus a newer JSON-only revision on disk.

@@ -8,12 +8,12 @@ use rusqlite::{
 };
 use serde_json::{Value, json};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex},
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -194,14 +194,27 @@ fn parse_record(text: &str) -> Result<Value> {
     }
     Ok(value)
 }
-fn mtime_ms(path: &Path) -> Result<f64> {
-    let time = fs::metadata(path)?.modified()?;
+/// A time as the store's mtime in milliseconds, matching stat().mtimeMs.
+fn system_time_ms(time: SystemTime) -> f64 {
     let (duration, sign) = match time.duration_since(UNIX_EPOCH) {
         Ok(duration) => (duration, 1.0),
         Err(error) => (error.duration(), -1.0),
     };
-    Ok(sign
-        * (duration.as_secs() as f64 * 1000.0 + f64::from(duration.subsec_nanos()) / 1_000_000.0))
+    sign * (duration.as_secs() as f64 * 1000.0 + f64::from(duration.subsec_nanos()) / 1_000_000.0)
+}
+fn mtime_ms(path: &Path) -> Result<f64> {
+    Ok(system_time_ms(fs::metadata(path)?.modified()?))
+}
+/// A file's import signature: (mtime in ms, inode). TypeScript's
+/// `fileSignature` (`src/tasks/store.ts`) compares the same pair: a temp +
+/// rename rewrite on a filesystem with a coarse clock keeps the mtime but
+/// replaces the inode. On non-unix targets the "inode" is the file length
+/// (see `file_inode`), still more precise than the mtime alone.
+fn file_signature(path: &Path) -> io::Result<(f64, u64)> {
+    let metadata = fs::metadata(path)?;
+    let time = system_time_ms(metadata.modified()?);
+    let ino = file_inode(path)?;
+    Ok((time, ino))
 }
 #[cfg(unix)]
 pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
@@ -232,10 +245,9 @@ fn private_file(path: &Path) -> io::Result<File> {
     }
     Ok(f)
 }
-/// Writes the JSON copy atomically (temp file + rename) and returns its
-/// (mtime in ms, inode) signature, matching what the import scan compares
-/// against the row.
-fn write_json(home: &Path, task: &Value) -> Result<(f64, u64)> {
+/// Path of the task's JSON compatibility copy (`tasks/<id>.json`, or the
+/// archived task's `archive/<month>/<id>/<id>.json`).
+fn json_path(home: &Path, task: &Value) -> Result<PathBuf> {
     let id = field(task, "id").ok_or(StoreError::InvalidRecord)?;
     let dir = if truthy(task.get("archived")) {
         let month = archive_month(number(task.get("createdAt")).ok_or(StoreError::InvalidRecord)?)?;
@@ -248,13 +260,18 @@ fn write_json(home: &Path, task: &Value) -> Result<(f64, u64)> {
         home.join("tasks")
     };
     private_dir(&dir)?;
-    let target = dir.join(format!("{id}.json"));
-    let temp = dir.join(format!(
+    Ok(dir.join(format!("{id}.json")))
+}
+/// Writes the JSON copy atomically (temp file + rename) and returns its mtime.
+fn write_json(home: &Path, task: &Value) -> Result<f64> {
+    let id = field(task, "id").ok_or(StoreError::InvalidRecord)?;
+    let target = json_path(home, task)?;
+    let temp = target.with_file_name(format!(
         "{id}.{}.{}.tmp",
         std::process::id(),
         unique_suffix()
     ));
-    let result = (|| -> Result<(f64, u64)> {
+    let result = (|| -> Result<f64> {
         let mut o = OpenOptions::new();
         o.write(true).create_new(true);
         #[cfg(unix)]
@@ -266,7 +283,7 @@ fn write_json(home: &Path, task: &Value) -> Result<(f64, u64)> {
         f.write_all(serde_json::to_string(task)?.as_bytes())?;
         drop(f);
         fs::rename(&temp, &target)?;
-        Ok((mtime_ms(&target)?, file_inode(&target)?))
+        mtime_ms(&target)
     })();
     if result.is_err() {
         let _ = fs::remove_file(temp);
@@ -307,13 +324,24 @@ pub use log_reader::TaskLogReader;
 static IMPORTED: LazyLock<Mutex<HashSet<(PathBuf, u64)>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
+/// Per database (path, inode), each JSON copy's import signature: file name
+/// -> (mtime in ms, inode). This mirrors TypeScript's per-connection
+/// `imported` map in `src/tasks/store.ts` and shares its lifetime with the
+/// open-skip cache above: the second open in process for the same
+/// (path, inode) reuses the memory, so a same-tick rewrite that keeps the
+/// file's coarse mtime is still detected even though its row's json_mtime
+/// did not change.
+type SignatureMemory = HashMap<(PathBuf, u64), HashMap<String, (f64, u64)>>;
+static FILE_SIGNATURES: LazyLock<Mutex<SignatureMemory>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// Same object list as TypeScript `schemaReady` in `src/tasks/store.ts`.
 fn schema_ready(db: &Connection) -> Result<bool> {
     let fields: Vec<String> = db
         .prepare("PRAGMA table_info(tasks)")?
         .query_map([], |r| r.get(1))?
         .collect::<rusqlite::Result<_>>()?;
-    if !["json_mtime", "archived", "json_ino"]
+    if !["json_mtime", "archived"]
         .iter()
         .all(|name| fields.iter().any(|f| f == name))
     {
@@ -367,7 +395,7 @@ impl TaskStore {
         let fresh_schema = !schema_ready(&db)?;
         if fresh_schema {
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            tx.execute_batch("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0, json_ino INTEGER); CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state); CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at); CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);")?;
+            tx.execute_batch("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0); CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state); CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at); CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);")?;
             let fields: Vec<String> = tx
                 .prepare("PRAGMA table_info(tasks)")?
                 .query_map([], |r| r.get(1))?
@@ -379,9 +407,6 @@ impl TaskStore {
                 tx.execute_batch(
                     "ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
                 )?;
-            }
-            if !fields.iter().any(|v| v == "json_ino") {
-                tx.execute_batch("ALTER TABLE tasks ADD COLUMN json_ino INTEGER")?;
             }
             tx.execute_batch("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at); CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL);")?;
             tx.commit()?;
@@ -412,6 +437,15 @@ impl TaskStore {
                     .query_row("SELECT NOT EXISTS(SELECT 1 FROM tasks)", [], |r| r.get(0))?;
             empty && has_task_json(&store.home.join("tasks"))?
         };
+        if rebuild {
+            // The database was recreated at a reused inode or wiped after a
+            // reset: the remembered signatures describe copies the previous
+            // database held, so forget them and read every copy again.
+            FILE_SIGNATURES
+                .lock()
+                .map_err(|_| StoreError::ImportTrackingPoisoned)?
+                .remove(&key);
+        }
         if !seen || rebuild {
             store.import_json()?;
             // Recorded only after a successful import, so a failed first
@@ -453,56 +487,72 @@ impl TaskStore {
             return Ok(0);
         }
         let mut imported = 0usize;
+        // The in-memory signature memory is shared in process, like the
+        // open-skip cache and like TypeScript's cached connection
+        // (`src/tasks/store.ts`), so a scan never writes to SQLite merely to
+        // record which copies it already reconciled.
+        let key = (self.home.join("state/tasks.db"), self.inode);
+        let mut all_signatures = FILE_SIGNATURES
+            .lock()
+            .map_err(|_| StoreError::ImportTrackingPoisoned)?;
+        let signatures = all_signatures.entry(key).or_default();
+        let mut present: HashSet<String> = HashSet::new();
+        // Only the copies this scan actually opened are marked committed, after
+        // the transaction (TypeScript marks batch items after its commit too).
+        let mut opened: Vec<(String, (f64, u64))> = Vec::new();
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         for entry in fs::read_dir(&dir)? {
             let entry = entry?;
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
+            let raw_name = entry.file_name();
+            let name = raw_name.to_string_lossy();
             let Some(id) = name.strip_suffix(".json") else {
                 continue;
             };
             if !is_task_id(id) {
                 continue;
             }
+            present.insert(name.to_string());
             let path = entry.path();
-            let mtime = match mtime_ms(&path) {
-                Ok(v) => v,
-                Err(StoreError::Io(e)) if e.kind() == io::ErrorKind::NotFound => continue,
-                Err(e) => return Err(e),
-            };
-            let ino = match file_inode(&path) {
-                Ok(v) => v,
+            let (mtime, ino) = match file_signature(&path) {
+                Ok(signature) => signature,
                 Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
                 Err(e) => return Err(e.into()),
             };
-            // Bun returns SQLite storage types without coercing text to a number.
-            // Only a numeric json_mtime can strictly equal stat().mtimeMs. The
-            // revision comparison belongs to the SQL UPSERT below, not a typed read.
-            let row: Option<(SqlValue, SqlValue)> = tx
-                .query_row(
-                    "SELECT json_mtime, json_ino FROM tasks WHERE id=?",
-                    [id],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .optional()?;
-            // The row's (mtime, inode) pair marks the copy it already holds. An
-            // atomic rewrite within the same coarse clock tick keeps the mtime
-            // but replaces the inode, so both must match before the file can be
-            // skipped without reading. A row written by TypeScript, which has no
-            // json_ino, is read once and marked below.
-            let reconciled = row.is_some_and(|(marked_mtime, marked_ino)| {
-                let same_mtime = match marked_mtime {
+            let signature = (mtime, ino);
+            if let Some(&known) = signatures.get(name.as_ref()) {
+                // A file whose (mtime, inode) still equals what this memory
+                // remembers is the same copy the row already holds. A known
+                // file with a different signature was rewritten (a temp +
+                // rename replaces the inode) and is re-read below even if the
+                // rewrite kept the mtime — do not fall back to the json_mtime
+                // shortcut for it.
+                if known == signature {
+                    continue;
+                }
+            } else {
+                // An unseen copy is trusted through the row's json_mtime, like
+                // TypeScript: the row records the copy's mtime, so an equal one
+                // means the row already holds this very copy. Bun returns
+                // SQLite storage types without coercing text to a number. Only
+                // a numeric json_mtime can strictly equal stat().mtimeMs. The
+                // revision comparison belongs to the SQL UPSERT below, not a
+                // typed read.
+                let row: Option<SqlValue> = tx
+                    .query_row("SELECT json_mtime FROM tasks WHERE id=?", [id], |r| {
+                        r.get(0)
+                    })
+                    .optional()?;
+                let same_mtime = row.is_some_and(|old| match old {
                     SqlValue::Real(value) => value == mtime,
                     SqlValue::Integer(value) => value as f64 == mtime,
                     _ => false,
-                };
-                same_mtime
-                    && matches!(marked_ino, SqlValue::Integer(value) if value >= 0 && value as u64 == ino)
-            });
-            if reconciled {
-                continue;
+                });
+                if same_mtime {
+                    signatures.insert(name.to_string(), signature);
+                    continue;
+                }
             }
             let bytes = match fs::read(&path) {
                 Ok(bytes) => bytes,
@@ -522,18 +572,8 @@ impl TaskStore {
             // JSON.parse represents integral decimal and exponent forms as integers.
             task["rev"] = json!(revision(&task).ok_or(StoreError::InvalidRecord)?);
             let values = row_values(&task, activity_at(&task))?;
-            let accepted = tx.execute("INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived,json_mtime,json_ino) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET rev=excluded.rev,state=excluded.state,created_at=excluded.created_at,updated_at=excluded.updated_at,settled_at=excluded.settled_at,repo=excluded.repo,record=excluded.record,archived=excluded.archived,json_mtime=excluded.json_mtime,json_ino=excluded.json_ino WHERE excluded.rev>tasks.rev OR (excluded.rev=tasks.rev AND (tasks.json_mtime IS NULL OR excluded.json_mtime>tasks.json_mtime))", params_from_iter(values.into_iter().chain([SqlValue::Real(mtime), SqlValue::Integer(ino as i64)])))?;
-            if accepted == 0 {
-                // The row kept a newer revision or an equal copy, so rescanning
-                // this file cannot change it (TypeScript remembers the same per
-                // connection). Mark the file as reconciled for the pair check
-                // above; json_mtime stays the revision tiebreaker.
-                tx.execute(
-                    "UPDATE tasks SET json_ino=? WHERE id=? AND json_mtime=?",
-                    params![ino as i64, id, mtime],
-                )?;
-            }
-            imported += accepted;
+            imported += tx.execute("INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived,json_mtime) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET rev=excluded.rev,state=excluded.state,created_at=excluded.created_at,updated_at=excluded.updated_at,settled_at=excluded.settled_at,repo=excluded.repo,record=excluded.record,archived=excluded.archived,json_mtime=excluded.json_mtime WHERE excluded.rev>tasks.rev OR (excluded.rev=tasks.rev AND (tasks.json_mtime IS NULL OR excluded.json_mtime>tasks.json_mtime))", params_from_iter(values.into_iter().chain([SqlValue::Real(mtime)])))?;
+            opened.push((name.to_string(), signature));
             if let Some(at) = number(task.get("settledAt")) {
                 tx.execute(
                     "INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)",
@@ -543,6 +583,13 @@ impl TaskStore {
         }
         tx.commit()?;
         self.directory_stamp = Some(stamp);
+        // Mark every copy the scan opened, including records the SQL guard
+        // rejected (rescanning them cannot change the row), and forget copies
+        // the directory no longer lists (TypeScript's cleanup after its scan).
+        for (name, signature) in opened {
+            signatures.insert(name, signature);
+        }
+        signatures.retain(|name, _| present.contains(name));
         Ok(imported)
     }
     pub fn version(&mut self) -> Result<String> {
@@ -651,12 +698,13 @@ impl TaskStore {
         let values = row_values(task, now)?;
         if tx.execute("INSERT OR IGNORE INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived) VALUES(?,?,?,?,?,?,?,?,?)", params_from_iter(values))? == 0 { return Err(StoreError::Collision); }
         admit(&tx)?;
-        let (mtime, ino) = write_json(&self.home, task)?;
+        let mtime = write_json(&self.home, task)?;
         tx.execute(
-            "UPDATE tasks SET json_mtime=?, json_ino=? WHERE id=?",
-            params![mtime, ino as i64, id],
+            "UPDATE tasks SET json_mtime=? WHERE id=?",
+            params![mtime, id],
         )?;
         tx.commit()?;
+        self.mark_imported(task);
         Ok(())
     }
     pub fn update(
@@ -844,7 +892,7 @@ impl TaskStore {
         if !valid(&task, id) {
             return Err(StoreError::InvalidRecord);
         }
-        let (mtime, ino) = write_json(&home, &task)?;
+        let mtime = write_json(&home, &task)?;
         if let Some(at) = number(task.get("settledAt")) {
             tx.execute(
                 "INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)",
@@ -859,14 +907,43 @@ impl TaskStore {
                 current_seconds()
             },
         )?;
-        let changed = tx.execute("UPDATE tasks SET rev=?,state=?,created_at=?,updated_at=?,settled_at=?,repo=?,record=?,archived=?,json_mtime=?,json_ino=? WHERE id=? AND rev=?",
-                params_from_iter(values.into_iter().skip(1).chain([SqlValue::Real(mtime), SqlValue::Integer(ino as i64), SqlValue::Text(id.into()), SqlValue::Integer(rev)])))?;
+        let changed = tx.execute("UPDATE tasks SET rev=?,state=?,created_at=?,updated_at=?,settled_at=?,repo=?,record=?,archived=?,json_mtime=? WHERE id=? AND rev=?",
+                params_from_iter(values.into_iter().skip(1).chain([SqlValue::Real(mtime), SqlValue::Text(id.into()), SqlValue::Integer(rev)])))?;
         if changed != 1 {
             return Err(StoreError::Conflict);
         }
         after(&tx, &task)?;
         tx.commit()?;
+        self.mark_imported(&task);
         Ok(task)
+    }
+    /// Mirrors TypeScript `markImported`: record the JSON copy a committed
+    /// write just replaced in the in-process signature memory, so the next
+    /// scan skips the file instead of digesting it again. Only a copy in the
+    /// tasks directory is remembered, exactly like the scan's file names; a
+    /// rollback or a crash leaves the copy to the next scan like TypeScript.
+    /// The memory is best effort: an error here only makes the next scan pay
+    /// the usual stat.
+    fn mark_imported(&self, task: &Value) {
+        if truthy(task.get("archived")) {
+            return;
+        }
+        let Some(id) = field(task, "id") else {
+            return;
+        };
+        let Ok(path) = json_path(&self.home, task) else {
+            return;
+        };
+        let Ok(signature) = file_signature(&path) else {
+            return;
+        };
+        let key = (self.home.join("state/tasks.db"), self.inode);
+        if let Ok(mut signatures) = FILE_SIGNATURES.lock() {
+            signatures
+                .entry(key)
+                .or_default()
+                .insert(format!("{id}.json"), signature);
+        }
     }
     pub fn home_path(&self) -> &Path {
         &self.home
