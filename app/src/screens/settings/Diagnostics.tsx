@@ -299,7 +299,10 @@ export function DiagnosticsSection() {
   function host(check: Check, progressText: string): RemedyHost {
     return {
       call,
-      awaitRestart,
+      awaitRestart: before => {
+        outcome(check.name, { phase: "running", text: "Waiting for pacer to restart…" });
+        return awaitRestart(before);
+      },
       confirm: async request => {
         outcome(check.name);
         const ok = await ask(check.name, [request]);
