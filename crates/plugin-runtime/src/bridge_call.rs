@@ -329,6 +329,11 @@ pub(crate) async fn call_sealed(
     )
     .map_err(refused)?;
     session.broker_mut().set_scope_roots(sealed.roots);
+    // Give the session the Core-sealed method set before the hello so a child
+    // that asks for one while answering `plugin.hello` is refused locally
+    // (`capability_denied`) instead of reaching the native broker (R1), and
+    // `$/resultChunk` transport requests are relayed once Core is bound.
+    session.bind_core_methods(sealed.core_methods.clone());
     // Core forwarding binds only after the hello and the `requireFeatures` gate
     // pass (below): a child must not reach Core-run methods while it answers
     // `plugin.hello`, before Core knows whether it negotiated the feature.
