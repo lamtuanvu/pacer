@@ -27,6 +27,10 @@ export function taskSettledAt(task: TaskRecord): number {
 interface Connection { db: Database; generation: number; inode: number; directoryStamp?: string; imported: Map<string, number> }
 const connections = new Map<string, Connection>();
 let generation = 0;
+// Test-only: counts directory enumerations (readdirSync calls) in importJson, so
+// tests can assert a cached connection never triggers a folder rescan.
+let jsonScanCount = 0;
+export function taskJsonScanCount(): number { return jsonScanCount; }
 const columns = "id, rev, state, created_at, updated_at, settled_at, repo, record, archived";
 const placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?";
 
@@ -45,15 +49,16 @@ function values(task: TaskRecord, now: number): SQLQueryBindings[] {
 // Older binaries use atomic temp-file + rename writes. Only a directory change
 // triggers enumeration/stat, and only changed JSON files are read. Never alter
 // imported files: JSON remains the compatibility/rollback copy for this release.
-function importJson(ctx: Ctx, entry: Connection): void {
+function importJson(ctx: Ctx, entry: Connection): number {
   const { db } = entry;
-  if (db.inTransaction) return;
+  if (db.inTransaction) return 0;
   const dir = tasksDir(ctx);
   const stat = statSync(dir, { bigint: true });
   const stamp = `${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`;
-  if (entry.directoryStamp === stamp) return;
+  if (entry.directoryStamp === stamp) return 0;
   const pending: { name: string; task: TaskRecord; mtime: number }[] = [];
   const present = new Set<string>();
+  jsonScanCount++;
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".json") || !isTaskId(name.slice(0, -5))) continue;
     const file = join(dir, name);
@@ -110,6 +115,7 @@ function importJson(ctx: Ctx, entry: Connection): void {
   }
   // Keep the pre-scan stamp: an atomic write during the scan is seen next time.
   entry.directoryStamp = stamp;
+  return pending.length;
 }
 
 function writeCompatibilityJson(ctx: Ctx, task: TaskRecord): number {
@@ -147,7 +153,6 @@ function connection(ctx: Ctx) {
     if (inode === cached.inode) {
       connections.delete(path);
       connections.set(path, cached);
-      importJson(ctx, cached);
       return cached;
     }
     cached.db.close();
@@ -190,6 +195,15 @@ function connection(ctx: Ctx) {
   try { importJson(ctx, entry); } catch (error) { db.close(); throw error; }
   connections.set(path, entry);
   return entry;
+}
+
+/** Explicit, off-request-path rescan of the tasks directory on the cached connection.
+ *  Call periodically (the supervision Worker, the in-process fallback, the maintenance
+ *  child) so a JSON-only write from another binary is seen without any request doing it.
+ *  Returns the number of records imported. */
+export function reconcileTaskJson(ctx: Ctx): number {
+  const entry = connection(ctx);
+  return importJson(ctx, entry);
 }
 
 /** Detect both other-process commits and writes on our own cached connection. */

@@ -14,6 +14,7 @@ import { bindDesktopUpdateRuntime, createDesktopUpdateRuntime } from "../update/
 import { reconcileAdmissionSync } from "../update/desktop/admission";
 import { selfCommand, superviseTasks } from "../tasks/api";
 import type { SpawnRunner } from "../tasks/api";
+import { reconcileTaskJson } from "../tasks/store";
 import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
@@ -586,10 +587,19 @@ export function startServer(
     worker?.terminate();
     worker = undefined;
   };
+  // Bounds the JSON reconcile to at most once per 60s, off the request path, matching
+  // the supervision Worker's own cadence (src/tasks/supervision-worker.ts).
+  let lastReconcileAt = 0;
+  const RECONCILE_INTERVAL_MS = 60_000;
   const supervise = () => {
     // A worker that exits or idles without an error event must not stop supervision.
     if (workerSupervises && Date.now() - workerHeartbeat > WORKER_SILENCE_MS) resumeInProcess("went silent");
     if (stopped || supervising || workerSupervises) return;
+    if (Date.now() - lastReconcileAt >= RECONCILE_INTERVAL_MS) {
+      lastReconcileAt = Date.now();
+      try { reconcileTaskJson(getCtx()); }
+      catch (error) { if (!stopped) console.error(`pacer: in-process task reconcile failed: ${String(error)}`); }
+    }
     supervising = true;
     void superviseTasks(getCtx(), opts.opDeps?.spawnRunner, () => stopped)
       .catch(error => { if (!stopped) console.error(`pacer: task supervision failed: ${String(error)}`); })

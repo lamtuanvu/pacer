@@ -2,8 +2,10 @@ import { Database } from "bun:sqlite";
 import { expect, spyOn, test } from "bun:test";
 import { renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createTask, listTasks, readTask, updateTask } from "../src/tasks/store";
+import { createTask, listTasksWhere, listTasks, newTaskId, readTask, reconcileTaskJson, tasksDir, taskJsonScanCount, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
+
+const brief = { goal: "Fix the bug", repo: "/tmp/repo", acceptance: "bun test" };
 
 function lookups(query: ReturnType<typeof spyOn>): number {
   return query.mock.calls.filter(([sql]) => /json_mtime FROM tasks WHERE id = \?/.test(String(sql))).length;
@@ -22,8 +24,52 @@ test("a task directory change looks up only the JSON files that changed since th
     writeFileSync(`${file}.tmp`, JSON.stringify({ ...readTask(ctx, tasks[0]!.id)!, rev: 99, title: "external" }));
     renameSync(`${file}.tmp`, file);
     query.mockClear();
+    // Reads on the cached connection no longer rescan the directory on their own;
+    // an explicit reconcile (the Worker's periodic cadence) is what sees the change.
+    expect(reconcileTaskJson(ctx)).toBe(1);
     expect(readTask(ctx, tasks[0]!.id)?.title).toBe("external");
     expect(readTask(ctx, tasks[1]!.id)?.title).toBe("own write");
     expect(lookups(query)).toBe(1);
   } finally { query.mockRestore(); }
+});
+
+test("own writes do not trigger a folder rescan on the cached connection", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const scans = taskJsonScanCount();
+  for (let i = 0; i < 5; i++) { updateTask(ctx, t.id, x => { x.title = `q${i}`; }); listTasksWhere(ctx, {}); }
+  expect(taskJsonScanCount()).toBe(scans);
+});
+
+test("reconcileTaskJson imports a newer JSON-only revision", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
+  writeFileSync(join(tasksDir(ctx), `${t.id}.json`), JSON.stringify({ ...t, rev: t.rev + 5, title: "from old binary" }));
+  expect(readTask(ctx, t.id)!.title).toBeUndefined();
+  expect(reconcileTaskJson(ctx)).toBe(1);
+  expect(readTask(ctx, t.id)!.title).toBe("from old binary");
+});
+
+test("a fresh connection imports on open after the home's tasks.db is replaced", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
+  // Hold a cached connection open (readTask opens/caches it for this pacerHome).
+  expect(readTask(ctx, t.id)?.id).toBe(t.id);
+
+  // Simulate the home being replaced/restored while this process still holds a
+  // connection: swap tasks.db for a brand-new (empty) file, which gets a new inode.
+  const dbPath = join(ctx.pacerHome, "state", "tasks.db");
+  const freshPath = `${dbPath}.fresh`;
+  writeFileSync(freshPath, "");
+  renameSync(freshPath, dbPath);
+
+  // An older binary (or the restore itself) leaves a JSON-only task behind; nothing
+  // in the new, empty database knows about it yet.
+  const extraId = newTaskId(ctx.now + 1);
+  const extra = { ...t, id: extraId, rev: 1, title: "fresh" };
+  writeFileSync(join(tasksDir(ctx), `${extraId}.json`), JSON.stringify(extra));
+
+  // The next access reopens on the inode change and imports on that new handle,
+  // with no explicit reconcile call.
+  expect(readTask(ctx, extraId)?.title).toBe("fresh");
 });
