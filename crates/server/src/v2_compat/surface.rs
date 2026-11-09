@@ -138,6 +138,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "session.agent.retry",
     "session.agent.resume",
     "doctor.fix.delegate",
+    "agent.undo",
 ];
 pub const V2_PROTOCOL: &str = "2.8.0";
 pub const V2_EVENT_TYPES: &[&str] = &[
@@ -202,6 +203,11 @@ pub fn op_schemas(input: &Value) -> Value {
         json!("Register a client with an optional notifier lease; heartbeat every 30 seconds.");
     out["client.heartbeat"]["description"] =
         json!("Renew a client lease, which lapses after 45 seconds without a heartbeat.");
+    // v3 describes the additive per-file changes and undo flag; v2 keeps its frozen text.
+    out["agent.preview"]["description"] =
+        json!("Preview agent integration files and the undo command before consenting.");
+    out["agent.connect"]["description"] =
+        json!("Connect an agent after explicit consent to write its integration files.");
     let review = &mut out["task.review"]["params"];
     review["properties"]["accepted"] = json!({"type":"boolean"});
     let source = review["properties"].clone();
