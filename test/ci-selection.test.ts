@@ -102,6 +102,15 @@ test("gate rejects missing classification and missing/failed required evidence",
   expect(jobs["ui-evidence"].if).toContain("outputs.ui");
 });
 
+test("the full suite always gets the locked test browser", () => {
+  const steps = (Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any).jobs.test.steps;
+  const browser = steps.find((step: any) => step.name === "Install locked Chromium test browser");
+  const suite = steps.find((step: any) => step.name === "Test (full suite, sharded)");
+  // A test-only change runs the full suite without selecting e2e; its browser tests still need Chromium.
+  expect(suite.if).toContain("outputs.full == 'true'");
+  expect(browser.if).toContain("outputs.full == 'true'");
+});
+
 test("real git ranges cover renames, deletions, metadata refresh and missing-history fallback", () => {
   const directory = mkdtempSync(join(tmpdir(), "pacer-ci-"));
   const script = resolve("scripts/ci/changes.py");
