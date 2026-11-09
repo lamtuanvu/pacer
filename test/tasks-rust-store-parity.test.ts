@@ -3,7 +3,8 @@ import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
-import { createTask, listActiveAndRecentTasks, listLiveTasks, listTasksWhere, readTask, taskDatabase, tasksDir, taskStoreVersion, updateTask } from "../src/tasks/store";
+import { createTask, listActiveAndRecentTasks, listLiveTasks, listTasksWhere, readTask, reconcileTaskJson, taskDatabase, tasksDir, taskStoreVersion, updateTask } from "../src/tasks/store";
+import { taskChangesHead, taskChangesSince } from "../src/tasks/changes";
 import { eligibleForRetention, pruneTasks, restoreTask } from "../src/tasks/retention";
 
 const binary = process.env.PACER_STORE_PROBE_BIN;
@@ -42,6 +43,10 @@ test.skipIf(!binary || !existsSync(binary))("Rust TaskStore and TS independently
       }
       // Distinct homes: TS must never import on behalf of Rust.
       const actual = rust("read", native.pacerHome, id);
+      // A read on the cached connection no longer rescans the tasks directory on its
+      // own (Task 4); an explicit reconcile is what sees this iteration's direct JSON
+      // write on "reference", matching the contract used elsewhere in the suite.
+      reconcileTaskJson(reference);
       const expected = readTask(reference, id);
       expect(actual, label).toEqual(expected);
       // SQLite may need to recreate WAL/SHM after the probe closes its last handle.
@@ -337,6 +342,59 @@ test.skipIf(!binary || !existsSync(binary))("restore accepts truthy legacy archi
     expect(restored.archived).toBeUndefined();
     expect(readFileSync(log, "utf8")).toBe("legacy archived\n");
   }
+});
+
+function changeLogObjects(ctx: ReturnType<typeof fakeCtx>): string[] {
+  return taskDatabase(ctx).query<{ name: string }, []>(
+    "SELECT name FROM sqlite_master WHERE name IN ('task_changes', 'task_changes_insert', 'task_changes_update')").all()
+    .map(row => row.name).sort();
+}
+
+test.skipIf(!binary || !existsSync(binary))("the change log's trigger objects exist whichever runtime creates the home first", () => {
+  const expected = ["task_changes", "task_changes_insert", "task_changes_update"];
+
+  // Rust creates the home first; TypeScript writes afterward.
+  const rustFirst = fakeCtx();
+  mkdirSync(join(rustFirst.pacerHome, "tasks"), { recursive: true });
+  writeFileSync(join(rustFirst.pacerHome, ".sqlite-proof-home"), "disposable\n");
+  rust("version", rustFirst.pacerHome);
+  const task1 = createTask(rustFirst, { brief: { goal: "rust first", repo: rustFirst.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  expect(changeLogObjects(rustFirst)).toEqual(expected);
+  expect(taskChangesSince(rustFirst, 0).changes).toHaveLength(1);
+  expect(taskChangesSince(rustFirst, 0).changes[0]?.taskId).toBe(task1.id);
+
+  // TypeScript creates the home first; Rust opens afterward.
+  const tsFirst = fakeCtx();
+  const task2 = createTask(tsFirst, { brief: { goal: "ts first", repo: tsFirst.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  writeFileSync(join(tsFirst.pacerHome, ".sqlite-proof-home"), "disposable\n");
+  rust("version", tsFirst.pacerHome);
+  expect(changeLogObjects(tsFirst)).toEqual(expected);
+  expect(taskChangesSince(tsFirst, 0).changes).toHaveLength(1);
+  expect(taskChangesSince(tsFirst, 0).changes[0]?.taskId).toBe(task2.id);
+});
+
+test.skipIf(!binary || !existsSync(binary))("alternating Rust and TypeScript real updates log one change each, in order", () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "alternating change log", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  writeFileSync(join(ctx.pacerHome, ".sqlite-proof-home"), "disposable\n");
+  let head = taskChangesHead(ctx);
+  expect(head).toBe(1); // creation already logged
+  for (let i = 1; i <= 4; i++) {
+    if (i % 2) rust("increment", ctx.pacerHome, task.id);
+    else updateTask(ctx, task.id, t => { t.title = String(Number(t.title ?? "0") + 1); });
+    const newHead = taskChangesHead(ctx);
+    expect(newHead).toBe(head + 1); // exactly one new row per real change
+    head = newHead;
+  }
+  // A no-op through either runtime logs nothing further.
+  rust("noop-update", ctx.pacerHome, task.id);
+  expect(taskChangesHead(ctx)).toBe(head);
+  updateTask(ctx, task.id, t => { t.state = t.state; });
+  expect(taskChangesHead(ctx)).toBe(head);
+  const all = taskChangesSince(ctx, 0);
+  expect(all.changes.map(c => c.seq)).toEqual([...all.changes.map(c => c.seq)].sort((a, b) => a - b));
+  expect(new Set(all.changes.map(c => c.seq)).size).toBe(all.changes.length);
+  expect(all.changes).toHaveLength(5);
 });
 
 test.skipIf(!binary || !existsSync(binary))("concurrent Bun and Rust writes preserve every revision", async () => {
