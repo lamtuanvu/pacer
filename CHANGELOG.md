@@ -58,8 +58,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
-- Route selection no longer fails with "Task changed during route selection" when its own bookkeeping write changes nothing and so keeps the task's revision, which could leave a dispatched reservation waiting.
-
 - Reconnecting an agent without MCP now retires a stale MCP record instead of warning about it forever. When something else removed pacer's MCP registration from an agent config (`opencode.json`, `config.toml`, `mcp.json`), `pacer install opencode` re-edited the agent's other files but left the install record's entry for that config behind, so `pacer doctor` kept reporting "managed integration content changed", "planner reports missing or changed files" and "missing or changed", each recommending the same reinstall that could not clear it. A record entry whose only managed content was pacer's MCP registration is now dropped when an install or reconnect runs with an explicit `--no-mcp`: the registration, if still present, is removed exactly as uninstall would first. Without a flag, the entry is dropped only when the registration was already removed elsewhere; a registration still present — or a file pacer cannot parse — is a live integration, so the entry and the file are left untouched, matching how the automatic refresh treats a legacy record. Other MCP servers, providers and settings in those files are never touched, and installs with MCP on behave as before.
 
 - Host check, cleanup and repo setup no longer fail with a "bridge unavailable" error when the Rust front door serves the request.
@@ -104,6 +102,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Preserve TypeScript session recording and version parsing semantics in the Rust library, including integral decimal JSON numbers and numeric prereleases. Write session artifacts atomically with owner-only modes.
 
 - Add a Rust SQLite task store and retention adapter with cross-runtime parity tests; the TypeScript runtime remains unchanged.
+
+- Route selection no longer fails with "Task changed during route selection" when its own bookkeeping write changes nothing and so keeps the task's revision, which could leave a dispatched reservation waiting.
 
 ## [0.14.0] - 2026-11-01
 
