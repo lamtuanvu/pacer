@@ -8,6 +8,7 @@ import { readManifest, writeManifest } from "../src/install/manifest";
 import { parseJsonc } from "../src/install/jsonc";
 import { integrationFreshness, reconcileIntegrations } from "../src/install/reconcile";
 import { runDoctor } from "../src/install/doctor";
+import { agentPreview, agentConnect } from "../src/core/setup";
 import { uninstallPlanner } from "./install-plugin-adapter";
 import { sha256 } from "../src/install/fsx";
 
@@ -186,4 +187,48 @@ test("uninstall after an entry was retired leaves the config untouched", async (
   expect(readManifest(ctx).planners.opencode.files.some(file => file.path === configPath)).toBe(false);
   await uninstallPlanner(ctx, "opencode");
   expect(readFileSync(configPath, "utf8")).toBe(userConfig);
+});
+
+test("--no-mcp removes a pacer-only MCP section exactly as the record's undo specifies", async () => {
+  for (const [agent, configPath] of [
+    ["opencode", (home: string) => join(home, ".config", "opencode", "opencode.json")],
+    ["cursor", (home: string) => join(home, ".cursor", "mcp.json")],
+  ] as const) {
+    // No config file exists yet: the fresh --mcp install makes pacer the
+    // section's only member and records dropEmpty on the container.
+    const ctx = fakeCtx({ env: { PACER_BIN: PACER[0] } });
+    await installPlanner({ ctx, pacerArgv: PACER, mcp: true }, agent);
+    const path = configPath(ctx.home);
+    expect(readFileSync(path, "utf8")).toContain("pacer");
+    await installPlanner({ ctx, pacerArgv: PACER, mcp: false }, agent);
+    const doc = parseJsonc(readFileSync(path, "utf8")) as any;
+    expect(doc.mcp).toBeUndefined();
+    expect(doc.mcpServers).toBeUndefined();
+    if (agent === "opencode") expect(doc.$schema).toBe("https://opencode.ai/config.json");
+    else expect(parseJsonc(readFileSync(path, "utf8"))).toEqual({});
+    const record = readManifest(ctx).planners[agent];
+    expect(record.mcp).toBe(false);
+    expect(record.files.some(file => file.path === path)).toBe(false);
+    expect(record.files.some(file => file.path.endsWith(join("skills", "pacer", "SKILL.md")))).toBe(true);
+    if (agent === "cursor") expect(record.files.some(file => file.path.endsWith("hooks.json"))).toBe(true);
+    expect((await integrationFreshness(ctx, agent)).state).not.toBe("conflict");
+  }
+});
+
+test("the setup connect installs with MCP off over a pacer-created MCP section", async () => {
+  for (const agent of ["opencode", "cursor"] as const) {
+    const ctx = fakeCtx({ env: { PACER_BIN: PACER[0] } });
+    await installPlanner({ ctx, pacerArgv: PACER, mcp: true }, agent);
+    const configPath = agent === "opencode"
+      ? join(ctx.home, ".config", "opencode", "opencode.json")
+      : join(ctx.home, ".cursor", "mcp.json");
+    const preview = await agentPreview(ctx, agent);
+    await agentConnect(ctx, agent, { consent: true, preview_revision: preview.revision });
+    const record = readManifest(ctx).planners[agent];
+    expect(record.mcp).toBe(false);
+    expect(record.files.some(file => file.path === configPath)).toBe(false);
+    const doc = parseJsonc(readFileSync(configPath, "utf8")) as any;
+    expect(agent === "opencode" ? doc.mcp : doc.mcpServers).toBeUndefined();
+    expect((await integrationFreshness(ctx, agent)).state).not.toBe("conflict");
+  }
 });

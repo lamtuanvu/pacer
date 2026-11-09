@@ -9,6 +9,26 @@ export interface StaleMcpTx {
   notes: string[];
 }
 
+/** The prior record entry whose only managed content is this config's pacer MCP member/table. */
+export function ownedMcpEntry(tx: StaleMcpTx, configPath: string,
+    isMcpOp: (op: UndoOp) => boolean): FileChange | undefined {
+  return tx.record.files.find(file =>
+    file.path === configPath && file.undo.length > 0 && file.undo.every(isMcpOp));
+}
+
+/**
+ * The edit an explicit --no-mcp applies to the config. When the prior record
+ * entry owns the registration, that is exactly the entry's own undo: it honors
+ * dropEmpty, so the empty container a fresh install created is dropped just as
+ * uninstall drops it, and it is precisely the removal the host's retired-entry
+ * check compares the staged write against. A bare member removal otherwise.
+ */
+export function noMcpEdit(tx: StaleMcpTx, configPath: string,
+    isMcpOp: (op: UndoOp) => boolean, bare: (old: string) => string): (old: string | null) => string {
+  const entry = ownedMcpEntry(tx, configPath, isMcpOp);
+  return old => entry ? applyUndo(old!, entry.undo) : bare(old!);
+}
+
 /**
  * A planner install or reconnect without MCP must not keep a prior record entry
  * whose only managed content was this planner's MCP member/table. With an
@@ -23,8 +43,7 @@ export interface StaleMcpTx {
 export async function dropStaleMcpEntry(tx: StaleMcpTx, configPath: string,
     isMcpOp: (op: UndoOp) => boolean, memberPresent: (text: string) => boolean): Promise<void> {
   if (tx.env.mcp === true || tx.record.mcp === true) return;
-  const entry = tx.record.files.find(file =>
-    file.path === configPath && file.undo.length > 0 && file.undo.every(isMcpOp));
+  const entry = ownedMcpEntry(tx, configPath, isMcpOp);
   if (!entry) return;
   const text = await tx.read(configPath);
   let present = false;
