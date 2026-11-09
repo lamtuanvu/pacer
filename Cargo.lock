@@ -1431,6 +1431,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-install"
+version = "0.0.0"
+dependencies = [
+ "hex",
+ "pacer-foundation",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-issues"
 version = "0.0.0"
 dependencies = [
@@ -1733,6 +1745,7 @@ dependencies = [
  "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
+ "pacer-install",
  "pacer-issues",
  "pacer-lifecycle",
  "pacer-machine-ops",
@@ -1743,6 +1756,7 @@ dependencies = [
  "pacer-read-model",
  "pacer-store",
  "pacer-task-ops",
+ "pacer-update",
  "rand 0.9.5",
  "ryu-js",
  "security-framework",
@@ -1848,6 +1862,21 @@ dependencies = [
  "ryu-js",
  "serde_json",
  "unicode-general-category",
+]
+
+[[package]]
+name = "pacer-update"
+version = "0.0.0"
+dependencies = [
+ "nix",
+ "pacer-foundation",
+ "pacer-store",
+ "ryu-js",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "ureq",
+ "url",
 ]
 
 [[package]]

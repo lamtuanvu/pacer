@@ -3010,7 +3010,7 @@
       [
         "input",
         "human",
-        ""
+        "\u007f"
       ],
       [
         "deliver",
@@ -3020,7 +3020,7 @@
       [
         "input",
         "human",
-        ""
+        "\u007f"
       ],
       [
         "advance",
@@ -3132,7 +3132,7 @@
         "events": [
           [
             "input",
-            ""
+            "\u007f"
           ]
         ],
         "messages": []
@@ -3151,7 +3151,7 @@
         "events": [
           [
             "input",
-            ""
+            "\u007f"
           ]
         ],
         "messages": []

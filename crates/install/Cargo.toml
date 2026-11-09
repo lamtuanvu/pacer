@@ -1,0 +1,20 @@
+[package]
+name = "pacer-install"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hex = "0.4"
+pacer-foundation = { path = "../foundation" }
+serde_json.workspace = true
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+tokio.workspace = true
+
+[lints]
+workspace = true

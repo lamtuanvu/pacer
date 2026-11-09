@@ -27,11 +27,11 @@ const AGENTS: [&str; 5] = ["claude-code", "codex", "cursor", "agy", "opencode"];
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 const RUNNER_HINT: &str = "Check the runner id, account and host configuration.";
 
-fn invalid(message: impl Into<String>) -> CoreError {
+pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-fn type_name(value: &Value) -> &'static str {
+pub(crate) fn type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -42,7 +42,7 @@ fn type_name(value: &Value) -> &'static str {
     }
 }
 
-fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
+pub(crate) fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
     if ctx
         .env
         .get("PACER_ENFORCEMENT_TOKEN")
@@ -57,7 +57,7 @@ fn authorize(ctx: &Ctx) -> Result<(), CoreError> {
 }
 
 /// `def.params.safeParse(params ?? {})` for a non-strict object schema.
-fn params_object(params: &Value) -> Result<Map<String, Value>, CoreError> {
+pub(crate) fn params_object(params: &Value) -> Result<Map<String, Value>, CoreError> {
     match params {
         Value::Null => Ok(Map::new()),
         Value::Object(map) => Ok(map.clone()),

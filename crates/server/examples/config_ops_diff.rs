@@ -55,6 +55,7 @@ async fn main() -> io::Result<()> {
         if pacer_server::native::assistant_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::repo_registry_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::runner_attention_stays_forwarded(&ctx, name, &input["params"])
+            || pacer_server::native::service_agent_stays_forwarded(&ctx, name, &input["params"])
         {
             serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
             stdout.write_all(b"\n")?;
