@@ -102,8 +102,9 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
 #[tokio::test]
 async fn host_check_clean_and_setup_forward_to_core_over_http() {
     // Until Core has a real host effects bridge, host.check, host.clean and
-    // host.repo.setup stay forwarded to TypeScript on the HTTP path too. The
-    // native registry stub would answer an error instead of this marker result.
+    // host.repo.setup stay on TypeScript: none of them is a registered native
+    // op, so the HTTP front door forwards the request to Core instead of
+    // answering it from a registry stub.
     let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){const path=new URL(req.url).pathname;return new Response(JSON.stringify({forwarded:path}))}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
     let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
         .map(|dir| dir.join("bun"))

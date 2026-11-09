@@ -5,9 +5,13 @@
 //! state: SSH execution via the plugin host, job orchestration for clone/identity,
 //! and the transfer gate for clean.
 //!
-//! Until Core actually serves that bridge, every front-door call forwards these
-//! ops to TypeScript (`host_stays_forwarded`): the bridge endpoints do not
-//! exist yet, so the native path below stays dormant until they do.
+//! Until Core actually serves that bridge (`/_internal/host-effects`,
+//! `_internal.host.effects`), these ops are not registered natively: every
+//! front door forwards them to TypeScript, so host checks, cleanups and repo
+//! setup keep working. The native path below stays dormant until that bridge
+//! exists and the review's parity gaps are fixed: it probes before looking up
+//! the host config, remaps every bridge error (including `unavailable`) to
+//! `invalid_input`, and stdio has no host effects construction at all.
 //!
 //! The bridge provides probe snapshots (from `pacer-lifecycle::hosts::probe`)
 //! and task snapshots (from `pacer-store::tasks`). The native op composes these

@@ -1,5 +1,4 @@
 mod config_writes;
-mod host_effects;
 use super::registry;
 
 #[test]
@@ -180,6 +179,17 @@ fn service_install_is_not_a_registered_native_op() {
     // bridge; TS owns install consent and the in-job self-reload.
     assert!(registry("").get("service.install").is_none());
     assert!(super::service_registry("").get("service.install").is_none());
+}
+
+#[test]
+fn host_check_clean_and_setup_are_not_registered_native_ops() {
+    // host.check, host.clean and host.repo.setup stay on TypeScript until Core
+    // serves a real host effects bridge; unregistering them makes forwarding
+    // structural on every transport instead of a per-front-door predicate.
+    for name in ["host.check", "host.clean", "host.repo.setup"] {
+        assert!(registry("").get(name).is_none(), "{name}");
+        assert!(super::service_registry("").get(name).is_none(), "{name}");
+    }
 }
 
 #[test]
