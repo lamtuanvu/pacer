@@ -42,7 +42,9 @@ use tokio::sync::{mpsc, oneshot};
 /// connection: usage state Core keeps, file reads under a Core planner borrow
 /// or a Codex log directory, which the native read broker does not serve, and
 /// the planner transaction's pinned commands and prior record, whose
-/// compensation Core keeps.
+/// compensation Core keeps. `$/resultChunk` is the chunked result transport
+/// (negotiated like a feature), which Core answers so it can stage a large
+/// result with the same bounds and ordering as flag-off.
 pub fn core_capability(method: &str) -> Option<&'static str> {
     match method {
         "capability.usage.state.begin"
@@ -56,6 +58,7 @@ pub fn core_capability(method: &str) -> Option<&'static str> {
         | "capability.fs.readRange"
         | "capability.planner.readPriorRange" => Some("fs.read"),
         "capability.planner.run" | "capability.process.outputChunk" => Some("process.spawn"),
+        "$/resultChunk" => Some("result"),
         _ => None,
     }
 }
@@ -336,6 +339,14 @@ pub struct PluginCapabilitySession {
     pending_worktree: Option<WorktreeAttachPlan>,
     pending_executor: Option<ExecutorAttachPlan>,
     declared: Vec<String>,
+    /// Core-sealed methods admitted by [`core_capability`]. Set before the
+    /// hello so `answer` can refuse them until Core is bound (R1), and `$`
+    /// transport methods (`$/resultChunk`) can reach Core after the gate.
+    sealed_core_methods: HashSet<String>,
+    /// Whether the child negotiated `chunkedResults` in its hello. `$/resultChunk`
+    /// is relayed to Core only when it did, matching flag-off's negotiated
+    /// feature gate.
+    chunked_result_negotiated: bool,
     core: Option<(CoreForward, HashSet<String>)>,
 }
 
@@ -350,14 +361,28 @@ impl PluginCapabilitySession {
             pending_worktree: None,
             pending_executor: None,
             declared: Vec::new(),
+            sealed_core_methods: HashSet::new(),
+            chunked_result_negotiated: false,
             core: None,
         }
     }
 
+    /// Record the Core-sealed methods before the hello, so a child that asks
+    /// for one while answering `plugin.hello` is refused locally instead of
+    /// reaching the native broker (`sealed_core_methods`), and `$` transport
+    /// methods are forwarded once Core is bound.
+    pub fn bind_core_methods(&mut self, methods: HashSet<String>) {
+        self.sealed_core_methods = methods;
+    }
+
     /// Forward the Core-sealed `methods` (each one [`core_capability`] admits)
-    /// to the Core that issued this call instead of the native broker.
-    pub fn bind_core(&mut self, core: CoreForward, methods: HashSet<String>) {
-        self.core = Some((core, methods));
+    /// to the Core that issued this call instead of the native broker. The
+    /// chunked-result transport is relayed only when the child also negotiated
+    /// `chunkedResults` in its hello (`chunked_result`).
+    pub fn bind_core(&mut self, core: CoreForward, methods: HashSet<String>, chunked_result: bool) {
+        self.sealed_core_methods = methods;
+        self.chunked_result_negotiated = chunked_result;
+        self.core = Some((core, self.sealed_core_methods.clone()));
     }
 
     pub fn broker_mut(&mut self) -> &mut CapabilityBroker {
@@ -445,12 +470,23 @@ impl PluginCapabilitySession {
         ) {
             return self.answer_observation(method, params, metadata).await;
         }
+        if method == "$/resultChunk" {
+            // Chunk assembly is a negotiated transport, not a declared
+            // capability: relay it to Core when bound, else refuse.
+            return self.answer_result_chunk(method, params).await;
+        }
         if let Some(capability) = core_capability(method) {
-            let sealed = self
-                .core
-                .as_ref()
-                .is_some_and(|(_, methods)| methods.contains(method));
-            if sealed {
+            // A Core-sealed method must be refused before Core is bound (while
+            // the child answers `plugin.hello`, before the feature gate), never
+            // answered locally by the native broker.
+            if self.sealed_core_methods.contains(method) {
+                if self.core.is_none() {
+                    return Err(json!({
+                        "code": -32000,
+                        "message": format!("{method} was not issued for this call yet"),
+                        "data": {"code": "capability_denied"}
+                    }));
+                }
                 return self.answer_by_core(method, capability, params).await;
             }
             if capability == "usage.state" {
@@ -476,6 +512,47 @@ impl PluginCapabilitySession {
                     "data": {"code": code}
                 }))
             }
+        }
+    }
+
+    /// Relay a `$/resultChunk` request to the bound Core. Chunk assembly is a
+    /// negotiated transport, not a declared capability, so it skips the
+    /// declared/granted checks of [`Self::answer_by_core`]. Mirror flag-off: it
+    /// is relayed only when Core sealed the method for this call **and** the
+    /// child negotiated `chunkedResults` in its hello; otherwise the child must
+    /// keep its result within the plain single-frame limit.
+    async fn answer_result_chunk(&mut self, method: &str, params: Value) -> Result<Value, Value> {
+        let refuse = |code: &str, message: String| json!({"code": -32000, "message": message, "data": {"code": code}});
+        if !self.sealed_core_methods.contains(method) || !self.chunked_result_negotiated {
+            return Err(refuse(
+                "capability_denied",
+                format!("{method} was not negotiated for this call"),
+            ));
+        }
+        let Some((core, _)) = &self.core else {
+            return Err(refuse(
+                "capability_denied",
+                format!("{method} was not issued for this call"),
+            ));
+        };
+        let deadline = self.broker.authority().deadline();
+        let (reply, answer) = oneshot::channel();
+        if core.send((method.to_owned(), params, reply)).await.is_err() {
+            return Err(refuse(
+                "plugin_unavailable",
+                "the calling Core hung up".into(),
+            ));
+        }
+        match tokio::time::timeout_at(deadline.into(), answer).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(refuse(
+                "plugin_unavailable",
+                "the calling Core did not answer".into(),
+            )),
+            Err(_) => Err(refuse(
+                "plugin_timeout",
+                format!("{method} passed its capability deadline"),
+            )),
         }
     }
 

@@ -329,6 +329,11 @@ pub(crate) async fn call_sealed(
     )
     .map_err(refused)?;
     session.broker_mut().set_scope_roots(sealed.roots);
+    // Give the session the Core-sealed method set before the hello so a child
+    // that asks for one while answering `plugin.hello` is refused locally
+    // (`capability_denied`) instead of reaching the native broker (R1), and
+    // `$/resultChunk` transport requests are relayed once Core is bound.
+    session.bind_core_methods(sealed.core_methods.clone());
     // Core forwarding binds only after the hello and the `requireFeatures` gate
     // pass (below): a child must not reach Core-run methods while it answers
     // `plugin.hello`, before Core knows whether it negotiated the feature.
@@ -405,10 +410,15 @@ pub(crate) async fn call_sealed(
         }
         // The gate passed: only now may this call's capability requests reach Core.
         if let Some(core) = core_forward {
+            // Pass whether the child negotiated `chunkedResults` so Core only
+            // assembles chunks the child was admitted to send.
+            let chunked = hello["features"]
+                .as_array()
+                .is_some_and(|features| features.iter().any(|feature| feature == "chunkedResults"));
             session
                 .lock()
                 .await
-                .bind_core(core, sealed.core_methods.clone());
+                .bind_core(core, sealed.core_methods.clone(), chunked);
         }
         let metadata = reentrant.then(|| json!({"capabilityCall": call_token()}));
         let value = lane

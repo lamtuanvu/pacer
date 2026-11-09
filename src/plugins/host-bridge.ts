@@ -24,6 +24,26 @@ const CORE_CODES: ReadonlySet<string> = new Set<CoreErrorCode>([
   "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin", "not_found", "too_large",
 ]);
 
+/** The error a caller sees when its call is aborted (R2): a mid-call revocation
+ * of the call's Core authority reports the actual revocation reason when there is
+ * a specific one, and otherwise matches flag-off's owning-plugin-call-ended
+ * error (plugin stop, exit or observation/planner configuration change all revoke
+ * the authority without a grant-specific reason). A CoreError abort reason is
+ * kept, and anything else stays the generic cancellation. */
+function cancellation(signal: AbortSignal | undefined, revoked: AbortSignal | undefined): CoreError {
+  if (revoked?.aborted) {
+    const reason = revoked.reason;
+    // The default `revoke()` reason ("owning plugin call expired") just means the
+    // owning call ended; report it the same way flag-off's `process.ts` abort()
+    // does. A specific reason (for example a genuine grant revocation) wins.
+    if (reason instanceof CoreError && !(reason.code === "capability_denied" && reason.message === "owning plugin call expired"))
+      return reason;
+    return new CoreError("plugin_unavailable", "owning plugin call ended");
+  }
+  if (signal?.reason instanceof CoreError) return signal.reason;
+  return new CoreError("plugin_timeout", "plugin call was cancelled");
+}
+
 /** Core-sealed call: `spawn` is `nativeSpawnSpec`, `authority` is `nativeIssueCallAuthority`. */
 export interface NativeOwnerCall {
   id: string;
@@ -93,11 +113,11 @@ function callbackError(error: unknown): { code: number; message: string; data: {
 }
 
 /** One call per connection; the connection closes after the final reply line. */
-function exchange(socketPath: string, method: string, params: unknown, signal?: AbortSignal, onRequest?: OwnerRequestHandler): Promise<unknown> {
+function exchange(socketPath: string, method: string, params: unknown, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal): Promise<unknown> {
   const id = nextId++;
   const frame = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
   if (frame.length > MAX_FRAME_BYTES) return Promise.reject(new CoreError("too_large", "plugin call exceeds the 1 MiB native owner bridge frame"));
-  if (signal?.aborted) return Promise.reject(new CoreError("plugin_timeout", "plugin call was cancelled"));
+  if (signal?.aborted || revoked?.aborted) return Promise.reject(cancellation(signal, revoked));
   return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
     let chunks: Buffer[] = [];
@@ -109,7 +129,7 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
       socket.destroy();
       if (failure) reject(failure); else resolve(value);
     };
-    const abort = () => settle(new CoreError("plugin_timeout", "plugin call was cancelled"));
+    const abort = () => settle(cancellation(signal, revoked));
     signal?.addEventListener("abort", abort, { once: true });
     const answer = (request: z.infer<typeof rpcReply>) => {
       const respond = (body: object) => {
@@ -153,8 +173,8 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
 }
 
 /** Call a plugin through the native owner; it starts, hellos and authorizes the child. */
-export async function callNativeOwner(socketPath: string, call: NativeOwnerCall, signal?: AbortSignal, onRequest?: OwnerRequestHandler): Promise<NativeOwnerReply> {
-  const result = await exchange(socketPath, HOST_PLUGIN_CALL, call, signal, onRequest);
+export async function callNativeOwner(socketPath: string, call: NativeOwnerCall, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal): Promise<NativeOwnerReply> {
+  const result = await exchange(socketPath, HOST_PLUGIN_CALL, call, signal, onRequest, revoked);
   if ((result as { activated?: unknown } | null)?.activated === false)
     throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} has not activated plugin ownership`);
   const reply = nativeOwnerReply.safeParse(result);
