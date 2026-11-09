@@ -45,7 +45,8 @@ export type InstallNotes = string[] & { reloadPending?: true };
  * When the new registration does not load or stay running, it restores the previous one.
  * Arguments: target, domain, plist path, previous plist copy (empty when there was none).
  */
-const RELOAD_SCRIPT = `/bin/sleep 2
+const RELOAD_SCRIPT = `/bin/rm -f "$3.restore"
+/bin/sleep 2
 /bin/launchctl bootout "$1" >/dev/null 2>&1
 load() { n=0; until /bin/launchctl bootstrap "$2" "$3"; do n=$((n+1)); [ "$n" -ge 5 ] && return 1; /bin/sleep 1; done; }
 stays() { /bin/sleep 5; /bin/launchctl print "$1" 2>/dev/null | /usr/bin/grep -q "state = running"; }
