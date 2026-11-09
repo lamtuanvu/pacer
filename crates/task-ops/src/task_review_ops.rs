@@ -3,8 +3,8 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
-use pacer_lifecycle::{RecordReviewError, record_review_verdict};
 use pacer_lifecycle::files_search::executor_session;
+use pacer_lifecycle::{RecordReviewError, record_review_verdict};
 use pacer_read_model::tasks::task_data;
 use pacer_store::{TaskStore, publish};
 use serde_json::{Map, Value, json};
@@ -16,8 +16,7 @@ use super::lifecycle_ops::{
 
 /// Executor sessions may review only a child they dispatched through a valid work grant (F4); the
 /// native front door only ever handles plain non-work reviews, which an executor may never make.
-const TASK_REVIEW_REFUSAL: &str =
-    "PACER_ROLE=executor: executors cannot review their own task; only a child they dispatched this run (use pacer dispatch review).";
+const TASK_REVIEW_REFUSAL: &str = "PACER_ROLE=executor: executors cannot review their own task; only a child they dispatched this run (use pacer dispatch review).";
 
 /// TypeScript `isExecutorSession`: PACER_ROLE=executor, a cwd inside a pacer task worktree, or an
 /// Orca workspace lane. `cwd` is the serving process's working directory.
