@@ -219,9 +219,16 @@ async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, Strin
             desktop_log!("pacer lifecycle: takeover terminal relink failed: {error}");
             #[cfg(not(feature = "ota-fixture"))]
             {
-                use tauri_plugin_notification::NotificationExt;
                 let (title, body) = logic::TAKEOVER_RELINK_FAILED;
-                let _ = app.notification().builder().title(title).body(body).show();
+                crate::notify(
+                    app,
+                    crate::notifications::Notification {
+                        title: title.into(),
+                        body: body.into(),
+                        route: "#/".into(),
+                        actions: Vec::new(),
+                    },
+                );
             }
         }
     }
