@@ -169,9 +169,12 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       if (recordedAgent(target)) {
         const fresh = await integrationFreshness(ctx, target);
         const name = `Integration freshness ${target}`;
-        const detail = fresh.state === "current" ? "managed assets match this runtime" : fresh.state === "refreshed" ? "managed assets need refresh; the next service startup or local launch will reconcile them" : fresh.detail ?? "refresh could not be verified";
-        // Refreshing only pacer-managed files is automatic; a user-edited file needs a reviewed preview.
-        const remedy = fresh.state === "refreshed" && agent && !broken.length ? { remedy: remedies.updateFiles(agent) } : review;
+        const detail = fresh.state === "current" ? "managed assets match this runtime"
+          : fresh.state === "refreshed" ? (record.undoneAt ? "the last repair was undone; reconnect to re-apply pacer's files" : "managed assets need refresh; the next service startup or local launch will reconcile them")
+          : fresh.detail ?? "refresh could not be verified";
+        // Refreshing only pacer-managed files is automatic; a user-edited file or an undone
+        // repair needs a reviewed preview (F5: never re-apply an undo without consent).
+        const remedy = !record.undoneAt && fresh.state === "refreshed" && agent && !broken.length ? { remedy: remedies.updateFiles(agent) } : review;
         checks.push(fresh.state !== "current" && isInternalCode(fresh.code) ? internalCheck({ name, detail })
           : { name, level: fresh.state === "current" ? "ok" : "warn", detail,
             ...(fresh.hint ? { fix: fresh.hint } : {}), evidence: "configured", ...(fresh.state === "current" ? {} : remedy) });

@@ -9,6 +9,7 @@ import { migrateStrategy } from "../config/migrate";
 import { detect, starterStrategy } from "../install/init";
 import { AGENT_BINS, type AgentId } from "../install/detection";
 import { installPlanner } from "../install";
+import { readManifest } from "../install/manifest";
 import { uninstallPlanner } from "../install/uninstall";
 import { pacerArgv } from "../install/self";
 import { serviceBackend, type ServiceBackend } from "../service";
@@ -83,7 +84,21 @@ export async function agentPreview(ctx: Ctx, agent: AgentId) {
   const changes=(desired.changes ?? desired.files.map(path => ({ path, change: "update" as const })))
     .map(file => ({ path: file.path, change: file.change, note: CHANGE_NOTE[file.change] ?? CHANGE_NOTE.update }));
   const preview={agent,...desired,files: desired.files, changes};
-  return {...preview, revision: sha256(JSON.stringify({target, folder, ...preview}))};
+  const undoSnapshot = readManifest(ctx).planners[plannerKey(ctx, agent)]?.undoConnect;
+  return {
+    ...preview,
+    revision: sha256(JSON.stringify({target, folder, ...preview})),
+    ...(undoSnapshot ? {
+      undoSnapshot: {
+        revision: undoSnapshot.revision,
+        at: undoSnapshot.at,
+        files: undoSnapshot.files.map((file) => ({
+          path: file.path,
+          change: file.before === null ? ("remove" as const) : ("restore" as const),
+        })),
+      },
+    } : {}),
+  };
 }
 
 export async function agentConnect(ctx: Ctx, agent: AgentId, options: {consent?: boolean; preview_revision?: string} = {}) {
@@ -93,7 +108,7 @@ export async function agentConnect(ctx: Ctx, agent: AgentId, options: {consent?:
     throw new CoreError("conflict", "The integration target changed after preview", "Review a fresh repair preview before applying changes.");
   const target = plannerTarget(ctx, agent);
   try {
-    const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false}, target);
+    const r = await installPlanner({ctx, pacerArgv: pacerArgv(ctx.env), mcp: false, undoRevision: preview.revision}, target);
     return {installed: r.touched};
   } catch (e) { throw toCoreError(e); }
 }
@@ -106,14 +121,13 @@ function plannerKey(ctx: Ctx, agent: AgentId): string {
   return !account || account.source === "default" ? agent : `${agent}#${target.account}`;
 }
 
-/** Undo the file changes of the most recent connect, consent-gated, within 7 days. */
-export async function agentUndo(ctx: Ctx, agent: AgentId, options: {consent?: boolean} = {}) {
+/** Undo exactly the last file-changing connect, consent-gated to its snapshot, within 7 days. */
+export async function agentUndo(ctx: Ctx, agent: AgentId, options: {consent?: boolean; preview_revision?: string} = {}) {
   if (options.consent !== true) throw new CoreError("not_allowed", "undoing a repair requires consent", "Review that pacer will restore the previous copies, then pass consent: true");
-  const target = plannerTarget(ctx, agent);
   const key = plannerKey(ctx, agent);
   try {
-    const { restored, removed, reverted } = await restorePlannerInstall(ctx, typeof target === "string" ? target : target.agent, key);
-    return { restored, removed, reverted };
+    const { restored, removed, reverted, kept } = await restorePlannerInstall(ctx, agent, key, options.preview_revision);
+    return { restored, removed, reverted, kept };
   } catch (e) { throw toCoreError(e); }
 }
 

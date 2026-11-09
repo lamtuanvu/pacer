@@ -3,8 +3,8 @@ import { lstatSync } from "node:fs";
 import { CoreError } from "../core/errors";
 import { withInstallLock } from "../install/lock";
 import { validateInstallArgv } from "../install/self";
-import { recoverPlannerInstall } from "./planner-recovery";
-import { readManifest, type PlannerRecord, type FileChange } from "../install/manifest";
+import { recoverPlannerInstall, plannerTrustedRoots } from "./planner-recovery";
+import { readManifest, type PlannerRecord } from "../install/manifest";
 import { readInstallFile } from "../install/atomic";
 import type { InstallEnv } from "../install/txn";
 import { sha256 } from "../install/fsx";
@@ -21,58 +21,94 @@ import { preparedPlannerPlan } from "./planner-protocol";
 /** A repair can be undone for 7 days after the connect that changed files. `ctx.now` is Unix seconds. */
 export const UNDO_WINDOW_S = 7 * 86_400;
 
-/** Restore the install-manifest backups of the most recent connect, within the undo window. */
+/** Restore exactly the files one connect changed, from its snapshot, within the 7-day window. */
 export async function restorePlannerInstall(
   ctx: InstallEnv["ctx"],
   agent: string,
   key: string,
-): Promise<{ restored: string[]; removed: string[]; reverted: string[] }> {
+  previewRevision?: string,
+): Promise<{ restored: string[]; removed: string[]; reverted: string[]; kept: string[] }> {
   return withInstallLock(ctx, async () => {
     await recoverPlannerInstall(ctx, [], []);
     const manifest = readManifest(ctx);
     const prior = manifest.planners[key];
-    if (!prior)
+    const snap = prior?.undoConnect;
+    if (!prior || !snap)
       throw new CoreError("not_found", `No pacer repair is recorded for ${agent}`, "Connect the agent first, then undo a repair from Diagnostics.");
-    if (ctx.now - (prior.installedAt ?? ctx.now) > UNDO_WINDOW_S)
+    if (previewRevision !== undefined && snap.revision && previewRevision !== snap.revision)
+      throw new CoreError("conflict", "The undo target changed after preview", "Review a fresh repair preview before undoing.");
+    if (typeof snap.at !== "number" || ctx.now - snap.at > UNDO_WINDOW_S)
       throw new CoreError("not_found", "This repair is older than 7 days and can no longer be undone", "Reconnect the agent from Diagnostics to repair it again.");
-    const restored: string[] = [], removed: string[] = [], reverted: string[] = [];
-    const pending: PendingFile[] = [], kept: FileChange[] = [];
-    for (const file of [...prior.files].reverse()) {
-      const text = readInstallFile(file.path);
-      const mode = text === null ? undefined : lstatSync(file.path).mode & 0o700;
-      const intact = text !== null && (!file.afterHash || sha256(text) === file.afterHash);
-      if (file.action === "moved") {
-        const backup = file.backup ? readInstallFile(file.backup) : null;
-        if (backup && text === null) {
-          pending.push({ path: file.path, before: null, after: backup, mode: lstatSync(file.backup!).mode & 0o700 });
-          pending.push({ path: file.backup!, before: backup, after: null, beforeMode: lstatSync(file.backup!).mode & 0o700 });
-          restored.push(file.path);
-        } else kept.push(file);
-        continue;
+    // F3: root-confine every recorded path (the same trusted roots recovery uses),
+    // plus the record's own folder and skill root, before writing anything.
+    const folderRoots = new Set<string>();
+    for (const file of prior.files) {
+      for (const suffix of ["/skills/pacer/SKILL.md", "/rules/pacer.md", "/AGENTS.md", "/hooks.json"]) {
+        if (file.path.endsWith(suffix)) folderRoots.add(file.path.slice(0, -suffix.length));
       }
-      if (file.action === "created" && intact && (file.exact !== false || file.undo.length === 0)) {
-        pending.push({ path: file.path, before: text, after: null, beforeMode: mode });
-        removed.push(file.path);
-      } else if (file.action === "edited" && intact && file.exact && file.backup) {
-        const backup = readInstallFile(file.backup);
-        if (backup) {
-          pending.push({ path: file.path, before: text, after: backup, beforeMode: mode, mode: lstatSync(file.backup).mode & 0o700 });
-          pending.push({ path: file.backup, before: backup, after: null, beforeMode: lstatSync(file.backup).mode & 0o700 });
-          restored.push(file.path);
-        } else kept.push(file);
-      } else kept.push(file);
     }
-    if (!pending.length) return { restored, removed, reverted };
-    const record = { ...prior, files: kept };
-    const session = await plannerJournalIO(ctx, pending, Date.now() + 600000, () => {});
+    if (prior.folder) folderRoots.add(prior.folder);
+    const lease = new PlannerResources(ctx, {
+      purpose: "reconcile",
+      binaries: [],
+      cwd: ctx.home,
+      roots: [...plannerTrustedRoots(ctx, [], []), ...folderRoots],
+      files: [],
+    });
     try {
-      session.preflight();
-      const planners = { ...manifest.planners, [key]: record };
-      await commitInstall(session.io, pending, JSON.stringify({ version: 1, planners }, null, 2) + "\n");
+      const restored: string[] = [], removed: string[] = [], kept: string[] = [];
+      const pending: PendingFile[] = [];
+      for (const entry of snap.files) {
+        const path = absolutePath(entry.path);
+        if (path !== entry.path || !lease.permits(path))
+          throw new CoreError("capability_denied", `undo path outside allowed planner folders: ${entry.path}`);
+        const text = readInstallFile(path);
+        const intact = entry.afterHash === null
+          ? text === null
+          : text !== null && sha256(text) === entry.afterHash;
+        if (!intact) { kept.push(entry.path); continue; }
+        if (entry.before === null) {
+          if (text !== null)
+            pending.push({ path, before: text, after: null, beforeMode: lstatSync(path).mode & 0o700 });
+          removed.push(entry.path);
+        } else {
+          pending.push({
+            path, before: text, after: entry.before,
+            beforeMode: text === null ? undefined : lstatSync(path).mode & 0o700,
+            mode: entry.beforeMode,
+          });
+          restored.push(entry.path);
+        }
+      }
+      const undone = new Set([...restored, ...removed]);
+      const record = {
+        ...prior,
+        files: prior.files.filter((file) => !undone.has(file.path)),
+        integration: undefined,
+        undoConnect: undefined,
+        undoneAt: ctx.now,
+      };
+      const session = await plannerJournalIO(
+        ctx,
+        pending,
+        Date.now() + 600000,
+        () => lease.assertFileRoots(),
+      );
+      try {
+        session.preflight();
+        const planners = { ...manifest.planners, [key]: record };
+        await commitInstall(
+          session.io,
+          pending,
+          JSON.stringify({ version: 1, planners }, null, 2) + "\n",
+        );
+      } finally {
+        await session.close();
+      }
+      return { restored, removed, reverted: [], kept };
     } finally {
-      await session.close();
+      await lease.dispose();
     }
-    return { restored, removed, reverted };
   });
 }
 
@@ -88,6 +124,8 @@ export interface PlannerInstallOptions {
   prepareOnly?: boolean;
   beforeCommit?: (plan: PreparedPlannerPlan) => void;
   operation?: "uninstall";
+  /** Preview revision the consent was tied to; stored so agent.undo can bind to exactly this connect. */
+  undoRevision?: string;
   prepareMissing?: (
     prior: PlannerRecord,
     read: (path: string) => Promise<{ text: string; mode: number } | null>,
@@ -384,11 +422,30 @@ export async function withPlannerInstall(
       );
       try {
         session.preflight();
+        const changed = [...pending.values()].filter(
+          (file) => file.before !== file.after,
+        );
+        if (
+          options.operation !== "uninstall" &&
+          env.mode !== "reconcile" &&
+          changed.length
+        )
+          record.undoConnect = {
+            at: ctx.now,
+            revision: options.undoRevision ?? "",
+            files: changed.map((file) => ({
+              path: file.path,
+              before: file.before,
+              beforeMode: file.beforeMode,
+              afterHash: file.after === null ? null : sha256(file.after),
+            })),
+          };
+        if (options.operation !== "uninstall") delete record.undoneAt;
         const planners = { ...base.planners, [env.plannerKey]: record };
         if (options.operation === "uninstall") delete planners[env.plannerKey];
         await commitInstall(
           session.io,
-          [...pending.values()].filter(file => file.before !== file.after),
+          changed,
           JSON.stringify({ version: 1, planners }, null, 2) + "\n",
         );
         committed = true;

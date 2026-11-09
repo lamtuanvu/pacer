@@ -12,7 +12,7 @@ import { mergeUndo, readManifest, type PlannerRecord, type UndoOp } from "./mani
 export class InstallError extends Error {
   constructor(message: string) { super(message); this.name = "InstallError"; }
 }
-export interface InstallEnv { ctx: Ctx; pacerArgv: string[]; mcp?: boolean; folder?: string; plannerAccount?: string; plannerKey?: string; configEnv?: Record<string, string>; mode?: "connect" | "reconcile"; skillFolder?: string }
+export interface InstallEnv { ctx: Ctx; pacerArgv: string[]; mcp?: boolean; folder?: string; plannerAccount?: string; plannerKey?: string; configEnv?: Record<string, string>; mode?: "connect" | "reconcile"; skillFolder?: string; undoRevision?: string }
 export class Txn {
   readonly record: PlannerRecord;
   readonly touched: string[] = [];
