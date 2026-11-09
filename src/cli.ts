@@ -46,6 +46,7 @@ import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
 import { hookInput, plannerPolicyApplies } from "./install/role";
 import { io } from "./install/stdin";
+import { pruneUndoSnapshotsAtStartup } from "./install/undo-store";
 import { isAbsolute, join, resolve } from "node:path";
 import { EXTRA_COMMANDS, findCommand } from "./commands/index";
 import type { Result } from "./commands/types";
@@ -620,6 +621,9 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       // Load or create the machine identity once so activity and task records carry its id; stamping never creates it.
       // Loads are single-flight per home, so identity operations that arrive first share this load.
       void ensureIdentity(ctx).catch(e => console.error(`pacer: machine identity unavailable: ${e instanceof Error ? e.message : String(e)}`));
+      // Expire old undo snapshots at service startup (under the install lock) so
+      // credential-bearing configs do not sit in the store indefinitely (L2).
+      await pruneUndoSnapshotsAtStartup(ctx);
       try {
         if (internal) {
           // Only this process may hold the internal credential: task runners and executors inherit the environment.
