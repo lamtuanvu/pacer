@@ -33,7 +33,7 @@ export function ModelFactLink({model}:{model:string|null}) {
   return <TextAction href="#models" onClick={event => focusSection(event, "models")}>{model ?? "Agent default"}</TextAction>;
 }
 
-export function ExecutorModels({runner, model, provider, initialAvailable}:{runner:string; model:string|null; provider:string; initialAvailable?:AvailableModels}) {
+export function ExecutorModels({runner, model, provider, initialAvailable, onSaved}:{runner:string; model:string|null; provider:string; initialAvailable?:AvailableModels; onSaved?:()=>void}) {
   const list = useResource<AvailableModels>("executor.models.available", {runner}, initialAvailable);
   const {api} = useTaskContext();
   const [refreshing, setRefreshing] = useState(false);
@@ -58,7 +58,14 @@ export function ExecutorModels({runner, model, provider, initialAvailable}:{runn
     // The picker holds full ids; the free-text fallback holds the id as the user typed it. Saving
     // only happens on a change: an empty field or the current model id are not edits.
     if (unchanged) return;
-    void save.run("runner.set", {id: runner, model: chosen}, () => { void check.run("runner.check", {id: runner}); });
+    void save.run("runner.set", {id: runner, model: chosen}, () => {
+      // The saved default reroutes work to the provider that serves it now: refresh the cached
+      // listing so the no-longer-offered warning matches, and let the executor detail refresh
+      // its facts (Model fact, row state) instead of waiting for the next page reload.
+      void refreshList();
+      onSaved?.();
+      void check.run("runner.check", {id: runner});
+    });
   };
   return <Section id="models" title="Models" actions={<Button size="sm" disabled={refreshing} onClick={() => void refreshList()}>Refresh list</Button>}>
     <ResourceState resource={list}>

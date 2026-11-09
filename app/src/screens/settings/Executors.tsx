@@ -10,6 +10,7 @@ import { accountLabel, executorLabel } from '../../../../src/view-model/words';
 import { executorReadiness, executorWeekUsage, machineHardCap } from '../../../../src/view-model/capacity';
 import { createExecutorDraft, executorSavePayload, isExecutorDraftDirty, matchesExecutorDraft, moveExecutor, validateExecutorDraft, type ExecutorDraft, type ExecutorSettings } from '../../model/executor-settings';
 import { useTaskContext, ErrorMessage } from '../task-shared';
+import { useActions } from '../../data/action-context';
 import { registerNavigationGuard, canLeaveScreen } from '../../data/navigation-guard';
 import { useNotifications } from '../../data/notification-context';
 import { Alert } from '../../ds/Alert';
@@ -33,6 +34,7 @@ export function ExecutorsSection() {
   const [selected, select] = useState<string>();
   const addAgent = useRef<HTMLAnchorElement>(null);
   const {state, api} = useTaskContext(), query = useResource<ExecutorSettings>('runner.settings.get');
+  const actions = useActions();
   const notifications = useNotifications(), dialogs = useDialogs();
   const [saved, setSaved] = useState<ExecutorSettings>(), [draft, setDraft] = useState<ExecutorDraft>();
   const [enabledBusy, setEnabledBusy] = useState(false);
@@ -51,6 +53,9 @@ export function ExecutorsSection() {
     if (query.data && query.data.revision!==saved?.revision && !dirty && !pending.current) { setSaved(query.data); setDraft(createExecutorDraft(query.data)); }
   },[query.data]);
   const reload = () => {  if(query.data){setSaved(query.data);setDraft(createExecutorDraft(query.data));setError(undefined);}query.reload(); };
+  // A saved model changes the executor's facts outside this page's save(): refresh the settings
+  // read and request a fresh snapshot so the row and detail show it without a page reload.
+  const refreshExecutorData = () => { query.reload(); void actions.refetch(); };
   const edit = (fn:(next:ExecutorDraft)=>void) => {
     if (!draft || busy) return;
     const next = {order:[...draft.order], runners:Object.fromEntries(Object.entries(draft.runners).map(([id,r])=>[id,{...r}]))};
@@ -142,7 +147,7 @@ export function ExecutorsSection() {
   };
   const ordered = rows ? [ ...rows.filter(r=>r.rank==='planner'&&!draft?.order.includes(r.id)), ...(draft?.order ?? rows.filter(r=>r.rank!=='planner').map(r=>r.id)).map(id=>rows.find(r=>r.id===id)??knownRows.current.get(id)).filter((r):r is ExecutorRow=>!!r)] : [];
   const picked = ordered.find(e=>e.id===selected), pickedAt = picked ? draft?.order.indexOf(picked.id) ?? -1 : -1;
-  return <SettingsBoard id="executors" title="Agents" caption="Who plans, who executes, and what each one is allowed to use." aside={picked&&<ExecutorDetail key={picked.id} executor={picked} planner={pickedAt<0} position={pickedAt} count={draft?.order.length??0} announce={announce} saveEnabled={saveEnabled} savingEnabled={enabledBusy} savedEnabled={saved?.runners.find(r=>r.id===picked.id)?.enabled} value={draft?.runners[picked.id]} error={errors[picked.id]} disabled={busy||enabledBusy||!draft} edit={edit} independent={independent} close={()=>select(undefined)} onRemoved={()=>{select(undefined);queueMicrotask(()=>addAgent.current?.focus());}}/>}>
+  return <SettingsBoard id="executors" title="Agents" caption="Who plans, who executes, and what each one is allowed to use." aside={picked&&<ExecutorDetail key={picked.id} executor={picked} planner={pickedAt<0} position={pickedAt} count={draft?.order.length??0} announce={announce} saveEnabled={saveEnabled} savingEnabled={enabledBusy} savedEnabled={saved?.runners.find(r=>r.id===picked.id)?.enabled} value={draft?.runners[picked.id]} error={errors[picked.id]} disabled={busy||enabledBusy||!draft} edit={edit} independent={independent} close={()=>select(undefined)} onRemoved={()=>{select(undefined);queueMicrotask(()=>addAgent.current?.focus());}} onModelSaved={refreshExecutorData}/>}>
     {dialogs.dialog}
     {leaving&&<Dialog title="Unsaved executor changes" close={()=>finishLeave(false)}><p>Save your executor settings before leaving?</p><div className="u3-actions"><Button disabled={busy} onClick={()=>finishLeave(false)}>Stay</Button><Button disabled={busy} onClick={()=>{reload();finishLeave(true);}}>Discard changes</Button><Button variant="primary" busy={busy} disabled={!state.connected||!!conflict||Object.keys(errors).length>0} onClick={async()=>{if(await current.current.save())finishLeave(true);}}>Save and leave</Button></div><ErrorMessage error={error}/></Dialog>}
     <AgentsIntro tab="executors" actions={<ButtonLink ref={addAgent} variant="primary" href={scoped("#/settings/add-executor")}>Add agent</ButtonLink>}/>
@@ -175,7 +180,7 @@ function ExecutorRowEditor({executor,selected,select,removed,value}:{executor:Ex
     <td data-label="Actions"><IconButton geometry="board" icon="more" size="sm" variant="quiet" aria-label={`More actions for ${name}`} aria-expanded={selected} data-details={executor.id} onClick={select}/></td></tr>;
 }
 /** One executor's state and immediate Takes work switch; task limits join the page draft. */
-function ExecutorDetail({executor,planner,position,count,announce,value,error,disabled,edit,independent,close,onRemoved,saveEnabled,savedEnabled,savingEnabled}:{executor:ExecutorRow;planner:boolean;position:number;count:number;announce:(text:string)=>void;saveEnabled:(id:string,enabled:boolean)=>Promise<void>;savedEnabled?:boolean;savingEnabled?:boolean;value?:{enabled:boolean;maxTasks:string};error?:string;disabled:boolean;edit:(fn:(draft:ExecutorDraft)=>void)=>void;independent:(action:()=>void|Promise<void>)=>Promise<void>;close:()=>void;onRemoved:()=>void}) {
+function ExecutorDetail({executor,planner,position,count,announce,value,error,disabled,edit,independent,close,onRemoved,onModelSaved,saveEnabled,savedEnabled,savingEnabled}:{executor:ExecutorRow;planner:boolean;position:number;count:number;announce:(text:string)=>void;saveEnabled:(id:string,enabled:boolean)=>Promise<void>;savedEnabled?:boolean;savingEnabled?:boolean;value?:{enabled:boolean;maxTasks:string};error?:string;disabled:boolean;edit:(fn:(draft:ExecutorDraft)=>void)=>void;independent:(action:()=>void|Promise<void>)=>Promise<void>;close:()=>void;onRemoved:()=>void;onModelSaved:()=>void}) {
   const scoped = useScoped();
   const {state}=useTaskContext(), action=useOperation(), dialogs=useDialogs(), name=executorLabel(executor.id), panel=useRef<HTMLDivElement>(null);
   // Opening moves focus into the panel (it sits below the table on narrow screens); closing returns it to the row's button.
@@ -214,7 +219,7 @@ function ExecutorDetail({executor,planner,position,count,announce,value,error,di
     <dl className="u3-agent-facts"><dt>Account</dt><dd>{accountLabel({name:executor.account,agent:executor.agent,runners:[executor.id]})}</dd><dt>Model</dt><dd><ModelFactLink model={executor.model}/></dd><dt>Runs on</dt><dd>{executor.host?<TextAction href={scoped(`#/settings/hosts/${encodeURIComponent(executor.host)}`)}>{executor.host}</TextAction>:'This machine'}</dd></dl>
     {!planner&&<SettingRow layout="inline-help" label="Parallel tasks" ><TextInput className="u3-detail-parallel" type="number" min="1" max="16" step="1" required aria-label={`Parallel tasks for ${name}`} value={value?.maxTasks??String(executor.slots.max)} disabled={disabled} onInput={e=>{const text=e.currentTarget.value;edit(d=>{d.runners[executor.id].maxTasks=text;});}}/>{error&&<small className="pc-field__error" role="alert">{error}</small>}<span className="u3-muted">{machineHardCap(state.snapshot?.machine)!==null?`Up to ${machineHardCap(state.snapshot?.machine)}, this machine's limit`:"Saved with the page"}</span></SettingRow>}
     <SettingRow layout="stacked" label="Test task" description={executor.lastCheck?`${executor.lastCheck.passed?'Passed':'Failed'} ${time(executor.lastCheck.at)}`:'Not run yet'}><Button size="sm" disabled={!!action.unavailable || (action.busy)} onClick={()=>void action.run('runner.check',{id:executor.id})}>Run test task<span className="sr-only"> for {name}</span></Button></SettingRow>
-    <ExecutorModels runner={executor.id} model={executor.model} provider={executor.account} />
+    <ExecutorModels runner={executor.id} model={executor.model} provider={executor.account} onSaved={onModelSaved} />
 
     <Feedback action={action}/>
     {!planner&&<footer className="u3-detail-footer"><span className="u3-muted">Removing keeps its task history.</span><Button size="sm" disabled={!!action.unavailable || (action.busy||disabled)} onClick={()=>void independent(async()=>{if(await dialogs.confirm(`Remove executor ${name}?`,'Remove executor','Remove'))await action.run('runner.remove',{id:executor.id},onRemoved);})}>Remove agent</Button></footer>}
