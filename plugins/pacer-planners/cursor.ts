@@ -5,6 +5,7 @@ import { shellCommand } from "@pacer/plugin/install";
 import { editHooksFile } from "@pacer/plugin/install";
 import { getMember, removeMember, setMember } from "@pacer/plugin/install";
 import type { UndoOp } from "@pacer/plugin/install";
+import { dropStaleMcpEntry } from "./mcp";
 import type { PlannerBuilder } from "./types";
 
 export async function installCursor(tx: PlannerBuilder): Promise<void> {
@@ -35,6 +36,16 @@ export async function installCursor(tx: PlannerBuilder): Promise<void> {
       },
       [undo],
     );
+  await dropStaleMcpEntry(
+    tx,
+    join(dir, "mcp.json"),
+    (op) =>
+      op.kind === "json-member" &&
+      op.path.length === 2 &&
+      op.path[0] === "mcpServers" &&
+      op.path[1] === "pacer",
+    (text) => getMember(text, ["mcpServers", "pacer"]) !== undefined,
+  );
 
   await installSkill(tx, dir);
   const specs = [

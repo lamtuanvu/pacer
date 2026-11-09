@@ -5,6 +5,7 @@ import { removeBlock, upsertBlock } from "@pacer/plugin/install";
 import { shellCommand } from "@pacer/plugin/install";
 import { editHooksFile, type HookSpec } from "@pacer/plugin/install";
 import { removeTomlTable } from "@pacer/plugin/install";
+import { dropStaleMcpEntry } from "./mcp";
 import { policyText } from "./policy";
 import type { PlannerBuilder } from "./types";
 
@@ -61,6 +62,14 @@ export async function installCodex(tx: PlannerBuilder): Promise<void> {
         { kind: "toml-table", table: "mcp_servers.pacer" },
       ],
     );
+  await dropStaleMcpEntry(
+    tx,
+    configPath,
+    (op) =>
+      (op.kind === "toml-table" && op.table === "mcp_servers.pacer") ||
+      (op.kind === "block" && op.style === "hash"),
+    (text) => !!(Bun.TOML.parse(text) as any).mcp_servers?.pacer,
+  );
 
   await installSkill(
     tx,

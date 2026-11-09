@@ -375,6 +375,11 @@ export async function withPlannerInstall(
       if (pending.size !== plan.files.length)
         refused("planner returned duplicate file destination");
       const associated = new Set<string>();
+      // A plan may retire a prior record entry while staging its final
+      // uninstall-style removal (a stale MCP registration the record owned);
+      // the prior record still authorizes writing that path once more.
+      const recordedBefore = (raw: string) =>
+        !!prior?.files.some((value) => value.path === raw);
       for (const file of record.files) {
         if (
           !file ||
@@ -414,13 +419,14 @@ export async function withPlannerInstall(
         }
       }
       for (const path of pending.keys())
-        if (!associated.has(path))
+        if (!associated.has(path) && !recordedBefore(path))
           refused("planner prepared an unassociated file destination");
       if (
         plan.touched.some(
           (path) =>
-            !record.files.some((file) => file.path === path) ||
-            !pending.has(path),
+            !pending.has(path) ||
+            (!record.files.some((file) => file.path === path) &&
+              !recordedBefore(path)),
         )
       )
         refused("planner touched list does not match preparation");

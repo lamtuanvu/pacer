@@ -7,6 +7,7 @@ import {
   type UndoOp,
 } from "@pacer/plugin/install";
 import { installSkill } from "./skill";
+import { dropStaleMcpEntry } from "./mcp";
 import { policyText } from "./policy";
 import type { PlannerBuilder } from "./types";
 export async function installOpencodeFiles(tx: PlannerBuilder): Promise<void> {
@@ -56,5 +57,15 @@ export async function installOpencodeFiles(tx: PlannerBuilder): Promise<void> {
     );
   tx.notes.push(
     "OpenCode guard is policy-only; policy and skill installed; MCP is optional.",
+  );
+  await dropStaleMcpEntry(
+    tx,
+    configPath,
+    (op) =>
+      op.kind === "json-member" &&
+      op.path.length === 2 &&
+      op.path[0] === "mcp" &&
+      op.path[1] === "pacer",
+    (text) => getMember(text, ["mcp", "pacer"]) !== undefined,
   );
 }
