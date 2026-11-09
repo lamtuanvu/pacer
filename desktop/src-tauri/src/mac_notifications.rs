@@ -50,6 +50,13 @@ fn launch_id() -> &'static str {
     })
 }
 
+/// The button-id prefix that leaves the window when notification `index` is
+/// posted. The trailing dash keeps index 1 from matching index 10.
+pub fn stale_prefix(launch: &str, index: u64) -> Option<String> {
+    let stale = index.checked_sub(CATEGORY_WINDOW)?;
+    Some(format!("{}-", category_id(launch, stale)))
+}
+
 /// UNUserNotificationCenter raises an exception for an unbundled dev executable.
 fn bundled() -> bool {
     objc2_foundation::NSBundle::mainBundle()
@@ -181,8 +188,7 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
     let index = NEXT_INDEX.fetch_add(1, Ordering::Relaxed);
     let category = category_id(launch, index);
     let shell = app.state::<crate::Shell>();
-    if index >= CATEGORY_WINDOW {
-        let stale = format!("{}-", category_id(launch, index - CATEGORY_WINDOW));
+    if let Some(stale) = stale_prefix(launch, index) {
         shell
             .actions
             .lock()
@@ -293,28 +299,40 @@ fn add(request: &UNNotificationRequest) {
 fn handle_response(response: &UNNotificationResponse) {
     let Some(app) = APP_HANDLE.get() else { return };
     let action = response.actionIdentifier().to_string();
-    let route = response_route(response);
     // The default-action identifier is an extern static; reading it is unsafe.
-    let default_action = unsafe { UNNotificationDefaultActionIdentifier.to_string() };
-    if action == default_action {
-        if let Some(route) = route {
-            crate::navigate(app, &route);
-        }
-        return;
+    let default = action == unsafe { UNNotificationDefaultActionIdentifier.to_string() };
+    let mapped = (!default)
+        .then(|| {
+            let actions = app.state::<crate::Shell>();
+            let found = actions.actions.lock().unwrap().get(&action).cloned();
+            found
+        })
+        .flatten();
+    match respond(default, mapped, response_route(response)) {
+        Response::Dispatch(action) => crate::dispatch_action(app, action),
+        Response::Navigate(route) => crate::navigate(app, &route),
+        Response::Ignore => {}
     }
-    let mapped = app
-        .state::<crate::Shell>()
-        .actions
-        .lock()
-        .unwrap()
-        .get(&action)
-        .cloned();
-    if let Some(mapped) = mapped {
-        crate::dispatch_action(app, mapped);
-        return;
-    }
-    if let Some(route) = route {
-        crate::navigate(app, &route);
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Response {
+    Dispatch(serde_json::Value),
+    Navigate(String),
+    Ignore,
+}
+
+/// A click opens the route; a mapped button runs its action; a button whose
+/// mapping aged out of the window falls back to the route.
+pub fn respond(
+    default: bool,
+    mapped: Option<serde_json::Value>,
+    route: Option<String>,
+) -> Response {
+    match (default, mapped, route) {
+        (false, Some(action), _) => Response::Dispatch(action),
+        (_, _, Some(route)) => Response::Navigate(route),
+        _ => Response::Ignore,
     }
 }
 
@@ -354,6 +372,41 @@ mod tests {
             let first = newest.saturating_sub(CATEGORY_WINDOW - 1);
             assert_eq!(kept.first(), Some(&category_id("a1", first)));
         }
+    }
+
+    #[test]
+    fn stale_prefix_drops_exactly_the_mapping_leaving_the_window() {
+        assert_eq!(stale_prefix("a1", CATEGORY_WINDOW - 1), None);
+        let stale = stale_prefix("a1", CATEGORY_WINDOW + 1).unwrap();
+        assert!(action_id(&category_id("a1", 1), 0).starts_with(&stale));
+        assert!(!action_id(&category_id("a1", 10), 0).starts_with(&stale));
+        assert!(!action_id(&category_id("b2", 1), 0).starts_with(&stale));
+    }
+
+    #[test]
+    fn launch_id_is_stable_within_a_launch() {
+        assert!(!launch_id().is_empty());
+        assert_eq!(launch_id(), launch_id());
+    }
+
+    #[test]
+    fn responses_open_the_route_or_run_the_mapped_button() {
+        let retry = serde_json::json!({"op": "task.retry"});
+        let route = || Some("#/tasks/t-1".to_string());
+        assert_eq!(
+            respond(true, None, route()),
+            Response::Navigate("#/tasks/t-1".into())
+        );
+        assert_eq!(
+            respond(false, Some(retry.clone()), route()),
+            Response::Dispatch(retry)
+        );
+        // An aged-out button opens the notification's route instead.
+        assert_eq!(
+            respond(false, None, route()),
+            Response::Navigate("#/tasks/t-1".into())
+        );
+        assert_eq!(respond(false, None, None), Response::Ignore);
     }
 
     #[test]
