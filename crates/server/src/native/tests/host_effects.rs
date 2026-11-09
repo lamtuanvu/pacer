@@ -68,6 +68,35 @@ async fn host_check_routes_through_the_host_effects_bridge_when_supplied() {
     assert_eq!(error.message, "fixture probe refused");
 }
 
+#[test]
+fn host_check_clean_and_setup_stay_forwarded_until_core_has_a_bridge() {
+    // No call site keeps these three ops native: over HTTP and stdio they stay
+    // on the TypeScript path until Core has a real host effects bridge.
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        Default::default(),
+        1_700_000_000.0,
+    );
+    for op in ["host.check", "host.clean", "host.repo.setup"] {
+        assert!(
+            crate::native::host_stays_forwarded(&ctx, op, &json!({"alias": "myhost"})),
+            "{op} must stay forwarded"
+        );
+    }
+    assert!(!crate::native::host_stays_forwarded(
+        &ctx,
+        "host.list",
+        &json!({})
+    ));
+    assert!(!crate::native::host_stays_forwarded(
+        &ctx,
+        "host.get",
+        &json!({})
+    ));
+}
+
 #[tokio::test]
 async fn host_check_without_a_bridge_falls_back_to_the_stub_error() {
     let dir = tempfile::tempdir().unwrap();

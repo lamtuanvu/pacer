@@ -70,10 +70,7 @@ pub use dependency_writes::dependencies_waive_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
-#[allow(unused_imports)]
-pub(crate) use host_check_clean_setup_ops::{
-    host_stays_forwarded, needs_host_effects_bridge, uses_host_effects,
-};
+pub(crate) use host_check_clean_setup_ops::{host_stays_forwarded, needs_host_effects_bridge};
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
