@@ -2804,7 +2804,7 @@
       [
         "input",
         "human",
-        ""
+        "\u007f"
       ],
       [
         "deliver",
@@ -2814,7 +2814,7 @@
       [
         "input",
         "human",
-        ""
+        "\u007f"
       ],
       [
         "advance",
@@ -2907,7 +2907,7 @@
         "events": [
           [
             "input",
-            ""
+            "\u007f"
           ]
         ],
         "messages": []
@@ -2926,7 +2926,7 @@
         "events": [
           [
             "input",
-            ""
+            "\u007f"
           ]
         ],
         "messages": []
@@ -3120,7 +3120,7 @@
               "ok": false,
               "cause": "pending",
               "from": "app:Pacer desktop",
-              "reason": "pending input from app:Pacer desktop"
+              "reason": "unsent input in the agent from Pacer desktop"
             }
           }
         ]
