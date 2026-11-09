@@ -99,16 +99,53 @@ fn config_providers(ctx: &Ctx) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-fn added_by(accounts: &Value, provider: &str, base_url: Option<&str>) -> Value {
-    accounts
+/// The OpenCode runner using an account, as `addedBy` in detect.ts.
+fn account_runner<'a>(runners: &'a Value, account: &Value) -> Option<&'a Value> {
+    runners
+        .as_object()?
+        .values()
+        .find(|r| r["agent"] == "opencode" && r["account"] == *account)
+}
+
+/// `added` and `model` for a candidate. An account counts only while an
+/// OpenCode executor still uses it, so a left-behind account does not lock its
+/// provider out of setup; `model` drops the provider prefix.
+fn added_by(
+    accounts: &Value,
+    runners: &Value,
+    provider: &str,
+    base_url: Option<&str>,
+) -> Map<String, Value> {
+    let account = accounts
         .as_object()
         .into_iter()
         .flat_map(|all| all.values())
         .find(|a| {
-            (a["source"] == "opencode" && a["provider"] == provider)
-                || base_url.is_some_and(|url| a["connection"]["base_url"] == url)
-        })
-        .map_or(Value::Null, |a| a["name"].clone())
+            ((a["source"] == "opencode" && a["provider"] == provider)
+                || base_url.is_some_and(|url| a["connection"]["base_url"] == url))
+                && account_runner(runners, &a["name"]).is_some()
+        });
+    let mut out = Map::new();
+    let Some(account) = account else {
+        out.insert("added".into(), Value::Null);
+        return out;
+    };
+    out.insert("added".into(), account["name"].clone());
+    let model = account_runner(runners, &account["name"]).and_then(|r| r["model"].as_str());
+    let prefix = format!("{provider}/");
+    out.insert(
+        "model".into(),
+        model.map_or(Value::Null, |m| m.strip_prefix(&prefix).unwrap_or(m).into()),
+    );
+    out
+}
+
+/// A candidate object in detect.ts key order: `added`/`model` before `usage`.
+fn candidate(fields: Value, added: Map<String, Value>, usage: Value) -> Value {
+    let mut out = fields.as_object().cloned().unwrap_or_default();
+    out.extend(added);
+    out.insert("usage".into(), usage);
+    Value::Object(out)
 }
 
 /// Probe results in `LOCAL_SERVERS` order: `Ok(model count)` when listed.
@@ -146,6 +183,7 @@ pub(crate) async fn candidates(
         unavailable("executor.setup.candidates: the strategy needs the forwarded operation")
     })?;
     let accounts = &strategy["accounts"];
+    let runners = &strategy["runners"];
     let opencode = which(ctx, "opencode").is_some();
     let mut notes = Vec::new();
     if !opencode {
@@ -174,7 +212,12 @@ pub(crate) async fn candidates(
             if !seen.insert(id.clone()) {
                 continue;
             }
-            candidates.push(json!({"group":"signed_in","provider":id,"name":name,"added":added_by(accounts, &id, None),"usage":classify(&id, &models(&catalog, &id))}));
+            let added = added_by(accounts, runners, &id, None);
+            candidates.push(candidate(
+                json!({"group":"signed_in","provider":id,"name":name}),
+                added,
+                classify(&id, &models(&catalog, &id)),
+            ));
         }
     }
     let mut failures: Vec<String> = Vec::new();
@@ -192,7 +235,8 @@ pub(crate) async fn candidates(
     );
     for ((provider, name, url), probe) in LOCAL_SERVERS.iter().zip(&probes) {
         if let Ok(Some(count)) = probe {
-            candidates.push(json!({"group":"local","provider":provider,"name":name,"base_url":url,"models":count,"added":added_by(accounts, provider, Some(url)),"usage":{"usage":"unmetered","known":true}}));
+            let added = added_by(accounts, runners, provider, Some(url));
+            candidates.push(candidate(json!({"group":"local","provider":provider,"name":name,"base_url":url,"models":count}), added, json!({"usage":"unmetered","known":true})));
         }
     }
     if opencode {
@@ -202,8 +246,32 @@ pub(crate) async fn candidates(
             if seen.contains(id) || id == "ollama" || id == "lmstudio" || models.is_empty() {
                 continue;
             }
-            candidates.push(json!({"group":"catalog","provider":id,"name":p["name"],"added":added_by(accounts, id, None),"usage":classify(id, &models)}));
+            let added = added_by(accounts, runners, id, None);
+            candidates.push(candidate(
+                json!({"group":"catalog","provider":id,"name":p["name"]}),
+                added,
+                classify(id, &models),
+            ));
         }
     }
     Ok(json!({"candidates":candidates,"opencode":opencode,"catalog":"fresh","notes":notes}))
+}
+
+#[cfg(test)]
+mod added_tests {
+    use super::*;
+
+    #[test]
+    fn an_account_counts_as_added_only_while_an_opencode_runner_uses_it() {
+        let accounts =
+            json!({"go": {"name": "go", "source": "opencode", "provider": "opencode-go"}});
+        let orphan = added_by(&accounts, &json!({}), "opencode-go", None);
+        assert_eq!(Value::Object(orphan), json!({"added": null}));
+        let runners = json!({"opencode#go": {"agent": "opencode", "account": "go", "model": "opencode-go/kimi-k3"}});
+        let live = added_by(&accounts, &runners, "opencode-go", None);
+        assert_eq!(
+            Value::Object(live),
+            json!({"added": "go", "model": "kimi-k3"})
+        );
+    }
 }
