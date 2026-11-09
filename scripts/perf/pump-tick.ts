@@ -28,6 +28,7 @@ const time = async (label: string, f: () => unknown) => {
 };
 
 try {
+  if (!Number.isInteger(settled) || settled < 1) throw new Error(`settled task count must be a positive integer, got ${process.argv[2]}`);
   buildSyntheticHome({ pacerHome, home, repos: [join(root, "repos", "alpha"), join(root, "repos", "beta")], settled, unsettled: 10, runDirs: "last", logBytes: 1024 * 1024 });
   await pumpOnce(ctx(), defaultPumpDeps); // first-open import and cold caches
   for (let i = 0; i < ROUNDS; i++) {
@@ -40,8 +41,11 @@ try {
     ].join(", ")}`);
     await Bun.sleep(1100);
   }
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
 } finally {
   rmSync(root, { recursive: true, force: true });
   // The notifier plugin host stays alive after a pump tick and would keep this process open.
-  process.exit(0);
+  process.exit(process.exitCode ?? 0);
 }
