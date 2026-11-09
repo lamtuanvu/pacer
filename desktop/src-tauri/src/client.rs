@@ -1000,7 +1000,12 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     {
         return Err("starting".into());
     }
-    let registration = session.op("client.register", &serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":true,"capture":true})).await?;
+    let registration = session
+        .op(
+            "client.register",
+            &registration_params(crate::approvals::notifications_presentable()),
+        )
+        .await?;
     let client_id = registration["client_id"]
         .as_str()
         .ok_or("Missing client id")?
@@ -1115,6 +1120,13 @@ async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> 
 /// seconds under load (background timers), and a heartbeat should outlast that before it even
 /// counts as a miss, independent of the retry tolerance below.
 const HEARTBEAT_OP_TIMEOUT: Duration = Duration::from_secs(20);
+fn registration_params(notifier: bool) -> Value {
+    serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":notifier,"capture":true})
+}
+/// Services before the heartbeat `notifier` flag ignore it, keeping the registered value.
+fn heartbeat_params(client_id: &str, notifier: bool) -> Value {
+    serde_json::json!({"client_id":client_id,"notifier":notifier})
+}
 async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Result<(), String> {
     let mut missing_reported = false;
     let mut interval = tokio::time::interval(Duration::from_secs(30));
@@ -1124,7 +1136,11 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
     // still ends it immediately.
     let mut strikes = logic::SessionOpStrikes::default();
     loop {
-        interval.tick().await;
+        // A permission change beats at once so notifications do not wait out the interval.
+        tokio::select! {
+            _ = interval.tick() => {}
+            _ = crate::approvals::notifications_changed() => {}
+        }
         if !missing_reported {
             if let (Ok(home), Ok(config)) = (
                 required_home(std::env::var_os("HOME").as_deref()),
@@ -1137,10 +1153,12 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
             }
         }
 
+        // A changed answer arrives asynchronously and wakes the loop for another beat.
+        crate::approvals::refresh_notifications();
         let result = session
             .op_timeout(
                 "client.heartbeat",
-                &serde_json::json!({"client_id":client_id}),
+                &heartbeat_params(client_id, crate::approvals::notifications_presentable()),
                 HEARTBEAT_OP_TIMEOUT,
             )
             .await;
@@ -2999,6 +3017,24 @@ mod native_identity_tests {
         assert_eq!(forwarded.headers()["x-pacer-client-instance"],"page-id");
         let notification=client.post("http://127.0.0.1:4317/v3/ops/task.answer").header("x-pacer-client","app").build().unwrap();
         assert!(!notification.headers().contains_key("x-pacer-client-instance"));
+    }
+}
+
+#[cfg(test)]
+mod notifier_params_tests {
+    use super::*;
+    #[test]
+    fn registration_and_heartbeat_carry_the_notifier_flag() {
+        for notifier in [true, false] {
+            let registration = registration_params(notifier);
+            assert_eq!(registration["kind"], "desktop");
+            assert_eq!(registration["notifier"], notifier);
+            assert_eq!(registration["capture"], true);
+            assert_eq!(
+                heartbeat_params("client", notifier),
+                serde_json::json!({"client_id":"client","notifier":notifier})
+            );
+        }
     }
 }
 
