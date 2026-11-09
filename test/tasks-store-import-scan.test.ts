@@ -8,7 +8,7 @@ import { fakeCtx } from "./helpers";
 const brief = { goal: "Fix the bug", repo: "/tmp/repo", acceptance: "bun test" };
 
 function lookups(query: ReturnType<typeof spyOn>): number {
-  return query.mock.calls.filter(([sql]) => /json_mtime FROM tasks WHERE id = \?/.test(String(sql))).length;
+  return query.mock.calls.filter(([sql]: unknown[]) => /json_mtime FROM tasks WHERE id = \?/.test(String(sql))).length;
 }
 
 test("a task directory change looks up only the JSON files that changed since the last scan", () => {
