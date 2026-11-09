@@ -71,7 +71,8 @@ beforeAll(async()=>{
    if(mode==='hold')await pending;
    if(mode==='connect-error')return Response.json({code:'conflict',message:'The integration target changed after preview',hint:'Review a fresh repair preview before applying changes.'},{status:409});
    fixed.add(params.agent==='cursor'?'Integration freshness cursor':'Install codex#work');
-   return Response.json({installed:[]});
+   if(mode==='undo-unavailable')return Response.json({installed:[],undo:{available:false,reason:'too large to keep a copy'}});
+   return Response.json({installed:[],undo:{available:true,revision:`rev-${params.agent}`}});
   }
   if(op==='agent.undo'){fixed.delete(params.agent==='cursor'?'Integration freshness cursor':'Install codex#work');return Response.json({restored:[],removed:[],reverted:[],kept:[]});}
   if(op==='routing.route')return Response.json({kind:'debug',ranked:[{id:'codex#team',reason:'22% of its budget used, with room this week'}]});
@@ -162,6 +163,43 @@ browserTest('the review sheet shows per-file change pills, the 7-day note and un
   expect(opCalls('agent.undo')).toEqual([{op:'agent.undo',params:{agent:'codex',consent:true,preview_revision:'rev-codex'}}]);
   expect(reads).toBe(3);
   await page.getByRole('button',{name:/^Review and fix/}).waitFor();
+ }finally{await page.close();}
+},15000);
+
+browserTest('the done sheet shows a reason and no Undo when the connect left nothing undoable (UI-13)',async()=>{
+ reset('undo-unavailable');
+ const page=await open();
+ try{
+  await page.getByRole('button',{name:/^Review and fix/}).click();
+  const sheet=page.getByRole('dialog',{name:'Reconnect Codex'});
+  await sheet.waitFor();
+  await sheet.getByRole('button',{name:'Apply and recheck',exact:true}).click();
+  const done=page.getByRole('dialog',{name:'Codex reconnected'});
+  await done.waitFor();
+  await done.getByText(/Undo isn't available for this fix: too large to keep a copy/).waitFor();
+  expect(await done.getByRole('button',{name:'Undo',exact:true}).count()).toBe(0);
+  expect(opCalls('agent.undo')).toEqual([]);
+ }finally{await page.close();}
+},15000);
+
+browserTest('Escape while the undo confirmation is open cancels it and clears the pending consent',async()=>{
+ reset();
+ const page=await open();
+ try{
+  await page.getByRole('button',{name:/^Review and fix/}).click();
+  const sheet=page.getByRole('dialog',{name:'Reconnect Codex'});
+  await sheet.waitFor();
+  await sheet.getByRole('button',{name:'Apply and recheck',exact:true}).click();
+  const done=page.getByRole('dialog',{name:'Codex reconnected'});
+  await done.waitFor();
+  await done.getByRole('button',{name:'Undo',exact:true}).click();
+  const confirm=page.getByRole('group',{name:'Undo the Integration · Codex (work) repair'});
+  await confirm.waitFor();
+  await page.keyboard.press('Escape');
+  // The pending confirmation resolves as cancelled, the sheet closes and no undo runs.
+  await page.getByText('No changes were made.',{exact:true}).waitFor();
+  expect(await page.getByRole('dialog',{name:'Codex reconnected'}).count()).toBe(0);
+  expect(opCalls('agent.undo')).toEqual([]);
  }finally{await page.close();}
 },15000);
 

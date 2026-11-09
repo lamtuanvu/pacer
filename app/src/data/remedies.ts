@@ -4,6 +4,8 @@ import type { Platform } from "../platform/types";
 export interface PreviewFile { path: string; change: "create" | "update" | "restore" | "unchanged" | "kept"; note: string }
 export interface UndoSnapshot { revision: string; at: number; files: { path: string; change: "restore" | "remove" }[] }
 export interface RepairPreview { revision: string; agent: string; files: string[]; changes?: PreviewFile[]; undo?: string; detail?: string; undoSnapshot?: UndoSnapshot }
+/** agent.connect's additive undo report: what a just-applied connect left undoable, or why not. */
+export interface AgentConnectUndo { available: boolean; revision?: string; reason?: string }
 export interface ConsentRequest extends RemedyConsent { files: string[] }
 type RunPlan = Extract<RemedyPlan, { kind: "run" }>;
 /** An operation ready to call, with the confirmation it needs first. */
@@ -19,6 +21,8 @@ export interface RemedyHost {
   review: (preview: RepairPreview) => Promise<boolean>;
   delegate: (check: string) => Promise<boolean>;
   open: (url: string) => void;
+  /** Called with agent.connect's undo report after a reviewed repair is applied, so the done sheet can offer Undo only when it works. */
+  reportUndo: (undo: AgentConnectUndo) => void;
 }
 
 /** File updates name the files from a fresh preview, and apply only that preview's revision. */
@@ -49,7 +53,8 @@ export async function dispatchRemedy(plan: RemedyPlan, host: RemedyHost): Promis
     case "review": {
       const preview = await host.call<RepairPreview>("agent.preview", { agent: plan.agent });
       if (!await host.review(preview)) return "cancelled";
-      await host.call("agent.connect", { agent: preview.agent, consent: true, preview_revision: preview.revision });
+      const result = await host.call("agent.connect", { agent: preview.agent, consent: true, preview_revision: preview.revision }) as { undo?: AgentConnectUndo };
+      host.reportUndo(result.undo ?? { available: false, reason: "no pacer file changes to undo" });
       return "recheck";
     }
     case "signin":
