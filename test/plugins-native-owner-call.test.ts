@@ -405,7 +405,7 @@ test("flag-on planner.install runs over the bridge as a Core transaction with pi
   expect(request.params.method).toBe("planner.install");
   expect(request.params.requireFeatures).toEqual(["plannerInstallTransactions"]);
   expect(request.params.coreMethods).toEqual(["capability.fs.read", "capability.fs.list", "capability.fs.stat", "capability.fs.readRange",
-    "capability.planner.run", "capability.process.outputChunk", "capability.planner.readPriorRange"]);
+    "capability.planner.run", "capability.process.outputChunk", "$/resultChunk", "capability.planner.readPriorRange"]);
   // Core seals no commands to the owner: it pins and runs them itself so it keeps the undo work.
   expect(request.params.authority.resources.commands).toEqual([]);
   expect(owner.forwarded.map(entry => entry.method)).toEqual(["capability.planner.run", "capability.fs.read", "capability.fs.read"]);
@@ -422,7 +422,7 @@ test("flag-on planner.install runs over the bridge as a Core transaction with pi
 });
 
 test("flag-on planner.uninstall over the bridge restores the backup and drops the record", async () => {
-  const { ctx, folder, path, spawned, options } = plannerSetup();
+  const { ctx, folder, path, spawned, options, log } = plannerSetup();
   const owner = await plannerOwner(path, { "planner.install": installHandler(), "planner.uninstall": uninstallHandler });
   await withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options);
   await withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", { ...options, operation: "uninstall" });
@@ -451,8 +451,8 @@ test("flag-on failed planner.install compensates its admitted commands and leave
   expect(spawned).toEqual([]);
 });
 
-test("flag-on planner commands outside the transaction are refused and a consent-less connect never dials", async () => {
-  const { ctx, folder, path, spawned, options } = plannerSetup();
+test("flag-on refuses an out-of-selection planner command inside the transaction, and a consent-less connect never dials", async () => {
+  const { ctx, folder, path, spawned, options, log } = plannerSetup();
   const owner = await plannerOwner(path, {
     "planner.install": async (params, host) => {
       await host.call("capability.planner.run", { argv: ["/bin/sh", "-c", "true"], timeoutMs: 1000 }).catch(() => undefined);
@@ -469,18 +469,23 @@ test("flag-on planner commands outside the transaction are refused and a consent
 });
 
 test("flag-on install over the bridge is cancelled and compensates when the plugin's grant is revoked mid-call", async () => {
-  const { ctx, folder, path, spawned, options } = plannerSetup();
+  const { ctx, folder, path, spawned, options, log } = plannerSetup();
   // `disable` needs an existing strategy file to edit (plannerSetup does not write one).
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n", { mode: 0o600 });
-  // A slow pinned command widens the window between the admitted command and the final reply.
-  writeFileSync(join(ctx.home, "bin", "fx-planner"), "#!/bin/sh\nsleep 0.3\nprintf '%s\\n' \"$2\" >> \"$1.log\"\n", { mode: 0o755 });
+  // A slow pinned command writes its direction immediately then sleeps, so the forward
+  // marker lands before the mid-call revoke and the call is still in flight when it is
+  // disabled; the undo must run after the revoke, with the same ordering as a bridge failure.
+  writeFileSync(join(ctx.home, "bin", "fx-planner"), "#!/bin/sh\nprintf '%s\\n' \"$2\" >> \"$1.log\"\nsleep 0.3\n", { mode: 0o755 });
   await plannerOwner(path, { "planner.install": installHandler() });
   const promise = withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options);
   await new Promise(done => setTimeout(done, 100));
   // Disabling the plugin revokes its authorities, same as flag-off; the registered
   // native-owner authority must be among them so the in-flight call is cancelled too.
   await options.registry.disable(ctx, "fx-planner");
-  await expect(promise).rejects.toMatchObject({ code: expect.any(String) });
+  await expect(promise).rejects.toMatchObject({ code: "plugin_refused", message: "grant revoked" });
+  // The pinned undo ran in reverse of the forward (the forward is killed mid-flight,
+  // so only the undo's marker is present; the point is that rollback executed it).
+  expect(readFileSync(log, "utf8")).toContain("undo");
   expect(readFileSync(join(folder, "settings.json"), "utf8")).toBe("before");
   expect(existsSync(join(ctx.pacerHome, "install-manifest.json"))).toBe(false);
   expect(existsSync(join(ctx.pacerHome, "install-transaction.json"))).toBe(false);
@@ -488,8 +493,8 @@ test("flag-on install over the bridge is cancelled and compensates when the plug
 });
 
 test("flag-on install over the bridge is cancelled when the planner configuration generation changes mid-call", async () => {
-  const { ctx, folder, path, spawned, options } = plannerSetup();
-  writeFileSync(join(ctx.home, "bin", "fx-planner"), "#!/bin/sh\nsleep 0.3\nprintf '%s\\n' \"$2\" >> \"$1.log\"\n", { mode: 0o755 });
+  const { ctx, folder, path, spawned, options, log } = plannerSetup();
+  writeFileSync(join(ctx.home, "bin", "fx-planner"), "#!/bin/sh\nprintf '%s\\n' \"$2\" >> \"$1.log\"\nsleep 0.3\n", { mode: 0o755 });
   await plannerOwner(path, { "planner.install": installHandler() });
   const promise = withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options);
   await new Promise(done => setTimeout(done, 100));
@@ -499,7 +504,10 @@ test("flag-on install over the bridge is cancelled when the planner configuratio
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
     "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  config:\n    fx-planner:\n      note: changed\n");
   options.registry.refresh(ctx);
-  await expect(promise).rejects.toMatchObject({ code: expect.any(String) });
+  await expect(promise).rejects.toMatchObject({ code: "plugin_refused", message: "grant revoked" });
+  // The pinned undo ran in reverse of the forward (the forward is killed mid-flight,
+  // so only the undo's marker is present; the point is that rollback executed it).
+  expect(readFileSync(log, "utf8")).toContain("undo");
   expect(readFileSync(join(folder, "settings.json"), "utf8")).toBe("before");
   expect(existsSync(join(ctx.pacerHome, "install-manifest.json"))).toBe(false);
   expect(existsSync(join(ctx.pacerHome, "install-transaction.json"))).toBe(false);
@@ -626,4 +634,40 @@ test("flag-off keeps the local child and never dials the bridge", async () => {
   expect(spawned).toEqual([argv]);
   expect(owner.requests).toEqual([]);
   expect(registry.peek("fx-native")).toBe("ready");
+});
+
+test("flag-on stages a planner result above the 768 KiB limit from $/resultChunk pieces, and keeps smaller results on one frame", async () => {
+  // Runs one install per size: below the serialized 768 KiB boundary the owner returns
+  // the result on a single frame (nothing forwarded to Core); at and above it the child
+  // sends $/resultChunk pieces that Core stages with the flag-off bounds and ordering,
+  // then a `_chunkedResult` completion, so the assembled value is returned intact.
+  const runCase = async (pad: number) => {
+    const { ctx, folder, path, spawned, options } = plannerSetup();
+    const payload = { schema: 1, pad: "x".repeat(pad) };
+    const encoded = Buffer.from(JSON.stringify(payload), "utf8");
+    const chunk = 196608;
+    const pieces = encoded.length > 768 * 1024 ? Math.ceil(encoded.length / chunk) : 0;
+    const lease = new PlannerResources(ctx, { purpose: "install", cwd: ctx.home, binaries: ["fx-planner"], roots: [folder] });
+    const owner = await forwardingOwner(path, answers => {
+      const i = answers.length;
+      if (i < pieces) return { method: "$/resultChunk", params: { request: 1, offset: i * chunk, base64: encoded.subarray(i * chunk, (i + 1) * chunk).toString("base64") } };
+      return undefined;
+    }, pieces ? { _chunkedResult: { bytes: encoded.length } } : payload);
+    const value = await options.registry.call(ctx, "fx-planner", "planner.install", {}, { plannerResources: lease, accountHome: folder });
+    await lease.dispose();
+    return { value, chunkFrames: owner.answers.length, spawned };
+  };
+  // Below the limit: one complete frame, nothing chunked.
+  const below = await runCase(600 * 1024);
+  expect(below.value).toEqual({ schema: 1, pad: "x".repeat(600 * 1024) });
+  expect(below.chunkFrames).toBe(0);
+  expect(below.spawned).toEqual([]);
+  // At the limit: the serialized result edges just over 768 KiB, so it is chunked and assembled.
+  const at = await runCase(768 * 1024);
+  expect(at.chunkFrames).toBeGreaterThan(0);
+  expect(at.value).toEqual({ schema: 1, pad: "x".repeat(768 * 1024) });
+  // Above the limit: several pieces, all staged, assembled end to end.
+  const above = await runCase(1300 * 1024);
+  expect(above.chunkFrames).toBeGreaterThan(1);
+  expect(above.value).toEqual({ schema: 1, pad: "x".repeat(1300 * 1024) });
 });
