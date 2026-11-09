@@ -271,12 +271,12 @@ test("direct input refusals are distinct: pending input names the client, a 1.1 
     await ask(ctx, id, "Proceed?");
     const pending = await answer(ctx, id, "yes").then(() => null, (e: CoreError) => e);
     expect(pending?.code).toBe("conflict");
-    expect(pending?.message).toBe("Not delivered: pending input from cli:iTerm.app. Nothing was typed; try again");
+    expect(pending?.message).toBe("Not delivered: unsent input in the agent from iTerm.app. Nothing was typed; try again");
     expect(readTask(ctx, id)!.question!.answer).toBeUndefined();
     expect(modern.input).toEqual(["half a line"]);
 
     const changed = await sendDirectInput(ctx, readTask(ctx, id)!, "x", () => false);
-    expect(changed).toEqual({ ok: false, code: "conflict", definite: true, message: "Not delivered: pending input from cli:iTerm.app. Nothing was typed; try again" });
+    expect(changed).toEqual({ ok: false, code: "conflict", definite: true, message: "Not delivered: unsent input in the agent from iTerm.app. Nothing was typed; try again" });
     await human.write(wire(FrameType.input, Buffer.from("\r")));
     await Bun.sleep(60);
     expect(await sendDirectInput(ctx, readTask(ctx, id)!, "x", () => false)).toEqual({ ok: false, code: "conflict", definite: true, message: "The task's run or question changed before delivery; nothing was typed" });
@@ -288,7 +288,7 @@ test("direct input refusals are distinct: pending input names the client, a 1.1 
     await Bun.sleep(30);
     const refused = await answer(ctx, id, "yes").then(() => null, (e: CoreError) => e);
     expect(refused?.code).toBe("conflict");
-    expect(refused?.message).toBe("The terminal is controlled from app:Pacer desktop; nothing was typed");
+    expect(refused?.message).toBe("The terminal is controlled from Pacer desktop; nothing was typed");
     expect(old.input).toEqual([]);
   } finally {
     for (const v of viewers) v.socket.destroy();

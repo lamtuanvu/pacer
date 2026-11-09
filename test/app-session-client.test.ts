@@ -1,5 +1,9 @@
 import { expect, test } from 'bun:test';
+import { EventEmitter } from 'node:events';
 import { SessionClient, type SessionSocket } from '../app/src/term/client';
+import { SessionRuntimeRegistry } from '../app/src/term/runtime';
+import { ViewerHub } from '../src/session/viewers';
+import { FrameType, WireDecoder, wire } from '../src/session/framing';
 class FakeSocket implements SessionSocket {
  readyState=1; binaryType='arraybuffer'; sent:(string|Uint8Array)[]=[];
  onopen:(()=>void)|null=null; onmessage:((e:{data:unknown})=>void)|null=null; onclose:(()=>void)|null=null; onerror:(()=>void)|null=null;
@@ -134,4 +138,106 @@ test('a 1.2 host names pacer deliveries until this pane types, and a 1.1 host ne
  o.frame(live);o.frame({type:'control',controller:null,you:false,versions:[1,1]});
  o.frame({type:'delivered',ok:true,label:'pacer answer'});expect(old.client.state.delivered).toBeUndefined();
  old.client.dispose();
+});
+test('an app window gets a distinguishable viewer label only among windows of the same kind', async () => {
+ const { announceViewerWindow, viewerPlatformName, viewerWindowLabel } = await import('../app/src/term/runtime');
+ const map = new Map<string, string>();
+ const storage = { getItem: (key: string) => map.get(key) ?? null, setItem: (key: string, value: string) => { map.set(key, value); } };
+ expect(viewerPlatformName(true)).toBe('Pacer desktop');
+ expect(viewerPlatformName(false)).toBe('Browser');
+ // The first window of a kind keeps the plain platform name; a second gets a short ordinal.
+ const first = announceViewerWindow(false, storage);
+ const second = announceViewerWindow(false, storage);
+ expect(first.label).toBe('Browser');
+ expect(second.label).toBe('Browser · 2');
+ // A desktop window shares no counter with browser windows, and a lone one needs no suffix.
+ expect(announceViewerWindow(true, storage).label).toBe('Pacer desktop');
+ // Releasing the second window frees its ordinal; the next window reuses it and stays distinct.
+ second.release();
+ expect(announceViewerWindow(false, storage).label).toBe('Browser · 2');
+ // In a bare test context (no desktop host, no storage) the window labels itself as a browser.
+ expect(viewerWindowLabel()).toBe('Browser');
+});
+test('two windows opened in the same instant that land on the same ordinal still get distinct labels', async () => {
+ // A storage whose reads lag behind writes models two tabs racing: both windows read the store as
+ // holding only window 1 (so both pick ordinal 2), and each then sees the other's same-ordinal
+ // lease at its post-write recheck, so both append a unique tiebreak and never collide.
+ const seed = JSON.stringify([{ n: 1, id: 'window-one' }]);
+ const bothWrote = JSON.stringify([{ n: 1, id: 'window-one' }, { n: 2, id: 'window-A' }, { n: 2, id: 'window-B' }]);
+ let reads = 0;
+ const storage = {
+  getItem: () => { reads++; return reads === 1 || reads === 3 ? seed : bothWrote; },
+  setItem: () => {},
+ };
+ const runtime = await import('../app/src/term/runtime');
+ const a = runtime.announceViewerWindow(false, storage);
+ const b = runtime.announceViewerWindow(false, storage);
+ expect(a.label).toMatch(/^Browser · 2·/);
+ expect(b.label).toMatch(/^Browser · 2·/);
+ expect(a.label).not.toBe(b.label);
+});
+test('a later update without a label never overwrites the window\'s viewer label', () => {
+ const sockets: RuntimeSocket[] = [], urls: string[] = [], timers: (() => void)[] = [];
+ const registry = new SessionRuntimeRegistry({
+  maxRuntimes: 8, maxBytes: 1024 * 1024,
+  socket: (url) => { urls.push(url); const s = new RuntimeSocket(); sockets.push(s); return s; },
+  schedule: (fn) => { timers.push(fn); return () => {}; },
+ });
+ const r = registry.get('service', 'task:one', { url: 'ws://localhost/v3/tasks/one/session', cols: 80, rows: 24, label: 'Browser', control: true, autoControl: false });
+ r.attach({ reset: () => {}, write: () => {} });
+ sockets[0]!.onopen?.();
+ expect(JSON.parse(sockets[0]!.sent[0]!).label).toBe('Browser');
+ // A later update that omits a label must keep the window's viewer label across the reconnect.
+ r.update({ attempt: 1 });
+ sockets.at(-1)!.onopen?.();
+ expect(JSON.parse(sockets.at(-1)!.sent[0]!).label).toBe('Browser');
+ // An explicit caller label still wins over the window label.
+ r.update({ attempt: 2, label: 'override' });
+ sockets.at(-1)!.onopen?.();
+ expect(JSON.parse(sockets.at(-1)!.sent[0]!).label).toBe('override');
+ registry.dispose();
+});
+class RuntimeSocket implements SessionSocket {
+ readyState = 1; binaryType = 'arraybuffer'; sent: string[] = [];
+ onopen: (() => void) | null = null; onclose: (() => void) | null = null; onerror: (() => void) | null = null;
+ onmessage: ((e: { data: unknown }) => void) | null = null;
+ send(data: string | Uint8Array) { if (typeof data === 'string') this.sent.push(data); }
+ close() { this.readyState = 3; }
+}
+test('with two app windows on one session, typing in window 2 tells window 1 who typed last', async () => {
+ class Peer extends EventEmitter {
+  destroyed = false; writableLength = 0; frames: Buffer[] = []; blocked = false;
+  write(b: Buffer) { this.frames.push(b); return !this.blocked; }
+  end(b: Buffer, cb?: () => void) { this.write(b); this.destroyed = true; cb?.(); }
+  destroy() { this.destroyed = true; this.emit('close'); }
+ }
+ const modern = [1, 2] as [number, number];
+ const inputs: string[] = [];
+ const hub = new ViewerHub(() => wire(FrameType.snapshot, { controller: null, active: hub.active }), () => null, (fn) => fn(), () => {}, () => {},
+  { input: (b) => { inputs.push(b.toString()); }, resize: () => {} }, { pacer: '0.14.0', versions: modern });
+ const attach = (label: string) => { const p = new Peer(); hub.add(p as never); p.emit('data', wire(FrameType.hello, { v: 1, client: 'app', label, versions: modern })); return p; };
+ const window1 = attach('Browser'); const window2 = attach('Browser · 2');
+ window2.emit('data', wire(FrameType.input, Buffer.from('ls\r')));
+ expect(hub.active).toBe('app:Browser · 2');
+ expect(inputs).toEqual(['ls\r']);
+ // The host broadcasts the new active to every 1.2 viewer, so window 1 learns window 2's label.
+ const sent = window1.frames.flatMap((b) => new WireDecoder().push(b));
+ const control = sent.filter((f) => f.type === FrameType.control).map((f) => JSON.parse(f.data.toString()));
+ expect(control.at(-1)).toMatchObject({ controller: null, active: 'app:Browser · 2', you: true });
+ // window 1 then renders the other window's label in its status line.
+ const { lastInputWords } = await import('../app/src/term/activity');
+ expect(lastInputWords(control.at(-1)!.active)).toBe('Interactive · last input from Browser · 2');
+ hub.destroy();
+});
+test('a 1.2 host active broadcast lets a client see who typed last in another window', async () => {
+ const f = fixture(), s = f.sockets[0]!;
+ s.frame({ type: 'snapshot', outputOffset: 0, cols: 120, rows: 40, scrollbackAnsi: '', screenAnsi: '', controller: null, viewers: 2, active: null });
+ s.frame({ type: 'control', controller: null, you: true, versions: [1, 2], pacer: '0.14.0', active: null });
+ expect(f.client.state.active).toBeNull();
+ // Window 2 just typed; the host broadcasts it to every viewer including this one.
+ s.frame({ type: 'control', controller: null, you: true, active: 'app:Browser · 2' });
+ expect(f.client.state.active).toBe('app:Browser · 2');
+ const { lastInputWords } = await import('../app/src/term/activity');
+ expect(lastInputWords(f.client.state.active)).toBe('Interactive · last input from Browser · 2');
+ f.client.dispose();
 });

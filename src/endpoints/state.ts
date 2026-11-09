@@ -46,7 +46,9 @@ function redactSecrets(text: string, secrets: string[]): string {
  * cannot leak fragments.
  */
 export function redactEndpointError(text: string, secrets: string[] = []): string {
-  return sliceText(redactSecrets(text, secrets).split(/\r?\n/)[0], 500);
+  // Agents colour their output: a leading bare reset code must not hide the first real line.
+  const lines = redactSecrets(text, secrets).replace(/\u001b\[[0-9;?]*[ -\/]*[@-~]/g, "").split(/\r?\n/);
+  return sliceText(lines.find(line => line.trim()) ?? "", 500);
 }
 
 /**

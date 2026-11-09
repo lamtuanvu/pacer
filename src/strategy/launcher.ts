@@ -16,6 +16,13 @@ function writeAtomic(path:string,contents:string) {
     renameSync(temporary,path);
   } finally { rmSync(temporary,{force:true}); }
 }
+/** The planner CLI argv that starts a strategy session with this prompt. */
+export function strategyArgv(agent:string,prompt:string):string[] {
+  return agent==='opencode'?['opencode','run','--standalone','--auto',prompt]
+    : agent==='claude-code'?['claude','--dangerously-skip-permissions','--',prompt]
+    : agent==='cursor'?['cursor-agent','--force','--trust','--sandbox','disabled','--',prompt]
+    : ['codex','--no-daemon','--dangerously-bypass-approvals-and-sandbox','--',prompt];
+}
 export async function build(ctx:Ctx,opts:{agent?:string;from?:string;brief?:string;worktree?:string;request_id?:string}={}, deps:{open?:typeof openInTerminal}={}) {
   if(opts.request_id&&!/^[A-Za-z0-9_-]{1,128}$/.test(opts.request_id)) throw new Error("invalid strategy request ID");
   return withWork(ctx, {kind:"operation", id:"strategy-build", label:"Opening strategy planning session"}, () => opts.request_id
@@ -51,10 +58,6 @@ async function buildAdmitted(ctx:Ctx,opts:{agent?:string;from?:string;brief?:str
     if(opts.request_id) writeAtomic(intentPath,JSON.stringify({request,prompt}));
     writeAtomic(path,prompt);
   }
-  const argv=agent==='opencode'?['opencode','run','--standalone','--auto',prompt]
-    : agent==='claude-code'?['claude','--dangerously-skip-permissions','--',prompt]
-    : agent==='cursor'?['cursor-agent','--force','--trust','--sandbox','disabled','--',prompt]
-    : ['codex','--no-daemon','--dangerously-bypass-approvals-and-sandbox','--',prompt];
-  const result=await (deps.open ?? openInTerminal)(ctx,{argv,title:'pacer strategy',worktree:opts.worktree,requestId:opts.request_id});
+  const result=await (deps.open ?? openInTerminal)(ctx,{argv:strategyArgv(agent,prompt),title:'pacer strategy',worktree:opts.worktree,requestId:opts.request_id});
   return {...result,path,message:result.opened?'Session opened in a new terminal':`Run: ${result.command}`};
 }

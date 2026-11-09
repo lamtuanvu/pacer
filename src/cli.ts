@@ -26,6 +26,7 @@ import { openSession, sessionInfo } from "./session/service";
 import { handBackTask, takeoverTask } from "./session/takeover";
 import { sessionHost } from "./session/host";
 import { attachDirectory, attachSession } from "./session/attach";
+import { viewerName } from "./session/viewers";
 import { createInterface } from "node:readline/promises";
 import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
@@ -39,7 +40,7 @@ import { localHuman } from "./messaging/participants";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
 import { readFileSync, realpathSync } from "node:fs";
-import { assertCallerCanInvoke } from "./api/caller-policy";
+import { assertCallerCanInvoke, executorMayReview, TASK_REVIEW_REFUSAL } from "./api/caller-policy";
 import type { RouteExplanation } from "./core/dispatch-explain";
 import { isExecutorSession } from "./install/role";
 import { executorCommand } from "./executors/command";
@@ -343,7 +344,7 @@ async function controlProgress(ctx:Ctx,t:TaskRecord):Promise<string> {
   if(t.state!=="running")return "";
   try {
     const info=await sessionInfo(ctx,t.id,false,false),clean=(label:string)=>label.replace(/[\x00-\x1f\x7f]/g,"");
-    return info.active?`last input from ${clean(info.active)}`:info.controller?`controlled from ${clean(info.controller)}`:"";
+    return info.active?`last input from ${clean(viewerName(info.active))}`:info.controller?`controlled from ${clean(viewerName(info.controller))}`:"";
   }catch{return "";}
 }
 
@@ -396,7 +397,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     }
   } catch (error) { return {code:2,out:"",err:explain(error)}; }
   const [cmd = "status", ...rest] = argv;
-  if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api"].includes(cmd)
+  if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api", "review"].includes(cmd)
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN))
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
   if (cmd === "--pacer-fixture-startup-cleanup" && compiledNativeFixture()) {
@@ -503,6 +504,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           if([opts.accept,opts.reject,opts["send-back"],opts["retry-on"]].filter(Boolean).length!==1)throw new Error("give exactly one of --accept, --reject, --send-back or --retry-on <executor>");
           if(opts["retry-on"]===true)throw new Error("--retry-on requires an executor");
           if((opts["send-back"]||opts["retry-on"])&&isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
+          if(isExecutorSession(ctx)&&!executorMayReview(ctx,{id:pos[0]}))throw new DelegateError(TASK_REVIEW_REFUSAL);
           const verdict=opts.accept?"accept":opts.reject?"reject":opts["send-back"]?"send_back":"retry";
           const result=await core.tasks.review(ctx,pos[0],{verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note)}, {delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner),spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
           const recheck=verdict==="accept"?await recheckDiagnostic(ctx,pos[0],setupDoctor).then(()=>"",e=>`pacer: diagnostics recheck failed: ${e instanceof Error?e.message:String(e)}`):"";

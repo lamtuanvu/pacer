@@ -15,6 +15,8 @@ const CANCELLED:DeliveryFailure={ok:false,cause:'cancelled',reason:'the delivery
 const EXPIRED_UNUSED:DeliveryFailure={ok:false,cause:'expired-unused',reason:'the delivery window expired before any input was typed'};
 /** The controller label a viewer's hello is recorded under, in control frames and `session.state`. */
 export const viewerLabel=(h:{client?:unknown;label?:unknown})=>`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').replace(/[\x00-\x1f\x7f]/g,'').slice(0,64)}`;
+/** A viewer's display name for user-facing delivery reasons: its label without the raw kind prefix (`app:`, `cli:`). */
+export const viewerName=(label:string)=>label.replace(/^(?:app|cli):/,'')||'another viewer';
 interface Viewer {
  socket:Socket; joined:boolean; blocked:boolean; pending:Buffer[]; bytes:number; resync:boolean; label:string;
  snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void; negotiate?:boolean;
@@ -69,7 +71,13 @@ export class ViewerHub {
   const reply=v.negotiate&&this.protocol?{versions:[...this.protocol.versions],pacer:this.protocol.pacer}:{};
   v.negotiate=false;
   const you=this.shared?(v.minor>=2?!v.readOnly:v.took):this.holder===v;
-  return wire(FrameType.control,{controller:this.controller,you,...(reason?{reason}:{}),...reply});
+  // Additive 1.2-only field: 1.1 clients (and 1.1 hosts) never see it, so the frame stays byte-compatible.
+  return wire(FrameType.control,{controller:this.controller,you,...(this.shared&&v.minor>=2?{active:this.active}:{}),...(reason?{reason}:{}),...reply});
+ }
+ /** Every 1.2 viewer learns who typed last when the active client changes (ADR 0023, F6 follow-up). */
+ private broadcastActive(){
+  if(!this.shared)return;
+  for(const v of this.viewers)if(v.joined&&v.minor>=2)this.send(v,this.state(v));
  }
  private setController(v:Viewer|null,reason:string){
   const old=this.holder;if(old===v)return;
@@ -83,6 +91,7 @@ export class ViewerHub {
   if(this.current===v)return;
   this.current=v;this.cachedSnapshot=undefined;this.publish();
   if(v.size)this.control?.resize(v.size.cols,v.size.rows);
+  this.broadcastActive();
  }
  private freshSnapshot(){return this.cachedSnapshot??=this.snapshot();}
  private flush(v:Viewer){
@@ -118,6 +127,7 @@ export class ViewerHub {
   socket.on('close',()=>{
    clearTimeout(helloTimer);this.pending.delete(v);
    const joined=this.viewers.delete(v);v.pending=[];v.snapshot=undefined;v.done?.();
+   const wasActive=this.current===v;
    if(this.holder===v)this.setController(null,'disconnected');
    if(this.author===v)this.author=null;
    if(this.current===v)this.current=null;
@@ -125,7 +135,7 @@ export class ViewerHub {
     this.requests=this.requests.filter(r=>r.viewer!==v);
     if(this.window?.viewer===v)this.finish();else this.pump();
    }
-   if(joined){this.cachedSnapshot=undefined;this.publish();}
+   if(joined){this.cachedSnapshot=undefined;this.publish();if(wasActive)this.broadcastActive();}
    if(v.joined&&!this.closing)this.enqueue(()=>this.marker('detach',v.label));
   });
   socket.on('drain',()=>this.enqueue(()=>{v.blocked=false;this.flush(v);}));
@@ -250,10 +260,10 @@ export class ViewerHub {
   if(Number.isFinite(next)){this.deliveryTimer=setTimeout(()=>this.enqueue(()=>this.pump()),Math.max(1,next-now));this.deliveryTimer.unref?.();}
  }
  private failure():DeliveryFailure{
-  if(this.pendingLine)return {ok:false,cause:'pending',from:this.pendingLine,reason:`pending input from ${this.pendingLine}`};
-  if(this.window)return {ok:false,cause:'busy',from:this.window.viewer.label,reason:`another delivery from ${this.window.viewer.label} is in progress`};
+  if(this.pendingLine)return {ok:false,cause:'pending',from:this.pendingLine,reason:`unsent input in the agent from ${viewerName(this.pendingLine)}`};
+  if(this.window)return {ok:false,cause:'busy',from:this.window.viewer.label,reason:`another delivery from ${viewerName(this.window.viewer.label)} is in progress`};
   const from=this.lastInputFrom??'another client';
-  return {ok:false,cause:'input',from,reason:`recent input from ${from}`};
+  return {ok:false,cause:'input',from,reason:`recent input from ${viewerName(from)}`};
  }
  private grant(r:{viewer:Viewer}){
   const expire=(ms:number)=>{
@@ -305,7 +315,7 @@ export class ViewerHub {
  * sequences (arrows, function keys, bracketed-paste markers) change nothing. `typed`: the bytes added text. A heuristic:
  * the host cannot see the agent's editor, so cursor movement, history recall and menu keys are invisible to it.
  */
-function pendingAfter(bytes:Buffer,count:number):{count:number;typed:boolean}{
+export function pendingAfter(bytes:Buffer,count:number):{count:number;typed:boolean}{
  let typed=false;
  for(let i=0;i<bytes.length;i++){
   const b=bytes[i]!;

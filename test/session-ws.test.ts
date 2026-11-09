@@ -243,3 +243,37 @@ test.skipIf(!canBind)('remote stream pool refusal arrives as HTTP 503',async()=>
   expect(await response?.text()).toBe('session viewer stream capacity exhausted');
  }finally{f.close();}
 });
+
+test.skipIf(!canBind)('a bridged (remote) app viewer tags its hello read-only and drops input, size and focus',async()=>{
+ const ctx=fakeCtx();const task=createTask(ctx,{brief:{goal:'ws',repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:300});
+ const dir=join(ctx.pacerHome,'runs',task.id,'1');mkdirSync(dir,{recursive:true});writeFileSync(join(dir,'session.log'),'');
+ writeFileSync(join(dir,'session.bridge.pid'),String(process.pid));
+ const received:{type:number;data:Buffer}[]=[];let peer:Socket|undefined;
+ const marker=Buffer.from('PACER-VIEWER/1\n');
+ const unix=createServer(s=>{peer=s;let admitted=false;let buffer=Buffer.alloc(0);
+  s.on('data',b=>{buffer=Buffer.concat([buffer,Buffer.from(b)]);
+   if(!admitted){const at=buffer.indexOf(marker);if(at<0)return;s.write('PACER-READY\n');admitted=true;buffer=buffer.subarray(at+marker.length);}
+   const d=new WireDecoder();
+   for(const f of d.push(buffer)){received.push(f);if(f.type===1){s.write(wire(2,{outputOffset:10,cols:120,rows:40}));s.write(wire(3,Buffer.from([1,2,3])));}}
+   buffer=Buffer.alloc(0);});});
+ const path=socketPath(dir);writeFileSync(join(dir,'session.sock.path'),path);
+ await new Promise<void>((resolve,reject)=>{unix.once('error',reject);unix.listen(path,resolve);});
+ const http=startServer(()=>ctx,{port:0,pumpMs:3600000});const url=`http://127.0.0.1:${http.port}/v2/tasks/${task.id}/session`;
+ let ws:WebSocket|undefined;const messages:(string|Buffer)[]=[];
+ try{
+  ws=new WebSocket(url.replace('http:','ws:'),{headers:{authorization:`Bearer ${http.token}`}} as any);
+  ws.binaryType='arraybuffer';
+  await new Promise<void>((resolve,reject)=>{ws!.onopen=()=>resolve();ws!.onerror=reject;});
+  ws.onmessage=e=>messages.push(typeof e.data==='string'?e.data:Buffer.from(e.data));
+  ws.send(JSON.stringify({type:'hello',v:1,client:'cli',label:'remote',cols:80,rows:24}));
+  for(let i=0;i<100&&received.length<1;i++)await Bun.sleep(5);
+  expect(JSON.parse(received[0].data.toString())).toMatchObject({client:'app',readOnly:true,label:'remote'});
+  ws.send(new Uint8Array(wire(FrameType.input,Buffer.from('typed'))));
+  ws.send(new Uint8Array(wire(FrameType.input,Buffer.from('more'))));
+  ws.send(JSON.stringify({type:'focus'}));
+  ws.send(JSON.stringify({type:'take',force:true}));
+  for(let i=0;i<100&&received.length<2;i++)await Bun.sleep(5);
+  expect(received.length).toBe(1);
+  expect(messages.some(m=>typeof m==='string'&&JSON.parse(m).type==='control'&&JSON.parse(m).reason==='read-only')).toBe(true);
+ }finally{ws?.close();peer?.destroy();unix.close();http.stop();}
+});

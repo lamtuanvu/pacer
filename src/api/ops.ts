@@ -307,7 +307,7 @@ export const OPS: Record<string, OpDef> = {
         : registration;
     },
   }),
-  "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat.", params: z.object({client_id: id}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id) }),
+  "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat. A boolean `notifier` replaces the client's notifier flag, so a client that can no longer present notifications stops receiving them.", params: z.object({client_id: id, notifier: z.boolean().optional()}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id, p.notifier) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional(),request_id:z.uuid().optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, {...p,target:deps.appAuthenticated?"builtin":p.target,requestId:p.request_id}, deps.terminal) }),

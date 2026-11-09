@@ -147,3 +147,48 @@ test("pacer attach from an executor session is always read-only; --read-only set
   expect(options("attach-control")).toMatchObject({ readOnly: false, control: true, force: true });
   expect(options("attach-read-only")).toMatchObject({ readOnly: true });
 });
+
+async function bridgeHost(versions: [number, number] | null) {
+  const dir = tmpDir();
+  // A session reached through an SSH bridge lives on a remote host (ADR 0023, decision 2).
+  writeFileSync(join(dir, "session.bridge.pid"), String(process.pid));
+  const received: { type: number; body: any }[] = [];
+  const ADMISSION = Buffer.from("PACER-VIEWER/1\n");
+  const server = createServer((socket) => {
+    const decoder = new WireDecoder();
+    let admitted = false;
+    let buffer = Buffer.alloc(0);
+    socket.on("data", (bytes) => {
+      buffer = Buffer.concat([buffer, Buffer.from(bytes)]);
+      if (!admitted) {
+        const at = buffer.indexOf(ADMISSION);
+        if (at < 0) return;
+        socket.write("PACER-READY\n");
+        admitted = true;
+        buffer = buffer.subarray(at + ADMISSION.length);
+      }
+      for (const frame of decoder.push(buffer)) {
+        received.push({ type: frame.type, body: frame.type === FrameType.input ? frame.data.toString() : JSON.parse(frame.data.toString()) });
+        if (frame.type === FrameType.hello) {
+          socket.write(wire(FrameType.control, { controller: null, you: false, ...(versions ? { versions, pacer: "0.0.0" } : {}) }));
+          socket.end(wire(FrameType.exit, { code: 0 }));
+        }
+      }
+      buffer = Buffer.alloc(0);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(join(dir, "session.sock"), resolve));
+  return { dir, received, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
+test("a CLI attach through an SSH bridge to a remote session is read-only: readOnly hello and no input, size, focus or take", async () => {
+  for (const versions of [[1, 2], null] as const) {
+    const host = await bridgeHost(versions as [number, number] | null);
+    try {
+      await quietly(() => attachSession(host.dir, { control: true, force: true }, "Fixture"));
+      await Bun.sleep(20);
+      expect(host.received.map((f) => f.type)).toEqual([FrameType.hello]);
+      expect(host.received[0].body.readOnly).toBe(true);
+    } finally { await host.close(); }
+  }
+});

@@ -207,6 +207,15 @@ export async function runStdio(
           result = await msgEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps?.spawnRunner);
           break;
         }
+        case "_internal.setup.effects": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { setupEffectsBridge } = await import("./setup-bridge");
+          result = await setupEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps);
+          break;
+        }
         case "_internal.setup.check": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {

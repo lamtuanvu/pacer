@@ -1,9 +1,10 @@
 //! Native `executor.setup.connect` and `executor.setup.models`
 //! (`src/core/opencode-setup.ts`). Connect only names the OpenCode sign-in
 //! command. Models is native when a fresh cached catalog lists the provider's
-//! models; a stale or missing catalog (network fetch), a local model server
-//! (endpoint plugin), OpenCode model listing (subprocess) and a `base_url`
-//! (URL schema) forward to TypeScript.
+//! models and OpenCode is not installed; a stale or missing catalog (network
+//! fetch), a local model server (endpoint plugin), OpenCode model listing
+//! (subprocess: the catalog is narrowed to the models OpenCode serves) and a
+//! `base_url` (URL schema) forward to TypeScript.
 #![allow(clippy::result_large_err)]
 use icu_collator::CollatorBorrowed;
 use pacer_foundation::{
@@ -14,13 +15,13 @@ use serde_json::{Map, Value, json};
 use std::cmp::Ordering;
 
 const GROUPS: &[&str] = &["signed_in", "local", "catalog"];
-const CATALOG_MAX_AGE_S: f64 = 24.0 * 3600.0;
+pub(crate) const CATALOG_MAX_AGE_S: f64 = 24.0 * 3600.0;
 
-fn invalid(message: impl Into<String>) -> CoreError {
+pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::new(Code::InvalidInput, message)
 }
 
-fn type_name(value: Option<&Value>) -> &'static str {
+pub(crate) fn type_name(value: Option<&Value>) -> &'static str {
     match value {
         None => "undefined",
         Some(Value::Null) => "null",
@@ -32,7 +33,7 @@ fn type_name(value: Option<&Value>) -> &'static str {
     }
 }
 
-fn enforcement(ctx: &Ctx) -> Result<(), CoreError> {
+pub(crate) fn enforcement(ctx: &Ctx) -> Result<(), CoreError> {
     if ctx
         .env
         .get("PACER_ENFORCEMENT_TOKEN")
@@ -46,7 +47,7 @@ fn enforcement(ctx: &Ctx) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn params_map(params: &Value) -> Result<Map<String, Value>, CoreError> {
+pub(crate) fn params_map(params: &Value) -> Result<Map<String, Value>, CoreError> {
     match params {
         Value::Null => Ok(Map::new()),
         Value::Object(map) => Ok(map.clone()),
@@ -136,7 +137,7 @@ fn models_params(params: &Value) -> Result<(String, String), CoreError> {
 }
 
 /// A cached catalog model in the shape `parseCatalog` writes.
-fn catalog_model(model: &Value) -> bool {
+pub(crate) fn catalog_model(model: &Value) -> bool {
     let strings = |key: &str| {
         model[key]
             .as_array()
@@ -171,6 +172,17 @@ fn cached_models(ctx: &Ctx, provider: &str) -> Option<Vec<Value>> {
     (!models.is_empty() && models.iter().all(catalog_model)).then(|| models.clone())
 }
 
+/// Whether `opencode` is an executable on the context's PATH, as `ctx.which`.
+fn opencode_installed(ctx: &Ctx) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    ctx.env.get("PATH").is_some_and(|path| {
+        std::env::split_paths(path).any(|dir| {
+            std::fs::metadata(dir.join("opencode"))
+                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
+    })
+}
+
 /// Inputs whose models only TypeScript can list. Invalid params stay native.
 pub fn executor_setup_models_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     if params.get("base_url").is_some() {
@@ -179,7 +191,7 @@ pub fn executor_setup_models_stays_forwarded(ctx: &Ctx, params: &Value) -> bool 
     match models_params(params) {
         Err(_) => false,
         Ok((_, group)) if group == "local" => true,
-        Ok((provider, _)) => cached_models(ctx, &provider).is_none(),
+        Ok((provider, _)) => opencode_installed(ctx) || cached_models(ctx, &provider).is_none(),
     }
 }
 
@@ -191,7 +203,7 @@ fn opencode_quota_source(provider: &str) -> bool {
 }
 
 /// `classify` for a non-local provider with a catalog entry.
-fn classify(provider: &str, models: &[Value]) -> Value {
+pub(crate) fn classify(provider: &str, models: &[Value]) -> Value {
     if opencode_quota_source(provider) {
         return json!({"usage":"quota","quota_source":"arkcli","known":true});
     }

@@ -89,3 +89,22 @@ async fn models_rank_fresh_catalog_entries_and_forward_otherwise() {
     );
     assert!(executor_setup_models_stays_forwarded(&ctx, &params));
 }
+
+#[tokio::test]
+async fn models_forward_when_opencode_can_list_what_it_serves() {
+    let (dir, mut ctx) = home(1000.0);
+    cache(
+        &ctx,
+        900.0,
+        json!([model("big", json!(200_000), json!(null), json!(1))]),
+    );
+    let params = json!({"provider": "acme", "group": "signed_in"});
+    assert!(!executor_setup_models_stays_forwarded(&ctx, &params));
+    let bin = dir.path().join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(bin.join("opencode"), "#!/bin/sh\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(bin.join("opencode"), fs::Permissions::from_mode(0o755)).unwrap();
+    ctx.env.insert("PATH".into(), bin.display().to_string());
+    assert!(executor_setup_models_stays_forwarded(&ctx, &params));
+}
