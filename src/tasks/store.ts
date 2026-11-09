@@ -22,9 +22,10 @@ export function taskSettledAt(task: TaskRecord): number {
 
 // Keep connections for the service's cheap change checks; bound handles for callers
 // that inspect many homes (including the test suite). Never evict a transaction.
-// `imported` maps a JSON file name to the mtime already reconciled with SQLite, so a
-// directory change only looks up the files that changed since the last scan.
-interface Connection { db: Database; generation: number; inode: number; directoryStamp?: string; imported: Map<string, number> }
+// `imported` maps a JSON file name to the inode and mtime already reconciled with SQLite,
+// so a scan only looks up the files that changed since. The inode catches an atomic
+// rewrite that keeps the same coarse mtime (a few ms on Linux).
+interface Connection { db: Database; generation: number; inode: number; directoryStamp?: string; imported: Map<string, string> }
 const connections = new Map<string, Connection>();
 let generation = 0;
 // Test-only: counts directory enumerations (readdirSync calls) in importJson, so
@@ -46,23 +47,32 @@ function values(task: TaskRecord, now: number): SQLQueryBindings[] {
     task.brief.repo ?? null, JSON.stringify(task), task.archived ? 1 : 0];
 }
 
-type PendingImport = { name: string; task: TaskRecord; mtime: number };
+type PendingImport = { name: string; task: TaskRecord; mtime: number; signature: string };
+
+const fileSignature = (stat: { ino: number; mtimeMs: number }) => `${stat.ino}:${stat.mtimeMs}`;
 
 /** A JSON copy newer than what SQLite recorded for it, parsed and validated; null when
  *  the file is missing, already reconciled or corrupt. */
 function jsonCandidate(entry: Connection, dir: string, name: string): PendingImport | null {
   const file = join(dir, name);
-  let task: TaskRecord, mtime: number;
+  let task: TaskRecord, mtime: number, signature: string;
   try {
-    mtime = statSync(file).mtimeMs;
+    const stat = statSync(file);
+    mtime = stat.mtimeMs;
+    signature = fileSignature(stat);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
-  if (entry.imported.get(name) === mtime) return null;
-  const row = entry.db.query<{ json_mtime: number | null }, [string]>(
-    "SELECT json_mtime FROM tasks WHERE id = ?").get(name.slice(0, -5));
-  if (row?.json_mtime === mtime) { entry.imported.set(name, mtime); return null; }
+  const known = entry.imported.get(name);
+  if (known === signature) return null;
+  // SQLite records only the mtime; trust it only for a file this connection has not seen,
+  // since a known file with a new inode was rewritten even if its mtime did not move.
+  if (known === undefined) {
+    const row = entry.db.query<{ json_mtime: number | null }, [string]>(
+      "SELECT json_mtime FROM tasks WHERE id = ?").get(name.slice(0, -5));
+    if (row?.json_mtime === mtime) { entry.imported.set(name, signature); return null; }
+  }
   try {
     task = JSON.parse(readFileSync(file, "utf8")) as TaskRecord;
     if (!task || !isTaskId(task.id) || name !== `${task.id}.json` ||
@@ -76,7 +86,7 @@ function jsonCandidate(entry: Connection, dir: string, name: string): PendingImp
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.warn(`pacer: skipping corrupt task ${name}: ${String(error)}`);
     return null;
   }
-  return { name, task, mtime };
+  return { name, task, mtime, signature };
 }
 
 // Scanning/parsing may fault on disk or take arbitrarily long. Acquire the
@@ -102,19 +112,19 @@ function commitImports(entry: Connection, pending: PendingImport[]): void {
       }
     }).immediate();
     // A row that kept a newer revision rejects the file; rescanning it cannot change that.
-    for (const { name, mtime } of batch) entry.imported.set(name, mtime);
+    for (const { name, signature } of batch) entry.imported.set(name, signature);
   }
 }
 
 // Older binaries use atomic temp-file + rename writes. Only a directory change
 // triggers enumeration/stat, and only changed JSON files are read. Never alter
 // imported files: JSON remains the compatibility/rollback copy for this release.
-function importJson(ctx: Ctx, entry: Connection): number {
+function importJson(ctx: Ctx, entry: Connection, force = false): number {
   if (entry.db.inTransaction) return 0;
   const dir = tasksDir(ctx);
   const stat = statSync(dir, { bigint: true });
   const stamp = `${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`;
-  if (entry.directoryStamp === stamp) return 0;
+  if (!force && entry.directoryStamp === stamp) return 0;
   const pending: PendingImport[] = [];
   const present = new Set<string>();
   jsonScanCount++;
@@ -140,7 +150,7 @@ function importTaskJson(ctx: Ctx, entry: Connection, id: string): void {
   if (candidate) commitImports(entry, [candidate]);
 }
 
-function writeCompatibilityJson(ctx: Ctx, task: TaskRecord): number {
+function writeCompatibilityJson(ctx: Ctx, task: TaskRecord): { mtime: number; signature: string } {
   const file = join(task.archived ? taskArchiveDir(ctx, task) : tasksDir(ctx), `${task.id}.json`);
   const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   try {
@@ -149,7 +159,8 @@ function writeCompatibilityJson(ctx: Ctx, task: TaskRecord): number {
   } finally {
     rmSync(tmp, { force: true });
   }
-  return statSync(file).mtimeMs;
+  const stat = statSync(file);
+  return { mtime: stat.mtimeMs, signature: fileSignature(stat) };
 }
 
 /** Existing WAL stores can be opened by readers while another process writes. */
@@ -225,7 +236,8 @@ function connection(ctx: Ctx) {
  *  Returns the number of records imported. */
 export function reconcileTaskJson(ctx: Ctx): number {
   const entry = connection(ctx);
-  return importJson(ctx, entry);
+  // Always enumerate: a directory mtime can stay the same across a same-tick rewrite.
+  return importJson(ctx, entry, true);
 }
 
 /** Detect both other-process commits and writes on our own cached connection. */
@@ -258,17 +270,17 @@ export function createTask(
   const machineId = cachedMachineId(ctx);
   for (let i = 0; i < 65; i++) {
     const task: TaskRecord = { rev: 1, id: newTaskId(ctx.now), createdAt: ctx.now, ...input, ...(machineId ? { machineId } : {}), state: "queued", attempts: [] };
-    let mtime: number | undefined;
+    let written: { mtime: number; signature: string } | undefined;
     const created = db.transaction(() => {
       const result = db.query(`INSERT OR IGNORE INTO tasks (${columns}) VALUES (${placeholders})`).run(...values(task, ctx.now));
       if (!result.changes) return false;
       onCreate?.(task, db);
-      mtime = writeCompatibilityJson(ctx, task);
-      db.query("UPDATE tasks SET json_mtime = ? WHERE id = ?").run(mtime, task.id);
+      written = writeCompatibilityJson(ctx, task);
+      db.query("UPDATE tasks SET json_mtime = ? WHERE id = ?").run(written.mtime, task.id);
       return true;
     }).immediate();
     if (created) {
-      markImported(entry, task, mtime!);
+      markImported(entry, task, written!.signature);
       return task;
     }
   }
@@ -353,7 +365,7 @@ export function touchTask(ctx: Ctx, id: string): TaskRecord {
 function writeTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void, always: boolean): TaskRecord {
   return withTaskLock(ctx, id, () => {
     const entry = connection(ctx), { db } = entry;
-    let mtime = 0;
+    let written: { mtime: number; signature: string } | undefined;
     const updated = db.transaction(() => {
       const t = readTask(ctx, id);
       if (!t) throw new Error(`unknown task ${id}`);
@@ -368,21 +380,21 @@ function writeTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void, always
       if (!always && JSON.stringify(t) === before) return t;
       t.rev = rev + 1;
       // JSON first: a crash before SQLite commits is recovered by the next import.
-      mtime = writeCompatibilityJson(ctx, t);
+      written = writeCompatibilityJson(ctx, t);
       if (t.settledAt !== undefined) db.query("INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)").run(id, t.settledAt);
       db.query(`UPDATE tasks SET rev=?, state=?, created_at=?, updated_at=?, settled_at=?, repo=?, record=?, archived=?, json_mtime=? WHERE id=?`)
-        .run(...values(t, Number.isFinite(ctx.now) ? ctx.now : Date.now() / 1000).slice(1), mtime, id);
+        .run(...values(t, Number.isFinite(ctx.now) ? ctx.now : Date.now() / 1000).slice(1), written.mtime, id);
       return t;
     }).immediate();
-    // A no-op update wrote no JSON; recording mtime 0 would make the next read re-import it.
-    if (mtime) markImported(entry, updated, mtime);
+    // A no-op update wrote no JSON, so there is nothing new to record.
+    if (written) markImported(entry, updated, written.signature);
     return updated;
   });
 }
 
 /** Only a committed outermost write may skip the next scan's lookup; a rollback leaves the JSON to import. */
-function markImported(entry: Connection, task: TaskRecord, mtime: number): void {
-  if (!task.archived && !entry.db.inTransaction) entry.imported.set(`${task.id}.json`, mtime);
+function markImported(entry: Connection, task: TaskRecord, signature: string): void {
+  if (!task.archived && !entry.db.inTransaction) entry.imported.set(`${task.id}.json`, signature);
 }
 
 export interface TaskFilter { states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number }

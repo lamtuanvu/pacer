@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { expect, spyOn, test } from "bun:test";
-import { renameSync, writeFileSync } from "node:fs";
+import { renameSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTask, listTasksWhere, listTasks, newTaskId, readTask, reconcileTaskJson, tasksDir, taskJsonScanCount, updateTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
@@ -29,7 +29,9 @@ test("a task directory change looks up only the JSON files that changed since th
     expect(reconcileTaskJson(ctx)).toBe(1);
     expect(readTask(ctx, tasks[0]!.id)?.title).toBe("external");
     expect(readTask(ctx, tasks[1]!.id)?.title).toBe("own write");
-    expect(lookups(query)).toBe(1);
+    // None of the 39 unchanged files is looked up; the rewritten one is already known with
+    // an older inode, so it is parsed without a SQLite lookup either.
+    expect(lookups(query)).toBe(0);
   } finally { query.mockRestore(); }
 });
 
@@ -87,4 +89,20 @@ test("readTask picks up a newer JSON revision of that one task without a folder 
   expect(readTask(ctx, t.id)!.rev).toBe(t.rev + 4);
   expect(readTask(ctx, t.id)!.question?.text).toBe("from JSON");
   expect(taskJsonScanCount()).toBe(scans);
+});
+
+test("an atomic rewrite that keeps the same coarse mtime is still picked up", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief, kind: "debug", requestedExecutor: null, timeoutS: 1800 });
+  const file = join(tasksDir(ctx), `${t.id}.json`);
+  // Linux records mtimes on a coarse clock: pin the copy to a whole-millisecond mtime the store has seen,
+  // then rewrite it with exactly the same mtime, as a write in the same clock tick would.
+  const tick = new Date(Math.floor(Date.now()));
+  utimesSync(file, tick, tick);
+  readTask(ctx, t.id);
+  writeFileSync(`${file}.tmp`, JSON.stringify({ ...t, rev: t.rev + 2, question: { text: "same tick", at: 0 } }));
+  utimesSync(`${file}.tmp`, tick, tick);
+  renameSync(`${file}.tmp`, file);
+  expect(statSync(file).mtimeMs).toBe(tick.getTime());
+  expect(readTask(ctx, t.id)!.rev).toBe(t.rev + 2);
 });
