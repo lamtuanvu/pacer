@@ -172,8 +172,10 @@ mod tests {
                 now,
             )
             .unwrap();
+        // Fixture baseline at rev 2: the store now skips no-op writes, so this
+        // bump must change a real field rather than re-set the same state.
         let task = store
-            .update(id, 1, now, |t| t["state"] = json!(state))
+            .update(id, 1, now, |t| t["fixtureRev"] = json!(2))
             .unwrap();
         assert_eq!(task["rev"], 2);
         (dir, store, id.into())

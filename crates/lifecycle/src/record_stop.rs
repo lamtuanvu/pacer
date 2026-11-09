@@ -269,8 +269,10 @@ mod tests {
     #[test]
     fn terminal_task_is_unchanged() {
         let (_dir, mut store, id) = seed("done", 10.0);
+        // Bump to rev 3 before the call under test; the store now skips no-op
+        // writes, so this must change a real field rather than re-set "done".
         store
-            .update(&id, 2, 10.0, |t| t["state"] = json!("done"))
+            .update(&id, 2, 10.0, |t| t["fixtureRev"] = json!(3))
             .unwrap();
         let out = record_task_stop(&mut store, &id, Some(3.0), 11.0, false).unwrap();
         assert_eq!(out["state"], "done");
