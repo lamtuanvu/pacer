@@ -36,9 +36,10 @@ import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall } from "./ho
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type CapabilityTransport, type SpawnSpec } from "./process";
+import { ResultStaging } from "./result-staging";
 import { MAX_LINE_BYTES } from "./lines";
 import { PLANNER_INSTALL_FEATURE } from "./planner-protocol";
-import { EXTENSION_METHODS, HELLO_METHOD, NOTIFICATIONS, uiOf, parseViewDocument, parseStatusItemDocument, type ViewDocument, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult } from "./protocol";
+import { EXTENSION_METHODS, HELLO_METHOD, NOTIFICATIONS, uiOf, parseViewDocument, parseStatusItemDocument, type ViewDocument, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult, RESULT_CHUNK_METHOD, resultChunkParams, chunkedResult } from "./protocol";
 import type { BundledPlugin } from "./types";
 import { currentVersion } from "../update/version";
 import { controlDir, sshArgv } from "../remote/ssh";
@@ -2510,8 +2511,12 @@ export class PluginRegistry {
         // A planner transaction also keeps its pinned commands, prior record and compensation here.
         const manifest = e.manifest!;
         const logReads = issued?.reads.some(read => read.kind === "codex-logs") ?? false;
+        // A usage read or planner effect can produce a result over 768 KiB, so the child
+        // negotiates chunkedResults and sends `$/resultChunk`; Core stages those with the
+        // same bounds and ordering as flag-off. Sealing it also gives the call a `local`.
+        const chunked = method === "usage.read" || effects;
         const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
-          ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : [])];
+          ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : [])];
         const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [] }, {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
           grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
@@ -2525,9 +2530,20 @@ export class PluginRegistry {
         // The owner refuses the call unless the child negotiated every requireFeatures entry, so the envelope may claim them.
         const fits = (message: unknown) => Buffer.byteLength(`${JSON.stringify(message)}\n`, "utf8") <= MAX_LINE_BYTES;
         let transport: CapabilityTransport | undefined;
-        const onRequest = local && ((name: string, params: unknown) => coreMethods.includes(name)
-          ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
-          : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`)));
+        // Core stages a chunked result for this call with the flag-off bounds and
+        // ordering (`ResultStaging`): contiguous offsets, a bounded chunk, a 16 MiB cap.
+        let staging: ResultStaging | undefined;
+        const onRequest = local && ((name: string, params: unknown) => {
+          if (name === RESULT_CHUNK_METHOD) {
+            if (!staging) staging = new ResultStaging(local);
+            const parsed = resultChunkParams.safeParse(params);
+            if (!parsed.success) return Promise.reject(new CoreError("invalid_input", "malformed result chunk"));
+            return staging.stage(parsed.data.offset, parsed.data.base64);
+          }
+          return coreMethods.includes(name)
+            ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
+            : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`));
+        });
         const call: NativeOwnerCall = {
           id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
           scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },
@@ -2535,6 +2551,7 @@ export class PluginRegistry {
           ...(coreMethods.length ? { coreMethods } : {}),
         };
         let reply: Awaited<ReturnType<typeof callNativeOwner>>;
+        let value: unknown;
         try {
           if (lease) {
             lease.bind(local!, method);
@@ -2555,7 +2572,17 @@ export class PluginRegistry {
           }
           if (logReads) await prepareFilesystemAuthority(local!);
           if (issued?.stores.length) await prepareStateAuthority(local!);
-          reply = await callNativeOwner(socket, call, bridgeSignal, onRequest);
+          reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal);
+          value = reply.value;
+          // A child that sent its result in `$/resultChunk` pieces ends with a
+          // `_chunkedResult` completion: assemble the staged bytes now, while the
+          // call's Core authority is still active (ResultStaging needs it through
+          // `finish`, so this must run before the `finally` revokes `local`).
+          if (staging && value && typeof value === "object" && !Array.isArray(value) && Object.hasOwn(value as object, "_chunkedResult")) {
+            const parsed = chunkedResult.safeParse(value);
+            if (!parsed.success) throw new CoreError("plugin_refused", "incomplete or unnegotiated chunked result");
+            value = await staging.finish(parsed.data._chunkedResult.bytes);
+          }
         } finally {
           if (local) { try { await local.revoke(); } finally { e.authorities.delete(local.token); } }
         }
@@ -2569,16 +2596,16 @@ export class PluginRegistry {
         }
         const def = EXTENSION_METHODS[method]!;
         if (method === "usage.read" || method === "executor.available") {
-          const output = def.result.safeParse(reply.value);
+          const output = def.result.safeParse(value);
           if (!output.success) throw new CoreError("plugin_refused", method === "usage.read" ? "usage reader returned an invalid reading" : "executor returned an invalid availability result");
           return output.data as T;
         }
         if (method.startsWith("ui.")) {
-          const checked = def.result.safeParse(reply.value);
+          const checked = def.result.safeParse(value);
           if (!checked.success) { appendPluginLog(ctx, e.id, "stderr", `invalid ${method} result: ${checked.error.issues[0]?.path.join(".") || "result"}`); throw new CoreError("invalid_input", `plugin ${e.id} returned an invalid ${method} result`); }
           return checked.data as T;
         }
-        return reply.value as T;
+        return value as T;
       };
       if (e.manifest?.reentrant) return run();
       return e.queue.run(signal, run);
