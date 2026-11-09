@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use pacer_store::{StoreError, TaskFilter, TaskStore, is_task_id, retention_eligible};
 use serde_json::{Value, json};
-use std::{fs, time::Duration};
+use std::{fs, thread, time::Duration, time::Instant};
 
 const ID: &str = "t-20261101-184223-ea3b";
 fn task() -> Value {
@@ -253,6 +253,10 @@ fn json_import_revision_and_external_invalidation() {
         dir.path().join(format!("tasks/{ID}.json")),
     )
     .unwrap();
+    // Request paths no longer import JSON on every access (Task 5); an
+    // explicit reconcile is required to observe another binary's JSON-only
+    // write. The stale (lower) revision loses the SQL upsert's rev guard.
+    assert_eq!(first.reconcile_json().unwrap(), 0);
     assert_eq!(first.read(ID).unwrap().unwrap()["unknown"], "kept");
     std::thread::sleep(Duration::from_millis(2));
     let mut newer = task();
@@ -268,9 +272,85 @@ fn json_import_revision_and_external_invalidation() {
         dir.path().join(format!("tasks/{ID}.json")),
     )
     .unwrap();
+    assert_eq!(first.reconcile_json().unwrap(), 1);
     assert_eq!(first.read(ID).unwrap().unwrap()["unknown"], "imported");
     fs::write(dir.path().join("tasks/t-20261101-184224-ea3b.json"), b"{").unwrap();
+    first.reconcile_json().unwrap();
     assert_eq!(first.list(&TaskFilter::default()).unwrap().len(), 1);
+}
+
+#[test]
+fn open_does_not_wait_for_a_writer_when_schema_is_ready() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    // First open: creates the schema and runs the process's one import.
+    TaskStore::open(&home).unwrap();
+    let db_path = home.join("state/tasks.db");
+    let writer = rusqlite::Connection::open(&db_path).unwrap();
+    writer.busy_timeout(Duration::from_millis(5000)).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let opened = {
+        let home = home.clone();
+        let start = Instant::now();
+        let handle = thread::spawn(move || TaskStore::open(&home).map(|_| ()));
+        let result = handle.join().unwrap();
+        (result, start.elapsed())
+    };
+    writer.execute_batch("ROLLBACK").unwrap();
+    let (result, elapsed) = opened;
+    result.unwrap();
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "open took {elapsed:?} while a writer held an IMMEDIATE transaction"
+    );
+}
+
+#[test]
+fn second_open_in_process_skips_import() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    let mut first = TaskStore::open(&home).unwrap();
+    first.insert(&task(), 1000.0).unwrap();
+    // Write a newer revision straight to disk, bypassing TaskStore entirely
+    // (stands in for an older binary writing JSON only).
+    let mut newer = task();
+    newer["rev"] = json!(5);
+    newer["unknown"] = json!("second-open");
+    let temp = home.join("tasks/second-open.tmp");
+    fs::write(&temp, serde_json::to_vec(&newer).unwrap()).unwrap();
+    fs::rename(&temp, home.join(format!("tasks/{ID}.json"))).unwrap();
+    // A second open in this process, same (path, inode): no import runs, so
+    // the stale SQL row (rev 1) is still what is read.
+    let mut second = TaskStore::open(&home).unwrap();
+    assert_eq!(second.read(ID).unwrap().unwrap()["rev"], 1);
+    assert_eq!(second.reconcile_json().unwrap(), 1);
+    assert_eq!(second.read(ID).unwrap().unwrap()["rev"], 5);
+    assert_eq!(second.read(ID).unwrap().unwrap()["unknown"], "second-open");
+}
+
+#[test]
+fn open_after_inode_change_imports() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_path_buf();
+    TaskStore::open(&home).unwrap();
+    // A JSON-only task, written directly (no SQL row at all yet).
+    fs::write(
+        home.join("tasks/new.tmp"),
+        serde_json::to_vec(&task()).unwrap(),
+    )
+    .unwrap();
+    fs::rename(
+        home.join("tasks/new.tmp"),
+        home.join(format!("tasks/{ID}.json")),
+    )
+    .unwrap();
+    // Replace state/tasks.db with a fresh file (new inode), as a reset or
+    // restore would while this process is alive.
+    fs::remove_file(home.join("state/tasks.db")).unwrap();
+    let _ = fs::remove_file(home.join("state/tasks.db-wal"));
+    let _ = fs::remove_file(home.join("state/tasks.db-shm"));
+    let mut reopened = TaskStore::open(&home).unwrap();
+    assert_eq!(reopened.read(ID).unwrap().unwrap()["rev"], 1);
 }
 
 #[test]
@@ -377,6 +457,9 @@ fn import_rejects_each_invalid_record_branch_and_defaults_missing_revision() {
         let temp = dir.path().join(format!("tasks/{id}.tmp"));
         fs::write(&temp, serde_json::to_vec(&value).unwrap()).unwrap();
         fs::rename(temp, dir.path().join(format!("tasks/{id}.json"))).unwrap();
+        // Request paths no longer import on every access (Task 5); reconcile
+        // explicitly to exercise each invalid-record rejection branch.
+        store.reconcile_json().unwrap();
         assert!(
             store.read(&id).unwrap().is_none(),
             "invalid variant {index}"
@@ -389,6 +472,7 @@ fn import_rejects_each_invalid_record_branch_and_defaults_missing_revision() {
     let temp = dir.path().join("tasks/default.tmp");
     fs::write(&temp, serde_json::to_vec(&valid).unwrap()).unwrap();
     fs::rename(temp, dir.path().join(format!("tasks/{id}.json"))).unwrap();
+    store.reconcile_json().unwrap();
     assert_eq!(store.read(id).unwrap().unwrap()["rev"], 1);
 }
 
@@ -563,6 +647,11 @@ fn failed_sql_commit_during_restore_keeps_archive_and_restored_files() {
         true
     );
     raw.execute_batch("DROP TRIGGER block_restore").unwrap();
+    // Recovery from a crash between the JSON rename and the SQL commit is an
+    // explicit reconcile now (Task 5), not an automatic import on every read:
+    // the spec's recovery guarantee runs at the next process's open, and this
+    // same-process store already claimed its one import.
+    store.reconcile_json().unwrap();
     assert!(store.read(ID).unwrap().unwrap().get("archived").is_none());
 }
 

@@ -23,6 +23,7 @@ fn expiry_and_final_positions_reload_after_a_concurrent_writer() {
         ];
         let (held_tx, held_rx) = std::sync::mpsc::channel();
         let (go_tx, go_rx) = std::sync::mpsc::channel();
+        let (wrote_tx, wrote_rx) = std::sync::mpsc::channel();
         let writer = std::thread::spawn(move || {
             let mut other = AdmissionState::open(home).unwrap();
             with_lock(&ctx, &format!("task-{id}"), LockOptions::default(), || {
@@ -37,11 +38,20 @@ fn expiry_and_final_positions_reload_after_a_concurrent_writer() {
                     &changed,
                 )
                 .unwrap();
+                // Signal the write landed while still holding the lock, so the
+                // main thread's reconcile below cannot race the atomic rename.
+                wrote_tx.send(()).unwrap();
             })
             .unwrap();
         });
         held_rx.recv().unwrap();
         go_tx.send(()).unwrap();
+        wrote_rx.recv().unwrap();
+        // Request paths no longer import JSON on every access (Task 5); a
+        // JSON-only write from another binary needs an explicit reconcile
+        // before admission logic can see it (the periodic Worker's job in
+        // production). Reconcile here to keep exercising the CAS reload.
+        state.tasks.reconcile_json().unwrap();
         if expiry {
             expire_task(&mut state.tasks, id, 2.0).unwrap();
             expire_task(&mut state.tasks, next, 2.0).unwrap();

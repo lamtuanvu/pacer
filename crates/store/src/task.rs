@@ -8,9 +8,11 @@ use rusqlite::{
 };
 use serde_json::{Value, json};
 use std::{
+    collections::HashSet,
     fs::{self, File, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
+    sync::{LazyLock, Mutex},
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -38,6 +40,8 @@ pub enum StoreError {
     Conflict,
     #[error("task id collision")]
     Collision,
+    #[error("process-wide task import tracking lock was poisoned")]
+    ImportTrackingPoisoned,
 }
 type Result<T> = std::result::Result<T, StoreError>;
 fn no_after(_: &Connection, _: &Value) -> Result<()> {
@@ -293,6 +297,40 @@ pub(crate) fn archive_month(seconds: f64) -> Result<String> {
 mod log_reader;
 pub use log_reader::TaskLogReader;
 
+/// Tracks which (db path, inode) pairs have already run a JSON import in
+/// this process, so request-path opens after the first never pay for a
+/// directory scan. Keyed by inode (not path alone) so a replaced home with
+/// the same path but a different underlying file imports again.
+static IMPORTED: LazyLock<Mutex<HashSet<(PathBuf, u64)>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Same object list as TypeScript `schemaReady` in `src/tasks/store.ts`.
+fn schema_ready(db: &Connection) -> Result<bool> {
+    let fields: Vec<String> = db
+        .prepare("PRAGMA table_info(tasks)")?
+        .query_map([], |r| r.get(1))?
+        .collect::<rusqlite::Result<_>>()?;
+    if !["json_mtime", "archived"]
+        .iter()
+        .all(|name| fields.iter().any(|f| f == name))
+    {
+        return Ok(false);
+    }
+    let objects: Vec<String> = db
+        .prepare("SELECT name FROM sqlite_master WHERE type IN ('index', 'table')")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok([
+        "tasks_state",
+        "tasks_updated_at",
+        "tasks_created_at",
+        "tasks_retention",
+        "task_first_settle",
+    ]
+    .iter()
+    .all(|name| objects.iter().any(|o| o == name)))
+}
+
 pub struct TaskStore {
     pub(crate) home: PathBuf,
     db: Connection,
@@ -320,20 +358,27 @@ impl TaskStore {
         db.busy_timeout(Duration::from_millis(5000))?;
         db.pragma_update(None, "journal_mode", "WAL")?;
         db.pragma_update(None, "synchronous", "NORMAL")?;
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute_batch("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0); CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state); CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at); CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);")?;
-        let fields: Vec<String> = tx
-            .prepare("PRAGMA table_info(tasks)")?
-            .query_map([], |r| r.get(1))?
-            .collect::<rusqlite::Result<_>>()?;
-        if !fields.iter().any(|v| v == "json_mtime") {
-            tx.execute_batch("ALTER TABLE tasks ADD COLUMN json_mtime REAL")?;
+        // Skip the IMMEDIATE schema transaction once the schema is ready, so a
+        // request-path open never waits behind another writer's reservation
+        // just to re-run idempotent DDL.
+        if !schema_ready(&db)? {
+            let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            tx.execute_batch("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0); CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state); CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at); CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);")?;
+            let fields: Vec<String> = tx
+                .prepare("PRAGMA table_info(tasks)")?
+                .query_map([], |r| r.get(1))?
+                .collect::<rusqlite::Result<_>>()?;
+            if !fields.iter().any(|v| v == "json_mtime") {
+                tx.execute_batch("ALTER TABLE tasks ADD COLUMN json_mtime REAL")?;
+            }
+            if !fields.iter().any(|v| v == "archived") {
+                tx.execute_batch(
+                    "ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+                )?;
+            }
+            tx.execute_batch("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at); CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL);")?;
+            tx.commit()?;
         }
-        if !fields.iter().any(|v| v == "archived") {
-            tx.execute_batch("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")?;
-        }
-        tx.execute_batch("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at); CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL);")?;
-        tx.commit()?;
         let inode = file_inode(&path)?;
         let mut store = Self {
             home,
@@ -342,7 +387,19 @@ impl TaskStore {
             inode,
             directory_stamp: None,
         };
-        store.import_json()?;
+        // Import JSON only on the first open in this process for this (path,
+        // inode) pair. Later request-path opens in the same process rely on
+        // an explicit `reconcile_json` (periodic Worker, maintenance child,
+        // `pacer tasks import`) instead of importing on every open.
+        let first_open = {
+            let mut imported = IMPORTED
+                .lock()
+                .map_err(|_| StoreError::ImportTrackingPoisoned)?;
+            imported.insert((path.clone(), inode))
+        };
+        if first_open {
+            store.import_json()?;
+        }
         Ok(store)
     }
     pub(crate) fn refresh(&mut self) -> Result<()> {
@@ -355,17 +412,27 @@ impl TaskStore {
             let generation = self.generation + 1;
             *self = Self::open(&self.home)?;
             self.generation = generation;
-        } else {
-            self.import_json()?;
         }
         Ok(())
     }
-    fn import_json(&mut self) -> Result<()> {
+    fn import_json(&mut self) -> Result<usize> {
+        self.import_json_with(false)
+    }
+    /// Force a full JSON import regardless of the cached directory stamp,
+    /// returning the number of task rows actually imported (rows where the
+    /// SQL upsert's revision guard accepted the write). Used by the
+    /// supervision Worker, the maintenance child and `pacer tasks import`
+    /// recovery; never called from a request path.
+    pub fn reconcile_json(&mut self) -> Result<usize> {
+        self.import_json_with(true)
+    }
+    fn import_json_with(&mut self, force: bool) -> Result<usize> {
         let dir = self.home.join("tasks");
         let stamp = directory_stamp(&dir)?;
-        if self.directory_stamp.as_ref() == Some(&stamp) {
-            return Ok(());
+        if !force && self.directory_stamp.as_ref() == Some(&stamp) {
+            return Ok(0);
         }
+        let mut imported = 0usize;
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -418,7 +485,7 @@ impl TaskStore {
             // JSON.parse represents integral decimal and exponent forms as integers.
             task["rev"] = json!(revision(&task).ok_or(StoreError::InvalidRecord)?);
             let values = row_values(&task, activity_at(&task))?;
-            tx.execute("INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived,json_mtime) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET rev=excluded.rev,state=excluded.state,created_at=excluded.created_at,updated_at=excluded.updated_at,settled_at=excluded.settled_at,repo=excluded.repo,record=excluded.record,archived=excluded.archived,json_mtime=excluded.json_mtime WHERE excluded.rev>tasks.rev OR (excluded.rev=tasks.rev AND (tasks.json_mtime IS NULL OR excluded.json_mtime>tasks.json_mtime))", params_from_iter(values.into_iter().chain([SqlValue::Real(mtime)])))?;
+            imported += tx.execute("INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived,json_mtime) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET rev=excluded.rev,state=excluded.state,created_at=excluded.created_at,updated_at=excluded.updated_at,settled_at=excluded.settled_at,repo=excluded.repo,record=excluded.record,archived=excluded.archived,json_mtime=excluded.json_mtime WHERE excluded.rev>tasks.rev OR (excluded.rev=tasks.rev AND (tasks.json_mtime IS NULL OR excluded.json_mtime>tasks.json_mtime))", params_from_iter(values.into_iter().chain([SqlValue::Real(mtime)])))?;
             if let Some(at) = number(task.get("settledAt")) {
                 tx.execute(
                     "INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)",
@@ -428,7 +495,7 @@ impl TaskStore {
         }
         tx.commit()?;
         self.directory_stamp = Some(stamp);
-        Ok(())
+        Ok(imported)
     }
     pub fn version(&mut self) -> Result<String> {
         self.refresh()?;
