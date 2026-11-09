@@ -199,6 +199,10 @@ pub fn service_install_stays_forwarded(
     false
 }
 
+// service.install is deliberately NOT a registered native op: Core has no
+// 'service.effects' bridge yet (no http_path/stdio_method mapping, no TS
+// handler), and TypeScript owns install consent plus the in-job self-reload
+// (`restarting: true`). This wiring only keeps the Rust plumbing compiling.
 pub fn needs_service_effects_bridge(op: &str) -> bool {
     matches!(op, "service.install")
 }
@@ -226,6 +230,8 @@ pub(crate) fn object(
 }
 
 /// Native `service.install` — validates params and calls install effect.
+/// Not registered as a native op: no Core 'service.effects' bridge yet;
+/// TypeScript owns consent and the in-job self-reload (`restarting: true`).
 pub async fn service_install(
     ctx: &pacer_foundation::Ctx,
     params: serde_json::Value,
