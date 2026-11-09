@@ -8,7 +8,7 @@ import { diagnosticEvidence, diagnosticLevel, diagnosticsPage, diagnosticTitle, 
 import { displayName } from "../../../../src/view-model/format";
 import { executorLabel } from "../../../../src/view-model/words";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
-import { commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, type AgentConnectUndo, type ConsentRequest, type PreparedRun, type RemedyHost, type PreviewFile, type RepairPreview } from "../../data/remedies";
+import { awaitServiceRestart, commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, restartsService, serviceInstallLast, servicePid, type AgentConnectUndo, type ConsentRequest, type PreparedRun, type RemedyHost, type PreviewFile, type RepairPreview } from "../../data/remedies";
 import { useActions } from "../../data/action-context";
 import { platform } from "../../platform";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -285,6 +285,14 @@ export function DiagnosticsSection() {
   /** One undo at a time, including the preview fetch before the confirmation is shown. */
   const undoingRef = useRef(false);
   useEffect(() => () => returnListener.current?.(), []);
+  /** The pid of the service answering now, or undefined while it is unreachable. */
+  const currentPid = () => servicePid(api.call).catch(() => undefined);
+  /** Waits for the service that `before` named to be replaced, so the recheck reaches the new one. */
+  async function awaitRestart(before: number | undefined) {
+    setProgress("Waiting for pacer to restart…");
+    if (!await awaitServiceRestart(before, () => servicePid(api.call)))
+      setProgress("pacer has not come back after a minute. Checking anyway; if checks fail, run all checks again shortly.");
+  }
   /** When the focused control went away (a fixed row, the last fix-all), keep focus on the page. */
   const keepFocus = () => requestAnimationFrame(() => {
     if (!document.activeElement || document.activeElement === document.body) runButton.current?.focus();
@@ -329,6 +337,10 @@ export function DiagnosticsSection() {
   function host(check: Check, progressText: string): RemedyHost {
     return {
       call,
+      awaitRestart: before => {
+        outcome(check.name, { phase: "running", text: "Waiting for pacer to restart…" });
+        return awaitRestart(before);
+      },
       confirm: async request => {
         outcome(check.name);
         const ok = await ask(check.name, [request]);
@@ -425,16 +437,24 @@ export function DiagnosticsSection() {
         try { prepared.push({ row, run: await prepareRun(row.plan as Extract<RemedyPlan, { kind: "run" }>, call) }); }
         catch (failure) { outcome(row.check.name, { phase: "error", message: errorText(failure) }); }
       }
-      const requests = prepared.flatMap(item => item.run.consent ? [item.run.consent] : []);
+      const ordered = serviceInstallLast(prepared);
+      const requests = ordered.flatMap(item => item.run.consent ? [item.run.consent] : []);
       if (requests.length && !await ask(FIX_ALL, requests)) { setProgress("No changes were made."); return; }
-      for (const { row } of prepared) outcome(row.check.name, { phase: "running", text: remedyProgress(row.remedy!) });
-      for (const { row, run } of prepared) {
+      for (const { row } of ordered) outcome(row.check.name, { phase: "running", text: remedyProgress(row.remedy!) });
+      const before = ordered.some(item => item.run.op === "service.install") ? await currentPid() : undefined;
+      let restarting = false;
+      for (const { row, run } of ordered) {
         setProgress(`${settingsText(row.title)}: ${remedyProgress(row.remedy!)}`);
-        try { await commitRun(run, call); outcome(row.check.name, { phase: "running", text: "Rechecking…" }); }
+        try {
+          const restarts = restartsService(await commitRun(run, call));
+          restarting ||= restarts;
+          outcome(row.check.name, { phase: "running", text: restarts ? "Waiting for pacer to restart…" : "Rechecking…" });
+        }
         catch (failure) { outcome(row.check.name, { phase: "error", message: errorText(failure) }); }
       }
+      if (restarting) await awaitRestart(before);
       const rechecked = await recheck();
-      for (const { row } of prepared) setOutcomes(current => {
+      for (const { row } of ordered) setOutcomes(current => {
         if (current[row.check.name]?.phase !== "running") return current;
         const { [row.check.name]: _running, ...rest } = current;
         return rechecked ? { ...rest, [row.check.name]: { phase: "rechecked" } } : rest;
@@ -451,7 +471,8 @@ export function DiagnosticsSection() {
       if (run.consent && !await ask(INTERNAL, [run.consent])) { setProgress("No changes were made."); return; }
       outcome(INTERNAL, { phase: "running", text: "Restarted · rechecking…" });
       setProgress("Restarting the pacer service…");
-      await commitRun(run, call);
+      const before = await currentPid();
+      if (restartsService(await commitRun(run, call))) await awaitRestart(before);
       if (await recheck()) setProgress("The pacer service restarted and checks were refreshed.");
     } catch (failure) { setError(failure); setProgress("The restart did not finish."); }
     finally { outcome(INTERNAL); setBusy(false); keepFocus(); }

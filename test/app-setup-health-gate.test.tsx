@@ -180,3 +180,12 @@ test("gate agent remedies start a fix task after confirm and open it; no remedy 
     expect(location.hash).toBe("#/settings/diagnostics");
   });
 });
+
+test("the gate's repair host waits for the restarted service before its rerun", async () => {
+  const { gateRemedyHost } = await import("../app/src/screens/setup/SetupHealthGate");
+  const pids = [10, 11];
+  const api = { call: async <T,>(op: string) => { expect(op).toBe("snapshot.get"); return { snapshot: { service: { pid: pids.shift() ?? 11 } } } as T; } };
+  const host = gateRemedyHost(api as never, async () => true, () => {});
+  await host.awaitRestart!(10);
+  expect(pids).toEqual([]);
+});

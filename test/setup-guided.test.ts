@@ -91,6 +91,14 @@ test("service installation uses consent, reports status and rejects concurrent i
  release();expect(await installing).toEqual({installed:true,running:true});expect(calls).toEqual(["install","status"]);
 });
 
+test("service installation from inside the service replies restarting without probing the job it is about to replace",async()=>{
+ const {serviceInstall}=await import("../src/core/setup");
+ const calls:string[]=[];
+ const backend={install:async()=>{calls.push("install");return Object.assign(["note"],{reloadPending:true as const});},status:async()=>{calls.push("status");return {installed:true,running:true} as any;}};
+ expect(await serviceInstall(fakeCtx(),true,backend)).toEqual({installed:true,running:true,restarting:true});
+ expect(calls).toEqual(["install"]);
+});
+
 test("planner connection uses manifest integrity, login and the selected account",async()=>{
  const {agentConnect,agentPreview}=await import("../src/core/setup");
  const {loadStrategy}=await import("../src/config/strategy");

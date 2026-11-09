@@ -165,7 +165,7 @@ export function version(_ctx: Ctx) {
 export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<ServiceBackend,"install"|"status">=serviceBackend(ctx)) {
   if(consent!==true)throw new CoreError("not_allowed","installing the login service requires consent","Pass consent: true to run pacer in the background at login");
   try {
-    return await withLock(ctx,"setup-install",async()=>{await backend.install();const s=await backend.status(2000);return {installed:s.installed,running:s.running};},{timeoutMs:0});
+    return await withLock(ctx,"setup-install",async()=>{const notes=await backend.install();if(notes.reloadPending)return {installed:true,running:true,restarting:true};const s=await backend.status(2000);return {installed:s.installed,running:s.running};},{timeoutMs:0});
   }catch(e){if(e instanceof Error&&e.message.startsWith("timed out waiting for"))throw new CoreError("conflict","setup installation is already running");throw toCoreError(e);}
 }
 
