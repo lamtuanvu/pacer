@@ -32,12 +32,29 @@ export function restartsService(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { restarting?: unknown }).restarting === true;
 }
 
+/**
+ * At most one `snapshot.get` per `call` is in flight; the next read reuses the pending one.
+ * `servicePid` gives up after a few seconds, but the request behind it keeps running while
+ * pacer is mid-restart, so a fresh request per poll would pile up during the restart wait.
+ */
+const pendingReads = new WeakMap<RemedyHost["call"], Promise<{ snapshot?: { service?: { pid?: number } } }>>();
+function serviceSnapshot(call: RemedyHost["call"]): Promise<{ snapshot?: { service?: { pid?: number } } }> {
+  let reading = pendingReads.get(call);
+  if (!reading) {
+    reading = call<{ snapshot?: { service?: { pid?: number } } }>("snapshot.get", {});
+    pendingReads.set(call, reading);
+    const settled = () => { if (pendingReads.get(call) === reading) pendingReads.delete(call); };
+    void reading.then(settled, settled);
+  }
+  return reading;
+}
+
 /** The process id of the service answering now; throws while pacer is unreachable. */
 export async function servicePid(call: RemedyHost["call"], timeoutMs = 3000): Promise<number | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("pacer did not answer")), timeoutMs); });
   try {
-    const result = await Promise.race([call<{ snapshot?: { service?: { pid?: number } } }>("snapshot.get", {}), late]);
+    const result = await Promise.race([serviceSnapshot(call), late]);
     return result?.snapshot?.service?.pid;
   } finally { clearTimeout(timer); }
 }

@@ -637,6 +637,31 @@ test('awaitServiceRestart polls the service itself until a new process answers, 
   expect(await awaitServiceRestart(undefined, async () => 10, { ...opts, timeoutMs: 1000 })).toBe(false);
 });
 
+test('a restart wait keeps one snapshot.get in flight while a read never settles', async () => {
+  const { awaitServiceRestart, servicePid } = await import('../app/src/data/remedies');
+  const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+  let calls = 0;
+  const stuckCall = async <T,>(op: string) => (op === 'snapshot.get' ? (calls++, new Promise<never>(() => {})) : {} as T);
+  expect(await awaitServiceRestart(10, () => servicePid(stuckCall, 20),
+    { timeoutMs: 120, intervalMs: 30, sleep })).toBe(false);
+  expect(calls).toBe(1);
+});
+
+test('a restart wait reuses a restarted service read that answers after several polls', async () => {
+  const { awaitServiceRestart, servicePid } = await import('../app/src/data/remedies');
+  let calls = 0, releaseRead: (value: unknown) => void;
+  const slowCall = async <T,>(op: string) => {
+    if (op !== 'snapshot.get') return {} as T;
+    calls++;
+    // The first read holds until the wait's first sleep releases it; later polls start their own.
+    return new Promise<T>(resolve => { if (calls === 1) releaseRead = value => resolve(value as T);
+      else resolve({ snapshot: { service: { pid: 11 } } } as T); });
+  };
+  const sleep = async () => { releaseRead({ snapshot: { service: { pid: 11 } } }); };
+  expect(await awaitServiceRestart(10, () => servicePid(slowCall, 20), { timeoutMs: 3000, intervalMs: 20, sleep })).toBe(true);
+  expect(calls).toBe(1);
+});
+
 test('fix-all runs the service install last so its restart cannot cut off the other fixes', async () => {
   const { serviceInstallLast } = await import('../app/src/data/remedies');
   const items = [{run:{op:'service.install',params:{}}},{run:{op:'limits.refresh',params:{}}},{run:{op:'agent.connect',params:{}}}];

@@ -7,7 +7,7 @@ import { runDoctor } from "../src/install/doctor";
 import { health, binaryInFile, parseLaunchd, parseSystemd, plist, RELOAD_AFTER_RETURN, restartAfterUpdate, serviceBackend, serviceInstalled, servicePath, servicePATH, unit, type ServiceDeps } from "../src/service";
 import { serviceCli } from "../src/service/cli";
 import { MANAGED_BY_DESKTOP_MESSAGE, readOwner, writeOwner } from "../src/install/owner";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, tmpDir } from "./helpers";
 const goodFetch = (async () => Response.json({ ok: true, pid:456 }, { headers: { "X-Pacer": "1" } })) as NonNullable<ServiceDeps["fetch"]>;
 const deps: ServiceDeps = { platform: "darwin", uid: 501, argv: ["/opt/pacer"], fetch: goodFetch, waitMs: 0 };
 function put(path: string, text: string) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); }
@@ -414,9 +414,10 @@ function reloadRun(argv: string[], bin: string) {
   const script = argv[2].replaceAll("/bin/launchctl", join(bin, "launchctl")).replace(/\/bin\/sleep \d+/g, ":");
   return Bun.spawnSync(["/bin/sh", "-c", script, ...argv.slice(3)]);
 }
-async function reloadFixture(launchctl: string) {
+async function reloadFixture(launchctl: string, leaveRestore?: (path: string) => void) {
   const { ctx, d, path } = fixture();
   put(path, "previous registration");
+  leaveRestore?.(`${path}.restore`);
   let argv: string[] = [];
   await serviceBackend(ctx, { ...d, self: inJob, spawnDetached: a => { argv = a; } }).install();
   const bin = join(ctx.pacerHome, "fake-bin"), log = join(ctx.pacerHome, "launchctl.log");
@@ -448,4 +449,21 @@ test("the reload script keeps a registration that loads and stays running", asyn
   expect(readFileSync(r.path, "utf8")).not.toBe("previous registration");
   expect(r.calls()).toEqual(["bootout gui/501/com.pacer.serve", `bootstrap gui/501 ${r.path}`, "print gui/501/com.pacer.serve"]);
   expect(existsSync(r.argv.at(-1)!)).toBe(false);
+});
+// Stale leftover from an earlier crashed restore must not leak into the next one; a symlink there
+// must not carry the restore through to a file outside the registration’s fixture.
+const restoreFails = `[ "$1" = bootstrap ] && ! grep -q "previous registration" "$3" && exit 5\n[ "$1" = print ] && echo "state = running"`;
+test("the reload script clears a stale .restore file and a symlink there without touching the symlink target", async () => {
+  const plain = await reloadFixture(restoreFails, restore => writeFileSync(restore, "stale junk"));
+  expect(plain.out).toContain("restored the previous registration");
+  expect(readFileSync(plain.path, "utf8")).toBe("previous registration");
+  expect(existsSync(`${plain.path}.restore`)).toBe(false);
+  const outside = join(tmpDir(), "outside-target.txt");
+  writeFileSync(outside, "outside");
+  const linked = await reloadFixture(restoreFails, restore => symlinkSync(outside, restore));
+  expect(linked.out).toContain("restored the previous registration");
+  expect(readFileSync(outside, "utf8")).toBe("outside");
+  expect(existsSync(outside)).toBe(true);
+  expect(readFileSync(linked.path, "utf8")).toBe("previous registration");
+  expect(existsSync(`${linked.path}.restore`)).toBe(false);
 });
