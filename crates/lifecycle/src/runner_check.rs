@@ -151,7 +151,9 @@ pub fn check(c: &Value) -> Value {
         // provider before the test task runs. The case snapshot supplies the
         // listing the TS adapter fetches with availableModels/isOffered:
         // absent models or source "none" means no adapter, offered null an
-        // unknown listing, and closest the nearest offered ids.
+        // unknown listing, offered false with an empty closest an empty
+        // listing (sign-in dropped, provider renamed), and closest the
+        // nearest offered ids.
         let listing = c.get("models").filter(|v| !v.is_null());
         let source = listing.map(|m| s(&m["source"])).unwrap_or("none");
         let model = s(&runner["model"]);
@@ -178,6 +180,17 @@ pub fn check(c: &Value) -> Value {
             let note = listing
                 .and_then(|m| m["note"].as_str())
                 .unwrap_or("unknown");
+            event(
+                &mut steps,
+                "skip",
+                &current,
+                Some(&format!("Could not check: {note}")),
+            );
+            Ok(())
+        } else if !truth(&c["models"]["offered"]) && a(&c["models"]["closest"]).is_empty() {
+            // An empty listing is unknown (sign-in dropped, provider renamed),
+            // never "no models".
+            let note = c["models"]["note"].as_str().unwrap_or("unknown");
             event(
                 &mut steps,
                 "skip",
