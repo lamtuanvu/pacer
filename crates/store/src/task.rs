@@ -232,7 +232,10 @@ fn private_file(path: &Path) -> io::Result<File> {
     }
     Ok(f)
 }
-fn write_json(home: &Path, task: &Value) -> Result<f64> {
+/// Writes the JSON copy atomically (temp file + rename) and returns its
+/// (mtime in ms, inode) signature, matching what the import scan compares
+/// against the row.
+fn write_json(home: &Path, task: &Value) -> Result<(f64, u64)> {
     let id = field(task, "id").ok_or(StoreError::InvalidRecord)?;
     let dir = if truthy(task.get("archived")) {
         let month = archive_month(number(task.get("createdAt")).ok_or(StoreError::InvalidRecord)?)?;
@@ -251,7 +254,7 @@ fn write_json(home: &Path, task: &Value) -> Result<f64> {
         std::process::id(),
         unique_suffix()
     ));
-    let result = (|| -> Result<f64> {
+    let result = (|| -> Result<(f64, u64)> {
         let mut o = OpenOptions::new();
         o.write(true).create_new(true);
         #[cfg(unix)]
@@ -263,7 +266,7 @@ fn write_json(home: &Path, task: &Value) -> Result<f64> {
         f.write_all(serde_json::to_string(task)?.as_bytes())?;
         drop(f);
         fs::rename(&temp, &target)?;
-        mtime_ms(&target)
+        Ok((mtime_ms(&target)?, file_inode(&target)?))
     })();
     if result.is_err() {
         let _ = fs::remove_file(temp);
@@ -310,7 +313,7 @@ fn schema_ready(db: &Connection) -> Result<bool> {
         .prepare("PRAGMA table_info(tasks)")?
         .query_map([], |r| r.get(1))?
         .collect::<rusqlite::Result<_>>()?;
-    if !["json_mtime", "archived"]
+    if !["json_mtime", "archived", "json_ino"]
         .iter()
         .all(|name| fields.iter().any(|f| f == name))
     {
@@ -364,7 +367,7 @@ impl TaskStore {
         let fresh_schema = !schema_ready(&db)?;
         if fresh_schema {
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            tx.execute_batch("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0); CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state); CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at); CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);")?;
+            tx.execute_batch("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0, json_ino INTEGER); CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state); CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at); CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);")?;
             let fields: Vec<String> = tx
                 .prepare("PRAGMA table_info(tasks)")?
                 .query_map([], |r| r.get(1))?
@@ -376,6 +379,9 @@ impl TaskStore {
                 tx.execute_batch(
                     "ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
                 )?;
+            }
+            if !fields.iter().any(|v| v == "json_ino") {
+                tx.execute_batch("ALTER TABLE tasks ADD COLUMN json_ino INTEGER")?;
             }
             tx.execute_batch("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at); CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL);")?;
             tx.commit()?;
@@ -466,19 +472,36 @@ impl TaskStore {
                 Err(StoreError::Io(e)) if e.kind() == io::ErrorKind::NotFound => continue,
                 Err(e) => return Err(e),
             };
+            let ino = match file_inode(&path) {
+                Ok(v) => v,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e.into()),
+            };
             // Bun returns SQLite storage types without coercing text to a number.
             // Only a numeric json_mtime can strictly equal stat().mtimeMs. The
             // revision comparison belongs to the SQL UPSERT below, not a typed read.
-            let row: Option<SqlValue> = tx
-                .query_row("SELECT json_mtime FROM tasks WHERE id=?", [id], |r| {
-                    r.get(0)
-                })
+            let row: Option<(SqlValue, SqlValue)> = tx
+                .query_row(
+                    "SELECT json_mtime, json_ino FROM tasks WHERE id=?",
+                    [id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
                 .optional()?;
-            if row.is_some_and(|old| match old {
-                SqlValue::Real(value) => value == mtime,
-                SqlValue::Integer(value) => value as f64 == mtime,
-                _ => false,
-            }) {
+            // The row's (mtime, inode) pair marks the copy it already holds. An
+            // atomic rewrite within the same coarse clock tick keeps the mtime
+            // but replaces the inode, so both must match before the file can be
+            // skipped without reading. A row written by TypeScript, which has no
+            // json_ino, is read once and marked below.
+            let reconciled = row.is_some_and(|(marked_mtime, marked_ino)| {
+                let same_mtime = match marked_mtime {
+                    SqlValue::Real(value) => value == mtime,
+                    SqlValue::Integer(value) => value as f64 == mtime,
+                    _ => false,
+                };
+                same_mtime
+                    && matches!(marked_ino, SqlValue::Integer(value) if value >= 0 && value as u64 == ino)
+            });
+            if reconciled {
                 continue;
             }
             let bytes = match fs::read(&path) {
@@ -499,7 +522,18 @@ impl TaskStore {
             // JSON.parse represents integral decimal and exponent forms as integers.
             task["rev"] = json!(revision(&task).ok_or(StoreError::InvalidRecord)?);
             let values = row_values(&task, activity_at(&task))?;
-            imported += tx.execute("INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived,json_mtime) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET rev=excluded.rev,state=excluded.state,created_at=excluded.created_at,updated_at=excluded.updated_at,settled_at=excluded.settled_at,repo=excluded.repo,record=excluded.record,archived=excluded.archived,json_mtime=excluded.json_mtime WHERE excluded.rev>tasks.rev OR (excluded.rev=tasks.rev AND (tasks.json_mtime IS NULL OR excluded.json_mtime>tasks.json_mtime))", params_from_iter(values.into_iter().chain([SqlValue::Real(mtime)])))?;
+            let accepted = tx.execute("INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived,json_mtime,json_ino) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET rev=excluded.rev,state=excluded.state,created_at=excluded.created_at,updated_at=excluded.updated_at,settled_at=excluded.settled_at,repo=excluded.repo,record=excluded.record,archived=excluded.archived,json_mtime=excluded.json_mtime,json_ino=excluded.json_ino WHERE excluded.rev>tasks.rev OR (excluded.rev=tasks.rev AND (tasks.json_mtime IS NULL OR excluded.json_mtime>tasks.json_mtime))", params_from_iter(values.into_iter().chain([SqlValue::Real(mtime), SqlValue::Integer(ino as i64)])))?;
+            if accepted == 0 {
+                // The row kept a newer revision or an equal copy, so rescanning
+                // this file cannot change it (TypeScript remembers the same per
+                // connection). Mark the file as reconciled for the pair check
+                // above; json_mtime stays the revision tiebreaker.
+                tx.execute(
+                    "UPDATE tasks SET json_ino=? WHERE id=? AND json_mtime=?",
+                    params![ino as i64, id, mtime],
+                )?;
+            }
+            imported += accepted;
             if let Some(at) = number(task.get("settledAt")) {
                 tx.execute(
                     "INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)",
@@ -617,10 +651,10 @@ impl TaskStore {
         let values = row_values(task, now)?;
         if tx.execute("INSERT OR IGNORE INTO tasks(id,rev,state,created_at,updated_at,settled_at,repo,record,archived) VALUES(?,?,?,?,?,?,?,?,?)", params_from_iter(values))? == 0 { return Err(StoreError::Collision); }
         admit(&tx)?;
-        let mtime = write_json(&self.home, task)?;
+        let (mtime, ino) = write_json(&self.home, task)?;
         tx.execute(
-            "UPDATE tasks SET json_mtime=? WHERE id=?",
-            params![mtime, id],
+            "UPDATE tasks SET json_mtime=?, json_ino=? WHERE id=?",
+            params![mtime, ino as i64, id],
         )?;
         tx.commit()?;
         Ok(())
@@ -810,7 +844,7 @@ impl TaskStore {
         if !valid(&task, id) {
             return Err(StoreError::InvalidRecord);
         }
-        let mtime = write_json(&home, &task)?;
+        let (mtime, ino) = write_json(&home, &task)?;
         if let Some(at) = number(task.get("settledAt")) {
             tx.execute(
                 "INSERT OR IGNORE INTO task_first_settle(task_id,at) VALUES(?,?)",
@@ -825,8 +859,8 @@ impl TaskStore {
                 current_seconds()
             },
         )?;
-        let changed = tx.execute("UPDATE tasks SET rev=?,state=?,created_at=?,updated_at=?,settled_at=?,repo=?,record=?,archived=?,json_mtime=? WHERE id=? AND rev=?",
-                params_from_iter(values.into_iter().skip(1).chain([SqlValue::Real(mtime), SqlValue::Text(id.into()), SqlValue::Integer(rev)])))?;
+        let changed = tx.execute("UPDATE tasks SET rev=?,state=?,created_at=?,updated_at=?,settled_at=?,repo=?,record=?,archived=?,json_mtime=?,json_ino=? WHERE id=? AND rev=?",
+                params_from_iter(values.into_iter().skip(1).chain([SqlValue::Real(mtime), SqlValue::Integer(ino as i64), SqlValue::Text(id.into()), SqlValue::Integer(rev)])))?;
         if changed != 1 {
             return Err(StoreError::Conflict);
         }

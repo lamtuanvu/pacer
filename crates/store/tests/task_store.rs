@@ -318,7 +318,22 @@ fn second_open_in_process_skips_import() {
     newer["unknown"] = json!("second-open");
     let temp = home.join("tasks/second-open.tmp");
     fs::write(&temp, serde_json::to_vec(&newer).unwrap()).unwrap();
+    // Capture the original file's timestamp before overwriting so it can be
+    // restored on the replacement below.
+    let original_mtime = fs::metadata(home.join(format!("tasks/{ID}.json")))
+        .unwrap()
+        .modified()
+        .unwrap();
     fs::rename(&temp, home.join(format!("tasks/{ID}.json"))).unwrap();
+    // A replacement written within the same clock tick keeps the replaced
+    // file's coarse mtime (a few ms on Linux), so pin it exactly: only the
+    // changed inode may reveal the rewrite.
+    fs::File::options()
+        .write(true)
+        .open(home.join(format!("tasks/{ID}.json")))
+        .unwrap()
+        .set_modified(original_mtime)
+        .unwrap();
     // A second open in this process, same (path, inode): no import runs, so
     // the stale SQL row (rev 1) is still what is read.
     let mut second = TaskStore::open(&home).unwrap();
