@@ -26,6 +26,8 @@ export type SessionTab = 'terminal' | 'changes' | 'brief';
 export interface SessionProps extends SessionActions {
   embedded?: boolean; data?: SessionData | null; loading?: boolean; error?: string | null; initialTab?: SessionTab; view?:SessionTab;
   onReload?: () => void; onTakeover?: () => void; takeoverBusy?: boolean; takeoverStarting?: boolean;
+  /** The terminal reached a live session host; rereads session data that still says not live. */
+  onSessionLive?: () => void;
   takeoverError?: string; takeRequested?: boolean; onTakeSent?: () => void;
   /** Ends a takeover session on a 1.2 host (task.hand_back). */
   onHandBack?: () => unknown;
@@ -60,7 +62,7 @@ export function sessionTakeoverShown(session: Pick<NonNullable<SessionData['sess
   return !interactiveHost(session);
 }
 export function Session({ embedded = false, data, loading, error, initialTab, view, onAction, onAttach, onReload, onTakeover,
-  takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent, onHandBack, slots, onReadFile }: SessionProps) {
+  takeoverBusy, takeoverStarting, takeoverError, takeRequested, onTakeSent, onHandBack, slots, onReadFile, onSessionLive }: SessionProps) {
   const viewId = useId();
   const [chosenTab, setTab] = useState<SessionTab | undefined>(initialTab);
   const [selected, setSelected] = useState(''), [busy, setBusy] = useState(false);
@@ -116,7 +118,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
           <Disclosure className="pc-disclosure" summary="Technical session output"><pre role="log" tabIndex={0} aria-label="Session output" className="pc-session-follow-log">{text}</pre></Disclosure>
         }</ResourceView> : <PlainLog key={data.id} id={data.id}/>}
       </div> : <LinkedTerminal key={data.id} id={data.id} attempt={session.attempt ?? null} readFile={onReadFile} workspace={data.branch ?? data.repo} agent={data.agent} url={session.attach.ws} cols={session.cols} rows={session.rows}
-        control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live}
+        control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live} onLive={onSessionLive}
         controller={session.controller} active={sessionActive(session)} driving={driving} onHandBack={driving ? onHandBack : undefined}
         takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </Stack>;
