@@ -25,6 +25,7 @@ import { withInstallLock } from "./lock";
 import { internalCheck, internalErrorCode, isInternalCode, remedies, remedyCommand, withRemedies } from "./doctor-remedy";
 import { displayName } from "../render/accounts";
 import type { ProviderStatus } from "../engine/rank";
+import { availableModels as listModels, closestModels, isOffered, type AvailableModels } from "../models/available";
 
 /** The one primary fix for a warning or failure. The server decides it; clients render it. */
 export interface Remedy {
@@ -58,7 +59,7 @@ export interface Check {
 /** Hook checks whose files agent.connect writes, so a reviewed reconnect repairs them. */
 const CLAUDE_HOOK_CHECKS = ["Claude hook configuration", "Claude message hooks"];
 
-export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise<Status>; service?: () => Promise<ServiceStatus> } = {}): Promise<Check[]> {
+export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise<Status>; service?: () => Promise<ServiceStatus>; availableModels?: typeof listModels } = {}): Promise<Check[]> {
   // Expire old undo snapshots so credential-bearing configs never sit on disk
   // indefinitely when no file-changing connect runs to prune them (L2). Run
   // under a try-lock so pacer never races a concurrent staged connect or waits
@@ -82,6 +83,10 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       return runner && !(runner.agent === strategy!.planner.agent && runner.account === strategy!.planner.account);
     })) checks.push({ name: "Executor", level: "warn", detail: "no executor configured",
       fix: "install an executor CLI such as codex, then run pacer init" });
+
+    try {
+      checks.push(...await executorModelsChecks(ctx, strategy, deps.availableModels ?? listModels));
+    } catch { /* a failed listing is unknown, never a failure (see executorModelsChecks) */ }
 
     for (const cfg of Object.values(strategy.providers)) {
       const bin = binaryFor(cfg);
@@ -257,6 +262,45 @@ function usageRemedy(ctx: Ctx, strategy: Strategy, id: string, provider: Provide
     return agent ? remedies.review(agent) : remedies.agent(`Usage ${id}`);
   }
   return provider?.error ? remedies.agent(`Usage ${id}`) : remedies.refreshUsage(accountName);
+}
+
+/**
+ * Report executor-model drift and OpenCode accounts left without an executor.
+ * Listings are fetched in parallel (they are cached). Only a *known* listing that lacks a
+ * runner's default produces a check: an unknown listing means "not verifiable", not "absent",
+ * so it stays quiet. An OpenCode account is one whose source is `opencode`; its executor is
+ * any runner with agent "opencode" citing that account as its account.
+ */
+async function executorModelsChecks(ctx: Ctx, strategy: Strategy, list: typeof listModels): Promise<Check[]> {
+  const checks: Check[] = [];
+  const modelRunners = Object.values(strategy.runners).filter(runner => !!runner.model);
+  const listings = await Promise.all(modelRunners.map(runner => list(ctx, runner.id)));
+  for (let i = 0; i < modelRunners.length; i++) {
+    const runner = modelRunners[i]!;
+    const offering = listings[i]!;
+    if (isOffered(offering, runner.model!) !== false) continue;
+    const replacement = closestModels(offering, runner.model!, 1)[0];
+    checks.push({
+      name: `Model ${runner.id}`, level: "warn",
+      detail: replacement
+        ? `default model ${runner.model} is no longer offered; use ${replacement}`
+        : `default model ${runner.model} is no longer offered`,
+      remedy: replacement ? remedies.replaceModel(runner.id, replacement) : remedies.agent(`Model ${runner.id}`),
+    });
+  }
+  const covered = new Set(Object.values(strategy.runners)
+    .filter(runner => runner.agent === "opencode")
+    .map(runner => runner.account));
+  for (const [name, account] of Object.entries(strategy.accounts)) {
+    if (account.source === "opencode" && !covered.has(name)) {
+      checks.push({
+        name: `Account ${name}`, level: "warn",
+        detail: `Account ${name} has no executor`,
+        remedy: remedies.addExecutor(name),
+      });
+    }
+  }
+  return checks;
 }
 
 function loginCheck(ctx: Ctx, runner: RunnerCfg, strategy: Strategy): Check {
