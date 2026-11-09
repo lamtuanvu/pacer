@@ -11,9 +11,10 @@ import type { SetupDeps } from "../core/opencode-setup";
 
 export interface AvailableModel { id: string; name?: string; context?: number; output?: number; tools?: boolean; costIn?: number | null; costOut?: number | null; release?: string }
 export type ModelSource = "opencode" | "connection" | "discovery" | "none";
-export interface AvailableModels { runner: string; source: ModelSource; models: AvailableModel[] | null; fetchedAt: number; note?: string }
+/** `provider` names a listing for display: the account's provider for OpenCode accounts, else the account name. */
+export interface AvailableModels { runner: string; source: ModelSource; models: AvailableModel[] | null; fetchedAt: number; note?: string; provider?: string }
 
-/** Listings are cached for ten minutes; refresh: true bypasses the cache. */
+/** OpenCode listings are cached for ten minutes; connection lists are read fresh every call. */
 const TTL_S = 600;
 function cacheFile(ctx: Ctx, runnerId: string): string {
   const hash = createHash("sha256").update(runnerId).digest("hex");
@@ -26,6 +27,8 @@ function readCache(ctx: Ctx, path: string): AvailableModels | null {
     if (!isObj(v) || typeof v.runner !== "string" || typeof v.fetchedAt !== "number"
       || !(v.source === "opencode" || v.source === "connection" || v.source === "discovery" || v.source === "none")
       || (v.models !== null && !Array.isArray(v.models))) return null;
+    // Only OpenCode listings are cached; a stale connection listing must never be served.
+    if (v.source !== "opencode") return null;
     if (ctx.now - v.fetchedAt >= TTL_S) return null;
     return v as unknown as AvailableModels;
   } catch { return null; }
@@ -51,6 +54,11 @@ function opencodeModels(ctx: Ctx, account: AccountCfg, deps?: SetupDeps, out: Av
       return out;
     }
     const provider = account.provider!;
+    // An empty listing means sign-in dropped or the provider was renamed: unknown, never "no models".
+    if (!ids.length) {
+      out.note = `opencode lists no models for ${provider}; check opencode auth list`;
+      return out;
+    }
     const catalog = deps && deps.catalog !== undefined ? deps.catalog : readCachedCatalog(ctx);
     const entry = catalog?.providers[provider];
     out.models = ids.map(id => fact(entry?.models.find(m => m.id === id), { id: `${provider}/${id}` }));
@@ -76,6 +84,8 @@ export async function availableModels(ctx: Ctx, runnerId: string, o: { refresh?:
   if (!runner) return base;
   const account = strategy.accounts[runner.account];
   if (!account) return base;
+  // Display name for the listing: the account's provider for OpenCode accounts, else the account name.
+  base.provider = account.source === "opencode" && account.provider ? account.provider : runner.account;
   // Adapter pick: opencode source lists through the OpenCode CLI + catalog facts; an endpoint connection lists its
   // configured models; anything else (native agents, plain opencode, undiscovered base_urls) has no adapter here.
   let result: AvailableModels;
@@ -83,12 +93,19 @@ export async function availableModels(ctx: Ctx, runnerId: string, o: { refresh?:
     result = await opencodeModels(ctx, account, o.deps, { ...base, source: "opencode" });
   } else if (account.connection) {
     const prefix = `pacer-${runner.account}/`;
-    result = { ...base, source: "connection", models: account.connection.models.map(m => ({ id: prefix + m.id, ...(m.name ? { name: m.name } : {}), context: m.context, output: m.output, tools: m.tools })) };
+    if (!account.connection.models.length) {
+      // Validation keeps connection.models non-empty; an empty list is unknown either way.
+      result = { ...base, source: "connection", note: `${account.name} declares no models` };
+    } else {
+      result = { ...base, source: "connection", models: account.connection.models.map(m => ({ id: prefix + m.id, ...(m.name ? { name: m.name } : {}), context: m.context, output: m.output, tools: m.tools })) };
+    }
   } else {
     return base;
   }
-  // A failed or empty listing is never cached: an unknown result must be re-probed on the next call.
-  if (result.models) writeCache(ctx, path, result);
+  // Connection lists come from the strategy itself and are read fresh every call; only OpenCode
+  // listings (a CLI probe) are cached. A failed or empty listing is never cached: an unknown
+  // result must be re-probed on the next call.
+  if (result.models && result.source === "opencode") writeCache(ctx, path, result);
   return result;
 }
 

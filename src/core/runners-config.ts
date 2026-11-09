@@ -122,7 +122,9 @@ export async function set(ctx:Ctx,reference:string,o:{enabled?:boolean;model?:st
     if (offered === false) {
       const account = s.accounts[r.account];
       const provider = account?.provider ?? r.account;
-      throw new CoreError("invalid_input", `${o.model} is not offered by ${provider}`, `Available: ${closestModels(list, o.model).join(", ")}`);
+      const suggestions = closestModels(list, o.model);
+      // Without close models there is no usable suggestion, so the hint stays empty.
+      throw new CoreError("invalid_input", `${o.model} is not offered by ${provider}`, suggestions.length ? `Available: ${suggestions.join(", ")}` : undefined);
     }
     if (offered === null && list.source !== "none") {
       unverified = `${o.model} could not be checked: ${list.note ?? ""}`;

@@ -11,5 +11,5 @@ export function displayModel(id: string): string {
  * listing (models null) or an absent default warns of nothing, because there is nothing verified to report. */
 export function modelWarning(list: AvailableModels, model: string | null, provider: string): string | null {
   if (model === null || list.models === null) return null;
-  return list.models.some(m => m.id === model) ? null : `${displayModel(model)} is no longer offered by ${provider}`;
+  return list.models.some(m => m.id === model) ? null : `${displayModel(model)} is no longer offered by ${list.provider ?? provider}`;
 }

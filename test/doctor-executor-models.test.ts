@@ -55,7 +55,23 @@ test("doctor flags a default the provider stopped serving with a one-click repla
   const checks = await runDoctorWith(ctx, { "opencode#opencode": listing([{ id: "acme/b" }, { id: "acme/c" }]) });
   const check = checks.find(c => c.name === "Model opencode#opencode");
   expect(check?.level).toBe("warn");
+  expect(check?.detail).toBe("default model acme/a is no longer offered by acme; use acme/b");
   expect(check?.remedy).toEqual(remedies.replaceModel("opencode#opencode", "acme/b"));
+});
+
+test("doctor's drift detail names the provider and omits the use hint without a replacement", async () => {
+  const ctx = doctorFixture(["opencode"]);
+  const checks = await runDoctorWith(ctx, { "opencode#opencode": listing([]) });
+  const check = checks.find(c => c.name === "Model opencode#opencode");
+  expect(check?.level).toBe("warn");
+  expect(check?.detail).toBe("default model acme/a is no longer offered by acme");
+});
+
+test("doctor emits no Model check when the listing is empty", async () => {
+  const ctx = doctorFixture(["opencode"]);
+  // An empty listing arrives as unknown (models null), the same as an unknown listing.
+  const checks = await runDoctorWith(ctx, { "opencode#opencode": listing(null, "opencode") });
+  expect(checks.some(c => c.name.startsWith("Model "))).toBe(false);
 });
 
 test("doctor flags an OpenCode account left without an executor", async () => {

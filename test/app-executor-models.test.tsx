@@ -12,7 +12,10 @@ const served: AvailableModels = { runner: "go", source: "opencode", fetchedAt: 1
   { id: "zhipu/glm-4.7", name: "GLM 4.7", context: 200000, output: 8192, costIn: 0.6, costOut: 2.2 },
   { id: "zhipu/glm-4.7-air", context: 131072, output: 8192 },
 ] };
+const servedLabeled: AvailableModels = { ...served, provider: "Zhipu" };
+const emptyListing: AvailableModels = { runner: "go", source: "opencode", fetchedAt: 1, models: null, note: "opencode lists no models for zhipu; check opencode auth list" };
 const unknown: AvailableModels = { runner: "go", source: "opencode", fetchedAt: 1, models: null, note: "opencode could not list models for openrouter" };
+const saveButton = (html: string) => html.match(/<button[^>]*>[\s\S]*?Save model/)?.[0] ?? "";
 
 test("Models shows the default with a searchable picker of served models", () => {
   const html = render(<ExecutorModels runner="go" model="zhipu/glm-4.7" provider="zhipu" initialAvailable={served} />);
@@ -26,6 +29,20 @@ test("a default the provider stopped serving shows the warning and Replace", () 
   expect(html).toContain("Replace…");
 });
 
+test("the warning names the listing's provider, not the account", () => {
+  const html = render(<ExecutorModels runner="go" model="zhipu/glm-4.5" provider="Go" initialAvailable={servedLabeled} />);
+  expect(html).toContain("glm-4.5 is no longer offered by Zhipu");
+});
+
+test("Save model is disabled while the choice equals the current model or is empty", () => {
+  // The picker starts on the current default and the free-text field starts with it or empty,
+  // so an unchanged render renders the disabled state; typing or picking a different id enables it.
+  const unchanged = render(<ExecutorModels runner="go" model="zhipu/glm-4.7" provider="Go" initialAvailable={served} />);
+  expect(saveButton(unchanged)).toContain("disabled");
+  const empty = render(<ExecutorModels runner="go" model={null} provider="Go" initialAvailable={emptyListing} />);
+  expect(saveButton(empty)).toContain("disabled");
+});
+
 test("an agent without a list offers a free-text model id", () => {
   const html = render(<ExecutorModels runner="go" model={null} provider="Go" initialAvailable={unknown} />);
   expect(html).toContain(">Model id</label>");
@@ -33,11 +50,10 @@ test("an agent without a list offers a free-text model id", () => {
   expect(/<button[^>]*>[\s\S]*?Save model/.test(html)).toBe(true);
 });
 
-test("an unknown listing explains and still allows saving", () => {
+test("an unknown listing explains and keeps the save path", () => {
   const html = render(<ExecutorModels runner="go" model={null} provider="Go" initialAvailable={unknown} />);
   expect(html).toContain("opencode could not list models for openrouter");
-  const button = html.match(/<button[^>]*>[\s\S]*?Save model/)?.[0] ?? "";
-  expect(button).not.toContain("disabled");
+  expect(saveButton(html)).toContain("Save model");
 });
 
 test("the Model fact link targets the in-page Models section", () => {

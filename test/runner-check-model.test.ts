@@ -56,9 +56,12 @@ test("an agent without an adapter skips Model offered", async () => {
   expect(job.steps[4]).toMatchObject({state: "passed"});
 });
 
-test("no closest listing still fails Model offered without a suggestion", async () => {
-  const ctx = setup("prov/removal");
-  const d = listing([]);
+test("an empty listing is unknown, so Model offered is skipped as could not check", async () => {
+  const ctx = setup();
+  const d = listing([], {note: "opencode lists no models for prov; check opencode auth list"});
   d.runTestTask = async () => {};
-  expect((await checkRunner(ctx, "codex#team", d)).steps[3]).toMatchObject({state: "failed", detail: "prov/removal is no longer offered by prov"});
+  const job = await checkRunner(ctx, "codex#team", d);
+  expect(job.state).toBe("passed");
+  expect(job.steps[3]).toMatchObject({state: "skipped", detail: "Could not check: opencode lists no models for prov; check opencode auth list"});
+  expect(job.steps[4]).toMatchObject({name: "Test task", state: "passed"});
 });

@@ -57,6 +57,23 @@ test("runner.set saves an unverifiable model with a warning", async () => {
   expect(loadStrategy(ctx).runners["opencode#acme"].model).toBe("acme/b");
 });
 
+test("runner.set saves a model against an empty listing with a could-not-check warning", async () => {
+  const ctx = fakeCtx({run: async () => ({code: 0, stdout: "", stderr: ""})});
+  mkdirSync(ctx.pacerHome, {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), OPENER);
+  const result = await runners.set(ctx, "opencode#acme", {model: "acme/b"});
+  expect(result.warnings).toEqual(["acme/b could not be checked: opencode lists no models for acme; check opencode auth list"]);
+  expect(loadStrategy(ctx).runners["opencode#acme"].model).toBe("acme/b");
+});
+
+test("runner.set refusal omits the hint when the listing offers nothing close", async () => {
+  const ctx = runnerCtx();
+  seedListing(ctx, {models: []});
+  await expect(runners.set(ctx, "opencode#acme", {model: "acme/nope"})).rejects.toThrow(
+    expect.objectContaining({code: "invalid_input", message: "acme/nope is not offered by acme", hint: undefined}),
+  );
+});
+
 test("runner.set model null clears without a listing", async () => {
   const ctx = runnerCtx();
   const result = await runners.set(ctx, "codex", { model: null });

@@ -280,11 +280,11 @@ async function executorModelsChecks(ctx: Ctx, strategy: Strategy, list: typeof l
     const offering = listings[i]!;
     if (isOffered(offering, runner.model!) !== false) continue;
     const replacement = closestModels(offering, runner.model!, 1)[0];
+    const account = strategy.accounts[runner.account];
+    const provider = account?.provider ?? runner.account;
     checks.push({
       name: `Model ${runner.id}`, level: "warn",
-      detail: replacement
-        ? `default model ${runner.model} is no longer offered; use ${replacement}`
-        : `default model ${runner.model} is no longer offered`,
+      detail: `default model ${runner.model} is no longer offered by ${provider}${replacement ? `; use ${replacement}` : ""}`,
       remedy: replacement ? remedies.replaceModel(runner.id, replacement) : remedies.agent(`Model ${runner.id}`),
     });
   }

@@ -50,12 +50,14 @@ export function ExecutorModels({runner, model, provider, initialAvailable}:{runn
   const picker = useRef<HTMLButtonElement>(null);
   const save = useOperation(), check = useOperation();
   const models = list.data?.models ?? null, listing = list.data;
-  const warning = listing ? modelWarning(listing, model, provider) : null;
+  // The listing knows the provider it came from (cached or unknown listings fall back to the account name).
+  const warning = listing ? modelWarning(listing, model, listing.provider ?? provider) : null;
+  const chosen = picked.trim();
+  const unchanged = !chosen || chosen === (model ?? "");
   const saveModel = () => {
-    // The picker holds full ids; the free-text fallback holds the id as the user typed it. An empty
-    // field changes nothing, because saving an empty model id is not valid input.
-    const chosen = picked.trim();
-    if (!chosen) return;
+    // The picker holds full ids; the free-text fallback holds the id as the user typed it. Saving
+    // only happens on a change: an empty field or the current model id are not edits.
+    if (unchanged) return;
     void save.run("runner.set", {id: runner, model: chosen}, () => { void check.run("runner.check", {id: runner}); });
   };
   return <Section id="models" title="Models" actions={<Button size="sm" disabled={refreshing} onClick={() => void refreshList()}>Refresh list</Button>}>
@@ -74,7 +76,7 @@ export function ExecutorModels({runner, model, provider, initialAvailable}:{runn
         </Field>
       </>}
       <div className="u3-actions">
-        <Button variant="primary" disabled={!!save.unavailable || (save.busy)} onClick={saveModel}>Save model</Button>
+        <Button variant="primary" disabled={!!save.unavailable || save.busy || unchanged} onClick={saveModel}>Save model</Button>
       </div>
       <Feedback action={save} />
       <Feedback action={check} />

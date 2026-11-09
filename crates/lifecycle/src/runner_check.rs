@@ -1,5 +1,6 @@
 //! Runner-check decisions over detection/sign-in/usage/test-task results.
-use crate::{Error, a, event, js, n, now, s, truth};use serde_json::{Value, json};
+use crate::{Error, a, event, js, n, now, s, truth};
+use serde_json::{Value, json};
 pub fn usage_detail(row: &Value, usage: &str) -> String {
     if usage == "unmetered" {
         return "unmetered".into();

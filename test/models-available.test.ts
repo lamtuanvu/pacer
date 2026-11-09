@@ -70,12 +70,43 @@ test("claude-code runner has no adapter", async () => {
   expect(r.models).toBeNull();
 });
 
+test("an empty opencode listing is unknown, points at the auth state, and is not cached", async () => {
+  const {ctx, calls} = ctxWithOpencodeModels("");
+  writeStrategy(ctx, {acme: opencodeAcc}, {"opencode#acme": {model: "acme/a"}});
+  const r = await availableModels(ctx, "opencode#acme");
+  expect(r.source).toBe("opencode");
+  expect(r.models).toBeNull();
+  expect(r.note).toBe("opencode lists no models for acme; check opencode auth list");
+  const again = await availableModels(ctx, "opencode#acme");
+  expect(again.models).toBeNull();
+  expect(calls()).toBe(2);
+});
+
+test("connection listings are read fresh, so a new connection model is seen without refresh", async () => {
+  const ctx = fakeCtx();
+  writeStrategy(ctx, {ornode: {kind: "endpoint", connection: {api: "openai-compatible", base_url: "http://127.0.0.1:8123/v1", key: "none", models: [{id: "m1", context: 4000, output: 500, tools: true}]}}}, {"opencode#ornode": {model: "pacer-ornode/m1"}});
+  const first = await availableModels(ctx, "opencode#ornode");
+  expect(first.models!.map(m => m.id)).toEqual(["pacer-ornode/m1"]);
+  writeStrategy(ctx, {ornode: {kind: "endpoint", connection: {api: "openai-compatible", base_url: "http://127.0.0.1:8123/v1", key: "none", models: [{id: "m1", context: 4000, output: 500, tools: true}, {id: "m2", context: 8000, output: 900, tools: true}]}}}, {"opencode#ornode": {model: "pacer-ornode/m1"}});
+  const second = await availableModels(ctx, "opencode#ornode");
+  expect(second.models!.map(m => m.id)).toEqual(["pacer-ornode/m1", "pacer-ornode/m2"]);
+});
+
 test("isOffered and closestModels", () => {
   const list: AvailableModels = {runner: "r", source: "opencode", models: [{id: "acme/a"}, {id: "acme/b"}, {id: "acme/bb"}], fetchedAt: 0};
   expect(isOffered(list, "acme/b")).toBe(true);
   expect(isOffered({runner: "r", source: "none", models: null, fetchedAt: 0}, "acme/b")).toBeNull();
   // The queried id itself is not an offer; acme/b shares the longest prefix with acme/bb.
   expect(closestModels(list, "acme/bb")[0]).toBe("acme/b");
+});
+
+test("availableModels names the provider for opencode accounts and the account name otherwise", async () => {
+  const {ctx} = ctxWithOpencodeModels("acme/a\n");
+  writeStrategy(ctx, {acme: opencodeAcc}, {"opencode#acme": {model: "acme/a"}});
+  expect((await availableModels(ctx, "opencode#acme")).provider).toBe("acme");
+  const conn = fakeCtx();
+  writeStrategy(conn, {ornode: {kind: "endpoint", connection: {api: "openai-compatible", base_url: "http://127.0.0.1:8123/v1", key: "none", models: [{id: "m1", context: 4000, output: 500, tools: true}]}}}, {"opencode#ornode": {model: "pacer-ornode/m1"}});
+  expect((await availableModels(conn, "opencode#ornode")).provider).toBe("ornode");
 });
 
 test("cached for ten minutes unless refreshed", async () => {

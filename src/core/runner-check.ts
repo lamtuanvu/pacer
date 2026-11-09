@@ -95,7 +95,8 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
         step.skip("Model offered", "No model list for this agent");
       } else if (!runner.model) {
         step.skip("Model offered", "Uses the agent's default model");
-      } else if (listing.models === null) {
+      } else if (listing.models === null || !listing.models.length) {
+        // An empty listing is unknown (sign-in dropped, provider renamed), never "no models".
         step.skip("Model offered", `Could not check: ${listing.note ?? "unknown"}`);
       } else {
         const closest = closestModels(listing, runner.model);
