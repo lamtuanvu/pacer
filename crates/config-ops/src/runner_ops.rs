@@ -483,9 +483,11 @@ fn add_params(params: &Value) -> Option<&Map<String, Value>> {
 }
 
 /// `runner.set` with a string `model` must hit TypeScript, which alone can read
-/// the provider's model listing (`availableModels`) to validate the selection.
+/// the provider's model listing (`availableModels`) to validate the selection —
+/// and only when the params otherwise pass the native parameter validation, so
+/// invalid input keeps failing natively with the identical error.
 pub fn runner_set_stays_forwarded(params: &Value) -> bool {
-    params["model"].is_string()
+    params["model"].is_string() && crate::config_params::parse("runner.set", params.clone()).is_ok()
 }
 
 /// `runner.add` with an interactive terminal, a check job or params outside

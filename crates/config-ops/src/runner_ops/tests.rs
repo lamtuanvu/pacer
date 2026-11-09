@@ -159,6 +159,38 @@ fn runner_set_with_model_forwards() {
 }
 
 #[test]
+fn runner_set_with_model_and_invalid_params_stays_native() {
+    // A string model alone does not forward: params failing the native
+    // runner.set parameter validation keep failing natively with the identical
+    // invalid_input error TypeScript produces, instead of a forward marker.
+    let long_id = "😀".repeat(65);
+    for params in [
+        json!({"id": long_id, "model": "", "enabled": null, "max_tasks": 0, "rank": -1}),
+        json!({"id": "codex", "model": ""}),
+    ] {
+        assert!(!runner_set_stays_forwarded(&params), "{params}");
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(&dir, &[]);
+        assert!(
+            !runner_stays_forwarded(&c, "runner.set", &params),
+            "{params}"
+        );
+    }
+    // Valid params with a string model still forward.
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    assert!(runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "enabled": false, "model": "acme/b"})
+    ));
+    // A string model with another invalid field stays native too.
+    assert!(!runner_set_stays_forwarded(
+        &json!({"id": "codex", "model": "acme/b", "max_tasks": 0})
+    ));
+}
+
+#[test]
 fn runner_set_without_model_stays_native() {
     // Without a string model there is nothing to check against a listing, so
     // runner.set stays on the native write path like every other option.
