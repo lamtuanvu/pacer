@@ -33,6 +33,16 @@ test("TOML table undo accepts trailing header comments and leaves the next table
   expect(piecesPresent(text, [{ kind: "toml-table", table: "mcp_servers.pacer" }])).toBe(true);
 });
 
+test("a TOML table undo also removes the same table spelled with quoted keys", () => {
+  const text = 'top = 1\n[mcp_servers."pacer"]\ncommand = "pacer"\n[next]\nx = 2\n';
+  expect(removeTomlTable(text, "mcp_servers.pacer")).toBe('top = 1\n[next]\nx = 2\n');
+  expect(applyUndo(text, [{ kind: "toml-table", table: "mcp_servers.pacer" }])).toBe('top = 1\n[next]\nx = 2\n');
+  expect(piecesPresent(text, [{ kind: "toml-table", table: "mcp_servers.pacer" }])).toBe(true);
+  // The bare header still wins over the quoted one and an unowned quoted key stays.
+  expect(applyUndo('top = 1\n[mcp_servers.pacer]\nx = 1\n[next]\ny = 2\n', [{ kind: "toml-table", table: "mcp_servers.pacer" }])).toBe('top = 1\n[next]\ny = 2\n');
+  expect(removeTomlTable('top = 1\n[mcp_servers.other]\nx = 1\n', "mcp_servers.pacer")).toBe('top = 1\n[mcp_servers.other]\nx = 1\n');
+});
+
 
 test("SDK undo and retained host helpers agree byte-for-byte across every operation", () => {
   const cases: {text:string;ops:UndoOp[]}[] = [
@@ -53,6 +63,7 @@ test("SDK undo and retained host helpers agree byte-for-byte across every operat
     expect(mergeUndo(ops,ops)).toEqual(host.mergeUndo(ops,ops));
   }
   expect(removeTomlTable("prefix\n[owned]\nx=1\n[next]\ny=2", "owned")).toBe(host.removeTomlTable("prefix\n[owned]\nx=1\n[next]\ny=2", "owned"));
+  expect(removeTomlTable('prefix\n[mcp_servers."pacer"]\nx=1\n[next]\ny=2', "mcp_servers.pacer")).toBe(host.removeTomlTable('prefix\n[mcp_servers."pacer"]\nx=1\n[next]\ny=2', "mcp_servers.pacer"));
 });
 test("SDK mergeUndo retains restore ordering and never aliases input", () => {
   const old:UndoOp[]=[{kind:"block",style:"hash",restore:[{text:"first",anchor:null}]}];
