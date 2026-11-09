@@ -57,10 +57,12 @@ export async function authorizeSeedRepair(session:Session,request:Request):Promi
       run:async()=>{throw Error('Repair authorization cannot run subprocesses');}};
     const strategy=loadStrategy(ctx),account=strategy.accounts.team;
     if(strategy.planner.agent!=='codex'||strategy.planner.account!=='team'||account?.source!=='pacer'||account.home!==folder)return false;
-    const preview=await agentPreview(ctx,'codex');
-    if(preview.revision!==params.preview_revision)return false;
-    const expected=[join(folder,'AGENTS.md'),join(folder,'hooks.json'),join(folder,'skills/pacer/SKILL.md')].sort();
-    if(JSON.stringify([...preview.files].sort())!==JSON.stringify(expected))return false;
+    if(!undo){
+      const preview=await agentPreview(ctx,'codex');
+      if(preview.revision!==params.preview_revision)return false;
+      const expected=[join(folder,'AGENTS.md'),join(folder,'hooks.json'),join(folder,'skills/pacer/SKILL.md')].sort();
+      if(JSON.stringify([...preview.files].sort())!==JSON.stringify(expected))return false;
+    }
     // Prior records cannot introduce external paths (including rollback/backup metadata).
     const manifest=JSON.parse(readFileSync(join(home,'install-manifest.json'),'utf8'));
     for(const record of Object.values(manifest.planners??{}) as {files?:{path:string;backup?:string}[];undoConnect?:{files:{path:string}[]}}[]) {
