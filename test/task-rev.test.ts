@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/protocol";
-import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { createTask, readTask, touchTask, updateTask } from "../src/tasks/store";
 import { readLabels } from "../src/tasks/labels";
 import { fakeCtx } from "./helpers";
 
@@ -13,11 +13,12 @@ function fixture() {
   return { ctx, task };
 }
 
-test("tasks start at revision 1 and every update increments the stored revision", () => {
+test("tasks start at revision 1 and every real update or touch increments the stored revision", () => {
   const { ctx, task } = fixture();
   expect(task.rev).toBe(1);
   expect(updateTask(ctx, task.id, t => { t.state = "done"; }).rev).toBe(2);
-  expect(updateTask(ctx, task.id, () => {}).rev).toBe(3);
+  expect(updateTask(ctx, task.id, () => {}).rev).toBe(2);
+  expect(touchTask(ctx, task.id).rev).toBe(3);
   expect(readTask(ctx, task.id)?.rev).toBe(3);
 });
 
@@ -28,13 +29,13 @@ test("legacy tasks without rev read as revision 1 and update to revision 2", () 
   mkdirSync(join(ctx.pacerHome, "tasks"), { recursive: true });
   writeFileSync(join(ctx.pacerHome, "tasks", `${task.id}.json`), JSON.stringify(task));
   expect(readTask(ctx, task.id)?.rev).toBe(1);
-  expect(updateTask(ctx, task.id, () => {}).rev).toBe(2);
+  expect(touchTask(ctx, task.id).rev).toBe(2);
 });
 
 test("stale review returns the current task in conflict data without recording a verdict", async () => {
   const { ctx, task } = fixture();
   updateTask(ctx, task.id, t => { t.state = "done"; });
-  updateTask(ctx, task.id, () => {});
+  touchTask(ctx, task.id);
   const result = await callOp(ctx, "task.review", { id: task.id, verdict: "accept", expect_rev: 1 }).catch(toApiError);
   expect(result).toMatchObject({ code: "conflict", message: "task changed", data: { task: { id: task.id, rev: 3, repo: { key: expect.any(String) } } } });
   expect(readTask(ctx, task.id)?.review).toBeUndefined();
@@ -76,7 +77,8 @@ test("updates in separate processes do not lose revisions", async () => {
   const script = `
     import { updateTask } from ${JSON.stringify(new URL("../src/tasks/store.ts", import.meta.url).pathname)};
     const ctx = JSON.parse(process.argv[1]);
-    for (let i = 0; i < 20; i++) updateTask(ctx, process.argv[2], () => { Bun.sleepSync(2); });
+    // Each write is a real change, held under the task lock long enough to contend.
+    for (let i = 0; i < 20; i++) updateTask(ctx, process.argv[2], t => { Bun.sleepSync(2); t.question = { text: process.pid + ":" + i, at: 0 }; });
   `;
   const children = Array.from({ length: 3 }, () => Bun.spawn([process.execPath, "-e", script, JSON.stringify({ pacerHome: ctx.pacerHome }), task.id], { stdout: "pipe", stderr: "pipe" }));
   expect(await Promise.all(children.map(child => child.exited))).toEqual([0, 0, 0]);
@@ -119,7 +121,7 @@ test("a stale request cannot refresh liveness before checking the revision", asy
 test("dismiss validates all revisions before changing the batch", async () => {
   const { ctx, task } = fixture();
   const other = createTask(ctx, { brief: task.brief, kind: null, requestedExecutor: null, timeoutS: 60 });
-  updateTask(ctx, other.id, () => {});
+  touchTask(ctx, other.id);
   expect(await callOp(ctx, "task.dismiss", { ids: [task.id, other.id], expect_rev: 1 }).catch(toApiError)).toMatchObject({ code: "conflict", data: { task: { rev: 2 } } });
   expect(readTask(ctx, task.id)?.dismissed).toBeUndefined();
   expect(readTask(ctx, task.id)?.rev).toBe(1);

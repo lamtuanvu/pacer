@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx } from "./helpers";
-import { createTask, listActiveAndRecentTasks, listLiveTasks, listTasksWhere, readTask, taskDatabase, updateTask } from "../src/tasks/store";
+import { createTask, listActiveAndRecentTasks, listLiveTasks, listTasksWhere, readTask, taskDatabase, tasksDir, taskStoreVersion, updateTask } from "../src/tasks/store";
 import { eligibleForRetention, pruneTasks, restoreTask } from "../src/tasks/retention";
 
 const binary = process.env.PACER_STORE_PROBE_BIN;
@@ -59,6 +59,33 @@ test.skipIf(!binary || !existsSync(binary))("Rust TaskStore and TS independently
       expect(expected !== null, `${label} accepted`).toBe(accepted);
     }
   }
+});
+
+test.skipIf(!binary || !existsSync(binary))("no-op update leaves rev unchanged in both runtimes", () => {
+  const rustCtx = fakeCtx();
+  const rustTask = createTask(rustCtx, { brief: { goal: "rust no-op", repo: rustCtx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  writeFileSync(join(rustCtx.pacerHome, ".sqlite-proof-home"), "disposable\n");
+  const rustFile = join(tasksDir(rustCtx), `${rustTask.id}.json`);
+  const rustMtimeBefore = statSync(rustFile).mtimeMs;
+  const rustVersionBefore = taskStoreVersion(rustCtx);
+  const rustResult = rust("noop-update", rustCtx.pacerHome, rustTask.id);
+  expect(rustResult.rev).toBe(rustTask.rev);
+  expect(statSync(rustFile).mtimeMs).toBe(rustMtimeBefore);
+  expect(taskStoreVersion(rustCtx)).toBe(rustVersionBefore);
+  expect(readTask(rustCtx, rustTask.id)).toEqual(rustTask);
+
+  const tsCtx = fakeCtx();
+  const tsTask = createTask(tsCtx, { brief: { goal: "ts no-op", repo: tsCtx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  writeFileSync(join(tsCtx.pacerHome, ".sqlite-proof-home"), "disposable\n");
+  const tsFile = join(tasksDir(tsCtx), `${tsTask.id}.json`);
+  const tsMtimeBefore = statSync(tsFile).mtimeMs;
+  const tsVersionBefore = taskStoreVersion(tsCtx);
+  const tsResult = updateTask(tsCtx, tsTask.id, t => { t.state = t.state; });
+  expect(tsResult.rev).toBe(tsTask.rev);
+  expect(statSync(tsFile).mtimeMs).toBe(tsMtimeBefore);
+  expect(taskStoreVersion(tsCtx)).toBe(tsVersionBefore);
+  // Independently confirm the Rust reader agrees nothing changed.
+  expect(rust("read", tsCtx.pacerHome, tsTask.id)).toEqual(readTask(tsCtx, tsTask.id));
 });
 
 test.skipIf(!binary || !existsSync(binary))("Rust adapter alternates with Bun across revisions, unknown fields, and JSON mtime", () => {

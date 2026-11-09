@@ -45,6 +45,10 @@ fn unchanged_sqlite_reads_avoid_writers_but_changed_json_requires_compatibility(
         reader.read(ID),
         Err(StoreError::CompatibilityRequired)
     ));
+    // Request paths no longer import on every access (Task 5); reconcile
+    // explicitly, the same contract a periodic reconcile relies on, before
+    // the JSON-only write is visible to either reader.
+    store.reconcile_json().unwrap();
     assert_eq!(store.read(ID).unwrap().unwrap()["state"], "done");
     assert_eq!(reader.read(ID).unwrap().unwrap()["state"], "done");
 }

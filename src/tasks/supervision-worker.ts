@@ -1,5 +1,6 @@
 import { makeCtx } from "../ctx";
 import { superviseTasks } from "./api";
+import { reconcileTaskJson } from "./store";
 
 interface WorkerMessage {
   type: "init";
@@ -13,6 +14,9 @@ let stopped = false;
 // Init options only: a context captures `now` once, so each sweep builds a fresh one.
 let init: { env: Record<string, string>; pacerHome: string } | null = null;
 let spawnRunner: ((ctx: ReturnType<typeof makeCtx>, taskId: string) => number | undefined) | null = null;
+// Bounds the JSON reconcile to at most once per 60s, off the request path.
+let lastReconcileAt = 0;
+const RECONCILE_INTERVAL_MS = 60_000;
 
 function stoppedFn(): boolean {
   return stopped;
@@ -28,6 +32,17 @@ async function runSupervisionLoop(): Promise<void> {
     const jitter = Math.floor(Math.random() * 2000);
     await Bun.sleep(baseMs + jitter);
     if (stopped) break;
+
+    if (Date.now() - lastReconcileAt >= RECONCILE_INTERVAL_MS) {
+      lastReconcileAt = Date.now();
+      try {
+        reconcileTaskJson(makeCtx(init));
+      } catch (error) {
+        if (!stopped) {
+          console.error(`pacer: worker task reconcile failed: ${String(error)}`);
+        }
+      }
+    }
 
     try {
       await superviseTasks(makeCtx(init), spawnRunner, stoppedFn);

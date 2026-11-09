@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import { join } from "node:path";
-import { createTask, readTask, tasksDir, updateTask } from "../src/tasks/store";
+import { createTask, readTask, reconcileTaskJson, tasksDir, updateTask } from "../src/tasks/store";
 import { dispatchDatabase } from "../src/dispatch/store";
 import { startServer } from "../src/serve/http";
 import { backfillTaskHistory, maintainTaskHistory, startTaskHistory } from "../src/tasks/history";
@@ -54,6 +54,10 @@ test("legacy JSON filesystem reads do not hold the database writer lock", () => 
     return (original as (...args: unknown[]) => unknown)(path, ...args);
   }) as typeof fs.readFileSync);
   try {
+    // Reads on the cached connection no longer rescan the directory on their own; an
+    // explicit reconcile (the periodic Worker/in-process cadence) is what imports it,
+    // and it must still do so without holding the database writer lock.
+    expect(reconcileTaskJson(ctx)).toBe(1);
     expect(readTask(ctx, task.id)).toMatchObject({ rev: 2, title: "legacy update" });
     expect(observed).toBe(true);
   } finally { read.mockRestore(); writer.close(); }

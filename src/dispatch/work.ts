@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { CoreError } from "../core/errors";
-import { readTask, updateTask } from "../tasks/store";
+import { readTask, touchTask, updateTask } from "../tasks/store";
 import type { TaskRecord,AttemptUsage,AttemptTokens } from "../tasks/types";
 import { attemptsWithTokens,itemsFromIndex,itemsOf,rollupTokens,type TokenItem } from "../tokens/rollup";
 import { unknownTokens } from "../tokens/extract";
@@ -244,7 +244,7 @@ export function setWorkDependencies(ctx:Ctx,id:string,dependencies:string[],expe
     for(const dependency of dependencies){const dep=getWork(ctx,dependency);if(!dep||dep.rootId!==work.rootId||dependency===id)throw new CoreError("invalid_input","Invalid dependency");const visit=(current:string,seen=new Set<string>()):boolean=>{if(current===id)return true;if(seen.has(current))return false;seen.add(current);return getWork(ctx,current)?.dependencies.some(d=>visit(d,seen))??false;};if(visit(dependency))throw new CoreError("invalid_input","Dependency cycle");}
     db.query("UPDATE work_nodes SET dependencies=? WHERE task_id=?").run(boundedJson([...new Set(dependencies)]),id);
     db.query("DELETE FROM work_dependency_waivers WHERE task_id=?").run(id);
-    updateTask(ctx,id,()=>{});appendWorkEvent(ctx,id,"dependencies.changed",{dependencies});
+    touchTask(ctx,id);appendWorkEvent(ctx,id,"dependencies.changed",{dependencies});
     syncDependencyWait(ctx,id);
   }).immediate();
 }
@@ -257,7 +257,7 @@ export function waiveWorkDependency(ctx:Ctx,id:string,dependency:string,reason:s
     if(task.rev!==expectRev)throw new CoreError("conflict","Task changed");
     if(!work.dependencies.includes(dependency)&&getWork(ctx,dependency)?.parentId!==id)throw new CoreError("invalid_input","Not a dependency or direct child of this work");
     db.query("INSERT OR REPLACE INTO work_dependency_waivers(task_id,dependency_id,reason,at) VALUES(?,?,?,?)").run(id,dependency,reason.trim().slice(0,2000),ctx.now);
-    updateTask(ctx,id,()=>{});
+    touchTask(ctx,id);
     appendWorkEvent(ctx,id,"dependencies.waived",{dependency,reason:reason.trim().slice(0,2000)});
     syncDependencyWait(ctx,id);
   }).immediate();

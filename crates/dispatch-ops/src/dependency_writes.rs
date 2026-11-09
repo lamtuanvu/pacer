@@ -187,7 +187,7 @@ fn write(
         domain.set(Some(error));
         StoreError::Unchanged
     };
-    let written = state.tasks.update_admitted_then(
+    let written = state.tasks.touch_admitted_then(
         id,
         expect_rev as i64,
         now,

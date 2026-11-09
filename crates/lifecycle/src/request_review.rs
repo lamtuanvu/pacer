@@ -143,9 +143,11 @@ mod tests {
                 now,
             )
             .unwrap();
-        // insert starts at rev 1; bump once like createTask→updateTask(state=done).
+        // insert starts at rev 1; bump once to give this suite's fixtures a rev-2
+        // baseline. The store now skips no-op writes, so the bump must change a
+        // real field rather than re-set the state insert already set.
         let task = store
-            .update(id, 1, now, |t| t["state"] = json!("done"))
+            .update(id, 1, now, |t| t["fixtureRev"] = json!(2))
             .unwrap();
         assert_eq!(task["rev"], 2);
         (dir, store, id.into())

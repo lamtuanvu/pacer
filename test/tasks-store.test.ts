@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { appendLabel, readLabels } from "../src/tasks/labels";
-import { createTask, isTaskId, listTasks, newTaskId, readTask, updateTask } from "../src/tasks/store";
+import { statSync } from "node:fs";
+import { join } from "node:path";
+import { createTask, isTaskId, listTasks, newTaskId, readTask, tasksDir, taskStoreVersion, touchTask, updateTask } from "../src/tasks/store";
 import { fakeCtx, localTs } from "./helpers";
 
 const brief = { goal: "Fix the bug", repo: "/tmp/repo", acceptance: "bun test" };
@@ -43,4 +45,31 @@ test("labels append as JSON lines with a timestamp and skip corrupt lines on rea
     { ts: ctx.now, type: "task_review", task_id: "t-1", accepted: true },
     { ts: ctx.now, type: "guard_feedback", event_id: "e-1", correct: false },
   ]);
+});
+
+test("updateTask writes nothing when mutate changes nothing", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief, kind: "debug", requestedExecutor: null, timeoutS: 1800 });
+  const file = join(tasksDir(ctx), `${t.id}.json`), mtime = statSync(file).mtimeMs, version = taskStoreVersion(ctx);
+  const out = updateTask(ctx, t.id, x => { x.state = t.state; });
+  expect(out.rev).toBe(t.rev);
+  expect(readTask(ctx, t.id)!.rev).toBe(t.rev);
+  expect(statSync(file).mtimeMs).toBe(mtime);
+  expect(taskStoreVersion(ctx)).toBe(version);
+});
+
+test("updateTask still writes a real change", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief, kind: "debug", requestedExecutor: null, timeoutS: 1800 });
+  const out = updateTask(ctx, t.id, x => { x.question = { text: "Which branch?", at: ctx.now }; });
+  expect(out.rev).toBe(t.rev + 1);
+  expect(readTask(ctx, t.id)!.question?.text).toBe("Which branch?");
+});
+
+test("touchTask bumps the revision without changing the record", () => {
+  const ctx = fakeCtx();
+  const t = createTask(ctx, { brief, kind: "debug", requestedExecutor: null, timeoutS: 1800 });
+  const out = touchTask(ctx, t.id);
+  expect(out.rev).toBe(t.rev + 1);
+  expect({ ...readTask(ctx, t.id)!, rev: t.rev }).toEqual({ ...t, rev: t.rev });
 });

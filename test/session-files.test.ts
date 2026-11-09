@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { readSessionFile } from "../src/session/files";
 import { fakeCtx, tmpDir } from "./helpers";
 import { writeJsonAtomic } from "../src/fsutil";
+import { reconcileTaskJson } from "../src/tasks/store";
 import { CoreError } from "../src/core/errors";
 import { callOp } from "../src/api/ops";
 
@@ -117,6 +118,10 @@ function worktreeSession(ctx: ReturnType<typeof fakeCtx>, workdir: string) {
     brief: { goal: "view", repo: workdir }, attempts: [],
     run: { attempt: 2, workdir, dir: join(ctx.pacerHome, "runs", id, "2"), host: null, mode: "current" },
   } as any);
+  // A cached connection no longer rescans the tasks directory on its own; this
+  // helper rewrites the same record more than once in a test, so force the
+  // periodic-reconcile effect explicitly rather than relying on a request-path scan.
+  reconcileTaskJson(ctx);
 }
 
 test("a per-repo worktrees directory cannot read sibling task worktrees", () => {

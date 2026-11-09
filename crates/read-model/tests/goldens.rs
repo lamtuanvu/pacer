@@ -52,6 +52,12 @@ fn complete_typescript_snapshots_from_sqlite_and_old_release_homes() {
             )
             .unwrap();
         }
+        // Request paths no longer import JSON on every access (Task 5); this
+        // instance-owned ReadModel cache keeps one TaskStore per home across
+        // many snapshot calls (the long-lived host connection the design
+        // describes), so reconcile explicitly here, standing in for the
+        // periodic Worker reconcile a real host would run.
+        model.store(&ctx).unwrap().reconcile_json().unwrap();
         let db = model.store(&ctx).unwrap().connection().unwrap();
         db.execute_batch("CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,task_id TEXT,root_id TEXT,sender TEXT,recipient TEXT,kind TEXT,body TEXT,reply_to TEXT,request_id TEXT,status TEXT,created_at REAL,delivered_at REAL,read_at REAL,turn_id TEXT,fingerprint TEXT); CREATE TABLE IF NOT EXISTS msg_liveness(node TEXT PRIMARY KEY,reason TEXT,since REAL,attempts INTEGER,nudges INTEGER,next_at REAL,progress_mark TEXT,stalled_at REAL,escalated_at REAL,hook_set TEXT,hook_blocks INTEGER); CREATE TABLE IF NOT EXISTS agent_sessions(id TEXT PRIMARY KEY,task TEXT NOT NULL,request_id TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS agent_session_revision(id INTEGER PRIMARY KEY CHECK(id=1),generation INTEGER NOT NULL); INSERT OR IGNORE INTO agent_session_revision VALUES(1,0);").unwrap();
         for (table, rows) in case["tables"].as_object().unwrap() {

@@ -117,6 +117,10 @@ test("writes remain readable by older binaries and atomic JSON updates invalidat
   writeFileSync(tmp, JSON.stringify({ ...previous, title: "old binary", rev: 3 }));
   utimesSync(tmp, new Date(), new Date(Date.now() + 1000));
   renameSync(tmp, file);
+  // Reads on the cached connection no longer rescan the directory on their own; an
+  // explicit reconcile (the periodic Worker/in-process cadence) is what sees the
+  // older binary's write, and that import is itself what moves the store token.
+  expect(store.reconcileTaskJson(ctx)).toBe(1);
   expect(store.taskStoreVersion(ctx)).not.toBe(version);
   expect(store.readTask(ctx, task.id)).toMatchObject({ title: "old binary", rev: 3 });
   expect(store.taskStoreVersion(ctx)).toBe(store.taskStoreVersion(ctx));
@@ -124,6 +128,7 @@ test("writes remain readable by older binaries and atomic JSON updates invalidat
   writeFileSync(tmp, JSON.stringify({ ...previous, title: "mtime update", rev: 3 }));
   utimesSync(tmp, new Date(), new Date(Date.now() + 2000));
   renameSync(tmp, file);
+  expect(store.reconcileTaskJson(ctx)).toBe(1);
   expect(store.readTask(ctx, task.id)?.title).toBe("mtime update");
   // A missing database is rebuilt entirely from retained JSON.
   rmSync(join(ctx.pacerHome, "state/tasks.db"));
@@ -146,8 +151,11 @@ test("unchanged directories avoid enumeration and changed directories read only 
     const tmp = `${file}.old.tmp`;
     writeFileSync(tmp, JSON.stringify({ ...first, title: "changed", rev: 2 }));
     renameSync(tmp, file);
-    expect(store.readTask(ctx, first.id)?.title).toBe("changed");
+    // Reads no longer rescan on their own; an explicit reconcile (the periodic
+    // Worker/in-process cadence) is what imports a changed directory now.
+    expect(store.reconcileTaskJson(ctx)).toBe(1);
     expect(scan).toHaveBeenCalledTimes(1);
     expect(read).toHaveBeenCalledTimes(1);
+    expect(store.readTask(ctx, first.id)?.title).toBe("changed");
   } finally { scan.mockRestore(); read.mockRestore(); }
 });
