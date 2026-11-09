@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { restorePlannerInstall } from "../src/plugins/planner-install";
 import { readManifest } from "../src/install/manifest";
-import { writeUndoSnapshot, undoKeyDir, readSnapshotFile, UNDO_CAP_BYTES, type SnapshotChange } from "../src/install/undo-store";
+import { writeUndoSnapshot, undoKeyDir, readSnapshotFile, UNDO_CAP_BYTES, pruneUndoSnapshotsAtStartup, UNDO_MISMATCH, type SnapshotChange } from "../src/install/undo-store";
+import { runDoctor } from "../src/install/doctor";
 import { sha256 } from "../src/install/fsx";
 
 /** A ctx with a writable ~/.claude and a fresh pacerHome. */
@@ -222,4 +223,72 @@ test("a sized snapshot stores private copies and prunes expired snapshots (N1)",
     expect(statSync(join(dir, name)).mode & 0o777).toBe(0o600);
   }
   rmSync(join(c.pacerHome, "undo"), { recursive: true, force: true });
+});
+
+test("M1: a crash after the manifest commit but before the snapshot swap leaves old copies; undo refuses", async () => {
+  const c = ctx();
+  const settings = join(c.home, ".claude", "settings.json"), post = '{"hook":true}\n';
+  writeFileSync(settings, post);
+  // Connect #1's snapshot stays in the store (connect #2's swap aborted).
+  writeUndoSnapshot(c, "claude-code", [{ path: settings, before: "OLD", after: post }], "rev-1");
+  // The manifest commits connect #2's snapshot, but the store still holds #1's
+  // copies. Undo must refuse rather than restore the older before-image.
+  const snapB = {
+    at: c.now, revision: "rev-2", size: 3,
+    files: [{ path: settings, beforeHash: sha256("NEW"), size: 3, afterHash: sha256(post), copy: "f-0" }],
+  };
+  writeManifest(c, record(snapB, { files: [{ path: settings, action: "edited", exact: true, undo: [] }] }));
+  let crashErr: unknown;
+  try { await restorePlannerInstall(c, "claude-code", "claude-code", "rev-2"); throw Error("undo should have refused"); }
+  catch (e) { crashErr = e; }
+  expect(crashErr).toMatchObject({ code: "conflict" });
+  expect((crashErr as Error).message).toBe(UNDO_MISMATCH);
+  // The on-disk file is untouched by the refused undo.
+  expect(readFileSync(settings, "utf8")).toBe(post);
+});
+
+test("M1: a tampered copy in the private undo store is refused", async () => {
+  const c = ctx();
+  const settings = join(c.home, ".claude", "settings.json"), pre = '{"hook":false}\n', post = '{"hook":true}\n';
+  writeFileSync(settings, post);
+  const snap = seedSnapshot(c, [{ path: settings, before: pre, mode: 0o600, after: post }], "rev");
+  writeManifest(c, record(snap, { files: [{ path: settings, action: "edited", exact: true, undo: [] }] }));
+  // Tamper: overwrite the private copy so its hash no longer matches the manifest.
+  writeFileSync(join(undoKeyDir(c, "claude-code"), snap.files[0]!.copy!), "TAMPERED");
+  let tamperedErr: unknown;
+  try { await restorePlannerInstall(c, "claude-code", "claude-code", "rev"); throw Error("undo should have refused"); }
+  catch (e) { tamperedErr = e; }
+  expect(tamperedErr).toMatchObject({ code: "conflict" });
+  expect((tamperedErr as Error).message).toBe(UNDO_MISMATCH);
+  // The on-disk file is untouched by the refused undo.
+  expect(readFileSync(settings, "utf8")).toBe(post);
+});
+
+test("expired snapshots are pruned at service startup and by doctor (L2)", async () => {
+  const c = ctx();
+  const file = join(c.home, ".claude", "a.txt"), small = "x\n";
+  writeFileSync(file, small);
+  // Fresh keys must survive; nothing else may prune here, so seed one key at a time.
+  writeFileSync(join(c.pacerHome, "strategy.yaml"),
+    "planner: claude-code\nproviders:\n  claude-code: {usage: quota}\n  codex: {usage: quota}\nrouting:\n  - default: [codex]\n");
+  const status = () => ({
+    generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal",
+    disabled: false, paused: null, modeHold: null, calendarPace: true, executors: { ranked: [], excluded: [] },
+    providers: ["claude-code", "codex"].map((id) => ({ id, usage: "quota", windows: [], binding: null, verdict: "OK", installed: true, stale: false })),
+  }) as never;
+  const service = async () => ({ installed: true, running: true, healthy: true, binaryMatches: true }) as never;
+
+  // Service-startup pruner (under the install lock) removes an expired snapshot.
+  writeUndoSnapshot(c, "claude-code", [{ path: file, before: small, after: "b\n" }], "rev-expired", c.now - 8 * 86_400);
+  await pruneUndoSnapshotsAtStartup(c);
+  expect(readdirSync(join(c.pacerHome, "undo"))).toEqual([]);
+  // ... and keeps a fresh one.
+  writeUndoSnapshot(c, "codex#team", [{ path: file, before: small, after: "b\n" }], "rev-fresh", c.now);
+  await pruneUndoSnapshotsAtStartup(c);
+  expect(readdirSync(join(c.pacerHome, "undo"))).toEqual(["codex#team"]);
+
+  // Doctor also prunes expired snapshots.
+  writeUndoSnapshot(c, "claude-code", [{ path: file, before: small, after: "b\n" }], "rev-expired", c.now - 8 * 86_400);
+  await runDoctor(c, { status, service });
+  expect(readdirSync(join(c.pacerHome, "undo"))).toEqual(["codex#team"]);
 });

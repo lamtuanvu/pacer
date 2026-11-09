@@ -1,10 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
 import { join } from "node:path";
-import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { fakeCtx } from "./helpers";
 import { PluginRegistry } from "../src/plugins/registry";
 import { withPlannerInstall } from "../src/plugins/planner-install";
 import { writeUndoSnapshot, stageUndoSnapshot, discardStagedUndoSnapshot, readSnapshotFile } from "../src/install/undo-store";
+import * as undo from "../src/install/undo-store";
 import { readManifest, writeManifest } from "../src/install/manifest";
 import type { PluginManifest } from "../src/plugins/protocol";
 
@@ -94,6 +96,51 @@ test("N2: a planner plugin's forged snapshot is ignored; the host owns undoConne
     expect(text).not.toContain("FORGED");
     expect(text).not.toContain("deadbeef");
   } finally {
+    await registry.shutdown();
+    await rm(ctx.home, { recursive: true, force: true });
+  }
+});
+
+test("L3: a post-commit snapshot swap failure still reports the commit successful, with undo unavailable and staged copies cleaned", async () => {
+  const ctx = fakeCtx();
+  const folder = join(ctx.home, "planner");
+  await mkdir(folder);
+  await mkdir(ctx.pacerHome, { recursive: true });
+  await writeFile(join(folder, "settings.json"), "before");
+  const manifest: PluginManifest = {
+    id: "sp-forge", version: "1.0.0", publisher: "pacer", host: "^1.6",
+    contributes: { planner: {} },
+    capabilities: [
+      { name: "fs.read", scopes: [folder + "/**"] },
+      { name: "fs.write", scopes: [folder + "/**"] },
+    ],
+    tier: "free", reentrant: false,
+  };
+  const registry = new PluginRegistry({
+    bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
+    spawnBundled: () => ({
+      argv: [process.execPath, join(import.meta.dir, "fixtures/sp-forge/install.ts")],
+      cwd: ctx.home,
+      env: {},
+    }),
+  });
+  const swap = spyOn(undo, "commitStagedUndoSnapshot").mockImplementation(() => { throw Error("swap interrupted"); });
+  try {
+    const report = await withPlannerInstall(
+      { ctx, pacerArgv: ["pacer"], folder },
+      "forge",
+      { pluginId: "sp-forge", roots: [folder], binaries: [], registry, undoRevision: "preview-123" },
+    );
+    // The commit landed despite the swap failure: the connect changed the file.
+    expect(await readFile(join(folder, "settings.json"), "utf8")).toBe("installed");
+    // Undo is reported unavailable, not the connect as a failure.
+    expect(report.notes.join("\n")).toContain("could not be finalized");
+    // The staged copies were discarded and no snapshot survives in the store.
+    const entries = await readdir(join(ctx.pacerHome, "undo"));
+    expect(entries.filter((name) => name.startsWith("staging-"))).toEqual([]);
+    expect(existsSync(join(ctx.pacerHome, "undo", "forge"))).toBe(false);
+  } finally {
+    swap.mockRestore();
     await registry.shutdown();
     await rm(ctx.home, { recursive: true, force: true });
   }

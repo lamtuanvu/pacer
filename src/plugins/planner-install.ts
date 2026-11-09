@@ -26,6 +26,10 @@ export const UNDO_WINDOW_S = 7 * 86_400;
 export const UNDO_CAP_NOTE =
   "Undo is unavailable for this connect: it changed more data than the snapshot size limit.";
 
+/** Reported when the post-commit snapshot swap missed, so the commit landed but undo is unavailable. */
+export const UNDO_SWAP_NOTE =
+  "Undo is unavailable for this connect: the saved snapshot could not be finalized.";
+
 /** Restore exactly the files one connect changed, from its snapshot, within the 7-day window. */
 export async function restorePlannerInstall(
   ctx: InstallEnv["ctx"],
@@ -74,7 +78,11 @@ export async function restorePlannerInstall(
             pending.push({ path, before: text, after: null, beforeMode: lstatSync(path).mode & 0o700 });
           removed.push(entry.path);
         } else {
-          const copy = readSnapshotFile(ctx, key, entry.path);
+          const copy = readSnapshotFile(ctx, key, entry.path, {
+            revision: snap.revision,
+            beforeHash: entry.beforeHash,
+            size: entry.size,
+          });
           if (!copy)
             throw new CoreError("not_found", "undo snapshot copy missing for " + entry.path, "Reconnect the agent from Diagnostics to repair it again.");
           pending.push({
@@ -444,6 +452,7 @@ export async function withPlannerInstall(
       );
       const hostNotes: string[] = [];
       let stagedDir: string | undefined;
+      let clearAfterCommit = false;
       try {
         session.preflight();
         const changed = [...pending.values()].filter(
@@ -464,7 +473,12 @@ export async function withPlannerInstall(
                 ctx.now,
               );
               if (staged) { record.undoConnect = staged.snapshot; stagedDir = staged.dir; }
-              else { delete record.undoConnect; hostNotes.push(UNDO_CAP_NOTE); }
+              else {
+                delete record.undoConnect; hostNotes.push(UNDO_CAP_NOTE);
+                // No snapshot for this connect; clear the superseded one only
+                // after the commit so an aborted commit keeps undo (L3).
+                clearAfterCommit = true;
+              }
             } else {
               record.undoConnect = prior?.undoConnect ? structuredClone(prior.undoConnect) : undefined;
             }
@@ -472,7 +486,9 @@ export async function withPlannerInstall(
             record.undoConnect = prior?.undoConnect ? structuredClone(prior.undoConnect) : undefined;
           }
         } else {
-          clearUndoSnapshot(ctx, env.plannerKey);
+          // The last snapshot is cleared only after the commit (L3): an aborted
+          // commit must keep the prior snapshot's copies for an in-flight undo.
+          clearAfterCommit = true;
         }
         const planners = { ...base.planners, [env.plannerKey]: record };
         if (options.operation === "uninstall") delete planners[env.plannerKey];
@@ -482,7 +498,18 @@ export async function withPlannerInstall(
           JSON.stringify({ version: 1, planners }, null, 2) + "\n",
         );
         committed = true;
-        if (stagedDir) commitStagedUndoSnapshot(ctx, env.plannerKey, stagedDir, ctx.now);
+        // All snapshot cleanup and the swap happen only after the commit. A swap
+        // that misses after a successful commit still reports the commit as
+        // successful, but with undo unavailable: discard the staged copies and
+        // clear the superseded snapshot so no stale snapshot survives (L3).
+        try {
+          if (stagedDir) commitStagedUndoSnapshot(ctx, env.plannerKey, stagedDir, ctx.now);
+          else if (clearAfterCommit) clearUndoSnapshot(ctx, env.plannerKey);
+        } catch {
+          if (stagedDir) discardStagedUndoSnapshot(stagedDir);
+          clearUndoSnapshot(ctx, env.plannerKey);
+          hostNotes.push(UNDO_SWAP_NOTE);
+        }
         return {
           record: structuredClone(record),
           notes: [...plan.notes, ...hostNotes],

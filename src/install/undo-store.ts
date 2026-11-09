@@ -2,7 +2,9 @@ import { chmodSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } f
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { readInstallFile, writeInstallFile } from "./atomic";
+import { withInstallLock } from "./lock";
 import { sha256 } from "./fsx";
+import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 import type { UndoSnapshot } from "./manifest";
 
@@ -18,6 +20,8 @@ import type { UndoSnapshot } from "./manifest";
 export const UNDO_CAP_BYTES = 2 * 1024 * 1024;
 /** How long a snapshot is kept after its connect (matches the 7-day undo window). */
 export const UNDO_RETENTION_S = 7 * 86_400;
+/** Raised when a stored copy does not match the snapshot the manifest records. */
+export const UNDO_MISMATCH = "the saved copies don't match this repair; reconnect to repair again";
 
 export interface SnapshotChange {
   path: string;
@@ -145,10 +149,10 @@ export function stageUndoSnapshot(
   revision?: string,
   at = Math.floor(Date.now() / 1000),
 ): { snapshot: UndoSnapshot; dir: string } | null {
-  if (snapshotTotalBytes(changed) > UNDO_CAP_BYTES) {
-    clearUndoSnapshot(ctx, key);
+  if (snapshotTotalBytes(changed) > UNDO_CAP_BYTES)
+    // No snapshot for this connect; the caller clears the prior snapshot only
+    // after the manifest commits (L3), so an aborted commit keeps undo.
     return null;
-  }
   const dir = join(undoRoot(ctx), `staging-${sanitize(key)}-${randomUUID()}`);
   ensurePrivate(dir);
   chmodSync(undoRoot(ctx), 0o700);
@@ -174,17 +178,42 @@ export function discardStagedUndoSnapshot(stagedDir: string): void {
   rmSync(stagedDir, { recursive: true, force: true });
 }
 
-/** Read one restored before-copy for `path`. Returns null when absent. */
+/** Snapshot metadata the restore must verify a stored copy against. */
+export interface SnapshotCopyExpectation {
+  revision: string;
+  beforeHash?: string;
+  size?: number;
+}
+
+/**
+ * Read one restored before-copy for `path`, verifying it against the snapshot's
+ * metadata (revision, content hash, size) so undo never restores a copy the
+ * consent did not cover. Returns null when the copy is absent. When `expected`
+ * is given and the stored copy does not match it (wrong revision, hash or size),
+ * the whole undo is refused so a crash between commit and swap, or a tampered
+ * store, can never restore older or foreign content.
+ */
 export function readSnapshotFile(
   ctx: Pick<Ctx, "pacerHome">,
   key: string,
   path: string,
+  expected?: SnapshotCopyExpectation,
 ): { text: string; mode: number } | null {
   const meta = readMeta(ctx, key);
-  const entry = meta?.files[path];
+  if (!meta) return null;
+  if (expected && meta.revision !== expected.revision)
+    throw new CoreError("conflict", UNDO_MISMATCH, "Reconnect the agent from Diagnostics to repair it again.");
+  const entry = meta.files[path];
   if (!entry) return null;
   const text = readInstallFile(join(undoKeyDir(ctx, key), entry.name));
-  return text === null ? null : { text, mode: entry.mode };
+  if (text === null) return null;
+  if (
+    expected &&
+    ((expected.beforeHash !== undefined && sha256(text) !== expected.beforeHash) ||
+      (expected.size !== undefined && text.length !== expected.size))
+  )
+    throw new CoreError("conflict", UNDO_MISMATCH, "Reconnect the agent from Diagnostics to repair it again.");
+  return { text, mode: entry.mode };
 }
 
 /** Remove one key's snapshot directory. */
@@ -206,5 +235,33 @@ export function pruneUndoSnapshots(ctx: Pick<Ctx, "pacerHome">, key: string, now
     if (!meta || now - meta.at > UNDO_RETENTION_S) {
       rmSync(join(undoRoot(ctx), name), { recursive: true, force: true });
     }
+  }
+}
+
+/**
+ * Prune every expired or invalid snapshot in the store. Run at service startup
+ * and by doctor, so credential-bearing configs (mode 0600 under PACER_HOME)
+ * never sit on disk indefinitely when no file-changing connect happens to prune.
+ * `now` is Unix seconds.
+ */
+export function pruneExpiredUndoSnapshots(
+  ctx: Pick<Ctx, "pacerHome">,
+  now = Math.floor(Date.now() / 1000),
+): void {
+  pruneUndoSnapshots(ctx, "", now);
+}
+
+/**
+ * Prune expired snapshots at service startup under the install lock so pacer never
+ * races a concurrent connect while removing snapshot dirs. Best-effort: startup
+ * must not block or fail on pruning.
+ */
+export async function pruneUndoSnapshotsAtStartup(ctx: Ctx): Promise<void> {
+  try {
+    await withInstallLock(ctx, async () => {
+      pruneExpiredUndoSnapshots(ctx, ctx.now);
+    });
+  } catch {
+    /* best-effort; never block startup on pruning */
   }
 }
