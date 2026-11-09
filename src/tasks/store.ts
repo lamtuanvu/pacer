@@ -291,6 +291,16 @@ export function withTaskPreparation<P,T>(ctx:Ctx,id:string,prepare:()=>Promise<P
 }
 
 export function updateTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void): TaskRecord {
+  return writeTask(ctx, id, mutate, false);
+}
+
+/** Bump the revision with an otherwise unchanged record, for state kept outside it (work dependencies)
+ *  whose changes must still invalidate callers holding the old revision. */
+export function touchTask(ctx: Ctx, id: string): TaskRecord {
+  return writeTask(ctx, id, () => {}, true);
+}
+
+function writeTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void, always: boolean): TaskRecord {
   return withTaskLock(ctx, id, () => {
     const { db } = connection(ctx);
     return db.transaction(() => {
@@ -298,10 +308,13 @@ export function updateTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void
       if (!t) throw new Error(`unknown task ${id}`);
       const rev = t.rev;
       const priorState = t.state;
+      const before = JSON.stringify(t);
       mutate(t);
       if (TERMINAL_STATES.includes(t.state) && !TERMINAL_STATES.includes(priorState)) t.settledAt = ctx.now;
       if (!TERMINAL_STATES.includes(t.state)) delete t.settledAt;
       t.id = id;
+      // An update that changes nothing writes nothing: no JSON rewrite, revision bump or row update.
+      if (!always && JSON.stringify(t) === before) return t;
       t.rev = rev + 1;
       // JSON first: a crash before SQLite commits is recovered by the next import.
       const mtime = writeCompatibilityJson(ctx, t);
