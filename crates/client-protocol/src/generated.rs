@@ -3386,6 +3386,117 @@ impl ::std::convert::TryFrom<&str> for AgentPreviewParamsAgent {
         value.parse()
     }
 }
+///`AgentUndoParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "agent"
+///  ],
+///  "properties": {
+///    "agent": {
+///      "type": "string",
+///      "enum": [
+///        "claude-code",
+///        "codex",
+///        "cursor",
+///        "opencode"
+///      ]
+///    },
+///    "consent": {
+///      "type": "boolean"
+///    },
+///    "preview_revision": {
+///      "type": "string"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AgentUndoParams {
+    pub agent: AgentUndoParamsAgent,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub consent: ::std::option::Option<bool>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub preview_revision: ::std::option::Option<::std::string::String>,
+}
+///`AgentUndoParamsAgent`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "claude-code",
+///    "codex",
+///    "cursor",
+///    "opencode"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AgentUndoParamsAgent {
+    #[serde(rename = "claude-code")]
+    ClaudeCode,
+    #[serde(rename = "codex")]
+    Codex,
+    #[serde(rename = "cursor")]
+    Cursor,
+    #[serde(rename = "opencode")]
+    Opencode,
+}
+impl ::std::convert::From<&Self> for AgentUndoParamsAgent {
+    fn from(value: &AgentUndoParamsAgent) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for AgentUndoParamsAgent {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::ClaudeCode => f.write_str("claude-code"),
+            Self::Codex => f.write_str("codex"),
+            Self::Cursor => f.write_str("cursor"),
+            Self::Opencode => f.write_str("opencode"),
+        }
+    }
+}
+impl ::std::str::FromStr for AgentUndoParamsAgent {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "claude-code" => Ok(Self::ClaudeCode),
+            "codex" => Ok(Self::Codex),
+            "cursor" => Ok(Self::Cursor),
+            "opencode" => Ok(Self::Opencode),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentUndoParamsAgent {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`ApiError`
 ///
 /// <details><summary>JSON schema</summary>

@@ -20,3 +20,6 @@ dde21d34cb13730d25e8afc8e82e33aa19990393:crates/store/tests/json_acceptance.rs:g
 1e8c9f80a0cbb8f5dcceeae0cfb2dac648faf92d:test/doctor-fix-delegate.test.ts:aws-access-token:121
 1e8c9f80a0cbb8f5dcceeae0cfb2dac648faf92d:test/doctor-fix-delegate.test.ts:jwt:121
 f12790aa05859b4c3ac48c6c0d7c83886d8c8dcd:test/doctor-fix-delegate.test.ts:generic-api-key:16
+# Fake key in scripts/live/undo-store-check.ts live check (not a credential); the file now builds it at runtime.
+8a7abd89322936833265ddcbd54e89443d43d249:scripts/live/undo-store-check.ts:generic-api-key:56
+daf87c40661139cf5929efe2ba15aaa0f613e456:scripts/live/undo-store-check.ts:generic-api-key:56

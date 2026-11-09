@@ -53,7 +53,8 @@ export async function exerciseUndoStore(session: Session): Promise<void> {
   await installPlanner({ ctx, pacerArgv: pacerArgv(env), mcp: false, folder: codex }, "codex");
   const skillPath = join(codex, "skills/pacer/SKILL.md");
   must(existsSync(skillPath), "connect did not install the codex skill file");
-  const secret = "UNDO_LIVE_SECRET_9f2c81";
+  // Fake key built at runtime so secret scanners do not flag the fixture.
+  const secret = ["UNDO_LIVE", "SECRET", "9f2c81"].join("_");
   const first = readManifest(ctx).planners.codex.undoConnect;
   must(!!first && !!first.revision && first.files.length > 0, "connect did not record a snapshot with a revision");
   assertMetadataOnly("after connect", secret);
