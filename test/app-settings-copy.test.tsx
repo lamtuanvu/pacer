@@ -56,6 +56,10 @@ test('readiness maps authoritative eligibility and pace with one short reason', 
   expect(executorReadiness({...ready,eligibility:missing},snap)).toMatchObject({label:'Cannot take work',reason:'No active subscription'});
   expect(executorReadiness({...ready,stale:true},{...snap,accounts:[{...snap.accounts![0]!,capturedAt:snap.at-19*3600}]}).reason).toBe('Usage reading is 19h old');
   expect(executorReadiness({...ready,eligibility:undefined},snap).label).toBe('Skipped');
+  expect(executorReadiness({...ready,untested:true},snap)).toMatchObject({label:'Not tested',tone:'neutral',reason:'Still takes work · run a test task to confirm'});
+  expect(executorReadiness({...ready,untested:true},{...snap,accounts:[{...snap.accounts![0]!,verdict:'AHEAD'}]}).label).toBe('Not tested');
+  expect(executorReadiness({...ready,untested:true,state:'full'},snap)).toMatchObject({label:'Skipped',reason:'All parallel slots are in use'});
+  expect(executorReadiness({...ready,untested:true,eligibility:undefined},snap)).toMatchObject({label:'Skipped',reason:'Refresh to confirm availability'});
 });
 
 test('account labels use agent names and distinguish named accounts', () => {
