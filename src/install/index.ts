@@ -35,6 +35,7 @@ async function installViaPlugin(env: InstallEnv, agent: string) {
       env.mode !== "reconcile"
         ? ["claude"]
         : [],
+    undoRevision: env.undoRevision,
   });
 }
 export const INSTALLERS = {

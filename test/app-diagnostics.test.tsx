@@ -4,8 +4,9 @@ import { DiagnosticResults, DiagnosticsSection, diagnosticReportText } from "../
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState } from "../app/src/data/store";
 import { callOp, opNames } from "../src/api/ops";
+import { writeUndoSnapshot } from "../src/install/undo-store";
 import { V3_ONLY_OPS } from "../src/api/v2-compat";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, localTs, tmpDir } from "./helpers";
 import type { Remedy } from "../src/install/doctor";
 
 const review: Remedy = {kind:'review',label:'Review and fix',op:'agent.preview',params:{agent:'claude-code'}};
@@ -385,16 +386,111 @@ test('the agent sheet shows the brief and scope, and links to the started task',
   expect(started).toContain('href="#/tasks/t-9"');
 });
 
+test('the review sheet shows per-file change pills, notes and the 7-day undo note (board 17b)', async () => {
+  const { ReviewSheet } = await import('../app/src/screens/settings/Diagnostics');
+  const check = {name:'Skill claude-code',level:'warn' as const,detail:'missing',remedy:review};
+  const preview = {revision:'r1',agent:'claude-code',files:['$HOME/.claude/skills/pacer/SKILL.md','$HOME/.claude/commands/pacer.md'],
+    changes:[
+      {path:'$HOME/.claude/skills/pacer/SKILL.md',change:'restore' as const,note:'Changed outside pacer; restored to the installed version'},
+      {path:'$HOME/.claude/commands/pacer.md',change:'unchanged' as const,note:'Matches the installed version'},
+      {path:'$HOME/.claude/CLAUDE.md',change:'kept' as const,note:'Yours. Pacer never edits it'},
+    ]};
+  const html = renderToString(<ReviewSheet review={{check,preview,phase:'review'}} onApply={()=>{}} onClose={()=>{}}/>);
+  for (const pill of ['Restore','No change','Not touched']) expect(html).toContain(`>${pill}</span>`);
+  expect(html).toContain('Changed outside pacer; restored to the installed version');
+  expect(html).toContain('Yours. Pacer never edits it');
+  expect(html).toContain('You can undo this from Diagnostics for 7 days');
+  expect(html).toContain('2 files change');
+  expect(html).not.toContain('pc-diagnostic-files');
+  const done = renderToString(<ReviewSheet review={{check,preview,phase:'done',undo:{available:true,revision:'r1'}}} report={{checkedAt:1,checks:[{...check,level:'ok'}]}} onApply={()=>{}} onUndo={()=>{}} onClose={()=>{}}/>);
+  expect(done).toContain('>Undo</');
+  expect(done).toContain('Back to Diagnostics');
+  expect(done).toContain('7 days');
+});
+
+test('the review sheet shows Undo only when the connect left something undoable, else a short reason (UI-13)', async () => {
+  const { ReviewSheet } = await import('../app/src/screens/settings/Diagnostics');
+  const check = {name:'Skill claude-code',level:'warn' as const,detail:'missing',remedy:review};
+  const preview = {revision:'r1',agent:'claude-code',files:['$HOME/.claude/skills/pacer/SKILL.md']};
+  // Available: the sheet offers Undo and keeps the 7-day note.
+  const available = renderToString(<ReviewSheet review={{check,preview,phase:'done',undo:{available:true,revision:'r1'}}} onApply={()=>{}} onUndo={()=>{}} onClose={()=>{}}/>);
+  expect(available).toContain('>Undo</');
+  expect(available).toContain('for 7 days');
+  // Unavailable: no Undo button, a plain-language reason instead.
+  const unavailable = renderToString(<ReviewSheet review={{check,preview,phase:'done',undo:{available:false,reason:'too large to keep a copy'}}} onApply={()=>{}} onUndo={()=>{}} onClose={()=>{}}/>);
+  expect(unavailable).toMatch(/Undo isn't available for this fix: too large to keep a copy/);
+  expect(unavailable).not.toContain('>Undo</');
+  // Unknown availability (older behaviour) falls back to the generic reason.
+  const unknown = renderToString(<ReviewSheet review={{check,preview,phase:'done'}} onApply={()=>{}} onUndo={()=>{}} onClose={()=>{}}/>);
+  expect(unknown).toMatch(/Undo isn't available for this fix: no pacer file changes to undo/);
+});
+
+test('the agent sheet names the executor pacer would route to, with no Change control (board 17c)', async () => {
+  const { AgentSheet } = await import('../app/src/screens/settings/Diagnostics');
+  const check = {name:'CLI opencode',level:'fail' as const,detail:'--help failed',remedy:agentTask('CLI opencode')};
+  const html = renderToString(<AgentSheet agent={{check,scope:'fix',phase:'compose'}} routed={{id:'codex#team',reason:'22% of its budget used'}} onScope={()=>{}} onStart={()=>{}} onClose={()=>{}}/>);
+  expect(html).toContain('Runs on');
+  expect(html).toContain('Chosen by pacer: 22% of its budget used');
+  expect(html).toContain('Codex');
+  // doctor.fix.delegate has no executor override, so no Change control appears.
+  expect(html).not.toMatch(/>Change</);
+  // Without a routed executor the sheet keeps its generic line.
+  const plain = renderToString(<AgentSheet agent={{check,scope:'fix',phase:'compose'}} onScope={()=>{}} onStart={()=>{}} onClose={()=>{}}/>);
+  expect(plain).toContain('Pacer routes it to an executor by budget and pace');
+});
+
+test('agent.undo requires consent and restores the snapshot within 7 days, refusing when expired', async () => {
+  const { callOp } = await import('../src/api/ops');
+  const { restorePlannerInstall } = await import('../src/plugins/planner-install');
+  const { sha256 } = await import('../src/install/fsx');
+  const { mkdirSync, writeFileSync, readFileSync, existsSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const ctx = fakeCtx();
+  const folder = join(ctx.home, '.claude');
+  mkdirSync(folder, { recursive: true });
+  const path = join(folder, 'settings.json'), installed = '{"hooks":{}}\n', before = '{"hooks":{}}\n';
+  writeFileSync(path, installed);
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  const key = 'claude-code';
+  const snap = writeUndoSnapshot(ctx, key, [{ path, before, mode: 0o600, after: installed }], 'rev-1', ctx.now)!;
+  writeFileSync(join(ctx.pacerHome, 'install-manifest.json'), JSON.stringify({ version: 1, planners: { [key]: {
+    planner: 'claude-code', installedAt: ctx.now, pacerArgv: [], commands: [], notes: [],
+    files: [{ path, action: 'edited', exact: true, undo: [] }],
+    undoConnect: snap } } }));
+  await expect(callOp(ctx, 'agent.undo', { agent: 'claude-code' })).rejects.toMatchObject({ code: 'not_allowed' });
+  const r = await restorePlannerInstall(ctx, 'claude-code', key, 'rev-1');
+  expect(r.restored).toEqual([path]);
+  expect(readFileSync(path, 'utf8')).toBe(before);
+  const { readManifest } = await import('../src/install/manifest');
+  expect(readManifest(ctx).planners[key].undoneAt).toBeDefined();
+  // Expired beyond the 7-day window is refused.
+  const later = localTs(2026, 10, 28, 12, 0);
+  const expiredCtx = fakeCtx({ now: later, pacerHome: tmpDir(), home: tmpDir() });
+  const expiredFolder = join(expiredCtx.home, '.claude');
+  mkdirSync(expiredFolder, { recursive: true });
+  const expiredPath = join(expiredFolder, 'settings.json');
+  writeFileSync(expiredPath, installed);
+  mkdirSync(expiredCtx.pacerHome, { recursive: true });
+  const expiredSnap = writeUndoSnapshot(expiredCtx, key, [{ path: expiredPath, before: installed, after: installed }], 'rev-1', localTs(2026, 10, 10, 12, 0))!;
+  writeFileSync(join(expiredCtx.pacerHome, 'install-manifest.json'), JSON.stringify({ version: 1, planners: { [key]: {
+    planner: 'claude-code', installedAt: localTs(2026, 10, 10, 12, 0), pacerArgv: [], commands: [], notes: [],
+    files: [],
+    undoConnect: expiredSnap } } }));
+  await expect(restorePlannerInstall(expiredCtx, 'claude-code', key, 'rev-1')).rejects.toMatchObject({ code: 'not_found' });
+  expect(existsSync(expiredPath)).toBe(true);
+});
+
 function fakeHost(answers: {confirm?: boolean; review?: boolean; delegate?: boolean} = {}) {
-  const calls: [string, unknown][] = [], asked: unknown[] = [], opened: string[] = [], delegated: string[] = [];
+  const calls: [string, unknown][] = [], asked: unknown[] = [], opened: string[] = [], delegated: string[] = [], undos: {available:boolean;revision?:string;reason?:string}[] = [];
   const host = {
     call: async <T,>(op: string, params: unknown) => { calls.push([op, params]); return (op === 'agent.preview' ? {revision:'rev-7',agent:(params as {agent:string}).agent,files:['$HOME/a','$HOME/b']} : {}) as T; },
     confirm: async (request: unknown) => { asked.push(request); return answers.confirm ?? true; },
     review: async (preview: unknown) => { asked.push(preview); return answers.review ?? true; },
     delegate: async (check: string) => { delegated.push(check); return answers.delegate ?? true; },
     open: (url: string) => { opened.push(url); },
+    reportUndo: (undo: {available:boolean;revision?:string;reason?:string}) => { undos.push(undo); },
   };
-  return { host, calls, asked, opened, delegated };
+  return { host, calls, asked, opened, delegated, undos };
 }
 
 test('dispatch: automatic remedies run and recheck; consent is sent only after confirm', async () => {
@@ -422,6 +518,30 @@ test('dispatch: review previews, waits for the sheet, then applies that revision
   const closed = fakeHost({review:false});
   expect(await dispatchRemedy(remedyPlan(review)!, closed.host)).toBe('cancelled');
   expect(closed.calls).toEqual([['agent.preview',{agent:'claude-code'}]]);
+});
+
+test('dispatch: a reviewed connect reports its undo availability for the done sheet', async () => {
+  const { dispatchRemedy } = await import('../app/src/data/remedies');
+  const { remedyPlan } = await import('../src/view-model/diagnostics');
+  const calls: [string, unknown][] = [], undos: {available:boolean;revision?:string;reason?:string}[] = [];
+  // Cast the dispatch host (generic) through unknown; the responses are typed by shape only.
+  const host = {
+    call: async (op: string, params: unknown) => { calls.push([op, params]);
+      if (op === 'agent.connect') return { installed: [], undo: { available: true, revision: 'rev-7' } };
+      return { revision:'rev-7', agent:(params as {agent:string}).agent, files: [] }; },
+    confirm: async () => true,
+    review: async () => true,
+    delegate: async () => true,
+    open: () => {},
+    reportUndo: (undo: {available:boolean;revision?:string;reason?:string}) => { undos.push(undo); },
+  } as unknown as Parameters<typeof dispatchRemedy>[1];
+  expect(await dispatchRemedy(remedyPlan(review)!, host)).toBe('recheck');
+  expect(undos).toEqual([{ available: true, revision: 'rev-7' }]);
+  // A connect that leaves nothing undoable reports the fallback reason.
+  const none = {...host, call: async (op:string, p:unknown) => op === 'agent.connect' ? { installed: [], undo: { available:false, reason:'no pacer file changes to undo' } } : { revision:'r', agent:(p as {agent:string}).agent, files: [] }} as unknown as typeof host;
+  const noneUndos: {available:boolean;revision?:string;reason?:string}[] = [];
+  await dispatchRemedy(remedyPlan(review)!, {...none, reportUndo:(u:{available:boolean;revision?:string;reason?:string})=>noneUndos.push(u)});
+  expect(noneUndos).toEqual([{ available:false, reason:'no pacer file changes to undo' }]);
 });
 
 test('dispatch: a consent-gated sign-in asks first; desktop refuses links it cannot open instead of claiming it opened them', async () => {

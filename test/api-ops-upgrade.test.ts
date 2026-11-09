@@ -22,6 +22,15 @@ test("executor sessions are refused upgrade operations by the caller policy and 
   expect(() => assertCallerCanInvoke(ctx, "desktop.update.status", {})).not.toThrow();
 });
 
+test("executor sessions are refused agent.undo, agent.connect and agent.disconnect (F6)", async () => {
+  const ctx = fakeCtx({ env: { PACER_ROLE: "executor" } });
+  for (const name of ["agent.undo", "agent.connect", "agent.disconnect"]) {
+    expect(() => assertCallerCanInvoke(ctx, name, { agent: "codex" })).toThrow(/executor/);
+    await expect(callOp(ctx, name, { agent: "codex" })).rejects.toMatchObject({ code: "not_allowed" });
+  }
+  expect(() => assertCallerCanInvoke(ctx, "agent.preview", { agent: "codex" })).not.toThrow();
+});
+
 test("service.handover and service.work answer an operator with versions and counts only", async () => {
   const ctx = fakeCtx({ now: Date.now() / 1000 });
   const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });

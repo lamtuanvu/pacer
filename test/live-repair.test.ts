@@ -30,6 +30,19 @@ test('seeded live repair permits only the exact reviewed Codex sandbox target',a
  expect(await authorizeSeedRepair(session,request(undefined,'/v3/ops/agent.disconnect'))).toBe(false);
 });
 
+test('seeded live repair permits the fixture undo bound to its snapshot revision',async()=>{
+ const {session,home,request}=await fixture();
+ const manifestPath=join(home,'install-manifest.json');
+ const manifest=JSON.parse(readFileSync(manifestPath,'utf8'));
+ const target=manifest.planners['codex#team'] as {files:{path:string;afterHash?:string}[];undoConnect?:unknown};
+ const first=target.files[0];
+ target.undoConnect={at:Math.floor(Date.now()/1000),revision:'undo-rev',files:[{path:first.path,before:null,afterHash:first.afterHash}]};
+ writeFileSync(manifestPath,JSON.stringify(manifest));
+ expect(await authorizeSeedRepair(session,request({agent:'codex',consent:true,preview_revision:'undo-rev'},'/v3/ops/agent.undo'))).toBe(true);
+ expect(await authorizeSeedRepair(session,request({agent:'codex',consent:true,preview_revision:'stale'},'/v3/ops/agent.undo'))).toBe(false);
+ expect(await authorizeSeedRepair(session,request({agent:'codex',consent:false,preview_revision:'undo-rev'},'/v3/ops/agent.undo'))).toBe(false);
+});
+
 test('live repair refuses missing consent, stale revisions, extra fields and other agents',async()=>{
  const {session,params,request}=await fixture();
  for(const body of [{...params,consent:false},{...params,preview_revision:'stale'},{...params,agent:'claude-code'},{...params,folder:tmpDir()},{}])

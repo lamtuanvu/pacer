@@ -10,6 +10,9 @@ import {
 } from "@pacer/plugin/install";
 import type { PlannerRecord } from "@pacer/plugin/install";
 import type { PlannerBuilder } from "./types";
+
+/** Per-file change the reconnect would make, shown in the review sheet (board 17b). */
+export interface PreviewChange { path: string; change: "create" | "update" | "restore" | "unchanged" | "kept" }
 import { installClaude, removeClaudeMcp, claudePreview } from "./claude";
 import { installCodex } from "./codex";
 import { installCursor } from "./cursor";
@@ -122,7 +125,8 @@ export const handlers: Record<string, Handler> = {
   "planner.preview": async (raw, host, signal) => {
     const p = raw as any,
       root = p.env.folder,
-      skill = p.env.skillFolder ?? root;
+      skill = p.env.skillFolder ?? root,
+      io = createPlannerIO(host, signal);
     const files = [
       join(skill, "skills/pacer/SKILL.md"),
       ...(
@@ -137,17 +141,31 @@ export const handlers: Record<string, Handler> = {
         } as Record<string, string[]>
       )[p.agent]!,
     ];
+    // User-owned files pacer never edits; shown so the person sees nothing else changes.
+    const kept = (p.agent === "claude-code" ? [join(root, "CLAUDE.md")] : []),
+      prior = (p.prior ?? null) as PlannerRecord | null,
+      priorFiles = new Map((prior?.files ?? []).map((file) => [file.path, file]));
+    const change = async (path: string): Promise<PreviewChange> => {
+      const old = priorFiles.get(path),
+        image = await io.read(path),
+        text = image?.text ?? null;
+      let kind: PreviewChange["change"];
+      // Matches the last installed image exactly: nothing to write.
+      if (old && old.afterHash && text !== null && sha256(text) === old.afterHash) kind = "unchanged";
+      // Previously pacer-managed and now missing or changed: restore the installed copy.
+      else if (old) kind = "restore";
+      // Not previously installed: create a new file or update an existing one pacer keeps.
+      else kind = text === null ? "create" : "update";
+      return { path, change: kind };
+    };
+    const changes: PreviewChange[] = [];
+    for (const path of files) changes.push(await change(path));
     return {
       files,
+      changes: [...changes, ...kept.map((path) => ({ path, change: "kept" as const }))],
       undo: `pacer uninstall ${p.env.plannerKey}`,
       ...(p.agent === "claude-code"
-        ? {
-            detail: await claudePreview(
-              createPlannerIO(host, signal),
-              p.home,
-              root,
-            ),
-          }
+        ? { detail: await claudePreview(io, p.home, root) }
         : {}),
     };
   },

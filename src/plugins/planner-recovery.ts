@@ -1,5 +1,6 @@
 import { recoverLegacyPluginJournal } from "../install/legacy-plugin-undo";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { lstatSync } from "node:fs";
 import { readInstallFile } from "../install/atomic";
 import { loadStrategy, MissingStrategyError } from "../config/strategy";
 import { accountFolder } from "../install/role";
@@ -12,6 +13,41 @@ import {
 import { plannerJournalIO } from "./planner-journal";
 import { PlannerResources } from "./planner-resources";
 import { plannerSelectedSources } from "./planner-selection";
+/** The planner roots trust: standard agent homes plus every configured account folder. */
+export function plannerTrustedRoots(
+  ctx: Ctx,
+  trustedRoots: readonly string[] = [],
+  trustedFiles: readonly string[] = [],
+): string[] {
+  const roots = [
+    ...trustedRoots,
+    join(ctx.home, ".claude"),
+    join(ctx.home, ".codex"),
+    join(ctx.home, ".cursor"),
+    join(ctx.env.XDG_CONFIG_HOME ?? join(ctx.home, ".config"), "opencode"),
+    ...(ctx.env.CODEX_HOME ? [ctx.env.CODEX_HOME] : []),
+  ];
+  try {
+    for (const account of Object.values(loadStrategy(ctx).accounts)) {
+      const folder = accountFolder(ctx, account);
+      if (folder) roots.push(folder);
+    }
+  } catch (error) {
+    if (!(error instanceof MissingStrategyError)) throw error;
+  }
+  for (const file of trustedFiles) {
+    for (let path = dirname(file); ; path = dirname(path)) {
+      try {
+        if (lstatSync(path).isDirectory()) { roots.push(path); break; }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (path === dirname(path)) break;
+    }
+  }
+  return roots;
+}
+
 /** Caller holds the bakery lock. Recovery depends on host state, never plugin presence. */
 export async function recoverPlannerInstall(
   ctx: Ctx,
@@ -22,22 +58,7 @@ export async function recoverPlannerInstall(
   if (text === null) return;
   if (await recoverLegacyPluginJournal(ctx)) return;
   const journal = parseInstallJournal(text),
-    roots = [
-      ...trustedRoots,
-      join(ctx.home, ".claude"),
-      join(ctx.home, ".codex"),
-      join(ctx.home, ".cursor"),
-      join(ctx.env.XDG_CONFIG_HOME ?? join(ctx.home, ".config"), "opencode"),
-      ...(ctx.env.CODEX_HOME ? [ctx.env.CODEX_HOME] : []),
-    ];
-  try {
-    for (const account of Object.values(loadStrategy(ctx).accounts)) {
-      const folder = accountFolder(ctx, account);
-      if (folder) roots.push(folder);
-    }
-  } catch (error) {
-    if (!(error instanceof MissingStrategyError)) throw error;
-  }
+    roots = plannerTrustedRoots(ctx, trustedRoots, trustedFiles);
   const files = [
     ...trustedFiles,
     ...plannerSelectedSources(ctx, "claude-code", join(ctx.home, ".claude")),

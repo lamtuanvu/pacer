@@ -150,7 +150,7 @@ export async function reconcileIntegrations(
   for (const key of keys) {
     try {
       const prior = readManifest(ctx).planners[key];
-      if (prior) results.push(await assess(ctx, key, prior, false));
+      if (prior) results.push(await assess(ctx, key, prior, !!prior.undoneAt));
     } catch (error) {
       results.push(errorResult(key, error));
     }

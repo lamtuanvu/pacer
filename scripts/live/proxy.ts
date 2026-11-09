@@ -14,6 +14,7 @@ export const BLOCKED_OPS: Readonly<Record<string, string>> = {
   "agent.connect": "setup.agentConnect installs integrations in real agent homes",
   "service.install": "setup.serviceInstall registers a real launchd/systemd login service",
   "agent.disconnect": "setup.agentDisconnect reverts integrations in real agent homes",
+  "agent.undo": "setup.agentUndo restores/removes integration files in real agent homes",
   "account.signin": "accounts.signin / interactiveTerminal opens real terminals and login flows",
   "account.add": "accounts.add creates account homes; endpoints.addEndpoint may write Keychain keys",
   "account.remove": "accounts.remove may delete account homes and endpoint keys",

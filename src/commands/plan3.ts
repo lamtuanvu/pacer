@@ -11,10 +11,13 @@ import { io } from "../install/stdin";
 import { InstallError } from "../install/txn";
 import { uninstallPlanner } from "../install/uninstall";
 import { rebuildActivity } from "../pace/activity";
+import { isExecutorSession } from "../install/role";
 import type { Command, Result } from "./types";
 
 const ok = (out = ""): Result => ({ code: 0, out, err: "" });
 const error = (code: number, err: string): Result => ({ code, out: "", err });
+const executorRefusal = () =>
+  error(2, "pacer: PACER_ROLE=executor: installing or uninstalling planner integrations rewrites real agent folders; run this outside a delegated task.");
 const message = (e: unknown): string => e instanceof Error ? e.message : String(e);
 const usage = (text: string, description: string): string => text.padEnd(47) + description;
 const isPlanner = (p: string | undefined): p is string => {
@@ -51,6 +54,7 @@ export const COMMANDS: Command[] = [
     usage: usage("install <planner> [--mcp|--no-mcp]", "wire pacer into claude-code, codex, cursor or opencode"),
     async run(args, ctx) {
       const [planner] = args;
+      if (isExecutorSession(ctx)) return executorRefusal();
       if (!isPlanner(planner)) return badPlanner(planner);
       if (args.slice(1).some(a=>!["--mcp","--no-mcp"].includes(a)) || args.includes("--mcp")&&args.includes("--no-mcp")) return error(2, "usage: pacer install <planner> [--mcp|--no-mcp]");
       try {
@@ -66,6 +70,7 @@ export const COMMANDS: Command[] = [
     usage: usage("uninstall <planner>", "undo pacer install (restores backups); uninstall --all [--yes] [--binary] removes everything"),
     async run(args, ctx) {
       const [planner] = args;
+      if (isExecutorSession(ctx)) return executorRefusal();
       if (!isPlanner(planner)) return badPlanner(planner);
       if (args.length !== 1) return error(2, "usage: pacer uninstall <planner>");
       try {

@@ -20,6 +20,8 @@ import type { RunnerCfg } from "../config/accounts";
 import { executorsFor } from "../engine/rank";
 import { readText, sha256 } from "./fsx";
 import { piecesPresent, readManifest, type FileChange } from "./manifest";
+import { pruneExpiredUndoSnapshots } from "./undo-store";
+import { withInstallLock } from "./lock";
 import { internalCheck, internalErrorCode, isInternalCode, remedies, remedyCommand, withRemedies } from "./doctor-remedy";
 import { displayName } from "../render/accounts";
 import type { ProviderStatus } from "../engine/rank";
@@ -57,6 +59,12 @@ export interface Check {
 const CLAUDE_HOOK_CHECKS = ["Claude hook configuration", "Claude message hooks"];
 
 export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise<Status>; service?: () => Promise<ServiceStatus> } = {}): Promise<Check[]> {
+  // Expire old undo snapshots so credential-bearing configs never sit on disk
+  // indefinitely when no file-changing connect runs to prune them (L2). Run
+  // under the install lock so pacer never races a concurrent staged connect.
+  try {
+    await withInstallLock(ctx, async () => { pruneExpiredUndoSnapshots(ctx, ctx.now); });
+  } catch { /* pruning is best-effort; never let it fail doctor */ }
   const checks: Check[] = [];
   let strategy: Strategy | undefined;
   try {
@@ -169,9 +177,12 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       if (recordedAgent(target)) {
         const fresh = await integrationFreshness(ctx, target);
         const name = `Integration freshness ${target}`;
-        const detail = fresh.state === "current" ? "managed assets match this runtime" : fresh.state === "refreshed" ? "managed assets need refresh; the next service startup or local launch will reconcile them" : fresh.detail ?? "refresh could not be verified";
-        // Refreshing only pacer-managed files is automatic; a user-edited file needs a reviewed preview.
-        const remedy = fresh.state === "refreshed" && agent && !broken.length ? { remedy: remedies.updateFiles(agent) } : review;
+        const detail = fresh.state === "current" ? "managed assets match this runtime"
+          : fresh.state === "refreshed" ? (record.undoneAt ? "the last repair was undone; reconnect to re-apply pacer's files" : "managed assets need refresh; the next service startup or local launch will reconcile them")
+          : fresh.detail ?? "refresh could not be verified";
+        // Refreshing only pacer-managed files is automatic; a user-edited file or an undone
+        // repair needs a reviewed preview (F5: never re-apply an undo without consent).
+        const remedy = !record.undoneAt && fresh.state === "refreshed" && agent && !broken.length ? { remedy: remedies.updateFiles(agent) } : review;
         checks.push(fresh.state !== "current" && isInternalCode(fresh.code) ? internalCheck({ name, detail })
           : { name, level: fresh.state === "current" ? "ok" : "warn", detail,
             ...(fresh.hint ? { fix: fresh.hint } : {}), evidence: "configured", ...(fresh.state === "current" ? {} : remedy) });

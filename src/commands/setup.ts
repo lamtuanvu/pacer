@@ -21,6 +21,7 @@ import type { ApiClient } from "../api/client-types";
 import type { SetupChecklist } from "../setup/checklist";
 import type { TryResult } from "../onboarding/try";
 import { runDashboard } from "../dashboard/cli";
+import { isExecutorSession } from "../install/role";
 import type { Ctx } from "../types";
 import type { Result } from "./types";
 export const INIT_USAGE = "init [--planner <id>] [--yes] [--service] [--agents a,b] [--no-dashboard] [--json]";
@@ -33,6 +34,8 @@ export interface SetupDeps {
   dashboard?: typeof runDashboard;
 }
 export async function setupCmd(args: string[], ctx: Ctx, deps: SetupDeps = {}): Promise<Result> {
+  if (isExecutorSession(ctx))
+    return { code: 2, out: "", err: "pacer: PACER_ROLE=executor: running pacer setup rewrites real agent folders; run it outside a delegated task." };
   let yes = false, installService = false, json = false, noDashboard = false, planner: string | undefined, selected: AgentId[] | undefined;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
