@@ -2533,12 +2533,18 @@ export class PluginRegistry {
         // Core stages a chunked result for this call with the flag-off bounds and
         // ordering (`ResultStaging`): contiguous offsets, a bounded chunk, a 16 MiB cap.
         let staging: ResultStaging | undefined;
+        let stagedChunk = false;
         const onRequest = local && ((name: string, params: unknown) => {
           if (name === RESULT_CHUNK_METHOD) {
+            // Mirror flag-off: a call chunks only when Core sealed the transport
+            // (`coreMethods`), otherwise the child must keep its result within the
+            // plain single-frame limit (read-only planner calls, diagnostics, …).
+            if (!coreMethods.includes(RESULT_CHUNK_METHOD))
+              return Promise.reject(new CoreError("capability_denied", "result chunk does not belong to an active negotiated request"));
             if (!staging) staging = new ResultStaging(local);
             const parsed = resultChunkParams.safeParse(params);
             if (!parsed.success) return Promise.reject(new CoreError("invalid_input", "malformed result chunk"));
-            return staging.stage(parsed.data.offset, parsed.data.base64);
+            return staging.stage(parsed.data.offset, parsed.data.base64).then(accepted => { stagedChunk = true; return accepted; });
           }
           return coreMethods.includes(name)
             ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
@@ -2578,10 +2584,16 @@ export class PluginRegistry {
           // `_chunkedResult` completion: assemble the staged bytes now, while the
           // call's Core authority is still active (ResultStaging needs it through
           // `finish`, so this must run before the `finally` revokes `local`).
-          if (staging && value && typeof value === "object" && !Array.isArray(value) && Object.hasOwn(value as object, "_chunkedResult")) {
+          // Mirror flag-off: once a transfer has started a plain result (or a
+          // bare completion) is refused.
+          const chunkCompletion = value !== null && typeof value === "object" && !Array.isArray(value)
+            && Object.hasOwn(value as object, "_chunkedResult");
+          if (chunkCompletion) {
             const parsed = chunkedResult.safeParse(value);
-            if (!parsed.success) throw new CoreError("plugin_refused", "incomplete or unnegotiated chunked result");
+            if (!parsed.success || !staging) throw new CoreError("plugin_refused", "incomplete or unnegotiated chunked result");
             value = await staging.finish(parsed.data._chunkedResult.bytes);
+          } else if (stagedChunk) {
+            throw new CoreError("plugin_refused", "incomplete or unnegotiated chunked result");
           }
         } finally {
           if (local) { try { await local.revoke(); } finally { e.authorities.delete(local.token); } }

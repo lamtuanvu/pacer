@@ -24,12 +24,22 @@ const CORE_CODES: ReadonlySet<string> = new Set<CoreErrorCode>([
   "plugin_timeout", "plugin_unavailable", "plugin_refused", "capability_denied", "unknown_plugin", "not_found", "too_large",
 ]);
 
-/** The error a caller sees when its call is aborted (R2): a revocation of the
- * call's Core authority is `plugin_refused: "grant revoked"` (distinct and
- * accurate), a CoreError abort reason is kept, and anything else stays the
- * generic cancellation. */
+/** The error a caller sees when its call is aborted (R2): a mid-call revocation
+ * of the call's Core authority reports the actual revocation reason when there is
+ * a specific one, and otherwise matches flag-off's owning-plugin-call-ended
+ * error (plugin stop, exit or observation/planner configuration change all revoke
+ * the authority without a grant-specific reason). A CoreError abort reason is
+ * kept, and anything else stays the generic cancellation. */
 function cancellation(signal: AbortSignal | undefined, revoked: AbortSignal | undefined): CoreError {
-  if (revoked?.aborted) return new CoreError("plugin_refused", "grant revoked");
+  if (revoked?.aborted) {
+    const reason = revoked.reason;
+    // The default `revoke()` reason ("owning plugin call expired") just means the
+    // owning call ended; report it the same way flag-off's `process.ts` abort()
+    // does. A specific reason (for example a genuine grant revocation) wins.
+    if (reason instanceof CoreError && !(reason.code === "capability_denied" && reason.message === "owning plugin call expired"))
+      return reason;
+    return new CoreError("plugin_unavailable", "owning plugin call ended");
+  }
   if (signal?.reason instanceof CoreError) return signal.reason;
   return new CoreError("plugin_timeout", "plugin call was cancelled");
 }
