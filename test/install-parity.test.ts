@@ -22,7 +22,9 @@ import { initCmd } from "../src/install/init";
 const before = '\uFEFF{\r\n  // retained\r\n  "mcp": {\r\n    "other": true,\r\n  },\r\n}\r\n';
 const installed = '\uFEFF{\r\n  // retained\r\n  "mcp": {\n    "pacer": {\n      "command": "pacer",\n      "args": [\n        "mcp"\n      ]\n    },\r\n    "other": true,\r\n  },\r\n}\r\n';
 const snapshotManifest = (text: string, home: string): string => JSON.stringify(text.replaceAll(home, "$HOME")
-  .replace(/pacer-bak-\d{8}-\d{6}/g, "pacer-bak-<local-time>"));
+  .replace(/pacer-bak-\d{8}-\d{6}/g, "pacer-bak-<local-time>")
+  .replace(/"undoConnect":\s*{[^}]*?"at":\s*\d+/g, (m) => m.replace(/"at":\s*\d+/, '"at": <now>'))
+  .replace(/"undoConnect":\s*{[^}]*?"revision":\s*"[a-f0-9]{64}"/g, (m) => m.replace(/"revision":\s*"[a-f0-9]{64}"/, '"revision": "<rev>"')));
 
 test("JSONC insertion and recorded member undo keep exact TS bytes", () => {
   const actual = setMember(before, ["mcp", "pacer"], { command: "pacer", args: ["mcp"] });

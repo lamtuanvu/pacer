@@ -421,7 +421,7 @@ test('the agent sheet names the executor pacer would route to, with no Change co
   expect(plain).toContain('Pacer routes it to an executor by budget and pace');
 });
 
-test('agent.undo requires consent, restores backups within 7 days and refuses when expired', async () => {
+test('agent.undo requires consent and restores the snapshot within 7 days, refusing when expired', async () => {
   const { callOp } = await import('../src/api/ops');
   const { restorePlannerInstall } = await import('../src/plugins/planner-install');
   const { sha256 } = await import('../src/install/fsx');
@@ -430,32 +430,34 @@ test('agent.undo requires consent, restores backups within 7 days and refuses wh
   const ctx = fakeCtx();
   const folder = join(ctx.home, '.claude');
   mkdirSync(folder, { recursive: true });
-  const path = join(folder, 'settings.json'), installed = '{"hooks":{}}\n', backup = '{"hooks":{"user":"keep"}}';
+  const path = join(folder, 'settings.json'), installed = '{"hooks":{}}\n', before = '{"hooks":{}}\n';
   writeFileSync(path, installed);
-  const backupPath = join(folder, 'settings.json.pacer');
-  writeFileSync(backupPath, backup);
   mkdirSync(ctx.pacerHome, { recursive: true });
   const key = 'claude-code';
   writeFileSync(join(ctx.pacerHome, 'install-manifest.json'), JSON.stringify({ version: 1, planners: { [key]: {
     planner: 'claude-code', installedAt: ctx.now, pacerArgv: [], commands: [], notes: [],
-    files: [{ path, action: 'edited', backup: backupPath, afterHash: sha256(installed), exact: true, undo: [] }] } } }));
+    files: [{ path, action: 'edited', exact: true, undo: [] }],
+    undoConnect: { at: ctx.now, revision: 'rev-1', files: [{ path, before, beforeMode: 0o600, afterHash: sha256(installed) }] } } } }));
   await expect(callOp(ctx, 'agent.undo', { agent: 'claude-code' })).rejects.toMatchObject({ code: 'not_allowed' });
-  const r = await restorePlannerInstall(ctx, 'claude-code', key);
+  const r = await restorePlannerInstall(ctx, 'claude-code', key, 'rev-1');
   expect(r.restored).toEqual([path]);
-  expect(readFileSync(path, 'utf8')).toBe(backup);
-  expect(existsSync(backupPath)).toBe(false);
+  expect(readFileSync(path, 'utf8')).toBe(before);
+  const { readManifest } = await import('../src/install/manifest');
+  expect(readManifest(ctx).planners[key].undoneAt).toBeDefined();
   // Expired beyond the 7-day window is refused.
   const later = localTs(2026, 10, 28, 12, 0);
   const expiredCtx = fakeCtx({ now: later, pacerHome: tmpDir(), home: tmpDir() });
   const expiredFolder = join(expiredCtx.home, '.claude');
   mkdirSync(expiredFolder, { recursive: true });
   const expiredPath = join(expiredFolder, 'settings.json');
-  writeFileSync(expiredPath, installed); writeFileSync(join(expiredFolder, 'settings.json.pacer'), backup);
+  writeFileSync(expiredPath, installed);
   mkdirSync(expiredCtx.pacerHome, { recursive: true });
   writeFileSync(join(expiredCtx.pacerHome, 'install-manifest.json'), JSON.stringify({ version: 1, planners: { [key]: {
     planner: 'claude-code', installedAt: localTs(2026, 10, 10, 12, 0), pacerArgv: [], commands: [], notes: [],
-    files: [] } } }));
+    files: [],
+    undoConnect: { at: localTs(2026, 10, 10, 12, 0), revision: '', files: [{ path: expiredPath, before, afterHash: sha256(installed) }] } } } }));
   await expect(restorePlannerInstall(expiredCtx, 'claude-code', key)).rejects.toMatchObject({ code: 'not_found' });
+  expect(existsSync(expiredPath)).toBe(true);
 });
 
 function fakeHost(answers: {confirm?: boolean; review?: boolean; delegate?: boolean} = {}) {

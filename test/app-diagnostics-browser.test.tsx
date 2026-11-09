@@ -64,7 +64,8 @@ beforeAll(async()=>{
     changes:[
      {path:'$HOME/work/AGENTS.md',change:'restore',note:'Changed outside pacer; restored to the installed version'},
      {path:'$HOME/CLAUDE.md',change:'kept',note:'Yours. Pacer never edits it'}],
-    undo:`pacer uninstall ${agent}`,revision:`rev-${agent}`});
+    undo:`pacer uninstall ${agent}`,revision:`rev-${agent}`,
+    undoSnapshot:{revision:`rev-${agent}`,at:1,files:[{path:'$HOME/work/AGENTS.md',change:'restore'}]}});
   }
   if(op==='agent.connect'){
    if(mode==='hold')await pending;
@@ -72,7 +73,7 @@ beforeAll(async()=>{
    fixed.add(params.agent==='cursor'?'Integration freshness cursor':'Install codex#work');
    return Response.json({installed:[]});
   }
-  if(op==='agent.undo'){fixed.delete(params.agent==='cursor'?'Integration freshness cursor':'Install codex#work');return Response.json({restored:[],removed:[],reverted:[]});}
+  if(op==='agent.undo'){fixed.delete(params.agent==='cursor'?'Integration freshness cursor':'Install codex#work');return Response.json({restored:[],removed:[],reverted:[],kept:[]});}
   if(op==='routing.route')return Response.json({kind:'debug',ranked:[{id:'codex#team',reason:'22% of its budget used, with room this week'}]});
   if(op==='limits.refresh'){if(mode!=='refresh-stays')fixed.add('Usage codex#tse');return Response.json({});}
   if(op==='doctor.fix.delegate')return Response.json({task:{task_id:'t-fix-1',title:'Fix check',state:'queued'},check:params.check,scope:params.scope});
@@ -158,7 +159,7 @@ browserTest('the review sheet shows per-file change pills, the 7-day note and un
   expect(await confirm.innerText()).toContain('AGENTS.md');
   await confirm.getByRole('button',{name:'Restore copies',exact:true}).click();
   await page.getByText(/undone/).waitFor();
-  expect(opCalls('agent.undo')).toEqual([{op:'agent.undo',params:{agent:'codex',consent:true}}]);
+  expect(opCalls('agent.undo')).toEqual([{op:'agent.undo',params:{agent:'codex',consent:true,preview_revision:'rev-codex'}}]);
   expect(reads).toBe(3);
   await page.getByRole('button',{name:/^Review and fix/}).waitFor();
  }finally{await page.close();}

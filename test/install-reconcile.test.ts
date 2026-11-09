@@ -203,6 +203,29 @@ test("repeated missing-file repair writes even when manifest metadata already ma
   }
 });
 
+test("undo marks a repair undone; later reconcile reports the need to repair without rewriting (F5)", async () => {
+  const { ctx, root, skill } = await connected();
+  const { restorePlannerInstall } = await import("../src/plugins/planner-install");
+  const deleted = await restorePlannerInstall(ctx, "codex", "codex");
+  expect(deleted.removed).toContain(skill);
+  expect(existsSync(skill)).toBe(false);
+  const manifest = readManifest(ctx);
+  expect(manifest.planners.codex.undoneAt).toBeDefined();
+  expect(manifest.planners.codex.undoConnect).toBeUndefined();
+  // Reconcile reports needs-repair (refreshed) but must not silently recreate the files.
+  expect((await integrationFreshness(ctx, "codex")).state).toBe("refreshed");
+  expect(existsSync(skill)).toBe(false);
+  expect((await reconcileIntegrations(ctx))[0].state).toBe("refreshed");
+  expect(existsSync(skill)).toBe(false);
+  // No manifest rewrite either.
+  expect(readManifest(ctx).planners.codex.undoneAt).toBeDefined();
+  // A reconnect re-applies and clears the undone marker.
+  await installPlanner({ ctx, pacerArgv: PACER }, "codex");
+  expect(existsSync(skill)).toBe(true);
+  expect(readManifest(ctx).planners.codex.undoneAt).toBeUndefined();
+  expect(readManifest(ctx).planners.codex.undoConnect).toBeDefined();
+});
+
 test("malformed config diagnostics do not disclose configuration contents", async () => {
   const { ctx, root } = await connected();
   writeFileSync(join(root, "hooks.json"), "secret-value-that-must-not-be-logged");
