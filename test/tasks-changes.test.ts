@@ -73,17 +73,43 @@ test("existing database without the log gets it on open", () => {
   const existing = { id: "t-20261101-130000-dead", rev: 3, state: "done", createdAt: ctx.now, updatedAt: ctx.now, repo: "/tmp/repo" };
   legacy.query("INSERT INTO tasks (id, rev, state, created_at, updated_at, settled_at, repo, record, json_mtime, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(existing.id, existing.rev, existing.state, existing.createdAt, existing.updatedAt, existing.createdAt, existing.repo, JSON.stringify(existing), 1234, 0);
+  const before = legacy.query<{ rev: number; record: string; json_mtime: number }, [string]>(
+    "SELECT rev, record, json_mtime FROM tasks WHERE id = ?").get(existing.id);
   legacy.close();
-
-  const before = readTask(ctx, existing.id);
 
   const objects = taskDatabase(ctx).query<{ name: string; type: string }, []>(
     "SELECT name, type FROM sqlite_master WHERE name IN ('task_changes', 'task_changes_insert', 'task_changes_update')").all();
   expect(objects.map(o => o.name).sort()).toEqual(["task_changes", "task_changes_insert", "task_changes_update"]);
 
-  const after = readTask(ctx, existing.id);
-  expect(after?.rev).toBe(before?.rev);
+  const after = taskDatabase(ctx).query<{ rev: number; record: string; json_mtime: number }, [string]>(
+    "SELECT rev, record, json_mtime FROM tasks WHERE id = ?").get(existing.id);
   expect(after).toEqual(before);
-  const row = taskDatabase(ctx).query<{ json_mtime: number }, [string]>("SELECT json_mtime FROM tasks WHERE id = ?").get(existing.id);
-  expect(row?.json_mtime).toBe(1234);
+  expect(after?.json_mtime).toBe(1234);
+});
+
+test("a row with missing columns from an older writer is still written and logged", () => {
+  const ctx = fakeCtx();
+  createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const headBefore = taskChangesHead(ctx);
+  const db = new Database(join(ctx.pacerHome, "state", "tasks.db"));
+  try {
+    // Older binaries could bind NaN (stored as NULL) for updated_at; the trigger must not reject the write.
+    db.query("INSERT INTO tasks (id, rev, state, created_at, updated_at, settled_at, repo, record, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("t-20261101-120000-0bad", null, null, ctx.now, null, null, "/tmp/repo", "{}", 0);
+  } finally { db.close(); }
+  const { changes } = taskChangesSince(ctx, headBefore);
+  expect(changes.map(c => c.taskId)).toEqual(["t-20261101-120000-0bad"]);
+  expect(changes[0]!.at).toBe(ctx.now);
+});
+
+test("a cursor ahead of the log reports a gap", () => {
+  const ctx = fakeCtx();
+  createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const head = taskChangesHead(ctx);
+  // A restored or reset database restarts or rewinds seq below a reader's cursor.
+  expect(taskChangesSince(ctx, head + 100).gap).toBe(true);
+  pruneTaskChanges(ctx, { keepDays: -1 });
+  expect(taskChangesHead(ctx)).toBe(0);
+  expect(taskChangesSince(ctx, head).gap).toBe(true);
+  expect(taskChangesSince(ctx, 0).gap).toBe(false);
 });

@@ -65,9 +65,11 @@ export async function maintainTaskHistory(ctx: Ctx): Promise<void> {
   let historyFailure: unknown;
   try { await backfillTaskHistory(ctx); }
   catch (error) { historyFailure = error; }
+  // Pruning stays independent of retention, so a failing retention sweep cannot let the log grow.
+  try { pruneTaskChanges(ctx); }
+  catch (error) { console.error(`pacer: task change log prune failed: ${String(error)}`); }
   try {
     await retentionScheduler().tick(ctx);
-    pruneTaskChanges(ctx);
   }
   catch (error) {
     if (historyFailure) {

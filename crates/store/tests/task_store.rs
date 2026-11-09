@@ -820,3 +820,24 @@ fn retention_pages_past_twenty_five_and_rejects_negative_days() {
     assert_eq!(dry.tasks.len(), 27);
     assert_eq!(store.list(&TaskFilter::default()).unwrap().len(), 27);
 }
+
+#[test]
+fn change_log_trigger_accepts_rows_with_missing_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    drop(TaskStore::open(dir.path()).unwrap());
+    // Older binaries could bind NaN (stored as NULL); the trigger must not reject the write.
+    let db = rusqlite::Connection::open(dir.path().join("state/tasks.db")).unwrap();
+    db.execute(
+        "INSERT INTO tasks (id, rev, state, created_at, updated_at, record) VALUES ('t-20261101-120000-0bad', NULL, NULL, 5.0, NULL, '{}')",
+        [],
+    )
+    .unwrap();
+    let at: f64 = db
+        .query_row(
+            "SELECT at FROM task_changes WHERE task_id = 't-20261101-120000-0bad'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(at, 5.0);
+}

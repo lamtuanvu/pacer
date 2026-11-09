@@ -14,13 +14,15 @@ export function taskChangesHead(ctx: Ctx): number {
   return row?.head ?? 0;
 }
 
-/** Changes after `cursor`, oldest first, up to `limit`. `gap` is true when the
- *  log is non-empty and `cursor` is older than its retained window (pruned
- *  past); the caller must then run a full reconcile instead of trusting an
- *  empty `changes` array to mean "nothing changed". */
+/** Changes after `cursor`, oldest first, up to `limit`. `gap` is true when
+ *  `cursor` is older than the retained window (pruned past) or ahead of the
+ *  log (a restored or reset database rewound `seq`); the caller must then run
+ *  a full reconcile instead of trusting an empty `changes` array to mean
+ *  "nothing changed". */
 export function taskChangesSince(ctx: Ctx, cursor: number, limit = 500): { changes: TaskChange[]; head: number; gap: boolean } {
   const db = taskDatabase(ctx);
   const head = taskChangesHead(ctx);
+  if (cursor > head) return { changes: [], head, gap: true };
   if (head === 0) return { changes: [], head, gap: false };
   const oldest = db.query<{ min: number }, []>("SELECT MIN(seq) AS min FROM task_changes").get()!.min;
   if (cursor < oldest - 1) return { changes: [], head, gap: true };
@@ -30,7 +32,7 @@ export function taskChangesSince(ctx: Ctx, cursor: number, limit = 500): { chang
 }
 
 /** Bound the log to a window so it never grows forever. Deletes rows older
- *  than `keepDays`, or beyond the newest `keepRows` rows, whichever is wider;
+ *  than `keepDays` or beyond the newest `keepRows` rows (either bound applies);
  *  called from the maintenance child's daily run (`src/tasks/history.ts`). */
 export function pruneTaskChanges(ctx: Ctx, opts: { keepDays?: number; keepRows?: number } = {}): number {
   const db = taskDatabase(ctx);

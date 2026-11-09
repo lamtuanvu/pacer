@@ -388,10 +388,10 @@ impl TaskStore {
                 "CREATE TABLE IF NOT EXISTS task_changes(seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, rev INTEGER NOT NULL, state TEXT NOT NULL, at REAL NOT NULL);
                  CREATE INDEX IF NOT EXISTS task_changes_at ON task_changes(at);
                  CREATE TRIGGER IF NOT EXISTS task_changes_insert AFTER INSERT ON tasks BEGIN
-                   INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,NEW.rev,NEW.state,NEW.updated_at); END;
+                   INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,COALESCE(NEW.rev,0),COALESCE(NEW.state,''),COALESCE(NEW.updated_at,NEW.created_at,0)); END;
                  CREATE TRIGGER IF NOT EXISTS task_changes_update AFTER UPDATE ON tasks
                    WHEN NEW.rev IS NOT OLD.rev OR NEW.state IS NOT OLD.state OR NEW.archived IS NOT OLD.archived BEGIN
-                   INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,NEW.rev,NEW.state,NEW.updated_at); END;",
+                   INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,COALESCE(NEW.rev,0),COALESCE(NEW.state,''),COALESCE(NEW.updated_at,NEW.created_at,0)); END;",
             )?;
             tx.commit()?;
         }
