@@ -327,7 +327,7 @@ function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query,
  const taskRevision=JSON.stringify([task?.rev,task?.state]);
  const stopped=stoppedAt===taskRevision;
  const t=stopped&&task?{...task,state:'stopped' as const}:task,s=session.data,live=!!s?.live&&!!t&&['running','queued','needs_input'].includes(t.state);
- const mode=t?.state==='queued'?'Waiting to start':t&&!['running','needs_input'].includes(t.state)?'Ended · read-only':!s?session.error?'Session unavailable':undefined:s.host==='none'?'Output · read-only':shared?lastInputWords(sessionActive(s),runtime?.state.delivered):driving?'You control this session':'Watching · read-only';
+ const mode=t?.state==='queued'?'Waiting to start':t&&!['running','needs_input'].includes(t.state)?'Ended · read-only':!s?session.error?'Session unavailable':undefined:s.host==='none'?'Output · read-only':shared?lastInputWords(runtime?.state.active ?? sessionActive(s),runtime?.state.delivered):driving?'You control this session':'Watching · read-only';
  // The header is the session's name. Repo and branch live in the side panel; only a mode that changes what you can do is spelled out.
  // A 1.2 session's mode ("Interactive · …") is the terminal's polite status; the header does not repeat it.
  const metadata=mode==='You control this session'||mode==='Session unavailable'?mode:'';

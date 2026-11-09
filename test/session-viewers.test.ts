@@ -104,7 +104,7 @@ test('1.2: a read-only viewer watches but its input, size, focus and take are dr
  watcher.emit('data',wire(FrameType.size,{cols:80,rows:24}));watcher.emit('data',wire(FrameType.focus,{}));
  watcher.emit('data',wire(FrameType.take,{force:true}));
  expect(inputs).toEqual([]);expect(sizes).toEqual([]);expect(hub.active).toBeNull();
- expect(controlsOf(watcher).at(-1)).toEqual({controller:null,you:false,reason:'read-only'});
+ expect(controlsOf(watcher).at(-1)).toEqual({controller:null,you:false,active:null,reason:'read-only'});
  hub.broadcast(wire(FrameType.output,Buffer.from('still watching')));expect(framesOf(watcher).at(-1)?.type).toBe(FrameType.output);
 });
 test('1.2: the PTY size follows the most recently focused or typing client and keeps its last size',()=>{

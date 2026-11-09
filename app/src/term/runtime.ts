@@ -1,4 +1,5 @@
 import { SessionClient, type SessionClientOptions, type SessionState } from './client';
+import { platform } from '../platform';
 export type ControlIntent = 'watching' | 'driving' | 'released';
 export interface SessionRenderer {
   reset(cols: number, rows: number): void;
@@ -35,6 +36,116 @@ const schedule: NonNullable<SessionClientOptions['schedule']> = (fn, ms) => {
   const timer = setTimeout(fn, ms);
   return () => clearTimeout(timer);
 };
+type ViewerStorage = Pick<Storage, 'getItem' | 'setItem'> | null;
+const WINDOW_LEASE_PREFIX = 'pacer:viewer-lease:';
+/** An allocated viewer slot: `n` is the human-readable ordinal, `id` a per-window token that lets us break ties. */
+interface ViewerLeaseEntry {
+  n: number;
+  id: string;
+}
+/** The short platform name an app window presents to a shared session (ADR 0023, follow-up F6). */
+export function viewerPlatformName(desktop: boolean): string {
+  return desktop ? 'Pacer desktop' : 'Browser';
+}
+function readLeases(storage: ViewerStorage, key: string): ViewerLeaseEntry[] {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(key);
+    if (raw == null) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const leases: ViewerLeaseEntry[] = [];
+    for (const item of parsed) {
+      // Accept both the current {n, id} form and the legacy bare-number array.
+      if (Number.isSafeInteger(item) && (item as number) >= 1)
+        leases.push({ n: item as number, id: '' });
+      else if (
+        item &&
+        typeof item === 'object' &&
+        Number.isSafeInteger((item as ViewerLeaseEntry).n) &&
+        (item as ViewerLeaseEntry).n >= 1 &&
+        typeof (item as ViewerLeaseEntry).id === 'string'
+      )
+        leases.push({ n: (item as ViewerLeaseEntry).n, id: (item as ViewerLeaseEntry).id });
+    }
+    return leases;
+  } catch {
+    return [];
+  }
+}
+function writeLeases(storage: ViewerStorage, key: string, leases: ViewerLeaseEntry[]): void {
+  if (!storage) return;
+  try {
+    storage.setItem(key, JSON.stringify(leases));
+  } catch {
+    /* memory-only fallback */
+  }
+}
+/** Short random token; unique per window, used as a tiebreak when two windows land on the same ordinal. */
+function windowToken(): string {
+  return Math.random().toString(36).slice(2, 6) || 'x';
+}
+function smallestFreeOrdinal(leases: ViewerLeaseEntry[]): number {
+  let n = 1;
+  while (leases.some((l) => l.n === n)) n++;
+  return n;
+}
+export interface ViewerWindowLease {
+  label: string;
+  release(): void;
+}
+/**
+ * Allocates this app window a human-readable viewer label so a shared session's `active` status
+ * (last input from …) can tell windows apart (ADR 0023, follow-up F6). The base is the platform
+ * name; once more than one window of the same kind is live in this browser profile each gets a
+ * short per-window ordinal. Two windows opened in the same instant can both read the same store
+ * and pick the same ordinal; each detects the other's same-ordinal lease at its recheck and
+ * appends a unique per-window tiebreak so the labels never collide. Release is best-effort and
+ * keeps the lease worst-case bounded.
+ */
+export function announceViewerWindow(desktop: boolean, storage: ViewerStorage): ViewerWindowLease {
+  const key = WINDOW_LEASE_PREFIX + (desktop ? 'desktop' : 'browser');
+  const id = windowToken();
+  const leases = readLeases(storage, key);
+  const n = smallestFreeOrdinal(leases);
+  const next = [...leases, { n, id }];
+  writeLeases(storage, key, next);
+  // Re-check the store: if another window grabbed the same ordinal in the same instant, gate the
+  // ordinal with my unique token so this window stays distinguishable.
+  const after = readLeases(storage, key);
+  const collided = after.some((l) => l.n === n && l.id !== id);
+  const base = viewerPlatformName(desktop);
+  const label = after.length > 1 ? (collided ? `${base} · ${n}·${id}` : `${base} · ${n}`) : base;
+  let released = false;
+  return {
+    label,
+    release() {
+      if (released) return;
+      released = true;
+      writeLeases(storage, key, readLeases(storage, key).filter((l) => l.id !== id));
+    },
+  };
+}
+function defaultViewerStorage(): ViewerStorage {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+function onPageHide(fn: () => void): void {
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function')
+    window.addEventListener('pagehide', fn);
+}
+let windowLease: ViewerWindowLease | undefined;
+/** This app window's viewer label, computed once and shared by all of its terminal panes. */
+export function viewerWindowLabel(): string {
+  if (!windowLease) {
+    windowLease = announceViewerWindow(platform.desktop, defaultViewerStorage());
+    onPageHide(() => windowLease?.release());
+  }
+  return windowLease.label;
+}
 /** In-memory only. The connection factory can be replaced by a desktop attachment. */
 export class SessionRuntime {
   intent: ControlIntent = 'watching';
@@ -232,8 +343,11 @@ export class SessionRuntime {
     this.attemptStartedAt = nextTime;
     this.attempt = nextAttempt;
     const { control, live, autoControl, ...metadata } = options;
-    this.options = { ...this.options, ...metadata };
-    this.client.configure(true, undefined, { url: this.options.url, label: this.options.label });
+    // A window's viewer label is fixed at connect; only an explicit caller label replaces it.
+    const label =
+      typeof metadata.label === 'string' && metadata.label ? metadata.label : this.options.label;
+    this.options = { ...this.options, ...metadata, label };
+    this.client.configure(true, undefined, { url: this.options.url, label });
     if (reset) {
       this.controlVersion++;
       this.clearBuffer();
@@ -392,7 +506,7 @@ export function sessionRuntime(id: string, url?: string, shell = false, peek = f
   if (peek) return sessionRuntimes.peek(endpoint.origin, `${shell ? 'terminal' : 'task'}:${id}`);
   return sessionRuntimes.get(endpoint.origin, `${shell ? 'terminal' : 'task'}:${id}`, {
     url: endpoint.href,
-    label: 'pacer app',
+    label: viewerWindowLabel(),
     cols: 120,
     rows: 40,
     control: true,

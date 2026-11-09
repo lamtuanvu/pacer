@@ -8,7 +8,7 @@ export interface SessionSocket {
 }
 export interface TerminalSnapshot { outputOffset:number; cols:number; rows:number; scrollbackAnsi:string; screenAnsi:string; controller:string|null; viewers:number }
 /** shared is true once a host negotiated session protocol 1.2, which has no controller (ADR 0023). */
-export interface SessionState { status:'connecting'|'live'|'reconnecting'|'resyncing'|'exited'|'error'; you:boolean; controller:string|null; cols:number; rows:number; viewers:number; shared?:boolean; delivered?:Delivery; code?:number; signal?:string; message?:string }
+export interface SessionState { status:'connecting'|'live'|'reconnecting'|'resyncing'|'exited'|'error'; you:boolean; controller:string|null; cols:number; rows:number; viewers:number; shared?:boolean; delivered?:Delivery; active?:string|null; code?:number; signal?:string; message?:string }
 /** The last input pacer typed into a 1.2 session, from the host's delivered broadcast (ADR 0023). */
 export interface Delivery { kind:'answer'|'message'; label?:string }
 export interface SessionClientOptions {
@@ -61,7 +61,7 @@ export class SessionClient {
     case 'snapshot': {
      if(!Number.isSafeInteger(frame.outputOffset)||frame.outputOffset<0||!Number.isInteger(frame.cols)||frame.cols<1||!Number.isInteger(frame.rows)||frame.rows<1||typeof frame.scrollbackAnsi!=='string'||typeof frame.screenAnsi!=='string')throw Error('invalid snapshot');
      this.options.onSnapshot?.(frame);this.offset=frame.outputOffset;this.attempt=0;
-     this.update({status:'live',cols:frame.cols,rows:frame.rows,controller:frame.controller,viewers:frame.viewers,you:false,message:undefined});
+     this.update({status:'live',cols:frame.cols,rows:frame.rows,controller:frame.controller,viewers:frame.viewers,you:false,message:undefined,...(typeof frame.active==='string'||frame.active===null?{active:frame.active}:{})});
      this.tryAutoControl();
      break;
     }
@@ -70,7 +70,7 @@ export class SessionClient {
      // Only the first control frame of a connection carries the host's version range.
      this.minor??=negotiatedMinor(frame.versions);
      const shared=this.minor>=2;
-     this.attempt=0;this.update({...(this.offset!==undefined&&this.state.status!=='resyncing'?{status:'live' as const}:{}),controller:shared?null:frame.controller,...(Number.isInteger(frame.viewers)?{viewers:frame.viewers}:{}),you:this.options.control&&frame.you===true,shared,message:!shared&&frame.reason==='taken'&&!frame.you?'Control was taken by another viewer.':undefined});this.tryAutoControl();break;
+     this.attempt=0;this.update({...(this.offset!==undefined&&this.state.status!=='resyncing'?{status:'live' as const}:{}),controller:shared?null:frame.controller,...(Number.isInteger(frame.viewers)?{viewers:frame.viewers}:{}),you:this.options.control&&frame.you===true,shared,message:!shared&&frame.reason==='taken'&&!frame.you?'Control was taken by another viewer.':undefined,...(typeof frame.active==='string'||frame.active===null?{active:frame.active}:{})});this.tryAutoControl();break;
     }
     // 1.2 hosts broadcast pacer's own input; granted belongs to the deliverer, never a viewer, and is ignored.
     case 'delivered':if(this.shared&&frame.ok===true){const label=typeof frame.label==='string'?frame.label:undefined;this.update({delivered:{kind:frame.kind==='answer'||frame.kind!=='message'&&/answer/i.test(label??'')?'answer':'message',...(label?{label}:{})}});}break;
