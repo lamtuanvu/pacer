@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawn as nodeSpawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HostClient } from "../packages/plugin-sdk/src";
 import { preparePlannerInstall } from "../packages/plugin-sdk/src/install/prepared";
@@ -468,7 +469,7 @@ test("flag-on refuses an out-of-selection planner command inside the transaction
   expect(spawned).toEqual([]);
 });
 
-test("flag-on install over the bridge is cancelled and compensates when the plugin's grant is revoked mid-call", async () => {
+test("flag-on install over the bridge is cancelled and compensates when the plugin is disabled mid-call", async () => {
   const { ctx, folder, path, spawned, options, log } = plannerSetup();
   // `disable` needs an existing strategy file to edit (plannerSetup does not write one).
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n", { mode: 0o600 });
@@ -482,7 +483,7 @@ test("flag-on install over the bridge is cancelled and compensates when the plug
   // Disabling the plugin revokes its authorities, same as flag-off; the registered
   // native-owner authority must be among them so the in-flight call is cancelled too.
   await options.registry.disable(ctx, "fx-planner");
-  await expect(promise).rejects.toMatchObject({ code: "plugin_refused", message: "grant revoked" });
+  await expect(promise).rejects.toMatchObject({ code: "plugin_unavailable", message: "owning plugin call ended" });
   // The pinned undo ran in reverse of the forward (the forward is killed mid-flight,
   // so only the undo's marker is present; the point is that rollback executed it).
   expect(readFileSync(log, "utf8")).toContain("undo");
@@ -504,7 +505,7 @@ test("flag-on install over the bridge is cancelled when the planner configuratio
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
     "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  config:\n    fx-planner:\n      note: changed\n");
   options.registry.refresh(ctx);
-  await expect(promise).rejects.toMatchObject({ code: "plugin_refused", message: "grant revoked" });
+  await expect(promise).rejects.toMatchObject({ code: "plugin_unavailable", message: "owning plugin call ended" });
   // The pinned undo ran in reverse of the forward (the forward is killed mid-flight,
   // so only the undo's marker is present; the point is that rollback executed it).
   expect(readFileSync(log, "utf8")).toContain("undo");
@@ -670,4 +671,119 @@ test("flag-on stages a planner result above the 768 KiB limit from $/resultChunk
   const above = await runCase(1300 * 1024);
   expect(above.chunkFrames).toBeGreaterThan(1);
   expect(above.value).toEqual({ schema: 1, pad: "x".repeat(1300 * 1024) });
+});
+
+test("flag-on refuses a chunk on a read-only planner call that only sealed fs reads, keeping the plain limit", async () => {
+  const { ctx, registry, path, spawned } = setup("fake");
+  const folder = join(ctx.home, ".claude");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, "settings.json"), "ready");
+  const input = { agent: "claude-code", home: ctx.home, pacerHome: ctx.pacerHome, binary: null,
+    env: { now: ctx.now, pacerArgv: ["pacer"], plannerKey: "claude-code", folder }, prior: { planner: "claude-code", files: [] } };
+  const lease = new PlannerResources(ctx, { purpose: "preview", cwd: ctx.home, binaries: [], roots: [folder] });
+  const { answers, requests } = await forwardingOwner(path, answers => [
+    { method: "$/resultChunk", params: { request: 1, offset: 0, base64: Buffer.from("{}").toString("base64") } },
+    undefined,
+  ][answers.length], { schema: 1 });
+  const value = await registry.call(ctx, "fx-native", "planner.plan", input, { plannerResources: lease, accountHome: folder });
+  await lease.dispose();
+  expect(value).toEqual({ schema: 1 });
+  // A read-only planner call seals only the fs reads, never `$/resultChunk`.
+  expect(requests[0].params.coreMethods).not.toContain("$/resultChunk");
+  expect(answers[0]).toMatchObject({ code: -32000, message: "result chunk does not belong to an active negotiated request", data: { code: "capability_denied" } });
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on refuses a chunk on a call that never negotiated chunked results", async () => {
+  const { ctx, registry, path, spawned } = setup("fake");
+  const { answers, requests } = await forwardingOwner(path, answers => [
+    { method: "$/resultChunk", params: { request: 1, offset: 0, base64: Buffer.from("{}").toString("base64") } },
+    undefined,
+  ][answers.length], { ok: true });
+  const value = await registry.call(ctx, "fx-native", "diagnostic.ping", {});
+  expect(value).toEqual({ ok: true });
+  // No usage/effect to negotiate for: Core sealed no transport and answers the chunk itself.
+  expect(requests[0].params.coreMethods).toBeUndefined();
+  expect(answers[0]).toMatchObject({ code: -32000, data: { code: "capability_denied" } });
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on refuses a plain result after chunks were staged", async () => {
+  const { ctx, folder, path, spawned, options } = plannerSetup();
+  // The owner (recording Core's role) sends one accepted chunk then a plain final
+  // reply; Core must refuse the plain result once a transfer has started.
+  await forwardingOwner(path, answers => answers.length < 1
+    ? { method: "$/resultChunk", params: { request: 1, offset: 0, base64: Buffer.from("{}").toString("base64") } }
+    : undefined, { schema: 1 });
+  const lease = new PlannerResources(ctx, { purpose: "install", cwd: ctx.home, binaries: ["fx-planner"], roots: [folder] });
+  try {
+    await expect(options.registry.call(ctx, "fx-planner", "planner.install", {}, { plannerResources: lease, accountHome: folder }))
+      .rejects.toMatchObject({ code: "plugin_refused", message: "incomplete or unnegotiated chunked result" });
+  } finally { await lease.dispose(); }
+  expect(spawned).toEqual([]);
+});
+
+test("flag-on applies flag-off chunk bounds: oversized chunk, non-contiguous and duplicate offsets, and an over-16 MiB total", async () => {
+  const CHUNK = 262144;
+  const weight = Buffer.from("{}").toString("base64");
+  const chunk = (params: { request: number; offset: number; base64: string }): Ask => ({ method: "$/resultChunk", params });
+  const runCase = async (chunks: Ask[], value: unknown = { schema: 1 }) => {
+    const { ctx, folder, path, spawned, options } = plannerSetup();
+    const { answers, requests } = await forwardingOwner(path, answers => chunks[answers.length] ?? undefined, value);
+    const lease = new PlannerResources(ctx, { purpose: "install", cwd: ctx.home, binaries: ["fx-planner"], roots: [folder] });
+    try {
+      await options.registry.call(ctx, "fx-planner", "planner.install", {}, { plannerResources: lease, accountHome: folder });
+    } catch { /* chunk errors are expected; the answers record them */ }
+    await lease.dispose();
+    return { answers: answers as any[], requests, spawned };
+  };
+  // A chunk over 256 KiB is refused (the `CHUNK` bound).
+  const oversized = await runCase([chunk({ request: 1, offset: 0, base64: Buffer.alloc(CHUNK + 1, 97).toString("base64") })]);
+  expect(oversized.answers[0]).toMatchObject({ data: { code: "invalid_input" } });
+  expect(oversized.spawned).toEqual([]);
+  // A non-contiguous offset (skips 0) is refused.
+  const nonContiguous = await runCase([chunk({ request: 1, offset: 5, base64: weight })]);
+  expect(nonContiguous.answers[0]).toMatchObject({ data: { code: "invalid_input" } });
+  expect(nonContiguous.requests[0].params.coreMethods).toContain("$/resultChunk");
+  // A duplicate offset (an out-of-order replay after a staged chunk) is refused.
+  const duplicate = await runCase([
+    chunk({ request: 1, offset: 0, base64: weight }),
+    chunk({ request: 1, offset: 0, base64: weight }),
+  ], { _chunkedResult: { bytes: 2 } });
+  expect(duplicate.answers[0]).toEqual({ bytes: 2 });
+  expect(duplicate.answers[1]).toMatchObject({ data: { code: "invalid_input" } });
+  // An over-16 MiB total is refused: 64 accepted chunk frames put 16 MiB on the
+  // file, so the 65th is rejected before it is admitted.
+  const big = Array.from({ length: 65 }, (_, i) => chunk({ request: 1, offset: i * CHUNK, base64: Buffer.alloc(CHUNK, 97).toString("base64") }));
+  const overflow = await runCase(big);
+  expect(overflow.answers.length).toBe(65);
+  expect(overflow.answers[64]).toMatchObject({ data: { code: "invalid_input" } });
+});
+
+const stagingDirs = () => readdirSync(tmpdir()).filter(name => name.startsWith("pacer-plugin-result-"));
+
+test("flag-on fails the call and cleans up staged chunks when the owner drops the socket mid-chunk", async () => {
+  const { ctx, folder, path, spawned, options } = plannerSetup();
+  const server = createServer(socket => {
+    // Read the call, forward one accepted chunk, then drop the socket before the
+    // final completion so the call ends mid-transfer.
+    socket.once("data", () => {
+      socket.write(JSON.stringify({
+        jsonrpc: "2.0", id: "core-1", method: "$/resultChunk",
+        params: { request: 1, offset: 0, base64: Buffer.from("{}").toString("base64") },
+      }) + "\n");
+      socket.once("data", () => socket.destroy());
+    });
+  });
+  servers.push(server);
+  await new Promise<void>(done => server.listen(path, done));
+  const lease = new PlannerResources(ctx, { purpose: "install", cwd: ctx.home, binaries: ["fx-planner"], roots: [folder] });
+  const before = stagingDirs();
+  try {
+    await expect(options.registry.call(ctx, "fx-planner", "planner.install", {}, { plannerResources: lease, accountHome: folder }))
+      .rejects.toMatchObject({ code: "plugin_unavailable" });
+  } finally { await lease.dispose(); }
+  await new Promise(done => setTimeout(done, 100));
+  expect(stagingDirs().length).toBe(before.length);
+  expect(spawned).toEqual([]);
 });
