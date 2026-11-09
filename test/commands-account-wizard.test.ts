@@ -200,3 +200,7 @@ test("when every listed model is hidden, the URL path asks for model ids", async
   expect(s.printed).toContain("None of this endpoint's models can run an executor. Enter model ids.");
   expect(s.questions).toContain("Model ids (comma separated)");
 });
+
+test("an endpoint error skips a leading colour-reset line and keeps the first real line", () => {
+  expect(endpointState.redactEndpointError("\u001b[0m\n\u001b[91mError: Model not found: opencode-go/x\u001b[0m\nmore")).toBe("Error: Model not found: opencode-go/x");
+});
