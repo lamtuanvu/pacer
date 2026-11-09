@@ -57,13 +57,30 @@ export function writeManifest(ctx: Pick<Ctx, "pacerHome">, manifest: Manifest): 
 }
 export function removeTomlTable(text: string, table: string): string {
   const lines = text.split(/(?<=\n)/);
-  const header = `[${table}]`;
-  const start = lines.findIndex(line => line.startsWith(header)
-    && /^[\t ]*(?:#[^\r\n]*)?(?:\r?\n)?$/.test(line.slice(header.length)));
+  const start = tableStart(lines, tableHeaders(table));
   if (start < 0) return text;
   let end = start + 1;
   while (end < lines.length && !lines[end].startsWith("[")) end++;
   return lines.slice(0, start).join("") + lines.slice(end).join("");
+}
+/** A dotted key defined as bare keys may be spelled with each segment quoted. */
+function tableHeaders(table: string): string[] {
+  let names: string[] = [];
+  for (const segment of table.split(".")) {
+    names = names.length
+      ? names.flatMap(prefix => [`${prefix}.${segment}`, `${prefix}."${segment}"`])
+      : [segment, `"${segment}"`];
+  }
+  return names.map(name => `[${name}]`);
+}
+function tableStart(lines: string[], headers: string[]): number {
+  let start = -1;
+  for (const header of headers) {
+    const found = lines.findIndex(line => line.startsWith(header)
+      && /^[\t ]*(?:#[^\r\n]*)?(?:\r?\n)?$/.test(line.slice(header.length)));
+    if (found >= 0 && (start < 0 || found < start)) start = found;
+  }
+  return start;
 }
 export function applyUndo(text: string, ops: UndoOp[], notes: string[] = []): string {
   for (const op of ops) {

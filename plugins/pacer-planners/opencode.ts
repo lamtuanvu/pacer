@@ -7,6 +7,7 @@ import {
   type UndoOp,
 } from "@pacer/plugin/install";
 import { installSkill } from "./skill";
+import { dropStaleMcpEntry, noMcpEdit } from "./mcp";
 import { policyText } from "./policy";
 import type { PlannerBuilder } from "./types";
 export async function installOpencodeFiles(tx: PlannerBuilder): Promise<void> {
@@ -16,6 +17,9 @@ export async function installOpencodeFiles(tx: PlannerBuilder): Promise<void> {
     (await tx.read(join(dir, "opencode.jsonc"))) !== null
       ? join(dir, "opencode.jsonc")
       : join(dir, "opencode.json");
+  const isPacerMcpOp = (op: UndoOp): boolean =>
+    op.kind === "json-member" && op.path.length === 2 &&
+    op.path[0] === "mcp" && op.path[1] === "pacer";
   await tx.edit(
     join(dir, "AGENTS.md"),
     (old) => upsertBlock(old ?? "", policyText("opencode"), "md"),
@@ -29,12 +33,9 @@ export async function installOpencodeFiles(tx: PlannerBuilder): Promise<void> {
     enabled: true,
   };
   const undo: UndoOp = { kind: "json-member", path: ["mcp", "pacer"] };
-  if (tx.env.mcp === false && (await tx.read(configPath)) !== null)
-    await tx.edit(
-      configPath,
-      (old) => removeMember(old!, ["mcp", "pacer"]),
-      [],
-    );
+  if (env.mcp === false && (await tx.read(configPath)) !== null)
+    await tx.edit(configPath, noMcpEdit(tx, configPath, isPacerMcpOp,
+      (old) => removeMember(old!, ["mcp", "pacer"])), []);
   if (tx.env.mcp === true)
     await tx.edit(
       configPath,
@@ -56,5 +57,11 @@ export async function installOpencodeFiles(tx: PlannerBuilder): Promise<void> {
     );
   tx.notes.push(
     "OpenCode guard is policy-only; policy and skill installed; MCP is optional.",
+  );
+  await dropStaleMcpEntry(
+    tx,
+    configPath,
+    isPacerMcpOp,
+    (text) => getMember(text, ["mcp", "pacer"]) !== undefined,
   );
 }
