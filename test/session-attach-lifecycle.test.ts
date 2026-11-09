@@ -150,7 +150,7 @@ test("pacer attach from an executor session is always read-only; --read-only set
 
 async function bridgeHost(versions: [number, number] | null) {
   const dir = tmpDir();
-  // A session reached through an SSH bridge lives on a paired or remote machine (ADR 0023, decision 2).
+  // A session reached through an SSH bridge lives on a remote host (ADR 0023, decision 2).
   writeFileSync(join(dir, "session.bridge.pid"), String(process.pid));
   const received: { type: number; body: any }[] = [];
   const ADMISSION = Buffer.from("PACER-VIEWER/1\n");

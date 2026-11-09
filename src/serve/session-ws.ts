@@ -29,7 +29,7 @@ export function viewerMessageFrames(message:string|Buffer,from?:number,bridged=f
  }
  // Only pacer's own delivery path may type through deliver (API-5, SEC-5); browser clients never can.
  if(frames.some(f=>f.type===FrameType.deliver))throw Error('deliver is not accepted from WebSocket clients');
- // A viewer reaching a session through an SSH bridge is on a paired or remote machine; it is read-only (ADR 0023, decision 2).
+ // A viewer reaching a session through an SSH bridge is on a remote host; it is read-only. Paired-machine viewing is not implemented and needs its own check (ADR 0023, decision 2).
  return frames.map(f=>f.type===FrameType.hello
   ?wire(f.type,{...JSON.parse(f.data.toString()),client:'app',...(bridged?{readOnly:true}:{}),...(from===undefined?{}:{from})})
   :wire(f.type,f.data));
