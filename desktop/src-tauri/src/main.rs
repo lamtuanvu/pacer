@@ -16,6 +16,8 @@ mod client_control;
 mod link;
 mod logging;
 mod logic;
+#[cfg(all(target_os = "macos", not(feature = "ota-fixture")))]
+mod mac_notifications;
 mod notifications;
 mod owner;
 mod permission_setup;
@@ -36,9 +38,8 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
+#[cfg(not(target_os = "macos"))]
 use tauri_plugin_notification::NotificationExt;
-#[cfg(target_os = "macos")]
-use tauri_plugin_notification::{Action, ActionType};
 use tauri_plugin_positioner::{Position, WindowExt};
 use tray_model::TrayModel;
 
@@ -1115,50 +1116,7 @@ fn notify(app: &AppHandle, notification: notifications::Notification) {
 }
 #[cfg(all(target_os = "macos", not(feature = "ota-fixture")))]
 fn notify(app: &AppHandle, notification: notifications::Notification) {
-    // Each category has stable, unique action ids so later notifications cannot remap earlier buttons.
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let index = NEXT.fetch_add(1, Ordering::Relaxed);
-    let category = format!("pacer-attention-{index}");
-    // Keep button mappings for the last 32 notifications only.
-    if index >= 32 {
-        let stale = format!("pacer-attention-{}-", index - 32);
-        app.state::<Shell>()
-            .actions
-            .lock()
-            .unwrap()
-            .retain(|id, _| !id.starts_with(&stale));
-    }
-    let actions: Vec<_> = notification
-        .actions
-        .iter()
-        .enumerate()
-        .map(|(n, action)| {
-            let id = format!("{category}-{n}");
-            app.state::<Shell>()
-                .actions
-                .lock()
-                .unwrap()
-                .insert(id.clone(), action.clone());
-            Action::builder(
-                id,
-                notifications::clean(action["label"].as_str().unwrap_or("Open pacer"), 40),
-            )
-            .build()
-        })
-        .collect();
-    let _ = app
-        .notification()
-        .register_action_types(vec![ActionType::builder(&category)
-            .actions(actions)
-            .build()]);
-    let _ = app
-        .notification()
-        .builder()
-        .title(notification.title)
-        .body(notification.body)
-        .action_type_id(category)
-        .extra("route", notification.route)
-        .show();
+    mac_notifications::present(app, notification);
 }
 fn open_external(url: &Url) {
     #[cfg(target_os = "macos")]
@@ -1587,32 +1545,40 @@ fn main() {
                         navigate(&handle, url.as_str());
                     }
                 }
-                let notifications = handle.clone();
-                app.notification().on_action(move |action| {
-                    let mapped = notifications
-                        .state::<Shell>()
-                        .actions
-                        .lock()
-                        .unwrap()
-                        .get(action.action_id())
-                        .cloned();
-                    if let Some(mapped) = mapped {
-                        dispatch_action(&notifications, mapped);
-                        return;
-                    }
-                    let target = logic::route(action.action_id()).or_else(|| {
-                        action
-                            .notification()
-                            .and_then(|n| n.extra().get("route"))
-                            .and_then(Value::as_str)
-                            .and_then(logic::route)
-                    });
-                    if let Some(target) = target {
-                        navigate(&notifications, &target);
-                    }
-                })?;
+                // macOS reports notification responses to mac_notifications' delegate.
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let notifications = handle.clone();
+                    app.notification().on_action(move |action| {
+                        let mapped = notifications
+                            .state::<Shell>()
+                            .actions
+                            .lock()
+                            .unwrap()
+                            .get(action.action_id())
+                            .cloned();
+                        if let Some(mapped) = mapped {
+                            dispatch_action(&notifications, mapped);
+                            return;
+                        }
+                        let target = logic::route(action.action_id()).or_else(|| {
+                            action
+                                .notification()
+                                .and_then(|n| n.extra().get("route"))
+                                .and_then(Value::as_str)
+                                .and_then(logic::route)
+                        });
+                        if let Some(target) = target {
+                            navigate(&notifications, &target);
+                        }
+                    })?;
+                }
                 #[cfg(target_os = "macos")]
-                approvals::request_notifications();
+                {
+                    // The delegate must be in place before the first notification is posted.
+                    mac_notifications::setup(&handle);
+                    approvals::request_notifications();
+                }
             }
             tauri::async_runtime::spawn(client::monitor_approvals(handle.clone()));
             tauri::async_runtime::spawn(client::watch_startup(handle.clone()));
