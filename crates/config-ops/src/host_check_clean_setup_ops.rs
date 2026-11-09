@@ -5,6 +5,14 @@
 //! state: SSH execution via the plugin host, job orchestration for clone/identity,
 //! and the transfer gate for clean.
 //!
+//! Until Core actually serves that bridge (`/_internal/host-effects`,
+//! `_internal.host.effects`), these ops are not registered natively: every
+//! front door forwards them to TypeScript, so host checks, cleanups and repo
+//! setup keep working. The native path below stays dormant until that bridge
+//! exists and the review's parity gaps are fixed: it probes before looking up
+//! the host config, remaps every bridge error (including `unavailable`) to
+//! `invalid_input`, and stdio has no host effects construction at all.
+//!
 //! The bridge provides probe snapshots (from `pacer-lifecycle::hosts::probe`)
 //! and task snapshots (from `pacer-store::tasks`). The native op composes these
 //! into the input expected by `pacer-lifecycle::hosts::{check,setup,clean}`.
@@ -39,19 +47,12 @@ pub fn host_effects_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 
-/// Inputs only TypeScript reproduces, and work-grant callers.
-pub fn host_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
-    if !matches!(op, "host.check" | "host.clean" | "host.repo.setup") {
-        return false;
-    }
-    if ctx
-        .env
-        .get("PACER_WORK_GRANT")
-        .is_some_and(|grant| !grant.is_empty())
-    {
-        return true;
-    }
-    false
+/// Until Core has a real host effects bridge (`/_internal/host-effects`,
+/// `_internal.host.effects`), host checks, cleans and repo setups stay on the
+/// TypeScript path over both HTTP and stdio; TypeScript still owns the probe,
+/// clone, identity and transfer effects.
+pub fn host_stays_forwarded(_ctx: &Ctx, op: &str, _params: &Value) -> bool {
+    matches!(op, "host.check" | "host.clean" | "host.repo.setup")
 }
 
 #[allow(dead_code)]
