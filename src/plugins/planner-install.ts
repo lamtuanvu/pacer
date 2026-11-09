@@ -6,7 +6,7 @@ import { validateInstallArgv } from "../install/self";
 import { recoverPlannerInstall, plannerTrustedRoots } from "./planner-recovery";
 import { readManifest, type PlannerRecord } from "../install/manifest";
 import { readInstallFile } from "../install/atomic";
-import { clearUndoSnapshot, readSnapshotFile, writeUndoSnapshot } from "../install/undo-store";
+import { clearUndoSnapshot, readSnapshotFile, stageUndoSnapshot, commitStagedUndoSnapshot, discardStagedUndoSnapshot } from "../install/undo-store";
 import type { InstallEnv } from "../install/txn";
 import { sha256 } from "../install/fsx";
 import { commitInstall, type PendingFile } from "../../packages/plugin-sdk/src/install/journal";
@@ -443,7 +443,7 @@ export async function withPlannerInstall(
         () => lease.assertFileRoots(),
       );
       const hostNotes: string[] = [];
-      let wroteFreshSnapshot = false;
+      let stagedDir: string | undefined;
       try {
         session.preflight();
         const changed = [...pending.values()].filter(
@@ -453,14 +453,17 @@ export async function withPlannerInstall(
           delete record.undoneAt;
           if (env.mode !== "reconcile") {
             if (changed.length) {
-              const snap = writeUndoSnapshot(
+              // Stage the new snapshot to a temp dir; swap it into the live key only
+              // after the manifest commits, so an aborted commit leaves the prior
+              // snapshot's copies intact and still undoable.
+              const staged = stageUndoSnapshot(
                 ctx,
                 env.plannerKey,
                 changed.map((file) => ({ path: file.path, before: file.before, mode: file.beforeMode, after: file.after })),
                 options.undoRevision,
                 ctx.now,
               );
-              if (snap) { record.undoConnect = snap; wroteFreshSnapshot = true; }
+              if (staged) { record.undoConnect = staged.snapshot; stagedDir = staged.dir; }
               else { delete record.undoConnect; hostNotes.push(UNDO_CAP_NOTE); }
             } else {
               record.undoConnect = prior?.undoConnect ? structuredClone(prior.undoConnect) : undefined;
@@ -479,6 +482,7 @@ export async function withPlannerInstall(
           JSON.stringify({ version: 1, planners }, null, 2) + "\n",
         );
         committed = true;
+        if (stagedDir) commitStagedUndoSnapshot(ctx, env.plannerKey, stagedDir, ctx.now);
         return {
           record: structuredClone(record),
           notes: [...plan.notes, ...hostNotes],
@@ -488,7 +492,7 @@ export async function withPlannerInstall(
       } finally {
         // A failed commit leaves no orphan copies; the prior snapshot (if any) is
         // preserved on disk and was not replaced by a fresh write.
-        if (!committed && wroteFreshSnapshot) clearUndoSnapshot(ctx, env.plannerKey);
+        if (!committed && stagedDir) discardStagedUndoSnapshot(stagedDir);
         await session.close();
       }
     } catch (error) {

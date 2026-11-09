@@ -1,4 +1,5 @@
-import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { readInstallFile, writeInstallFile } from "./atomic";
 import { sha256 } from "./fsx";
@@ -36,9 +37,10 @@ interface StoreMeta {
 }
 
 const undoRoot = (ctx: Pick<Ctx, "pacerHome">) => join(ctx.pacerHome, "undo");
+const sanitize = (key: string) => key.replace(/[^A-Za-z0-9.#_=-]/g, "_");
 /** Sanitized per-planner snapshot directory under $PACER_HOME/undo. */
 export function undoKeyDir(ctx: Pick<Ctx, "pacerHome">, key: string): string {
-  return join(undoRoot(ctx), key.replace(/[^A-Za-z0-9.#_=-]/g, "_"));
+  return join(undoRoot(ctx), sanitize(key));
 }
 
 function readMeta(ctx: Pick<Ctx, "pacerHome">, key: string): StoreMeta | null {
@@ -49,29 +51,40 @@ function readMeta(ctx: Pick<Ctx, "pacerHome">, key: string): StoreMeta | null {
   }
 }
 
-/** Build a snapshot for one connect's changed files, moving content into the store. Returns null above the size cap. */
-export function writeUndoSnapshot(
-  ctx: Pick<Ctx, "pacerHome">,
-  key: string,
-  changed: readonly SnapshotChange[],
-  revision?: string,
-  at = Math.floor(Date.now() / 1000),
-): UndoSnapshot | null {
-  const total = changed.reduce((sum, file) => sum + (file.before?.length ?? 0), 0);
-  if (total > UNDO_CAP_BYTES) {
-    clearUndoSnapshot(ctx, key);
-    return null;
-  }
-  const dir = undoKeyDir(ctx, key);
+function ensurePrivate(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   chmodSync(dir, 0o700);
-  chmodSync(undoRoot(ctx), 0o700);
-  // A newer connect supersedes any earlier snapshot for the same key.
-  for (const entry of readdirSync(dir)) {
-    if (entry !== "meta.json") rmSync(join(dir, entry), { force: true });
-  }
-  const rev = revision ?? snapshotRevision(at, changed);
-  const meta: StoreMeta = { schema: 1, at, revision: rev, files: {} };
+}
+
+/** Total before-image bytes for `changed` (the size-cap gate). */
+export function snapshotTotalBytes(changed: readonly SnapshotChange[]): number {
+  return changed.reduce((sum, file) => sum + (file.before?.length ?? 0), 0);
+}
+
+/** Deterministic, always-set revision for a connect's snapshot (CLI, setup and config paths included). */
+export function snapshotRevision(at: number, changed: readonly SnapshotChange[]): string {
+  return sha256(
+    JSON.stringify({
+      at,
+      files: changed.map((file) => [
+        file.path,
+        file.before === null ? null : sha256(file.before),
+        file.after == null ? null : sha256(file.after),
+      ]),
+    }),
+  );
+}
+
+/** Write copies + meta into `dir`. Callers own clearing/superseding semantics. */
+function writeSnapshotInto(
+  dir: string,
+  ctx: Pick<Ctx, "pacerHome">,
+  changed: readonly SnapshotChange[],
+  revision: string | undefined,
+  at: number,
+): { snapshot: UndoSnapshot; dir: string } {
+  ensurePrivate(dir);
+  const meta: StoreMeta = { schema: 1, at, revision: revision ?? snapshotRevision(at, changed), files: {} };
   const files: UndoSnapshot["files"] = [];
   let index = 0;
   for (const file of changed) {
@@ -92,22 +105,73 @@ export function writeUndoSnapshot(
     }
   }
   writeInstallFile(join(dir, "meta.json"), JSON.stringify(meta), 0o600);
-  pruneUndoSnapshots(ctx, key, at);
-  return { at, revision: rev, size: total, files };
+  return { snapshot: { at, revision: meta.revision, size: snapshotTotalBytes(changed), files }, dir };
 }
 
-/** Deterministic, always-set revision for a connect's snapshot (CLI, setup and config paths included). */
-export function snapshotRevision(at: number, changed: readonly SnapshotChange[]): string {
-  return sha256(
-    JSON.stringify({
-      at,
-      files: changed.map((file) => [
-        file.path,
-        file.before === null ? null : sha256(file.before),
-        file.after == null ? null : sha256(file.after),
-      ]),
-    }),
-  );
+/**
+ * Build a snapshot for one connect's changed files in place (test helper and
+ * standalone convenience). Returns null above the size cap (and clears the key).
+ */
+export function writeUndoSnapshot(
+  ctx: Pick<Ctx, "pacerHome">,
+  key: string,
+  changed: readonly SnapshotChange[],
+  revision?: string,
+  at = Math.floor(Date.now() / 1000),
+): UndoSnapshot | null {
+  if (snapshotTotalBytes(changed) > UNDO_CAP_BYTES) {
+    clearUndoSnapshot(ctx, key);
+    return null;
+  }
+  const dir = undoKeyDir(ctx, key);
+  // A newer connect supersedes any earlier snapshot for the same key.
+  rmSync(dir, { recursive: true, force: true });
+  const { snapshot } = writeSnapshotInto(dir, ctx, changed, revision, at);
+  chmodSync(undoRoot(ctx), 0o700);
+  pruneUndoSnapshots(ctx, key, at);
+  return snapshot;
+}
+
+/**
+ * Stage a connect's snapshot in a temp directory without touching the live key
+ * dir. Caller stages before commit and calls `commitStagedUndoSnapshot` only
+ * after the manifest actually commits, so an aborted commit leaves the prior
+ * snapshot's copies intact and undoable. Returns null above the size cap.
+ */
+export function stageUndoSnapshot(
+  ctx: Pick<Ctx, "pacerHome">,
+  key: string,
+  changed: readonly SnapshotChange[],
+  revision?: string,
+  at = Math.floor(Date.now() / 1000),
+): { snapshot: UndoSnapshot; dir: string } | null {
+  if (snapshotTotalBytes(changed) > UNDO_CAP_BYTES) {
+    clearUndoSnapshot(ctx, key);
+    return null;
+  }
+  const dir = join(undoRoot(ctx), `staging-${sanitize(key)}-${randomUUID()}`);
+  ensurePrivate(dir);
+  chmodSync(undoRoot(ctx), 0o700);
+  return writeSnapshotInto(dir, ctx, changed, revision, at);
+}
+
+/** Atomically move a staged snapshot into the live key dir and prune expired keys. */
+export function commitStagedUndoSnapshot(
+  ctx: Pick<Ctx, "pacerHome">,
+  key: string,
+  stagedDir: string,
+  now: number,
+): void {
+  const dir = undoKeyDir(ctx, key);
+  rmSync(dir, { recursive: true, force: true });
+  renameSync(stagedDir, dir);
+  chmodSync(dir, 0o700);
+  pruneUndoSnapshots(ctx, key, now);
+}
+
+/** Drop a staged snapshot without touching the live key dir (used on aborted commit). */
+export function discardStagedUndoSnapshot(stagedDir: string): void {
+  rmSync(stagedDir, { recursive: true, force: true });
 }
 
 /** Read one restored before-copy for `path`. Returns null when absent. */

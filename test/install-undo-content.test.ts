@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { fakeCtx } from "./helpers";
 import { PluginRegistry } from "../src/plugins/registry";
 import { withPlannerInstall } from "../src/plugins/planner-install";
-import { writeUndoSnapshot } from "../src/install/undo-store";
+import { writeUndoSnapshot, stageUndoSnapshot, discardStagedUndoSnapshot, readSnapshotFile } from "../src/install/undo-store";
 import { readManifest, writeManifest } from "../src/install/manifest";
 import type { PluginManifest } from "../src/plugins/protocol";
 
@@ -35,6 +35,22 @@ test("N1: the manifest carries only snapshot metadata and never file contents or
   // The manifest snapshot keeps only metadata: path, hashes, size, time, revision, copy reference.
   expect(snap).toMatchObject({ at: expect.any(Number), revision: "rev-1", size: secret.length,
     files: [{ path: settings, afterHash: expect.any(String), size: secret.length, copy: expect.any(String) }] });
+});
+
+test("N1 availability: an aborted staged snapshot leaves the prior snapshot's copies intact", async () => {
+  const ctx = fakeCtx();
+  await mkdir(ctx.pacerHome, { recursive: true });
+  await mkdir(join(ctx.home, ".claude"), { recursive: true });
+  const settings = join(ctx.home, ".claude", "settings.json");
+  await writeFile(settings, "v1");
+  writeUndoSnapshot(ctx, "claude-code", [{ path: settings, before: "v1", after: "v2" }], "rev-1");
+  // A rival reconnect stages a new snapshot but its commit is aborted.
+  const staged = stageUndoSnapshot(ctx, "claude-code", [{ path: settings, before: "v2", after: "v3" }], "rev-2");
+  expect(staged).toBeTruthy();
+  discardStagedUndoSnapshot(staged!.dir);
+  // The live key dir still holds the first snapshot's private copy, so undo of
+  // the first connect remains available even though the manifest was untouched.
+  expect(readSnapshotFile(ctx, "claude-code", settings)).toEqual({ text: "v1", mode: 0o600 });
 });
 
 test("N2: a planner plugin's forged snapshot is ignored; the host owns undoConnect and undoneAt", async () => {

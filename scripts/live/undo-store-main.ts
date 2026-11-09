@@ -19,7 +19,7 @@ try {
     "",
     "| Behavior | Surface | Verdict |",
     "| --- | --- | --- |",
-    "| Connect recordssnapshot metadata (no file contents/modes in manifest) | installer | PASS |",
+    "| Connect records snapshot metadata (no file contents/modes in manifest) | installer | PASS |",
     "| Reconnect supersedes the snapshot revision; manifest stays metadata-only | installer | PASS |",
     "| Undo restores the reconnect pre-image from the private store and clears it | undo | PASS |",
     "",
