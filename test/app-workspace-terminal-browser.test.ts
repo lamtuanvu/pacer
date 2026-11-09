@@ -267,6 +267,8 @@ browserTest('a 1.2 pane whose first session read was not live becomes interactiv
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    // Without resize events, only the pane turning interactive can fit it and send a size.
+    await page.addInitScript(() => { (window as any).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }; });
     await open(page, source, false, 'dark', false, undefined, [1, 2], 'startinglive');
     // The task record does not change again, so only the live connection can prompt a second session read.
     await page.locator('.pc-terminal-strip [role="status"]').filter({ hasText: 'Interactive' }).waitFor();

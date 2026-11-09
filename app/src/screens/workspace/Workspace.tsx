@@ -27,7 +27,7 @@ import { hrefFor, routes, type RouteQuery } from '../../router';
 import { FrameContext, FrameSlot, useFrame, useFrameHeading } from '../../shell/slots';
 import { LazyTerminal } from '../../term/LazyTerminal';
 import type { TerminalActions } from '../../term/term';
-import { ErrorMessage, useAction, useQuery, useTaskContext } from '../task-shared';
+import { ErrorMessage, useAction, useQuery, useSessionLiveReread, useTaskContext } from '../task-shared';
 import { FileViewer } from '../session/FileViewer';
 import { PlainLog } from '../session/PlainLog';
 import { HAND_BACK_CONFIRM, handBackSession, takeoverSession } from '../session/takeover';
@@ -276,11 +276,7 @@ function AgentPanel({id,detail:cachedDetail,work,openFile,selected,reload,query,
  const reloadDetail=selected?reload:()=>{setOwnRequested(true);ownDetail.reload();};
  const task=liveTask??detail;
  const session=useQuery<SessionInfo>('task.session',{id},'',false,!!task&&task.state!=='queued');
- // task.session is refetched only when the task record changes. A fetch that landed before the session host
- // was up reports it not live, and a provider-owned run may not change its record again; the pane's live
- // connection is the signal to read it again.
- const sessionLive=session.data?.live===true,reloadSession=useRef(session.reload);reloadSession.current=session.reload;
- const onTerminalLive=useCallback(()=>{if(!sessionLive)reloadSession.current();},[sessionLive]);
+ const onTerminalLive=useSessionLiveReread(session);
  let runtime:ReturnType<typeof sessionRuntime>|undefined;
  try{runtime=sessionRuntime(id,session.data?.attach.ws,false,true);}catch{/* The terminal renders the capacity message. */}
  const [,runtimeChanged]=useState(0);
