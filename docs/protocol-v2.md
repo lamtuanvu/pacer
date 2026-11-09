@@ -832,7 +832,7 @@ Params JSON Schema:
 
 ### `agent.preview`
 
-Preview agent integration files and the undo command before consenting.
+Preview agent integration files, the undo command and each file's change (create, update, restore, unchanged or kept) before consenting.
 
 Params JSON Schema:
 
@@ -849,6 +849,37 @@ Params JSON Schema:
         "cursor",
         "opencode"
       ]
+    }
+  },
+  "required": [
+    "agent"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `agent.undo`
+
+Restore the previous copies of an agent's integration files changed by the most recent connect, after explicit consent, within 7 days.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
+      ]
+    },
+    "consent": {
+      "type": "boolean"
     }
   },
   "required": [

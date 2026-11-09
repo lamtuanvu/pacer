@@ -574,6 +574,27 @@
       ],
       "additionalProperties": false
     },
+    "AgentUndoParams": {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "cursor",
+            "opencode"
+          ]
+        },
+        "consent": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "agent"
+      ],
+      "additionalProperties": false
+    },
     "ApiDescribeParams": {
       "type": "object",
       "properties": {
