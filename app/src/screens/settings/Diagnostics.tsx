@@ -282,6 +282,8 @@ export function DiagnosticsSection() {
   const waiting = useRef(new Set<string>());
   const returnListener = useRef<() => void>();
   const runButton = useRef<HTMLButtonElement>(null);
+  /** One undo at a time, including the preview fetch before the confirmation is shown. */
+  const undoingRef = useRef(false);
   useEffect(() => () => returnListener.current?.(), []);
   /** When the focused control went away (a fixed row, the last fix-all), keep focus on the page. */
   const keepFocus = () => requestAnimationFrame(() => {
@@ -483,38 +485,43 @@ export function DiagnosticsSection() {
   }
   /** Undo exactly the last applied repair: confirm the snapshot's files, then restore or remove them. */
   async function undoRepair() {
-    if (!review || review.phase !== "done" || busy || consent) return;
-    const name = review.check.name;
-    const agentName = review.preview.agent;
-    let undoOption: RepairPreview["undoSnapshot"];
+    if (!review || review.phase !== "done" || busy || consent || undoingRef.current) return;
+    // The whole flow (preview, confirmation and restore) is one locked step; a second
+    // activation is a no-op, the same locked pattern FixRow uses for its remedy buttons.
+    undoingRef.current = true;
     try {
-      const fresh = await call<RepairPreview>("agent.preview", { agent: agentName });
-      undoOption = fresh.undoSnapshot;
-    } catch (failure) {
-      setError(failure);
-      setProgress(`${settingsText(diagnosticTitle(name))}: could not prepare the undo.`);
-      keepFocus();
-      return;
-    }
-    const files = undoOption?.files.map(file => file.path) ?? [];
-    if (!files.length) { setProgress("Nothing to undo."); setReview(undefined); keepFocus(); return; }
-    const ok = await ask(UNDO, [{ title: `Undo the ${settingsText(diagnosticTitle(name))} repair`, message: "Pacer restores or removes exactly the files its last fix changed.", confirmLabel: "Restore copies", files }]);
-    if (!ok) { setProgress("No changes were made."); return; }
-    setBusy(true);
-    try {
-      const result = await call<{ restored: string[]; removed: string[]; kept: string[] }>("agent.undo", { agent: agentName, consent: true, preview_revision: undoOption!.revision });
-      const next = await recheck();
-      setReview(undefined);
-      const counts = [
-        result.restored.length ? `${result.restored.length} restored` : "",
-        result.removed.length ? `${result.removed.length} removed` : "",
-        result.kept.length ? `${result.kept.length} kept (changed since)` : "",
-      ].filter(Boolean).join(", ");
-      setProgress(`${settingsText(diagnosticTitle(name))} undone: ${counts || "no files changed"}. ${next && stillFailing(next, name) ? "The check still needs attention." : "Rechecked."}`);
-    } catch (failure) {
-      setError(failure);
-      setProgress(`${settingsText(diagnosticTitle(name))}: the undo did not finish.`);
-    } finally { setBusy(false); keepFocus(); }
+      const name = review.check.name;
+      const agentName = review.preview.agent;
+      let undoOption: RepairPreview["undoSnapshot"];
+      try {
+        const fresh = await call<RepairPreview>("agent.preview", { agent: agentName });
+        undoOption = fresh.undoSnapshot;
+      } catch (failure) {
+        setError(failure);
+        setProgress(`${settingsText(diagnosticTitle(name))}: could not prepare the undo.`);
+        keepFocus();
+        return;
+      }
+      const files = undoOption?.files.map(file => file.path) ?? [];
+      if (!files.length) { setProgress("Nothing to undo."); setReview(undefined); keepFocus(); return; }
+      const ok = await ask(UNDO, [{ title: `Undo the ${settingsText(diagnosticTitle(name))} repair`, message: "Pacer restores or removes exactly the files its last fix changed.", confirmLabel: "Restore copies", files }]);
+      if (!ok) { setProgress("No changes were made."); return; }
+      setBusy(true);
+      try {
+        const result = await call<{ restored: string[]; removed: string[]; kept: string[] }>("agent.undo", { agent: agentName, consent: true, preview_revision: undoOption!.revision });
+        const next = await recheck();
+        setReview(undefined);
+        const counts = [
+          result.restored.length ? `${result.restored.length} restored` : "",
+          result.removed.length ? `${result.removed.length} removed` : "",
+          result.kept.length ? `${result.kept.length} kept (changed since)` : "",
+        ].filter(Boolean).join(", ");
+        setProgress(`${settingsText(diagnosticTitle(name))} undone: ${counts || "no files changed"}. ${next && stillFailing(next, name) ? "The check still needs attention." : "Rechecked."}`);
+      } catch (failure) {
+        setError(failure);
+        setProgress(`${settingsText(diagnosticTitle(name))}: the undo did not finish.`);
+      } finally { setBusy(false); keepFocus(); }
+    } finally { undoingRef.current = false; }
   }
   async function copyReport() {
     if (!report) return;

@@ -166,6 +166,31 @@ browserTest('the review sheet shows per-file change pills, the 7-day note and un
  }finally{await page.close();}
 },15000);
 
+browserTest('a second Undo activation while the confirmation is open is a no-op (re-entrancy guard)',async()=>{
+ reset();
+ const page=await open();
+ try{
+  await page.getByRole('button',{name:/^Review and fix/}).click();
+  const sheet=page.getByRole('dialog',{name:'Reconnect Codex'});
+  await sheet.waitFor();
+  await sheet.getByRole('button',{name:'Apply and recheck',exact:true}).click();
+  const done=page.getByRole('dialog',{name:'Codex reconnected'});
+  await done.waitFor();
+  await done.getByRole('button',{name:'Undo',exact:true}).click();
+  const confirm=page.getByRole('group',{name:'Undo the Integration · Codex (work) repair'});
+  await confirm.waitFor();
+  // Re-fire Undo while its confirmation is pending; the re-entrancy guard makes it a no-op.
+  await done.getByRole('button',{name:'Undo',exact:true}).evaluate((el: HTMLElement)=>el.click());
+  await page.waitForTimeout(50);
+  expect(await done.getByRole('group',{name:'Undo the Integration · Codex (work) repair'}).count()).toBe(1);
+  // The review preview plus one undo preview; the second activation added neither a preview nor a prompt.
+  expect(opCalls('agent.preview').length).toBe(2);
+  await confirm.getByRole('button',{name:'Restore copies',exact:true}).click();
+  await page.getByText(/undone/).waitFor();
+  expect(opCalls('agent.undo')).toEqual([{op:'agent.undo',params:{agent:'codex',consent:true,preview_revision:'rev-codex'}}]);
+ }finally{await page.close();}
+},15000);
+
 browserTest('the done sheet shows a reason and no Undo when the connect left nothing undoable (UI-13)',async()=>{
  reset('undo-unavailable');
  const page=await open();
