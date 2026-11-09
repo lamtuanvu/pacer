@@ -26,6 +26,7 @@ import { openSession, sessionInfo } from "./session/service";
 import { handBackTask, takeoverTask } from "./session/takeover";
 import { sessionHost } from "./session/host";
 import { attachDirectory, attachSession } from "./session/attach";
+import { viewerName } from "./session/viewers";
 import { createInterface } from "node:readline/promises";
 import { plannerSessionStatus } from "./install/role";
 import type { AgentId } from "./config/accounts";
@@ -342,7 +343,7 @@ async function controlProgress(ctx:Ctx,t:TaskRecord):Promise<string> {
   if(t.state!=="running")return "";
   try {
     const info=await sessionInfo(ctx,t.id,false,false),clean=(label:string)=>label.replace(/[\x00-\x1f\x7f]/g,"");
-    return info.active?`last input from ${clean(info.active)}`:info.controller?`controlled from ${clean(info.controller)}`:"";
+    return info.active?`last input from ${clean(viewerName(info.active))}`:info.controller?`controlled from ${clean(viewerName(info.controller))}`:"";
   }catch{return "";}
 }
 

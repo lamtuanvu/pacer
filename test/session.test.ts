@@ -614,13 +614,13 @@ test('task CLI progress shows the active controller label',async()=>{
     const dir=join(home,'runs',task.id,'1');mkdirSync(dir,{recursive:true});
     writeFileSync(join(dir,'session.log'),'');writeFileSync(join(dir,'session.sock'),'socket fixture');writeFileSync(join(dir,'pid'),String(process.pid));
     writeFileSync(join(dir,'session.state'),JSON.stringify({controller:'cli:Ghostty',viewers:2}));
-    for(const args of [['tasks'],['tasks',task.id]])expect((await main(args,ctx)).out).toContain('controlled from cli:Ghostty');
+    for(const args of [['tasks'],['tasks',task.id]])expect((await main(args,ctx)).out).toContain('controlled from Ghostty');
     writeFileSync(join(dir,'session.state'),JSON.stringify({controller:null,viewers:2}));
     expect((await main(['tasks',task.id],ctx)).out).not.toContain('controlled from');
     // A 1.2 session has no controller; the line names the client that typed last instead.
     writeFileSync(join(dir,'session.version'),JSON.stringify({pacer:'0.0.0',versions:[1,2]}));
     writeFileSync(join(dir,'session.state'),JSON.stringify({controller:null,active:'app:Pacer\x07 desktop',viewers:2}));
-    for(const args of [['tasks'],['tasks',task.id]]){const out=(await main(args,ctx)).out;expect(out).toContain('last input from app:Pacer desktop');expect(out).not.toContain('controlled from');}
+    for(const args of [['tasks'],['tasks',task.id]]){const out=(await main(args,ctx)).out;expect(out).toContain('last input from Pacer desktop');expect(out).not.toContain('controlled from');}
   }finally{rmSync(home,{recursive:true,force:true});}
 });
 

@@ -80,7 +80,7 @@ export class RemoteViewer {
       }
     });
   }
-  private snapshot() {return wire(FrameType.snapshot,{...this.mirror.recording.snapshot(),controller:null,viewers:1});}
+  private snapshot() {return wire(FrameType.snapshot,{...this.mirror.recording.snapshot(),controller:null,viewers:1,readOnly:true});}
   send(bytes: Buffer) {
     if (!bytes.length || !this.viewer || !this.joined || this.resync) return;
     if(this.viewer.writableLength+bytes.length>1024*1024) {this.resync=true;return;}

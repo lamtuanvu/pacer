@@ -15,6 +15,8 @@ const CANCELLED:DeliveryFailure={ok:false,cause:'cancelled',reason:'the delivery
 const EXPIRED_UNUSED:DeliveryFailure={ok:false,cause:'expired-unused',reason:'the delivery window expired before any input was typed'};
 /** The controller label a viewer's hello is recorded under, in control frames and `session.state`. */
 export const viewerLabel=(h:{client?:unknown;label?:unknown})=>`${h.client==='app'?'app':'cli'}:${String(h.label??'viewer').replace(/[\x00-\x1f\x7f]/g,'').slice(0,64)}`;
+/** A viewer's display name for user-facing delivery reasons: its label without the raw kind prefix (`app:`, `cli:`). */
+export const viewerName=(label:string)=>label.replace(/^(?:app|cli):/,'')||'another viewer';
 interface Viewer {
  socket:Socket; joined:boolean; blocked:boolean; pending:Buffer[]; bytes:number; resync:boolean; label:string;
  snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void; negotiate?:boolean;
@@ -250,10 +252,10 @@ export class ViewerHub {
   if(Number.isFinite(next)){this.deliveryTimer=setTimeout(()=>this.enqueue(()=>this.pump()),Math.max(1,next-now));this.deliveryTimer.unref?.();}
  }
  private failure():DeliveryFailure{
-  if(this.pendingLine)return {ok:false,cause:'pending',from:this.pendingLine,reason:`pending input from ${this.pendingLine}`};
-  if(this.window)return {ok:false,cause:'busy',from:this.window.viewer.label,reason:`another delivery from ${this.window.viewer.label} is in progress`};
+  if(this.pendingLine)return {ok:false,cause:'pending',from:this.pendingLine,reason:`unsent input in the agent from ${viewerName(this.pendingLine)}`};
+  if(this.window)return {ok:false,cause:'busy',from:this.window.viewer.label,reason:`another delivery from ${viewerName(this.window.viewer.label)} is in progress`};
   const from=this.lastInputFrom??'another client';
-  return {ok:false,cause:'input',from,reason:`recent input from ${from}`};
+  return {ok:false,cause:'input',from,reason:`recent input from ${viewerName(from)}`};
  }
  private grant(r:{viewer:Viewer}){
   const expire=(ms:number)=>{
