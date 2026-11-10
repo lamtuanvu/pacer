@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
 import { readFileSync } from "node:fs";
-import { childEnv, pinnedEnv } from "./child-env";
+import { childEnv, closedPort, pinnedEnv } from "./child-env";
 
 test("child environments isolate the home and never use the default service port", () => {
   const env = childEnv("/tmp/test-home");
@@ -16,4 +16,10 @@ test("child environments isolate the home and never use the default service port
   expect(() => pinnedEnv({})).toThrow();
   expect(() => pinnedEnv({ PACER_PORT: "4317" })).toThrow();
   expect(pinnedEnv(env)).toBe(env);
+});
+
+test("port allocation fails closed if the listener cannot supply a safe port", () => {
+  const stub = spyOn(Bun, "serve").mockImplementation((() => ({ port: 4317, stop() {} })) as unknown as typeof Bun.serve);
+  try { expect(() => closedPort()).toThrow("Could not reserve a safe test port"); }
+  finally { stub.mockRestore(); }
 });

@@ -2,12 +2,13 @@ import { join } from "node:path";
 
 /** Obtain a currently closed ephemeral port, avoiding the real service's default. */
 export function closedPort(): number {
-  while (true) {
+  for (let attempt = 0; attempt < 20; attempt++) {
     const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
     const port = listener.port;
     listener.stop(true);
     if (port && ![4317, 11434, 1234, 41343].includes(port)) return port;
   }
+  throw new Error("Could not reserve a safe test port");
 }
 
 /** Build an isolated child environment, targeting its test server or a closed port. */
