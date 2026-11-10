@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { TIERS } from "./candidates";
+
 const name = z.string().min(1).max(256);
 export const tierSchema = z.enum(["small", "medium", "frontier", "unknown"]);
 export const modelBindingSchema = z.discriminatedUnion("kind", [
@@ -16,7 +18,17 @@ export const requirementsSchema = z.object({
 }).strict();
 export const preferencesSchema = z.object({ models: z.array(name).max(256).default([]), strengths: z.array(name).max(64).default([]) }).strict();
 const rankSchema = z.enum(["task-fit", "spare-capacity", "burn-before-reset", "cheapest-first", "preference"]);
+const targetTierSchema = z.enum(["small", "medium", "frontier"]);
+const tierTargetsSchema = z.object({
+  simple: targetTierSchema.default("small"),
+  standard: targetTierSchema.default("medium"),
+  complex: targetTierSchema.default("frontier"),
+}).strict().refine(
+  targets => TIERS[targets.simple] <= TIERS[targets.standard] && TIERS[targets.standard] <= TIERS[targets.complex],
+  "dispatch.tierTargets must not decrease from simple to complex",
+);
 export const dispatchConfigSchema = z.object({
+  tierTargets: tierTargetsSchema.prefault({}),
   engine: z.string().regex(/^(?:ladder|plugin:[a-z0-9][a-z0-9-]{1,63})$/).default("ladder"),
   engineFallback: z.enum(["queue","ladder"]).default("queue"), timeoutMs: z.number().int().min(1).max(10000).default(1000),
   learning: z.object({enabled:z.boolean().default(false),minSamples:z.number().int().min(20).max(1000).default(20),maxAgeDays:z.number().int().min(1).max(365).default(90)}).strict().default({enabled:false,minSamples:20,maxAgeDays:90}),
@@ -83,6 +95,7 @@ export type ObservationScope = z.infer<typeof observationScopeSchema>;
 export type ObservationMethod = z.infer<typeof observationMethodSchema>;
 export type Candidate = z.infer<typeof candidateSchema>;
 export type DispatchConfig = z.infer<typeof dispatchConfigSchema>;
+export type TierTargets = DispatchConfig["tierTargets"];
 export type DispatchPreviewInput = z.infer<typeof previewInputSchema>;
 export type DecisionRequest = z.infer<typeof decisionRequestSchema>;
 export type DecisionProposal = z.infer<typeof proposalSchema>;
