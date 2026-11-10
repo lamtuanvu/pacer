@@ -148,7 +148,8 @@ async function strictWork(session = "") {
   const f = fixture(STRICT_STRATEGY(session), { claude: CLAUDE, codex: CODEX });
   const created = createTask(f.ctx, { brief: { goal: "strict fixture", repo: f.repo }, kind: null,
     requestedExecutor: "claude-code", timeoutS: 30, placement: { requested: "current" } });
-  expect(registerWork(f.ctx, created.id, {}).options.delegationEnforcement).toBe("strict");
+  // Match the fixture's small model so this test reaches strict launch admission.
+  expect(registerWork(f.ctx, created.id, {difficulty: "simple"}).options.delegationEnforcement).toBe("strict");
   const certCtx = { ...f.ctx, now: Date.now() / 1000 }, strategy = loadStrategy(f.ctx);
   // Launch-time setup writes the account's Claude settings; certify the control files the attempt will see.
   await ensureRunnerIntegration(certCtx, strategy.runners["claude-code"]!);
@@ -163,6 +164,7 @@ test("strict managed work through the runner launches claude with the certified 
   const { ctx, id, cleanup } = await strictWork("headless");
   try {
     const result = await runTask({ ...ctx, now: Date.now() / 1000 }, id, deps(["codex", "claude-code"]));
+    expect(result.state).toBe("done");
     expect(result.executorProvider).toBe("pacer-exec-direct");
     expect(result.attempts).toHaveLength(1);
     const run = result.run!, settings = join(run.dir, "strict-claude-settings.json");
