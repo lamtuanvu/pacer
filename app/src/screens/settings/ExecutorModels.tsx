@@ -1,3 +1,4 @@
+import type { DispatchConfig } from "../../../../src/dispatch/types";
 // Executor model defaults and task declarations are edited locally and saved together.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AvailableModel, AvailableModels } from "../../../../src/models/available";
@@ -8,7 +9,7 @@ import { Field, TextInput } from "../../ds/Controls";
 import { TextAction } from "../../ds/Button";
 import { Feedback, ResourceState, Section, useOperation, useResource } from "./shared";
 import { ErrorMessage, useTaskContext } from "../task-shared";
-import { displayModel, modelWarning, editModels, suggestTier, tierLabels, type ModelsEdit } from "../../model/executor-models";
+import { displayModel, modelWarning, editModels, suggestTier, tierLabels, tierSummary, type ModelsEdit } from "../../model/executor-models";
 import { contextLabel, modelFacts } from "../../model/opencode-setup";
 
 import type { RunnerModels, ModelDeclaration } from "../../../../src/core/runner-models";
@@ -34,7 +35,8 @@ export function ModelFactLink({model}:{model:string|null}) {
   return <TextAction href="#models" onClick={event => focusSection(event, "models")}>{model ?? "Agent default"}</TextAction>;
 }
 
-export function ExecutorModels({runner, model, provider, initialAvailable, initialModels, onSaved}:{runner:string; model:string|null; provider:string; initialAvailable?:AvailableModels; initialModels?:RunnerModels; onSaved?:()=>void}) {
+export function ExecutorModels({runner, model, provider, initialAvailable, initialModels, initialConfig, onSaved}:{runner:string; model:string|null; provider:string; initialAvailable?:AvailableModels; initialModels?:RunnerModels; initialConfig?:{config:DispatchConfig}; onSaved?:()=>void}) {
+  const config = useResource<{config:DispatchConfig}>("dispatch.config.get", {}, initialConfig);
   const list = useResource<AvailableModels>("executor.models.available", {runner}, initialAvailable);
   const {api} = useTaskContext();
   const declarations = useResource<RunnerModels>("runner.models.get", {id: runner}, initialModels);
@@ -150,6 +152,7 @@ export function ExecutorModels({runner, model, provider, initialAvailable, initi
       </>}
       <ResourceState resource={declarations}>
         <h3>Models for tasks</h3>
+        <ResourceState resource={config}>{draft && config.data && <p className="u3-muted">{tierSummary(draft.models, config.data.config.tierTargets)}</p>}</ResourceState>
         {draft?.models.map(row => {
           const offered = models?.find(m => m.id === row.id);
           const suggestion = offered && row.tier === "unknown" ? suggestTier(offered) : null;

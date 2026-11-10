@@ -1,3 +1,6 @@
+import type { ModelRecord, TierTargets } from "../../../src/dispatch/types";
+import { selectModel } from "../../../src/dispatch/tier-select";
+
 // Pure helpers for the Models section on the executor detail (Settings › Executors).
 import type { AvailableModels } from "../../../src/models/available";
 
@@ -46,4 +49,18 @@ export function editModels(draft: RunnerModels, edit: ModelsEdit): RunnerModels 
   if (edit.type === "tier") return { ...draft, models: draft.models.map(m => m.id === edit.id ? { ...m, tier: edit.tier } : m) };
   const models = draft.models.filter(m => m.id !== edit.id);
   return { ...draft, models, default: draft.default === edit.id ? models[0]?.id ?? draft.default : draft.default };
+}
+
+export const difficultyLabels = { simple: "Simple", standard: "Standard", complex: "Complex" } as const;
+export const difficulties = ["simple", "standard", "complex"] as const;
+export function choiceModel(records: ModelRecord[], difficulty: typeof difficulties[number], targets: TierTargets): string {
+  if (!records.some(record => record.binding.kind === "exact")) return "Always uses the default model";
+  const { record } = selectModel(records, { difficulty, targets });
+  return record?.binding.kind === "exact" ? displayModel(record.binding.id) : record ? "Always uses the default model" : "No usable model";
+}
+export function tierSummary(models: ModelDeclaration[], targets: TierTargets): string {
+  if (!models.length) return "Always uses the default model";
+  const records: ModelRecord[] = models.map(model => ({ ...model, strengths: model.strengths ?? [], runner: "preview", account: "preview", executor: "preview",
+    binding: { kind: "exact", id: model.id }, actualModel: null, provenance: "declared" }));
+  return difficulties.map(difficulty => `${difficultyLabels[difficulty]} → ${choiceModel(records, difficulty, targets)}`).join(" · ");
 }
