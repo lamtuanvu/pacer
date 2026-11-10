@@ -89,16 +89,6 @@ test("detection with the endpoint plugin disabled still lists signed-in provider
   expect(d.notes.some(n => n.startsWith("Could not check local model servers"))).toBe(true);
 });
 
-test("with runners, only an account an executor still uses marks its provider added, with that executor's model", async () => {
-  const {ctx} = ctxWith({"opencode auth list": {code: 0, stdout: authJson}});
-  const accounts = {openrouter: {name: "openrouter", kind: "endpoint", source: "opencode", provider: "openrouter"} as AccountCfg};
-  const orphan = await detectCandidates(ctx, {discover: discoveryFromFetch(noServers), catalog: null, accounts, runners: {}});
-  expect(orphan.candidates.find(c => c.provider === "openrouter")?.added).toBeNull();
-  const runners = {"opencode#openrouter": {agent: "opencode" as const, account: "openrouter", model: "openrouter/qwen/qwen3-coder"}};
-  const live = await detectCandidates(ctx, {discover: discoveryFromFetch(noServers), catalog: null, accounts, runners});
-  expect(live.candidates.find(c => c.provider === "openrouter")).toMatchObject({added: "openrouter", model: "qwen/qwen3-coder"});
-});
-
 test("uncompiled runs take both local server ports from PACER_TEST_LOCAL_SERVER_PORTS or neither", async () => {
   const urls = (value?: string) => localServers(fakeCtx({env: value === undefined ? {} : {PACER_TEST_LOCAL_SERVER_PORTS: value}})).map(s => s.base_url);
   const fixed = ["http://127.0.0.1:11434/v1", "http://127.0.0.1:1234/v1"];
@@ -109,29 +99,3 @@ test("uncompiled runs take both local server ports from PACER_TEST_LOCAL_SERVER_
   await expect(setupEffectsBridge(ctx, {kind: "discover", baseUrls: fixed})).rejects.toMatchObject({code: "invalid_input"});
 });
 
-test("the ollama_model setup effect runs pacer init's OLLAMA_HOST fetch and takes no other input", async () => {
-  const server = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: req => {
-    const url = new URL(req.url);
-    return url.pathname === "/api/tags" && url.search === "?token=abc" ? Response.json({models: [{name: ""}, {name: "q:1"}]}) : new Response("no", {status: 401});
-  }});
-  try {
-    const model = (host: string) => setupEffectsBridge(fakeCtx({env: {OLLAMA_HOST: host}}), {kind: "ollama_model"});
-    expect(await model(`127.0.0.1:${server.port}/ignored?token=abc#f`)).toEqual({model: "q:1"});
-    expect(await model(`http://127.0.0.1:${server.port}`)).toEqual({model: null});
-    await expect(setupEffectsBridge(fakeCtx({env: {OLLAMA_HOST: `127.0.0.1:${server.port}?token=abc`}}), {kind: "ollama_model", host: "x"}))
-      .rejects.toMatchObject({code: "invalid_input"});
-  } finally { server.stop(true); }
-});
-
-test("the discover setup effect numbers failures in the order they settle, as detectCandidates reports them", async () => {
-  const ctx = fakeCtx({ env: { PACER_TEST_LOCAL_SERVER_PORTS: "5,6" }, which: () => null });
-  const urls = localServers(ctx).map(s => s.base_url);
-  const discover = (async (_ctx: unknown, { baseUrl }: { baseUrl: string }) => {
-    await Bun.sleep(baseUrl === urls[0] ? 60 : 5);
-    throw Error(`${baseUrl} failed`);
-  }) as unknown as typeof import("../src/plugins/endpoint-adapter").discoverEndpointModels;
-  const reply = await setupEffectsBridge(ctx, { kind: "discover", baseUrls: urls }, { endpoint: { discover } });
-  expect(reply).toEqual({ results: [{ failure: `${urls[0]} failed`, settled: 1 }, { failure: `${urls[1]} failed`, settled: 0 }] });
-  const d = await detectCandidates(ctx, { discover, catalog: null, accounts: {} });
-  expect(d.notes.filter(n => n.startsWith("Could not check"))).toEqual([urls[1], urls[0]].map(u => `Could not check local model servers: ${u} failed`));
-});

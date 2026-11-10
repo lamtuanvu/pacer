@@ -27,19 +27,12 @@ export async function setupEffectsBridge(ctx: Ctx, request: unknown, deps: OpDep
     return withWork(ctx, { kind: "operation", id: "strategy-build", label: "Opening strategy planning session" },
       () => open(ctx, r.builtin === true ? { ...options, target: "builtin", requestId } : options));
   }
-  if (r.kind === "ollama_model" && Object.keys(r).length === 1) {
-    const { ollamaModel } = await import("../install/init");
-    return { model: await ollamaModel(ctx) };
-  }
   if (r.kind === "discover" && Array.isArray(r.baseUrls)) {
     const [{ discoverEndpointModels }, { localServers }] = await Promise.all([import("../plugins/endpoint-adapter"), import("../endpoints/detect")]);
     const allowed = new Set(localServers(ctx).map(s => s.base_url));
     if (!r.baseUrls.every(url => typeof url === "string" && allowed.has(url))) throw new CoreError("invalid_input", "setup effect required");
-    // `settled` numbers failures as they happen: detectCandidates reports distinct failures in that order.
-    let settled = 0;
-    const discover = deps.endpoint?.discover ?? discoverEndpointModels;
-    return { results: await Promise.all((r.baseUrls as string[]).map(baseUrl => discover(ctx, { baseUrl, key: null, timeoutMs: 1000 })
-      .catch((error: unknown) => ({ failure: error instanceof Error ? error.message : String(error), settled: settled++ })))) };
+    return { results: await Promise.all((r.baseUrls as string[]).map(baseUrl => discoverEndpointModels(ctx, { baseUrl, key: null, timeoutMs: 1000 })
+      .catch((error: unknown) => ({ failure: error instanceof Error ? error.message : String(error) })))) };
   }
   throw new CoreError("invalid_input", "setup effect required");
 }

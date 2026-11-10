@@ -48,6 +48,19 @@ const chunkedOllama = Bun.listen<{ request: string }>({ hostname: "127.0.0.1", p
 } });
 afterAll(() => chunkedOllama.stop(true));
 
+// An OpenAI-compatible model server for the local candidates probe.
+let modelRequests = 0;
+const models = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: req => {
+  modelRequests++;
+  return new URL(req.url).pathname === "/v1/models" ? Response.json({ data: [{ id: "fixture-a" }, { id: "fixture-b" }] }) : new Response("no", { status: 404 });
+} });
+afterAll(() => models.stop(true));
+
+const deadPort = () => { const s = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() }); const port = s.port!; s.stop(true); return port; };
+const DEAD = [deadPort(), deadPort()] as const;
+// Keeps every run off the machine's pacer service, Ollama and LM Studio (the front door is built with test-ops).
+const isolated = { OLLAMA_HOST: `127.0.0.1:${DEAD[0]}`, PACER_TEST_LOCAL_SERVER_PORTS: `${DEAD[0]},${DEAD[1]}` };
+
 function bin(dir: string, name: string, script: string) {
   mkdirSync(join(dir, "bin"), { recursive: true });
   writeFileSync(join(dir, "bin", name), `#!/bin/sh\n${script}\n`);
@@ -59,7 +72,7 @@ async function exchange(home: string, requests: string[], forward: boolean, extr
     cwd: home,
     env: pinnedEnv({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:/usr/bin:/bin`,
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-      PACER_DEBUG_NATIVE: "1", ...isolated, ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }, closedPort()),
+      PACER_DEBUG_NATIVE: "1", PACER_PORT: String(DEAD[0]), ...isolated, ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
@@ -253,11 +266,12 @@ test.skipIf(!front)("executor.setup.candidates reports distinct probe failures i
 }, 120000);
 
 async function serve(dir: string, forward: boolean) {
-  const port = closedPort();
-  const child = spawnPinned([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
-    env: pinnedEnv({ HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
+  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  const port = reservation.port!; reservation.stop(true);
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
+    env: { HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
-      ...isolated, PACER_TEST_LOCAL_SERVER_PORTS: `${models.port},${DEAD[1]}`, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }, port) });
+      ...isolated, PACER_TEST_LOCAL_SERVER_PORTS: `${models.port},${DEAD[1]}`, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) } });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;
