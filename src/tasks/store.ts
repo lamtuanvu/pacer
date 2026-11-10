@@ -202,7 +202,7 @@ function schemaReady(db: Database): boolean {
   return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "tasks_snapshot_window", "tasks_live", "task_first_settle",
     "task_changes", "task_changes_insert", "task_changes_update",
     "pump_seen", "pump_state", "pump_cursor", "pump_session", "pump_reconcile",
-    "tasks_list_state", "tasks_list_executor", "tasks_list_repo", "tasks_list_legacy_repo", "tasks_capacity_failures"]
+    "tasks_list_state", "tasks_list_executor", "tasks_list_repo", "tasks_list_legacy_repo", "tasks_capacity_failures", "tasks_native_unarchived_id"]
     .every(name => objects.has(name));
 }
 
@@ -249,6 +249,7 @@ function connection(ctx: Ctx) {
       if (!fields.some(field => field.name === "json_mtime")) db.run("ALTER TABLE tasks ADD COLUMN json_mtime REAL");
       if (!fields.some(field => field.name === "archived")) db.run("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
       db.run("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at)");
+      db.run("CREATE INDEX IF NOT EXISTS tasks_native_unarchived_id ON tasks(id DESC) WHERE archived=0");
       // Index the exact snapshot event time once. All writers maintain expression
       // indexes, including older binaries and the Rust store; steady passes seek
       // the recent window instead of parsing historical records to sort them.
