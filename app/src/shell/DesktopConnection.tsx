@@ -17,8 +17,8 @@ export function DesktopConnectionShell({ children }: { children: ComponentChildr
   if (!platform.desktop) return <>{children}</>;
   // pc-desktop-connection keeps the desktop height chain (#app → .pc-app → .pc-work → .pc-main) intact.
   return <div className="pc-desktop-connection" hidden={blocked} inert={blocked || undefined}>
-    {platform.desktop && connected.current && connection.status === 'reconnecting' && <p role="status">Reconnecting to pacer… Your workspace is kept here.</p>}
-    {connection.warning && <p role="status">{connection.warning}</p>}
+    {/* Reconnecting is shown by each surface's own styled notice (OfflineNotice, the tray notice). */}
+    {connection.warning && <div className="connection-bar" role="status"><span className="connection-bar__glyph" aria-hidden="true">◐</span><span>{connection.warning}</span></div>}
     {children}
   </div>;
 }
