@@ -497,9 +497,16 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     case "setup": return setupCmd(rest, ctx);
     case "answer": {
       try {
-        if (rest.length !== 2) throw new Error('usage: pacer answer <task> "<text>"');
-        const result = await callOp(ctx,"task.answer",{id:rest[0],text:rest[1]},{spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
-        return {code:0,out:JSON.stringify(result),err:""};
+        const pos: string[] = [];
+        let json = false;
+        for (const a of rest) {
+          if (a === "--json") json = true;
+          else if (a.startsWith("--")) throw new Error(`unknown option: ${a}`);
+          else pos.push(a);
+        }
+        if (pos.length !== 2) throw new Error('usage: pacer answer <task> "<text>" [--json]');
+        const result = await callOp(ctx,"task.answer",{id:pos[0],text:pos[1]},{spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
+        return {code:0,out:JSON.stringify(result,null,json?2:undefined),err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
     }
     case "send": {

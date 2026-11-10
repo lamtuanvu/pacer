@@ -4,6 +4,8 @@ import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { readActivity } from "../src/activity/log";
+import { ask } from "../src/core/tasks";
+import { killTree } from "../src/exec/process";
 import { writeProjectStrategy } from "../src/config/project-strategies";
 import { loadStrategy } from "../src/config/strategy";
 import { resolvePolicyRepo } from "../src/core/project-policy";
@@ -450,5 +452,68 @@ test("a 1.1 host refusing control blocks live delivery as viewer", async () => {
   await liveTick(ctx, readTask(ctx, id)!, run, state(), deps);
   expect(session.input).toHaveLength(0);
   expect(readTask(ctx, id)!.liveBlocked).toBe("viewer");
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
+});
+
+// pacer msg send --answer must resolve a waiting question exactly like pacer answer: type it into the running
+// session at once. An agent's session waits on its question and reads nothing else, so no between-turns poll
+// or later turn would ever deliver a pending answer.
+
+const wrappers: number[] = [];
+afterEach(() => { for (const pid of wrappers.splice(0)) killTree(pid, "SIGKILL"); });
+
+/** A delegated interactive run whose agent waits on its question: an owned live wrapper, a hub as the session host, and the question `pacer ask` recorded. */
+async function questionRun() {
+  const ctx = fakeCtx();
+  const created = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "debug", requestedExecutor: "codex", timeoutS: 600 });
+  const dir = tmpDir();
+  const script = join(dir, "run.sh");
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], { detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  wrappers.push(proc.pid);
+  writeFileSync(join(dir, "pid"), String(proc.pid));
+  const session = fakeSession(dir);
+  await session.ready;
+  for (let i = 0; i < 100 && !readRun(dir).alive; i++) await Bun.sleep(25);
+  expect(readRun(dir).alive).toBe(true);
+  updateTask(ctx, created.id, t => {
+    t.state = "running";
+    t.origin = "external:claude-code";
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: t.brief.repo, logFile: "/dev/null" };
+    t.attempts = [];
+  });
+  status(dir, "needs-input", 1000);
+  await ask(ctx, created.id, "Switch the worktree to the base commit and commit on top?");
+  const question = store.thread(ctx, created.id).find(m => m.kind === "question")!;
+  return { ctx, id: created.id, dir, question, session };
+}
+
+const REPLY = "Yes: switch to the base commit and commit on top of it; leave the branch name alone.";
+
+test("an answer to a question a live run waits on is typed into the running session at once", async () => {
+  const { ctx, id, question, session } = await questionRun();
+  const r = await sendMessage(ctx, { to: `task:${id}`, body: REPLY, kind: "answer", replyTo: question.id }, { participant: "human" });
+  expect(r.delivery).toBe("live");
+  expect(readTask(ctx, id)!.question?.answer).toBe(REPLY);
+  expect(Buffer.concat(session.input).toString()).toContain(REPLY);
+  // Consumed on delivery: no later between-turns poll types it again.
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  const before = session.input.length;
+  await liveTick(ctx, readTask(ctx, id)!, readTask(ctx, id)!.run!, state(), deps);
+  expect(session.input.length).toBe(before);
+  expect(store.turnsForTask(ctx, id)).toBe(0);
+});
+
+test("a reply the waiting live session cannot accept is an error: the question stays open, nothing is typed and no delivery is claimed", async () => {
+  const { ctx, id, question, session } = await questionRun();
+  const app = await viewer(session, { label: "Pacer desktop", client: "app" });
+  await app.take();
+  const error = await sendMessage(ctx, { to: `task:${id}`, body: REPLY, kind: "answer", replyTo: question.id }, { participant: "human" })
+    .then(() => null, (e: unknown) => e as Error);
+  expect(error?.message).toContain("controlled from Pacer desktop");
+  expect(error?.message).toContain("nothing was typed");
+  expect(readTask(ctx, id)!.question?.answer).toBeUndefined();
+  expect(session.input).toHaveLength(0);
   expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
 });

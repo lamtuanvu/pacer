@@ -69,6 +69,24 @@ test("pacer answer passes task and text directly to the answer operation",async(
   } finally {cliDeps.spawnRunner=before;}
 });
 
+test("pacer answer accepts --json and rejects unknown options explicitly",async()=>{
+  const {ctx,task,deps,spawned}=setup();
+  const before=cliDeps.spawnRunner;
+  try {
+    cliDeps.spawnRunner=deps.spawnRunner;
+    // An unknown option is refused by name, before anything runs.
+    const bad=await main(["answer",task.id,"use postgres","--oops"],ctx);
+    expect(bad).toMatchObject({code:2});
+    expect(bad.err).toContain("unknown option: --oops");
+    expect(spawned).toEqual([]);
+    const r=await main(["answer",task.id,"use postgres","--json"],ctx);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("\n");
+    expect(readTask(ctx, JSON.parse(r.out).retry.id)).toBeTruthy();
+    expect(spawned).toHaveLength(1);
+  } finally {cliDeps.spawnRunner=before;}
+});
+
 test("an answer starts from the asking executor's committed worktree head",async()=>{
   const {ctx,task,deps}=setup();
   ctx.run=realRun;
