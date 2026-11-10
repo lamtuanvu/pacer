@@ -323,19 +323,34 @@ function parseFile(path: string, name: string): Strategy {
   const cached = parsedFileCache.get(cacheKey);
   // A copy, so a caller that edits its strategy can never change what the next read returns.
   if (cached && cached.stamp === stamp) return structuredClone(cached.strategy);
+  const strategy = parseText(readFileSync(path, "utf8"), path, name);
+  parsedFileCache.set(cacheKey, { stamp, strategy: structuredClone(strategy) });
+  return strategy;
+}
+function parseText(text: string, path: string, name: string): Strategy {
   let raw: unknown;
   try {
-    raw = Bun.YAML.parse(readFileSync(path, "utf8"));
+    raw = Bun.YAML.parse(text);
   } catch (e) {
     throw new StrategyError(path, [`YAML syntax error: ${(e as Error).message}`]);
   }
-  const strategy = validateStrategy(raw, path, name);
-  parsedFileCache.set(cacheKey, { stamp, strategy: structuredClone(strategy) });
-  return strategy;
+  return validateStrategy(raw, path, name);
 }
 
 export function loadStrategy(ctx: Ctx): Strategy {
   return parseFile(strategyPath(ctx), activeName(ctx) ?? "default");
+}
+
+/** The active strategy with the exact text it was parsed from, so a native caller can parse the same snapshot. */
+export function loadStrategySnapshot(ctx: Ctx): { path: string; name: string; text: string; strategy: Strategy } {
+  const path = strategyPath(ctx), name = activeName(ctx) ?? "default";
+  let text: string;
+  try { text = readFileSync(path, "utf8"); }
+  catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new MissingStrategyError(path);
+    throw e;
+  }
+  return { path, name, text, strategy: parseText(text, path, name) };
 }
 
 /** Switch the active strategy. "default" returns to ~/.pacer/strategy.yaml. Returns the active file path. */
