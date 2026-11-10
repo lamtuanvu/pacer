@@ -8,7 +8,7 @@ const lockDir = (ctx: Ctx) => join(ctx.pacerHome, "orca");
 
 /** A cross-process lock file. Stale locks (older than staleMs) are taken over. */
 export async function withLock<T>(
-  ctx: Ctx, name: string, fn: () => Promise<T>, o: { timeoutMs?: number; staleMs?: number } = {},
+  ctx: Ctx, name: string, fn: () => Promise<T> | T, o: { timeoutMs?: number; staleMs?: number } = {},
 ): Promise<T> {
   if (name.includes("/") || name.includes("\\") || name.includes("..")) throw new Error("invalid lock name");
   mkdirSync(lockDir(ctx), { recursive: true });
@@ -34,7 +34,11 @@ export async function withLock<T>(
     }
   }
   try {
-    return await fn();
+    const result = fn();
+    // Do not retain a completed synchronous transaction until a microtask runs:
+    // another synchronous caller can block that microtask waiting for this lock.
+    if (result && typeof (result as Promise<T>).then === "function") return await result;
+    return result;
   } finally {
     rmSync(file, { force: true });
   }
