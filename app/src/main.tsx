@@ -162,4 +162,4 @@ function App() {
     {help && <CommandHelp registry={keys} close={() => setHelp(false)} />}
   </ActionContext.Provider></TaskContext.Provider></WorkspaceIdentity.Provider>;
 }
-render(<DesktopConnectionShell><NotificationProvider><App /></NotificationProvider></DesktopConnectionShell>, document.getElementById("app")!);
+render(<DesktopConnectionShell warning={false}><NotificationProvider><App /></NotificationProvider></DesktopConnectionShell>, document.getElementById("app")!);

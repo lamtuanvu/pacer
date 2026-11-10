@@ -21,3 +21,14 @@ test("desktop ancestors of the work area clip instead of scrolling", () => {
   expect(css).not.toContain("html[data-pacer-desktop] .pc-body{overflow:hidden}");
   expect(css).toContain("html[data-pacer-desktop] .pc-main-scroll{overflow:auto;min-height:0}");
 });
+
+// The shell printed its own unstyled reconnecting line above the app's styled notice, under the macOS window controls.
+test("the desktop shell leaves reconnecting to the surface notices and styles its warning", () => {
+  const shell = read("../app/src/shell/DesktopConnection.tsx");
+  expect(shell).not.toContain("Your workspace is kept here");
+  expect(shell).not.toMatch(/<p role="status">/);
+  expect(shell).toContain('<div className="connection-bar">');
+  // The main window shows the warning in its live region below the top bar, not above it under the window controls.
+  expect(read("../app/src/main.tsx")).toContain("<DesktopConnectionShell warning={false}>");
+  expect(read("../app/src/shell/Layout.tsx")).toContain("desktopWarning ? <DesktopWarningBar warning={desktopWarning} />");
+});
