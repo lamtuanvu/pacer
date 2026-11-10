@@ -75,16 +75,17 @@ export function withLockSync<T>(
     try { closeSync(openSync(file, "wx")); break; }
     catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      try {
-        if (Date.now() - statSync(file).mtimeMs > staleMs) { rmSync(file, { force: true }); continue; }
-      } catch { continue; }
       if (suspendedHolders.has(file)) {
         // A withLock caller in this process is suspended at an await holding this file.
         // Spinning would block the event loop it needs to resume on, so a synchronous
-        // wait can never succeed; refuse instead of deadlocking until the deadline.
+        // wait can never succeed, and a live holder's file is never stale; refuse instead of
+        // deadlocking until the deadline or taking the file over.
         if (o.conflict) throw new CoreError('conflict','Workspace admission is busy; refresh and retry');
         throw new Error(`cannot wait synchronously for ${file} while an async holder in this process is suspended`);
       }
+      try {
+        if (Date.now() - statSync(file).mtimeMs > staleMs) { rmSync(file, { force: true }); continue; }
+      } catch { continue; }
       if (Date.now() >= deadline) {if(o.conflict)throw new CoreError('conflict','Workspace admission is busy; refresh and retry');throw new Error(`timed out waiting for ${file}`);}
       Atomics.wait(wait, 0, 0, 50);
     }

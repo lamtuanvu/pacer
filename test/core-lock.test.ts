@@ -67,7 +67,7 @@ test("a synchronous waiter refuses instead of spinning while an async holder awa
   expect(resumed).toBe(true);
 });
 
-test("a synchronous conflict waiter stays non-blocking while an async holder awaits", async () => {
+test("commitDelegate keeps its immediate admission conflict while an async holder awaits", async () => {
   const ctx = fakeCtx();
   const holder = withLock(ctx, "session-create", async () => {
     await Bun.sleep(100);
@@ -79,4 +79,22 @@ test("a synchronous conflict waiter stays non-blocking while an async holder awa
     withLockSync(ctx, "session-create", () => "committed", { timeoutMs: 0, staleMs: 600000, conflict: true }),
   ).toThrow("Workspace admission is busy; refresh and retry");
   await holder;
+});
+
+test("a synchronous waiter never takes over a suspended in-process holder's file as stale", async () => {
+  const ctx = fakeCtx();
+  const holder = withLock(ctx, "work-retry-t1", async () => {
+    await Bun.sleep(100);
+    return "held";
+  });
+  await Bun.sleep(20);
+  // A stale age shorter than the holder's await would let the file be removed while it is still inside.
+  expect(() => withLockSync(ctx, "work-retry-t1", () => "taken", { staleMs: 0 })).toThrow(/synchronously/);
+  await holder;
+});
+
+test("a holder whose work rejects no longer counts as suspended", async () => {
+  const ctx = fakeCtx();
+  await expect(withLock(ctx, "work-retry-t2", async () => { await Bun.sleep(10); throw new Error("boom"); })).rejects.toThrow("boom");
+  expect(withLockSync(ctx, "work-retry-t2", () => "after")).toBe("after");
 });
