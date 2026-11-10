@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { fakeCtx } from "./helpers";
+import { createTask, updateTask } from "../src/tasks/store";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -107,4 +108,24 @@ test.skipIf(!front)("snapshot.get matches forced forwarding over stdio", async (
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });
   }
+}, 120_000);
+
+test.skipIf(!front)("snapshot recent and old active selection matches forced forwarding", async () => {
+  const ctx = fakeCtx({ now: Math.floor(Date.now() / 1000), which: () => null });
+  const selected: string[] = [];
+  for (const [age, state, archived] of [[60, "done", false], [172800, "queued", false],
+    [172800, "done", false], [60, "done", true]] as const) {
+    const at = { ...ctx, now: ctx.now - age };
+    const task = createTask(at, { brief: { goal: "snapshot selection", repo: ctx.home },
+      kind: null, requestedExecutor: null, timeoutS: 60 });
+    if (archived) mkdirSync(join(ctx.pacerHome, "archive", new Date(at.now * 1000).toISOString().slice(0, 7), task.id), { recursive: true });
+    updateTask(at, task.id, row => { row.state = state; row.archived = archived; });
+    if (!archived && (age < 86400 || state === "queued")) selected.push(task.id);
+  }
+  const native = await exchange(ctx.home, false);
+  const forwarded = await exchange(ctx.home, true);
+  expect(native.error).toBeUndefined();
+  expect(forwarded.error).toBeUndefined();
+  expect(native.result.snapshot.tasks).toEqual(forwarded.result.snapshot.tasks);
+  expect(native.result.snapshot.tasks.map((task: { id: string }) => task.id).sort()).toEqual(selected.sort());
 }, 120_000);

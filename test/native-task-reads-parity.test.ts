@@ -219,12 +219,18 @@ test.skipIf(!front)("task.list SQL history filters preserve native parity on 100
     { limit: 5, before: tasks[400]!.id },
     { limit: 3, before: tasks[300]!.id, repo: "repo-a", executor: "codex", states: ["done"] },
     { limit: 2, since: ctx.now - 1500 }, { repo: "missing" }, { states: [] },
+    {}, { all: true }, { all: true, before: tasks[400]!.id },
+    { limit: 20, before: tasks[19]!.id }, { since: ctx.now + 1 },
   ];
   const requests = cases.map((params, i) => JSON.stringify({ jsonrpc: "2.0", id: i + 2, method: "task.list", params }));
   const native = await exchange(ctx.home, requests, false, "task.list");
   expect(native).toEqual(await exchange(ctx.home, requests, true, "task.list"));
   expect(native[0]?.result?.tasks).toHaveLength(2);
   expect(native[1]?.result?.next).toBe(tasks[1]!.id);
+  expect(native[11]?.result?.tasks.map((task: { id: string }) => task.id)).toEqual(tasks.slice(0, 20).map(task => task.id));
+  expect(native[11]?.result?.next).toBe(tasks[19]!.id);
+  expect(native[14]?.result?.tasks.map((task: { id: string }) => task.id)).toEqual(tasks.slice(20, 40).map(task => task.id));
+  expect(native[15]?.result?.tasks).toEqual([]);
 }, 120000);
 
 test.skipIf(!front)("task.list selective and empty filters preserve native/forwarded parity", async () => {
