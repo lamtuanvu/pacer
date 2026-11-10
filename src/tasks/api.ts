@@ -492,8 +492,10 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       const { stopOwnedExecutorAttempt } = await import("../plugins/executor-stop");
       const { pluginRegistry } = await import("../plugins");
       const intent = t.stopPending, owner = t.executorProvider, run = t.run;
+      const cleanupDeadline = Date.now() + Math.max(0, 600 - (ctx.now - intent.requestedAt)) * 1000;
+      const expired = () => Date.now() >= cleanupDeadline;
       let observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
-      if (observed.state === "running") {
+      if (observed.state === "running" && !expired()) {
         await stopOwnedExecutorAttempt(ctx, pluginRegistry(ctx), owner, id, run.attempt, intent.graceMs);
         observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
       }
@@ -527,9 +529,10 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       }
       // A dead wrapper may leave its executor alive. Reap its owned group before settling
       // without an exit record. An absent pid can still be an in-flight launch and stays pending.
-      if (observed.state === "uncertain" && observed.pid !== null) {
+      if (expired() || observed.state === "uncertain" && observed.pid !== null) {
         const { stopOrphanedRun } = await import("../supervisor/orphan");
         const guard = () => {
+          if (expired()) throw new Error("orphan cleanup deadline reached");
           const latest = readTask(ctx, id);
           const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
           if (!latest || latest.executorProvider !== owner || latest.run?.startedAt !== run.startedAt ||
@@ -537,7 +540,9 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
             latest.stopPending.attempt !== run.attempt || checked.pid !== observed.pid ||
             checked.state !== "uncertain") throw new Error("orphan stop owner changed");
         };
-        if (!await stopOrphanedRun(run.dir, observed.pid, intent.graceMs, guard)) return readTask(ctx, id) ?? t;
+        const cleanup = expired() ? "unverified" : await stopOrphanedRun(run.dir, observed.pid!, intent.graceMs, guard);
+        if (!cleanup && !expired()) return readTask(ctx, id) ?? t;
+        const cleanupUnconfirmed = cleanup !== true;
         return withTaskLock(ctx, id, () => {
           const latest = readTask(ctx, id);
           if (!latest || latest.state !== "running" || latest.executorProvider !== owner ||
@@ -548,7 +553,8 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
           const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
           // Between the outer observation and this lock the wrapper can still have recorded a
           // proper exit; the verified-exit settle above then owns the next tick's outcome.
-          if (checked.state !== "uncertain") return latest;
+          if (checked.state !== "uncertain" && !expired()) return latest;
+          if (checked.state === "exited") return latest;
           return updateTask(ctx, id, current => {
             const deadline = current.stopPending?.reason === "deadline";
             // Preserve exact attempt ownership for retry, without claiming a verified exit.
@@ -563,7 +569,8 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
             delete current.runnerPid;
             current.state = deadline ? "failed" : "stopped";
             current.result = { status: deadline ? "failed" : "stopped", executor: run.executor, model: null,
-              files: "", report: deadline ?
+              files: "", report: cleanupUnconfirmed ?
+                `${deadline ? "Executor deadline reached" : "Stop requested"}; cleanup was not confirmed; settled without a verified exit` : deadline ?
                 "Executor deadline reached; the executor wrapper ended without a recorded exit" :
                 "Executor ended without a recorded exit after stop was requested", backend: "direct" };
           });

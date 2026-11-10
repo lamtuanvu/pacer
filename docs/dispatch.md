@@ -28,7 +28,9 @@ An executor may run `pacer dispatch child --goal '...' --request-id UNIQUE_ID` o
 
 `dispatch.retry` and `dispatch.answer` requeue the same managed task and keep its root, parent, policy, worktree, dependencies and prior attempts. Use one stable `request-id` for each intended retry; replaying it does not launch a second attempt. An answer adds the question and answer to the brief and normally keeps the asking executor. Earlier independent reviews remain in attempt history. Managed work defaults to at most three cumulative attempts per task (`maxAttempts` is configurable); accepted, archived, expired or active work cannot be retried. A child may retry its own child through a valid grant, but cannot retry itself.
 
-When a local executor wrapper dies without recording its exit, a pending stop waits for cleanup of surviving processes in its owned process group. Uncertain process ownership keeps the stop pending. Once cleanup is confirmed, a deadline stop settles as failed and a user stop settles as stopped. The task retains an explicitly unverified exit receipt so retry or continuation can reuse the same task ID.
+When a local executor wrapper dies without recording its exit, a pending stop waits for cleanup of surviving processes in its owned process group. Uncertain process ownership keeps the stop pending for at most ten minutes. Once cleanup is confirmed, a deadline stop settles as failed and a user stop settles as stopped. The task retains an explicitly unverified exit receipt so retry or continuation can reuse the same task ID.
+
+Local pending stops also handle interactive children in a separate PTY process group, provided their birth time is not earlier than the run. Cleanup never signals older or unowned processes. After ten minutes pending, an unresolved local stop settles without further signalling (`failed` for a deadline, `stopped` otherwise), and its report says cleanup was not confirmed. A provably reused wrapper PID also settles without signalling. An unverified exit receipt is not proof that every executor process ended.
 
 ## Interactive lanes
 
