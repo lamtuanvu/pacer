@@ -9,6 +9,64 @@ import { createTask } from "../src/tasks/store";
 import { socketPath } from "../src/session/host";
 import { FrameType, WireDecoder, wire } from "../src/session/framing";
 
+async function readFirstSseFrame(reader: ReadableStreamDefaultReader<Uint8Array>, timeoutMs = 10000): Promise<string> {
+  const decoder = new TextDecoder();
+  let text = "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(Error("Timed out waiting for an SSE frame")), timeoutMs);
+  });
+  try {
+    while (true) {
+      const { value, done } = await Promise.race([reader.read(), deadline]);
+      if (done) throw Error("SSE ended before a complete frame");
+      text += decoder.decode(value, { stream: true });
+      // Both transports emit LF-delimited frames, independently of network chunks.
+      const end = text.indexOf("\n\n");
+      if (end !== -1) return text.slice(0, end + 2);
+    }
+  } finally { clearTimeout(timer); }
+}
+
+const connectedFrame = ": connected\n\n";
+const notifyFrame = 'event: notify\ndata: {"message":"Status could not refresh"}\n\n';
+
+for (const [name, chunks] of [
+  ["one frame", [connectedFrame]],
+  ["coalesced notification", [connectedFrame + notifyFrame]],
+  ["split frame and delimiter", [": con", "nected\n", "\n" + notifyFrame]],
+] as const) {
+  test(`SSE first frame handles ${name} without waiting for stream closure`, async () => {
+    const reader = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
+        // The real event stream stays open after its initial frame.
+      },
+    }).getReader();
+    try { expect(await readFirstSseFrame(reader)).toBe(connectedFrame); }
+    finally { await reader.cancel(); }
+  });
+}
+
+for (const partial of ["", ": connected\n"]) {
+  test(`SSE first frame rejects EOF with ${partial ? "a partial frame" : "no frame"}`, async () => {
+    const reader = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(partial));
+        controller.close();
+      },
+    }).getReader();
+    try { await expect(readFirstSseFrame(reader)).rejects.toThrow("SSE ended before a complete frame"); }
+    finally { await reader.cancel(); }
+  });
+}
+
+test("SSE first frame times out when an open stream stalls", async () => {
+  const reader = new ReadableStream<Uint8Array>().getReader();
+  try { await expect(readFirstSseFrame(reader, 20)).rejects.toThrow("Timed out waiting for an SSE frame"); }
+  finally { await reader.cancel(); }
+});
+
 const supplied = process.env.PACER_TEST_FRONT_DOOR;
 
 test.skipIf(!supplied)("released Rust and Bun transports preserve stdio, HTTP auth, cookie, SSE and WebSocket behavior", async () => {
@@ -100,8 +158,11 @@ test.skipIf(!supplied)("released Rust and Bun transports preserve stdio, HTTP au
       const sse = await fetch(base + "/v3/events?since=0", { headers: auth, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) });
       const reader = sse.body!.getReader();
       try {
-        const first = await reader.read();
-        results.push({ sse: sse.status, type: sse.headers.get("content-type"), frame: new TextDecoder().decode(first.value) });
+        const frame = await readFirstSseFrame(reader);
+        expect(sse.status).toBe(200);
+        expect(sse.headers.get("content-type")).toBe("text/event-stream");
+        expect(frame).toBe(connectedFrame);
+        results.push({ sse: sse.status, type: sse.headers.get("content-type"), frame });
       } finally { controller.abort(); await reader.cancel().catch(() => {}); }
       const ctx = fakeCtx({ home: service.env.HOME, pacerHome: service.env.PACER_HOME, env: service.env });
       const task = createTask(ctx, { brief: { goal: "transport parity", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 300 });

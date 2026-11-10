@@ -1,3 +1,4 @@
+mod cost_projection;
 use pacer_foundation::{
     Ctx,
     lock::{LockError, LockOptions, with_lock},
@@ -318,6 +319,9 @@ pub(crate) fn archive_month(seconds: f64) -> Result<String> {
     Ok(format!("{year:04}-{m:02}"))
 }
 
+#[path = "task_selection.rs"]
+mod selection;
+
 #[path = "task_log_reader.rs"]
 mod log_reader;
 pub use log_reader::TaskLogReader;
@@ -440,6 +444,7 @@ impl TaskStore {
             )?;
             tx.commit()?;
         }
+        selection::ensure_index(&db)?;
         let inode = file_inode(&path)?;
         let mut store = Self {
             home,
@@ -688,59 +693,7 @@ impl TaskStore {
             return Ok(Vec::new());
         }
         self.refresh()?;
-        let mut clauses = Vec::new();
-        let mut bind = Vec::<SqlValue>::new();
-        if !filter.all {
-            clauses.push("archived=0".to_owned());
-        }
-        if let Some(v) = filter.settled_before {
-            clauses.push("settled_at<?".into());
-            bind.push(SqlValue::Real(v));
-        }
-        if let Some(v) = filter.before {
-            clauses.push("id<?".into());
-            bind.push(SqlValue::Text(v.into()));
-        }
-        if let Some(states) = filter.states {
-            clauses.push(format!("state IN ({})", vec!["?"; states.len()].join(",")));
-            bind.extend(states.iter().map(|s| SqlValue::Text((*s).into())));
-        }
-        if let Some(v) = filter.updated_since {
-            clauses.push("updated_at>=?".into());
-            bind.push(SqlValue::Real(v));
-        }
-        if let Some(v) = filter.created_since {
-            clauses.push("created_at>=?".into());
-            bind.push(SqlValue::Real(v));
-        }
-        if let Some(v) = filter.repo {
-            let paths = filter.repo_paths.unwrap_or_default();
-            clauses.push(format!(
-                "(json_extract(record, '$.repo.key')=? OR (json_type(record, '$.repo') IS NULL OR json_type(record, '$.repo')='null') AND repo IN ({}))",
-                vec!["?"; paths.len()].join(",")
-            ));
-            bind.push(SqlValue::Text(v.into()));
-            bind.extend(paths.iter().map(|p| SqlValue::Text((*p).into())));
-        }
-        if let Some(v) = filter.executor {
-            clauses.push("COALESCE(json_extract(record, '$.result.executor'),json_extract(record, '$.executor'),json_extract(record, '$.attempts[#-1].executor'),json_extract(record, '$.requestedExecutor'))=?".into());
-            bind.push(SqlValue::Text(v.into()));
-        }
-        if let Some(states) = filter.visible_states {
-            clauses.push(format!("(CASE WHEN state='running' AND json_type(record, '$.question')='object' AND json_type(record, '$.question.answer') IS NULL THEN 'needs_input' ELSE state END) IN ({})",vec!["?"; states.len()].join(",")));
-            bind.extend(states.iter().map(|s| SqlValue::Text((*s).into())));
-        }
-        let sql = format!(
-            "SELECT record FROM tasks {} ORDER BY id DESC LIMIT ?",
-            if clauses.is_empty() {
-                String::new()
-            } else {
-                format!("WHERE {}", clauses.join(" AND "))
-            }
-        );
-        bind.push(filter.limit.map_or(SqlValue::Integer(-1), |n| {
-            SqlValue::Integer(i64::try_from(n).unwrap_or(i64::MAX))
-        }));
+        let (sql, bind) = selection::query(filter);
         let mut stmt = self.db.prepare(&sql)?;
         let records = stmt
             .query_map(params_from_iter(bind), |r| r.get::<_, String>(0))?

@@ -59,14 +59,40 @@ test("a finished task that dropped out of the capped snapshot does not re-alert 
  const c=fakeCtx();let verdict="ON_PACE";
  const st=()=>({...status(),providers:[{id:"claude-code",verdict,stale:false,windows:[],binding:null}]});
  const deps:PumpDeps={status:async()=>st(),tasks:()=>[],publish:async(ctx,envs)=>{let s=(await import("../src/link/store")).readLatest(ctx);for(const e of envs)s=reduce(s,e,ctx.now);writeJsonAtomic(latestPath(ctx),s);return {seq:1,transports:["outbox"],errors:[]};}};
+ // Ticks sit ≥15 s apart so each one is a strategy pass, and every assertion runs the
+ // quota check for real: a silent tick must mean the check ran and decided silence.
  const quotas=(envs:OutboxEvent[])=>envs.filter(e=>e.type==="alert"&&e.data.notification?.kind==="quota");
- await pumpOnce(c,deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce(c,deps))).toHaveLength(1);
- verdict="ON_PACE";await pumpOnce({...c,now:c.now+1},deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+2},deps))).toHaveLength(0);
- verdict="EXHAUSTED";expect(quotas(await pumpOnce({...c,now:c.now+3},deps))).toHaveLength(1);
- verdict="UNKNOWN";expect(quotas(await pumpOnce({...c,now:c.now+1801},deps))).toHaveLength(0);
- verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+1802},deps))).toHaveLength(0);
- verdict="ON_PACE";await pumpOnce({...c,now:c.now+1803},deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+1804},deps))).toHaveLength(1);
+ await pumpOnce(c,deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+16},deps))).toHaveLength(1);
+ verdict="ON_PACE";await pumpOnce({...c,now:c.now+33},deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+49},deps))).toHaveLength(0);
+ verdict="EXHAUSTED";expect(quotas(await pumpOnce({...c,now:c.now+65},deps))).toHaveLength(1);
+ verdict="UNKNOWN";expect(quotas(await pumpOnce({...c,now:c.now+1900},deps))).toHaveLength(0);
+ // A pass that runs the comparison with an UNKNOWN baseline stays silent, not skip.
+ verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+1916},deps))).toHaveLength(0);
+ verdict="ON_PACE";await pumpOnce({...c,now:c.now+1932},deps);verdict="NEAR_LIMIT";expect(quotas(await pumpOnce({...c,now:c.now+1948},deps))).toHaveLength(1);
  });
+
+test("a verdict change on a non-pass tick still alerts",async()=>{
+ const c=fakeCtx();let verdict="ON_PACE";
+ const st=()=>({...status(),providers:[{id:"claude-code",verdict,stale:false,windows:[],binding:null}]});
+ const deps:PumpDeps={status:async()=>st(),tasks:()=>[],publish:async(ctx,envs)=>{let s=(await import("../src/link/store")).readLatest(ctx);for(const e of envs)s=reduce(s,e,ctx.now);writeJsonAtomic(latestPath(ctx),s);return {seq:1,transports:["outbox"],errors:[]};}};
+ const quotas=(envs:OutboxEvent[])=>envs.filter(e=>e.type==="alert"&&e.data.notification?.kind==="quota");
+ await pumpOnce(c,deps); // the ON_PACE baseline enters latest.budget
+ verdict="NEAR_LIMIT";
+ // Two seconds later: no strategy pass runs, yet the comparison must still see the change.
+ const out=await pumpOnce({...c,now:c.now+2},deps);
+ expect(quotas(out)).toHaveLength(1);
+});
+
+test("periodic work keeps its cadence even when a tick starts up to a second late",async()=>{
+ const c=fakeCtx();let passes=0;
+ const deps:PumpDeps={...{status:async()=>status(),tasks:()=>[],publish:async()=>({seq:1,transports:["outbox"],errors:[]})},backfillRepos:async()=>{passes++;}} as PumpDeps;
+ await pumpOnce(c,deps);
+ expect(passes).toBe(1); // the first tick is a full pass
+ await pumpOnce({...c,now:c.now+10},deps);
+ expect(passes).toBe(1); // ten seconds of drift stay incremental
+ await pumpOnce({...c,now:c.now+14.5},deps);
+ expect(passes).toBe(2); // pass granted ~1 s early: the caller's console refresh ate the last second
+});
 
  test("broken tasks from one pump remain distinct in the snapshot for executor batching",async()=>{
  const c=fakeCtx();writeJsonAtomic(latestPath(c),{...emptySnapshot(),seq:1});
@@ -103,12 +129,12 @@ test("pump persists entity changes only after outbox success, never sends them t
  }};
  await pumpOnce(ctx,deps);const before=eventsSince(ctx,0).last;
  st.providers.find(p=>p.id==="codex")!.brokenReason="not working";
- success=false;await pumpOnce({...ctx,now:ctx.now+1},deps);
- success=true;const changed=await pumpOnce({...ctx,now:ctx.now+2},deps);
+ success=false;await pumpOnce({...ctx,now:ctx.now+16},deps);
+ success=true;const changed=await pumpOnce({...ctx,now:ctx.now+32},deps);
  expect(changed.filter(e=>e.type==="entity"&&e.data.kind==="executor")).toHaveLength(1);
  expect(eventsSince(ctx,before).events.find(e=>e.type==="executor")?.data).toMatchObject({state:"down"});
  expect(backfilled).toEqual([]);
- expect((await pumpOnce({...ctx,now:ctx.now+3},deps)).filter(e=>e.type==="entity")).toHaveLength(0);
+ expect((await pumpOnce({...ctx,now:ctx.now+48},deps)).filter(e=>e.type==="entity")).toHaveLength(0);
 });
 
 test("counts and progress coalesce, while state transitions are immediate",async()=>{
@@ -124,7 +150,8 @@ test("counts and progress coalesce, while state transitions are immediate",async
  const transition=await pumpOnce({...ctx,now:ctx.now+0.4},deps);
  expect(transition.filter(e=>e.type==="task")).toHaveLength(1);
  expect(transition.filter(e=>e.type==="entity"&&e.data.kind==="counts")).toHaveLength(0);
- const later=await pumpOnce({...ctx,now:ctx.now+1},deps);
+ // Entities and counts ride the strategy pass; the last tick jumps past the 15 s cadence.
+ const later=await pumpOnce({...ctx,now:ctx.now+16},deps);
  expect(later.filter(e=>e.type==="entity"&&e.data.kind==="counts")).toHaveLength(1);
  expect(paths[0]).toEqual(["/missing/api"]);
 });
@@ -177,11 +204,11 @@ test("a failed task publishes attention and counts, then clears attention on ret
  const {s,st}=capacityFixture(),ctx=fakeCtx(),record={...task("running"),createdAt:ctx.now,brief:{goal:"g",repo:ctx.home},attempts:[]};
  const deps:PumpDeps={status:async()=>st,tasks:()=>[record],strategy:()=>s,setup:async()=>({checkedAt:ctx.now,complete:true,ready:false,items:[]}),publish:(c,e)=>publish(c,e)};
  await pumpOnce(ctx,deps);record.state="failed";
- const out=await pumpOnce({...ctx,now:ctx.now+1},deps);
+ const out=await pumpOnce({...ctx,now:ctx.now+16},deps);
  expect(out.filter(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject([{data:{id:`failed:${record.id}`,value:{kind:"failed"}}}]);
  expect(out.find(e=>e.type==="entity"&&e.data.kind==="counts")).toMatchObject({data:{value:{attention:1,problems:1}}});
  Object.assign(record,{retriedBy:"next"});
- expect((await pumpOnce({...ctx,now:ctx.now+2},deps)).find(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject({data:{id:`failed:${record.id}`,removed:true}});
+ expect((await pumpOnce({...ctx,now:ctx.now+32},deps)).find(e=>e.type==="entity"&&e.data.kind==="attention")).toMatchObject({data:{id:`failed:${record.id}`,removed:true}});
 });
 
 test("pump dispatches attention notifications once to the desktop presenter",async()=>{

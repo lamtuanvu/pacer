@@ -106,3 +106,88 @@ fn oversized_entries_keep_the_ts_writer_retention_quirk() {
     assert!(std::fs::metadata(&path).unwrap().len() > pacer_store::outbox::OUTBOX_MAX_BYTES);
     assert_eq!(std::fs::read_to_string(path).unwrap().lines().count(), 1);
 }
+
+#[test]
+fn idle_and_non_task_replay_do_not_decode_retained_question_bodies() {
+    let (_dir, ctx) = ctx();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    // A legacy retained body that cannot decode as text is a read tripwire.
+    // Idle replay must not select it, even with human questions retained.
+    store
+        .connection()
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE messages(id TEXT, recipient TEXT, kind TEXT, body BLOB);
+         INSERT INTO messages VALUES('retained', 'human', 'question', x'80ff');",
+        )
+        .unwrap();
+    for protocol in [2, 3] {
+        let empty =
+            events_document(&ctx, 0.0, protocol, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+        assert_eq!(empty.value["events"], json!([]));
+    }
+    append_outbox(
+        &ctx,
+        &[
+            json!({"seq":1,"envelope":{"type":"config","data":{"area":"config","at":ctx.now}}}),
+            json!({"seq":2,"envelope":{"type":"config","data":{"area":"discovery","at":ctx.now}}}),
+        ],
+    )
+    .unwrap();
+    let v2 = events_document(&ctx, 0.0, 2, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    assert_eq!(v2.value["events"].as_array().unwrap().len(), 1);
+    assert_eq!(v2.value["last"], 2);
+    let filtered = events_document(&ctx, 1.0, 2, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    assert_eq!(filtered.value["events"], json!([]));
+    assert_eq!(filtered.value["last"], 2);
+    let v3 = events_document(&ctx, 0.0, 3, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    assert_eq!(v3.value["events"].as_array().unwrap().len(), 2);
+    assert_eq!(v3.value["last"], number(V3_CURSOR_BASE + 2.0));
+}
+
+#[test]
+fn task_question_after_idle_keeps_latest_id_full_title_and_utf16_clipping() {
+    let (_dir, ctx) = ctx();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    let task = json!({"id":"t-20261110-120000-abcd","rev":1,"createdAt":ctx.now,"state":"running","brief":{"goal":"Full task title","repo":ctx.home},"attempts":[],"kind":null});
+    pacer_foundation::fsutil::write_json_atomic(
+        &ctx.pacer_home.join("tasks/t-20261110-120000-abcd.json"),
+        &task,
+    )
+    .unwrap();
+    store.reconcile_json().unwrap();
+    assert!(store.read("t-20261110-120000-abcd").unwrap().is_some());
+    store.connection().unwrap().execute_batch(
+        "CREATE TABLE messages(id TEXT,task_id TEXT,recipient TEXT,kind TEXT,body TEXT,status TEXT,created_at REAL);
+         INSERT INTO messages VALUES('a','t-20261110-120000-abcd','human','question','older','pending',1);"
+    ).unwrap();
+    let body = format!("{}😀suffix", "x".repeat(999));
+    store
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO messages VALUES('b','t-20261110-120000-abcd','human','question',?,'pending',2)",
+            [&body],
+        )
+        .unwrap();
+    assert_eq!(
+        events_document(&ctx, 0.0, 3, &mut store, chrono_tz::UTC, &|_| false)
+            .unwrap()
+            .value["events"],
+        json!([])
+    );
+    append_outbox(&ctx, &[json!({"seq":1,"envelope":{"type":"task","data":{"id":"t-20261110-120000-abcd","state":"running","goal":"Full task title","title":"Full task title","executor":null,"updatedAt":ctx.now}}})]).unwrap();
+    for protocol in [2, 3] {
+        let doc =
+            events_document(&ctx, 0.0, protocol, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+        assert_eq!(
+            doc.value["events"][0]["data"]["fullTitle"],
+            "Full task title"
+        );
+        assert_eq!(
+            doc.value["events"][0]["data"]["messages"]["question"]["id"],
+            "b"
+        );
+        assert!(doc.json().contains(&format!("{}\\ud83d", "x".repeat(999))));
+    }
+}

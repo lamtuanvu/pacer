@@ -102,8 +102,9 @@ test("strategy build commands reject malformed input and snapshots accept both s
 test("pump alerts once when a new strategy appears and includes header author",async()=>{
  const ctx=await setup();const deps={status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}} as const),tasks:()=>[],publish:async()=>({seq:1,transports:["outbox"],errors:[]})};
  await pumpOnce(ctx,deps as any);s.save(ctx,"new-one",{from:"default"},"Approved",{who:"Codex"});
- const out=await pumpOnce(ctx,deps as any);expect(out.find(e=>e.type==="alert"&&e.data.key==="strategySaved-new-one")).toMatchObject({data:{title:'New strategy "new-one" saved',body:"Codex first, Claude keeps 15% · by Codex"}});
- expect((await pumpOnce(ctx,deps as any)).some(e=>e.type==="alert"&&e.data.key.startsWith("strategySaved"))).toBe(false);
+ // Strategy fingerprints are checked on the strategy pass cadence, so later ticks jump 15 s.
+ const out=await pumpOnce({...ctx,now:ctx.now+16},deps as any);expect(out.find(e=>e.type==="alert"&&e.data.key==="strategySaved-new-one")).toMatchObject({data:{title:'New strategy "new-one" saved',body:"Codex first, Claude keeps 15% · by Codex"}});
+ expect((await pumpOnce({...ctx,now:ctx.now+32},deps as any)).some(e=>e.type==="alert"&&e.data.key.startsWith("strategySaved"))).toBe(false);
 });
 
 test("preview and saved YAML use identical indented blocks and a final newline",async()=>{
@@ -150,12 +151,12 @@ test("launcher creates private briefs and prunes only expired session files",asy
 test("pump persists seen fingerprints only after publishing and only when changed",async()=>{
  const ctx=await setup();const deps={status:async()=>({generatedAt:ctx.now,strategy:"default",planner:"claude-code",mode:"normal",disabled:false,calendarPace:true,providers:[],executors:{ranked:[],excluded:[]}}),tasks:()=>[],publish:async()=>({seq:1,transports:["outbox"],errors:[]})};
  const path=join(ctx.pacerHome,"link","strategy-seen.json");await pumpOnce(ctx,deps as any);const before=statSync(path).mtimeMs;
- await Bun.sleep(10);await pumpOnce(ctx,deps as any);expect(statSync(path).mtimeMs).toBe(before);
+ await Bun.sleep(10);await pumpOnce({...ctx,now:ctx.now+16},deps as any);expect(statSync(path).mtimeMs).toBe(before);
  s.save(ctx,"new",{from:"default"},"approved");
- await pumpOnce(ctx,{...deps,publish:async()=>({seq:0,transports:[],errors:["outbox: failure"]})} as any);
- const retry=await pumpOnce(ctx,deps as any);expect(retry.some(e=>e.type==="alert"&&e.data.key==="strategySaved-new")).toBe(true);
+ await pumpOnce({...ctx,now:ctx.now+32},{...deps,publish:async()=>({seq:0,transports:[],errors:["outbox: failure"]})} as any);
+ const retry=await pumpOnce({...ctx,now:ctx.now+48},deps as any);expect(retry.some(e=>e.type==="alert"&&e.data.key==="strategySaved-new")).toBe(true);
  s.save(ctx,"new",{from:"default",set:{"pacing.planner_reserve":25}},"approved",{overwrite:true});
- expect((await pumpOnce(ctx,deps as any)).find(e=>e.type==="alert"&&e.data.key==="strategySaved-new")).toMatchObject({data:{title:'Strategy "new" updated'}});
+ expect((await pumpOnce({...ctx,now:ctx.now+64},deps as any)).find(e=>e.type==="alert"&&e.data.key==="strategySaved-new")).toMatchObject({data:{title:'Strategy "new" updated'}});
 });
 
 test("pump detects identical overwrites and migrates the old name-only ledger",async()=>{
@@ -164,7 +165,7 @@ test("pump detects identical overwrites and migrates the old name-only ledger",a
  mkdirSync(join(ctx.pacerHome,"link"),{recursive:true});writeFileSync(join(ctx.pacerHome,"link","strategy-seen.json"),JSON.stringify(["default","same"]));
  const first=await pumpOnce(ctx,deps as any);expect(first.some(e=>e.type==="alert"&&e.data.key.startsWith("strategySaved"))).toBe(false);
  const before=s.show(ctx,"same").yaml;s.save(ctx,"same",{from:"default"},"approved",{overwrite:true});expect(s.show(ctx,"same").yaml).toBe(before);
- expect((await pumpOnce(ctx,deps as any)).find(e=>e.type==="alert"&&e.data.key==="strategySaved-same")).toMatchObject({data:{title:'Strategy "same" updated'}});
+ expect((await pumpOnce({...ctx,now:ctx.now+16},deps as any)).find(e=>e.type==="alert"&&e.data.key==="strategySaved-same")).toMatchObject({data:{title:'Strategy "same" updated'}});
 });
 
 test("CLI strategy save attributes user while service/MCP retain agent identity",async()=>{

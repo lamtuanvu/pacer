@@ -105,7 +105,11 @@ pub fn events_since(
             }
         }
     }
-    let enriched = tasks::api_tasks(ctx, &crate::ActiveCounts::default(), &records, store, alive)?;
+    let enriched = if records.is_empty() {
+        Vec::new()
+    } else {
+        tasks::api_tasks(ctx, &crate::ActiveCounts::default(), &records, store, alive)?
+    };
     let mut raw = Vec::new();
     if reset {
         raw.push(json!({
@@ -239,7 +243,14 @@ pub fn events_document(
     alive: &dyn Fn(i64) -> bool,
 ) -> Result<crate::wire::Document, Error> {
     let value = events_since(ctx, since, protocol, store, zone, alive)?;
-    let questions = crate::wire::questions(store)?;
+    let needs_questions = array(&value["events"])
+        .iter()
+        .any(|e| e["type"] == "task" && !e["data"]["messages"]["question"].is_null());
+    let questions = if needs_questions {
+        crate::wire::questions(store)?
+    } else {
+        Default::default()
+    };
     let mut doc = crate::wire::Document::new(value.clone());
     for (i, e) in array(&value["events"]).iter().enumerate() {
         if e["type"] == "task"
