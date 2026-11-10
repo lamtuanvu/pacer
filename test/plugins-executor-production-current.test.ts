@@ -526,6 +526,77 @@ test("owned deadline persists a stop intent and settles failed only after wrappe
   } finally { cleanup(); }
 });
 
+test("an interactive deadline whose wrapper died without an exit record settles failed", async () => {
+  const { ctx, task, cleanup } = fixture();
+  try {
+    const executable = ctx.which("codex")!;
+    writeFileSync(executable, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\ntrap 'exit 0' TERM\nwhile :; do sleep 0.1; done\n",
+      { mode: 0o700 });
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
+      "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nexecution: {worktree: current, launch_mode: interactive}\n", { mode: 0o600 });
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    updateTask(ctx, task.id, current => {
+      current.state = "queued";
+      current.timeoutS = 1;
+      current.interactive = true;
+      delete current.executor;
+      delete current.executorProvider;
+    });
+    const running = await runTask({ ...ctx, run: realRun }, task.id, {
+      loadStrategy,
+      computeStatus: async () => ({ generatedAt: ctx.now, strategy: "default", planner: "claude-code",
+        mode: "normal", disabled: false, calendarPace: true, accounts: [],
+        providers: ["claude-code", "codex"].map(id => ({ id, eligibility: eligibility(), usage: "quota" as const,
+          windows: [], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+        executors: { ranked: [], excluded: [] } }),
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    });
+    // The runner recorded the exhausted budget as a deadline stop and gave up its ownership.
+    expect(running.state).toBe("running");
+    expect(running.stopPending).toMatchObject({ attempt: 1, reason: "deadline" });
+    expect(running.progress?.phase).toBe("lost-contact");
+    const run = readTask(ctx, task.id)!.run!;
+    expect(run.session).toBe("interactive");
+    // The wrapper and its session die hard: no TERM trap, no exit record, only the lost pid.
+    const pid = readRun(run.dir).pid!;
+    expect(process.kill(-pid, "SIGKILL")).toBe(true);
+    for (let i = 0; i < 100 && readRun(run.dir).alive; i++) await Bun.sleep(50);
+    expect(readRun(run.dir).alive).toBe(false);
+    expect(existsSync(join(run.dir, "exit"))).toBe(false);
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("failed");
+    expect(settled?.result?.report).toContain("deadline");
+    expect(settled?.attempts[0]).toMatchObject({ executor: "codex", timedOut: true, limitHit: false });
+  } finally { cleanup(); }
+}, 30_000);
+
+test("a user stop whose wrapper ended without an exit record settles stopped", async () => {
+  const { ctx, task, cleanup } = fixture();
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const departed = Bun.spawnSync(["/bin/sleep", "0"]).pid;
+    writeFileSync(join(dir, "pid"), String(departed), { mode: 0o600 });
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: Date.now() / 1000,
+        mode: "current", workdir: task.brief.repo,
+        logFile: join(ctx.pacerHome, "tasks", `${task.id}.codex.log`), session: "interactive" };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: Date.now() / 1000,
+        providerId: "pacer-exec-direct", graceMs: 5000, reason: "user" };
+      current.progress = { lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0,
+        logBytes: 0, host: "local", phase: "lost-contact", updatedAt: Date.now() / 1000 };
+    });
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    expect(settled?.stopPending).toBeUndefined();
+    expect(existsSync(join(dir, "exit"))).toBe(false);
+  } finally { cleanup(); }
+}, 30_000);
+
 test("default new placement records origin-fetch intent before using the selected base", async () => {
   const { ctx, task, cfg, cleanup } = fixture();
   try {
