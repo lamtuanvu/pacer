@@ -88,7 +88,7 @@ const USAGE = `usage: pacer <command>
                                                  read-only: where this request would go, and why
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
-           [--acceptance-timeout-min <n>] [--acceptance-pipefail] [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
+           [--acceptance-timeout-min <n>] [--acceptance-pipefail] [--constraints <s>] [--context <s>] [--executor <id>] [--difficulty <simple|standard|complex>] [--model <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-base default|head] [--worktree-reason <text>]
            [--interactive] [--group <name>]        interactive: routed/reviewed like any delegated task, with a live terminal;
                                                      group: lanes nested under one named Orca parent worktree
@@ -324,7 +324,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     let raw:Record<string,unknown>={};
     if(file){const parsed=JSON.parse(file==="-" ? await io.readBriefStdin() : readFileSync(file,"utf8"));
       if(!parsed || typeof parsed!=="object" || Array.isArray(parsed))throw new DelegateError("brief must be a JSON object");raw=parsed;}
-    for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree","group"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
+    for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","difficulty","model","worktree","group"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
     if(opts["acceptance-pipefail"]===true)raw.acceptance_pipefail=true;
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(opts["acceptance-timeout-min"]!==undefined)raw.acceptance_timeout_min=Number(str(opts["acceptance-timeout-min"]));
@@ -337,9 +337,10 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
     const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin:localHuman(ctx)},cliDeps.spawnRunner);
-    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: "" };
+    const warning = t.difficultySource === "unspecified" ? JSON.stringify({code:"difficulty_missing",field:"difficulty",values:["simple","standard","complex"]}) : "";
+    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: warning };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
-    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
+    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: warning };
   } catch (e) {
     return { code: 2, out: "", err: explain(e) };
   }

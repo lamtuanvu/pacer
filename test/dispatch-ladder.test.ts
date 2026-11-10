@@ -51,3 +51,54 @@ test("model-specific quota exhaustion cannot block another model", () => {
   expect(result.candidates.map(c => c.binding)).toEqual([{kind: "exact", id: "provider/b"}]);
   expect(result.candidates[0].capacityKnown).toBe(false);
 });
+
+test("simple work prefers a usable small over a comfortable frontier", () => {
+  const r = request([{ ...candidate("small", 10), tier: "small" }, { ...candidate("frontier", 90), tier: "frontier" }]);
+  r.task.difficulty = "simple";
+  expect(evaluateLadder(r, r.config)).toMatchObject({
+    state: "ranked", step: "usable-fallback", choices: [{ id: "small" }],
+    tier: { targetTier: "small", selectedTier: "small", reason: "target-match" },
+  });
+});
+
+test("no usable small falls back upward and says so", () => {
+  const r = request([{ ...candidate("small", 0), tier: "small" }, candidate("medium", 10), { ...candidate("frontier", 90), tier: "frontier" }]);
+  r.task.difficulty = "simple";
+  expect(evaluateLadder(r, r.config)).toMatchObject({
+    choices: [{ id: "medium" }], tier: { targetTier: "small", selectedTier: "medium", reason: "upward-fallback" },
+  });
+});
+
+test("preferences cannot cross tier buckets", () => {
+  const r = request([candidate("medium"), { ...candidate("frontier"), tier: "frontier", learnedFit: { successRate: 1, uncertainty: 0, sampleCount: 100 } }]);
+  r.task.preferences.models = ["provider/frontier"];
+  r.config.steps[0].prefer.models = ["provider/frontier"];
+  expect(evaluateLadder(r, r.config)).toMatchObject({ choices: [{ id: "medium" }], tier: { reason: "target-match" } });
+});
+
+test("all-unknown inventory still routes, labelled unknown-tier-fallback", () => {
+  const r = request([{ ...candidate("unknown"), tier: "unknown" }]);
+  expect(evaluateLadder(r, r.config)).toMatchObject({
+    choices: [{ id: "unknown" }], tier: { targetTier: "medium", selectedTier: "unknown", reason: "unknown-tier-fallback" },
+  });
+});
+
+test("model pins override target tiers but still obey hard requirements", () => {
+  const r = request([{ ...candidate("small"), tier: "small" }, { ...candidate("frontier"), tier: "frontier" }]);
+  r.task.difficulty = "complex";
+  r.task.model = "provider/small";
+  expect(evaluateLadder(r, r.config)).toMatchObject({
+    choices: [{ id: "small" }], tier: { targetTier: "frontier", selectedTier: "small", reason: "explicit-override" },
+  });
+  r.task.requirements.minTier = "medium";
+  expect(evaluateLadder(r, r.config).state).toBe("no-match");
+});
+
+test("custom target tiers and minimum requirements set the bucket floor", () => {
+  const r = request([candidate("medium"), { ...candidate("frontier"), tier: "frontier" }]);
+  r.config.tierTargets.standard = "frontier";
+  expect(evaluateLadder(r, r.config)).toMatchObject({ choices: [{ id: "frontier" }], tier: { targetTier: "frontier" } });
+  r.task.difficulty = "simple";
+  r.task.requirements.minTier = "frontier";
+  expect(evaluateLadder(r, r.config)).toMatchObject({ choices: [{ id: "frontier" }], tier: { targetTier: "frontier" } });
+});

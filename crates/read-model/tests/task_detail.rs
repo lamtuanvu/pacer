@@ -116,6 +116,7 @@ fn task_detail_by_id_composes_api_slice_and_derived_markers() {
             "startedAt": 2.0,
             "endedAt": 8.0,
             "log": "output",
+            "tier": {"requestedDifficulty":"standard","difficultySource":"explicit","effectiveDifficulty":"standard","targetTier":"medium","selectedTier":"small","reason":"executor-fixed-below-target"},
             "routing": {"chosen": "codex", "why": "on pace"},
             "usageAtStart": {"account": "team", "usedPct": 1.0, "window": "week", "at": 2.0},
             "usageAtEnd": {"account": "team", "usedPct": 2.0, "window": "week", "at": 8.0},
@@ -139,6 +140,7 @@ fn task_detail_by_id_composes_api_slice_and_derived_markers() {
     )
     .unwrap();
     assert_eq!(detail["id"], task["id"]);
+    assert_eq!(detail["attempts"][0]["tier"], task["attempts"][0]["tier"]);
     assert_eq!(detail["summary"], "Added tests");
     assert_eq!(detail["acceptance"]["state"], "passed");
     assert_eq!(detail["branch"], "pacer/t-20260101-000001-aaaa");

@@ -1946,6 +1946,19 @@
           "minLength": 1,
           "maxLength": 128
         },
+        "difficulty": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "standard",
+            "complex"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
         "requestId": {
           "type": "string",
           "minLength": 1,
@@ -5478,6 +5491,19 @@
     "TaskDelegateParams": {
       "type": "object",
       "properties": {
+        "difficulty": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "standard",
+            "complex"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
         "dispatch": {},
         "title": {
           "type": "string",

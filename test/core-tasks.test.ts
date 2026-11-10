@@ -241,3 +241,12 @@ test("acceptance_timeout_min validates integer bounds and persists through retry
   const retried = await tasks.retry(ctx, t.id, {}, { delegate: (c, i) => tasks.delegate(c, i, () => 1, s) });
   expect(readTask(ctx, retried.retry.id)?.brief.acceptanceTimeoutMin).toBe(20);
 });
+
+test("retry preserves difficulty provenance and model pin", async () => {
+  const {ctx, t} = await mk();
+  updateTask(ctx, t.id, task => {task.difficulty = "complex"; task.difficultySource = "brief"; task.model = "custom-pin";});
+  const r = await tasks.retry(ctx, t.id, {}, {delegate: (c, input) => tasks.delegate(c, input, () => 1, s)});
+  expect(r.retry).toMatchObject({difficulty: "complex", difficultySource: "brief", model: "custom-pin"});
+  const {summarizeTask} = await import("../src/tasks/api");
+  expect(summarizeTask(r.retry)).not.toHaveProperty("warnings");
+});

@@ -63,6 +63,40 @@ Certificates expire within 24 hours, so the service also renews them on a timer.
 
 Strict executor attempts get an enforcement identity for the native guard. They get a separate child work grant only when delegation is allowed. The guard denies native subagent calls and reports the denial to the service through an operation limited to that attempt. It directs the executor to `dispatch.child`; Pacer selects and records an authorized child. This is admission-time control of supported native subagent tools. It cannot prevent an executor from starting another AI CLI or calling a provider API through an unrestricted shell.
 
+## Model choice by difficulty
+
+Set `difficulty: simple|standard|complex` in a delegate brief, or pass
+`pacer delegate --difficulty <value>`. Release A still accepts an omitted
+difficulty, uses `standard`, and reports `difficulty_missing`. Model choice is
+active whenever an executor declares `runners.<id>.models`.
+
+`dispatch.tierTargets` defaults to `simple → small`, `standard → medium`, and
+`complex → frontier`. A mandatory `minTier` can raise the target. Managed dispatch
+tries the target tier first, then higher tiers in order, then `unknown` as a
+compatibility fallback. It evaluates the complete ladder within each bucket
+before moving up. Thus a qualifying target-tier model in a later step wins over
+a higher-tier model in an earlier step. Hard requirements, eligibility, quota,
+reserve and capacity gates still apply. Unknown tiers cannot satisfy `minTier`.
+The choice records `target-match`, `upward-fallback` or `unknown-tier-fallback`.
+Tiers express declared capability, not a price guarantee; ranking factors still
+choose within the bucket and step.
+
+Plain delegation first routes to an executor, then selects among that executor's
+models. Difficulty never reroutes it. If no declared rated model meets the target,
+it uses that executor's default and records `tierReason: executor-fixed-below-target`
+(the stored attempt field is `tier.reason`). It does not fail just because the
+target cannot be met. An executor without declared models keeps its default and
+normally records no tier. An explicit brief `model` or `--model` pin records
+`explicit-override`; managed dispatch still applies hard requirements and never
+silently substitutes a different model for a pin.
+
+Plain delegate attempts store the selected model in `attempts[].model` and choice
+metadata in `attempts[].tier`: `requestedDifficulty`, `difficultySource`,
+`effectiveDifficulty`, `targetTier`, `selectedTier` and `reason`. This preserves
+why each attempt chose its model across retries. Selected identity is not evidence
+of the actual model used; actual identity remains unknown without executor evidence.
+Managed work also retains the tier choice in its decision history.
+
 ## Configure the choice ladder
 
 In the app, open **Settings → Dispatcher** to see the default session planner and account, the active ladder, allowed model choices, and a read-only task preview. **Saved profiles** switches the complete global planner, pacing, eligibility and dispatch policy. **Executor eligibility** sets an ordered executor list for each task kind; a **project override** supplies the list for one repository and stays in place when global profiles change. The decision engine ranks eligible account and model choices from that list. **Edit decision ladder** saves and activates a new named profile; the built-in ladder favors a capable model with spare capacity, then tries a usable fallback. Older Settings → Routing and Settings → Strategies links open Dispatcher. Any local executor holding a valid work grant can ask Pacer to delegate child work; the configured planner is the default for new sessions.
@@ -106,7 +140,7 @@ dispatch:
   discovery: {enabled: false, runners: [], models: []}
 ```
 
-Steps are evaluated in order; the first step with qualifying choices wins. Requirements remain mandatory at every step. Within a step, factors are compared in the listed order, then by stable candidate ID. Available factors are `task-fit`, `spare-capacity`, `burn-before-reset`, `cheapest-first`, and `preference`. Unknown prices or quota readings are not treated as zero or as unlimited capacity. `comfortable` requires fresh health and enough measured headroom; `usable` needs positive headroom. A step with `capacity: unknown` explicitly permits uncertain capacity but still honors hard exhaustion and requirements. A pin to one exact model never silently changes to another.
+Within each tier bucket, steps are evaluated in order; the first step with qualifying choices wins. Requirements remain mandatory at every step. Within a step, factors are compared in the listed order, then by stable candidate ID. Available factors are `task-fit`, `spare-capacity`, `burn-before-reset`, `cheapest-first`, and `preference`. Unknown prices or quota readings are not treated as zero or as unlimited capacity. `comfortable` requires fresh health and enough measured headroom; `usable` needs positive headroom. A step with `capacity: unknown` explicitly permits uncertain capacity but still honors hard exhaustion and requirements. A pin to one exact model never silently changes to another.
 
 Tier and strength tags are user declarations. Pacer does not infer a tier from a model name. An observed model list is a suggestion by default. To allow specific newly observed IDs, set `discovery.enabled: true` and list both permitted runners and exact model IDs. These models enter with unknown tier and strengths until explicitly declared, so discovery cannot satisfy a minimum-tier requirement by claiming one.
 

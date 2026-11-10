@@ -2827,6 +2827,19 @@ Params JSON Schema:
       "minLength": 1,
       "maxLength": 128
     },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
     "requestId": {
       "type": "string",
       "minLength": 1,
@@ -7727,6 +7740,19 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
     "dispatch": {},
     "title": {
       "type": "string",

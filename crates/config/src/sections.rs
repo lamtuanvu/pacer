@@ -28,6 +28,7 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
     if !check_keys(
         raw,
         &[
+            "tierTargets",
             "engine",
             "engineFallback",
             "timeoutMs",
@@ -42,8 +43,21 @@ pub(crate) fn dispatch(raw: &Value) -> Option<Value> {
         return None;
     }
     let default_step = |id: &str, capacity: &str| json!({"id":id,"match":{},"require":{},"prefer":{"models":[],"strengths":[]},"candidates":{},"capacity":capacity,"rank":["task-fit","spare-capacity"]});
-    let defaults = json!({"engine":"ladder","engineFallback":"queue","timeoutMs":1000,"learning":{"enabled":false,"minSamples":20,"maxAgeDays":90},"discovery":{"enabled":false,"runners":[],"models":[]},"reservePct":0,"comfortablePct":20,"steps":[default_step("capable-with-headroom","comfortable"),default_step("usable-fallback","usable")],"onNoMatch":"queue"});
+    let defaults = json!({"tierTargets":{"simple":"small","standard":"medium","complex":"frontier"},"engine":"ladder","engineFallback":"queue","timeoutMs":1000,"learning":{"enabled":false,"minSamples":20,"maxAgeDays":90},"discovery":{"enabled":false,"runners":[],"models":[]},"reservePct":0,"comfortablePct":20,"steps":[default_step("capable-with-headroom","comfortable"),default_step("usable-fallback","usable")],"onNoMatch":"queue"});
     let mut result = merge(&defaults, raw);
+    let targets = &result["tierTargets"];
+    if !check_keys(targets, &["simple", "standard", "complex"]) {
+        return None;
+    }
+    let rank = |key: &str| match targets[key].as_str() {
+        Some("small") => Some(0),
+        Some("medium") => Some(1),
+        Some("frontier") => Some(2),
+        _ => None,
+    };
+    if rank("simple")? > rank("standard")? || rank("standard")? > rank("complex")? {
+        return None;
+    }
     let engine = result["engine"].as_str()?;
     if engine != "ladder"
         && !(engine.starts_with("plugin:")
@@ -503,4 +517,39 @@ fn alias_ok(s: &str) -> bool {
         && !s.starts_with('-')
         && s.bytes()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+}
+
+#[cfg(test)]
+mod tier_targets_tests {
+    use super::*;
+
+    #[test]
+    fn tier_targets_defaults_partial_and_validation() {
+        let defaults = json!({"simple":"small","standard":"medium","complex":"frontier"});
+        assert_eq!(
+            dispatch(&json!({})).map(|v| v["tierTargets"].clone()),
+            Some(defaults.clone())
+        );
+        assert_eq!(
+            dispatch(&json!({"tierTargets":{}})).map(|v| v["tierTargets"].clone()),
+            Some(defaults)
+        );
+        assert_eq!(
+            dispatch(&json!({"tierTargets":{"simple":"medium"}})).map(|v| v["tierTargets"].clone()),
+            Some(json!({"simple":"medium","standard":"medium","complex":"frontier"}))
+        );
+        for raw in [
+            json!({"simple":"frontier"}),
+            json!({"standard":"frontier","complex":"medium"}),
+            json!({"simple":"unknown"}),
+            json!({"extra":"small"}),
+            json!(null),
+            json!([]),
+            json!("small"),
+            json!({"standard":1}),
+        ] {
+            assert!(dispatch(&json!({"tierTargets":raw})).is_none());
+        }
+        assert!(dispatch(&json!({"tierTargets":{"simple":"medium","complex":"medium"}})).is_some());
+    }
 }
