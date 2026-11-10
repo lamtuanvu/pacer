@@ -363,7 +363,6 @@ fn schema_ready(db: &Connection) -> Result<bool> {
         "tasks_state",
         "tasks_updated_at",
         "tasks_created_at",
-        "tasks_repo",
         "tasks_retention",
         "task_first_settle",
         "task_changes",
@@ -413,7 +412,7 @@ impl TaskStore {
         let fresh_schema = !schema_ready(&db)?;
         if fresh_schema {
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            tx.execute_batch("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0); CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state); CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at); CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at); CREATE INDEX IF NOT EXISTS tasks_repo ON tasks(repo);")?;
+            tx.execute_batch("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, rev INTEGER, state TEXT, created_at REAL, updated_at REAL, settled_at REAL NULL, repo TEXT NULL, record TEXT NOT NULL, json_mtime REAL, archived INTEGER NOT NULL DEFAULT 0); CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state); CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at); CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);")?;
             let fields: Vec<String> = tx
                 .prepare("PRAGMA table_info(tasks)")?
                 .query_map([], |r| r.get(1))?

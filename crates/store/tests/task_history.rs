@@ -120,21 +120,4 @@ fn history_executor_is_nullish_and_answered_questions_remain_running() {
             .len(),
         1
     );
-    store
-        .connection()
-        .unwrap()
-        .execute("DROP INDEX tasks_repo", [])
-        .unwrap();
-    drop(store);
-    let mut store = TaskStore::open(dir.path()).unwrap();
-    let count: i64 = store
-        .connection()
-        .unwrap()
-        .query_row(
-            "SELECT count(*) FROM sqlite_master WHERE name='tasks_repo'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 1);
 }
