@@ -59,6 +59,8 @@ pub(crate) mod task_read_sync;
 use pacer_task_ops::task_reads;
 use pacer_task_ops::task_review_ops;
 pub(crate) mod task_review_sync;
+pub(crate) use pacer_task_ops::task_send_ops;
+pub(crate) mod task_send_sync;
 use pacer_task_ops::task_stop_ops;
 pub(crate) mod task_stop_sync;
 use pacer_task_ops::task_wait_ops;
@@ -438,6 +440,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "task.stop",
         call: task_stop_ops::task_stop_stub,
+    },
+    NativeOp {
+        name: "task.send",
+        call: task_send_ops::task_send_stub,
     },
     NativeOp {
         name: "task.wait",

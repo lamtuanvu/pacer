@@ -309,8 +309,10 @@ test("an answer whose delivery window expired during a slow guard is a definite 
     expect(modern.input).toEqual([]);
   } finally { modern.hub.destroy(); modern.server.close(); await stopRun(dir, { graceMs: 500 }); }
 }, 20000);
-const servers: Server[] = [], wrappers: number[] = [];
+const servers: Server[] = [], wrappers: number[] = [], hubs: ViewerHub[] = [];
 afterEach(() => {
+  // A hub left running writes session.state when its viewers disconnect, after the test's temp dir is gone.
+  for (const h of hubs.splice(0)) h.destroy();
   for (const s of servers.splice(0)) s.close();
   for (const pid of wrappers.splice(0)) killTree(pid, "SIGKILL");
 });
@@ -332,6 +334,7 @@ async function builtinRun() {
   const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), () => {},
     (viewers, controller) => writeFileSync(join(dir, "session.state"), JSON.stringify({ viewers, controller, cols: 120, rows: 40 })),
     { input: b => { input.push(Buffer.from(b)); }, resize() {} });
+  hubs.push(hub);
   const server = createServer(s => hub.add(s));
   servers.push(server);
   await new Promise<void>(r => server.listen(sock, r));

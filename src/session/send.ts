@@ -59,11 +59,7 @@ export async function send(ctx: Ctx, id: string, text: string, o: SendOptions = 
     // the agent's resumed work is captured by the answering attempt.
     if (task.state === "needs_input" || task.question && task.question.answer === undefined) throw new CoreError("conflict", `task is waiting for an answer; use pacer answer ${id}`);
     if (task.state !== "running") throw new CoreError("conflict", `task is ${task.state}, not running`);
-    const direct = directInputAvailable(task);
-    if (!task.live && !direct) throw new CoreError("unavailable", "this task has no live terminal to send into", "only an interactive lane (delegate --interactive) on a backend that keeps its worker live accepts messages");
-    if (task.live && !backendById(task.live.backend, o.backends)?.live) {
-      throw new CoreError("unavailable", `the ${task.live.backend} backend cannot deliver live input`);
-    }
+    assertLiveInput(task, o.backends);
     const holder = task.driving;
     const contended = !!holder && holder.by !== by && ctx.now - holder.at < DRIVING_LEASE_S;
     if (contended && !o.force) {
@@ -87,6 +83,14 @@ export async function send(ctx: Ctx, id: string, text: string, o: SendOptions = 
   const updated = readTask(ctx, id) ?? claim.task;
   taskActivity(ctx, updated, "message", `Sent${claim.contended ? ` (took over from ${claim.previous!.by})` : ""}: ${text.slice(0, 200)}`);
   return updated;
+}
+
+/** Refuses, as unavailable, a task without a live worker whose backend can take typed input. */
+export function assertLiveInput(task: TaskRecord, backends?: Backend[]): void {
+  if (!task.live && !directInputAvailable(task)) throw new CoreError("unavailable", "this task has no live terminal to send into", "only an interactive lane (delegate --interactive) on a backend that keeps its worker live accepts messages");
+  if (task.live && !backendById(task.live.backend, backends)?.live) {
+    throw new CoreError("unavailable", `the ${task.live.backend} backend cannot deliver live input`);
+  }
 }
 
 /** Built-in PTYs prove liveness from the owned run, not an Orca worker record. */
