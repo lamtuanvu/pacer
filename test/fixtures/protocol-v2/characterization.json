@@ -16543,6 +16543,8 @@
         "runner.block",
         "runner.check",
         "runner.list",
+        "runner.models.get",
+        "runner.models.set",
         "runner.remove",
         "runner.reorder",
         "runner.set",
@@ -21947,6 +21949,101 @@
           "additionalProperties": false
         }
       },
+      "runner.models.get": {
+        "description": "Read an executor's default and allowed models with tiers, against the strategy revision.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "runner.models.set": {
+        "description": "Atomically save an executor's default and allowed tiered models against the expected revision; every id is checked against the live listing when one is known.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "expectedRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": {
+              "type": "string",
+              "minLength": 1
+            },
+            "models": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "tier": {
+                    "default": "unknown",
+                    "type": "string",
+                    "enum": [
+                      "small",
+                      "medium",
+                      "frontier",
+                      "unknown"
+                    ]
+                  },
+                  "strengths": {
+                    "default": [],
+                    "maxItems": 64,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  },
+                  "tools": {
+                    "type": "boolean"
+                  },
+                  "context": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "tier",
+                  "strengths"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "expectedRevision",
+            "default",
+            "models"
+          ],
+          "additionalProperties": false
+        }
+      },
       "runner.remove": {
         "description": "Remove a runner and its routing and pacing order references.",
         "params": {
@@ -26644,6 +26741,8 @@
     "api.describe",
     "runner.settings.get",
     "runner.settings.save",
+    "runner.models.get",
+    "runner.models.set",
     "desktop.capture.register",
     "desktop.capture.targets",
     "desktop.capture.request",
