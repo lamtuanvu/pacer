@@ -32,6 +32,15 @@ test("unknown agents get a two-letter monogram on ink", () => {
   expect(agentInfo("zed")).toMatchObject({ name: "zed", glyph: null, color: "ink", monogram: "ZE" });
 });
 
+test("Codex uses Cx while other agent monograms stay unchanged", () => {
+  expect(AGENT_IDS.map(id => agentInfo(id).monogram))
+    .toEqual(["CL", "Cx", "CU", "AG", "BY", "LO", "OP", "GE"]);
+  expect(agentInfo("claude").monogram).toBe("CL");
+  expect(agentInfo("antigravity").monogram).toBe("AN");
+  expect(agentInfo("zed-model").monogram).toBe("ZE");
+  expect(agentInfo("?!").monogram).toBe("?");
+});
+
 test("aliases resolve", () => {
   expect(agentInfo("claude").name).toBe("Claude Code");
   expect(agentInfo("antigravity").name).toBe("Antigravity");
