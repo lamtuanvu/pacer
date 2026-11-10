@@ -13,3 +13,22 @@ export function modelWarning(list: AvailableModels, model: string | null, provid
   if (model === null || list.models === null) return null;
   return list.models.some(m => m.id === model) ? null : `${displayModel(model)} is no longer offered by ${list.provider ?? provider}`;
 }
+
+import type { AvailableModel } from "../../../src/models/available";
+import type { ModelDeclaration, RunnerModels } from "../../../src/core/runner-models";
+
+export function suggestTier(model: AvailableModel): "small" | "medium" | "frontier" | null {
+  return model.costOut == null ? null : model.costOut < 1 ? "small" : model.costOut < 5 ? "medium" : "frontier";
+}
+export const tierLabels = { small: "Small", medium: "Medium", frontier: "Frontier", unknown: "Unrated" };
+export type ModelsEdit = { type: "add" | "remove" | "default"; id: string } | { type: "tier"; id: string; tier: ModelDeclaration["tier"] };
+/** Edit only the local draft, preserving metadata and the revision used for the eventual save. */
+export function editModels(draft: RunnerModels, edit: ModelsEdit): RunnerModels {
+  const exists = draft.models.some(m => m.id === edit.id);
+  if (edit.type === "add") return exists || !edit.id.trim() ? draft : { ...draft, default: draft.models.length ? draft.default : edit.id, models: [...draft.models, { id: edit.id, tier: "unknown" }] };
+  if (!exists) return draft;
+  if (edit.type === "default") return { ...draft, default: edit.id };
+  if (edit.type === "tier") return { ...draft, models: draft.models.map(m => m.id === edit.id ? { ...m, tier: edit.tier } : m) };
+  const models = draft.models.filter(m => m.id !== edit.id);
+  return { ...draft, models, default: draft.default === edit.id ? models[0]?.id ?? draft.default : draft.default };
+}

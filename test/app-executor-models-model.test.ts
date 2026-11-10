@@ -23,3 +23,24 @@ test("modelWarning names the provider when an offered default stops being served
 test("modelWarning prefers the listing's provider label over the caller's fallback", () => {
   expect(modelWarning(labeled, "zhipu/glm-4.5", "Go")).toBe("glm-4.5 is no longer offered by Zhipu");
 });
+
+import { suggestTier, editModels } from "../app/src/model/executor-models";
+import type { RunnerModels } from "../src/core/runner-models";
+const draft: RunnerModels = { runner: "r", revision: "v1", default: "a", models: [{ id: "a", tier: "unknown" }] };
+test("suggestTier uses output price thresholds and requires a cost", () => {
+  expect([0.99, 1, 4.99, 5].map(costOut => suggestTier({ id: "a", costOut }))).toEqual(["small", "medium", "medium", "frontier"]);
+  expect(suggestTier({ id: "a" })).toBeNull();
+  expect(suggestTier({ id: "a", costOut: null })).toBeNull();
+});
+test("accepting a suggestion sets the tier", () => {
+  expect(editModels(draft, { type: "tier", id: "a", tier: "medium" }).models).toEqual([{ id: "a", tier: "medium" }]);
+  expect(draft.models[0].tier).toBe("unknown");
+});
+test("add, remove and default keep a valid local draft", () => {
+  const added = editModels(draft, { type: "add", id: "b" });
+  expect(added.models[1]).toEqual({ id: "b", tier: "unknown" });
+  expect(editModels(added, { type: "add", id: "b" })).toEqual(added);
+  expect(editModels(added, { type: "default", id: "b" }).default).toBe("b");
+  expect(editModels(added, { type: "default", id: "absent" })).toEqual(added);
+  expect(editModels(added, { type: "remove", id: "a" }).default).toBe("b");
+});

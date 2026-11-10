@@ -162,6 +162,7 @@ test("a successful save refreshes the models listing and calls onSaved afterward
     const api = {
       call: async (op: string, params: unknown) => {
         calls.push({ op, params });
+        if (op === "runner.models.get") return {runner: "go", revision: "v1", default: null, models: []};
         if (op === "executor.models.available") return { ...unknown, provider: "zhipu", models: [{ id: "zhipu/glm-4.7" }] };
         return {};
       },
@@ -186,10 +187,122 @@ test("a successful save refreshes the models listing and calls onSaved afterward
     // is refetched with the one-shot refresh, then the check task runs.
     expect(calls.some(c => c.op === "executor.models.available" && (c.params as { refresh?: boolean }).refresh === true)).toBe(true);
     expect(calls.some(c => c.op === "runner.check")).toBe(true);
-    void screen;
+    await act(async () => { preactRender(null, container as never); });
   } finally {
     globalThis.document = previous.document; globalThis.CSSStyleSheet = previous.CSSStyleSheet;
     globalThis.window = previous.window; globalThis.getComputedStyle = previous.getComputedStyle;
     globalThis.requestAnimationFrame = previous.requestAnimationFrame;
   }
 }, 15000);
+
+const declarations = { runner: "go", revision: "v1", default: "zhipu/glm-4.7", models: [{ id: "zhipu/glm-4.7", tier: "unknown" as const }] };
+test("rows show tier chips and new rows start Unrated with a suggestion", () => {
+  const html = render(<ExecutorModels runner="go" model={declarations.default} provider="Go" initialAvailable={served} initialModels={declarations} />);
+  expect(html).toContain("Models for tasks");
+  expect(html).toContain("Unrated");
+  expect(html).toContain("Suggested: Medium");
+});
+test("a row no longer offered shows the warning", () => {
+  const html = render(<ExecutorModels runner="go" model={declarations.default} provider="Go" initialAvailable={servedLabeled} initialModels={{ ...declarations, models: [...declarations.models, { id: "zhipu/old", tier: "small" }] }} />);
+  expect(html).toContain("old is no longer offered by Zhipu");
+});
+
+async function withModelScreen(run: (container: FakeElement, calls: Array<{op: string; params: any}>, saved: () => number) => Promise<void>, failure?: string, listing: AvailableModels = served) {
+  const previous = { document: globalThis.document, CSSStyleSheet: globalThis.CSSStyleSheet, window: globalThis.window, getComputedStyle: globalThis.getComputedStyle, requestAnimationFrame: globalThis.requestAnimationFrame };
+  // Preact renders against a document; keep the stub scoped to this test.
+  globalThis.document = {
+    adoptedStyleSheets: [], createElement: (t: string) => fakeElement(t), createElementNS: (_ns: string, t: string) => fakeElement(t),
+    createTextNode: (t: string) => { const n = fakeElement("#text"); n.nodeType = 3; n.data = t; return n; },
+    addEventListener() {}, removeEventListener() {}, getElementById: () => null, querySelector: () => null, contains: () => false, activeElement: null,
+  } as never;
+  globalThis.CSSStyleSheet = class { replaceSync() {} } as never;
+  globalThis.window = { addEventListener() {}, removeEventListener() {}, innerHeight: 800, innerWidth: 1200, matchMedia: () => ({ matches: false }) } as never;
+  globalThis.getComputedStyle = (() => ({ getPropertyValue: () => "0px" })) as never;
+  globalThis.requestAnimationFrame = (() => 0) as never;
+  const container = fakeElement("div");
+  try {
+    const calls: Array<{op: string; params: any}> = [];
+    let saved = 0;
+    const api = { call: async (op: string, params: any) => {
+      calls.push({op, params});
+      if (op === "executor.models.available") return listing;
+      if (op === "runner.models.get") return calls.some(c => c.op === "runner.models.set") ? {...declarations, revision: "v2", models: [{id: declarations.default, tier: "small"}]} : declarations;
+      if (op === "runner.models.set") {
+        if (failure) throw Object.assign(new Error(failure === "conflict" ? "stale" : "Save refused"), {code: failure});
+        return {runner: "go", revision: "v2", default: params.default, models: params.models, warnings: ["Example warning"]};
+      }
+      return {};
+    }} as BrowserApi;
+    const actions = createActionRunner({call: api.call, waitFor: async () => true, refetch() {}, navigate() {}});
+    await act(async () => { preactRender(<TaskContext.Provider value={{state: {...initialState(), connected: true}, api}}>
+      <ActionContext.Provider value={actions}><ExecutorModels runner="go" model={declarations.default} provider="Go" initialAvailable={listing} initialModels={declarations} onSaved={() => {saved++;}} /></ActionContext.Provider>
+    </TaskContext.Provider>, container as never); });
+    await run(container, calls, () => saved);
+  } finally {
+    await act(async () => { preactRender(null, container as never); });
+    globalThis.document = previous.document; globalThis.CSSStyleSheet = previous.CSSStyleSheet;
+    globalThis.window = previous.window; globalThis.getComputedStyle = previous.getComputedStyle;
+    globalThis.requestAnimationFrame = previous.requestAnimationFrame;
+  }
+}
+const clickText = async (container: FakeElement, label: string) => {
+  const button = findNode(container, n => n.tagName === "button" && textOf(n) === label);
+  expect(button).toBeTruthy();
+  await act(async () => { fire(button!, "click"); await new Promise(resolve => setTimeout(resolve, 0)); });
+};
+test("tier edits save once with the revision, then check and notify", async () => {
+  await withModelScreen(async (container, calls, saved) => {
+    await clickText(container, "Suggested: Medium");
+    expect(calls.some(c => c.op === "runner.models.set")).toBe(false);
+    await clickText(container, "Save model");
+    expect(calls.filter(c => c.op === "runner.models.set")).toEqual([{op: "runner.models.set", params: {id: "go", expectedRevision: "v1", default: declarations.default, models: [{id: declarations.default, tier: "medium"}]}}]);
+    expect(calls.some(c => c.op === "runner.set")).toBe(false);
+    expect(calls.some(c => c.op === "runner.check")).toBe(true);
+    expect(saved()).toBe(1);
+    expect(textOf(container)).toContain("Example warning");
+  });
+});
+test("a stale save reloads declarations and announces the conflict", async () => {
+  await withModelScreen(async (container, calls, saved) => {
+    await clickText(container, "Suggested: Medium");
+    await clickText(container, "Save model");
+    expect(textOf(container)).toContain("Changed elsewhere; reloaded");
+    expect(calls.filter(c => c.op === "runner.models.get").length).toBeGreaterThan(1);
+    expect(calls.some(c => c.op === "runner.check")).toBe(false);
+    expect(saved()).toBe(0);
+    await clickText(container, "Frontier");
+    await clickText(container, "Save model");
+    expect(calls.filter(c => c.op === "runner.models.set")[1].params.expectedRevision).toBe("v2");
+  }, "conflict");
+});
+test("a failed save keeps the edited draft and reports the error", async () => {
+  await withModelScreen(async (container, calls, saved) => {
+    await clickText(container, "Suggested: Medium");
+    await clickText(container, "Save model");
+    expect(textOf(container)).toContain("Save refused");
+    expect(textOf(container)).not.toContain("Suggested: Medium");
+    expect(calls.some(c => c.op === "runner.check")).toBe(false);
+    expect(saved()).toBe(0);
+  }, "invalid_input");
+});
+test("removing the last declaration saves an empty list atomically", async () => {
+  await withModelScreen(async (container, calls) => {
+    await clickText(container, "Remove");
+    await clickText(container, "Save model");
+    expect(calls.find(c => c.op === "runner.models.set")?.params.models).toEqual([]);
+    expect(calls.some(c => c.op === "runner.set")).toBe(false);
+  });
+});
+
+test("adding a model from an unknown listing starts Unrated and stays local until save", async () => {
+  await withModelScreen(async (container, calls) => {
+    const input = findNode(container, n => n.tagName === "input");
+    expect(input).toBeTruthy();
+    await act(async () => { fire(input!, "input", {currentTarget: {value: "custom/new"}}); });
+    await clickText(container, "Add model");
+    expect(textOf(container)).toContain("newSmallMediumFrontierUnrated");
+    expect(calls.some(c => c.op === "runner.models.set")).toBe(false);
+    await clickText(container, "Save model");
+    expect(calls.find(c => c.op === "runner.models.set")?.params.models).toEqual([...declarations.models, {id: "custom/new", tier: "unknown"}]);
+  }, undefined, unknown);
+});
