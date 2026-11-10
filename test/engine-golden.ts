@@ -49,7 +49,7 @@ const strategy = {
     { kinds: ["review"], executors: ["beta"] },
     { kinds: null, executors: ["alpha", "beta", "gamma", "disabled"] },
   ],
-  pacing: { policy: "even", order: ["beta", "alpha", "gamma"], accounts: "spread", fillThreshold: 90 },
+  pacing: { policy: "even", order: ["beta", "alpha", "gamma"], accounts: "spread", fillThreshold: 90, balance: "off" },
 } as unknown as Strategy;
 const status = (id: string, usedPct: number | null, verdict: ProviderStatus["verdict"], eligibility?: ProviderStatus["eligibility"]): ProviderStatus => ({
   id, usage: id === "gamma" ? "metered" : "quota", windows: [],

@@ -98,6 +98,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -270,6 +271,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
