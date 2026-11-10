@@ -52,7 +52,7 @@ async function launch(agent: Agent, mode: "interactive" | "headless") {
   chmodSync(join(profileBin, BINARY[agent]), 0o755);
   const shell = fakeLoginShell(root, `export PATH="${profileBin}:${dirname(process.execPath)}:$PATH" PROFILE_ONLY=from-profile LANG=en_US.UTF-8 HTTPS_PROXY=http://proxy.invalid:3128 PACER_HOME=/profile/must/not/win NO_COLOR=1 CLAUDE_CONFIG_DIR="${join(root, "profile-claude")}"\numask 027`);
   const ctx = fakeCtx();
-  ctx.env = {PATH: "/usr/bin:/bin", HOME: ctx.home, SHELL: shell, SERVICE_ONLY: "kept", PACER_HOME: ctx.pacerHome, PACER_LOGIN_ENV: "on", PACER_TEST_CLI: cli, PACER_AUTH_TOKEN: "service-secret",
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,PATH: "/usr/bin:/bin", HOME: ctx.home, SHELL: shell, SERVICE_ONLY: "kept", PACER_HOME: ctx.pacerHome, PACER_LOGIN_ENV: "on", PACER_TEST_CLI: cli, PACER_AUTH_TOKEN: "service-secret",
     // Service-only automation flag and account folder: a terminal would not have them.
     FORCE_COLOR: "1", CODEX_HOME: "/service/codex"};
   ctx.run = async () => ({code: 0, stdout: "codex-cli 0.164.0", stderr: ""});
@@ -111,7 +111,7 @@ test("strict managed work runs with the certified service environment, not the l
   }
   const shell = fakeLoginShell(root, `export PATH="${profileBin}:$PATH" PROFILE_ONLY=from-profile CLAUDE_CONFIG_DIR="${join(root, "profile-claude")}"\numask ${profileUmask}`);
   const ctx = fakeCtx();
-  ctx.env = {PATH: `${serviceBin}:/usr/bin:/bin`, HOME: ctx.home, SHELL: shell, PACER_HOME: ctx.pacerHome, PACER_LOGIN_ENV: "on", PACER_ENFORCEMENT_MODE: "strict", CLAUDE_CONFIG_DIR: join(root, "planner-claude")};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,PATH: `${serviceBin}:/usr/bin:/bin`, HOME: ctx.home, SHELL: shell, PACER_HOME: ctx.pacerHome, PACER_LOGIN_ENV: "on", PACER_ENFORCEMENT_MODE: "strict", CLAUDE_CONFIG_DIR: join(root, "planner-claude")};
   const task = createTask(ctx, {brief: {goal: "Strict check", repo: tmpDir()}, kind: null, requestedExecutor: null, timeoutS: 30});
   updateTask(ctx, task.id, t => {t.state = "running";});
   const out = await runAttempt(ctx, cfg("claude-code", "headless"), readTask(ctx, task.id)!);

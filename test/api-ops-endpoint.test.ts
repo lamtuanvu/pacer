@@ -16,7 +16,7 @@ const externalSecret = "sk-external-provider-must-not-copy";
 const models = [{id: "model-a", context: 128000, output: 16000, tools: true}];
 function configured() {
   const ctx = fakeCtx();
-  ctx.env = {HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
   mkdirSync(ctx.pacerHome, {recursive: true});
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), '# keep\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  external: {kind: endpoint, usage: unmetered, model: vendor/old}\nplanner: claude-code\nrouting:\n  - default: [codex, opencode#external]\n');
   return ctx;
