@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +18,7 @@ function compiledIdentity(compiled?: string, env: Record<string, string> = {}) {
   const build = Bun.spawnSync([process.execPath, "build", "--target=bun", join(import.meta.dir, "fixtures/desktop-update/compiled-identity.ts"), "--outfile", out,
     ...(compiled === undefined ? [] : ["--define", `PACER_BUILD_OTA_FIXTURE=${JSON.stringify(compiled)}`])], { stdout: "pipe", stderr: "pipe" });
   expect(build.exitCode, build.stderr.toString()).toBe(0);
-  const result = Bun.spawnSync([process.execPath, out], { stdout: "pipe", stderr: "pipe", env: { PATH: process.env.PATH ?? "/usr/bin:/bin", ...env } });
+  const result = Bun.spawnSync([process.execPath, out], { stdout: "pipe", stderr: "pipe", env: { ...childEnv(process.env.HOME!), PATH: process.env.PATH ?? "/usr/bin:/bin", ...env } });
   expect(result.exitCode, result.stderr.toString()).toBe(0);
   return JSON.parse(result.stdout.toString());
 }
