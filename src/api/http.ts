@@ -107,7 +107,7 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
     if (pathname === "/v2/events") {
       let last = Number(req.headers.get("last-event-id") ?? url.searchParams.get("since") ?? 0);
       if (!Number.isSafeInteger(last) || last < 0) return errorResponse({ code: "invalid_input", message: "since must be a non-negative integer" });
-      return sse(tailMs, send => {
+      return sse(deps.tailMs ?? 250, send => {
         const batch = eventsSince(deps.getCtx(), last,version);
         for (const e of batch.events) send(`id: ${e.seq}\nevent: ${e.type}\ndata: ${JSON.stringify(e.data)}\n\n`);
         last = batch.last;

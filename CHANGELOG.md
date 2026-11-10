@@ -16,7 +16,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - The service owns periodic background work in a separate worker to keep request handling responsive. HTTP task mutations that encounter a busy task lock return `conflict` promptly and can be retried; required runner completion and cleanup after definite input-delivery failures wait asynchronously for the lock. See [dispatch](docs/dispatch.md).
 
-- The service polls task changes every 500 ms and publishes changed or active tasks between the 15-second status and entity passes. Periodic work runs in a background worker, and settled history is reconciled incrementally. See [service responsiveness](docs/specs/2026-11-09-service-core-responsiveness-design.md).
+- The service polls task changes every 500 ms and publishes changed or active tasks between the 15-second status and entity passes. Native and TypeScript event streams use a 250 ms fallback, while task-log follow retains its 1,000 ms default. Periodic work runs in a background worker, and settled history is reconciled incrementally. See [service responsiveness](docs/specs/2026-11-09-service-core-responsiveness-design.md).
 
 - With the native plugin owner on, a refused first result chunk now ends the plugin call, as it does with the owner off: the plugin can no longer fall back to a plain result after any chunk attempt, the owner's own refusals are reported as pacer's errors rather than the plugin's, and a chunk that belongs to another call is refused without ending the current one.
 

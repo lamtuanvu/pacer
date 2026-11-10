@@ -180,6 +180,8 @@ including after another runtime rotates the public outbox (ADR 0024).
 
 ### 4. Task events within about 1 s
 
+Native and TypeScript event streams use a 250 ms fallback, preserving TypeScript publisher wakes and the 1,000 ms task-log follow default; empty event polls skip task enrichment and native question-body reads. This cadence leaves delivery headroom but does not guarantee subsecond delivery under load.
+
 Since a tick now costs little when nothing changed, the pump checks the change log often:
 a cheap `SELECT max(seq)` every 500 ms in the background worker, and a task pass only
 when it moved or the active set needs a time-based check. A quiet poll returns before

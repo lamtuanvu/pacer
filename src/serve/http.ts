@@ -86,7 +86,7 @@ export function startServer(
   nativeServices?.native.listen();
   const desktopUpdates = opts.opDeps?.desktopUpdates ?? createDesktopUpdateRuntime(getCtx,nativeServices??{});
   const unbindDesktopUpdates = bindDesktopUpdateRuntime(initialCtx, desktopUpdates);
-  const tailMs = opts.tailMs ?? 1_000;
+  const tailMs = opts.tailMs;
   const pumpMs = opts.pumpMs ?? 15_000;
   let snapshot = currentSnapshot(initialCtx);
   let cachedStatus: Status | null = null;
