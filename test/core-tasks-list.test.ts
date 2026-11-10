@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { tmpDir, fakeCtx } from "./helpers";
 import { list as taskList, type ListOptions } from "../src/core/tasks";
 import { visibleTaskState, type TaskState } from "../src/tasks/types";
-import { listTasksWhere, createTask, updateTask, taskDatabase, taskArchiveDir } from "../src/tasks/store";
+import { listTasksWhere, readTask, newTaskId, taskSettledAt, createTask, updateTask, taskDatabase, taskArchiveDir } from "../src/tasks/store";
 import { taskStatus } from "../src/tasks/api";
 import { repoFor } from "../src/core/repos";
 import { apiTasks } from "../src/api/read-model/tasks";
@@ -26,6 +26,33 @@ function mkTask(ctx: Ctx, i: number, o: { state?: TaskState; repoKey?: string; e
     if (o.repoKey !== undefined && o.setRepo !== false) t.repo = { key: o.repoKey, path: o.briefRepo ?? (i % 2 ? B : A), label: "l" };
   });
   return task;
+}
+
+/** Bulk read fixtures keep the real schema/indexes/triggers, without thousands of
+ * compatibility JSON writes and task locks. Selected tasks still use mkTask. */
+function seedHistory(ctx: Ctx, options: { repoKey: string; executor?: string; briefRepo?: string }): void {
+  const first = mkTask(ctx, 0, { ...options, state: "done" });
+  // mkTask returns its pre-update record; clone the persisted terminal revision.
+  const template = readTask(ctx, first.id)!;
+  const db = taskDatabase(ctx);
+  const insert = db.query("INSERT INTO tasks (id, rev, state, created_at, updated_at, settled_at, repo, record, archived) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  const settle = db.query("INSERT INTO task_first_settle(task_id, at) VALUES (?, ?)");
+  for (let offset = 1; offset < 1000; offset += 64) {
+    db.transaction(() => {
+      for (let i = offset; i < Math.min(1000, offset + 64); i++) {
+        const task = structuredClone(template);
+        task.id = newTaskId(ctx.now + i);
+        task.createdAt = ctx.now + i;
+        task.brief.goal = `Task ${i}`;
+        task.brief.repo = options.briefRepo ?? (i % 2 ? B : A);
+        task.repo!.path = task.brief.repo;
+        // mkTask updates at ctx.now; activityAt still includes the later creation.
+        insert.run(task.id, task.rev, task.state, task.createdAt, task.createdAt,
+          taskSettledAt(task), task.brief.repo, JSON.stringify(task), 0);
+        settle.run(task.id, task.settledAt!);
+      }
+    }).immediate();
+  }
 }
 
 /** The pre-change core.tasks.list semantics, replayed in JS over the full matching set,
@@ -62,7 +89,7 @@ function countListRowsDecoded(db: Database): { count: () => number; restore: () 
 
 test("task.list pages history in SQL without loading every row", () => {
   const ctx = fakeCtx();
-  for (let i = 0; i < 1000; i++) mkTask(ctx, i, { state: "done", repoKey: "local:K", executor: "alice" });
+  seedHistory(ctx, { repoKey: "local:K", executor: "alice" });
   const db = taskDatabase(ctx);
   const monitor = countListRowsDecoded(db);
   try {
@@ -152,7 +179,7 @@ test("repo filter matches a task delegated from a subdirectory and a linked work
 });
 test("selective and empty history filters decode only matching records", () => {
   const ctx = fakeCtx();
-  for (let i = 0; i < 1000; i++) mkTask(ctx, i, { state: "done", repoKey: "local:bulk", executor: "bulk" });
+  seedHistory(ctx, { repoKey: "local:bulk", executor: "bulk" });
   const selected = mkTask(ctx, -1, { state: "failed", repoKey: "local:selected", executor: "selected" });
   for (const filter of [
     { executor: "selected" }, { repo: "local:selected" }, { states: ["failed"] as TaskState[] },
@@ -195,7 +222,7 @@ test("list filter selection uses expression indexes rather than scanning record 
 test("mixed cached and legacy repo selection seeks both indexes before final filtering", () => {
   const ctx = fakeCtx(), root = tmpDir();
   writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [root]: { path: root, key: "selected", lastUsed: ctx.now } });
-  for (let i = 0; i < 1000; i++) mkTask(ctx, i, { state: "done", repoKey: "other", briefRepo: root });
+  seedHistory(ctx, { repoKey: "other", briefRepo: root });
   const cached = mkTask(ctx, -2, { state: "done", repoKey: "selected", briefRepo: root });
   const legacy = mkTask(ctx, -1, { state: "done", briefRepo: join(root, "sub") });
   const db = taskDatabase(ctx), original = db.query.bind(db);
