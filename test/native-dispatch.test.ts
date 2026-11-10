@@ -2,6 +2,7 @@ import { request as httpRequest } from "node:http";
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { closedPort, pinnedPort } from "./helpers";
 
 import golden from "./fixtures/config-writes-goldens.json";
 
@@ -12,8 +13,8 @@ function setup() {
   // host.sock must fit SUN_LEN (~104); bun test's TMPDIR is too deep for native serve.
   const home = mkdtempSync("/tmp/pnd-");
   mkdirSync(join(home, ".pacer"), { mode: 0o700 });
-  const env = { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
-    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" };
+  const env = pinnedPort({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
+    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" });
   return { home, env, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 const rpc = (id: number, method: string, params: unknown = {}) => JSON.stringify({ jsonrpc: "2.0", id, method, params });
@@ -42,7 +43,7 @@ test.skipIf(!front)("test binary exposes only its feature-gated native operation
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(exit, stderr).toBe(0);
     const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
-    expect(replies[1].result).toEqual(["_debug.native", "account.add", "account.adopt", "account.edit", "account.models", "account.remove", "account.test", "account.usage.check", "activity.list", "agent.detect", "api.describe", "api.list", "assistant.candidates", "assistant.card.record", "assistant.card.refresh", "assistant.conversation", "assistant.conversations", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.status", "assistant.turn", "attention.dismiss", "attention.snooze", "config.get", "config.set", "delegation.pause", "delegation.resume", "desktop.reconcile.cancel", "desktop.reconcile.request", "desktop.reconcile.status", "discovery.list", "discovery.network.get", "discovery.network.set", "discovery.respond", "discovery.set", "dispatch.analytics", "dispatch.config.get", "dispatch.dependencies", "dispatch.dependencies.waive", "dispatch.enforcement.consent", "dispatch.events", "dispatch.learning.reset", "dispatch.list", "dispatch.models", "dispatch.refresh", "dispatch.tree", "executor.setup.candidates", "executor.setup.connect", "executor.setup.models", "files.search", "host.account.add", "host.add", "host.get", "host.list", "host.remove", "host.repo.map", "host.set", "host.suggest", "insights.summary", "issue.import", "issue.search", "job.cancel", "job.get", "job.list", "limits.check", "limits.refresh", "limits.report", "machine.get", "machine.rotate", "machine.set", "mode.hold", "mode.release", "msg.close", "msg.confirm", "msg.inbox", "msg.log", "msg.policy", "msg.read", "msg.send", "msg.wait", "notifications.get", "notifications.set", "onboarding.skip", "project.messaging.get", "project.messaging.remove", "project.messaging.set", "project.strategy.get", "project.strategy.list", "project.strategy.remove", "project.strategy.set", "repo.add", "repo.list", "repo.remove", "routing.get", "routing.route", "routing.set", "routing.status", "runner.add", "runner.block", "runner.list", "runner.remove", "runner.reorder", "runner.set", "runner.settings.get", "runner.settings.save", "runner.unblock", "service.status", "session.context", "setup.check", "setup.init", "snapshot.get", "strategy.build", "strategy.list", "strategy.preview", "strategy.remove", "strategy.save", "strategy.show", "strategy.use", "task.diff", "task.dismiss", "task.get", "task.list", "task.log", "task.prune", "task.request_review", "task.restore", "task.retry_options", "task.review", "task.stop", "task.wait", "test.echo", "tree.status", "update.check", "version.get"]);
+    expect(replies[1].result).toEqual(["_debug.native", "account.add", "account.adopt", "account.edit", "account.models", "account.remove", "account.test", "account.usage.check", "activity.list", "agent.detect", "api.describe", "api.list", "assistant.candidates", "assistant.card.record", "assistant.card.refresh", "assistant.conversation", "assistant.conversations", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.status", "assistant.turn", "attention.dismiss", "attention.snooze", "config.get", "config.set", "delegation.pause", "delegation.resume", "desktop.reconcile.cancel", "desktop.reconcile.request", "desktop.reconcile.status", "discovery.list", "discovery.network.get", "discovery.network.set", "discovery.respond", "discovery.set", "dispatch.analytics", "dispatch.answer", "dispatch.child", "dispatch.config.get", "dispatch.dependencies", "dispatch.dependencies.waive", "dispatch.enforcement.consent", "dispatch.events", "dispatch.learning.reset", "dispatch.list", "dispatch.models", "dispatch.refresh", "dispatch.retry", "dispatch.review", "dispatch.stop", "dispatch.submit", "dispatch.tree", "dispatch.wait", "executor.setup.candidates", "executor.setup.connect", "executor.setup.models", "files.search", "host.account.add", "host.add", "host.get", "host.list", "host.remove", "host.repo.map", "host.set", "host.suggest", "insights.summary", "issue.import", "issue.search", "job.cancel", "job.get", "job.list", "limits.check", "limits.refresh", "limits.report", "machine.get", "machine.rotate", "machine.set", "mode.hold", "mode.release", "msg.close", "msg.confirm", "msg.inbox", "msg.log", "msg.policy", "msg.read", "msg.send", "msg.wait", "notifications.get", "notifications.set", "onboarding.skip", "project.messaging.get", "project.messaging.remove", "project.messaging.set", "project.strategy.get", "project.strategy.list", "project.strategy.remove", "project.strategy.set", "repo.add", "repo.list", "repo.remove", "routing.get", "routing.route", "routing.set", "routing.status", "runner.add", "runner.block", "runner.list", "runner.remove", "runner.reorder", "runner.set", "runner.settings.get", "runner.settings.save", "runner.unblock", "service.status", "session.context", "setup.check", "setup.init", "snapshot.get", "strategy.build", "strategy.list", "strategy.preview", "strategy.remove", "strategy.save", "strategy.show", "strategy.use", "task.diff", "task.dismiss", "task.get", "task.list", "task.log", "task.prune", "task.request_review", "task.restore", "task.retry_options", "task.review", "task.stop", "task.wait", "test.echo", "tree.status", "update.check", "version.get"]);
     expect(stderr).toContain("native _debug.native");
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);
@@ -102,9 +103,8 @@ test.skipIf(!front)("stdio hello notifications negotiate only with accepted para
 
 test.skipIf(!front)("HTTP native route enforces auth, version, body limit and forward override", async () => {
   const fixture = setup();
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: fixture.env, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const port = closedPort();
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: pinnedPort(fixture.env, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const stderrText = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   try {
@@ -158,9 +158,8 @@ test.skipIf(!front)("PACER_FORWARD_OPS forces stdio echo back to TypeScript", as
 
 test.skipIf(!front)("PACER_FORWARD_OPS forces HTTP echo back to TypeScript", async () => {
   const fixture = setup();
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: { ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const port = closedPort();
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: pinnedPort({ ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const base = `http://127.0.0.1:${port}`;
   try {
     let token = "";
@@ -194,10 +193,9 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
       mkdirSync(join(legacy, "plugins-data/lamtuanvu.pacer"), {recursive:true, mode:0o700});
       writeFileSync(join(legacy, "plugins-data/lamtuanvu.pacer/settings.json"), '{"notifications":"off"}', {mode:0o600});
       writeFileSync(join(fixture.env.PACER_HOME, "strategy.yaml"), golden.initial, {mode:0o600});
-      const reservation = Bun.serve({hostname:"127.0.0.1", port:0, fetch:() => new Response()});
-      const port = reservation.port!; reservation.stop(true);
-      const env = {...fixture.env, XDG_CONFIG_HOME:xdg, PACER_AGENT:"alice", PACER_FORWARD_OPS:forwarded ? "*" : "",
-        ...(override === undefined ? {} : {PACER_ORCA_USER_DATA:override ? legacy : ""})};
+      const port = closedPort();
+      const env = pinnedPort({...fixture.env, XDG_CONFIG_HOME:xdg, PACER_AGENT:"alice", PACER_FORWARD_OPS:forwarded ? "*" : "",
+        ...(override === undefined ? {} : {PACER_ORCA_USER_DATA:override ? legacy : ""})}, port);
       const child = Bun.spawn([productionFront!, "serve", "--port", String(port)], {env, stdin:"ignore", stdout:"ignore", stderr:"pipe"});
       const errors = new Response(child.stderr).text();
       const base = `http://127.0.0.1:${port}`;
