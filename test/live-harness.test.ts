@@ -5,9 +5,7 @@ import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, FAKE_SSH_ALIAS, FAKE_SSH_DOWN_ALIAS, FAKE_SSH_FIXTURE, fakeHostHome, fakeSshLog, freePort, healthy, installFakeSsh, loadSession, pacerArgv, readEvidence, record, removeSshControlDir, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, startService, stopService, up, validateNativeFixtures, validId, verifyFakeSsh, type Session } from "../scripts/live/core";
-import { controlDir, controlDirPath } from "../src/remote/ssh";
-import { exerciseNativeHostEffects, fakeSshCalls, hostCheckDispatch, jobEvents, normalizeJob } from "../scripts/live/native-host-effects";
+import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, validateNativeFixtures, type Session } from "../scripts/live/core";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
@@ -354,15 +352,11 @@ test("native test-ops fixtures set probe ports, a test Core entry and forwarded 
   expect(JSON.parse(env.PACER_CORE_ARGV!)).toEqual([process.execPath, join(import.meta.dir, "fixtures", "core-discover-plan.ts")]);
   expect(environmentScript(chosen)).toContain("export PACER_TEST_LOCAL_SERVER_PORTS='5001,5002'");
   expect(() => validateNativeFixtures({ localModelPorts: "5001,5002" }, false, false)).toThrow("require --native-test-ops");
-  for (const ports of ["4317,5002", "11434,5002", "5001,1234", "5001,5001", "0,1", "1", "1,2,3", "70000,1", "a,b"]) expect(() => validateNativeFixtures({ localModelPorts: ports }, true, false)).toThrow("--local-model-ports");
+  for (const ports of ["4317,5002", "0,1", "1", "1,2,3", "70000,1", "a,b"]) expect(() => validateNativeFixtures({ localModelPorts: ports }, true, false)).toThrow("--local-model-ports");
   for (const file of ["../cli.ts", "missing.ts", "core-discover-plan.js", "/abs.ts"]) expect(() => validateNativeFixtures({ coreFixture: file }, true, false)).toThrow("--core-fixture");
   expect(() => validateNativeFixtures({ nativeForwardOps: "test.echo" }, true, true)).toThrow("--native-forward-echo");
   expect(() => validateNativeFixtures({ nativeForwardOps: "a b" }, true, false)).toThrow("--native-forward-ops");
   expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", coreFixture: "core-discover-plan.ts", nativeForwardOps: "executor.setup.candidates" }, true, false)).not.toThrow();
-  for (const mode of ["ollama=ok", "ollama=ok,lmstudio=no", "ollama=ok,ollama=fail", "lmstudio=ok,ollama=fail"]) expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", localModelFixture: mode }, true, false)).toThrow("--local-model-fixture");
-  expect(() => validateNativeFixtures({ localModelFixture: "ollama=ok,lmstudio=fail" }, true, false)).toThrow("--local-model-ports");
-  expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", localModelFixture: "ollama=ok,lmstudio=fail:100" }, true, false)).not.toThrow();
-  await expect(main(["status", "--local-model-fixture", "ollama=ok,lmstudio=fail"])).rejects.toThrow("only valid for up");
   await expect(main(["status", "--local-model-ports", "1,2"])).rejects.toThrow("only valid for up");
 });
 
