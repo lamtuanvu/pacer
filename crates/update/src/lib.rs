@@ -6,12 +6,14 @@
 
 mod check;
 mod feed;
+pub mod handover;
 mod js;
 mod service;
 #[cfg(test)]
 mod tests;
 
 pub use check::update_check;
+pub use handover::{handover_stays_forwarded, service_handover, service_work};
 pub use service::service_status;
 
 use pacer_foundation::{
