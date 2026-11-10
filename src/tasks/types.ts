@@ -217,8 +217,8 @@ export interface TaskRecord {
     host?: string; remoteDir?: string; remoteBranch?: string; baseSha?: string };
   /** A wrapper start may have reached the OS; never authorize a second start for this attempt. */
   startIntent?: { attempt: number; providerId: string; dir: string };
-  /** Host-verified exit of the exact provider-owned run, safe across later task revision changes. */
-  executorExitReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number; exitCode: number };
+  /** Exact provider-owned run settlement; unverified does not certify wrapper exit or process cleanup. */
+  executorExitReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number; exitCode: number; unverified?: true };
   /** Exact terminal interactive report reaped by the host before logical settlement. */
   executorReportReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number;
     status: "done" | "failed"; summary: string; at: number; exitCode: number };
@@ -238,7 +238,7 @@ export interface TaskRecord {
   /** Persisted owner of a plugin-backed direct attempt, including before its run directory exists. */
   executorProvider?: string;
   /** A stop request is not terminal until the exact executor exit is verified. */
-  stopPending?: { attempt: number; requestedAt: number; providerId: string; graceMs: number;
+  stopPending?: { attempt: number; requestedAt: number; cleanupStartedAt?: number; providerId: string; graceMs: number;
     reason?: "user" | "deadline" };
   sessionDraftId?: string;
   interactionMode?: InteractionMode;

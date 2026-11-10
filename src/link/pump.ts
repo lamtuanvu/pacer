@@ -209,7 +209,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
     if(terminal&&d.state!=="needs_input"&&before!==d.state&&(before!==undefined||latest.seq>0)) {
       const last=t.attempts.at(-1), name=executorName(d.executor), next=strategy && policies ? retryTargetFor(policyTasks[index]!,strategy,retryExecutors,policies) : null;
       const kind=d.state==="done"?"done":"failed";
-      // A pending provider stop is recorded only when the exact wrapper exit settles it.
+      // A Stopped activity line can also come from an unverified settle; the receipt and report distinguish it.
       if (d.state === "stopped" && t.executorProvider && t.executorExitReceipt) appendActivity(ctx, {
         kind: "task_settled", level: "info", text: `Stopped “${taskTitle(t)}”`,
         ...(t.brief.repo ? { repo: (t.repo ?? repoFor(ctx, t.brief.repo)).key } : {}), taskId: t.id,

@@ -206,5 +206,43 @@ for (const pid of [process.pid, 999_999]) {
     expect(observed?.executorExitReceipt).toBeUndefined();
     expect(launches).toBe(0);
     expect(() => process.kill(process.pid, 0)).not.toThrow();
+    // Elapsed cleanup time cannot turn ambiguous evidence into launch ownership.
+    const expired = await superviseTask({ ...ctx, now: ctx.now + 601 }, task.id, () => { launches++; });
+    expect(expired?.state).toBe("running");
+    expect(expired?.stopPending).toBeDefined();
+    expect(expired?.attempts).toHaveLength(0);
+    expect(expired?.executorExitReceipt).toBeUndefined();
+    expect(launches).toBe(0);
+    expect(() => process.kill(process.pid, 0)).not.toThrow();
+  });
+}
+
+for (const mismatch of ["attempt", "provider", "directory"] as const) {
+  test(`uncertain stop rejects a mismatched start intent (${mismatch}) after its deadline`, async () => {
+    const ctx = fakeCtx();
+    const task = createTask(ctx, { brief: { goal: "fixture", repo: tmpDir() }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), "999999");
+    updateTask(ctx, task.id, current => {
+      current.state = "running";
+      current.executor = "codex";
+      current.executorProvider = "pacer-exec-direct";
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "stdout") };
+      current.startIntent = { attempt: mismatch === "attempt" ? 2 : 1,
+        providerId: mismatch === "provider" ? "other-provider" : "pacer-exec-direct",
+        dir: mismatch === "directory" ? join(dir, "other") : dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now - 601,
+        cleanupStartedAt: ctx.now - 601, providerId: "pacer-exec-direct", graceMs: 0, reason: "user" };
+    });
+    let launches = 0;
+    const observed = await superviseTask(ctx, task.id, () => { launches++; });
+    expect(observed?.state).toBe("running");
+    expect(observed?.stopPending).toBeDefined();
+    expect(observed?.attempts).toHaveLength(0);
+    expect(observed?.executorExitReceipt).toBeUndefined();
+    expect(launches).toBe(0);
   });
 }

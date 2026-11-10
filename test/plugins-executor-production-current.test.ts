@@ -20,7 +20,7 @@ import { registerWork } from "../src/dispatch/work";
 import { dispatchDatabase } from "../src/dispatch/store";
 import { retryWork } from "../src/core/work";
 import { realRun } from "./helpers";
-import { readRun } from "../src/supervisor/run";
+import { startRun, readRun } from "../src/supervisor/run";
 import { eligibility } from "./fixtures/eligibility";
 import { defaultHooks } from "../src/classify/hooks";
 import { fakeCtx } from "./helpers";
@@ -529,6 +529,201 @@ test("owned deadline persists a stop intent and settles failed only after wrappe
   } finally { cleanup(); }
 });
 
+test("an interactive deadline whose wrapper died without an exit record settles failed", async () => {
+  const { ctx, task, cleanup } = fixture();
+  try {
+    const executable = ctx.which("codex")!;
+    writeFileSync(executable, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo codex-cli 0.162.1; exit 0; fi\ntrap 'exit 0' TERM\nwhile :; do sleep 0.1; done\n",
+      { mode: 0o700 });
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
+      "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\nexecution: {worktree: current, launch_mode: interactive}\n", { mode: 0o600 });
+    Bun.spawnSync(["git", "init", "-q", "-b", "main"], { cwd: task.brief.repo });
+    Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "-q", "--allow-empty", "-m", "init"], { cwd: task.brief.repo });
+    updateTask(ctx, task.id, current => {
+      current.state = "queued";
+      current.timeoutS = 1;
+      current.interactive = true;
+      delete current.executor;
+      delete current.executorProvider;
+    });
+    const running = await runTask({ ...ctx, run: realRun }, task.id, {
+      loadStrategy,
+      computeStatus: async () => ({ generatedAt: ctx.now, strategy: "default", planner: "claude-code",
+        mode: "normal", disabled: false, calendarPace: true, accounts: [],
+        providers: ["claude-code", "codex"].map(id => ({ id, eligibility: eligibility(), usage: "quota" as const,
+          windows: [], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+        executors: { ranked: [], excluded: [] } }),
+      hooks: { ...defaultHooks, taskKind: async () => "research" },
+      verifyRepo: async () => ({ files: "(no changes)" }),
+    });
+    // The runner recorded the exhausted budget as a deadline stop and gave up its ownership.
+    expect(running.state).toBe("running");
+    expect(running.stopPending).toMatchObject({ attempt: 1, reason: "deadline" });
+    expect(running.progress?.phase).toBe("lost-contact");
+    const run = readTask(ctx, task.id)!.run!;
+    expect(run.session).toBe("interactive");
+    // The wrapper and its session die hard: no TERM trap, no exit record, only the lost pid.
+    const pid = readRun(run.dir).pid!;
+    expect(process.kill(-pid, "SIGKILL")).toBe(true);
+    for (let i = 0; i < 100 && readRun(run.dir).alive; i++) await Bun.sleep(50);
+    expect(readRun(run.dir).alive).toBe(false);
+    expect(existsSync(join(run.dir, "exit"))).toBe(false);
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("failed");
+    expect(settled?.result?.report).toContain("deadline");
+    expect(settled?.attempts[0]).toMatchObject({ executor: "codex", timedOut: true, limitHit: false });
+  } finally { cleanup(); }
+}, 30_000);
+
+test("a user stop whose wrapper ended without an exit record settles stopped", async () => {
+  const { ctx, task, cleanup } = fixture();
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const departed = Bun.spawnSync(["/bin/sleep", "0"]).pid;
+    writeFileSync(join(dir, "pid"), String(departed), { mode: 0o600 });
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: Date.now() / 1000,
+        mode: "current", workdir: task.brief.repo,
+        logFile: join(ctx.pacerHome, "tasks", `${task.id}.codex.log`), session: "interactive" };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: Date.now() / 1000,
+        providerId: "pacer-exec-direct", graceMs: 5000, reason: "user" };
+      current.progress = { lastOutputAt: null, lastChangeAt: null, files: 0, commits: 0,
+        logBytes: 0, host: "local", phase: "lost-contact", updatedAt: Date.now() / 1000 };
+    });
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    expect(settled?.stopPending).toBeUndefined();
+    expect(existsSync(join(dir, "exit"))).toBe(false);
+  } finally { cleanup(); }
+}, 30_000);
+
+test("missing-exit stop permits a retry on the same task id", async () => {
+  const { ctx, task, cfg, cleanup } = fixture();
+  try {
+    registerWork(ctx, task.id, {});
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), String(Bun.spawnSync(["/bin/sleep", "0"]).pid));
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now,
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    await retryWork(ctx, task.id, { requestId: "missing-exit-retry", expectRev: settled!.rev }, () => undefined);
+    const selected = updateTask(ctx, task.id, current => {
+      current.state = "running";
+      current.executor = "codex";
+    });
+    const next = await runOwnedDirectCurrent({ ...ctx, run: realRun }, cfg, selected);
+    expect(next.exec.code).toBe(0);
+    expect(readTask(ctx, task.id)?.run?.attempt).toBe(2);
+  } finally { cleanup(); }
+});
+
+test("missing-exit pipe stop terminates the surviving agent before settling", async () => {
+  const { ctx, task, cleanup } = fixture();
+  let pid: number | undefined;
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    const launched = startRun({ dir, argv: ["/bin/sh", "-c", "trap '' TERM; while :; do sleep 0.1; done"],
+      cwd: task.brief.repo, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session: "pipe" });
+    if ("error" in launched) throw new Error(launched.error);
+    pid = launched.pid;
+    chmodSync(dir, 0o700);
+    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
+    const child = Number(readFileSync(join(dir, "child"), "utf8"));
+    await Bun.sleep(100);
+    process.kill(pid, "SIGKILL");
+    for (let i = 0; i < 100 && readRun(dir).alive; i++) await Bun.sleep(20);
+    expect(process.kill(child, 0)).toBe(true);
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now,
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    const childState = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(child)]).stdout.toString().trim();
+    expect(childState === "" || childState.startsWith("Z")).toBe(true);
+    expect(settled?.executorExitReceipt).toMatchObject({ exitCode: 143, unverified: true });
+  } finally {
+    if (pid) { try { process.kill(-pid, "SIGKILL"); } catch {} }
+    cleanup();
+  }
+});
+
+test("missing-exit interactive stop terminates the surviving agent before settling", async () => {
+  const { ctx, task, cleanup } = fixture();
+  let pid: number | undefined, child: number | undefined;
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    const launched = startRun({ dir, argv: ["/bin/sh", "-c", "trap '' HUP TERM; while :; do sleep 0.1; done"],
+      cwd: task.brief.repo, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session: "interactive" });
+    if ("error" in launched) throw new Error(launched.error);
+    pid = launched.pid;
+    chmodSync(dir, 0o700);
+    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
+    child = Number(readFileSync(join(dir, "child"), "utf8"));
+    await Bun.sleep(100);
+    process.kill(pid, "SIGKILL");
+    for (let i = 0; i < 100 && readRun(dir).alive; i++) await Bun.sleep(20);
+    expect(process.kill(child, 0)).toBe(true);
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now,
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    const childState = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(child)]).stdout.toString().trim();
+    expect(childState === "" || childState.startsWith("Z")).toBe(true);
+    expect(settled?.executorExitReceipt).toMatchObject({ exitCode: 143, unverified: true });
+  } finally {
+    if (child) { try { process.kill(-child, "SIGKILL"); } catch {} }
+    if (pid) { try { process.kill(-pid, "SIGKILL"); } catch {} }
+    cleanup();
+  }
+});
+
+test("missing-exit stop retains an unowned live child without signalling it", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const unrelated = Bun.spawn(["/bin/sleep", "60"], { detached: true, stdout: "ignore", stderr: "ignore" });
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), String(Bun.spawnSync(["/bin/sleep", "0"]).pid));
+    writeFileSync(join(dir, "child"), String(unrelated.pid));
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now,
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    const pending = await superviseTask(ctx, task.id, () => undefined);
+    expect(pending?.state).toBe("running");
+    expect(pending?.stopPending).toBeDefined();
+    expect(pending?.attempts).toHaveLength(0);
+    expect(pending?.executorExitReceipt).toBeUndefined();
+    expect(process.kill(unrelated.pid, 0)).toBe(true);
+  } finally {
+    unrelated.kill("SIGKILL");
+    await unrelated.exited;
+    cleanup();
+  }
+});
+
 test("default new placement records origin-fetch intent before using the selected base", async () => {
   const { ctx, task, cfg, cleanup } = fixture();
   try {
@@ -946,4 +1141,153 @@ test("runner restart resumes a journaled worktree before any run was published",
     expect(result.attempts).toHaveLength(1);
     expect(result.worktree).toBe(grant.workdir);
   } finally { cleanup(); }
+});
+
+for (const reason of ["user", "deadline"] as const) {
+  test(`an expired ${reason} stop settles without signalling an uncertain child`, async () => {
+    const { ctx, task, cleanup } = fixture();
+    const unrelated = Bun.spawn(["/bin/sleep", "60"], { detached: true });
+    try {
+      const dir = join(ctx.pacerHome, "runs", task.id, "1");
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      writeFileSync(join(dir, "pid"), String(Bun.spawnSync(["/bin/sleep", "0"]).pid));
+      writeFileSync(join(dir, "child"), String(unrelated.pid));
+      updateTask(ctx, task.id, current => {
+        current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+          mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+        current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+        current.stopPending = { attempt: 1, requestedAt: ctx.now - 601, cleanupStartedAt: ctx.now - 601,
+          providerId: "pacer-exec-direct", graceMs: 100, reason };
+      });
+      const settled = await superviseTask(ctx, task.id, () => undefined);
+      expect(settled?.state).toBe(reason === "deadline" ? "failed" : "stopped");
+      expect(settled?.result?.report).toContain("cleanup was not confirmed");
+      expect(settled?.executorExitReceipt?.unverified).toBe(true);
+      expect(process.kill(unrelated.pid, 0)).toBe(true);
+    } finally { unrelated.kill("SIGKILL"); await unrelated.exited; cleanup(); }
+  });
+}
+
+test("a reused wrapper pid settles without signalling the unrelated process", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const unrelated = Bun.spawn(["/bin/sleep", "60"], { detached: true });
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), String(unrelated.pid));
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: Date.now() / 1000,
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    expect(settled?.result?.report).toContain("cleanup was not confirmed");
+    expect(process.kill(unrelated.pid, 0)).toBe(true);
+  } finally { unrelated.kill("SIGKILL"); await unrelated.exited; cleanup(); }
+});
+
+test("legacy stop runs orphan cleanup even when requestedAt is hours old", async () => {
+  const { ctx, task, cleanup } = fixture();
+  let pid: number | undefined;
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    const launched = startRun({ dir, argv: ["/bin/sh", "-c", "trap '' TERM; while :; do sleep 0.1; done"],
+      cwd: task.brief.repo, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session: "pipe" });
+    if ("error" in launched) throw new Error(launched.error);
+    pid = launched.pid;
+    chmodSync(dir, 0o700);
+    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
+    const child = Number(readFileSync(join(dir, "child"), "utf8"));
+    await Bun.sleep(100);
+    process.kill(pid, "SIGKILL");
+    for (let i = 0; i < 100 && readRun(dir).alive; i++) await Bun.sleep(20);
+    expect(process.kill(child, 0)).toBe(true);
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now - 7200,
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    const childState = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(child)]).stdout.toString().trim();
+    expect(childState === "" || childState.startsWith("Z")).toBe(true);
+    expect(settled?.executorExitReceipt).toMatchObject({ exitCode: 143, unverified: true });
+  } finally {
+    if (pid) { try { process.kill(-pid, "SIGKILL"); } catch {} }
+    cleanup();
+  }
+});
+
+for (const cleanupExpired of [false, true]) {
+test(`live wrapper past the ${cleanupExpired ? "cleanup" : "stop request"} deadline is stopped before settling`, async () => {
+  const { ctx, task, cleanup } = fixture();
+  let pid: number | undefined;
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    const launched = startRun({ dir, argv: ["/bin/sh", "-c", "trap '' TERM; while :; do sleep 0.1; done"],
+      cwd: task.brief.repo, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session: "pipe" });
+    if ("error" in launched) throw new Error(launched.error);
+    pid = launched.pid;
+    chmodSync(dir, 0o700);
+    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
+    const child = Number(readFileSync(join(dir, "child"), "utf8"));
+    await Bun.sleep(100);
+    expect(readRun(dir).alive).toBe(true);
+    expect(process.kill(child, 0)).toBe(true);
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now - 700,
+        ...(cleanupExpired ? { cleanupStartedAt: ctx.now - 700 } : {}),
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    let settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(readRun(dir).alive).toBe(false);
+    // A force-killed wrapper may not write an exit receipt; reconcile its orphan
+    // group on the next pass, as the production supervisor does.
+    if (settled?.state === "running") settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    const childState = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(child)]).stdout.toString().trim();
+    expect(childState === "" || childState.startsWith("Z")).toBe(true);
+    expect(readRun(dir).alive).toBe(false);
+  } finally {
+    if (pid) { try { process.kill(-pid, "SIGKILL"); } catch {} }
+    cleanup();
+  }
+});
+
+}
+
+test("legacy uncertain stop persists its first cleanup time across reconciliations", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const unrelated = Bun.spawn(["/bin/sleep", "60"], { detached: true });
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), String(Bun.spawnSync(["/bin/sleep", "0"]).pid));
+    writeFileSync(join(dir, "child"), String(unrelated.pid));
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now - 7200,
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    const first = await superviseTask(ctx, task.id, () => undefined);
+    expect(first?.state).toBe("running");
+    expect(first?.stopPending?.cleanupStartedAt).toBe(ctx.now);
+    const second = await superviseTask({ ...ctx, now: ctx.now + 599 }, task.id, () => undefined);
+    expect(second?.state).toBe("running");
+    expect(second?.stopPending?.cleanupStartedAt).toBe(ctx.now);
+    const settled = await superviseTask({ ...ctx, now: ctx.now + 601 }, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    expect(settled?.result?.report).toContain("cleanup was not confirmed");
+    expect(process.kill(unrelated.pid, 0)).toBe(true);
+  } finally { unrelated.kill("SIGKILL"); await unrelated.exited; cleanup(); }
 });
