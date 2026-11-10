@@ -525,6 +525,40 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
           });
         });
       }
+      // A wrapper whose pid was published but that died without an exit record ("uncertain") is
+      // past any second stop or launch: settle it exactly once. An absent pid means a start may
+      // still be reaching the OS across a restart, so that uncertainty stays pending instead.
+      if (observed.state === "uncertain" && observed.pid !== null) {
+        return withTaskLock(ctx, id, () => {
+          const latest = readTask(ctx, id);
+          if (!latest || latest.state !== "running" || latest.executorProvider !== owner ||
+            latest.stopPending?.requestedAt !== intent.requestedAt ||
+            latest.stopPending.attempt !== run.attempt || latest.run?.dir !== run.dir ||
+            latest.run.startedAt !== run.startedAt || latest.attempts.length + 1 !== run.attempt)
+            return latest ?? t;
+          const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
+          // Between the outer observation and this lock the wrapper can still have recorded a
+          // proper exit; the verified-exit settle above then owns the next tick's outcome.
+          if (checked.state !== "uncertain") return latest;
+          return updateTask(ctx, id, current => {
+            const deadline = current.stopPending?.reason === "deadline";
+            // No exit receipt: the wrapper's exit is unverifiable. 143 is the established
+            // "ended without an exit record" code (`recordStoppedHandover`).
+            current.attempts.push({ executor: run.executor, model: null,
+              startedAt: run.startedAt, endedAt: Date.now() / 1000,
+              exitCode: 143, timedOut: deadline, limitHit: false, log: run.logFile });
+            delete current.stopPending;
+            delete current.pendingAttempt;
+            delete current.childPid;
+            delete current.runnerPid;
+            current.state = deadline ? "failed" : "stopped";
+            current.result = { status: deadline ? "failed" : "stopped", executor: run.executor, model: null,
+              files: "", report: deadline ?
+                "Executor deadline reached; the executor wrapper ended without a recorded exit" :
+                "Executor ended without a recorded exit after stop was requested", backend: "direct" };
+          });
+        });
+      }
     } catch { /* Preserve the pending intent for the next bounded reconciliation. */ }
     return readTask(ctx, id) ?? t;
   }
