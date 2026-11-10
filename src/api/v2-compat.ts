@@ -2,6 +2,7 @@
 import { sortItems } from "../attention/rules";
 import { legacySetup, legacyCheck } from "../setup/v2";
 import type { LinkSnapshot, BudgetData } from '../link/envelope';
+import { isDiscoveryItemId } from '../link/outbox-index';
 import type { SnapshotV2, SnapshotV3 } from './read-model/types';
 import { callOp, opJsonSchemas, LEGACY_TASK_LIST, type OpDeps } from './ops';
 import { CoreError } from '../core/errors';
@@ -70,7 +71,7 @@ export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
  const d=e.data as {area?:unknown;id?:unknown;key?:unknown}|null;
  return e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
 }
-export const isDiscoveryItemId=(id:unknown)=>typeof id==='string'&&(id.startsWith('discovery:')||id.startsWith('discovery-network:'));
+export { isDiscoveryItemId };
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;

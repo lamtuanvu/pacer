@@ -3915,8 +3915,8 @@
     "paneKey": "pane"
   },
   "retention": {
-    "size": 97896,
-    "events": 1001,
+    "size": 97992,
+    "events": 1002,
     "reset": true,
     "first": 3000000000000
   },
