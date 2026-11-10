@@ -35,8 +35,11 @@ export async function setupEffectsBridge(ctx: Ctx, request: unknown, deps: OpDep
     const [{ discoverEndpointModels }, { localServers }] = await Promise.all([import("../plugins/endpoint-adapter"), import("../endpoints/detect")]);
     const allowed = new Set(localServers(ctx).map(s => s.base_url));
     if (!r.baseUrls.every(url => typeof url === "string" && allowed.has(url))) throw new CoreError("invalid_input", "setup effect required");
-    return { results: await Promise.all((r.baseUrls as string[]).map(baseUrl => discoverEndpointModels(ctx, { baseUrl, key: null, timeoutMs: 1000 })
-      .catch((error: unknown) => ({ failure: error instanceof Error ? error.message : String(error) })))) };
+    // `settled` numbers failures as they happen: detectCandidates reports distinct failures in that order.
+    let settled = 0;
+    const discover = deps.endpoint?.discover ?? discoverEndpointModels;
+    return { results: await Promise.all((r.baseUrls as string[]).map(baseUrl => discover(ctx, { baseUrl, key: null, timeoutMs: 1000 })
+      .catch((error: unknown) => ({ failure: error instanceof Error ? error.message : String(error), settled: settled++ })))) };
   }
   throw new CoreError("invalid_input", "setup effect required");
 }

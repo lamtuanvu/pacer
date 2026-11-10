@@ -304,6 +304,27 @@ test.skipIf(!front)("executor.setup.candidates from a fresh catalog matches forc
   expect(await exchange(stale, one, false, {}, false)).toEqual(await exchange(stale, one, true));
 }, 120000);
 
+test.skipIf(!front)("executor.setup.candidates reports distinct probe failures in the order they settle", async () => {
+  const [ollamaUrl, lmstudioUrl] = DEAD.map(port => `http://127.0.0.1:${port}/v1`);
+  const plannedCore = JSON.stringify([process.execPath, join(import.meta.dir, "fixtures", "core-discover-plan.ts")]);
+  const one = requests([["executor.setup.candidates", {}]]);
+  const orders: [string, Record<string, { delayMs: number; error: string }>, string[]][] = [
+    ["reverse of server order", { [ollamaUrl!]: { delayMs: 600, error: "ollama failed" }, [lmstudioUrl!]: { delayMs: 20, error: "lmstudio failed" } }, ["lmstudio failed", "ollama failed"]],
+    ["server order", { [ollamaUrl!]: { delayMs: 20, error: "ollama failed" }, [lmstudioUrl!]: { delayMs: 600, error: "lmstudio failed" } }, ["ollama failed", "lmstudio failed"]],
+  ];
+  for (const [label, plan, expected] of orders) {
+    const dir = home();
+    mkdirSync(join(dir, ".pacer", "cache"), { recursive: true });
+    writeFileSync(join(dir, ".pacer", "cache", "models.json"), JSON.stringify({ fetchedAt: NOW, providers: {} }));
+    const env = { PACER_CORE_ARGV: plannedCore, DISCOVER_PLAN: JSON.stringify(plan) };
+    const native = await exchange(dir, one, false, env);
+    const forwarded = await exchange(dir, one, true, env);
+    expect(native, label).toEqual(forwarded);
+    expect(native[0].result.notes, label).toEqual(["Install OpenCode to use providers you have signed in to or connect new ones.",
+      ...expected.map(e => `Could not check local model servers: ${e}`)]);
+  }
+}, 120000);
+
 async function serve(dir: string, forward: boolean) {
   const port = closedPort();
   const child = spawnPinned([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",

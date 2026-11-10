@@ -112,3 +112,16 @@ test("the ollama_model setup effect runs pacer init's OLLAMA_HOST fetch and take
       .rejects.toMatchObject({code: "invalid_input"});
   } finally { server.stop(true); }
 });
+
+test("the discover setup effect numbers failures in the order they settle, as detectCandidates reports them", async () => {
+  const ctx = fakeCtx({ env: { PACER_TEST_LOCAL_SERVER_PORTS: "5,6" }, which: () => null });
+  const urls = localServers(ctx).map(s => s.base_url);
+  const discover = (async (_ctx: unknown, { baseUrl }: { baseUrl: string }) => {
+    await Bun.sleep(baseUrl === urls[0] ? 60 : 5);
+    throw Error(`${baseUrl} failed`);
+  }) as unknown as typeof import("../src/plugins/endpoint-adapter").discoverEndpointModels;
+  const reply = await setupEffectsBridge(ctx, { kind: "discover", baseUrls: urls }, { endpoint: { discover } });
+  expect(reply).toEqual({ results: [{ failure: `${urls[0]} failed`, settled: 1 }, { failure: `${urls[1]} failed`, settled: 0 }] });
+  const d = await detectCandidates(ctx, { discover, catalog: null, accounts: {} });
+  expect(d.notes.filter(n => n.startsWith("Could not check"))).toEqual([urls[1], urls[0]].map(u => `Could not check local model servers: ${u} failed`));
+});

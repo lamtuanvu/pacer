@@ -145,11 +145,14 @@ fn added_by(accounts: &Value, provider: &str, base_url: Option<&str>) -> Value {
         .map_or(Value::Null, |a| a["name"].clone())
 }
 
+/// A failed probe: its position among failures as they settled, and the message.
+type Failure = (u64, String);
+
 /// Probe results in `servers` order: `Ok(model count)` when listed.
 async fn probe_local(
     servers: &[(&str, &str, String)],
     effects: &mut dyn SetupEffects,
-) -> Result<Vec<Result<Option<usize>, String>>, CoreError> {
+) -> Result<Vec<Result<Option<usize>, Failure>>, CoreError> {
     let urls: Vec<&str> = servers.iter().map(|(_, _, url)| url.as_str()).collect();
     let reply = effects
         .call(json!({"kind": "discover", "baseUrls": urls}))
@@ -158,13 +161,29 @@ async fn probe_local(
         .as_array()
         .filter(|r| r.len() == servers.len())
         .ok_or_else(|| unavailable("invalid setup effects response"))?;
-    Ok(results
+    results
         .iter()
-        .map(|r| match r["failure"].as_str() {
-            Some(failure) => Err(failure.to_owned()),
-            None => Ok((r["listed"] == true).then(|| r["models"].as_array().map_or(0, Vec::len))),
+        .map(|r| match (r["failure"].as_str(), r["settled"].as_u64()) {
+            (Some(failure), Some(settled)) => Ok(Err((settled, failure.to_owned()))),
+            (Some(_), None) => Err(unavailable("invalid setup effects response")),
+            (None, _) => Ok(Ok(
+                (r["listed"] == true).then(|| r["models"].as_array().map_or(0, Vec::len))
+            )),
         })
-        .collect())
+        .collect()
+}
+
+/// Distinct failure messages in the order the probes failed, as `detectCandidates` adds them to a Set.
+fn settled_failures(probes: &[Result<Option<usize>, Failure>]) -> Vec<String> {
+    let mut settled: Vec<&Failure> = probes.iter().filter_map(|p| p.as_ref().err()).collect();
+    settled.sort_by_key(|(order, _)| *order);
+    let mut failures: Vec<String> = Vec::new();
+    for (_, failure) in settled {
+        if !failures.contains(failure) {
+            failures.push(failure.clone());
+        }
+    }
+    failures
 }
 
 pub(crate) async fn candidates(
@@ -213,16 +232,8 @@ pub(crate) async fn candidates(
             candidates.push(json!({"group":"signed_in","provider":id,"name":name,"added":added_by(accounts, &id, None),"usage":classify(&id, &models(&catalog, &id))}));
         }
     }
-    let mut failures: Vec<String> = Vec::new();
-    for probe in &probes {
-        if let Err(failure) = probe
-            && !failures.contains(failure)
-        {
-            failures.push(failure.clone());
-        }
-    }
     notes.extend(
-        failures
+        settled_failures(&probes)
             .into_iter()
             .map(|f| format!("Could not check local model servers: {f}")),
     );
@@ -245,6 +256,7 @@ pub(crate) async fn candidates(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -280,5 +292,45 @@ mod tests {
     #[test]
     fn release_builds_probe_only_the_fixed_servers() {
         assert_eq!(urls("5,6"), FIXED);
+    }
+
+    struct Reply(Value);
+
+    impl SetupEffects for Reply {
+        fn call(&mut self, _: Value) -> pacer_foundation::api::OpFuture<'_> {
+            let reply = self.0.clone();
+            Box::pin(async move { Ok(reply) })
+        }
+    }
+
+    #[tokio::test]
+    async fn failures_keep_their_settlement_order() {
+        let servers: Vec<(&str, &str, String)> = FIXED
+            .iter()
+            .map(|url| ("p", "P", (*url).to_owned()))
+            .collect();
+        let probe = |results: Value| {
+            let servers = &servers;
+            async move { probe_local(servers, &mut Reply(json!({ "results": results }))).await }
+        };
+        let probes = probe(json!([{"failure": "a", "settled": 1}, {"failure": "b", "settled": 0}]))
+            .await
+            .unwrap();
+        assert_eq!(settled_failures(&probes), ["b", "a"]);
+        let probes = probe(json!([{"failure": "a", "settled": 0}, {"failure": "a", "settled": 1}]))
+            .await
+            .unwrap();
+        assert_eq!(settled_failures(&probes), ["a"]);
+        let probes =
+            probe(json!([{"listed": true, "models": [{}, {}]}, {"failure": "b", "settled": 0}]))
+                .await
+                .unwrap();
+        assert_eq!(probes[0], Ok(Some(2)));
+        assert_eq!(settled_failures(&probes), ["b"]);
+        assert!(
+            probe(json!([{"failure": "a"}, {"listed": false}]))
+                .await
+                .is_err()
+        );
     }
 }
