@@ -9,9 +9,23 @@ import { withLock } from "./lock";
 import { CoreError } from "./errors";
 import { strategyRevision } from "./executor-settings";
 import type { Ctx } from "../types";
+import type { RunnerCfg } from "../config/accounts";
 
 export interface ModelDeclaration { id: string; tier: "small" | "medium" | "frontier" | "unknown"; strengths?: string[]; tools?: boolean; context?: number }
 export interface RunnerModels { revision: string; runner: string; default: string | null; models: ModelDeclaration[] }
+
+/**
+ * Hand-edited drift warns instead of failing: a default outside the allowed
+ * list and unrated models still load and keep routing working. Pure; also
+ * backs the doctor check and the CLI face, and keeps the parsed strategy free
+ * of warning-only fields.
+ */
+export function modelDeclarationWarnings(runner: RunnerCfg): string[] {
+  const warnings: string[] = [];
+  if (runner.models && typeof runner.model === "string" && !runner.models.some(m => m.id === runner.model)) warnings.push(`runners.${runner.id}: default model "${runner.model}" is not in models`);
+  for (const m of runner.models ?? []) if (m.tier === "unknown") warnings.push(`runners.${runner.id}: model "${m.id}" is unrated (tier unknown)`);
+  return warnings;
+}
 
 /** Read one executor's default model and allowed tiered models with the current strategy revision. */
 export function readRunnerModels(ctx: Ctx, runner: string): RunnerModels {
@@ -69,7 +83,7 @@ export async function saveRunnerModels(ctx: Ctx, input: { id: string; expectedRe
       }
     });
     const updated = loadStrategy(ctx), updater = updated.runners[r.id];
-    warnings.push(...(updater?.modelWarnings ?? []));
+    if (updater) warnings.push(...modelDeclarationWarnings(updater));
     return { revision: strategyRevision(readFileSync(path, "utf8")), runner: r.id, default: updater?.model ?? null, models: updater?.models ?? [], warnings };
   });
 }

@@ -34,7 +34,7 @@ runners:
 `);
   return ctx;
 };
-import { readRunnerModels, saveRunnerModels } from '../src/core/runner-models';
+import { readRunnerModels, saveRunnerModels, modelDeclarationWarnings } from '../src/core/runner-models';
 import { main } from '../src/cli';
 import { loadStrategy } from '../src/config/strategy';
 
@@ -82,7 +82,7 @@ test('an empty list removes models and keeps the default', async () => {
   expect(readFileSync(join(ctx.pacerHome, 'strategy.yaml'), 'utf8')).not.toContain('models:');
 });
 
-test('a hand-edited default outside models loads with a warning', () => {
+test('a hand-edited default outside models is reported by modelDeclarationWarnings', () => {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, {recursive:true});
   writeFileSync(join(ctx.pacerHome, 'strategy.yaml'), `planner: claude-code
 accounts:
@@ -95,10 +95,11 @@ runners:
       - {id: acme/a, tier: small}
 `);
   const s = loadStrategy(ctx); // must not be an error
-  expect(s.runners.codex.modelWarnings!.join(' ')).toContain('acme/b');
+  expect(Object.hasOwn(s.runners.codex, 'modelWarnings')).toBe(false); // no extra field on the parsed strategy
+  expect(modelDeclarationWarnings(s.runners.codex)).toEqual(['runners.codex: default model "acme/b" is not in models']);
 });
 
-test('unrated models warn on load', () => {
+test('unrated models are reported by modelDeclarationWarnings', () => {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, {recursive:true});
   writeFileSync(join(ctx.pacerHome, 'strategy.yaml'), `planner: claude-code
 accounts:
@@ -112,7 +113,8 @@ runners:
       - {id: acme/b, tier: medium}
 `);
   const s = loadStrategy(ctx); // must not be an error
-  expect(s.runners.codex.modelWarnings!.join(' ')).toContain('acme/a');
+  expect(Object.hasOwn(s.runners.codex, 'modelWarnings')).toBe(false); // no extra field on the parsed strategy
+  expect(modelDeclarationWarnings(s.runners.codex)).toEqual(['runners.codex: model "acme/a" is unrated (tier unknown)']);
 });
 
 test('pacer executor models --allow a:small --default a saves both', async () => {

@@ -91,3 +91,60 @@ test("doctor stays quiet when listings are unknown", async () => {
   expect(checks.some(c => c.name.startsWith("Model "))).toBe(false);
   expect(checks.some(c => c.name.startsWith("Account "))).toBe(false);
 });
+
+// Hand-edited allowed-models drift is pure strategy reading: one warn per
+// runner, naming the runner and joining the drift messages.
+function modelsDriftFixture(yaml: string): Ctx {
+  const ctx = fakeCtx({ which: () => null });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), yaml);
+  return ctx;
+}
+
+const driftStrategy = (runners: string) => `planner: claude-code
+accounts:
+  claude: {kind: claude}
+  codex: {kind: codex}
+runners:
+${runners}
+routing:
+  - default: [codex]
+`;
+
+test("doctor warns when a default sits outside the allowed models", async () => {
+  const ctx = modelsDriftFixture(driftStrategy(`  codex:
+    model: acme/b
+    models:
+      - {id: acme/a, tier: small}
+`));
+  const checks = await runDoctorWith(ctx, {});
+  const check = checks.find(c => c.name === "Models codex");
+  expect(check?.level).toBe("warn");
+  expect(check?.detail).toBe('runners.codex: default model "acme/b" is not in models');
+  expect(check?.remedy).toEqual(remedies.agent("Models codex"));
+});
+
+test("doctor warns once per runner and joins its model drift messages", async () => {
+  const ctx = modelsDriftFixture(driftStrategy(`  codex:
+    model: acme/b
+    models:
+      - {id: acme/a, tier: unknown}
+`));
+  const checks = await runDoctorWith(ctx, {});
+  const check = checks.find(c => c.name === "Models codex");
+  expect(check?.level).toBe("warn");
+  expect(check?.detail.split("\n")).toEqual([
+    'runners.codex: default model "acme/b" is not in models',
+    'runners.codex: model "acme/a" is unrated (tier unknown)',
+  ]);
+});
+
+test("doctor emits no Models check when the allowed models are consistent", async () => {
+  const ctx = modelsDriftFixture(driftStrategy(`  codex:
+    model: acme/a
+    models:
+      - {id: acme/a, tier: small}
+`));
+  const checks = await runDoctorWith(ctx, {});
+  expect(checks.some(c => c.name.startsWith("Models "))).toBe(false);
+});

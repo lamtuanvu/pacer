@@ -49,7 +49,7 @@ export interface AccountCfg {
   cooldownS: number;
   allowPaid: boolean;
 }
-export interface RunnerCfg { modelWarnings?: string[]; models?: z.infer<typeof modelDeclarationSchema>[]; session?: "headless" | "interactive"; enabled?: boolean; maxTasks?: number; test?: boolean; id: string; host: string | null; name: string; agent: AgentId; account: string; model: string | null }
+export interface RunnerCfg { models?: z.infer<typeof modelDeclarationSchema>[]; session?: "headless" | "interactive"; enabled?: boolean; maxTasks?: number; test?: boolean; id: string; host: string | null; name: string; agent: AgentId; account: string; model: string | null }
 export interface PlannerCfg { agent: AgentId; account: string }
 export interface AccountsModel {
   accounts: Record<string, AccountCfg>;
@@ -238,21 +238,14 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
     if (c.max_tasks !== undefined && (typeof c.max_tasks !== "number" || !Number.isInteger(c.max_tasks) || c.max_tasks < 1 || c.max_tasks > 16)) problems.push(`runners.${reference}.max_tasks must be 1..16`);
     if (c.test !== undefined && typeof c.test !== "boolean") problems.push(`${at}: test must be a boolean`);
     let models: RunnerCfg["models"];
-    let modelWarnings: string[] | undefined;
     if (c.models !== undefined) {
       const parsedModels = modelDeclarationSchema.array().min(1).max(256).safeParse(c.models);
       if (!parsedModels.success) problems.push(`${at}: invalid models declaration`);
       else if (new Set(parsedModels.data.map(m => m.id)).size !== parsedModels.data.length) problems.push(`${at}: duplicate models`);
       else models = parsedModels.data;
       if (cfg.connection && models?.some(m => !cfg.connection!.models.some(x => m.id === `pacer-${account}/${x.id}`))) problems.push(`${at}: models must be selected from connection.models`);
-      // Hand-edited drift warns on load instead of failing it: a default outside the
-      // allowed list and unrated models still load and keep routing working.
-      const loadWarnings: string[] = [];
-      if (models && typeof model === "string" && !models.some(m => m.id === model)) loadWarnings.push(`${at}: default model "${model}" is not in models`);
-      for (const m of models ?? []) if (m.tier === "unknown") loadWarnings.push(`${at}: model "${m.id}" is unrated (tier unknown)`);
-      if (loadWarnings.length) modelWarnings = loadWarnings;
     }
-    const runner: RunnerCfg = {...(c.session !== undefined ? {session: c.session as RunnerCfg["session"]} : {}), ...(typeof c.enabled === "boolean" ? {enabled:c.enabled}:{}), ...(typeof c.max_tasks === "number" ? {maxTasks:c.max_tasks}:{}), ...(typeof c.test === "boolean" ? {test:c.test}:{}), id, name: id, host: parsed.host, agent: parsed.agent, account, model, ...(models ? {models} : {}), ...(modelWarnings ? {modelWarnings} : {})};;
+    const runner: RunnerCfg = {...(c.session !== undefined ? {session: c.session as RunnerCfg["session"]} : {}), ...(typeof c.enabled === "boolean" ? {enabled:c.enabled}:{}), ...(typeof c.max_tasks === "number" ? {maxTasks:c.max_tasks}:{}), ...(typeof c.test === "boolean" ? {test:c.test}:{}), id, name: id, host: parsed.host, agent: parsed.agent, account, model, ...(models ? {models} : {})};
     if (!runners[id] || Object.keys(c).length) runners[id] = runner;
     runnerAliases[reference] = id;
     return runners[id];

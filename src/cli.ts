@@ -71,7 +71,7 @@ import { terminalEnv } from "./exec/login-env";
 import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
 import type { Ctx } from "./types";
 import { ensureIdentity } from "./identity/store";
-import { readRunnerModels, saveRunnerModels, type ModelDeclaration } from "./core/runner-models";
+import { readRunnerModels, saveRunnerModels, modelDeclarationWarnings, type ModelDeclaration } from "./core/runner-models";
 import { availableModels } from "./models/available";
 import { tierSchema } from "./dispatch/types";
 
@@ -407,7 +407,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
          `Default model: ${m.default ?? "(agent default)"}`,
          m.models.length ? `Allowed models:\n${m.models.map(x => `  ${x.id} (${x.tier})`).join("\n")}` : "Allowed models: none declared; the default model always launches",
          `Available models: ${available.models === null ? `unknown${available.note ? ` (${available.note})` : ""}` : available.models.length ? available.models.map(x => x.id).join(", ") : "none"}`,
-         ...(runner?.modelWarnings ?? []),
+         ...(runner ? modelDeclarationWarnings(runner) : []),
        ];
        return {code: 0, out: lines.join("\n"), err: ""};
      }
