@@ -302,3 +302,60 @@ test("SSE fallback discovers writes that bypass process-local notification", asy
     expect(new TextDecoder().decode(chunk.value)).toContain("External write");
   } finally { await reader.cancel(); }
 });
+
+for (const version of [2, 3]) test(`v${version} default event fallback delivers external writes within 750ms`, async () => {
+  const { appendFileSync } = await import("node:fs");
+  const { outboxPath } = await import("../src/link/paths");
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [{ seq: 1, envelope: { type: "alert", data: { key: "initial", level: "info", title: "Initial", body: "", at: ctx.now } } }]);
+  const since = version === 3 ? 3_000_000_000_001 : 1;
+  const response = await handleV2(new Request(`http://localhost/v${version}/events?since=${since}`), { getCtx: () => ctx });
+  const reader = response.body!.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await reader.read(); // connected; initial empty poll has completed
+    appendFileSync(outboxPath(ctx), JSON.stringify({ seq: 2, envelope: { type: "alert", data: { key: "external", level: "info", title: "External default write", body: "", at: ctx.now } } }) + "\n");
+    const chunk = await Promise.race([reader.read(), new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 750); })]);
+    expect(chunk).not.toBeNull();
+    expect(new TextDecoder().decode(chunk!.value)).toContain("External default write");
+  } finally { clearTimeout(timer); await reader.cancel(); }
+});
+
+test("default task-log follow retains its one-second fallback", async () => {
+  const ctx = fakeCtx(), dir = tmpDir();
+  await Bun.write(join(dir, "stdout"), "");
+  const task = createTask(ctx, { brief: { goal: "log timing", repo: dir }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, task.id, t => {
+    t.state = "running";
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now, mode: "current", workdir: dir, logFile: "" };
+  });
+  const response = await handleV2(new Request(`http://localhost/v3/tasks/${task.id}/log?follow=1`), { getCtx: () => ctx });
+  const reader = response.body!.getReader();
+  try {
+    await reader.read();
+    const started = performance.now();
+    await Bun.write(join(dir, "stdout"), "later output\n");
+    const chunk = await reader.read();
+    expect(new TextDecoder().decode(chunk.value)).toContain("later output");
+    expect(performance.now() - started).toBeGreaterThan(750);
+  } finally { await reader.cancel(); }
+});
+
+test("public server preserves the event-specific default fallback", async () => {
+  const { appendFileSync } = await import("node:fs");
+  const { outboxPath } = await import("../src/link/paths");
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [{ seq: 1, envelope: { type: "alert", data: { key: "initial", level: "info", title: "Initial", body: "", at: ctx.now } } }]);
+  const server = startServer(() => ctx, { port: 0, pumpMs: 0, backgroundWorker: false, supervisionWorker: false });
+  stop = server.stop;
+  const response = await fetch(`http://127.0.0.1:${server.port}/v3/events?since=3000000000001`, { headers: { authorization: `Bearer ${server.token}` } });
+  const reader = response.body!.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await reader.read();
+    appendFileSync(outboxPath(ctx), JSON.stringify({ seq: 2, envelope: { type: "alert", data: { key: "external", level: "info", title: "Public external write", body: "", at: ctx.now } } }) + "\n");
+    const chunk = await Promise.race([reader.read(), new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 750); })]);
+    expect(chunk).not.toBeNull();
+    expect(new TextDecoder().decode(chunk!.value)).toContain("Public external write");
+  } finally { clearTimeout(timer); await reader.cancel(); }
+});

@@ -119,3 +119,19 @@ test("task events expose clean derived titles and complete explicit titles, incl
  appendOutbox(ctx,[{seq:3,envelope:{type:"task",data:{...taskData(t),id:"deleted",title:undefined}}}]);
  expect(eventsSince(ctx,2).events[0]?.data).toMatchObject({title:"Fix queue",fullTitle:"Fix queue"});
 });
+
+test("empty and non-task replay skip task enrichment while advancing filtered cursors", async () => {
+  const { spyOn } = await import("bun:test");
+  const tasks = await import("../src/api/read-model/tasks");
+  const ctx = fakeCtx();
+  const enrich = spyOn(tasks, "apiTasks");
+  try {
+    expect(eventsSince(ctx, 0, 2).events).toEqual([]);
+    appendOutbox(ctx, [{ seq: 1, envelope: alert("non-task", ctx.now) },
+      { seq: 2, envelope: { type: "config", data: { area: "discovery", at: ctx.now } } }]);
+    expect(eventsSince(ctx, 0, 2).events).toHaveLength(1);
+    expect(eventsSince(ctx, 1, 2)).toMatchObject({ events: [], last: 2 });
+    expect(eventsSince(ctx, 0, 3).events).toHaveLength(2);
+    expect(enrich).not.toHaveBeenCalled();
+  } finally { enrich.mockRestore(); }
+});

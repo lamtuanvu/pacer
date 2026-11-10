@@ -497,9 +497,17 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     case "setup": return setupCmd(rest, ctx);
     case "answer": {
       try {
-        if (rest.length !== 2) throw new Error('usage: pacer answer <task> "<text>"');
-        const result = await callOp(ctx,"task.answer",{id:rest[0],text:rest[1]},{spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
-        return {code:0,out:JSON.stringify(result),err:""};
+        const pos: string[] = [];
+        let json = false, options = true;
+        for (const a of rest) {
+          if (options && a === "--") { options = false; continue; }
+          if (options && a === "--json") json = true;
+          else if (options && a.startsWith("--")) throw new Error(`unknown option: ${a}`);
+          else pos.push(a);
+        }
+        if (pos.length !== 2) throw new Error('usage: pacer answer <task> "<text>" [--json] [--]');
+        const result = await callOp(ctx,"task.answer",{id:pos[0],text:pos[1]},{spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
+        return {code:0,out:JSON.stringify(result,null,json?2:undefined),err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
     }
     case "send": {
@@ -684,7 +692,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
           delete process.env.PACER_INTERNAL_TOKEN;
           delete ctx.env.PACER_INTERNAL_TOKEN;
           const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
-          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, supervisionWorker: true, ...(pairedNative ? {pairedNative} : {}) });
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, supervisionWorker: true, backgroundWorker: true, ...(pairedNative ? {pairedNative} : {}) });
           // Best-effort cleanup starts only after the listener binds; the helper logs errors.
           void pruneUndoSnapshotsAtStartup(ctx);
           void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
@@ -699,7 +707,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
           }
           return { code: 0, out: "", err: "", keepAlive: true };
         }
-        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true });
+        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true, backgroundWorker: true });
         // Best-effort cleanup starts only after the listener binds; the helper logs errors.
         void pruneUndoSnapshotsAtStartup(ctx);
         ctx.env.PACER_PORT=String(s.port);

@@ -4,6 +4,8 @@ import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { readActivity } from "../src/activity/log";
+import { ask } from "../src/core/tasks";
+import { killTree } from "../src/exec/process";
 import { writeProjectStrategy } from "../src/config/project-strategies";
 import { loadStrategy } from "../src/config/strategy";
 import { resolvePolicyRepo } from "../src/core/project-policy";
@@ -451,4 +453,156 @@ test("a 1.1 host refusing control blocks live delivery as viewer", async () => {
   expect(session.input).toHaveLength(0);
   expect(readTask(ctx, id)!.liveBlocked).toBe("viewer");
   expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
+});
+
+// pacer msg send --answer must resolve a waiting question exactly like pacer answer: type it into the running
+// session at once. An agent's session waits on its question and reads nothing else, so no between-turns poll
+// or later turn would ever deliver a pending answer.
+
+const wrappers: number[] = [];
+afterEach(() => { for (const pid of wrappers.splice(0)) killTree(pid, "SIGKILL"); });
+
+/** A delegated interactive run whose agent waits on its question: an owned live wrapper, a hub as the session host, and the question `pacer ask` recorded. */
+async function questionRun(sessionOptions: { modern?: boolean; timing?: Partial<DeliveryTiming> } = {}) {
+  const ctx = fakeCtx();
+  const created = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "debug", requestedExecutor: "codex", timeoutS: 600 });
+  const dir = tmpDir();
+  const script = join(dir, "run.sh");
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], { detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  wrappers.push(proc.pid);
+  writeFileSync(join(dir, "pid"), String(proc.pid));
+  const session = fakeSession(dir, sessionOptions);
+  await session.ready;
+  for (let i = 0; i < 100 && !readRun(dir).alive; i++) await Bun.sleep(25);
+  expect(readRun(dir).alive).toBe(true);
+  updateTask(ctx, created.id, t => {
+    t.state = "running";
+    t.origin = "external:claude-code";
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: t.brief.repo, logFile: "/dev/null" };
+    t.attempts = [];
+  });
+  status(dir, "needs-input", 1000);
+  await ask(ctx, created.id, "Switch the worktree to the base commit and commit on top?");
+  const question = store.thread(ctx, created.id).find(m => m.kind === "question")!;
+  return { ctx, id: created.id, dir, question, session };
+}
+
+const REPLY = "Yes: switch to the base commit and commit on top of it; leave the branch name alone.";
+
+test("an answer to a question a live run waits on is typed into the running session at once", async () => {
+  const { ctx, id, question, session } = await questionRun();
+  const r = await sendMessage(ctx, { to: `task:${id}`, body: REPLY, kind: "answer", replyTo: question.id }, { participant: "human" });
+  expect(r.delivery).toBe("live");
+  expect(readTask(ctx, id)!.question?.answer).toBe(REPLY);
+  expect(Buffer.concat(session.input).toString()).toContain(REPLY);
+  // Consumed on delivery: no later between-turns poll types it again.
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  const before = session.input.length;
+  await liveTick(ctx, readTask(ctx, id)!, readTask(ctx, id)!.run!, state(), deps);
+  expect(session.input.length).toBe(before);
+  expect(store.turnsForTask(ctx, id)).toBe(0);
+});
+
+test("a reply the waiting live session cannot accept is an error: the question stays open, nothing is typed and no delivery is claimed", async () => {
+  const { ctx, id, question, session } = await questionRun();
+  const app = await viewer(session, { label: "Pacer desktop", client: "app" });
+  await app.take();
+  const error = await sendMessage(ctx, { to: `task:${id}`, body: REPLY, kind: "answer", replyTo: question.id }, { participant: "human" })
+    .then(() => null, (e: unknown) => e as Error);
+  expect(error?.message).toContain("controlled from Pacer desktop");
+  expect(error?.message).toContain("nothing was typed");
+  expect(readTask(ctx, id)!.question?.answer).toBeUndefined();
+  expect(session.input).toHaveLength(0);
+  // The caller was told it failed, so the reply is not left for a later poll to type behind its back.
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  // Once the desktop lets go, a between-turns poll still types nothing.
+  for (const c of clients.splice(0)) c.destroy();
+  await Bun.sleep(50);
+  await liveTick(ctx, readTask(ctx, id)!, readTask(ctx, id)!.run!, state(), deps);
+  expect(session.input).toHaveLength(0);
+});
+
+test("retrying a refused answer with the same request id types it once the desktop lets go", async () => {
+  const { ctx, id, question, session } = await questionRun();
+  const app = await viewer(session, { label: "Pacer desktop", client: "app" });
+  await app.take();
+  const send = () => sendMessage(ctx, { to: `task:${id}`, body: REPLY, kind: "answer", replyTo: question.id, requestId: "answer-retry" }, { participant: "human" });
+  expect(await send().then(() => null, (e: unknown) => e as Error)).toBeInstanceOf(Error);
+  for (const c of clients.splice(0)) c.destroy();
+  await Bun.sleep(50);
+  const r = await send();
+  expect(r.duplicate).toBe(true);
+  expect(r.delivery).toBe("live");
+  expect(readTask(ctx, id)!.question?.answer).toBe(REPLY);
+  expect(Buffer.concat(session.input).toString().split(REPLY)).toHaveLength(2);
+  // A further retry of the delivered answer types nothing more.
+  const typed = session.input.length;
+  expect((await send()).delivery).toBe("queued");
+  await liveTick(ctx, readTask(ctx, id)!, readTask(ctx, id)!.run!, state(), deps);
+  expect(session.input).toHaveLength(typed);
+});
+
+const AMBIGUOUS = { modern: true, timing: { quietMs: 30, windowMs: 1000, timeoutMs: 200, maxWindowMs: 60 } } as const;
+
+test("an answer whose live delivery fails after input was typed is an error: no live result, the answer stays reserved and is never retyped", async () => {
+  const { ctx, id, question, session } = await questionRun(AMBIGUOUS);
+  let result: unknown = null;
+  const error = await sendMessage(ctx, { to: `task:${id}`, body: REPLY, kind: "answer", replyTo: question.id }, { participant: "human" })
+    .then(r => { result = r; return null; }, (e: unknown) => e as Error);
+  expect(error?.message).toContain("Interactive input failed");
+  expect(result).toBeNull();
+  // The input was written; whether it reached the agent is ambiguous. answerLiveTask keeps its reservation on
+  // the question, so the answer is never silently resent.
+  expect(readTask(ctx, id)!.question?.answer).toBe(REPLY);
+  expect(Buffer.concat(session.input).toString()).toContain(REPLY);
+  // The answer is read: no later live poll can claim it for a second typing.
+  expect(store.inbox(ctx, `task:${id}`).find(m => m.body === REPLY)!.status).toBe("read");
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  const typed = session.input.length;
+  await liveTick(ctx, readTask(ctx, id)!, readTask(ctx, id)!.run!, state(), deps);
+  expect(session.input).toHaveLength(typed);
+});
+
+test("two concurrent answers: one is typed and recorded, the other is neither typed nor recorded as an answer", async () => {
+  const { ctx, id, question, session } = await questionRun();
+  const results = await Promise.allSettled([
+    sendMessage(ctx, { to: `task:${id}`, body: "FIRST", kind: "answer", replyTo: question.id }, { participant: "human" }),
+    sendMessage(ctx, { to: `task:${id}`, body: "SECOND", kind: "answer", replyTo: question.id }, { participant: "human" }),
+  ]);
+  expect(results.filter(r => r.status === "rejected")).toHaveLength(0);
+  const winner = readTask(ctx, id)!.question!.answer!;
+  expect(winner === "FIRST" || winner === "SECOND").toBe(true);
+  const text = Buffer.concat(session.input).toString();
+  expect(text).toContain(winner);
+  expect(text).not.toContain(winner === "FIRST" ? "SECOND" : "FIRST");
+  // The other answer waits for a later turn instead of overwriting the recorded one.
+  const loser = winner === "FIRST" ? "SECOND" : "FIRST";
+  expect(store.thread(ctx, id).find(m => m.body === loser)!.status).toBe("pending");
+  expect(store.pendingFor(ctx, `task:${id}`).map(m => m.body)).toEqual([loser]);
+});
+
+test("a late reply to an earlier question is neither typed into the waiting session nor recorded as the answer now open", async () => {
+  const { ctx, id, question, session } = await questionRun();
+  // The first question is answered and the agent asks another one while the late reply is on its way.
+  updateTask(ctx, id, t => { t.question!.answer = "First answer."; t.question!.answeredAt = ctx.now; });
+  // A fresh second on the clock, so the second question gets its own message like a real asking run does.
+  await ask({ ...ctx, now: ctx.now + 1 } as typeof ctx, id, "Which branch should the retry start from?");
+  const second = store.thread(ctx, id).filter(m => m.kind === "question").at(-1)!;
+  expect(second.id).not.toBe(question.id);
+  expect(readTask(ctx, id)!.question?.answer).toBeUndefined();
+  const r = await sendMessage(ctx, { to: `task:${id}`, body: "Ignore the branch question; keep the rebase I agreed to.", kind: "answer", replyTo: question.id }, { participant: "human" });
+  expect(r.delivery).toBe("live");
+  // The reply targets the earlier question: not typed while the agent waits on the new one, and not recorded
+  // as its answer. It waits pending for a later turn.
+  expect(Buffer.concat(session.input).toString()).not.toContain("Ignore the branch question");
+  expect(readTask(ctx, id)!.question).toMatchObject({ text: "Which branch should the retry start from?" });
+  expect(readTask(ctx, id)!.question!.answer).toBeUndefined();
+  expect(store.pendingFor(ctx, `task:${id}`).map(m => m.body)).toEqual(["Ignore the branch question; keep the rebase I agreed to."]);
+  const before = session.input.length;
+  // The agent waiting on its question reports needs-input, between turns are never reached from there: a poll
+  // does not type the stale reply either.
+  await liveTick(ctx, readTask(ctx, id)!, readTask(ctx, id)!.run!, state({ status: "needs-input" }), deps);
+  expect(session.input).toHaveLength(before);
 });

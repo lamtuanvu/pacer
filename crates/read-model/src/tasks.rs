@@ -1,16 +1,16 @@
 //! Task selection and message/liveness enrichment. SQLite is authoritative; the
 //! shared store imports old-release JSON using the existing revision protocol.
+mod title_regex;
 use crate::snapshot::ActiveCounts;
 use crate::{Error, js::*, read};
 use pacer_foundation::Ctx;
 use pacer_store::{TaskFilter, TaskStore};
-use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 fn replace(s: &str, pat: &str, to: &str) -> String {
-    crate::js::regex(pat).map_or_else(|_| s.to_owned(), |r| r.replace_all(s, to).into_owned())
+    title_regex::js_regex(pat).map_or_else(|_| s.to_owned(), |r| r.replace_all(s, to).into_owned())
 }
 fn balanced(s: &str) -> String {
     let mut stack = Vec::new();
@@ -35,7 +35,7 @@ fn clip_points(s: &str, max: usize) -> String {
     format!("{}…", if b.is_empty() { "Task" } else { &b })
 }
 fn links(s: &str) -> String {
-    let Ok(re) = Regex::new(r"!?\[([^\]]+)\]\(") else {
+    let Ok(re) = title_regex::raw_regex(r"!?\[([^\]]+)\]\(") else {
         return s.into();
     };
     let mut rest = s;
@@ -65,7 +65,7 @@ fn links(s: &str) -> String {
 }
 pub fn goal_title(goal: &str, compact: bool) -> String {
     let input = replace(&slice(goal, 4000), r"```[^\n]*\n[\s\S]*?(?:```|$)", "");
-    let sentence_re = crate::js::regex(r"[.!?](?:\s|$)").ok();
+    let sentence_re = title_regex::js_regex(r"[.!?](?:\s|$)").ok();
     for line in input.lines() {
         let mut plain = replace(&links(line), r"!?\[([^\]]+)\]\[[^\]]*\]", "$1");
         plain = replace(
@@ -113,7 +113,7 @@ pub fn goal_title(goal: &str, compact: bool) -> String {
     "Task".into()
 }
 fn safe_title(title: &str) -> String {
-    Regex::new(r#"(^|[\s("'`])((?:[A-Za-z]:[\\/]|~?/)[^\s<>`]+)"#).map_or_else(
+    title_regex::raw_regex(r#"(^|[\s("'`])((?:[A-Za-z]:[\\/]|~?/)[^\s<>`]+)"#).map_or_else(
         |_| title.into(),
         |r| {
             r.replace_all(title, |c: &regex::Captures<'_>| {
@@ -146,19 +146,19 @@ fn leading(s: &str) -> String {
     replace(s, r"^[\s\p{P}>+=~|]+", "")
 }
 fn is_path(token: &str) -> bool {
-    crate::js::regex(r"^(?:/|\.{1,2}/|~|[A-Za-z]:[\\/])").is_ok_and(|r| r.is_match(token))
+    title_regex::js_regex(r"^(?:/|\.{1,2}/|~|[A-Za-z]:[\\/])").is_ok_and(|r| r.is_match(token))
         || token.split('/').count() >= 3
         || token.contains('/')
-            && crate::js::regex(r"\.[A-Za-z0-9]{1,10}$").is_ok_and(|r| r.is_match(token))
+            && title_regex::js_regex(r"\.[A-Za-z0-9]{1,10}$").is_ok_and(|r| r.is_match(token))
 }
 fn short_title(goal: &str, legacy: bool) -> String {
     let input = slice(goal, 400);
     let mut text = replace(&input, r"```[\s\S]*?(?:```|$)|`[^`]*(?:`|$)", " ");
-    if let Ok(url) = crate::js::regex(r"(?i)(?:https?://|www\.)[^\s<>]+") {
+    if let Ok(url) = title_regex::js_regex(r"(?i)(?:https?://|www\.)[^\s<>]+") {
         text = url
             .replace_all(&text, |c: &regex::Captures<'_>| {
                 let matched = c.get(0).map_or("", |m| m.as_str());
-                let suffix = crate::js::regex(r"[.!?;:,]+$")
+                let suffix = title_regex::js_regex(r"[.!?;:,]+$")
                     .ok()
                     .and_then(|r| r.find(matched).map(|m| m.as_str()))
                     .unwrap_or("");
@@ -175,7 +175,7 @@ fn short_title(goal: &str, legacy: bool) -> String {
             "",
         );
         let mut cleaned = String::new();
-        let Ok(tokens) = crate::js::regex(r"[\s<>]+") else {
+        let Ok(tokens) = title_regex::js_regex(r"[\s<>]+") else {
             continue;
         };
         for token in tokens.split(&line) {
@@ -193,7 +193,7 @@ fn short_title(goal: &str, legacy: bool) -> String {
                 cleaned.push_str(token);
                 continue;
             }
-            let punctuation = crate::js::regex(r"[.!?;:,]+$")
+            let punctuation = title_regex::js_regex(r"[.!?;:,]+$")
                 .ok()
                 .and_then(|r| r.find(token).map(|m| m.as_str()))
                 .unwrap_or("");
@@ -205,7 +205,7 @@ fn short_title(goal: &str, legacy: bool) -> String {
                 )))
                 .into();
             }
-            let clause = crate::js::regex(r"[.!?;:,](?:\s|$)")
+            let clause = title_regex::js_regex(r"[.!?;:,](?:\s|$)")
                 .ok()
                 .and_then(|r| r.split(&cleaned).last().map(String::from))
                 .unwrap_or(cleaned.clone());
@@ -222,7 +222,7 @@ fn short_title(goal: &str, legacy: bool) -> String {
             cleaned.push_str(punctuation);
         }
         cleaned = trim(&replace(&cleaned, r"\s+", " ")).into();
-        if let Ok(parts) = crate::js::regex(r"[.!?;:,](?:\s|$)|\s[—–]\s") {
+        if let Ok(parts) = title_regex::js_regex(r"[.!?;:,](?:\s|$)|\s[—–]\s") {
             for part in parts.split(&cleaned) {
                 let clause = leading(part);
                 let clause = trim(&clause);
@@ -769,4 +769,56 @@ pub fn snapshot_document(
     let mut doc = crate::wire::Document::new(serde_json::json!(rows));
     crate::wire::task_strings(&mut doc, &rows, "", &questions);
     Ok(doc)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod title_tests {
+    use super::*;
+
+    #[test]
+    fn title_outputs_preserve_empty_explicit_generated_and_unicode_goldens() {
+        // Captured from the pre-cache implementation, including its invalid-regex
+        // fallback. Empty stored titles intentionally have distinct compact/full paths.
+        let cases: Vec<Value> = serde_json::from_str(include_str!(
+            "../../../test/fixtures/native-title-goldens.json"
+        ))
+        .unwrap();
+        for case in cases {
+            let task = &case["task"];
+            assert_eq!(full_title(task), case["full"], "{task}");
+            assert_eq!(
+                task_data(task, &|_| false)["title"],
+                case["title"],
+                "{task}"
+            );
+            assert_eq!(
+                short_title(text(&task["brief"]["goal"]), false),
+                case["modern"],
+                "{task}"
+            );
+            assert_eq!(
+                short_title(text(&task["brief"]["goal"]), true),
+                case["legacy"],
+                "{task}"
+            );
+        }
+    }
+
+    #[test]
+    fn raw_path_redaction_keeps_rust_whitespace_semantics() {
+        assert_eq!(
+            safe_title("keep\u{85}/private/file.txt"),
+            "keep\u{85}file.txt"
+        );
+        assert_eq!(
+            safe_title("keep\u{feff}/private/file.txt"),
+            "keep\u{feff}/private/file.txt"
+        );
+        assert_eq!(links("[label](url(with)parens) tail"), "label tail");
+        assert_eq!(
+            replace("(token)", r#"^[([{"']+|[)\]}"',;:!?]+$"#, ""),
+            "(token)"
+        );
+    }
 }

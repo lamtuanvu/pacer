@@ -14,7 +14,7 @@ import { executorsFor } from "../../engine/rank";
 import { verdictWords } from "../../view-model/panel";
 import type { AccountSummary, ApiTask, ExecutorRow, PlannerMeter } from "./types";
 
-export function buildExecutors(st: Status,s: Strategy,tasks: ApiTask[],now: number,ctx?: Ctx): ExecutorRow[] {
+export function buildExecutors(st: Status,s: Strategy,tasks: Pick<ApiTask, "state" | "executor" | "host" | "updatedAt">[],now: number,ctx?: Ctx): ExecutorRow[] {
  const use:SlotUse={byExecutor:{},byHost:{},local:0};
  for(const t of tasks.filter(t=>t.state==="running")){
   if(t.executor)use.byExecutor[t.executor]=(use.byExecutor[t.executor]??0)+1;

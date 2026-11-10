@@ -153,6 +153,27 @@ test("install integrity uses hash or owned pieces and warns on missing pieces", 
   expect(find(await runDoctor(ctx, { status: async () => status() }), "Install codex").level).toBe("warn");
 });
 
+test("doctor surfaces the background worker state", async () => {
+  const ctx = fixture();
+  put(join(ctx.pacerHome, "state", "background-worker.json"), JSON.stringify({
+    state: "running", restarts: 2, lastError: null, lastHeartbeatAt: Date.now(),
+  }));
+  let checks = await runDoctor(ctx, { status: async () => status() });
+  let check = find(checks, "Background worker");
+  expect(check.level).toBe("ok");
+  expect(check.detail).toContain("state: running");
+  expect(check.detail).toContain("restarts: 2");
+
+  put(join(ctx.pacerHome, "state", "background-worker.json"), JSON.stringify({
+    state: "restarting", restarts: 5, lastError: "went silent", lastHeartbeatAt: 0,
+  }));
+  checks = await runDoctor(ctx, { status: async () => status() });
+  check = find(checks, "Background worker");
+  expect(check.level).toBe("warn");
+  expect(check.detail).toContain("went silent");
+  expect(check.detail).toContain("restarts: 5");
+});
+
 test("doctor default status diagnoses absent Claude data and handles status rejection", async () => {
   const ctx = fixture();
   const checks = await runDoctor(ctx);
