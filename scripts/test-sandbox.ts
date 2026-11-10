@@ -14,12 +14,12 @@ if (import.meta.main) {
   let scratch: string | undefined;
   try {
     const env = { ...process.env };
-    scratch = mkdtempSync(join(tmpdir(), "pacer-test-sandbox-"));
-    env.OLLAMA_HOST = `http://127.0.0.1:${closedPort()}`;
-    env.LMS_API_SERVER_INFO_PATH = join(scratch, "lms-server.json");
-    writeFileSync(env.LMS_API_SERVER_INFO_PATH, JSON.stringify({ port: closedPort() }), { mode: 0o600 });
     const needsSandbox = process.platform === "darwin";
     if (needsSandbox) {
+      scratch = mkdtempSync(join(tmpdir(), "pacer-test-sandbox-"));
+      env.OLLAMA_HOST = `http://127.0.0.1:${closedPort()}`;
+      env.LMS_API_SERVER_INFO_PATH = join(scratch, "lms-server.json");
+      writeFileSync(env.LMS_API_SERVER_INFO_PATH, JSON.stringify({ port: closedPort() }), { mode: 0o600 });
       // macOS refuses to exec its setuid /bin/ps in any sandbox. Tests need a
       // non-setuid copy for process identity checks; sign only the temporary copy.
       const ps = join(scratch, "ps");
