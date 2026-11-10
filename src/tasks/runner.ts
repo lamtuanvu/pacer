@@ -608,7 +608,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       };
       const usageAtStart = resuming ? task.pendingAttempt?.usageAtStart : usage(startStatus);
       if (resuming) routing = task.pendingAttempt?.routing;
-      task = await withLock(ctx,'session-create',async()=>{
+      // Synchronous body: withLock then releases before yielding (session-create is also taken by withLockSync).
+      task = await withLock(ctx,'session-create',()=>{
        requireAgentWorkspaceBackend(ctx,id,attemptedBackend,!!resolveRunner(s,pick!)?.host);
        return updateTask(ctx, id, t => {
         if(!resuming) routeAdmission!.revalidate();
