@@ -23,7 +23,7 @@ export function agentKey(agent: string): AgentId | null {
 }
 export function agentInfo(agent: string): AgentInfo {
   const key = agentKey(agent);
-  const monogram = agent.replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase() || "?";
+  const monogram = key === "codex" ? "Cx" : agent.replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase() || "?";
   return key ? { ...AGENTS[key], monogram } : { name: agent, glyph: null, color: "ink", tile: "tint", monogram };
 }
 /** The agent part of a runner id such as "codex#team@devbox". */
