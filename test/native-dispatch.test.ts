@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { closedPort, pinnedEnv as pinnedPort, spawnPinned } from "./pinned-port";
 
 import golden from "./fixtures/config-writes-goldens.json";
-import { closedPort, spawnPinned } from "./port-isolation";
+import { childEnv } from "./child-env";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const productionFront = process.env.PACER_TEST_FRONT_DOOR;
@@ -14,7 +14,7 @@ function setup() {
   // host.sock must fit SUN_LEN (~104); bun test's TMPDIR is too deep for native serve.
   const home = mkdtempSync("/tmp/pnd-");
   mkdirSync(join(home, ".pacer"), { mode: 0o700 });
-  const env = { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core, PACER_PORT: closedPort(),
+  const env = { ...childEnv(home), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
     PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" };
   return { home, env, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
