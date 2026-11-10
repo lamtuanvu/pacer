@@ -768,18 +768,7 @@ pub async fn terminal_attach(
     .await
     .map_err(|_| "Terminal connection timed out")?
     .map_err(|_| "Terminal connection failed")?;
-    let cols = hello["cols"]
-        .as_u64()
-        .filter(|v| *v > 0 && *v <= 1000)
-        .ok_or("Invalid columns")?;
-    let rows = hello["rows"]
-        .as_u64()
-        .filter(|v| *v > 0 && *v <= 1000)
-        .ok_or("Invalid rows")?;
-    let mut frame = json!({"type":"hello","v":1,"versions":[1,1],"client":"app","label":"pacer desktop","cols":cols,"rows":rows});
-    if let Some(from) = from {
-        frame["from"] = json!(from);
-    }
+    let frame = desktop_hello(&hello, from)?;
     socket
         .send(Message::Text(frame.to_string().into()))
         .await
@@ -829,6 +818,35 @@ pub async fn terminal_attach(
             .remove(&attachment);
     });
     Ok(())
+}
+/// The renderer's hello, rebuilt from validated fields. Its session-protocol range is forwarded:
+/// pinning it to 1.1 made a 1.2 host treat the desktop as a viewer that must take control, while
+/// the shared client read the host's 1.2 range and never took, leaving every pane read-only.
+fn desktop_hello(hello: &Value, from: Option<u64>) -> Result<Value, String> {
+    let cols = hello["cols"]
+        .as_u64()
+        .filter(|v| *v > 0 && *v <= 1000)
+        .ok_or("Invalid columns")?;
+    let rows = hello["rows"]
+        .as_u64()
+        .filter(|v| *v > 0 && *v <= 1000)
+        .ok_or("Invalid rows")?;
+    let versions = match &hello["versions"] {
+        Value::Null => [1, 1],
+        Value::Array(range) => match range.as_slice() {
+            [low, high] => match (low.as_u64(), high.as_u64()) {
+                (Some(low), Some(high)) if (1..=high).contains(&low) && high <= 99 => [low, high],
+                _ => return Err("Invalid session versions".into()),
+            },
+            _ => return Err("Invalid session versions".into()),
+        },
+        _ => return Err("Invalid session versions".into()),
+    };
+    let mut frame = json!({"type":"hello","v":1,"versions":versions,"client":"app","label":"Pacer desktop","cols":cols,"rows":rows});
+    if let Some(from) = from {
+        frame["from"] = json!(from);
+    }
+    Ok(frame)
 }
 fn terminal(
     window: &WebviewWindow,
@@ -932,6 +950,20 @@ pub fn terminal_take(
         Message::Text(json!({"type":"take","force":force}).to_string().into()),
     )
 }
+/// Session protocol 1.2: this pane gained focus, so the PTY follows its size.
+#[tauri::command]
+pub fn terminal_focus(
+    window: WebviewWindow,
+    app: AppHandle,
+    attachment: String,
+) -> Result<(), String> {
+    terminal(
+        &window,
+        &app,
+        &attachment,
+        Message::Text(json!({"type":"focus"}).to_string().into()),
+    )
+}
 #[tauri::command]
 pub fn terminal_release(
     window: WebviewWindow,
@@ -967,6 +999,25 @@ pub fn terminal_detach(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn desktop_hello_forwards_the_session_protocol_range() {
+        // A 1.2 pane must reach the host as 1.2, or the host makes it read-only until it takes control.
+        let hello = desktop_hello(&json!({"cols":80,"rows":24,"versions":[1,2]}), Some(7)).unwrap();
+        assert_eq!(hello["versions"], json!([1, 2]));
+        assert_eq!(hello["from"], json!(7));
+        assert_eq!(hello["client"], json!("app"));
+        assert_eq!(hello["label"], json!("Pacer desktop"));
+        let legacy = desktop_hello(&json!({"cols":80,"rows":24}), None).unwrap();
+        assert_eq!(legacy["versions"], json!([1, 1]));
+        assert!(legacy.get("from").is_none());
+        for versions in [json!([2, 1]), json!([0, 2]), json!([1]), json!([1, 100]), json!(["1", "2"]), json!("1.2")] {
+            assert!(desktop_hello(&json!({"cols":80,"rows":24,"versions":versions}), None).is_err());
+        }
+        // Unvalidated renderer fields never pass through.
+        let extra = desktop_hello(&json!({"cols":80,"rows":24,"readOnly":false,"label":"x"}), None).unwrap();
+        assert!(extra.get("readOnly").is_none());
+        assert_eq!(extra["label"], json!("Pacer desktop"));
+    }
     #[test]
     fn operation_policy_is_exact_and_replaced_on_reconnect() {
         let ops = vec![
@@ -1066,6 +1117,7 @@ mod tests {
             "allow-terminal-resize",
             "allow-terminal-take",
             "allow-terminal-release",
+            "allow-terminal-focus",
             "allow-terminal-detach",
             "allow-terminal-ack",
             "allow-client-control",

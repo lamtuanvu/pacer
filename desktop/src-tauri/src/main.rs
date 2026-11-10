@@ -1334,6 +1334,7 @@ fn main() {
             ipc_transport::terminal_resize,
             ipc_transport::terminal_take,
             ipc_transport::terminal_release,
+            ipc_transport::terminal_focus,
             ipc_transport::terminal_detach,
             ipc_transport::terminal_ack,
             client_control::client_control,

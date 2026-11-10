@@ -75,6 +75,16 @@ test('desktop terminal maps shared frames to typed commands and acknowledges con
   expect(calls.map(call=>call.command)).toEqual(['terminal_attach','terminal_ack','terminal_take','terminal_resize','terminal_release','terminal_detach']);
   expect(calls.every(call=>call.args.instance===attach.args.instance)).toBe(true);
 });
+test('a 1.2 desktop pane forwards its protocol range and focus to the session', async () => {
+  const {adapter,calls}=bridge();
+  const socket=adapter.attachTerminal('ws://tauri.localhost/v2/tasks/t-20261102-090145-e376/session');
+  socket.onopen=()=>{socket.send(JSON.stringify({type:'hello',v:1,versions:[1,2],client:'app',label:'pacer app',cols:80,rows:24}));socket.send(JSON.stringify({type:'focus'}));};
+  await Promise.resolve();await Promise.resolve();
+  // Rust rebuilds the hello from these fields; the range decides whether the host lets this pane type.
+  expect((calls.find(call=>call.command==='terminal_attach')!.args.hello as {versions:number[]}).versions).toEqual([1,2]);
+  expect(calls.map(call=>call.command)).toEqual(['terminal_attach','terminal_focus']);
+  socket.close();
+});
 test('desktop receives connection detail from Rust before service reads work', () => {
   const {adapter,calls}=bridge(); const states: unknown[]=[];
   const stop=adapter.subscribeDesktopConnection!(state=>states.push(state));

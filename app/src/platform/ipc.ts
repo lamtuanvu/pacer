@@ -183,6 +183,7 @@ export function createIpcTransport(core: IpcCore | undefined) {
             attaching = send('terminal_attach',{target,from:frame.from,hello:frame,channel:pipe});
           } else if (frame.type === 'take') void send('terminal_take',{force:frame.force === true});
           else if (frame.type === 'release') void send('terminal_release');
+          else if (frame.type === 'focus') void send('terminal_focus');
           else if (frame.type === 'size') void send('terminal_resize',{cols:frame.cols,rows:frame.rows});
           else throw Error('Unsupported terminal frame');
         },
