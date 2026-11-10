@@ -27,6 +27,10 @@ export async function setupEffectsBridge(ctx: Ctx, request: unknown, deps: OpDep
     return withWork(ctx, { kind: "operation", id: "strategy-build", label: "Opening strategy planning session" },
       () => open(ctx, r.builtin === true ? { ...options, target: "builtin", requestId } : options));
   }
+  if (r.kind === "ollama_model" && Object.keys(r).length === 1) {
+    const { ollamaModel } = await import("../install/init");
+    return { model: await ollamaModel(ctx) };
+  }
   if (r.kind === "discover" && Array.isArray(r.baseUrls)) {
     const [{ discoverEndpointModels }, { localServers }] = await Promise.all([import("../plugins/endpoint-adapter"), import("../endpoints/detect")]);
     const allowed = new Set(localServers(ctx).map(s => s.base_url));
