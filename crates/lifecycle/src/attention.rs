@@ -157,7 +157,19 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                 goal,
                 s(&t["question"]["text"]),
                 vec![
-                    action("Answer", "task.answer", json!({"id":id})),
+                    action(
+                        "Answer",
+                        if truth(&t["work"]) {
+                            "dispatch.answer"
+                        } else {
+                            "task.answer"
+                        },
+                        if truth(&t["work"]) {
+                            json!({"id":id,"expect_rev":t["rev"],"requestId":format!("{}.{}.answer",id,t["rev"])})
+                        } else {
+                            json!({"id":id})
+                        },
+                    ),
                     danger("Stop", "task.stop", id),
                 ],
                 x,
@@ -204,12 +216,17 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                 .any(|k| truth(&t[k]))
         {
             let target = &input["retryTargets"][id];
-            let has = truth(target);
-            let mut params = json!({"id":id});
+            let managed = truth(&t["work"]);
+            let has = !managed && truth(target);
+            let mut params = if managed {
+                json!({"id":id,"expect_rev":t["rev"],"requestId":format!("{}.{}.retry",id,t["rev"])})
+            } else {
+                json!({"id":id})
+            };
             if has {
                 params["executor"] = target.clone();
             }
-            let detail = if has {
+            let detail = if managed || has {
                 format!(
                     "{} {}",
                     display(&t["executor"]),
@@ -236,7 +253,11 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                         } else {
                             "Retry".into()
                         },
-                        "task.retry",
+                        if managed {
+                            "dispatch.retry"
+                        } else {
+                            "task.retry"
+                        },
                         params,
                     ),
                     open("See error", json!({"view":"task","id":id})),

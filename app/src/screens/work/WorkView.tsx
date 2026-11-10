@@ -14,7 +14,8 @@ type Node={taskId:string;parentId:string|null;rootId:string;depth:number;title:s
 type Tree={rootId:string;nodes:Node[];totals:{tasks:number;running:number;queued:number;executionSeconds:number;queueWaitSeconds:number;dependencyWaitSeconds:number|null;childWaitSeconds:number|null;capacityWaitSeconds:number|null;provisionalWaits:number;usagePools:{account:string;poolId:string|null;resetEpoch:number|null;observedDeltaPct:number|null;measuredIntervals:number;unknownAttempts:number;attribution:string}[]}};
 type Event={seq:number;task_id:string;at:number;kind:string;data:Record<string,unknown>};
 type Analytics={groups:{kind:string|null;difficulty:string;runner:string;settings:string;model:string|null;sampleCount:number;successRate:number;confidenceLower:number;confidenceUpper:number;averageDurationS:number|null;averageUsagePct:number|null}[];totalReviews:number;minimumSamples:number};
-export const workActionRequestId=(taskId:string,rev:number,kind:"retry"|"answer")=>`${taskId}.${rev}.${kind}`;
+import { workActionRequestId } from "../../../../src/work/action-id";
+export { workActionRequestId } from "../../../../src/work/action-id";
 const eventLabel=(kind:string)=>({"work.created":"Task created","task.changed":"Task updated","dispatch.reserved":"Executor selected","work.reviewed":"Review recorded","dependencies.changed":"Dependencies changed"} as Record<string,string>)[kind]??kind.replaceAll("."," ").replaceAll("_"," ");
 export function WorkNode({node,nodes,onChanged}:{node:Node;nodes:Node[];onChanged:()=>void}){
  const action=useAction(),key=useWorkspaceKey(node.taskId),[expanded,setExpanded]=useWorkspaceState(key,"expandedCard",false),[response,setResponse]=useWorkspaceState(key,"draft:work-response","");

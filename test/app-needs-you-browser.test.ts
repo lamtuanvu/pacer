@@ -60,3 +60,21 @@ test.skipIf(!browserPath)("Needs you filters, opens a trapped Answer panel and s
     for (const link of await page.getByRole("link", { name: "Review", exact: true }).all()) expect(await link.getAttribute("href")).toMatch(/\/review$/);
   } finally { await browser.close(); await server.stop(); }
 }, 30000);
+
+
+test.skipIf(!browserPath)("managed Needs you answer uses dispatch and a stable revision-scoped request ID", async () => {
+ const build = await Bun.build({entrypoints:["test/fixtures/ui/needs-you.tsx"],target:"browser"});
+ const browser = await chromium.launch({executablePath:browserPath!,headless:true});
+ const server = Bun.serve({port:0,fetch:()=>new Response('<div id="fixture"></div>',{headers:{"content-type":"text/html"}})});
+ try {
+  const page=await browser.newPage(); await page.goto(`${server.url}?managed`);
+  await page.addScriptTag({content:await build.outputs[0]!.text(),type:"module"});
+  await page.getByRole("tab",{name:/Questions/}).click();
+  await page.getByRole("link",{name:"Answer",exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"Codex asks"});
+  await dialog.locator("textarea").fill("Blue"); await dialog.getByRole("button",{name:"Send answer"}).click();
+  await dialog.waitFor({state:"detached"});
+  expect(await page.evaluate(()=>(window as any).answerOp)).toBe("dispatch.answer");
+  expect(await page.evaluate(()=>(window as any).answer)).toEqual({id:"question",text:"Blue",expect_rev:7,requestId:"question.7.answer"});
+ } finally {await browser.close(); await server.stop();}
+},30000);

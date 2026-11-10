@@ -129,7 +129,7 @@ An action is `{ label, op, params, style?, confirm? }`; style is `primary` or `d
 
 `attention.dismiss { id }` returns `{ dismissed: true }` and also dismisses a task item. `attention.snooze { id, for: "1h" | "4h" | "1d" }` returns `{ until }`. An unknown attention id returns `unknown_task`. Dismissals last until the underlying condition clears; snoozed items are hidden until the deadline. Planner-sourced tasks enter review 600 seconds after settling; other tasks enter immediately.
 
-A `question:<task>` item has blocked severity, important notifications, the question verbatim (first 200 characters) as detail, and Answer (`task.answer { id }`) then Stop (`task.stop { id }`) actions. The client collects the answer text before dispatching Answer.
+A `question:<task>` item has blocked severity, important notifications, the question verbatim (first 200 characters) as detail, and Answer (`task.answer { id }`) then Stop (`task.stop { id }`) actions. For managed work v3 supplies `dispatch.answer { id, expect_rev, requestId }` and the client adds the answer text. Managed failed and limit items offer `dispatch.retry { id, expect_rev, requestId }` without an executor selection. Request IDs are stable for the task revision; v2 supplies navigation actions for managed work.
 
 ## Activity
 

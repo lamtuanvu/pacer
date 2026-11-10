@@ -6,7 +6,7 @@ import type { LinkSnapshot, TaskData } from "../../link/envelope";
 
 export interface RepoRef { key: string; label: string; path: string; unreachable?: true; identityUnverified?: true }
 /** fullTitle is complete display text; title remains the compact compatibility fallback. */
-export type TaskDataV2 = TaskData & { activeAgentSessions?:number; archived?: boolean; archivePath?: string; title: string; fullTitle?: string; question?: TaskRecord["question"]; rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: TaskRecord["source"]; diagnosticCheck?: string; diagnosticRecheck?: TaskRecord["diagnosticRecheck"]; messages?: { unreadForHuman: number; question?: { id: string; text: string; at: number } }; liveness?: { stalled: boolean; reason: string; waitingOn?: string; since: number } };
+export type TaskDataV2 = TaskData & { work?: {rootId:string;parentId:string|null;depth:number;allowDelegation?:boolean;userStarted?:boolean}; activeAgentSessions?:number; archived?: boolean; archivePath?: string; title: string; fullTitle?: string; question?: TaskRecord["question"]; rev: number; queue: TaskRecord["queue"] | null; repo: RepoRef; kind: string | null; host: string | null; source?: TaskRecord["source"]; diagnosticCheck?: string; diagnosticRecheck?: TaskRecord["diagnosticRecheck"]; messages?: { unreadForHuman: number; question?: { id: string; text: string; at: number } }; liveness?: { stalled: boolean; reason: string; waitingOn?: string; since: number } };
 export type ApiTask = TaskDataV2;
 export interface ExecutorRow {
  stale?: boolean;

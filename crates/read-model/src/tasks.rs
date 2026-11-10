@@ -474,6 +474,26 @@ fn enrich_api_task(
             row[key] = v.clone();
         }
     }
+    if tables.work_nodes {
+        let work = db
+            .query_row(
+                "SELECT root_id,parent_id,depth,options FROM work_nodes WHERE task_id=?",
+                [text(&t["id"])],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some((root, parent, depth, options)) = work {
+            let options: Value = serde_json::from_str(&options).unwrap_or_default();
+            row["work"] = json!({"rootId":root,"parentId":parent,"depth":depth,"allowDelegation":options["allowDelegation"].as_bool().unwrap_or(false)});
+        }
+    }
     row["fullTitle"] = json!(full_title(t));
     if truth(&t["question"]) {
         row["question"] = t["question"].clone();

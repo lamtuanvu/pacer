@@ -58,7 +58,7 @@ const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/workspace?t
 /** Card actions retain scoped result links and open questions in the Answer panel. */
 function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery) {
   return item.actions.slice(0, count).map((action, i) => {
-    if (action.op === "task.answer") {
+    if ((action.op === "task.answer" || action.op === "dispatch.answer")) {
       return <TextAction key={i} href={withQuery(`#/workspace?task=${encodeURIComponent(item.taskId!)}`, query)}>{action.label}</TextAction>;
     }
     if (item.taskId && ((item.kind === "review" && i === 0) || /inspect|review|checks/i.test(action.label))) {

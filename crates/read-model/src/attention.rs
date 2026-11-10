@@ -145,10 +145,8 @@ pub fn raised(
                 vec![
                     action(
                         "Answer",
-                        "task.answer",
-                        json!({
-                        "id":id}
-                        ),
+                        if truth(&t["work"]) { "dispatch.answer" } else { "task.answer" },
+                        if truth(&t["work"]) { json!({"id":id,"expect_rev":t["rev"],"requestId":format!("{}.{}.answer",id,t["rev"])}) } else { json!({"id":id}) },
                     ),
                     stop,
                 ],
@@ -194,6 +192,7 @@ pub fn raised(
                 .iter()
                 .any(|key| truth(&t[key]))
         {
+            let managed = truth(&t["work"]);
             let target = executors.iter().find(|e| {
                 e["id"] != t["executor"]
                     && e["enabled"] == true
@@ -201,16 +200,19 @@ pub fn raised(
                     && e["state"] == "ready"
                     && num(&e["slots"]["used"]) < num(&e["slots"]["max"])
             });
-            let mut params = json!({
-            "id":id}
-            );
+            let target = if managed { None } else { target };
+            let mut params = if managed {
+                json!({"id":id,"expect_rev":t["rev"],"requestId":format!("{}.{}.retry",id,t["rev"])})
+            } else {
+                json!({"id":id})
+            };
             let label = target.map_or("Retry".into(), |e| {
                 format!("Retry on {}", capacity::display(text(&e["id"])))
             });
             if let Some(e) = target {
                 params["executor"] = e["id"].clone();
             }
-            let detail = if target.is_some() {
+            let detail = if managed || target.is_some() {
                 format!(
                     "{} {}",
                     capacity::display(text(&t["executor"])),
@@ -229,7 +231,15 @@ pub fn raised(
                 title,
                 &detail,
                 vec![
-                    action(&label, "task.retry", params),
+                    action(
+                        &label,
+                        if managed {
+                            "dispatch.retry"
+                        } else {
+                            "task.retry"
+                        },
+                        params,
+                    ),
                     open(
                         "See error",
                         json!({

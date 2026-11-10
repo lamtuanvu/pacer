@@ -85,6 +85,23 @@ pub fn snapshot(s: &Value, legacy: Option<&Value>) -> Value {
             id.as_str() == Some(format!("setup:{}", i["id"].as_str().unwrap_or("")).as_str())
         });
         let mut a = a.clone();
+        a["actions"] = Value::Array(
+            rows(&a["actions"])
+                .map(|action| {
+                    let mut action = action.clone();
+                    if action["op"] == "dispatch.retry" || action["op"] == "dispatch.answer" {
+                        let answer = action["op"] == "dispatch.answer";
+                        let mut params = json!({"view":"task","id":action["params"]["id"]});
+                        if answer {
+                            params["tab"] = json!("answer");
+                        }
+                        action["op"] = json!("ui.open");
+                        action["params"] = params;
+                    }
+                    action
+                })
+                .collect(),
+        );
         if let Some(item) = item {
             if item["status"] == "done" {
                 continue;
