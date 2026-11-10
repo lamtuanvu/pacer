@@ -195,12 +195,6 @@ async fn an_answer_stays_recorded_unless_its_turn_never_started() {
     for (fail, taken) in [(false, false), (true, false), (true, true)] {
         let (_dir, ctx) = home();
         let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
-        store
-            .update_current(ROOT, ctx.now, |t| {
-                t["question"] = json!({"text":"which?"});
-                Ok(())
-            })
-            .unwrap();
         let mut bridge = Fake::default();
         let question = run(
             &as_executor(&ctx, ROOT),
@@ -210,6 +204,13 @@ async fn an_answer_stays_recorded_unless_its_turn_never_started() {
         )
         .await
         .unwrap();
+        // The task's open question is the one the message asked, as TypeScript records it.
+        store
+            .update_current(ROOT, ctx.now, |t| {
+                t["question"] = json!({"text":"which?","at":question["message"]["createdAt"]});
+                Ok(())
+            })
+            .unwrap();
         bridge.fail = fail;
         bridge.taken = taken.then(|| ctx.pacer_home.clone());
         let sent = run(

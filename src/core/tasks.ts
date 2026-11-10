@@ -1,4 +1,3 @@
-import { visibleTaskState } from "../tasks/types";
 import { directInputAvailable, sendDirectInput } from "../session/send";
 import { beginWorkSync, finishUnlaunchedWorkSync, validatePendingWorkSync } from "../update/desktop/admission";
 import { resolvePolicyRepo } from "./project-policy";
@@ -25,7 +24,7 @@ import {
   type DelegateInput, type SpawnRunner, admissionCtx, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
   taskStop, taskWait,
 } from "../tasks/api";
-import { isTaskId, listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
+import { isTaskId, legacyTaskRepoPaths, listTasksWhere, readTask, updateTask, withTaskLock, withTaskLockAsync } from "../tasks/store";
 import type { TaskRecord, TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
 import { isExecutorSession } from "../install/role";
@@ -71,19 +70,17 @@ export interface ListOptions {
   all?: boolean; limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
 }
 
-/** Newest first; filter before taking the page. */
+/** Newest first; exact filters run before SQL paging. Legacy repository paths
+ * are resolved once per distinct path to preserve aliases and fallback keys. */
 export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
-  // Active tasks may transition during the status refresh, even when the caller
-  // requested settled states. Keep them in the SQL selection, then filter again.
-  const states: TaskState[] | undefined = o.states ? [...new Set<TaskState>([...o.states, "queued", "running"])] : undefined;
-  return listTasksWhere(ctx, { updatedSince: o.since, states, all: o.all })
-    .filter(t => o.before === undefined || t.id < o.before)
-    .map(t => taskStatus(ctx, t.id) ?? t)
-    .filter(t => (o.repo === undefined || (t.repo ?? repoFor(ctx,t.brief.repo)).key === o.repo)
-      && (o.states === undefined || o.states.includes(visibleTaskState(t)))
-      && (o.executor === undefined || (t.result?.executor ?? t.executor ?? t.attempts.at(-1)?.executor ?? t.requestedExecutor) === o.executor)
-      && (o.since === undefined || t.createdAt >= o.since))
-    .slice(0, o.limit ?? 20);
+  const limit = o.limit ?? 20;
+  if (limit <= 0 || o.states?.length === 0) return [];
+  const legacyRepoPaths = o.repo === undefined ? undefined
+    : legacyTaskRepoPaths(ctx).filter(path => repoFor(ctx, path).key === o.repo);
+  return listTasksWhere(ctx, {
+    createdSince: o.since, all: o.all, before: o.before, limit,
+    visibleStates: o.states, executor: o.executor, repoKey: o.repo, legacyRepoPaths,
+  });
 }
 
 export function requireAskingExecutor(ctx: Ctx, id = ctx.env.PACER_TASK_ID): string {
@@ -417,6 +414,7 @@ async function retryTask(
         // Restore retained branches above; a missing branch starts a fresh checkout.
         const reuseWorktree = missingBranch ? undefined : restored ?? (!answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined);
         const input: DelegateInput = {
+          difficulty: task.difficulty, difficultySource: task.difficultySource, model: task.model,
           ...(reuseWorktree ? { reuseWorktree, baseBranch: task.baseBranch, baseSha: task.baseSha } : {}),
           admissionLease: lease, repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
           ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
@@ -531,7 +529,8 @@ export async function answerLiveTask(ctx: Ctx, id: string, text: string, expectR
   const delivered = await sendDirectInput(ctx, reserved, text, same);
   if (!delivered.ok) {
     // A socket error after a write is ambiguous: never silently resend or erase that reservation.
-    if (delivered.definite) withTaskLock(ctx, id, () => {
+    // Once reserved, rollback must wait for foreign writers even if the request ended.
+    if (delivered.definite) await withTaskLockAsync(ctx, id, () => {
       const task = readTask(ctx, id);
       if (task && same(task)) updateTask(ctx, id, t => { delete t.question!.answer; delete t.question!.answeredAt; });
     });

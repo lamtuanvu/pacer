@@ -60,7 +60,7 @@ function validateDesktopTrust(trust?: SignerPins): void {
   if (trust && !validSignerPins(trust)) throw Error("Invalid desktop signer pins (Apple Team ID and/or signing certificate SHA-1)");
 }
 /** Files the service starts with `new Worker(new URL(..., import.meta.url))`. */
-export const COMPILED_WORKERS = ["src/tasks/supervision-worker.ts"];
+export const COMPILED_WORKERS = ["src/tasks/supervision-worker.ts", "src/serve/background-worker.ts"];
 
 export function compileCommand(o: CompileOptions): string[] {
   validateDesktopTrust(o.desktopTrust);

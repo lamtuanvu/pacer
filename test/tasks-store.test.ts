@@ -73,3 +73,87 @@ test("touchTask bumps the revision without changing the record", () => {
   expect(out.rev).toBe(t.rev + 1);
   expect({ ...readTask(ctx, t.id)!, rev: t.rev }).toEqual({ ...t, rev: t.rev });
 });
+
+test("worker preparation conflicts promptly with sync writes and serializes async writes", async () => {
+  const { withTaskLockAsync } = await import("../src/tasks/store");
+  const { preparationWorker } = await import("./task-preparation-worker-helper");
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const w = preparationWorker(ctx, task.id);
+  try {
+    w.send("prepare");
+    expect((await w.wait("held")).type).toBe("held");
+    const started = performance.now();
+    expect(() => updateTask({ ...ctx, operation: { signal: new AbortController().signal } }, task.id, t => { t.kind = "rejected"; })).toThrow(expect.objectContaining({ code: "conflict" }));
+    expect(performance.now() - started).toBeLessThan(200);
+    expect(readTask(ctx, task.id)?.kind).toBeNull();
+    let committed = false;
+    const pending = withTaskLockAsync(ctx, task.id, () => {
+      expect(readTask(ctx, task.id)?.kind).toBe("prepared");
+      updateTask(ctx, task.id, t => { t.kind = "after"; });
+      committed = true;
+    });
+    await Bun.sleep(60);
+    expect(committed).toBe(false);
+    w.send("release");
+    expect((await w.wait("done")).type).toBe("done");
+    await pending;
+    expect(readTask(ctx, task.id)?.kind).toBe("after");
+  } finally { w.send("release"); w.worker.terminate(); }
+});
+
+test("main admission preparation rejects worker mutation without blocking its isolate", async () => {
+  const { withTaskPreparation } = await import("../src/tasks/store");
+  const { preparationWorker } = await import("./task-preparation-worker-helper");
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const w = preparationWorker(ctx, task.id);
+  try {
+    await withTaskPreparation(ctx, task.id, async () => {
+      w.send("mutate");
+      expect(await w.wait("error")).toMatchObject({ code: "conflict" });
+      expect(readTask(ctx, task.id)?.kind).toBeNull();
+    }, () => updateTask(ctx, task.id, t => { t.kind = "main"; }));
+    expect(readTask(ctx, task.id)?.kind).toBe("main");
+  } finally { w.worker.terminate(); }
+});
+
+test("task writes respect offline lock files and recover stale owners", async () => {
+  const { existsSync, mkdirSync, writeFileSync, utimesSync, rmSync } = await import("node:fs");
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const directory = join(ctx.pacerHome, "orca");
+  const lock = join(directory, `task-${task.id}.lock`);
+  mkdirSync(directory, { recursive: true });
+  // The Rust/offline protocol is exclusive creation of this same empty file.
+  writeFileSync(lock, "", { flag: "wx", mode: 0o600 });
+  try {
+    expect(() => updateTask({ ...ctx, operation: { signal: new AbortController().signal } }, task.id, t => { t.kind = "blocked"; })).toThrow(expect.objectContaining({ code: "conflict" }));
+    expect(existsSync(lock)).toBe(true);
+    expect(readTask(ctx, task.id)?.kind).toBeNull();
+    const stale = new Date(Date.now() - 121_000);
+    utimesSync(lock, stale, stale);
+    updateTask(ctx, task.id, t => { t.kind = "recovered"; });
+    expect(readTask(ctx, task.id)?.kind).toBe("recovered");
+    expect(existsSync(lock)).toBe(false);
+  } finally { rmSync(lock, { force: true }); }
+});
+
+
+test("internal synchronous completion retains bounded wait under a foreign lock", async () => {
+  const { preparationWorker } = await import("./task-preparation-worker-helper");
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const worker = preparationWorker(ctx, task.id);
+  try {
+    worker.send("prepare-bounded");
+    expect((await worker.wait("held")).type).toBe("held");
+    const result = updateTask(ctx, task.id, current => {
+      expect(current.kind).toBe("prepared");
+      current.kind = "completed";
+    });
+    expect(result.kind).toBe("completed");
+    expect(readTask(ctx, task.id)?.kind).toBe("completed");
+    expect((await worker.wait("done")).type).toBe("done");
+  } finally { worker.send("release"); worker.worker.terminate(); }
+});

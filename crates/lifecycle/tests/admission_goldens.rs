@@ -108,7 +108,7 @@ fn slot_and_validation_edge_cases() {
             "/tmp"
         )
         .unwrap()["input"],
-        json!({"title":"task"})
+        json!({"title":"task","difficultySource":"unspecified"})
     );
     assert_eq!(
         queue_capacity(

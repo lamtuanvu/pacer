@@ -219,10 +219,57 @@ test.skipIf(!front)("task.list SQL history filters preserve native parity on 100
     { limit: 5, before: tasks[400]!.id },
     { limit: 3, before: tasks[300]!.id, repo: "repo-a", executor: "codex", states: ["done"] },
     { limit: 2, since: ctx.now - 1500 }, { repo: "missing" }, { states: [] },
+    {}, { all: true }, { all: true, before: tasks[400]!.id },
+    { limit: 20, before: tasks[19]!.id }, { since: ctx.now + 1 },
   ];
   const requests = cases.map((params, i) => JSON.stringify({ jsonrpc: "2.0", id: i + 2, method: "task.list", params }));
   const native = await exchange(ctx.home, requests, false, "task.list");
   expect(native).toEqual(await exchange(ctx.home, requests, true, "task.list"));
   expect(native[0]?.result?.tasks).toHaveLength(2);
   expect(native[1]?.result?.next).toBe(tasks[1]!.id);
+  expect(native[11]?.result?.tasks.map((task: { id: string }) => task.id)).toEqual(tasks.slice(0, 20).map(task => task.id));
+  expect(native[11]?.result?.next).toBe(tasks[19]!.id);
+  expect(native[14]?.result?.tasks.map((task: { id: string }) => task.id)).toEqual(tasks.slice(20, 40).map(task => task.id));
+  expect(native[15]?.result?.tasks).toEqual([]);
 }, 120000);
+
+test.skipIf(!front)("task.list selective and empty filters preserve native/forwarded parity", async () => {
+  const ctx = fakeCtx();
+  const root = join(ctx.home, "repo"), alias = join(ctx.home, "worktree");
+  mkdirSync(join(root, "sub"), { recursive: true });
+  mkdirSync(join(alias, "sub"), { recursive: true });
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "state/repos.json"), JSON.stringify({ [root]: { path: root, key: "registered", lastUsed: ctx.now } }));
+  writeFileSync(join(ctx.pacerHome, "state/repo-paths.json"), JSON.stringify({ [alias]: root }));
+  const ids: string[] = [];
+  for (let i = 0; i < 16; i++) {
+    const task = createTask({ ...ctx, now: ctx.now + i }, {
+      brief: { goal: `list parity ${i}`, repo: join(i % 2 ? root : alias, "sub") },
+      kind: null, requestedExecutor: "requested", timeoutS: 60,
+    });
+    ids.push(task.id);
+    updateTask(ctx, task.id, t => {
+      t.state = i % 2 ? "running" : "done";
+      if (i % 3 === 0) t.question = { text: "question", at: ctx.now };
+      if (i % 3 === 1) t.question = { text: "question", at: ctx.now, answer: "" };
+      if (i % 4 === 0) t.executor = "assigned";
+      if (i % 4 === 1) t.attempts = [{ executor: "attempt", startedAt: ctx.now, endedAt: ctx.now } as typeof t.attempts[number]];
+      if (i % 4 === 2) { t.executor = "assigned"; t.result = { executor: "result" } as typeof t.result; }
+      if (i % 5 === 0) t.repo = { key: "cached", path: root, label: "cached" };
+    });
+  }
+  const cases: Record<string, unknown>[] = [];
+  for (const repo of [undefined, "registered", "cached", "missing"])
+    for (const states of [undefined, [], ["running"], ["needs_input"], ["done", "needs_input"]])
+      for (const executor of [undefined, "result", "assigned", "attempt", "requested", "missing"])
+        cases.push({ repo, states, executor, limit: 3, since: ctx.now + 2, before: ids[14] });
+  cases.push({ since: ctx.now + 16 }, { since: ctx.now + 15 }, { before: ids[0] }, { executor: "" });
+  // Keep each exchange below pipe backpressure limits on every supported platform.
+  for (let offset = 0; offset < cases.length; offset += 20) {
+    const batch = cases.slice(offset, offset + 20);
+    const requests = batch.map((params, i) => JSON.stringify({ jsonrpc: "2.0", id: i + 2, method: "task.list", params }));
+    const native = await exchange(ctx.home, requests, false, "task.list");
+    const forwarded = await exchange(ctx.home, requests, true, "task.list");
+    for (let i = 0; i < batch.length; i++) expect(native[i], JSON.stringify(batch[i])).toEqual(forwarded[i]);
+  }
+}, 60000);

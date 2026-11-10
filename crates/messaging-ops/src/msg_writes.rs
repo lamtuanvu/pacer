@@ -238,9 +238,15 @@ fn record_answer(
     let Some(id) = messages::task_of(to) else {
         return Ok(None);
     };
+    // `isTaskQuestion`: a stale reply to an earlier question never answers the one the task waits on now.
     let open = |t: &Value| {
-        t.get("question")
-            .is_some_and(|q| truthy(Some(q)) && q.get("answer").is_none())
+        t.get("question").is_some_and(|q| {
+            truthy(Some(q))
+                && q.get("answer").is_none()
+                && q.get("text") == question.get("body")
+                && q.get("at").and_then(Value::as_f64)
+                    == question.get("createdAt").and_then(Value::as_f64)
+        })
     };
     if !store
         .read(id)

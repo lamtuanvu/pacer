@@ -26,6 +26,7 @@ import { internalCheck, internalErrorCode, isInternalCode, remedies, remedyComma
 import { displayName } from "../render/accounts";
 import type { ProviderStatus } from "../engine/rank";
 import { availableModels as listModels, closestModels, isOffered, type AvailableModels } from "../models/available";
+import { modelDeclarationWarnings } from "../core/runner-models";
 
 /** The one primary fix for a warning or failure. The server decides it; clients render it. */
 export interface Remedy {
@@ -87,6 +88,15 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     try {
       checks.push(...await executorModelsChecks(ctx, strategy, deps.availableModels ?? listModels));
     } catch { /* a failed listing is unknown, never a failure (see executorModelsChecks) */ }
+
+    // Hand-edited drift in the allowed models is pure strategy reading: no listing
+    // is needed, so these checks cannot fail on a fetch like the ones above.
+    for (const runner of Object.values(strategy.runners)) {
+      const warnings = modelDeclarationWarnings(runner);
+      if (warnings.length) checks.push({ name: `Models ${runner.id}`, level: "warn", detail: warnings.join("\n"),
+        remedy: warnings.some(w => w.includes('default model "') && w.endsWith('" is not in models'))
+          ? remedies.agent(`Models ${runner.id}`) : {kind: "user", label: `Rate ${runner.id} models`} });
+    }
 
     for (const cfg of Object.values(strategy.providers)) {
       const bin = binaryFor(cfg);
@@ -165,6 +175,17 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       ...(!good ? { fix: reinstall ? "pacer service install" : "pacer service restart",
         remedy: remedies.service(reinstall ? "Install service" : "Restart service") } : {}) });
   } catch (e) { checks.push({ name: "Service", level: "info", detail: errorText(e) }); }
+
+  // The background periodic worker (spec §5) mirrors its health to
+  // state/background-worker.json; surface it so `pacer doctor` reports degradation.
+  try {
+    const bg = readJson<{ state?: string; restarts?: number; lastError?: string | null; lastHeartbeatAt?: number }>(join(ctx.pacerHome, "state", "background-worker.json"));
+    if (bg && typeof bg.state === "string") {
+      const healthy = bg.state === "running";
+      const detail = `state: ${bg.state}; restarts: ${bg.restarts ?? 0}; last error: ${bg.lastError ?? "none"}`;
+      checks.push({ name: "Background worker", level: healthy ? "ok" : "warn", detail });
+    }
+  } catch { /* no background worker reported yet */ }
 
   const profile = readJson<ActivityProfile>(join(ctx.pacerHome, "activity.json"));
   const usableProfile = profile && Array.isArray(profile.active) && Array.isArray(profile.bins)

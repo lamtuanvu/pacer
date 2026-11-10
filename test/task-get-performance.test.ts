@@ -120,3 +120,37 @@ test("task.get refreshes cached summaries after their TTL", async () => {
     expect(f.calls).toHaveLength(8);
   } finally { clock.mockRestore(); }
 });
+
+test("task.get retry options do not decode irrelevant settled history", async () => {
+  const f = fixture(0);
+  const { taskDatabase } = await import("../src/tasks/store");
+  const db = taskDatabase(f.ctx);
+  const insert = db.query("INSERT INTO tasks(id,rev,state,created_at,updated_at,record,archived) VALUES(?,1,?,1,1,?,0)");
+  db.transaction(() => {
+    for (let i = 0; i < 2000; i++) {
+      const record = {...f.task, id: `history-${i}`, state: i % 2 ? "done" : "failed", createdAt: 1, brief: {...f.task.brief, goal: "irrelevant-history-marker"}};
+      insert.run(record.id, record.state, JSON.stringify(record));
+    }
+  })();
+  const query = db.query.bind(db);
+  const plans: string[] = [];
+  const querySpy = spyOn(db, "query").mockImplementation(((sql: string) => {
+    if (sql.includes("tasks_capacity_failures")) {
+      plans.push(...query(`EXPLAIN QUERY PLAN ${sql}`).all(f.ctx.now - 86400).map(row => (row as {detail: string}).detail));
+    }
+    return query(sql);
+  }) as typeof db.query);
+  const parse = JSON.parse;
+  let historyDecodes = 0;
+  const spy = spyOn(JSON, "parse").mockImplementation((text, reviver) => {
+    if (typeof text === "string" && text.includes("irrelevant-history-marker")) historyDecodes++;
+    return parse(text, reviver);
+  });
+  try {
+    await callOp(f.ctx, "task.get", {id: f.task.id});
+    expect(historyDecodes).toBe(0);
+    expect(plans.some(plan => plan.includes("SEARCH tasks USING INDEX tasks_state"))).toBe(true);
+    expect(plans.some(plan => plan.includes("SEARCH tasks USING INDEX tasks_capacity_failures"))).toBe(true);
+    expect(plans.some(plan => plan.includes("SCAN tasks"))).toBe(false);
+  } finally { spy.mockRestore(); querySpy.mockRestore(); }
+});

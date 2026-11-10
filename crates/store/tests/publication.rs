@@ -18,6 +18,54 @@ fn ctx(path: &Path) -> Ctx {
     )
 }
 
+#[test]
+fn rust_rotation_preserves_interrupted_typescript_pump_receipt() {
+    let home = tempfile::tempdir().unwrap();
+    bun(
+        home.path(),
+        r#"
+import {createTask,updateTask} from './src/tasks/store.ts';
+import {pumpOnce,defaultPumpDeps} from './src/link/pump.ts';
+import {defaultLedgerApi} from './src/link/ledger.ts';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000000,env:{HOME:process.env.TEST_HOME},run:async()=>({code:127,stdout:'',stderr:''}),which:()=>null};
+for(let i=0;i<25;i++){
+ const t=createTask(c,{brief:{goal:'receipt '+i,repo:c.home},kind:null,requestedExecutor:null,timeoutS:60});
+ updateTask(c,t.id,t=>{t.state='done';});
+}
+const status=async()=>({generatedAt:c.now,strategy:'s',planner:'p',mode:'normal',disabled:false,calendarPace:false,providers:[],executors:{ranked:[],excluded:[]}});
+try {await pumpOnce(c,{...defaultPumpDeps,status},{ledger:{...defaultLedgerApi,writeLedger(){throw Error('checkpoint crash');}}}); throw Error('fault not reached');}
+catch(e){if(e.message!=='checkpoint crash')throw e;}
+process.exit(0);
+"#,
+    );
+    let c = ctx(home.path());
+    let events = vec![json!({"type":"config","data":{"area":"strategy","at":c.now}}); 1500];
+    let report = publish(&c, &events);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert!(
+        read_outbox_since(&c, 0.0)
+            .unwrap()
+            .iter()
+            .all(|e| e["envelope"]["type"] != "task")
+    );
+    bun(
+        home.path(),
+        r#"
+import {pumpOnce,defaultPumpDeps} from './src/link/pump.ts';
+import {defaultLedgerApi} from './src/link/ledger.ts';
+import {listTasks} from './src/tasks/store.ts';
+import {existsSync} from 'node:fs';
+const c={home:process.env.TEST_HOME,pacerHome:process.env.TEST_HOME+'/.pacer',now:1760000002,env:{HOME:process.env.TEST_HOME},run:async()=>({code:127,stdout:'',stderr:''}),which:()=>null};
+const status=async()=>({generatedAt:c.now,strategy:'s',planner:'p',mode:'normal',disabled:false,calendarPace:false,providers:[],executors:{ranked:[],excluded:[]}});
+const events=await pumpOnce(c,{...defaultPumpDeps,status});
+if(events.some(e=>e.type==='task'))throw Error('duplicated tasks after Rust rotation');
+if(defaultLedgerApi.readLedger(c,listTasks(c,Infinity).map(t=>t.id)).size!==25)throw Error('lost ledger rows');
+if([0,1].some(n=>existsSync(c.pacerHome+'/link/pump-publish-'+n+'.jsonl')))throw Error('receipt inode leaked');
+process.exit(0);
+"#,
+    );
+}
+
 fn bun(home: &Path, code: &str) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

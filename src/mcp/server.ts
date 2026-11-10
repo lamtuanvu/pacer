@@ -14,7 +14,7 @@ import { isExecutorSession } from "../install/role";
 import { callerParticipant } from "../messaging/participants";
 import { MSG_KINDS } from "../messaging/types";
 import { makeCtx } from "../ctx";
-import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, summarizeTask, spawnRunner } from "../tasks/api";
+import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, summarizeTask, spawnRunner, difficultyWarning } from "../tasks/api";
 import { appendLabel } from "../tasks/labels";
 import type { Ctx } from "../types";
 
@@ -39,7 +39,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
         finally { client.close(); }
       } catch (error) { return {...json({error:error instanceof Error?error.message:"Scoped request failed"}),isError:true}; }
     };
-    server.registerTool("delegate", {description:"Delegate a scoped child. requestId makes retries safe.",inputSchema:{goal:z.string().min(1),requestId:z.string().min(1),title:z.string().optional(),kind:z.string().optional(),acceptance:z.string().optional(),acceptance_timeout_min:delegateSchema.acceptance_timeout_min,context:z.string().optional(),constraints:z.string().optional(),executor:z.string().optional()}}, async input=>scoped("dispatch.child",input));
+    server.registerTool("delegate", {description:"Delegate a scoped child. requestId makes retries safe.",inputSchema:{goal:z.string().min(1),requestId:z.string().min(1),difficulty:delegateSchema.difficulty,model:delegateSchema.model,title:z.string().optional(),kind:z.string().optional(),acceptance:z.string().optional(),acceptance_timeout_min:delegateSchema.acceptance_timeout_min,context:z.string().optional(),constraints:z.string().optional(),executor:z.string().optional()}}, async input=>scoped("dispatch.child",input));
     server.registerTool("task_status", {description:"Read a task in your own work subtree.",inputSchema:{task_id:z.string()}},async({task_id})=>scoped("task.get",{id:task_id}));
     server.registerTool("task_wait", {description:"Wait for a task in your own work subtree.",inputSchema:{task_id:z.string(),timeout_s:z.number().int().min(1).max(3000).optional()}},async({task_id,timeout_s})=>scoped("dispatch.wait",{id:task_id,timeout_s}));
     server.registerTool("task_review", {description:"Review a child task at the revision shown by work_tree; you cannot review yourself.",inputSchema:{task_id:z.string(),accepted:z.boolean(),expect_rev:z.number().int().positive(),note:z.string().optional()}},async({task_id,accepted,note,expect_rev})=>scoped("dispatch.review",{id:task_id,accepted,note,expect_rev}));
@@ -102,7 +102,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
     const origin = callerParticipant(ctx, msgDeps()).id;
     const t = await core.tasks.delegate(ctx, {...input, brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path}, source:"planner", repoRef, origin}, spawnFn);
-    return json(summarizeTask(t));
+    return json({...summarizeTask(t), ...(t.difficultySource === "unspecified" ? {warnings: [difficultyWarning()]} : {})});
   });
 
   server.registerTool("task_status", {

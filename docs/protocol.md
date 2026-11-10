@@ -147,7 +147,7 @@ Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task
 
 `task.delegate` accepts optional `request_id` (1–128 characters, deduplicated for 600 seconds), `base` (branch/ref or 7–40 hex SHA) and `source` (`planner`, `ui`, `cli`). A repo may be an absolute path or RepoRef key. HTTP client labels starting with app, desktop, orca, tui or tray default source to ui; others default to planner. `routing.route { kind?, goal?, repo? }` classifies goal when kind is absent.
 
-`task.list { limit?, before?, repo?, states?, executor?, since? }` always returns `{ tasks, next }`. Calls with only limit or no parameters also return a page. RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
+`task.list { limit?, before?, repo?, states?, executor?, since? }` always returns `{ tasks, next }`. Calls with only limit or no parameters also return a page. `since` is a Unix time and filters to tasks **created** at or after it (creation time, not update time). RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
 
 Executor questions appear as `needs_input` (label: Needs your answer). A live direct task retains running ownership internally while task details, events and list filters show the waiting state. `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }` and records answer/answeredAt on the original question. When its direct interactive terminal is still alive, an answer is reserved against the current question before terminal submission and stays in the same attempt; both return fields name the original task. A definite pre-input delivery failure rolls back that reservation; an ambiguous failure after writing does not silently resend it. Otherwise, when the task ran locally through the direct backend with a resumable native session (not managed work and not a conversation), the answer continues the original task: it is delivered as an `answer` message, the asking executor resumes its session in the same worktree, and `task` and `retry` both name the original task. That continuation passes the same project policy admission as a new attempt (delegate, then route). If policy now excludes the asking executor, an admitted executor replays the thread in a fresh session; if policy vetoes it or admits no executor, the answer falls back to a retry, which policy admits or refuses (`not_allowed`, hint `plugin <id>`) as it does a new delegation. Otherwise the answer creates a retry on the same executor. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry or one continuation. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward. On a task whose backend kept its worker live after the question, the answer is typed into that worker instead of a new one, and only while the worker is unsettled and its terminal still reports the lane's agent (on Orca, `terminal show`'s `agentIdentity` for the same terminal incarnation); otherwise the old worker is stopped and the retry starts fresh. The agent is launched with `exec` in place of the terminal's shell, so when it exits the terminal ends and no shell is left to read typed text. `task.send` also supports built-in interactive PTYs, taking and releasing terminal control without creating an attempt. `task.send { id, text, force?, expect_rev? }` delivers 1–4000 characters to the same live agent of a running lane under the same check (conflict while the lane waits on its question; unavailable when the task has no live worker, its backend cannot deliver input or the terminal does not report the lane's agent) and records a 60-second driving lease for the caller: a service client instance (`X-Pacer-Client-Instance`, so two app windows or two MCP servers contend even under one label; only its X-Pacer-Client label when it sends none), the CLI by its terminal. `driving.by` is caller-asserted and carries that label, instance id or the CLI's OS user and terminal session id. Another caller within the lease gets conflict unless force. Task records may carry `interactive`, `group`, `driving { by, at }` and `live { backend, worker, terminal, executor, agent, since }`; a live worker holds its executor slot until it is answered, stopped, settled or explicitly released. An unanswered worker has no idle expiry; interactive execution deadlines exclude waiting time, persisted across supervisor reattachment.
 
@@ -2826,6 +2826,19 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
     },
     "requestId": {
       "type": "string",
@@ -6371,6 +6384,113 @@ Params JSON Schema:
 }
 ```
 
+### `runner.models.get`
+
+Read an executor's default and allowed models with tiers, against the strategy revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `runner.models.set`
+
+Atomically save an executor's default and allowed tiered models against the expected revision; every id is checked against the live listing when one is known.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "expectedRevision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "default": {
+      "type": "string",
+      "minLength": 1
+    },
+    "models": {
+      "maxItems": 256,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "tier": {
+            "default": "unknown",
+            "type": "string",
+            "enum": [
+              "small",
+              "medium",
+              "frontier",
+              "unknown"
+            ]
+          },
+          "strengths": {
+            "default": [],
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "tools": {
+            "type": "boolean"
+          },
+          "context": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "tier",
+          "strengths"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "id",
+    "expectedRevision",
+    "default",
+    "models"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `runner.remove`
 
 Remove a runner and its routing and pacing order references.
@@ -7620,6 +7740,19 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
     "dispatch": {},
     "title": {
       "type": "string",

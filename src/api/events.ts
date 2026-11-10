@@ -76,7 +76,7 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
   // labels, which made a replay from cursor 0 O(events × tasks) and blocked the service.
   const ids = [...new Set(after.flatMap(e => e.envelope.type === "task" ? [e.envelope.data.id] : []))];
   const records = ids.map(id => readTask(ctx, id)).filter((t): t is TaskRecord => t !== null);
-  const enriched = new Map(apiTasks(ctx, records).map(t => [t.id, t]));
+  const enriched = new Map((records.length ? apiTasks(ctx, records) : []).map(t => [t.id, t]));
   const events: ApiEvent[] = [
     ...(reset ? [{ seq: oldest! - 1, at: ctx.now, type: "reset" as const, data: { reason: "events were dropped; fetch the snapshot again" } }] : []),
     ...after.map((e): ApiEvent => {

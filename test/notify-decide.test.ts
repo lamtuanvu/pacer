@@ -258,3 +258,22 @@ test("oversize attention text is clipped to the notifier protocol bounds and del
  await dispatchNotifications(ctx,[long],deps);await dispatchNotifications(ctx,[long],deps);
  expect(seen).toHaveLength(1);expect(seen[0]!.title.length).toBe(256);expect(seen[0]!.body.length).toBe(2048);expect(seen[0]!.title.endsWith("…")).toBe(true);
 });
+
+test("dispatch acknowledges only durable delivery or candidates excluded by policy", async () => {
+  const { setLevel } = await import("../src/core/notify");
+  const ctx = fakeCtx();
+  let acknowledged = 0;
+  const onAcknowledged = () => { acknowledged++; };
+  await dispatchNotifications(ctx, [item()], { notifiers: ["test"], deliver: async () => false, onAcknowledged });
+  expect(acknowledged).toBe(0);
+  await dispatchNotifications(ctx, [item()], { notifiers: ["test"], deliver: async () => true, onAcknowledged });
+  expect(acknowledged).toBe(1);
+  await dispatchNotifications(ctx, [item()], { notifiers: [], onAcknowledged });
+  expect(acknowledged).toBe(2); // already acknowledged
+  setLevel(ctx, "off");
+  await dispatchNotifications(ctx, [item({ since: 200 })], { notifiers: [], onAcknowledged });
+  expect(acknowledged).toBe(3);
+  setLevel(ctx, "important");
+  await dispatchNotifications(ctx, [item({ since: 201, notify: "all" })], { notifiers: [], onAcknowledged });
+  expect(acknowledged).toBe(4);
+});
