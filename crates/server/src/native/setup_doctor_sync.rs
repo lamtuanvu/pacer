@@ -3,9 +3,6 @@
 //! the TypeScript hook handlers, so both reports are produced by Core.
 use serde_json::{Value, json};
 
-pub(crate) const HTTP_PATH: &str = "/_internal/setup-doctor";
-pub(crate) const STDIO_METHOD: &str = "_internal.setup.doctor";
-
 pub(crate) fn routes(op: &str) -> bool {
     pacer_config_ops::doctor_ops::needs_setup_doctor_bridge(op)
 }

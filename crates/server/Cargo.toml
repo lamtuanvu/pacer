@@ -7,13 +7,15 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-test-ops = ["pacer-config-ops/test-ops"]
+test-ops = ["pacer-config-ops/test-ops", "pacer-core-bridge/test-ops"]
 
 [dependencies]
 tokio.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 ryu-js = "1"
+pacer-mcp = { path = "../mcp" }
+pacer-core-bridge = { path = "../core-bridge" }
 pacer-foundation = { path = "../foundation" }
 pacer-plugin-ops = { path = "../plugin-ops" }
 pacer-plugin-runtime = { path = "../plugin-runtime" }

@@ -4,7 +4,7 @@
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::Value;
 
-pub(crate) fn error(value: &Value) -> CoreError {
+pub fn error(value: &Value) -> CoreError {
     let body = if value["code"].is_number() {
         value.get("data").unwrap_or(value)
     } else {
@@ -40,7 +40,7 @@ pub(crate) fn error(value: &Value) -> CoreError {
     error
 }
 #[allow(clippy::result_large_err)]
-pub(crate) async fn http(target: Option<(u16, String)>, op: &str) -> Result<Value, CoreError> {
+pub async fn http(target: Option<(u16, String)>, op: &str) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::BodyExt;
     use hyper_util::{
@@ -89,7 +89,7 @@ pub(crate) async fn http(target: Option<(u16, String)>, op: &str) -> Result<Valu
         .map_err(|_| CoreError::new(Code::Unavailable, "endpoint synchronization timed out"))?
 }
 
-pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,

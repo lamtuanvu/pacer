@@ -12,7 +12,7 @@ use pacer_foundation::{
 use serde_json::{Value, json};
 
 /// `mode.hold` without `until` needs planner reset from `computeStatus` (TS).
-pub(crate) fn mode_hold_stays_forwarded(params: &Value) -> bool {
+pub fn mode_hold_stays_forwarded(params: &Value) -> bool {
     params.get("until").is_none()
 }
 
@@ -84,7 +84,7 @@ fn map_io(error: String) -> CoreError {
     invalid(error)
 }
 
-pub(super) fn delegation_pause(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn delegation_pause(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = object(&params)?;
         let duration = require_string(p, "for")?;
@@ -104,7 +104,7 @@ pub(super) fn delegation_pause(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn delegation_resume(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn delegation_resume(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let _ = object(&params)?;
         let result = pause::resume(ctx).map_err(map_io)?;
@@ -122,7 +122,7 @@ pub(super) fn delegation_resume(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn mode_hold_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn mode_hold_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         if mode_hold_stays_forwarded(&params) {
             return Err(CoreError::new(
@@ -148,14 +148,14 @@ pub(super) fn mode_hold_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub(super) fn mode_release(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn mode_release(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let _ = object(&params)?;
         mode_hold::release(ctx).map_err(map_io)
     })
 }
 
-pub(super) fn limits_report(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn limits_report(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         let p = object(&params)?;
         let provider = require_string(p, "provider")?;
@@ -213,6 +213,33 @@ pub(super) fn limits_report(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             "exhaustedUntil": exhausted_until,
         }))
     })
+}
+
+/// Native engine operations provided to the server registry.
+pub const fn ops() -> &'static [pacer_foundation::api::NativeOp] {
+    use pacer_foundation::api::NativeOp;
+    &[
+        NativeOp {
+            name: "delegation.pause",
+            call: delegation_pause,
+        },
+        NativeOp {
+            name: "delegation.resume",
+            call: delegation_resume,
+        },
+        NativeOp {
+            name: "mode.hold",
+            call: mode_hold_op,
+        },
+        NativeOp {
+            name: "mode.release",
+            call: mode_release,
+        },
+        NativeOp {
+            name: "limits.report",
+            call: limits_report,
+        },
+    ]
 }
 
 #[cfg(test)]

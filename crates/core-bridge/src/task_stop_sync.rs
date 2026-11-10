@@ -9,7 +9,7 @@ fn unavailable(message: &str) -> CoreError {
 
 fn map_body(value: &Value) -> Result<Value, CoreError> {
     if let Some(error) = value.get("error") {
-        return Err(crate::native::config_sync::error(error));
+        return Err(crate::config_sync::error(error));
     }
     value
         .get("result")
@@ -17,17 +17,14 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
         .ok_or_else(|| unavailable("invalid task stop bridge response"))
 }
 
-pub(crate) fn task_stop_stays_forwarded(probe: &Value) -> bool {
+pub fn task_stop_stays_forwarded(probe: &Value) -> bool {
     probe
         .get("forward")
         .and_then(Value::as_bool)
         .unwrap_or(true)
 }
 
-pub(crate) async fn http_probe(
-    target: Option<(u16, String)>,
-    id: &str,
-) -> Result<Value, CoreError> {
+pub async fn http_probe(target: Option<(u16, String)>, id: &str) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::BodyExt;
     use hyper_util::{
@@ -65,7 +62,7 @@ pub(crate) async fn http_probe(
         .map_err(|_| unavailable("task stop probe bridge timed out"))?
 }
 
-pub(crate) async fn http_effects(
+pub async fn http_effects(
     target: Option<(u16, String)>,
     id: &str,
     before_state: Option<&str>,
@@ -109,7 +106,7 @@ pub(crate) async fn http_effects(
         .map_err(|_| unavailable("task stop effects bridge timed out"))?
 }
 
-pub(crate) async fn stdio_probe<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn stdio_probe<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
@@ -141,7 +138,7 @@ pub(crate) async fn stdio_probe<W: tokio::io::AsyncWrite + Unpin>(
     .map_err(|_| unavailable("task stop probe bridge timed out"))?
 }
 
-pub(crate) async fn stdio_effects<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn stdio_effects<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
@@ -183,7 +180,7 @@ async fn receive(
             continue;
         }
         return if let Some(error) = value.get("error") {
-            Err(crate::native::config_sync::error(error))
+            Err(crate::config_sync::error(error))
         } else {
             value
                 .get("result")

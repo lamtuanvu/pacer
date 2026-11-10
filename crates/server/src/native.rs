@@ -8,13 +8,12 @@ use serde_json::Value;
 pub(crate) mod account_list_sync;
 pub(crate) use account_list_ops::needs_account_list_bridge;
 use pacer_account_ops::account_list_ops;
-pub(crate) mod config_host_sync;
-pub(crate) mod config_sync;
 use pacer_config_ops::config_writes;
-use pacer_config_ops::executor_setup_ops;
-pub(crate) mod core_bridge_sync;
-mod desktop_reconcile_ops;
 use pacer_config_ops::doctor_ops;
+use pacer_config_ops::executor_setup_ops;
+pub(crate) use pacer_core_bridge::config_host_sync;
+pub(crate) use pacer_core_bridge::config_sync;
+pub(crate) use pacer_core_bridge::core_bridge_sync;
 use pacer_discovery_ops::{discovery_ops, network_ops};
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
@@ -22,18 +21,19 @@ use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
 use pacer_dispatch_ops::lifecycle_ops as dispatch_lifecycle_ops;
 use pacer_dispatch_ops::planning_ops;
+use pacer_update::desktop_reconcile_ops;
 pub(crate) mod dispatch_lifecycle_sync;
-mod engine_ops;
+use pacer_config_ops::engine_ops;
 use pacer_config_ops::host_mut_ops;
+use pacer_config_ops::host_read_ops;
+use pacer_config_ops::limits_refresh_ops;
+pub(crate) use pacer_core_bridge::host_mut_sync;
+pub(crate) use pacer_core_bridge::host_read_sync;
 use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
 #[allow(unused_imports)]
 use pacer_update::handover;
-pub(crate) mod host_mut_sync;
-use pacer_config_ops::host_read_ops;
-use pacer_config_ops::limits_refresh_ops;
-pub(crate) mod host_read_sync;
 pub(crate) mod install_apply_sync;
 use pacer_install::install_ops;
 use pacer_machine_ops::machine_identity;
@@ -42,37 +42,37 @@ use pacer_task_ops::lifecycle_ops;
 use pacer_task_ops::session_context_ops;
 mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
+pub(crate) use pacer_core_bridge::msg_write_sync;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
-pub(crate) mod msg_write_sync;
 pub mod plugins;
-pub(crate) mod setup_effects_sync;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
 use pacer_config_ops::runner_check_ops;
 use pacer_config_ops::runner_ops;
+pub(crate) use pacer_core_bridge::session_sync;
+pub(crate) use pacer_core_bridge::setup_effects_sync;
 pub(crate) use pacer_task_ops::session_ops;
-pub(crate) mod session_sync;
 pub(crate) mod setup_doctor_sync;
-mod setup_ops;
+use pacer_config_ops::setup_ops;
+pub(crate) use pacer_core_bridge::snapshot_sync;
+pub(crate) use pacer_core_bridge::status_sync;
+pub(crate) use pacer_core_bridge::task_clean_sync;
+pub(crate) use pacer_core_bridge::task_read_sync;
+pub(crate) use pacer_core_bridge::task_review_sync;
 use pacer_task_ops::snapshot_get_ops;
-pub(crate) mod snapshot_sync;
-pub(crate) mod status_ops;
-pub(crate) mod status_sync;
-pub(crate) mod task_clean_sync;
+pub(crate) use pacer_task_ops::status_ops;
 use pacer_task_ops::task_diff_ops;
 pub(crate) use pacer_task_ops::task_dismiss_ops;
 use pacer_task_ops::task_get_ops;
-pub(crate) mod task_read_sync;
 use pacer_task_ops::task_reads;
 use pacer_task_ops::task_review_ops;
-pub(crate) mod task_review_sync;
 pub(crate) use pacer_task_ops::task_send_ops;
 pub(crate) mod task_send_sync;
+pub(crate) use pacer_core_bridge::task_stop_sync;
+pub(crate) use pacer_core_bridge::task_wait_sync;
 use pacer_task_ops::task_stop_ops;
-pub(crate) mod task_stop_sync;
 use pacer_task_ops::task_wait_ops;
-pub(crate) mod task_wait_sync;
 use pacer_update::apply;
 
 pub use assistant_ops::assistant_stays_forwarded;
@@ -421,44 +421,44 @@ static OPS: &[NativeOp] = &[
         call: meta_ops::api_describe,
     },
     NativeOp {
-        name: "delegation.pause",
-        call: engine_ops::delegation_pause,
+        name: engine_ops::ops()[0].name,
+        call: engine_ops::ops()[0].call,
     },
     NativeOp {
-        name: "delegation.resume",
-        call: engine_ops::delegation_resume,
+        name: engine_ops::ops()[1].name,
+        call: engine_ops::ops()[1].call,
     },
     NativeOp {
-        name: "mode.hold",
-        call: engine_ops::mode_hold_op,
+        name: engine_ops::ops()[2].name,
+        call: engine_ops::ops()[2].call,
     },
     NativeOp {
-        name: "mode.release",
-        call: engine_ops::mode_release,
+        name: engine_ops::ops()[3].name,
+        call: engine_ops::ops()[3].call,
     },
     NativeOp {
-        name: "limits.report",
-        call: engine_ops::limits_report,
+        name: engine_ops::ops()[4].name,
+        call: engine_ops::ops()[4].call,
     },
     NativeOp {
-        name: "limits.check",
-        call: status_ops::limits_check_stub,
+        name: status_ops::ops()[0].name,
+        call: status_ops::ops()[0].call,
     },
     NativeOp {
         name: "limits.refresh",
         call: limits_refresh_ops::limits_refresh,
     },
     NativeOp {
-        name: "routing.status",
-        call: status_ops::routing_status_stub,
+        name: status_ops::ops()[1].name,
+        call: status_ops::ops()[1].call,
     },
     NativeOp {
-        name: "routing.route",
-        call: status_ops::routing_route_stub,
+        name: status_ops::ops()[2].name,
+        call: status_ops::ops()[2].call,
     },
     NativeOp {
-        name: "task.retry_options",
-        call: status_ops::task_retry_options_stub,
+        name: status_ops::ops()[3].name,
+        call: status_ops::ops()[3].call,
     },
     NativeOp {
         name: "task.request_review",
@@ -517,8 +517,8 @@ static OPS: &[NativeOp] = &[
         call: doctor_ops::doctor_run_stub,
     },
     NativeOp {
-        name: "onboarding.skip",
-        call: setup_ops::onboarding_skip,
+        name: setup_ops::ops()[0].name,
+        call: setup_ops::ops()[0].call,
     },
     NativeOp {
         name: "setup.init",
@@ -725,16 +725,16 @@ static OPS: &[NativeOp] = &[
         call: discovery_network_set,
     },
     NativeOp {
-        name: "desktop.reconcile.status",
-        call: desktop_reconcile_ops::desktop_reconcile_status,
+        name: desktop_reconcile_ops::ops()[0].name,
+        call: desktop_reconcile_ops::ops()[0].call,
     },
     NativeOp {
-        name: "desktop.reconcile.request",
-        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+        name: desktop_reconcile_ops::ops()[1].name,
+        call: desktop_reconcile_ops::ops()[1].call,
     },
     NativeOp {
-        name: "desktop.reconcile.cancel",
-        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+        name: desktop_reconcile_ops::ops()[2].name,
+        call: desktop_reconcile_ops::ops()[2].call,
     },
     NativeOp {
         name: "assistant.status",

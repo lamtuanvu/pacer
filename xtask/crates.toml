@@ -89,6 +89,11 @@ layer = 4
 heavy = ["reqwest"]
 [crates.pacer-sqlite-proof]
 layer = 2
+[crates.pacer-mcp]
+layer = 8
+[crates.pacer-core-bridge]
+layer = 8
+heavy = ["axum", "hyper"]
 [crates.pacer-server]
 layer = 9
 heavy = ["axum", "hyper"]

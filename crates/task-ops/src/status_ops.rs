@@ -23,7 +23,7 @@ const TASK_KINDS: &[&str] = &[
     "research",
 ];
 
-pub(crate) fn needs_usage_broker(op: &str) -> bool {
+pub fn needs_usage_broker(op: &str) -> bool {
     matches!(
         op,
         "limits.check"
@@ -38,7 +38,7 @@ pub(crate) fn needs_usage_broker(op: &str) -> bool {
 /// `task.retry_options` needs TypeScript for project policy (any
 /// `project-strategies.json`, including one that cannot be read) and for remote
 /// eligibility (any runner on a host). A strategy Rust cannot load also forwards.
-pub(crate) fn task_retry_options_stays_forwarded(ctx: &Ctx) -> bool {
+pub fn task_retry_options_stays_forwarded(ctx: &Ctx) -> bool {
     let Ok(strategy) = load_strategy(&ctx.pacer_home) else {
         return true;
     };
@@ -55,7 +55,7 @@ pub(crate) fn task_retry_options_stays_forwarded(ctx: &Ctx) -> bool {
 /// `routing.route` with `goal` or `repo` needs classifier / project policy + remote eligibility (TS).
 /// A strategy with `pacing.balance: least-loaded` also forwards: the load-aware order lives only
 /// in the TypeScript engine, and the preview must agree with what runs.
-pub(crate) fn routing_route_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
+pub fn routing_route_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     params
         .get("goal")
         .is_some_and(|g| g.as_str().is_some_and(|s| !s.is_empty()))
@@ -95,23 +95,19 @@ fn broker_unavailable(message: &str) -> OpFuture<'_> {
     Box::pin(async move { Err(CoreError::new(Code::Unavailable, message)) })
 }
 
-pub(super) fn limits_check_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn limits_check_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     broker_unavailable("limits.check requires the usage broker bridge")
 }
 
-pub(super) fn routing_status_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn routing_status_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     broker_unavailable("routing.status requires the usage broker bridge")
 }
 
-pub(super) fn routing_route_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn routing_route_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     broker_unavailable("routing.route requires the usage broker bridge")
 }
 
-pub(crate) async fn limits_check(
-    ctx: &Ctx,
-    params: Value,
-    parts: Value,
-) -> Result<Value, CoreError> {
+pub async fn limits_check(ctx: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
     let map = object(&params)?;
     if !map.is_empty() {
         return Err(invalid("params: Unrecognized key(s) in object"));
@@ -120,11 +116,7 @@ pub(crate) async fn limits_check(
     Ok(usage_broker::limits_check(ctx, &strategy, &parts))
 }
 
-pub(crate) async fn routing_status(
-    ctx: &Ctx,
-    params: Value,
-    parts: Value,
-) -> Result<Value, CoreError> {
+pub async fn routing_status(ctx: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
     let map = object(&params)?;
     if !map.is_empty() {
         return Err(invalid("params: Unrecognized key(s) in object"));
@@ -154,11 +146,7 @@ fn parse_route_params(params: &Value) -> Result<Option<String>, CoreError> {
     }
 }
 
-pub(crate) async fn routing_route(
-    ctx: &Ctx,
-    params: Value,
-    parts: Value,
-) -> Result<Value, CoreError> {
+pub async fn routing_route(ctx: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
     let kind = parse_route_params(&params)?;
     let strategy = load_strategy(&ctx.pacer_home).map_err(|e| invalid(e.to_string()))?;
     let mut params = params;
@@ -173,7 +161,7 @@ pub(crate) async fn routing_route(
     Ok(usage_broker::routing_route(ctx, &strategy, &parts, &params))
 }
 
-pub(super) fn task_retry_options_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
+pub fn task_retry_options_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     broker_unavailable("task.retry_options requires the usage broker bridge")
 }
 
@@ -226,7 +214,7 @@ fn read_model_error(error: pacer_read_model::Error) -> CoreError {
 
 /// Broker readings are requested only after the task resolves, as TS reads
 /// status only after `get`.
-pub(crate) async fn task_retry_options(
+pub async fn task_retry_options(
     ctx: &Ctx,
     params: Value,
     parts: OpFuture<'_>,
@@ -237,6 +225,29 @@ pub(crate) async fn task_retry_options(
     let task = retry::retry_task(&mut store, id).map_err(read_model_error)?;
     let parts = parts.await?;
     retry::retry_options(ctx, &mut store, &task, &parts).map_err(read_model_error)
+}
+
+/// Native registry entries for status operations using injected broker data.
+pub const fn ops() -> &'static [pacer_foundation::api::NativeOp] {
+    use pacer_foundation::api::NativeOp;
+    &[
+        NativeOp {
+            name: "limits.check",
+            call: limits_check_stub,
+        },
+        NativeOp {
+            name: "routing.status",
+            call: routing_status_stub,
+        },
+        NativeOp {
+            name: "routing.route",
+            call: routing_route_stub,
+        },
+        NativeOp {
+            name: "task.retry_options",
+            call: task_retry_options_stub,
+        },
+    ]
 }
 
 #[cfg(test)]

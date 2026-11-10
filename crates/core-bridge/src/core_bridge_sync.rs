@@ -3,7 +3,7 @@
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::Value;
 
-use crate::native::setup_doctor_sync;
+use pacer_config_ops::doctor_ops;
 
 fn unavailable(message: &str) -> CoreError {
     CoreError::new(Code::Unavailable, message)
@@ -11,7 +11,7 @@ fn unavailable(message: &str) -> CoreError {
 
 fn map_body(value: &Value) -> Result<Value, CoreError> {
     if let Some(error) = value.get("error") {
-        return Err(crate::native::config_sync::error(error));
+        return Err(crate::config_sync::error(error));
     }
     value
         .get("result")
@@ -23,7 +23,7 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("/_internal/setup-check"),
         "setup.effects" => Ok("/_internal/setup-effects"),
-        op if setup_doctor_sync::routes(op) => Ok(setup_doctor_sync::HTTP_PATH),
+        op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("/_internal/setup-doctor"),
         "service.effects" => Ok("/_internal/service-effects"),
         "update.effects" => Ok("/_internal/update-effects"),
         _ => Err(unavailable("core bridge unavailable")),
@@ -34,7 +34,7 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
-        op if setup_doctor_sync::routes(op) => Ok(setup_doctor_sync::STDIO_METHOD),
+        op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("_internal.setup.doctor"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -42,7 +42,7 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
 /// An install or update effect keeps the forwarded request's completion semantics: Core
 /// finishes it whatever the caller does, so a front-door deadline would only report
 /// `unavailable` for an effect still in flight.
-pub(crate) fn deadline(op: &str) -> Option<std::time::Duration> {
+pub fn deadline(op: &str) -> Option<std::time::Duration> {
     match op {
         "service.effects" | "update.effects" => None,
         _ => Some(bridge_deadline()),
@@ -62,9 +62,9 @@ fn bridge_deadline() -> std::time::Duration {
     std::time::Duration::from_secs(120)
 }
 
-pub(crate) fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
+pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
-        op if setup_doctor_sync::routes(op) => Ok(params.clone()),
+        op if doctor_ops::needs_setup_doctor_bridge(op) => Ok(params.clone()),
         "setup.check" | "setup.effects" | "service.effects" | "update.effects" => {
             Ok(params.clone())
         }
@@ -72,7 +72,7 @@ pub(crate) fn request_body(op: &str, params: &Value) -> Result<Value, CoreError>
     }
 }
 
-pub(crate) async fn http(
+pub async fn http(
     target: Option<(u16, String)>,
     op: &str,
     params: Value,
@@ -118,7 +118,7 @@ pub(crate) async fn http(
     }
 }
 
-pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
@@ -162,7 +162,7 @@ async fn receive(
             continue;
         }
         return if let Some(error) = value.get("error") {
-            Err(crate::native::config_sync::error(error))
+            Err(crate::config_sync::error(error))
         } else {
             value
                 .get("result")

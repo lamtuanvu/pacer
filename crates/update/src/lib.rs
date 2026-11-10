@@ -6,6 +6,7 @@
 
 pub mod apply;
 mod check;
+pub mod desktop_reconcile_ops;
 mod feed;
 pub mod handover;
 mod js;

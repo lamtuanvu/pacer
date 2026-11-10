@@ -1,8 +1,7 @@
 #![allow(clippy::result_large_err)]
-//! Fixed bridge for session-probe injection parts from the TypeScript session
-//! owner; no caller-controlled operation crosses this channel.
+//! Fixed bridge for task-read injection parts from the TypeScript owner.
 use pacer_foundation::api::{Code, CoreError};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 fn unavailable(message: &str) -> CoreError {
     CoreError::new(Code::Unavailable, message)
@@ -10,15 +9,15 @@ fn unavailable(message: &str) -> CoreError {
 
 fn map_body(value: &Value) -> Result<Value, CoreError> {
     if let Some(error) = value.get("error") {
-        return Err(crate::native::config_sync::error(error));
+        return Err(crate::config_sync::error(error));
     }
     value
         .get("result")
         .cloned()
-        .ok_or_else(|| unavailable("invalid session probe response"))
+        .ok_or_else(|| unavailable("invalid task read response"))
 }
 
-pub(crate) async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
+pub async fn http(target: Option<(u16, String)>, id: &str) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::BodyExt;
     use hyper_util::{
@@ -27,62 +26,65 @@ pub(crate) async fn http(target: Option<(u16, String)>) -> Result<Value, CoreErr
     };
     let run = async {
         let (port, token) = target.ok_or_else(|| unavailable("pacer core is restarting"))?;
+        let body = json!({"id": id});
         let request = axum::http::Request::builder()
             .method("POST")
-            .uri(format!(
-                "http://127.0.0.1:{port}/_internal/session-probe-parts"
-            ))
+            .uri(format!("http://127.0.0.1:{port}/_internal/task-read-parts"))
             .header("authorization", format!("Bearer {token}"))
             .header("content-type", "application/json")
-            .body(Body::from("{}"))
-            .map_err(|_| unavailable("session probe bridge unavailable"))?;
+            .body(Body::from(body.to_string()))
+            .map_err(|_| unavailable("task read bridge unavailable"))?;
         let client: Client<HttpConnector, Body> =
             Client::builder(TokioExecutor::new()).build_http();
         let response = client
             .request(request)
             .await
-            .map_err(|_| unavailable("session probe bridge unavailable"))?;
+            .map_err(|_| unavailable("task read bridge unavailable"))?;
         let bytes = response
             .into_body()
             .collect()
             .await
-            .map_err(|_| unavailable("session probe bridge unavailable"))?
+            .map_err(|_| unavailable("task read bridge unavailable"))?
             .to_bytes();
         let value: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| unavailable("invalid session probe response"))?;
+            .map_err(|_| unavailable("invalid task read response"))?;
         map_body(&value)
     };
     tokio::time::timeout(std::time::Duration::from_secs(120), run)
         .await
-        .map_err(|_| unavailable("session probe bridge timed out"))?
+        .map_err(|_| unavailable("task read bridge timed out"))?
 }
 
-pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
+    id: &str,
     replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
 ) -> Result<Value, CoreError> {
     use tokio::io::AsyncWriteExt;
-    let id = format!("{prefix}:{}", hex::encode(rand::random::<[u8; 16]>()));
+    let req_id = format!("{prefix}:{}", hex::encode(rand::random::<[u8; 16]>()));
     let request = serde_json::json!({
         "jsonrpc": "2.0",
-        "id": id,
-        "method": "_internal.session-probe.parts",
-        "params": {"key": key},
+        "id": req_id,
+        "method": "_internal.task-read.parts",
+        "params": {"key": key, "id": id},
     });
     let mut bytes = serde_json::to_vec(&request)
-        .map_err(|_| CoreError::new(Code::Internal, "session probe encoding failed"))?;
+        .map_err(|_| CoreError::new(Code::Internal, "task read encoding failed"))?;
     bytes.push(b'\n');
     core.write_all(&bytes)
         .await
-        .map_err(|_| unavailable("session probe channel closed"))?;
+        .map_err(|_| unavailable("task read channel closed"))?;
     core.flush()
         .await
-        .map_err(|_| unavailable("session probe channel closed"))?;
-    tokio::time::timeout(std::time::Duration::from_secs(120), receive(replies, &id))
-        .await
-        .map_err(|_| unavailable("session probe bridge timed out"))?
+        .map_err(|_| unavailable("task read channel closed"))?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        receive(replies, &req_id),
+    )
+    .await
+    .map_err(|_| unavailable("task read bridge timed out"))?
 }
 
 async fn receive(
@@ -94,13 +96,13 @@ async fn receive(
             continue;
         }
         return if let Some(error) = value.get("error") {
-            Err(crate::native::config_sync::error(error))
+            Err(crate::config_sync::error(error))
         } else {
             value
                 .get("result")
                 .cloned()
-                .ok_or_else(|| unavailable("invalid session probe response"))
+                .ok_or_else(|| unavailable("invalid task read response"))
         };
     }
-    Err(unavailable("session probe channel closed"))
+    Err(unavailable("task read channel closed"))
 }

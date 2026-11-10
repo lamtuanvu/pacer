@@ -3,9 +3,9 @@
 use pacer_foundation::{Ctx, api::CoreError};
 use serde_json::Value;
 
-use super::{config_writes, host_mut_ops};
+use pacer_config_ops::{config_writes, host_mut_ops};
 
-pub(crate) async fn call_stdio_set<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn call_stdio_set<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &Ctx,
     params: Value,
     core: &mut W,

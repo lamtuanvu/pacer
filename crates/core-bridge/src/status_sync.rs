@@ -1,5 +1,6 @@
 #![allow(clippy::result_large_err)]
-//! Fixed bridge for config.get host-field injection from the TypeScript owner.
+//! Fixed bridge for usage-broker injection parts from the TypeScript `computeStatus`
+//! owner; no caller-controlled operation crosses this channel.
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::Value;
 
@@ -9,15 +10,15 @@ fn unavailable(message: &str) -> CoreError {
 
 fn map_body(value: &Value) -> Result<Value, CoreError> {
     if let Some(error) = value.get("error") {
-        return Err(crate::native::config_sync::error(error));
+        return Err(crate::config_sync::error(error));
     }
     value
         .get("result")
         .cloned()
-        .ok_or_else(|| unavailable("invalid config host response"))
+        .ok_or_else(|| unavailable("invalid usage broker response"))
 }
 
-pub(crate) async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
+pub async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::BodyExt;
     use hyper_util::{
@@ -29,34 +30,34 @@ pub(crate) async fn http(target: Option<(u16, String)>) -> Result<Value, CoreErr
         let request = axum::http::Request::builder()
             .method("POST")
             .uri(format!(
-                "http://127.0.0.1:{port}/_internal/config-host-parts"
+                "http://127.0.0.1:{port}/_internal/status-broker-parts"
             ))
             .header("authorization", format!("Bearer {token}"))
             .header("content-type", "application/json")
             .body(Body::from("{}"))
-            .map_err(|_| unavailable("config host bridge unavailable"))?;
+            .map_err(|_| unavailable("usage broker bridge unavailable"))?;
         let client: Client<HttpConnector, Body> =
             Client::builder(TokioExecutor::new()).build_http();
         let response = client
             .request(request)
             .await
-            .map_err(|_| unavailable("config host bridge unavailable"))?;
+            .map_err(|_| unavailable("usage broker bridge unavailable"))?;
         let bytes = response
             .into_body()
             .collect()
             .await
-            .map_err(|_| unavailable("config host bridge unavailable"))?
+            .map_err(|_| unavailable("usage broker bridge unavailable"))?
             .to_bytes();
         let value: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| unavailable("invalid config host response"))?;
+            .map_err(|_| unavailable("invalid usage broker response"))?;
         map_body(&value)
     };
     tokio::time::timeout(std::time::Duration::from_secs(120), run)
         .await
-        .map_err(|_| unavailable("config host bridge timed out"))?
+        .map_err(|_| unavailable("usage broker bridge timed out"))?
 }
 
-pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
@@ -67,21 +68,21 @@ pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
-        "method": "_internal.config-host.parts",
+        "method": "_internal.status-broker.parts",
         "params": {"key": key},
     });
     let mut bytes = serde_json::to_vec(&request)
-        .map_err(|_| CoreError::new(Code::Internal, "config host encoding failed"))?;
+        .map_err(|_| CoreError::new(Code::Internal, "usage broker encoding failed"))?;
     bytes.push(b'\n');
     core.write_all(&bytes)
         .await
-        .map_err(|_| unavailable("config host channel closed"))?;
+        .map_err(|_| unavailable("usage broker channel closed"))?;
     core.flush()
         .await
-        .map_err(|_| unavailable("config host channel closed"))?;
+        .map_err(|_| unavailable("usage broker channel closed"))?;
     tokio::time::timeout(std::time::Duration::from_secs(120), receive(replies, &id))
         .await
-        .map_err(|_| unavailable("config host bridge timed out"))?
+        .map_err(|_| unavailable("usage broker bridge timed out"))?
 }
 
 async fn receive(
@@ -93,13 +94,13 @@ async fn receive(
             continue;
         }
         return if let Some(error) = value.get("error") {
-            Err(crate::native::config_sync::error(error))
+            Err(crate::config_sync::error(error))
         } else {
             value
                 .get("result")
                 .cloned()
-                .ok_or_else(|| unavailable("invalid config host response"))
+                .ok_or_else(|| unavailable("invalid usage broker response"))
         };
     }
-    Err(unavailable("config host channel closed"))
+    Err(unavailable("usage broker channel closed"))
 }
