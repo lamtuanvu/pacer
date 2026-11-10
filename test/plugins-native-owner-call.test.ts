@@ -75,12 +75,27 @@ async function fakeOwner(path: string, reply: Reply): Promise<{ requests: any[] 
 
 // Forwards `next(answers)` to Core one at a time, then sends the final reply with `value`.
 type Ask = { method: string; params: unknown } | undefined;
-async function forwardingOwner(path: string, next: (answers: any[]) => Ask, value: unknown): Promise<{ answers: any[]; requests: any[] }> {
+async function waitUntil(condition: () => boolean): Promise<void> {
+  const deadline = Date.now() + 3000;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error("timed out waiting for owner");
+    await Bun.sleep(5);
+  }
+}
+
+async function forwardingOwner(path: string, next: (answers: any[]) => Ask, value: unknown, stopOnChunkError = false): Promise<{ answers: any[]; requests: any[]; closed: () => boolean }> {
   const answers: any[] = [], requests: any[] = [];
+  let closed = false;
   const server = createServer(socket => {
+    socket.once("close", () => { closed = true; });
+    // Core closes on a failed chunk; a fallback write may race that close.
+    socket.on("error", () => {});
     let text = "", callId: unknown;
+    let chunkPending = false;
     const step = () => {
       const ask = next(answers);
+      if (ask?.method === "$/resultChunk" && (ask.params as { request?: unknown }).request === 1) ask.params = { ...(ask.params as object), request: callId };
+      chunkPending = ask?.method === "$/resultChunk";
       socket.write(JSON.stringify(ask ? { jsonrpc: "2.0", id: `core-${answers.length + 1}`, ...ask }
         : { jsonrpc: "2.0", id: callId, result: { value, hello: null, logs: [] } }) + "\n");
     };
@@ -91,13 +106,13 @@ async function forwardingOwner(path: string, next: (answers: any[]) => Ask, valu
         text = text.slice(cut + 1);
         if (frame.method === "_host.plugin.call") { requests.push(frame); callId = frame.id; answers.length = 0; }
         else answers.push(frame.result ?? frame.error);
-        step();
+        if (!stopOnChunkError || !frame.error || !chunkPending) step();
       }
     });
   });
   servers.push(server);
   await new Promise<void>(done => server.listen(path, done));
-  return { answers, requests };
+  return { answers, requests, closed: () => closed };
 }
 
 test("flag-on call goes to the native owner over host.sock with sealed spawn, authority and scope roots", async () => {
@@ -685,12 +700,12 @@ test("flag-on refuses a chunk on a read-only planner call that only sealed fs re
     { method: "$/resultChunk", params: { request: 1, offset: 0, base64: Buffer.from("{}").toString("base64") } },
     undefined,
   ][answers.length], { schema: 1 });
-  const value = await registry.call(ctx, "fx-native", "planner.plan", input, { plannerResources: lease, accountHome: folder });
+  await expect(registry.call(ctx, "fx-native", "planner.plan", input, { plannerResources: lease, accountHome: folder })).rejects.toMatchObject({ code: "capability_denied" });
   await lease.dispose();
-  expect(value).toEqual({ schema: 1 });
+  await waitUntil(() => answers.length > 0);
+  expect(answers[0]).toMatchObject({ data: { code: "capability_denied" } });
   // A read-only planner call seals only the fs reads, never `$/resultChunk`.
   expect(requests[0].params.coreMethods).not.toContain("$/resultChunk");
-  expect(answers[0]).toMatchObject({ code: -32000, message: "result chunk does not belong to an active negotiated request", data: { code: "capability_denied" } });
   expect(spawned).toEqual([]);
 });
 
@@ -700,12 +715,24 @@ test("flag-on refuses a chunk on a call that never negotiated chunked results", 
     { method: "$/resultChunk", params: { request: 1, offset: 0, base64: Buffer.from("{}").toString("base64") } },
     undefined,
   ][answers.length], { ok: true });
-  const value = await registry.call(ctx, "fx-native", "diagnostic.ping", {});
-  expect(value).toEqual({ ok: true });
+  await expect(registry.call(ctx, "fx-native", "diagnostic.ping", {})).rejects.toMatchObject({ code: "capability_denied" });
+  await waitUntil(() => answers.length > 0);
+  expect(answers[0]).toMatchObject({ data: { code: "capability_denied" } });
   // No usage/effect to negotiate for: Core sealed no transport and answers the chunk itself.
   expect(requests[0].params.coreMethods).toBeUndefined();
-  expect(answers[0]).toMatchObject({ code: -32000, data: { code: "capability_denied" } });
   expect(spawned).toEqual([]);
+});
+
+test("flag-on refuses stale chunks without ending the current call", async () => {
+  const { ctx, folder, path, options } = plannerSetup();
+  const owner = await forwardingOwner(path, answers => answers.length === 0
+    ? { method: "$/resultChunk", params: { request: -1, offset: 0, base64: "e30=" } }
+    : undefined, { schema: 1 });
+  const lease = new PlannerResources(ctx, { purpose: "install", cwd: ctx.home, binaries: ["fx-planner"], roots: [folder] });
+  try {
+    expect(await options.registry.call(ctx, "fx-planner", "planner.install", {}, { plannerResources: lease, accountHome: folder })).toEqual({ schema: 1 });
+  } finally { await lease.dispose(); }
+  expect(owner.answers[0]).toMatchObject({ data: { code: "capability_denied" } });
 });
 
 test("flag-on refuses a plain result after chunks were staged", async () => {
@@ -723,6 +750,23 @@ test("flag-on refuses a plain result after chunks were staged", async () => {
   expect(spawned).toEqual([]);
 });
 
+test("flag-on rejects the pending call on its first refused chunk even without a final reply", async () => {
+  for (const params of [
+    { request: 1, offset: 0, base64: "!" },
+    { request: 1, offset: 5, base64: "e30=" },
+    { request: 1, offset: 0, base64: Buffer.alloc(262145).toString("base64") },
+  ]) {
+    const { ctx, folder, path, options } = plannerSetup();
+    const owner = await forwardingOwner(path, () => ({ method: "$/resultChunk", params: { ...params } }), { schema: 1 }, true);
+    const lease = new PlannerResources(ctx, { purpose: "install", cwd: ctx.home, binaries: ["fx-planner"], roots: [folder] });
+    try {
+      await expect(options.registry.call(ctx, "fx-planner", "planner.install", {}, { plannerResources: lease, accountHome: folder }))
+        .rejects.toMatchObject({ code: "invalid_input" });
+    } finally { await lease.dispose(); }
+    await waitUntil(owner.closed);
+  }
+});
+
 test("flag-on applies flag-off chunk bounds: oversized chunk, non-contiguous and duplicate offsets, and an over-16 MiB total", async () => {
   const CHUNK = 262144;
   const weight = Buffer.from("{}").toString("base64");
@@ -732,9 +776,10 @@ test("flag-on applies flag-off chunk bounds: oversized chunk, non-contiguous and
     const { answers, requests } = await forwardingOwner(path, answers => chunks[answers.length] ?? undefined, value);
     const lease = new PlannerResources(ctx, { purpose: "install", cwd: ctx.home, binaries: ["fx-planner"], roots: [folder] });
     try {
-      await options.registry.call(ctx, "fx-planner", "planner.install", {}, { plannerResources: lease, accountHome: folder });
-    } catch { /* chunk errors are expected; the answers record them */ }
-    await lease.dispose();
+      await expect(options.registry.call(ctx, "fx-planner", "planner.install", {}, { plannerResources: lease, accountHome: folder }))
+        .rejects.toMatchObject({ code: "invalid_input" });
+    } finally { await lease.dispose(); }
+    await waitUntil(() => answers.length === chunks.length);
     return { answers: answers as any[], requests, spawned };
   };
   // A chunk over 256 KiB is refused (the `CHUNK` bound).

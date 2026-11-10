@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- With the native plugin owner on, a refused first result chunk now ends the plugin call, as it does with the owner off: the plugin can no longer fall back to a plain result after any chunk attempt, the owner's own refusals are reported as pacer's errors rather than the plugin's, and a chunk that belongs to another call is refused without ending the current one.
+
 - Undo snapshot cleanup skips a busy installation lock during diagnostics and runs after the service listener binds, so a long connect or undo no longer delays these paths by up to 30 seconds.
 
 - Live sessions have one interactive mode (session protocol 1.2): every attached interactive client can type, the PTY size follows the most recently active client, pacer's answers and live messages go through a quiet, guarded delivery window instead of a controller lease, terminal-query replies are answered by the host, and ending a takeover session is an explicit `task.hand_back` rather than a side effect of releasing control. `controller` stays on `TaskData.session` and `task.session` as a deprecated field (always `null` for 1.2 sessions, removed only in the next major API protocol release); additive `active` (the label of the client that typed last) and `sessionMinor` fields are added. Viewers of a session on a remote host (reaching it through the SSH bridge) stay read-only until a later decision grants them input; paired-machine session viewing does not exist yet and will need its own enforcement, and delivery refusals name the cause and the client, e.g. "Not delivered: unsent input in the agent from Pacer desktop". See [ADR 0023](docs/decisions/0023-single-interactive-session-mode.md).

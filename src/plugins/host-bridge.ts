@@ -105,7 +105,7 @@ function bridgeError(socketPath: string, error: NonNullable<z.infer<typeof rpcRe
 }
 
 /** Answers an owner request for a method Core sealed in `coreMethods`. */
-export type OwnerRequestHandler = (method: string, params: unknown) => Promise<unknown>;
+export type OwnerRequestHandler = (method: string, params: unknown, request: number) => Promise<unknown>;
 
 function callbackError(error: unknown): { code: number; message: string; data: { code: string; hint?: string } } {
   if (error instanceof CoreError) return { code: -32000, message: error.message, data: { code: error.code, ...(error.hint ? { hint: error.hint } : {}) } };
@@ -122,11 +122,17 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
     const socket = createConnection(socketPath);
     let chunks: Buffer[] = [];
     let size = 0, settled = false;
-    const settle = (failure: CoreError | undefined, value?: unknown) => {
+    const settle = (failure: CoreError | undefined, value?: unknown, flush = false) => {
       if (settled) return;
       settled = true;
       signal?.removeEventListener("abort", abort);
-      socket.destroy();
+      // Flush the chunk error answer, then close even if the peer keeps reading.
+      if (flush) {
+        const timer = setTimeout(() => socket.destroy(), 1000);
+        timer.unref();
+        socket.once("close", () => clearTimeout(timer));
+        socket.end(() => socket.destroy());
+      } else socket.destroy();
       if (failure) reject(failure); else resolve(value);
     };
     const abort = () => settle(cancellation(signal, revoked));
@@ -138,8 +144,22 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
         if (line.length > MAX_FRAME_BYTES) socket.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, error: callbackError(new CoreError("too_large", "capability reply exceeds the 1 MiB bridge frame")) }) + "\n");
         else socket.write(line);
       };
-      if (!onRequest) return respond({ error: callbackError(new CoreError("capability_denied", `${request.method} is not served by Core for this call`)) });
-      onRequest(request.method!, request.params ?? {}).then(result => respond({ result }), error => respond({ error: callbackError(error) }));
+      const chunkRequest = (request.params as { request?: unknown })?.request;
+      const staleChunk = request.method === "$/resultChunk" && typeof chunkRequest === "number" && chunkRequest !== id;
+      if (staleChunk) {
+        respond({ error: callbackError(new CoreError("capability_denied", "result chunk does not belong to an active negotiated request")) });
+        return;
+      }
+      if (!onRequest) {
+        const error = new CoreError("capability_denied", `${request.method} is not served by Core for this call`);
+        respond({ error: callbackError(error) });
+        if (request.method === "$/resultChunk") settle(error, undefined, true);
+        return;
+      }
+      onRequest(request.method!, request.params ?? {}, id).then(result => respond({ result }), error => {
+        respond({ error: callbackError(error) });
+        if (request.method === "$/resultChunk") settle(error instanceof CoreError ? error : new CoreError("plugin_refused", "result chunk transfer failed"), undefined, true);
+      });
     };
     const line = (bytes: Buffer) => {
       let reply: z.infer<typeof rpcReply>;

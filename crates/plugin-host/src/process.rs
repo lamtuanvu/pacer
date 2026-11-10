@@ -8,6 +8,8 @@ pub const MAX_LINE_BYTES: usize = 1024 * 1024;
 pub enum ProcessError {
     #[error("plugin process is unavailable: {0}")]
     Unavailable(String),
+    #[error("plugin call refused by owner: {0}")]
+    OwnerRefused(String),
     #[error("plugin frame exceeds 1 MiB")]
     TooLarge,
     #[error("plugin request timed out")]

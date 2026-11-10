@@ -78,6 +78,24 @@ fn call_failure(error: OwnerError, fallback: &str) -> CallFailure {
         if *text == ProcessError::Cancelled.to_string() {
             return cancelled();
         }
+        let owner_prefix = ProcessError::OwnerRefused(String::new()).to_string();
+        if let Some(Ok(reply)) = text
+            .strip_prefix(&owner_prefix)
+            .map(serde_json::from_str::<Value>)
+        {
+            return CallFailure {
+                code: reply["data"]["code"]
+                    .as_str()
+                    .unwrap_or(fallback)
+                    .to_owned(),
+                message: reply["message"]
+                    .as_str()
+                    .unwrap_or("plugin call refused")
+                    .to_owned(),
+                hint: reply["data"]["hint"].as_str().map(str::to_owned),
+                from_plugin: false,
+            };
+        }
         let prefix = ProcessError::Unavailable(String::new()).to_string();
         if let Some(Ok(reply)) = text
             .strip_prefix(&prefix)

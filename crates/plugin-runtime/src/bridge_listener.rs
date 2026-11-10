@@ -344,6 +344,10 @@ async fn handle_connection(
         if line.is_empty() {
             continue;
         }
+        let bridge_request_id = serde_json::from_slice::<Value>(&line)
+            .ok()
+            .and_then(|call| call.get("id").cloned())
+            .unwrap_or(Value::Null);
         let (cancel, cancelled) = watch::channel(false);
         let (forward, mut forwarded) = mpsc::channel::<CoreRequest>(1);
         let work = response_for_line(&line, &dispatch, &cancelled, forward);
@@ -375,7 +379,14 @@ async fn handle_connection(
                     work.await;
                     break None;
                 }
-                Turn::Forward((method, params, reply)) => {
+                Turn::Forward((method, mut params, reply)) => {
+                    // The process exchange validated the child request id/token. Core
+                    // sees its own connection-scoped request identity.
+                    if method == "$/resultChunk"
+                        && params.get("request").and_then(Value::as_u64).is_some()
+                    {
+                        params["request"] = bridge_request_id.clone();
+                    }
                     forwarded_count += 1;
                     let request_id = json!(format!("core-{forwarded_count}"));
                     let frame = json!({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params});
