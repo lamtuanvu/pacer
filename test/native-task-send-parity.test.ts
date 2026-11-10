@@ -217,11 +217,14 @@ test.skipIf(!front)("native task.send refuses exactly as TypeScript and delivers
   expect([1, 2, 3, 4, 5, 6, 7, 8, 9].map(id => (native.get(id)?.error as { data?: { code?: string } })?.data?.code))
     .toEqual(["unavailable", "unavailable", "conflict", "conflict", "conflict", "unknown_task", "invalid_input", "invalid_input", "invalid_input"]);
 
+  const send = [{ id: 10, params: { id: live, text: "go with plan B" } }];
   const before = typed().length;
-  const delivered = (await exchange(clone(ctx.home), [{ id: 10, params: { id: live, text: "go with plan B" } }], false)).get(10);
-  expect(delivered?.error).toBeUndefined();
-  expect(delivered?.result).toMatchObject({ id: live, state: "running", driving: { by: "alice@term_planner" } });
-  expect(typed().slice(before)).toContain("go with plan B");
+  for (const forward of [false, true]) {
+    const delivered = (await exchange(clone(ctx.home), send, forward)).get(10);
+    expect(delivered?.error, forward ? "forwarded" : "native").toBeUndefined();
+    expect(delivered?.result).toMatchObject({ id: live, state: "running", driving: { by: "alice@term_planner" } });
+  }
+  expect(typed().slice(before).split("go with plan B").length - 1).toBe(2);
 }, 60000);
 
 test.skipIf(!front)("native task.send refuses an enforcement identity exactly as TypeScript, before its params and without effects", async () => {
