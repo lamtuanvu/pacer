@@ -234,6 +234,8 @@ test("execution.backend maps auto and unset to direct, writes orca or direct and
   expect(warned).toMatchObject({value: "orca", previous: "direct", undo: "pacer config set execution.backend direct", warning: "Orca isn't running; tasks run directly until it is."});
   expect(warned.notes).toBeUndefined();
   expect(loadStrategy(ctx).execution).toMatchObject({backend: "orca"});
+  // config.set stops waiting for readiness after 3 s; under load the probe reaches `orca status` later.
+  for (let i = 0; i < 200 && !calls.length; i++) await Bun.sleep(50);
   expect(calls[0]?.slice(0, 2)).toEqual(["orca", "status"]);
   await callOp(ctx, "config.set", {key: "execution.backend", value: "direct"});
   expect(readFileSync(path, "utf8")).toContain("backend: direct");
