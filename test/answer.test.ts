@@ -69,6 +69,38 @@ test("pacer answer passes task and text directly to the answer operation",async(
   } finally {cliDeps.spawnRunner=before;}
 });
 
+test("pacer answer accepts --json and rejects unknown options explicitly",async()=>{
+  const {ctx,task,deps,spawned}=setup();
+  const before=cliDeps.spawnRunner;
+  try {
+    cliDeps.spawnRunner=deps.spawnRunner;
+    // An unknown option is refused by name, before anything runs.
+    const bad=await main(["answer",task.id,"use postgres","--oops"],ctx);
+    expect(bad).toMatchObject({code:2});
+    expect(bad.err).toContain("unknown option: --oops");
+    expect(spawned).toEqual([]);
+    const r=await main(["answer",task.id,"use postgres","--json"],ctx);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("\n");
+    expect(readTask(ctx, JSON.parse(r.out).retry.id)).toBeTruthy();
+    expect(spawned).toHaveLength(1);
+  } finally {cliDeps.spawnRunner=before;}
+});
+
+test("pacer answer takes answer text that starts with a dash after a -- separator",async()=>{
+  const {ctx,task,text,deps,spawned}=setup();
+  const before=cliDeps.spawnRunner;
+  try {
+    cliDeps.spawnRunner=deps.spawnRunner;
+    const r=await main(["answer",task.id,"--","--force is fine"],ctx);
+    expect(r).toMatchObject({code:0});
+    expect(spawned).toHaveLength(1);
+    const retry=readTask(ctx,(JSON.parse(r.out) as {retry:{id:string}}).retry.id)!;
+    expect(retry.brief.qa?.at(-1)).toEqual({q:text,a:"--force is fine"});
+    // After the separator even another option-shaped arg is answer text, and --json stays an explicit option before it.
+  } finally {cliDeps.spawnRunner=before;}
+});
+
 test("an answer starts from the asking executor's committed worktree head",async()=>{
   const {ctx,task,deps}=setup();
   ctx.run=realRun;

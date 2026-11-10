@@ -73,6 +73,11 @@ export function markRead(ctx: Ctx, to: string, ids: string[], at = ctx.now): num
   const db = messagesDatabase(ctx);
   return db.transaction(() => ids.reduce((n, id) => n + db.query("UPDATE messages SET status='read', read_at=? WHERE id=? AND recipient=? AND status<>'read' AND status<>'held'").run(at, id, to).changes, 0)).immediate();
 }
+/** Undo markRead for messages nothing typed: back to pending, so an ordinary delivery can claim them again. */
+export function unmarkRead(ctx: Ctx, to: string, ids: string[]): number {
+  const db = messagesDatabase(ctx);
+  return db.transaction(() => ids.reduce((n, id) => n + db.query("UPDATE messages SET status='pending', read_at=NULL WHERE id=? AND recipient=? AND status='read'").run(id, to).changes, 0)).immediate();
+}
 export function pendingFor(ctx: Ctx, to: string): Message[] {
   return messagesDatabase(ctx).query<Row, [string]>("SELECT * FROM messages WHERE recipient=? AND status='pending' ORDER BY id").all(to).map(toMessage);
 }
