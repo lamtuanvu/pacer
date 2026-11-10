@@ -3109,8 +3109,7 @@ Params JSON Schema:
     },
     "since": {
       "type": "number",
-      "minimum": 0,
-      "description": "Tasks created at or after this Unix time (creation time, not update time)."
+      "minimum": 0
     }
   },
   "additionalProperties": false
