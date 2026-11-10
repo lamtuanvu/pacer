@@ -218,3 +218,36 @@ test("server stop bounds an unresponsive worker by the grace period", async () =
     expect(readDiag(ctx)?.state).toBe("stopped");
   } finally { await server.stop(); }
 });
+
+test("held worker preparation returns request conflict while health remains responsive", async () => {
+  const { preparationWorker } = await import("./task-preparation-worker-helper");
+  const ctx = fakeCtx({ which: () => null });
+  const task = createTask(ctx, { brief: { goal: "contention", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 0, bgStopGraceMs: 1000 });
+  const w = preparationWorker(ctx, task.id);
+  const request = (path: string, body?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}`, {
+    method: body ? "POST" : "GET",
+    headers: { Authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(1000),
+  });
+  try {
+    w.send("prepare");
+    expect((await w.wait("held")).type).toBe("held");
+    // Release only after both HTTP responses: a synchronous lock wait cannot
+    // pass by merely waiting for the worker to finish its preparation.
+    const started = performance.now();
+    const mutation = request("/v3/ops/task.stop", { id: task.id });
+    const health = await request("/health");
+    expect(health.status).toBe(200);
+    expect(performance.now() - started).toBeLessThan(500);
+    const response = await mutation;
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("conflict");
+    w.send("release");
+    expect((await w.wait("done")).type).toBe("done");
+    const retry = await request("/v3/ops/task.stop", { id: task.id });
+    expect(retry.status).toBe(200);
+    expect(listTasks(ctx).find(t => t.id === task.id)?.state).toBe("stopped");
+  } finally { w.send("release"); w.worker.terminate(); await server.stop(); }
+});

@@ -25,7 +25,7 @@ import {
   type DelegateInput, type SpawnRunner, admissionCtx, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
   taskStop, taskWait,
 } from "../tasks/api";
-import { isTaskId, listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
+import { isTaskId, listTasksWhere, readTask, updateTask, withTaskLock, withTaskLockAsync } from "../tasks/store";
 import type { TaskRecord, TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
 import { isExecutorSession } from "../install/role";
@@ -531,7 +531,8 @@ export async function answerLiveTask(ctx: Ctx, id: string, text: string, expectR
   const delivered = await sendDirectInput(ctx, reserved, text, same);
   if (!delivered.ok) {
     // A socket error after a write is ambiguous: never silently resend or erase that reservation.
-    if (delivered.definite) withTaskLock(ctx, id, () => {
+    // Once reserved, rollback must wait for foreign writers even if the request ended.
+    if (delivered.definite) await withTaskLockAsync(ctx, id, () => {
       const task = readTask(ctx, id);
       if (task && same(task)) updateTask(ctx, id, t => { delete t.question!.answer; delete t.question!.answeredAt; });
     });

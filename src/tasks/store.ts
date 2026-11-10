@@ -327,11 +327,15 @@ export function withTaskLock<T>(ctx: Ctx, id: string, action: () => T): T {
   if (heldTaskLocks.has(key)) return action();
   // An asynchronous preparer must be able to settle on this event loop.
   if (preparingTaskLocks.has(key)) throw new CoreError("conflict", "Task admission is being prepared; retry the change");
+  // Request mutations must return promptly across isolates too. Internal/offline
+  // synchronous callers retain the established bounded wait: after an external
+  // effect, a busy lock is not permission to discard its completion or rollback.
+  // Async completion paths use withTaskLockAsync to keep their event loop free.
   return withLockSync(ctx, `task-${id}`, () => {
     heldTaskLocks.add(key);
     try { return action(); }
     finally { heldTaskLocks.delete(key); }
-  });
+  }, ctx.operation ? { timeoutMs: 0, conflict: true } : {});
 }
 
 /** Wait for the operation lock asynchronously, then perform a short synchronous

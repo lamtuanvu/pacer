@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- The service owns periodic background work in a separate worker to keep request handling responsive. HTTP task mutations that encounter a busy task lock return `conflict` promptly and can be retried; required runner completion and cleanup after definite input-delivery failures wait asynchronously for the lock. See [dispatch](docs/dispatch.md).
+
 - With the native plugin owner on, a refused first result chunk now ends the plugin call, as it does with the owner off: the plugin can no longer fall back to a plain result after any chunk attempt, the owner's own refusals are reported as pacer's errors rather than the plugin's, and a chunk that belongs to another call is refused without ending the current one.
 
 - Undo snapshot cleanup skips a busy installation lock during diagnostics and runs after the service listener binds, so a long connect or undo no longer delays these paths by up to 30 seconds.

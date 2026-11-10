@@ -64,7 +64,7 @@ import { resolveRunner } from "../config/runner-id";
 import { markAuthFailed, attemptAuthError } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
 import { usageRefreshCapability } from "../usage";
-import { listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
+import { listTasksWhere, readTask, updateTask, withTaskLock, withTaskLockAsync } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 
 export const MAX_ATTEMPTS = 3;
@@ -103,9 +103,9 @@ export function needsDirectBackend(task: TaskRecord, strict: boolean): boolean {
   return strict || !!task.pendingTurn || (task.interactionMode === "conversation" && !task.interactive);
 }
 
-function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
+async function finish(ctx: Ctx, id: string, result: TaskResult): Promise<TaskRecord> {
   if (getWork(ctx,id) && result.status === "done" && pendingChildren(ctx,id).length) result = {...result,status:"needs_input",report:result.report+"\nRequired child work needs review before this task can complete."};
-  const finished = updateTask(ctx, id, (t) => {
+  const finished = await withTaskLockAsync(ctx, id, () => updateTask(ctx, id, (t) => {
     if (t.executorProvider && t.stopPending) {
       const receipt = t.executorExitReceipt, run = t.run, pending = t.stopPending;
       if (!run || !receipt || receipt.attempt !== pending.attempt ||
@@ -136,7 +136,7 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
     delete t.childIdentity;
     delete t.runnerPid;
     delete t.handover;
-  });
+  }));
   if (finished.state === "done") {
     const seen = new Set<string>([id]);
     let parent = finished.retryOf;
@@ -144,7 +144,7 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
       seen.add(parent);
       const previous = readTask(ctx, parent);
       if (!previous) break;
-      updateTask(ctx, parent, t => { t.dismissed = true; });
+      await withTaskLockAsync(ctx, parent, () => updateTask(ctx, parent!, t => { t.dismissed = true; }));
       parent = previous.retryOf;
     }
   }
@@ -865,7 +865,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       attemptedBackend = out.backend ?? attemptedBackend;
       out.attempt.tokens = extractAttemptTokens({ executor: pick, log: attemptUsageText(ctx, id, task.attempts.length + 1, pick, out.attempt.log),
         exitCode: out.attempt.exitCode, timedOut: out.attempt.timedOut, takeover, now: out.attempt.endedAt });
-      task = updateTask(ctx, id, (t) => {
+      task = await withTaskLockAsync(ctx, id, () => updateTask(ctx, id, (t) => {
         t.attempts.push(out.attempt);
         // Same transaction as the attempt; an index failure must not lose the attempt itself.
         try { recordAttemptUsage(ctx, t, t.attempts.length, out.attempt.tokens!, authAccount); } catch (error) { console.warn(`pacer: token usage index not updated for ${id}: ${error instanceof Error ? error.message : String(error)}`); }
@@ -873,7 +873,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         t.backend = attemptedBackend;
         delete t.childPid;
         delete t.childIdentity;
-      });
+      }));
       try {
         const result: TaskResult | undefined = out.worktree ? {
           status: "done", executor: pick, model: cfg.model, files: "", report: "",
