@@ -37,7 +37,7 @@ test("periodic loops run in the background worker", async () => {
   const ctx = fakeCtx({ which: () => null });
   withStrategy(ctx);
   createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 25 });
+  const server = startServer(() => ctx, { bgStopGraceMs: 1000, port: 0, listener: false, backgroundWorker: true, pumpMs: 25 });
   try {
     // A real worker is spawned and takes over the periodic loops.
     await waitFor(() => readDiag(ctx)?.state === "running");
@@ -59,7 +59,7 @@ test("a blocked worker tick does not delay /health or a task.get", async () => {
   for (let i = 0; i < 60; i++) {
     createTask(ctx, { brief: { goal: `g${i}`, repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   }
-  const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 20 });
+  const server = startServer(() => ctx, { bgStopGraceMs: 1000, port: 0, listener: false, backgroundWorker: true, pumpMs: 20 });
   await waitFor(() => readDiag(ctx)?.state === "running");
   const request = (path: string, init?: RequestInit) => fetch(`http://127.0.0.1:${server.port}${path}`, {
     headers: { Authorization: `Bearer ${server.token}`, "content-type": "application/json" },
@@ -85,7 +85,7 @@ test("a blocked worker tick does not delay /health or a task.get", async () => {
 
 test("the worker restarts after it dies and diagnostics show it", async () => {
   const ctx = fakeCtx({ which: () => null });
-  const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 0 });
+  const server = startServer(() => ctx, { bgStopGraceMs: 1000, port: 0, listener: false, backgroundWorker: true, pumpMs: 0 });
   try {
     await waitFor(() => readDiag(ctx)?.state === "running");
     const worker = server.backgroundWorker();
@@ -107,7 +107,7 @@ test("a worker that stops heartbeating is restarted by silent-tick counting", as
   const ctx = fakeCtx({ which: () => null });
   // The worker's heartbeat interval is far longer than the test; silence is
   // detected by counting monitor ticks without a heartbeat, not wall-clock time.
-  const server = startServer(() => ctx, {
+  const server = startServer(() => ctx, { bgStopGraceMs: 1000,
     port: 0, listener: false, backgroundWorker: true, pumpMs: 0,
     bgMonitorMs: 20, bgSilenceTicks: 3, bgHeartbeatMs: 60_000,
   });
@@ -148,7 +148,7 @@ test("the worker stops gracefully and closes itself on a stop message", async ()
 test("the usage loop runs in the worker and the main thread stays healthy", async () => {
   const ctx = fakeCtx({ which: () => null });
   withStrategy(ctx);
-  const server = startServer(() => ctx, {
+  const server = startServer(() => ctx, { bgStopGraceMs: 1000,
     port: 0, listener: false, backgroundWorker: true, pumpMs: 0, bgUsageMs: 40,
   });
   try {
@@ -165,7 +165,7 @@ test("the usage loop runs in the worker and the main thread stays healthy", asyn
 test("SSE wakes on a worker publish", async () => {
   const ctx = fakeCtx({ which: () => null });
   withStrategy(ctx);
-  const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 25 });
+  const server = startServer(() => ctx, { bgStopGraceMs: 1000, port: 0, listener: false, backgroundWorker: true, pumpMs: 25 });
   try {
     await waitFor(() => readDiag(ctx)?.state === "running");
     const response = await fetch(`http://127.0.0.1:${server.port}/v3/events`, {
@@ -191,7 +191,7 @@ test("SSE wakes on a worker publish", async () => {
 });
 test("server stop waits for worker close and persists stopped diagnostics", async () => {
   const ctx = fakeCtx({ which: () => null });
-  const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 0 });
+  const server = startServer(() => ctx, { bgStopGraceMs: 1000, port: 0, listener: false, backgroundWorker: true, pumpMs: 0 });
   try {
     await waitFor(() => readDiag(ctx)?.state === "running");
     const worker = server.backgroundWorker()!;
