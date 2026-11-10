@@ -144,6 +144,23 @@ test("stopRun escalates to KILL when TERM is ignored", async () => {
   await until(() => { try { process.kill(child, 0); return false; } catch { return true; } });
 });
 
+test("stopRun lets the interactive host record exit after escalating its TERM-resistant child", async () => {
+  const dir = tmpDir(), cwd = tmpDir(), ready = join(cwd, "ready");
+  const run = startRun({ dir, cwd, session: "interactive", env,
+    argv: ["sh", "-c", 'trap "" TERM; touch ready; while :; do sleep 0.1; done'] });
+  expect("pid" in run).toBe(true);
+  try {
+    await until(() => existsSync(ready) && existsSync(join(dir, "child")));
+    const result = await stopRun(dir, { graceMs: 200, requireRecordedExit: true });
+    expect(result).toEqual({ code: 143, killed: false });
+    expect(readRun(dir).exit).toBe(143);
+  } finally {
+    const child = Number(readFileSync(join(dir, "child"), "utf8"));
+    killTree(child, "SIGKILL");
+    if ("pid" in run) killTree(run.pid, "SIGKILL");
+  }
+});
+
 test("a reused pid is not mistaken for the wrapper", async () => {
   const dir = tmpDir();
   startRun({ dir, argv: ["true"], cwd: tmpDir(), env });
