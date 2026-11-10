@@ -124,7 +124,9 @@ test("reset behaviour unchanged for a too-old cursor", () => {
   expect(v3).toMatchObject({ reset: true, last: V3_CURSOR_BASE + 1700 });
   expect(v3.events[0]).toMatchObject({ type: "reset", seq: V3_CURSOR_BASE + oldest - 1 });
   expect(eventsSince(ctx, oldest - 1, 2).reset).toBe(false);
-  expect(eventsSince(ctx, 1, 3)).toMatchObject({ reset: true, events: [{ type: "reset" }] });
+  const protocolReset = eventsSince(ctx, 1, 3);
+  expect(protocolReset.reset).toBe(true);
+  expect(protocolReset.events[0]).toMatchObject({ type: "reset", seq: V3_CURSOR_BASE });
   expectSameReplay(ctx, [1, cursor, oldest - 2, oldest - 1, oldest]);
 });
 

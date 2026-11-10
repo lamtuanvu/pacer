@@ -9,7 +9,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
-import { type ConsoleData, type OutboxEvent, LIMITS, type LinkSnapshot, emptySnapshot, parseOutboxEvent, parseSnapshot } from "./envelope";
+import { type ConsoleData, type OutboxEvent, LIMITS, type LinkSnapshot, emptySnapshot, parseSnapshot } from "./envelope";
+import { replayOutbox } from "./outbox-index";
 import { consolePath, consolesDir, latestPath, linkDir, outboxPath } from "./paths";
 import { list as listStrategies } from "../strategy/service";
 import { pidAlive } from "./pid";
@@ -154,7 +155,5 @@ export function rotateOutbox(ctx:Ctx):void {
   }
 }
 export function readOutboxSince(ctx:Ctx,seq:number):OutboxEntry[] {
-  const p=outboxPath(ctx); if(!existsSync(p))return []; const out:OutboxEntry[]=[];
-  for(const line of readFileSync(p,"utf8").split("\n")) { if(!line)continue; try { const raw=JSON.parse(line) as {seq?:unknown;at?:unknown;envelope?:unknown}; const envelope=parseOutboxEvent(raw.envelope); if(typeof raw.seq==="number"&&raw.seq>seq&&envelope)out.push({seq:raw.seq,...(typeof raw.at==="number"?{at:raw.at}:{}),envelope}); } catch { /* skip torn line */ } }
-  return out;
+  return replayOutbox(ctx,seq).entries;
 }
