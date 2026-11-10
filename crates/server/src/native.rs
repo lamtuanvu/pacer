@@ -36,13 +36,7 @@ mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
-<<<<<<< HEAD
-||||||| parent of 09ce54e8d (feat(m2): make service.handover and service.work native in Rust)
-pub(crate) mod host_check_clean_setup_sync;
-=======
 pub(crate) mod handover_bridge;
-pub(crate) mod host_check_clean_setup_sync;
->>>>>>> 09ce54e8d (feat(m2): make service.handover and service.work native in Rust)
 pub(crate) mod msg_write_sync;
 pub mod plugins;
 pub(crate) mod service_effects_sync;
