@@ -1,3 +1,4 @@
+mod cost_projection;
 use pacer_foundation::{
     Ctx,
     lock::{LockError, LockOptions, with_lock},

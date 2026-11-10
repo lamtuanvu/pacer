@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Native task cost reads skip peers when usage is absent and query a private scalar projection instead of decoding historical task records. The first cost-bearing read builds the projection in resumable transaction batches; large histories can still delay that read. See [ADR 0025](docs/decisions/0025-private-task-cost-projection.md).
+
 - Task history pages apply repository, visible-state and executor filters in indexed SQL before selecting the page, avoiding full-history record decoding for selective and empty results while preserving existing filter semantics.
 
 - The service owns periodic background work in a separate worker to keep request handling responsive. HTTP task mutations that encounter a busy task lock return `conflict` promptly and can be retried; required runner completion and cleanup after definite input-delivery failures wait asynchronously for the lock. See [dispatch](docs/dispatch.md).

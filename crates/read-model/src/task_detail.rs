@@ -4,7 +4,7 @@
 //! stay on TypeScript until their bridges exist.
 use crate::{Error, js::truth, snapshot::ActiveCounts, tasks::api_task_page};
 use pacer_foundation::Ctx;
-use pacer_store::{TaskFilter, TaskStore};
+use pacer_store::TaskStore;
 use serde_json::{Value, json};
 
 const TERMINAL: &[&str] = &[
@@ -47,27 +47,15 @@ fn overlaps(account: Option<&str>, a0: f64, a1: f64, b0: f64, b1: f64) -> bool {
 
 /// Match `src/core/task-detail.ts` `costFor` using only stored task records.
 pub fn executor_cost(task: &Value, peers: &[Value], now: f64) -> Value {
-    let attempts = array(&task["attempts"]);
-    let last = attempts.last().unwrap_or(&Value::Null);
-    let pending = task.get("pendingAttempt").filter(|v| !v.is_null());
-    let attempt = if pending.is_some() { None } else { Some(last) };
-    let start = pending
-        .and_then(|p| p.get("usageAtStart"))
-        .or_else(|| attempt.and_then(|a| a.get("usageAtStart")));
-    let Some(start) = start.filter(|s| s.is_object()) else {
-        return json!({"executor": Value::Null, "planner": Value::Null});
-    };
-    let end = attempt.and_then(|a| a.get("usageAtEnd"));
-    let from = attempt
-        .and_then(|a| a.get("startedAt").and_then(Value::as_f64))
-        .or_else(|| task["run"]["startedAt"].as_f64())
-        .or_else(|| task["attemptStartedAt"].as_f64())
-        .or_else(|| start["at"].as_f64())
-        .unwrap_or(now);
-    let until = attempt
-        .and_then(|a| a.get("endedAt").and_then(Value::as_f64))
-        .unwrap_or(now);
-    let shared = peers.iter().any(|other| {
+    // This callback cannot fail; retain the in-memory entry point for callers.
+    executor_cost_with(task, now, |from, until| {
+        Ok::<_, std::convert::Infallible>(peer_shared(task, peers, now, from, until))
+    })
+    .unwrap_or_else(|never| match never {})
+}
+
+fn peer_shared(task: &Value, peers: &[Value], now: f64, from: f64, until: f64) -> bool {
+    peers.iter().any(|other| {
         if other["id"] == task["id"] {
             return false;
         }
@@ -102,7 +90,35 @@ pub fn executor_cost(task: &Value, peers: &[Value], now: f64) -> Value {
                 from,
                 until,
             )
-    });
+    })
+}
+
+fn executor_cost_with<E>(
+    task: &Value,
+    now: f64,
+    shared: impl FnOnce(f64, f64) -> Result<bool, E>,
+) -> Result<Value, E> {
+    let attempts = array(&task["attempts"]);
+    let last = attempts.last().unwrap_or(&Value::Null);
+    let pending = task.get("pendingAttempt").filter(|v| !v.is_null());
+    let attempt = if pending.is_some() { None } else { Some(last) };
+    let start = pending
+        .and_then(|p| p.get("usageAtStart"))
+        .or_else(|| attempt.and_then(|a| a.get("usageAtStart")));
+    let Some(start) = start.filter(|s| s.is_object()) else {
+        return Ok(json!({"executor": Value::Null, "planner": Value::Null}));
+    };
+    let end = attempt.and_then(|a| a.get("usageAtEnd"));
+    let from = attempt
+        .and_then(|a| a.get("startedAt").and_then(Value::as_f64))
+        .or_else(|| task["run"]["startedAt"].as_f64())
+        .or_else(|| task["attemptStartedAt"].as_f64())
+        .or_else(|| start["at"].as_f64())
+        .unwrap_or(now);
+    let until = attempt
+        .and_then(|a| a.get("endedAt").and_then(Value::as_f64))
+        .unwrap_or(now);
+    let shared = shared(from, until)?;
     let comparable = end.filter(|e| e.is_object()).is_some_and(|e| {
         start["account"] == e["account"]
             && start["window"] == e["window"]
@@ -137,7 +153,7 @@ pub fn executor_cost(task: &Value, peers: &[Value], now: f64) -> Value {
     if let Some(r) = reason {
         executor["reason"] = json!(r);
     }
-    json!({"executor": executor, "planner": Value::Null})
+    Ok(json!({"executor": executor, "planner": Value::Null}))
 }
 
 fn known_branch(task: &Value) -> Option<Value> {
@@ -294,6 +310,27 @@ pub fn task_detail_store(
     peers: &[Value],
     omit_result_acceptance: bool,
 ) -> Result<Value, Error> {
+    let cost = executor_cost(task, peers, ctx.now);
+    task_detail_store_with_cost(
+        ctx,
+        active,
+        task,
+        store,
+        alive,
+        cost,
+        omit_result_acceptance,
+    )
+}
+
+fn task_detail_store_with_cost(
+    ctx: &Ctx,
+    active: &ActiveCounts,
+    task: &Value,
+    store: &mut TaskStore,
+    alive: &dyn Fn(i64) -> bool,
+    cost: Value,
+    omit_result_acceptance: bool,
+) -> Result<Value, Error> {
     let api = api_task_page(ctx, active, std::slice::from_ref(task), store, alive)?
         .into_iter()
         .next()
@@ -310,7 +347,7 @@ pub fn task_detail_store(
         last.get("routing").cloned().unwrap_or(Value::Null)
     };
     detail.insert("routing".into(), routing);
-    detail.insert("cost".into(), executor_cost(task, peers, ctx.now));
+    detail.insert("cost".into(), cost);
     detail.insert(
         "acceptance".into(),
         acceptance_detail(task, omit_result_acceptance),
@@ -372,17 +409,16 @@ pub fn task_detail_by_id(
         .ok_or(Error::Store(pacer_store::StoreError::UnknownTask(
             id.into(),
         )))?;
-    let peers = store.list(&TaskFilter {
-        all: true,
-        ..TaskFilter::default()
+    let cost = executor_cost_with(&task, ctx.now, |from, until| {
+        store.cost_overlap(text(&task["id"]), from, until, ctx.now)
     })?;
-    task_detail_store(
+    task_detail_store_with_cost(
         ctx,
         active,
         &task,
         store,
         alive,
-        &peers,
+        cost,
         omit_result_acceptance,
     )
 }
