@@ -23,7 +23,7 @@ test("a detached runner launches a local claude-code attempt through the direct 
   const ctx = withLoginIndicators(fakeCtx());
   mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: codex\nproviders:\n  codex: {}\n  claude-code: {}\nrouting:\n  - default: [claude-code]\n");
-  ctx.env = { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME: ctx.home, SHELL: shell, PACER_HOME: ctx.pacerHome,
+  ctx.env = { ...ctx.env, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME: ctx.home, SHELL: shell, PACER_HOME: ctx.pacerHome,
     PACER_LOGIN_ENV: "on", PACER_BACKEND: "direct", PACER_NO_UPDATE_CHECK: "1" };
   for (const argv of [["init", "-q"], ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "init"]])
     expect(Bun.spawnSync(["git", "-C", repo, ...argv]).exitCode).toBe(0);

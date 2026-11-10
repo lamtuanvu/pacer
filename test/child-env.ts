@@ -20,3 +20,12 @@ export function childEnv(home: string, port?: number): NodeJS.ProcessEnv & { HOM
   }
   return { HOME: home, PACER_HOME: join(home, ".pacer"), PACER_PORT: String(port) };
 }
+
+/** Fail closed before launching a child with a constructed environment. */
+export function pinnedEnv<T extends NodeJS.ProcessEnv>(env: T): T {
+  const port = Number(env.PACER_PORT);
+  if (!env.PACER_PORT || !Number.isInteger(port) || port < 1 || port > 65535 || port === 4317) {
+    throw new Error("Invalid test service port");
+  }
+  return env;
+}

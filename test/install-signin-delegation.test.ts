@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
@@ -24,7 +25,7 @@ test("fake agent completion mode writes the Codex summary and exits", () => {
 // This must run the real CLI graph: a tiny replacement entry misses module cycles.
 e2e("compiled production Core loads for version, help and JSON-RPC hello", async () => {
   const home = tmpDir(), binary = join(root, "dist", "pacer-core");
-  const env = { HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", PATH: process.env.PATH, TZ: "Asia/Ho_Chi_Minh" };
+  const env = { ...childEnv(home), PACER_NO_UPDATE_CHECK: "1", PATH: process.env.PATH, TZ: "Asia/Ho_Chi_Minh" };
   for (const args of [["--version"], ["--help"]]) {
     const child = Bun.spawn([binary, ...args], { env, stdout: "pipe", stderr: "pipe", timeout: 10_000 });
     const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -52,7 +53,7 @@ async function sandbox() {
   const env = { ...process.env };
   for (const name of Object.keys(env)) if (name.startsWith("PACER_")) delete env[name];
   Object.assign(env, {
-    HOME: home, CODEX_HOME: codexHome, PACER_HOME: pacerHome, PACER_BACKEND: "direct", PACER_NO_UPDATE_CHECK: "1",
+    ...childEnv(home), CODEX_HOME: codexHome, PACER_HOME: pacerHome, PACER_BACKEND: "direct", PACER_NO_UPDATE_CHECK: "1",
     PACER_FAKE_COMPLETE: "1", PACER_LOGIN_ENV: "off", PATH: `${bin}:${process.env.PATH}`, TZ: "Asia/Ho_Chi_Minh",
   });
   symlinkSync(join(root, "test/fixtures/bin/fake-agent"), join(bin, "codex"));

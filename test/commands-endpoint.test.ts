@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import {endpointTestFromSpawn} from './fixtures/endpoint-test-fixtures';
 import {endpointDiscoveryDeps, discoveryFromFetch} from "./endpoint-discovery-fixtures";
 import {expect, test} from "bun:test";
@@ -246,7 +247,7 @@ finally:
  if proc.poll() is None:proc.kill();proc.wait()
  os.close(master)
 `;
-  const child=Bun.spawn(['python3','-c',python,childCode],{env:{HOME:ctx.home,PACER_HOME:ctx.pacerHome,PATH:process.env.PATH},stdout:'pipe',stderr:'pipe'});
+  const child=Bun.spawn(['python3','-c',python,childCode],{env:{...childEnv(ctx.home),PACER_HOME:ctx.pacerHome,PATH:process.env.PATH},stdout:'pipe',stderr:'pipe'});
   const [code,err]=await Promise.all([child.exited,new Response(child.stderr).text()]);
   expect(err).toBe('');expect(code).toBe(0);
 },15000);

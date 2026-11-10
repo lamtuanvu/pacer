@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { childEnv } from "./child-env";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, withLoginIndicators, tmpDir } from "./helpers";
@@ -23,7 +24,7 @@ function setup(executors: Record<string, string>, strategy: string, inheritedEnv
   mkdirSync(repo);
   // Routing's login indicator honors CODEX_HOME before HOME. Keep it with the
   // fixture's fake auth file even when the invoking shell selects another account.
-  const env: Record<string, string | undefined> = { ...inheritedEnv, HOME: home, CODEX_HOME: join(home, ".codex"), PACER_HOME: pacerHome, PACER_BACKEND: "direct", PATH: `${bin}:${inheritedEnv.PATH}`, TZ: "Asia/Ho_Chi_Minh" };
+  const env: Record<string, string | undefined> = { ...inheritedEnv, ...childEnv(home), CODEX_HOME: join(home, ".codex"), PACER_HOME: pacerHome, PACER_BACKEND: "direct", PATH: `${bin}:${inheritedEnv.PATH}`, TZ: "Asia/Ho_Chi_Minh" };
   // The CLI fixture acts as the user, even when the test runner itself is an executor.
   delete env.PACER_ROLE;
   delete env.PACER_TASK_ID;

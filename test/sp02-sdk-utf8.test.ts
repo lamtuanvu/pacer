@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +12,7 @@ test("actual SDK stdio preserves a split UTF8 scalar and inline BOM in capabilit
 await serve({manifest:{id:"utf8-fixture",version:"0.2.0",publisher:"fixture",host:"^1.6",contributes:{diagnostic:{}}},
   handlers:{"fixture.echo":async(_params,host)=>host.call("capability.fs.read",{path:"/public-fixture"})}});`;
   const child = Bun.spawn([process.execPath, "-e", script], {
-    stdin: "pipe", stdout: "pipe", stderr: "pipe", env: { HOME: root, PACER_HOME: root },
+    stdin: "pipe", stdout: "pipe", stderr: "pipe", env: { ...childEnv(root), PACER_HOME: root },
   });
   const reader = child.stdout.getReader(), decoder = new TextDecoder();
   const stderr = new Response(child.stderr).text();
