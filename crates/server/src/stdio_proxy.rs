@@ -90,6 +90,21 @@ async fn write_line<W: AsyncWrite + Unpin>(out: &Mutex<W>, line: &[u8]) -> io::R
     out.flush().await
 }
 
+/// Request ids the core echoes back byte for byte. `JSON.parse` rounds numbers to
+/// doubles and `JSON.stringify` reformats them, so only safe integers survive.
+fn js_exact_id(id: &Value) -> bool {
+    const MAX_SAFE: u64 = (1 << 53) - 1;
+    match id {
+        Value::Null | Value::String(_) => true,
+        Value::Number(n) => n
+            .as_i64()
+            .map(i64::unsigned_abs)
+            .or_else(|| n.as_u64())
+            .is_some_and(|n| n <= MAX_SAFE),
+        _ => false,
+    }
+}
+
 fn rpc_line(id: &Value, result: Result<Value, CoreError>) -> io::Result<Vec<u8>> {
     let response = match result {
         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
@@ -170,11 +185,15 @@ async fn forward_input<
                 && r.get("id")
                     .is_none_or(|id| id.is_null() || id.is_string() || id.is_number())
         });
+        let exact_id = request
+            .as_ref()
+            .and_then(|r| r.get("id"))
+            .is_none_or(js_exact_id);
         if method == Some("hello")
             && valid
             && let Some(request) = request.as_ref()
         {
-            if core_build.forward_hello {
+            if core_build.forward_hello || !exact_id {
                 if let Ok(version) = hello_version(request.get("params")) {
                     protocol = version;
                 }
@@ -221,6 +240,7 @@ async fn forward_input<
         }
         if protocol == 3
             && valid
+            && exact_id
             && let Some(op) = method.and_then(|name| registry.get(name))
             && let Some(request) = request.as_ref()
         {
@@ -1011,5 +1031,39 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
                 return Ok(status?.code().unwrap_or(1));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::js_exact_id;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn only_ids_javascript_round_trips_are_answered_natively() {
+        let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap_or(Value::Null);
+        for id in [
+            "null",
+            "\"a\\u0001\"",
+            "0",
+            "-1",
+            "9007199254740991",
+            "-9007199254740991",
+        ] {
+            assert!(js_exact_id(&parse(id)), "{id}");
+        }
+        for id in [
+            "9007199254740992",
+            "-9007199254740993",
+            "18446744073709551615",
+            "1e300",
+            "1.5",
+            "1.0",
+            "1e3",
+            "100000000000000000000000",
+        ] {
+            assert!(!js_exact_id(&parse(id)), "{id}");
+        }
+        assert!(!js_exact_id(&json!([1])));
     }
 }
