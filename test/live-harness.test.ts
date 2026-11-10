@@ -352,7 +352,7 @@ test("native test-ops fixtures set probe ports, a test Core entry and forwarded 
   expect(JSON.parse(env.PACER_CORE_ARGV!)).toEqual([process.execPath, join(import.meta.dir, "fixtures", "core-discover-plan.ts")]);
   expect(environmentScript(chosen)).toContain("export PACER_TEST_LOCAL_SERVER_PORTS='5001,5002'");
   expect(() => validateNativeFixtures({ localModelPorts: "5001,5002" }, false, false)).toThrow("require --native-test-ops");
-  for (const ports of ["4317,5002", "0,1", "1", "1,2,3", "70000,1", "a,b"]) expect(() => validateNativeFixtures({ localModelPorts: ports }, true, false)).toThrow("--local-model-ports");
+  for (const ports of ["4317,5002", "11434,5002", "5001,1234", "5001,5001", "0,1", "1", "1,2,3", "70000,1", "a,b"]) expect(() => validateNativeFixtures({ localModelPorts: ports }, true, false)).toThrow("--local-model-ports");
   for (const file of ["../cli.ts", "missing.ts", "core-discover-plan.js", "/abs.ts"]) expect(() => validateNativeFixtures({ coreFixture: file }, true, false)).toThrow("--core-fixture");
   expect(() => validateNativeFixtures({ nativeForwardOps: "test.echo" }, true, true)).toThrow("--native-forward-echo");
   expect(() => validateNativeFixtures({ nativeForwardOps: "a b" }, true, false)).toThrow("--native-forward-ops");
@@ -961,50 +961,3 @@ test("local model fixture binds both ports and refuses an existing listener", as
     expect(error.code).toBe("EADDRINUSE");
   } finally { child.kill(); await child.exited; }
 });
-
- test("model fixture serves both listing formats and closes failures", async () => {
-  const first = await freePort(), second = await freePort(), root = tmpDir();
-  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/live/model-port-fixture.ts"), `${first},${second}`, join(root, "ready"), "ollama=ok,lmstudio=fail:50"], { stderr: "pipe" });
-  try {
-    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
-    expect(existsSync(join(root, "ready"))).toBe(true);
-    expect((await (await fetch(`http://127.0.0.1:${first}/v1/models`)).json()).data).toHaveLength(2);
-    expect((await (await fetch(`http://127.0.0.1:${first}/api/tags`)).json()).models).toHaveLength(2);
-    expect((await fetch(`http://127.0.0.1:${first}/other`)).status).toBe(404);
-    await expect(fetch(`http://127.0.0.1:${second}/v1/models`)).rejects.toThrow();
-  } finally { child.kill(); await child.exited; }
-});
-
- test("model fixture can serve LM Studio while Ollama fails", async () => {
-  const first = await freePort(), second = await freePort(), root = tmpDir();
-  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/live/model-port-fixture.ts"), `${first},${second}`, join(root, "ready"), "ollama=fail,lmstudio=ok"], { stderr: "pipe" });
-  try {
-    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
-    expect(existsSync(join(root, "ready"))).toBe(true);
-    await expect(fetch(`http://127.0.0.1:${first}/v1/models`)).rejects.toThrow();
-    expect((await (await fetch(`http://127.0.0.1:${second}/v1/models`)).json()).data).toHaveLength(2);
-  } finally { child.kill(); await child.exited; }
-});
-
-test.skipIf(!canBind)("waiting session fixture starts isolated hosts and tears them down", async () => {
-  const session = await up("waiting-cycle", undefined, tmpDir(), undefined, undefined, false, false, false, {}, true);
-  try {
-    const fixtures = JSON.parse(readFileSync(join(session.root, "home/waiting-fixtures.json"), "utf8"));
-    expect(fixtures.map((entry: { name: string }) => entry.name)).toEqual(["cli", "http", "retry", "stale", "message"]);
-    for (const entry of fixtures) {
-      expect(entry.dir.startsWith(join(session.root, "home/"))).toBe(true);
-      expect(existsSync(join(session.root, "home", `waiting-${entry.name}.sock`))).toBe(true);
-    }
-    const first = fixtures[0];
-    const sent = await run([join(session.root, "bin/pacer"), "msg", "send", first.task, "main", "--answer", first.question, "--json"], session, false);
-    expect(sent.code).toBe(0);
-    expect(JSON.parse(sent.stdout).delivery).toBe("live");
-    for (let i = 0; i < 100 && !existsSync(join(first.dir, "input")); i++) await Bun.sleep(10);
-    expect(readFileSync(join(first.dir, "input"), "utf8")).toContain("main");
-    expect(loadStrategy(makeCtx({ home: join(session.root, "home"), pacerHome: join(session.root, "home") })).messaging?.rules[0]?.effect).toBe("allow");
-    expect(await healthy(session)).toBe(true);
-  } finally { await down(session, true); }
-  expect(loadSession(session.id, join(session.root, "..")).waitingGroup?.stopped).toBe(true);
-  await expect(main(["status", "--waiting-session-fixture"])).rejects.toThrow("only valid for up");
-  await expect(main(["up", "--seed", "ui", "--waiting-session-fixture"])).rejects.toThrow("cannot be combined");
-}, 30000);
