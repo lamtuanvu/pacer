@@ -41,3 +41,42 @@ test("synchronous lock callbacks release before another synchronous caller waits
     await pending;
   }
 });
+
+test("a synchronous waiter refuses instead of spinning while an async holder awaits", async () => {
+  const ctx = fakeCtx();
+  let resumed = false;
+  const holder = withLock(ctx, "session-create", async () => {
+    await Bun.sleep(150);
+    resumed = true;
+    return "held";
+  });
+  await Bun.sleep(30); // the holder owns the file and is suspended at its await
+  const started = Date.now();
+  let refused: Error | null = null;
+  try {
+    withLockSync(ctx, "session-create", () => "started", { timeoutMs: 1000 });
+  } catch (e) {
+    refused = e as Error;
+  }
+  // It refused at once instead of spinning to its deadline on a blocked event loop,
+  // which would stop the suspended holder from ever resuming to release.
+  expect(refused?.message).toMatch(/synchronously/);
+  expect(Date.now() - started).toBeLessThan(1000);
+  expect(resumed).toBe(false);
+  await holder;
+  expect(resumed).toBe(true);
+});
+
+test("a synchronous conflict waiter stays non-blocking while an async holder awaits", async () => {
+  const ctx = fakeCtx();
+  const holder = withLock(ctx, "session-create", async () => {
+    await Bun.sleep(100);
+    return "held";
+  });
+  await Bun.sleep(20);
+  // commitDelegate waits for session-create with these exact options.
+  expect(() =>
+    withLockSync(ctx, "session-create", () => "committed", { timeoutMs: 0, staleMs: 600000, conflict: true }),
+  ).toThrow("Workspace admission is busy; refresh and retry");
+  await holder;
+});
