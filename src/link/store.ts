@@ -140,8 +140,15 @@ export function appendOutbox(ctx:Ctx,entries:OutboxEntry[], rotate = true, notif
   if (rotate) rotateOutbox(ctx);
   if (notify) notifyOutbox(ctx);
 }
+let crossOutboxPost: (() => void) | null = null;
+/** Let a background Worker bridge outbox wake-ups to the request thread's own listeners. */
+export function setOutboxCrossPost(fn: (() => void) | null): void {
+  crossOutboxPost = fn;
+}
 export function notifyOutbox(ctx:Ctx):void {
   for (const listener of outboxListeners.get(ctx.pacerHome) ?? []) listener();
+  // A periodic loop that publishes from another isolate wakes SSE on the request thread.
+  crossOutboxPost?.();
 }
 /** Rotate only after a publisher has committed latest.json, keeping an interrupted append replayable. */
 export function rotateOutbox(ctx:Ctx):void {

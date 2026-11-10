@@ -35,13 +35,14 @@ import { join } from "node:path";
 import { loadStrategy } from "../config/strategy";
 import { computeStatus, type Status } from "../engine/status";
 import type { Ctx } from "../types";
-import { currentSnapshot, invalidateConsoleCache, refreshConsoleTerminals } from "../link/store";
+import { currentSnapshot, invalidateConsoleCache, notifyOutbox, refreshConsoleTerminals } from "../link/store";
 import { refreshAllUsage } from "../usage/refresh";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 import { tick as certificationTick } from "../dispatch/certification-schedule";
 import { brokerTick } from "../messaging/broker";
 
 import { DEFAULT_PORT } from "./constants";
+import { writeJsonAtomic } from "../fsutil";
 export { DEFAULT_PORT } from "./constants";
 /** How long a request waits for the first status before the snapshot answers as starting. */
 export const STATUS_WARMUP_WAIT_MS = 300;
@@ -62,9 +63,10 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
-  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; supervisionWorker?: boolean; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
-): { port: number; token: string; stop: () => Promise<void> } {
+  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; supervisionWorker?: boolean; backgroundWorker?: boolean; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
+): { port: number; token: string; backgroundWorker: () => Worker | undefined; stop: () => Promise<void> } {
   const initialCtx = getCtx();
+  const bg = !!opts.backgroundWorker;
   resetCaptureBroker(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
@@ -91,6 +93,15 @@ export function startServer(
   let statusPending: Promise<void> | null = null;
   let stopped = false;
   let listener: ReturnType<typeof startHealthListener> | undefined;
+  // Periodic loops owned by the background worker; left undefined when it runs them.
+  let cleanStart: ReturnType<typeof setTimeout> | undefined;
+  let cleanTimer: ReturnType<typeof setInterval> | undefined;
+  let certificationTimer: ReturnType<typeof setInterval> | undefined;
+  let brokerTimer: ReturnType<typeof setInterval> | undefined;
+  let usageStart: ReturnType<typeof setTimeout> | undefined;
+  let usageTimer: ReturnType<typeof setInterval> | undefined;
+  let pumpTimer: ReturnType<typeof setInterval> | undefined;
+  let observationTimer: ReturnType<typeof setInterval> | undefined;
   const refreshStatus = () => {
     if(statusPending || stopped)return statusPending;
     statusPending = Promise.resolve().then(async()=>{
@@ -573,8 +584,10 @@ export function startServer(
     }).catch(error => console.warn(`pacer: automatic cleanup failed: ${String(error)}`))
       .finally(() => { cleaning = false; });
   };
-  const cleanStart = setTimeout(sweep, 0);
-  const cleanTimer = setInterval(sweep, 60 * 60_000);
+  if (!bg) {
+    cleanStart = setTimeout(sweep, 0);
+    cleanTimer = setInterval(sweep, 60 * 60_000);
+  }
   let supervising = false;
   // One supervisor at a time: while the worker owns supervision this loop stands by,
   // and it resumes if the worker fails (its guards are per isolate, not shared).
@@ -637,6 +650,68 @@ export function startServer(
     }
   };
   startSupervisionWorker();
+  // Background periodic worker (spec §5): the pump, broker, clean sweep, certification,
+  // usage and observations run off the request thread in one Worker with its own SQLite
+  // connection. Health is mirrored to state/background-worker.json so diagnostics can
+  // report it; on death or a stale heartbeat the Worker is restarted with backoff (no
+  // silent in-process fallback). The _internal/* bridges and status refresh stay on the
+  // request thread because request handlers need them synchronously.
+  const bgDiag: { state: string; restarts: number; startedAt: number; lastError: string | null; lastHeartbeatAt: number; loops: Record<string, { at: number; ok: boolean }>; managed: string[] } =
+    { state: "stopped", restarts: 0, startedAt: 0, lastError: null, lastHeartbeatAt: 0, loops: {}, managed: [] };
+  const writeBgDiag = () => {
+    if (!bg) return;
+    try { const dir = join(initialCtx.pacerHome, "state"); mkdirSync(dir, { recursive: true }); writeJsonAtomic(join(dir, "background-worker.json"), bgDiag); }
+    catch { /* best-effort diagnostics */ }
+  };
+  let bgWorker: Worker | undefined;
+  let bgRestartTimer: ReturnType<typeof setTimeout> | undefined;
+  const BG_SILENCE_MS = 60_000;
+  const backgroundWorkerDied = (reason: string) => {
+    if (stopped || !bgWorker) return;
+    bgWorker.removeEventListener("close", bgClose);
+    try { bgWorker.terminate(); } catch { /* already gone */ }
+    bgWorker = undefined;
+    bgDiag.lastError = reason; bgDiag.restarts += 1; bgDiag.state = "restarting"; writeBgDiag();
+    if (!stopped) console.error(`pacer: background worker ${reason}; restarting with backoff`);
+    if (bgRestartTimer) return;
+    const backoff = Math.min(1000 * 2 ** Math.max(0, bgDiag.restarts - 1), 30_000);
+    bgRestartTimer = setTimeout(() => { bgRestartTimer = undefined; startBackgroundWorker(); }, backoff);
+  };
+  const bgClose = () => backgroundWorkerDied("exited");
+  const startBackgroundWorker = () => {
+    if (bgWorker || stopped || !bg || bgRestartTimer) return;
+    try {
+      // Same-directory entrypoint resolves identically for source and compiled runs.
+      bgWorker = new Worker(new URL("./background-worker.ts", import.meta.url), { type: "module" });
+      bgDiag.state = "starting"; bgDiag.startedAt = Date.now(); writeBgDiag();
+      bgWorker.postMessage({
+        type: "init",
+        pacerHome: initialCtx.pacerHome,
+        env: initialCtx.env,
+        selfCommand: selfCommand(),
+        pumpMs,
+      });
+      bgWorker.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+        const d = event.data ?? {};
+        if (d.type === "heartbeat") { bgDiag.lastHeartbeatAt = Date.now(); bgDiag.state = "running"; writeBgDiag(); }
+        else if (d.type === "outbox") { try { notifyOutbox(initialCtx); } catch { /* SSE wake must not take the thread down */ } }
+        else if (d.type === "loop" && typeof d.name === "string") { bgDiag.loops[d.name] = { at: Date.now(), ok: d.ok === true }; writeBgDiag(); }
+        else if (d.type === "loops" && Array.isArray(d.names)) { bgDiag.managed = (d.names as unknown[]) as string[]; writeBgDiag(); }
+        else if (d.type === "failed") { backgroundWorkerDied(`failed to start: ${String(d.reason ?? "")}`); }
+      };
+      bgWorker.onerror = (err) => backgroundWorkerDied(`error: ${err.message}`);
+      bgWorker.onmessageerror = (err) => backgroundWorkerDied(`message error: ${String(err)}`);
+      bgWorker.addEventListener("close", bgClose);
+    } catch (error) {
+      bgWorker = undefined;
+      if (!stopped) console.error(`pacer: failed to start background worker: ${String(error)}`);
+    }
+  };
+  const bgMonitorTimer = bg ? setInterval(() => {
+    if (stopped) return;
+    if (bgWorker && Date.now() - bgDiag.lastHeartbeatAt > BG_SILENCE_MS) backgroundWorkerDied("went silent");
+  }, 5000) : undefined;
+  startBackgroundWorker();
   let certifying = false;
   const certify = () => {
     if (stopped || certifying) return;
@@ -645,7 +720,7 @@ export function startServer(
       .catch(error => { if (!stopped) console.warn(`pacer: certification probe tick failed: ${String(error)}`); })
       .finally(() => { certifying = false; });
   };
-  const certificationTimer = setInterval(certify, 10 * 60_000);
+  if (!bg) certificationTimer = setInterval(certify, 10 * 60_000);
   let brokering = false;
   const broker = () => {
     if (stopped || brokering) return;
@@ -655,20 +730,22 @@ export function startServer(
     } }).catch(error => { if (!stopped) console.error(`pacer: messaging broker failed: ${String(error)}`); })
       .finally(() => { brokering = false; });
   };
-  const brokerTimer = setInterval(broker, 15_000);
+  if (!bg) brokerTimer = setInterval(broker, 15_000);
   const refreshUsage = () => {
     if (stopped) return;
     void refreshAllUsage({ ...getCtx(), now: Date.now() / 1000 }, true)
       .then(refreshStatusAfterPending)
       .catch(error => { if (!stopped) console.error(`pacer: usage refresh failed: ${String(error)}`); });
   };
-  const usageStart = setTimeout(refreshUsage, 1000);
-  const usageTimer = setInterval(refreshUsage, 15 * 60_000);
+  if (!bg) {
+    usageStart = setTimeout(refreshUsage, 1000);
+    usageTimer = setInterval(refreshUsage, 15 * 60_000);
+  }
   const snapshotTimer=setInterval(refreshSnapshot,2000);
   const statusTimer=setInterval(refreshStatus,60000);
-  const observationTimer=pumpMs>0?setInterval(()=>{if(!stopped)void refreshObservations(getCtx()).catch(()=>{});},60000):undefined;
+  if (!bg) observationTimer = pumpMs>0?setInterval(()=>{if(!stopped)void refreshObservations(getCtx()).catch(()=>{});},60000):undefined;
   const terminalTimer=setInterval(()=>{if(!stopped)void Promise.resolve().then(()=>refreshConsoleTerminals(getCtx())).catch(()=>{});},10000);
-  const pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
+  if (!bg) pumpTimer = pumpMs > 0 ? setInterval(tick, pumpMs) : undefined;
   return { port: publicPort, token, stop: () => {
     nativeServices?.native.stop();
     desktopUpdates.stop();
@@ -691,8 +768,12 @@ export function startServer(
     clearInterval(terminalTimer);
     clearTimeout(scheduled);
     worker?.terminate();
+    clearTimeout(bgRestartTimer);
+    if (bgMonitorTimer) clearInterval(bgMonitorTimer);
+    try { bgWorker?.terminate(); } catch { /* already gone */ }
+    bgWorker = undefined;
     for (const watcher of watchers) watcher.close();
     server.stop(true);
     return Promise.all([history.stop(), shutdownPlugins(initialCtx)]).then(() => {});
-  } };
+  }, backgroundWorker: () => bgWorker };
 }

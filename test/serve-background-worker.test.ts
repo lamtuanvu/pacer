@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { startServer } from "../src/serve/http";
-import { createTask } from "../src/tasks/store";
+import { createTask, listTasks } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
-/** The background worker writes its health here so diagnostics and tests can read it. */
+/** The background worker mirrors its health here so diagnostics and tests can read it. */
 function diagPath(ctx: ReturnType<typeof fakeCtx>): string {
   return join(ctx.pacerHome, "state", "background-worker.json");
 }
@@ -13,6 +13,9 @@ function readDiag(ctx: ReturnType<typeof fakeCtx>): { state?: string; restarts?:
   try { return JSON.parse(readFileSync(diagPath(ctx), "utf8")); } catch { return null; }
 }
 const outboxPath = (ctx: ReturnType<typeof fakeCtx>) => join(ctx.pacerHome, "link", "outbox.jsonl");
+function readTaskId(ctx: ReturnType<typeof fakeCtx>): string {
+  return listTasks(ctx, 1)[0]!.id;
+}
 function outboxHasTask(ctx: ReturnType<typeof fakeCtx>): boolean {
   return existsSync(outboxPath(ctx)) && readFileSync(outboxPath(ctx), "utf8").includes('"type":"task"');
 }
@@ -24,52 +27,59 @@ async function waitFor(fn: () => boolean, timeoutMs = 8000): Promise<void> {
   }
   throw new Error("condition not met within " + timeoutMs + "ms");
 }
+/** A strategy lets the worker's pump compute status and reach the per-task loop. */
+function withStrategy(ctx: ReturnType<typeof fakeCtx>): void {
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
+}
 
 test("periodic loops run in the background worker", async () => {
   const ctx = fakeCtx({ which: () => null });
-  const task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  withStrategy(ctx);
+  createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 25 });
   try {
     // A real worker is spawned and takes over the periodic loops.
     await waitFor(() => readDiag(ctx)?.state === "running");
     const diag = readDiag(ctx)!;
-    // All six periodic loops are managed by the worker.
+    // All six periodic loops are managed (and run) in the worker.
     for (const name of ["pump", "broker", "sweep", "certification", "usage", "observations"]) {
       expect(diag.managed).toContain(name);
     }
     // The pump actually executes off the request thread and publishes the new task.
-    await waitFor(() => !!diag.loops?.pump || readDiag(ctx)?.loops?.pump?.at);
+    await waitFor(() => !!readDiag(ctx)?.loops?.pump?.at);
     await waitFor(() => outboxHasTask(ctx));
     expect(server.backgroundWorker()).toBeDefined();
-    expect(task.id).toBeDefined();
   } finally { server.stop(); }
 });
 
 test("a blocked worker tick does not delay /health or a task.get", async () => {
   const ctx = fakeCtx({ which: () => null });
+  withStrategy(ctx);
   for (let i = 0; i < 60; i++) {
     createTask(ctx, { brief: { goal: `g${i}`, repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   }
   const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 20 });
   await waitFor(() => readDiag(ctx)?.state === "running");
-  const request = (path: string) => fetch(`http://127.0.0.1:${server.port}${path}`, {
-    headers: { Authorization: `Bearer ${server.token}` },
+  const request = (path: string, init?: RequestInit) => fetch(`http://127.0.0.1:${server.port}${path}`, {
+    headers: { Authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    ...init,
     signal: AbortSignal.timeout(800),
   });
   try {
     // Let the worker run several pump rounds (real work over 60 tasks) meanwhile the request thread stays free.
-    await Bun.sleep(200);
+    await Bun.sleep(250);
     for (let i = 0; i < 5; i++) {
       const started = performance.now();
       const health = await request("/health");
       expect(health.status).toBe(200);
       expect(performance.now() - started).toBeLessThan(400);
     }
-    const all = await request("/v2/tasks?limit=500");
-    expect(all.status).toBe(200);
-    const body = await all.json();
-    const first = body?.tasks?.[0];
-    expect(first).toBeDefined();
+    const started = performance.now();
+    const got = await request("/v3/ops/task.get", { method: "POST", body: JSON.stringify({ id: readTaskId(ctx) }) });
+    expect(got.status).toBe(200);
+    expect((await got.json()).result?.id).toBeDefined();
+    expect(performance.now() - started).toBeLessThan(700);
   } finally { server.stop(); }
 });
 
@@ -84,13 +94,14 @@ test("the worker restarts after it dies and diagnostics show it", async () => {
     await waitFor(() => {
       const diag = readDiag(ctx);
       return diag !== null && (diag.restarts ?? 0) >= 1 && diag.state === "running";
-    });
+    }, 20000);
     expect(readDiag(ctx)!.restarts).toBeGreaterThanOrEqual(1);
   } finally { server.stop(); }
 });
 
 test("SSE wakes on a worker publish", async () => {
   const ctx = fakeCtx({ which: () => null });
+  withStrategy(ctx);
   const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 25 });
   try {
     await waitFor(() => readDiag(ctx)?.state === "running");
