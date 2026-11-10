@@ -365,7 +365,8 @@ export function withTaskLockAsync<T>(ctx: Ctx, id: string, action: () => T): Pro
   assertPacerHomeAllowed(ctx.pacerHome);
   if (!isTaskId(id)) return Promise.resolve().then(action);
   const key = resolve(ctx.pacerHome, "tasks", id);
-  return withLock(ctx, `task-${id}`, async () => {
+  // Synchronous, so the lock is released before yielding; withTaskLock takes the same lock with withLockSync.
+  return withLock(ctx, `task-${id}`, () => {
     heldTaskLocks.add(key);
     try { return action(); }
     finally { heldTaskLocks.delete(key); }
