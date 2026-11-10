@@ -173,6 +173,8 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("").get("task.ask").is_none());
     assert!(registry("").get("limits.refresh").is_some());
     assert!(registry("limits.refresh").get("limits.refresh").is_none());
+    assert!(registry("").get("runner.check").is_some());
+    assert!(registry("runner.check").get("runner.check").is_none());
     assert!(registry("").get("assistant.ask").is_none());
     assert!(registry("").get("assistant.cancel").is_none());
 }
