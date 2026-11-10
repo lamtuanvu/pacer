@@ -39,6 +39,7 @@ pub mod plugins;
 pub(crate) mod setup_effects_sync;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
+use pacer_config_ops::runner_check_ops;
 use pacer_config_ops::runner_ops;
 pub(crate) use pacer_task_ops::session_ops;
 pub(crate) mod session_sync;
@@ -111,9 +112,10 @@ pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
     }
 }
 
-/// `runner.add` and `attention.*` inputs whose effects only the TypeScript core owns.
+/// `runner.add`, `runner.check` and `attention.*` inputs whose effects only the TypeScript core owns.
 pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     runner_ops::runner_stays_forwarded(ctx, op, params)
+        || runner_check_ops::runner_check_stays_forwarded(ctx, op, params)
         || attention_ops::attention_stays_forwarded(ctx, op, params)
 }
 pub(crate) use session_ops::needs_session_probe;
@@ -238,6 +240,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "runner.add",
         call: runner_ops::runner_add,
+    },
+    NativeOp {
+        name: "runner.check",
+        call: runner_check_ops::runner_check,
     },
     NativeOp {
         name: "runner.block",
