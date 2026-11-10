@@ -3,7 +3,7 @@
     "id": "high-lossless-fields",
     "rawJson": "{\"goal\":\"\\ud800\",\"scope\":\"literal \\\\ud800 \\ud800\",\"context\":\"\\ud800\",\"constraints\":\"\\ud800\",\"acceptance\":\"\\ud800\",\"request_id\":\"\\ud800\",\"worktree_reason\":\"\\ud800\",\"title\":\"\\ufeff \\t\\ud800\\u3000\",\"executor\":\"\\ud800\",\"dispatch\":{\"model\":\"\\ud800\",\"preferences\":{\"models\":[\"\\ud800\"],\"strengths\":[\"\\ud800\"]}},\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\ud800\",\"executor\":\"\\ud800\"}]}}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\",\"scope\":\"literal \\\\ud800 \\ud800\",\"context\":\"\\ud800\",\"constraints\":\"\\ud800\",\"acceptance\":\"\\ud800\",\"repo\":\"/tmp\"},\"input\":{\"worktree_reason\":\"\\ud800\",\"executor\":\"\\ud800\",\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\ud800\",\"executor\":\"\\ud800\"}]},\"requestId\":\"\\ud800\",\"title\":\"\\ud800\",\"dispatch\":{\"model\":\"\\ud800\",\"requirements\":{},\"preferences\":{\"models\":[\"\\ud800\"],\"strengths\":[\"\\ud800\"]},\"difficulty\":\"standard\",\"delegationEnforcement\":\"strict\",\"allowDelegation\":false,\"maxDepth\":3,\"maxDescendants\":20,\"maxConcurrent\":4,\"maxAttempts\":3,\"priority\":0,\"estimatePct\":0}}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\",\"scope\":\"literal \\\\ud800 \\ud800\",\"context\":\"\\ud800\",\"constraints\":\"\\ud800\",\"acceptance\":\"\\ud800\",\"repo\":\"/tmp\"},\"input\":{\"worktree_reason\":\"\\ud800\",\"executor\":\"\\ud800\",\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\ud800\",\"executor\":\"\\ud800\"}]},\"requestId\":\"\\ud800\",\"title\":\"\\ud800\",\"dispatch\":{\"model\":\"\\ud800\",\"requirements\":{},\"preferences\":{\"models\":[\"\\ud800\"],\"strengths\":[\"\\ud800\"]},\"difficulty\":\"standard\",\"delegationEnforcement\":\"strict\",\"allowDelegation\":false,\"maxDepth\":3,\"maxDescendants\":20,\"maxConcurrent\":4,\"maxAttempts\":3,\"priority\":0,\"estimatePct\":0},\"difficultySource\":\"unspecified\",\"model\":\"\\ud800\"}}"
   },
   {
     "id": "high-invalid-kind",
@@ -34,7 +34,7 @@
     "id": "high-base-repo",
     "rawJson": "{\"goal\":\"\\ud800\",\"base\":\"branch-\\ud800\",\"repo\":\"/tmp/\\ud800\"}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\",\"base\":\"branch-\\ud800\",\"repo\":\"/tmp/\\ud800\"},\"input\":{}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\",\"base\":\"branch-\\ud800\",\"repo\":\"/tmp/\\ud800\"},\"input\":{\"difficultySource\":\"unspecified\"}}"
   },
   {
     "id": "high-invalid-dispatch-type",
@@ -137,7 +137,7 @@
     "id": "low-lossless-fields",
     "rawJson": "{\"goal\":\"\\udfff\",\"scope\":\"literal \\\\ud800 \\udfff\",\"context\":\"\\udfff\",\"constraints\":\"\\udfff\",\"acceptance\":\"\\udfff\",\"request_id\":\"\\udfff\",\"worktree_reason\":\"\\udfff\",\"title\":\"\\ufeff \\t\\udfff\\u3000\",\"executor\":\"\\udfff\",\"dispatch\":{\"model\":\"\\udfff\",\"preferences\":{\"models\":[\"\\udfff\"],\"strengths\":[\"\\udfff\"]}},\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\udfff\",\"executor\":\"\\udfff\"}]}}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\",\"scope\":\"literal \\\\ud800 \\udfff\",\"context\":\"\\udfff\",\"constraints\":\"\\udfff\",\"acceptance\":\"\\udfff\",\"repo\":\"/tmp\"},\"input\":{\"worktree_reason\":\"\\udfff\",\"executor\":\"\\udfff\",\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\udfff\",\"executor\":\"\\udfff\"}]},\"requestId\":\"\\udfff\",\"title\":\"\\udfff\",\"dispatch\":{\"model\":\"\\udfff\",\"requirements\":{},\"preferences\":{\"models\":[\"\\udfff\"],\"strengths\":[\"\\udfff\"]},\"difficulty\":\"standard\",\"delegationEnforcement\":\"strict\",\"allowDelegation\":false,\"maxDepth\":3,\"maxDescendants\":20,\"maxConcurrent\":4,\"maxAttempts\":3,\"priority\":0,\"estimatePct\":0}}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\",\"scope\":\"literal \\\\ud800 \\udfff\",\"context\":\"\\udfff\",\"constraints\":\"\\udfff\",\"acceptance\":\"\\udfff\",\"repo\":\"/tmp\"},\"input\":{\"worktree_reason\":\"\\udfff\",\"executor\":\"\\udfff\",\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\udfff\",\"executor\":\"\\udfff\"}]},\"requestId\":\"\\udfff\",\"title\":\"\\udfff\",\"dispatch\":{\"model\":\"\\udfff\",\"requirements\":{},\"preferences\":{\"models\":[\"\\udfff\"],\"strengths\":[\"\\udfff\"]},\"difficulty\":\"standard\",\"delegationEnforcement\":\"strict\",\"allowDelegation\":false,\"maxDepth\":3,\"maxDescendants\":20,\"maxConcurrent\":4,\"maxAttempts\":3,\"priority\":0,\"estimatePct\":0},\"difficultySource\":\"unspecified\",\"model\":\"\\udfff\"}}"
   },
   {
     "id": "low-invalid-kind",
@@ -168,7 +168,7 @@
     "id": "low-base-repo",
     "rawJson": "{\"goal\":\"\\udfff\",\"base\":\"branch-\\udfff\",\"repo\":\"/tmp/\\udfff\"}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\",\"base\":\"branch-\\udfff\",\"repo\":\"/tmp/\\udfff\"},\"input\":{}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\",\"base\":\"branch-\\udfff\",\"repo\":\"/tmp/\\udfff\"},\"input\":{\"difficultySource\":\"unspecified\"}}"
   },
   {
     "id": "low-invalid-dispatch-type",
@@ -271,7 +271,7 @@
     "id": "paired-lossless-fields",
     "rawJson": "{\"goal\":\"\\ud800\\udfff\",\"scope\":\"literal \\\\ud800 \\ud800\\udfff\",\"context\":\"\\ud800\\udfff\",\"constraints\":\"\\ud800\\udfff\",\"acceptance\":\"\\ud800\\udfff\",\"request_id\":\"\\ud800\\udfff\",\"worktree_reason\":\"\\ud800\\udfff\",\"title\":\"\\ufeff \\t\\ud800\\udfff\\u3000\",\"executor\":\"\\ud800\\udfff\",\"dispatch\":{\"model\":\"\\ud800\\udfff\",\"preferences\":{\"models\":[\"\\ud800\\udfff\"],\"strengths\":[\"\\ud800\\udfff\"]}},\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\ud800\\udfff\",\"executor\":\"\\ud800\\udfff\"}]}}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\\udfff\",\"scope\":\"literal \\\\ud800 \\ud800\\udfff\",\"context\":\"\\ud800\\udfff\",\"constraints\":\"\\ud800\\udfff\",\"acceptance\":\"\\ud800\\udfff\",\"repo\":\"/tmp\"},\"input\":{\"worktree_reason\":\"\\ud800\\udfff\",\"executor\":\"\\ud800\\udfff\",\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\ud800\\udfff\",\"executor\":\"\\ud800\\udfff\"}]},\"requestId\":\"\\ud800\\udfff\",\"title\":\"\\ud800\\udfff\",\"dispatch\":{\"model\":\"\\ud800\\udfff\",\"requirements\":{},\"preferences\":{\"models\":[\"\\ud800\\udfff\"],\"strengths\":[\"\\ud800\\udfff\"]},\"difficulty\":\"standard\",\"delegationEnforcement\":\"strict\",\"allowDelegation\":false,\"maxDepth\":3,\"maxDescendants\":20,\"maxConcurrent\":4,\"maxAttempts\":3,\"priority\":0,\"estimatePct\":0}}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\\udfff\",\"scope\":\"literal \\\\ud800 \\ud800\\udfff\",\"context\":\"\\ud800\\udfff\",\"constraints\":\"\\ud800\\udfff\",\"acceptance\":\"\\ud800\\udfff\",\"repo\":\"/tmp\"},\"input\":{\"worktree_reason\":\"\\ud800\\udfff\",\"executor\":\"\\ud800\\udfff\",\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\ud800\\udfff\",\"executor\":\"\\ud800\\udfff\"}]},\"requestId\":\"\\ud800\\udfff\",\"title\":\"\\ud800\\udfff\",\"dispatch\":{\"model\":\"\\ud800\\udfff\",\"requirements\":{},\"preferences\":{\"models\":[\"\\ud800\\udfff\"],\"strengths\":[\"\\ud800\\udfff\"]},\"difficulty\":\"standard\",\"delegationEnforcement\":\"strict\",\"allowDelegation\":false,\"maxDepth\":3,\"maxDescendants\":20,\"maxConcurrent\":4,\"maxAttempts\":3,\"priority\":0,\"estimatePct\":0},\"difficultySource\":\"unspecified\",\"model\":\"\\ud800\\udfff\"}}"
   },
   {
     "id": "paired-invalid-kind",
@@ -302,7 +302,7 @@
     "id": "paired-base-repo",
     "rawJson": "{\"goal\":\"\\ud800\\udfff\",\"base\":\"branch-\\ud800\\udfff\",\"repo\":\"/tmp/\\ud800\\udfff\"}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\\udfff\",\"base\":\"branch-\\ud800\\udfff\",\"repo\":\"/tmp/\\ud800\\udfff\"},\"input\":{}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\\udfff\",\"base\":\"branch-\\ud800\\udfff\",\"repo\":\"/tmp/\\ud800\\udfff\"},\"input\":{\"difficultySource\":\"unspecified\"}}"
   },
   {
     "id": "paired-invalid-dispatch-type",
@@ -405,7 +405,7 @@
     "id": "reversed-lossless-fields",
     "rawJson": "{\"goal\":\"\\udfff\\ud800\",\"scope\":\"literal \\\\ud800 \\udfff\\ud800\",\"context\":\"\\udfff\\ud800\",\"constraints\":\"\\udfff\\ud800\",\"acceptance\":\"\\udfff\\ud800\",\"request_id\":\"\\udfff\\ud800\",\"worktree_reason\":\"\\udfff\\ud800\",\"title\":\"\\ufeff \\t\\udfff\\ud800\\u3000\",\"executor\":\"\\udfff\\ud800\",\"dispatch\":{\"model\":\"\\udfff\\ud800\",\"preferences\":{\"models\":[\"\\udfff\\ud800\"],\"strengths\":[\"\\udfff\\ud800\"]}},\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\udfff\\ud800\",\"executor\":\"\\udfff\\ud800\"}]}}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\\ud800\",\"scope\":\"literal \\\\ud800 \\udfff\\ud800\",\"context\":\"\\udfff\\ud800\",\"constraints\":\"\\udfff\\ud800\",\"acceptance\":\"\\udfff\\ud800\",\"repo\":\"/tmp\"},\"input\":{\"worktree_reason\":\"\\udfff\\ud800\",\"executor\":\"\\udfff\\ud800\",\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\udfff\\ud800\",\"executor\":\"\\udfff\\ud800\"}]},\"requestId\":\"\\udfff\\ud800\",\"title\":\"\\udfff\\ud800\",\"dispatch\":{\"model\":\"\\udfff\\ud800\",\"requirements\":{},\"preferences\":{\"models\":[\"\\udfff\\ud800\"],\"strengths\":[\"\\udfff\\ud800\"]},\"difficulty\":\"standard\",\"delegationEnforcement\":\"strict\",\"allowDelegation\":false,\"maxDepth\":3,\"maxDescendants\":20,\"maxConcurrent\":4,\"maxAttempts\":3,\"priority\":0,\"estimatePct\":0}}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\\ud800\",\"scope\":\"literal \\\\ud800 \\udfff\\ud800\",\"context\":\"\\udfff\\ud800\",\"constraints\":\"\\udfff\\ud800\",\"acceptance\":\"\\udfff\\ud800\",\"repo\":\"/tmp\"},\"input\":{\"worktree_reason\":\"\\udfff\\ud800\",\"executor\":\"\\udfff\\ud800\",\"messaging\":{\"rules\":[{\"effect\":\"allow\",\"repo\":\"\\udfff\\ud800\",\"executor\":\"\\udfff\\ud800\"}]},\"requestId\":\"\\udfff\\ud800\",\"title\":\"\\udfff\\ud800\",\"dispatch\":{\"model\":\"\\udfff\\ud800\",\"requirements\":{},\"preferences\":{\"models\":[\"\\udfff\\ud800\"],\"strengths\":[\"\\udfff\\ud800\"]},\"difficulty\":\"standard\",\"delegationEnforcement\":\"strict\",\"allowDelegation\":false,\"maxDepth\":3,\"maxDescendants\":20,\"maxConcurrent\":4,\"maxAttempts\":3,\"priority\":0,\"estimatePct\":0},\"difficultySource\":\"unspecified\",\"model\":\"\\udfff\\ud800\"}}"
   },
   {
     "id": "reversed-invalid-kind",
@@ -436,7 +436,7 @@
     "id": "reversed-base-repo",
     "rawJson": "{\"goal\":\"\\udfff\\ud800\",\"base\":\"branch-\\udfff\\ud800\",\"repo\":\"/tmp/\\udfff\\ud800\"}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\\ud800\",\"base\":\"branch-\\udfff\\ud800\",\"repo\":\"/tmp/\\udfff\\ud800\"},\"input\":{}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\\ud800\",\"base\":\"branch-\\udfff\\ud800\",\"repo\":\"/tmp/\\udfff\\ud800\"},\"input\":{\"difficultySource\":\"unspecified\"}}"
   },
   {
     "id": "reversed-invalid-dispatch-type",
@@ -539,13 +539,13 @@
     "id": "escaped-key-and-duplicate",
     "rawJson": "{\"g\\u006fal\":\"\\ud800\",\"goal\":\"\\udfff\",\"unknown\\ud800\":true}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\",\"repo\":\"/tmp\"},\"input\":{}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\",\"repo\":\"/tmp\"},\"input\":{\"difficultySource\":\"unspecified\"}}"
   },
   {
     "id": "high-ignored-overflow-number",
     "rawJson": "{\"goal\":\"\\ud800\",\"unknown\":1e400}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\",\"repo\":\"/tmp\"},\"input\":{}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\ud800\",\"repo\":\"/tmp\"},\"input\":{\"difficultySource\":\"unspecified\"}}"
   },
   {
     "id": "low-overflow-timeout",
@@ -561,6 +561,6 @@
     "id": "reversed-underflow-falsy-dispatch",
     "rawJson": "{\"goal\":\"\\udfff\\ud800\",\"dispatch\":1e-400}",
     "accept": true,
-    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\\ud800\",\"repo\":\"/tmp\"},\"input\":{}}"
+    "expectedJson": "{\"brief\":{\"goal\":\"\\udfff\\ud800\",\"repo\":\"/tmp\"},\"input\":{\"difficultySource\":\"unspecified\"}}"
   }
 ]
