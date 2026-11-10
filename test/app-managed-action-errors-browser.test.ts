@@ -65,6 +65,7 @@ for (const surface of ["answer", "retry", "tray"] as const) {
     const page = await setup(surface, "hold");
     try {
       const button = actionButton(page, surface);
+      await button.focus();
       await button.evaluate((b: HTMLButtonElement) => { b.click(); b.click(); });
       await page.waitForFunction(() => ((window as any).actionCalls as unknown[]).length >= 1);
       expect(await calls(page)).toEqual([expectedCall(surface)]);
@@ -73,16 +74,21 @@ for (const surface of ["answer", "retry", "tray"] as const) {
         const working = page.getByRole("button", { name: "Working…" });
         expect(await working.getAttribute("aria-disabled")).toBe("true");
         expect(await working.isVisible()).toBe(true);
+        expect(await page.locator('.sr-only[role="status"][aria-live="polite"]').innerText()).toBe("Working…");
       } else if (surface === "answer") {
         const sending = page.getByRole("button", { name: "Sending…" });
         expect(await sending.getAttribute("aria-disabled")).toBe("true");
         expect(await sending.isVisible()).toBe(true);
+        expect(await sending.evaluate(e => e === document.activeElement)).toBe(true);
+        expect(await page.locator('.sr-only[role="status"][aria-live="polite"]').innerText()).toBe("Sending…");
       } else expect(await button.isDisabled()).toBe(true);
       await page.evaluate(() => (window as any).releaseAction());
       if (surface === "answer") await page.getByRole("dialog").waitFor({ state: "detached" });
       else if (surface === "retry") await page.waitForURL(/workspace/);
       else await page.getByRole("button", { name: "Retry", exact: true }).waitFor({ state: "visible" });
       expect(await calls(page)).toEqual([expectedCall(surface)]);
+      if (surface === "tray") expect(await page.locator('.sr-only[role="status"][aria-live="polite"]').innerText()).toBe("");
+      if (surface === "answer") expect(await page.locator('.sr-only[role="status"][aria-live="polite"]').count()).toBe(0);
       if (surface === "tray") expect(await page.getByText("Managed retry").count()).toBeGreaterThan(0);
     } finally { await page.close(); }
   }, 30000);
