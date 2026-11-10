@@ -7,7 +7,7 @@ import { taskTitle } from "./short-title";
 import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
 import { createHash } from "node:crypto";
-import { listRepos, requireRepoDirectory } from "./repos";
+import { repoFor, requireRepoDirectory } from "./repos";
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { executorName } from "../link/notification";
@@ -71,25 +71,38 @@ export interface ListOptions {
   all?: boolean; limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
 }
 
-/** Newest first; every filter and the limit are pushed into SQL (spec §7). */
+/** Newest first; the limit and the cheap exact-safe filters (archived, since, before) run in
+ *  SQL, while the page is walked in id-DESC chunks so the previous per-row semantics (visible
+ *  state, repoFor match, executor precedence) still hold exactly even when active rows sit
+ *  ahead of the result in the ordering (spec §7). */
 export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
-  // Active tasks may transition during the status refresh, even when the caller
-  // requested settled states. Keep them in the SQL selection, then filter again.
-  const states: TaskState[] | undefined = o.states ? [...new Set<TaskState>([...o.states, "queued", "running"])] : undefined;
-  // Resolve the repo key to its registered profile paths once, then let SQL match the
-  // brief-repo column and the task's cached repo identity (magic index gone: RUST-7).
-  let repo: string[] | undefined, repoKey: string | undefined;
-  if (o.repo !== undefined) {
-    repoKey = o.repo;
-    repo = listRepos({ ...ctx, readOnly: true }, []).filter(r => r.key === o.repo).map(r => r.path);
+  const limit = o.limit ?? 20;
+  if (limit === 0) return [];
+  const wantState = o.states !== undefined;
+  const wantRepo = o.repo !== undefined;
+  const wantExec = o.executor !== undefined;
+  const result: TaskRecord[] = [];
+  let before = o.before;
+  // Cap the first page at `limit` so the common (unfiltered) case decodes at most `limit`
+  // rows; once a full page still hasn't filled the result, widen the chunk for deep scans.
+  let chunk = limit;
+  while (result.length < limit) {
+    const page = listTasksWhere(ctx, { createdSince: o.since, all: o.all, before, limit: chunk });
+    if (page.length === 0) break;
+    before = page[page.length - 1].id;
+    const finished = page.length < chunk;
+    for (const t of page) {
+      const fresh = taskStatus(ctx, t.id) ?? t;
+      if (wantState && !o.states!.includes(visibleTaskState(fresh))) continue;
+      if (wantRepo && (fresh.repo ?? repoFor(ctx, fresh.brief.repo)).key !== o.repo) continue;
+      if (wantExec && (fresh.result?.executor ?? fresh.executor ?? fresh.attempts.at(-1)?.executor ?? fresh.requestedExecutor) !== o.executor) continue;
+      result.push(fresh);
+      if (result.length >= limit) return result;
+    }
+    if (finished) break;
+    chunk = Math.max(chunk, 500);
   }
-  const limit = o.limit;
-  return listTasksWhere(ctx, {
-    createdSince: o.since, states, all: o.all, repo, repoKey, executor: o.executor, before: o.before, limit,
-  })
-    .map(t => taskStatus(ctx, t.id) ?? t)
-    .filter(t => o.states === undefined || o.states.includes(visibleTaskState(t)))
-    .slice(0, limit ?? 20);
+  return result;
 }
 
 export function requireAskingExecutor(ctx: Ctx, id = ctx.env.PACER_TASK_ID): string {

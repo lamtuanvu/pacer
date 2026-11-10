@@ -179,7 +179,7 @@ function schemaReady(db: Database): boolean {
   const objects = new Set(db.query<{ name: string }, []>(
     "SELECT name FROM sqlite_master WHERE type IN ('index', 'table', 'trigger')").all().map(row => row.name));
   return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "task_first_settle",
-    "task_changes", "task_changes_insert", "task_changes_update", "tasks_repo"]
+    "task_changes", "task_changes_insert", "task_changes_update"]
     .every(name => objects.has(name));
 }
 
@@ -220,8 +220,7 @@ function connection(ctx: Ctx) {
       );
       CREATE INDEX IF NOT EXISTS tasks_state ON tasks(state);
       CREATE INDEX IF NOT EXISTS tasks_updated_at ON tasks(updated_at);
-      CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);
-      CREATE INDEX IF NOT EXISTS tasks_repo ON tasks(repo);`);
+      CREATE INDEX IF NOT EXISTS tasks_created_at ON tasks(created_at);`);
       // Accept databases created by the initial SQLite implementation too.
       const fields = db.query<{ name: string }, []>("PRAGMA table_info(tasks)").all();
       if (!fields.some(field => field.name === "json_mtime")) db.run("ALTER TABLE tasks ADD COLUMN json_mtime REAL");
@@ -419,18 +418,15 @@ function markImported(entry: Connection, task: TaskRecord, signature: string): v
 
 export interface TaskFilter {
   states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number;
-  /** Pushdown for core.tasks.list: match `repo` column (brief repo path); combine with `repoKey`. */
-  repo?: string | string[];
-  /** Match the task's cached repo identity (record.repo.key). */
-  repoKey?: string;
-  executor?: string;
   createdSince?: number;
 }
 
 /**
  * Indexed filters, combined with AND. Newest id first, matching the file store.
- * The repo, executor, before, createdSince and limit filters all run in SQL so a
- * history page works on a bounded number of rows (spec §7).
+ * `core.tasks.list` uses only the cheap, exact-safe filters here (archived/all,
+ * created_at for since, id < before for before) and applies repo, visible state and
+ * executor matches in JS per id-DESC page, so a history page still works on a bounded
+ * number of rows (spec §7).
  */
 export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] {
   if (filter.states?.length === 0 || filter.limit === 0) return [];
@@ -444,29 +440,6 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   }
   if (filter.updatedSince !== undefined) { clauses.push("updated_at >= ?"); bindings.push(filter.updatedSince); }
   if (filter.createdSince !== undefined) { clauses.push("created_at >= ?"); bindings.push(filter.createdSince); }
-  // The executor a task ran under is `result.executor ?? executor ?? attempts.at(-1).executor
-  // ?? requestedExecutor`. SQLite's JSON path has no negative-array selector, so the last
-  // attempt is reached by building the index from json_array_length. Repeated here with the
-  // same null-coalescing precedence so SQL and the JS core agree (RUST-7).
-  if (filter.executor !== undefined) {
-    const e = filter.executor;
-    const last = "CASE WHEN json_array_length(record, '$.attempts') > 0 THEN json_extract(record, '$.attempts[' || (json_array_length(record, '$.attempts') - 1) || '].executor') END";
-    clauses.push(`(
-      json_extract(record, '$.result.executor') = ?
-      OR (json_extract(record, '$.executor') = ? AND json_extract(record, '$.result.executor') IS NULL)
-      OR (${last} = ? AND json_extract(record, '$.executor') IS NULL AND json_extract(record, '$.result.executor') IS NULL)
-      OR (json_extract(record, '$.requestedExecutor') = ? AND json_extract(record, '$.executor') IS NULL AND json_extract(record, '$.result.executor') IS NULL AND ${last} IS NULL)
-    )`);
-    bindings.push(e, e, e, e);
-  }
-  const repos = filter.repo === undefined ? [] : (Array.isArray(filter.repo) ? filter.repo : [filter.repo]);
-  if (filter.repoKey !== undefined || repos.length) {
-    const keyClause = filter.repoKey !== undefined ? `json_extract(record, '$.repo.key') = ?` : null;
-    const pathClause = repos.length ? `repo IN (${repos.map(() => "?").join(",")})` : null;
-    clauses.push(`(${([keyClause, pathClause].filter(Boolean)).join(" OR ")})`);
-    if (filter.repoKey !== undefined) bindings.push(filter.repoKey);
-    if (repos.length) bindings.push(...repos);
-  }
   const limit = filter.limit === undefined || filter.limit === Infinity ? -1 : Math.max(0, Math.floor(filter.limit));
   const sql = `SELECT record FROM tasks ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`;
   const rows = connection(ctx).db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);

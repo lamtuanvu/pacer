@@ -8,6 +8,9 @@ import { taskStatus } from "../src/tasks/api";
 import { repoFor } from "../src/core/repos";
 import { apiTasks } from "../src/api/read-model/tasks";
 import * as repos from "../src/core/repos";
+import { writeJsonAtomic } from "../src/fsutil";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { Ctx } from "../src/types";
 import type { TaskRecord } from "../src/tasks/types";
 
@@ -115,4 +118,35 @@ test("apiTasks reads the repo registry once per call", () => {
     expect(out).toHaveLength(8);
     expect(readOnce).toHaveBeenCalledTimes(1);
   } finally { readOnce.mockRestore(); }
+});
+
+test("states=done pages past newer running tasks", () => {
+  const ctx = fakeCtx();
+  // 35 newer (higher id) running tasks sit ahead of 5 older done tasks in the id-DESC
+  // ordering. The page must keep walking past the active rows and return the 5 done,
+  // exactly as the pre-change implementation did (a single limit+1 page would return none).
+  const doneIds: string[] = [];
+  for (let i = 0; i < 5; i++) { const t = mkTask(ctx, i, { state: "done" }); doneIds.push(t.id); }
+  for (let i = 100; i < 135; i++) mkTask(ctx, i, { state: "running" });
+  const o: ListOptions = { states: ["done"], limit: 21 };
+  const got = taskList(ctx, o).map(t => t.id);
+  expect(got).toHaveLength(5);
+  expect(new Set(got)).toEqual(new Set(doneIds));
+  expect(got).toEqual(oldList(ctx, o).map(t => t.id));
+});
+
+test("repo filter matches a task delegated from a subdirectory and a linked worktree alias", () => {
+  const ctx = fakeCtx();
+  const regRepo = tmpDir(), sub = join(regRepo, "pkg"), worktree = tmpDir();
+  mkdirSync(sub, { recursive: true });
+  mkdirSync(worktree, { recursive: true });
+  writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [regRepo]: { path: regRepo, key: "github.com/acme/app", lastUsed: ctx.now } });
+  writeJsonAtomic(join(ctx.pacerHome, "state", "repo-paths.json"), { [worktree]: regRepo });
+  // No cached t.repo: repoFor(ctx, brief.repo) must resolve both the subdirectory and the
+  // linked-worktree alias to the registered repo key (the old exact-match-the-root-path SQL
+  // pushdown only saw <regRepo> itself and dropped these tasks).
+  const subTask = mkTask(ctx, 0, { state: "done", briefRepo: sub });
+  const wtTask = mkTask(ctx, 1, { state: "done", briefRepo: worktree });
+  const rows = taskList(ctx, { repo: "github.com/acme/app" }).map(t => t.id);
+  expect(rows).toEqual(expect.arrayContaining([subTask.id, wtTask.id]));
 });
