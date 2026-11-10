@@ -9,6 +9,7 @@ import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import { useEffect, useState } from "preact/hooks";
 const snap = structuredClone(snapshot) as unknown as ClientSnapshot;
 const managed = location.search.includes("managed");
+const unsupported = location.search.includes("unsupported");
 const question = { ...snap.tasks[0]!, id: "question", ...(managed ? {work:{rootId:"question",parentId:null,depth:0}} : {}), state: "needs_input", title: "A question about the update plan", executor: "codex", rev: 7, question: { text: "Hide the expired plan?", at: snap.at - 2280, options: ["Hide it", "Keep it visible"] } };
 snap.tasks.push(question);
 snap.attention = [{ id: "question", taskId: "question", kind: "question", severity: "decide", repo: question.repo!, title: question.title, detail: question.question.text, raisedAt: snap.at - 2280, since: snap.at - 2280, actions: [{ label: "Answer", op: "task.answer", params: { id: "question" } }], notify: "important" }, ...(snap.attention ?? [])];
@@ -22,6 +23,6 @@ const runner = createActionRunner({ call: api.call, waitFor: async () => true, r
 function Fixture() {
   const [, tick] = useState(0);
   useEffect(() => { const change = () => tick(v => v + 1); window.addEventListener("hashchange", change); return () => window.removeEventListener("hashchange", change); }, []);
-  return <ActionContext.Provider value={runner}><TaskContext.Provider value={{ state: { ...initialState(), features: {readModel:true,ops:new Set(["dispatch.answer"])}, snapshot: snap, connected: true }, api }}><div className="pc-app pc-app--with-status"><NeedsYouPage query={{ repo: null, scope: null }} /></div></TaskContext.Provider></ActionContext.Provider>;
+  return <ActionContext.Provider value={runner}><TaskContext.Provider value={{ state: { ...initialState(), features: {readModel:true,ops:new Set(unsupported ? [] : ["dispatch.answer"])}, snapshot: snap, connected: true }, api }}><div className="pc-app pc-app--with-status"><main id="main-content" tabIndex={-1}><NeedsYouPage query={{ repo: null, scope: null }} /></main></div></TaskContext.Provider></ActionContext.Provider>;
 }
 render(<Fixture />, document.getElementById("fixture")!);
