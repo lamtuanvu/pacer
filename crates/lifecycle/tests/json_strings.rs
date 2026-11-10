@@ -30,7 +30,7 @@ fn decoding_and_serializing_strings_is_lossless() {
         parse_delegate_brief_json(r#"{"goal":"\ud800"}"#, "/tmp")
             .unwrap()
             .to_json(),
-        r#"{"brief":{"goal":"\ud800","repo":"/tmp"},"input":{}}"#,
+        r#"{"brief":{"goal":"\ud800","repo":"/tmp"},"input":{"difficultySource":"unspecified"}}"#,
     );
 }
 
