@@ -6,9 +6,13 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Executor default and allowed model management with `pacer executor models`, declared `small|medium|frontier|unknown` tiers, model availability validation and the **Model offered** readiness check. Delegate briefs accept `difficulty` and `model`; task attempts record model selection and fallback reasons. Dispatcher settings preview difficulty-based model choices.
+
 - Opt-in load-aware executor selection: `pacing.balance: least-loaded` starts each task on the least-loaded executor (running tasks over its `max_tasks`) among those equally acceptable on budget, so parallel work spreads across executors instead of filling the first one before spilling over. Budget tiers (expiring, normal, near-limit, ahead, uncertain; cheap-before-metered under `cheapest-first`; `accounts: fill`) are never crossed, an explicitly requested executor still wins, and `pacer route` / `dispatch.explain` show each candidate's load. The default `off` keeps today's order. See [the design](docs/specs/2026-11-10-load-aware-executor-balance-design.md).
 
 ### Changed
+
+- Automatic model choice now uses `simple → small`, `standard → medium`, `complex → frontier` by default for executors that declare models. Managed dispatch tries higher tiers, then unrated models, when needed; plain delegation keeps its routed executor and falls back to its default. Executors without model lists retain default-model behavior.
 
 - With the native plugin owner on, a refused first result chunk now ends the plugin call, as it does with the owner off: the plugin can no longer fall back to a plain result after any chunk attempt, the owner's own refusals are reported as pacer's errors rather than the plugin's, and a chunk that belongs to another call is refused without ending the current one.
 

@@ -242,6 +242,7 @@ pub mod error {
 ///        "onNoMatch",
 ///        "reservePct",
 ///        "steps",
+///        "tierTargets",
 ///        "timeoutMs"
 ///      ],
 ///      "properties": {
@@ -528,6 +529,44 @@ pub mod error {
 ///          },
 ///          "maxItems": 64,
 ///          "minItems": 1
+///        },
+///        "tierTargets": {
+///          "type": "object",
+///          "required": [
+///            "complex",
+///            "simple",
+///            "standard"
+///          ],
+///          "properties": {
+///            "complex": {
+///              "default": "frontier",
+///              "type": "string",
+///              "enum": [
+///                "small",
+///                "medium",
+///                "frontier"
+///              ]
+///            },
+///            "simple": {
+///              "default": "small",
+///              "type": "string",
+///              "enum": [
+///                "small",
+///                "medium",
+///                "frontier"
+///              ]
+///            },
+///            "standard": {
+///              "default": "medium",
+///              "type": "string",
+///              "enum": [
+///                "small",
+///                "medium",
+///                "frontier"
+///              ]
+///            }
+///          },
+///          "additionalProperties": false
 ///        },
 ///        "timeoutMs": {
 ///          "default": 1000,
@@ -1734,6 +1773,7 @@ impl ::std::convert::TryFrom<&str> for DecisionDecideParamsCandidatesItemTier {
 ///    "onNoMatch",
 ///    "reservePct",
 ///    "steps",
+///    "tierTargets",
 ///    "timeoutMs"
 ///  ],
 ///  "properties": {
@@ -2021,6 +2061,44 @@ impl ::std::convert::TryFrom<&str> for DecisionDecideParamsCandidatesItemTier {
 ///      "maxItems": 64,
 ///      "minItems": 1
 ///    },
+///    "tierTargets": {
+///      "type": "object",
+///      "required": [
+///        "complex",
+///        "simple",
+///        "standard"
+///      ],
+///      "properties": {
+///        "complex": {
+///          "default": "frontier",
+///          "type": "string",
+///          "enum": [
+///            "small",
+///            "medium",
+///            "frontier"
+///          ]
+///        },
+///        "simple": {
+///          "default": "small",
+///          "type": "string",
+///          "enum": [
+///            "small",
+///            "medium",
+///            "frontier"
+///          ]
+///        },
+///        "standard": {
+///          "default": "medium",
+///          "type": "string",
+///          "enum": [
+///            "small",
+///            "medium",
+///            "frontier"
+///          ]
+///        }
+///      },
+///      "additionalProperties": false
+///    },
 ///    "timeoutMs": {
 ///      "default": 1000,
 ///      "type": "integer",
@@ -2047,6 +2125,8 @@ pub struct DecisionDecideParamsConfig {
     #[serde(rename = "reservePct")]
     pub reserve_pct: f64,
     pub steps: ::std::vec::Vec<DecisionDecideParamsConfigStepsItem>,
+    #[serde(rename = "tierTargets")]
+    pub tier_targets: DecisionDecideParamsConfigTierTargets,
     #[serde(rename = "timeoutMs")]
     pub timeout_ms: ::std::num::NonZeroU64,
 }
@@ -3303,6 +3383,274 @@ impl ::std::convert::TryFrom<&str> for DecisionDecideParamsConfigStepsItemRequir
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///`DecisionDecideParamsConfigTierTargets`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "complex",
+///    "simple",
+///    "standard"
+///  ],
+///  "properties": {
+///    "complex": {
+///      "default": "frontier",
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier"
+///      ]
+///    },
+///    "simple": {
+///      "default": "small",
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier"
+///      ]
+///    },
+///    "standard": {
+///      "default": "medium",
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionDecideParamsConfigTierTargets {
+    pub complex: DecisionDecideParamsConfigTierTargetsComplex,
+    pub simple: DecisionDecideParamsConfigTierTargetsSimple,
+    pub standard: DecisionDecideParamsConfigTierTargetsStandard,
+}
+///`DecisionDecideParamsConfigTierTargetsComplex`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "frontier",
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DecisionDecideParamsConfigTierTargetsComplex {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+}
+impl ::std::convert::From<&Self> for DecisionDecideParamsConfigTierTargetsComplex {
+    fn from(value: &DecisionDecideParamsConfigTierTargetsComplex) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DecisionDecideParamsConfigTierTargetsComplex {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+        }
+    }
+}
+impl ::std::str::FromStr for DecisionDecideParamsConfigTierTargetsComplex {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DecisionDecideParamsConfigTierTargetsComplex {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for DecisionDecideParamsConfigTierTargetsComplex {
+    fn default() -> Self {
+        DecisionDecideParamsConfigTierTargetsComplex::Frontier
+    }
+}
+///`DecisionDecideParamsConfigTierTargetsSimple`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "small",
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DecisionDecideParamsConfigTierTargetsSimple {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+}
+impl ::std::convert::From<&Self> for DecisionDecideParamsConfigTierTargetsSimple {
+    fn from(value: &DecisionDecideParamsConfigTierTargetsSimple) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DecisionDecideParamsConfigTierTargetsSimple {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+        }
+    }
+}
+impl ::std::str::FromStr for DecisionDecideParamsConfigTierTargetsSimple {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DecisionDecideParamsConfigTierTargetsSimple {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for DecisionDecideParamsConfigTierTargetsSimple {
+    fn default() -> Self {
+        DecisionDecideParamsConfigTierTargetsSimple::Small
+    }
+}
+///`DecisionDecideParamsConfigTierTargetsStandard`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "medium",
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DecisionDecideParamsConfigTierTargetsStandard {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+}
+impl ::std::convert::From<&Self> for DecisionDecideParamsConfigTierTargetsStandard {
+    fn from(value: &DecisionDecideParamsConfigTierTargetsStandard) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DecisionDecideParamsConfigTierTargetsStandard {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+        }
+    }
+}
+impl ::std::str::FromStr for DecisionDecideParamsConfigTierTargetsStandard {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DecisionDecideParamsConfigTierTargetsStandard {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for DecisionDecideParamsConfigTierTargetsStandard {
+    fn default() -> Self {
+        DecisionDecideParamsConfigTierTargetsStandard::Medium
     }
 }
 ///`DecisionDecideParamsObservationRevision`
@@ -5256,6 +5604,43 @@ impl ::std::convert::TryFrom<&str> for DecisionDecideParamsTaskRequirementsMinTi
 ///          "type": "string",
 ///          "maxLength": 256,
 ///          "minLength": 1
+///        },
+///        "tier": {
+///          "type": "object",
+///          "required": [
+///            "reason",
+///            "selectedTier",
+///            "targetTier"
+///          ],
+///          "properties": {
+///            "reason": {
+///              "type": "string",
+///              "enum": [
+///                "target-match",
+///                "upward-fallback",
+///                "unknown-tier-fallback",
+///                "explicit-override"
+///              ]
+///            },
+///            "selectedTier": {
+///              "type": "string",
+///              "enum": [
+///                "small",
+///                "medium",
+///                "frontier",
+///                "unknown"
+///              ]
+///            },
+///            "targetTier": {
+///              "type": "string",
+///              "enum": [
+///                "small",
+///                "medium",
+///                "frontier"
+///              ]
+///            }
+///          },
+///          "additionalProperties": false
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -5287,6 +5672,43 @@ impl ::std::convert::TryFrom<&str> for DecisionDecideParamsTaskRequirementsMinTi
 ///            "abstain",
 ///            "no-match"
 ///          ]
+///        },
+///        "tier": {
+///          "type": "object",
+///          "required": [
+///            "reason",
+///            "selectedTier",
+///            "targetTier"
+///          ],
+///          "properties": {
+///            "reason": {
+///              "type": "string",
+///              "enum": [
+///                "target-match",
+///                "upward-fallback",
+///                "unknown-tier-fallback",
+///                "explicit-override"
+///              ]
+///            },
+///            "selectedTier": {
+///              "type": "string",
+///              "enum": [
+///                "small",
+///                "medium",
+///                "frontier",
+///                "unknown"
+///              ]
+///            },
+///            "targetTier": {
+///              "type": "string",
+///              "enum": [
+///                "small",
+///                "medium",
+///                "frontier"
+///              ]
+///            }
+///          },
+///          "additionalProperties": false
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -5303,11 +5725,15 @@ pub enum DecisionDecideResult {
         skipped: ::std::vec::Vec<DecisionDecideResultVariant0SkippedItem>,
         state: ::std::string::String,
         step: DecisionDecideResultVariant0Step,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        tier: ::std::option::Option<DecisionDecideResultVariant0Tier>,
     },
     Variant1 {
         reason: DecisionDecideResultVariant1Reason,
         skipped: ::std::vec::Vec<DecisionDecideResultVariant1SkippedItem>,
         state: DecisionDecideResultVariant1State,
+        #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+        tier: ::std::option::Option<DecisionDecideResultVariant1Tier>,
     },
 }
 impl ::std::convert::From<&Self> for DecisionDecideResult {
@@ -5545,6 +5971,267 @@ impl<'de> ::serde::Deserialize<'de> for DecisionDecideResultVariant0Step {
         deserialize_validated_string(deserializer)
     }
 }
+///`DecisionDecideResultVariant0Tier`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "reason",
+///    "selectedTier",
+///    "targetTier"
+///  ],
+///  "properties": {
+///    "reason": {
+///      "type": "string",
+///      "enum": [
+///        "target-match",
+///        "upward-fallback",
+///        "unknown-tier-fallback",
+///        "explicit-override"
+///      ]
+///    },
+///    "selectedTier": {
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier",
+///        "unknown"
+///      ]
+///    },
+///    "targetTier": {
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionDecideResultVariant0Tier {
+    pub reason: DecisionDecideResultVariant0TierReason,
+    #[serde(rename = "selectedTier")]
+    pub selected_tier: DecisionDecideResultVariant0TierSelectedTier,
+    #[serde(rename = "targetTier")]
+    pub target_tier: DecisionDecideResultVariant0TierTargetTier,
+}
+///`DecisionDecideResultVariant0TierReason`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "target-match",
+///    "upward-fallback",
+///    "unknown-tier-fallback",
+///    "explicit-override"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DecisionDecideResultVariant0TierReason {
+    #[serde(rename = "target-match")]
+    TargetMatch,
+    #[serde(rename = "upward-fallback")]
+    UpwardFallback,
+    #[serde(rename = "unknown-tier-fallback")]
+    UnknownTierFallback,
+    #[serde(rename = "explicit-override")]
+    ExplicitOverride,
+}
+impl ::std::convert::From<&Self> for DecisionDecideResultVariant0TierReason {
+    fn from(value: &DecisionDecideResultVariant0TierReason) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DecisionDecideResultVariant0TierReason {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::TargetMatch => f.write_str("target-match"),
+            Self::UpwardFallback => f.write_str("upward-fallback"),
+            Self::UnknownTierFallback => f.write_str("unknown-tier-fallback"),
+            Self::ExplicitOverride => f.write_str("explicit-override"),
+        }
+    }
+}
+impl ::std::str::FromStr for DecisionDecideResultVariant0TierReason {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "target-match" => Ok(Self::TargetMatch),
+            "upward-fallback" => Ok(Self::UpwardFallback),
+            "unknown-tier-fallback" => Ok(Self::UnknownTierFallback),
+            "explicit-override" => Ok(Self::ExplicitOverride),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DecisionDecideResultVariant0TierReason {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`DecisionDecideResultVariant0TierSelectedTier`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier",
+///    "unknown"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DecisionDecideResultVariant0TierSelectedTier {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+impl ::std::convert::From<&Self> for DecisionDecideResultVariant0TierSelectedTier {
+    fn from(value: &DecisionDecideResultVariant0TierSelectedTier) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DecisionDecideResultVariant0TierSelectedTier {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+            Self::Unknown => f.write_str("unknown"),
+        }
+    }
+}
+impl ::std::str::FromStr for DecisionDecideResultVariant0TierSelectedTier {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            "unknown" => Ok(Self::Unknown),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DecisionDecideResultVariant0TierSelectedTier {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`DecisionDecideResultVariant0TierTargetTier`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DecisionDecideResultVariant0TierTargetTier {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+}
+impl ::std::convert::From<&Self> for DecisionDecideResultVariant0TierTargetTier {
+    fn from(value: &DecisionDecideResultVariant0TierTargetTier) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DecisionDecideResultVariant0TierTargetTier {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+        }
+    }
+}
+impl ::std::str::FromStr for DecisionDecideResultVariant0TierTargetTier {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DecisionDecideResultVariant0TierTargetTier {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`DecisionDecideResultVariant1Reason`
 ///
 /// <details><summary>JSON schema</summary>
@@ -5692,6 +6379,267 @@ impl ::std::str::FromStr for DecisionDecideResultVariant1State {
     }
 }
 impl ::std::convert::TryFrom<&str> for DecisionDecideResultVariant1State {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`DecisionDecideResultVariant1Tier`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "reason",
+///    "selectedTier",
+///    "targetTier"
+///  ],
+///  "properties": {
+///    "reason": {
+///      "type": "string",
+///      "enum": [
+///        "target-match",
+///        "upward-fallback",
+///        "unknown-tier-fallback",
+///        "explicit-override"
+///      ]
+///    },
+///    "selectedTier": {
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier",
+///        "unknown"
+///      ]
+///    },
+///    "targetTier": {
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DecisionDecideResultVariant1Tier {
+    pub reason: DecisionDecideResultVariant1TierReason,
+    #[serde(rename = "selectedTier")]
+    pub selected_tier: DecisionDecideResultVariant1TierSelectedTier,
+    #[serde(rename = "targetTier")]
+    pub target_tier: DecisionDecideResultVariant1TierTargetTier,
+}
+///`DecisionDecideResultVariant1TierReason`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "target-match",
+///    "upward-fallback",
+///    "unknown-tier-fallback",
+///    "explicit-override"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DecisionDecideResultVariant1TierReason {
+    #[serde(rename = "target-match")]
+    TargetMatch,
+    #[serde(rename = "upward-fallback")]
+    UpwardFallback,
+    #[serde(rename = "unknown-tier-fallback")]
+    UnknownTierFallback,
+    #[serde(rename = "explicit-override")]
+    ExplicitOverride,
+}
+impl ::std::convert::From<&Self> for DecisionDecideResultVariant1TierReason {
+    fn from(value: &DecisionDecideResultVariant1TierReason) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DecisionDecideResultVariant1TierReason {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::TargetMatch => f.write_str("target-match"),
+            Self::UpwardFallback => f.write_str("upward-fallback"),
+            Self::UnknownTierFallback => f.write_str("unknown-tier-fallback"),
+            Self::ExplicitOverride => f.write_str("explicit-override"),
+        }
+    }
+}
+impl ::std::str::FromStr for DecisionDecideResultVariant1TierReason {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "target-match" => Ok(Self::TargetMatch),
+            "upward-fallback" => Ok(Self::UpwardFallback),
+            "unknown-tier-fallback" => Ok(Self::UnknownTierFallback),
+            "explicit-override" => Ok(Self::ExplicitOverride),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DecisionDecideResultVariant1TierReason {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`DecisionDecideResultVariant1TierSelectedTier`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier",
+///    "unknown"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DecisionDecideResultVariant1TierSelectedTier {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+impl ::std::convert::From<&Self> for DecisionDecideResultVariant1TierSelectedTier {
+    fn from(value: &DecisionDecideResultVariant1TierSelectedTier) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DecisionDecideResultVariant1TierSelectedTier {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+            Self::Unknown => f.write_str("unknown"),
+        }
+    }
+}
+impl ::std::str::FromStr for DecisionDecideResultVariant1TierSelectedTier {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            "unknown" => Ok(Self::Unknown),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DecisionDecideResultVariant1TierSelectedTier {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`DecisionDecideResultVariant1TierTargetTier`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DecisionDecideResultVariant1TierTargetTier {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+}
+impl ::std::convert::From<&Self> for DecisionDecideResultVariant1TierTargetTier {
+    fn from(value: &DecisionDecideResultVariant1TierTargetTier) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DecisionDecideResultVariant1TierTargetTier {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+        }
+    }
+}
+impl ::std::str::FromStr for DecisionDecideResultVariant1TierTargetTier {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DecisionDecideResultVariant1TierTargetTier {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()

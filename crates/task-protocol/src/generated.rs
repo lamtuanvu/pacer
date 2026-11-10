@@ -557,6 +557,14 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///    "context": {
 ///      "type": "string"
 ///    },
+///    "difficulty": {
+///      "type": "string",
+///      "enum": [
+///        "simple",
+///        "standard",
+///        "complex"
+///      ]
+///    },
 ///    "dispatch": {},
 ///    "executor": {
 ///      "type": "string"
@@ -746,6 +754,11 @@ impl ::std::convert::TryFrom<&str> for TaskAttachParamsTarget {
 ///      },
 ///      "additionalProperties": false
 ///    },
+///    "model": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
 ///    "repo": {
 ///      "type": "string",
 ///      "minLength": 1
@@ -817,6 +830,8 @@ pub struct TaskDelegateParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub context: ::std::option::Option<::std::string::String>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub difficulty: ::std::option::Option<TaskDelegateParamsDifficulty>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub dispatch: ::std::option::Option<::serde_json::Value>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub executor: ::std::option::Option<::std::string::String>,
@@ -831,6 +846,8 @@ pub struct TaskDelegateParams {
     pub kind: ::std::option::Option<TaskDelegateParamsKind>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub messaging: ::std::option::Option<TaskDelegateParamsMessaging>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub model: ::std::option::Option<TaskDelegateParamsModel>,
     pub repo: TaskDelegateParamsRepo,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub request_id: ::std::option::Option<TaskDelegateParamsRequestId>,
@@ -904,6 +921,72 @@ impl<'de> ::serde::Deserialize<'de> for TaskDelegateParamsBase {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`TaskDelegateParamsDifficulty`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "simple",
+///    "standard",
+///    "complex"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum TaskDelegateParamsDifficulty {
+    #[serde(rename = "simple")]
+    Simple,
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "complex")]
+    Complex,
+}
+impl ::std::convert::From<&Self> for TaskDelegateParamsDifficulty {
+    fn from(value: &TaskDelegateParamsDifficulty) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for TaskDelegateParamsDifficulty {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Simple => f.write_str("simple"),
+            Self::Standard => f.write_str("standard"),
+            Self::Complex => f.write_str("complex"),
+        }
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsDifficulty {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "simple" => Ok(Self::Simple),
+            "standard" => Ok(Self::Standard),
+            "complex" => Ok(Self::Complex),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsDifficulty {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`TaskDelegateParamsGoal`
@@ -2214,6 +2297,62 @@ impl ::std::convert::TryFrom<&str> for TaskDelegateParamsMessagingRulesItemToKin
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///`TaskDelegateParamsModel`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TaskDelegateParamsModel(::std::string::String);
+impl ::std::ops::Deref for TaskDelegateParamsModel {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TaskDelegateParamsModel> for ::std::string::String {
+    fn from(value: TaskDelegateParamsModel) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TaskDelegateParamsModel {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskDelegateParamsModel {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TaskDelegateParamsModel {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`TaskDelegateParamsRepo`

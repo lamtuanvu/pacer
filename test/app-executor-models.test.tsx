@@ -1,3 +1,4 @@
+import { dispatchConfigSchema } from "../src/dispatch/types";
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import { h, render as preactRender } from "preact";
@@ -162,6 +163,7 @@ test("a successful save refreshes the models listing and calls onSaved afterward
     const api = {
       call: async (op: string, params: unknown) => {
         calls.push({ op, params });
+        if (op === "dispatch.config.get") return { config: dispatchConfigSchema.parse({}) };
         if (op === "runner.models.get") return {runner: "go", revision: "v1", default: null, models: []};
         if (op === "executor.models.available") return { ...unknown, provider: "zhipu", models: [{ id: "zhipu/glm-4.7" }] };
         return {};
@@ -225,6 +227,7 @@ async function withModelScreen(run: (container: FakeElement, calls: Array<{op: s
     let saved = 0;
     const api = { call: async (op: string, params: any) => {
       calls.push({op, params});
+      if (op === "dispatch.config.get") return { config: dispatchConfigSchema.parse({}) };
       if (op === "executor.models.available") return listing;
       if (op === "runner.models.get" && readState === "error") throw new Error("Unavailable declarations");
       if (op === "runner.models.get" && readState === "loading") return new Promise(() => {});
@@ -400,3 +403,10 @@ for (const state of ["loading", "error"] as const) {
     }, undefined, unknown, {...declarations, models: []}, state);
   });
 }
+
+test("Models starts with the configured difficulty summary", () => {
+  const config = dispatchConfigSchema.parse({});
+  const html = render(<ExecutorModels runner="go" model="zhipu/glm-4.7" provider="zhipu" initialAvailable={served}
+    initialConfig={{ config }} initialModels={{ ...declarations, models: [{ id: "zhipu/glm-4.7", tier: "frontier" }] }} />);
+  expect(html).toContain("Simple → glm-4.7 · Standard → glm-4.7 · Complex → glm-4.7");
+});

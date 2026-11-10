@@ -1,7 +1,7 @@
 import type { Strategy } from "../config/strategy";
 import type { Candidate, DecisionRequest, DispatchPreview, ModelRecord, Observation, TaskRequirements } from "./types";
 
-const TIERS = { unknown: -1, small: 0, medium: 1, frontier: 2 };
+export const TIERS = { unknown: -1, small: 0, medium: 1, frontier: 2 };
 export function meetsRequirements(model: ModelRecord, requirements: TaskRequirements): boolean {
   return (requirements.minTier === undefined || TIERS[model.tier] >= TIERS[requirements.minTier])
     && (requirements.tools === undefined || model.tools === requirements.tools)

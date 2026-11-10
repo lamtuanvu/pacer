@@ -87,7 +87,7 @@ export const V3_CURSOR_BASE = 3_000_000_000_000;
 
 export function v2Params(name:string,params:unknown):unknown {
  if(name==='task.delegate'&&params&&typeof params==='object'&&!Array.isArray(params)){
-  const {dispatch:_,...legacy}=params as Record<string,unknown>;return legacy;
+  const {dispatch:_,difficulty:_difficulty,model:_model,...legacy}=params as Record<string,unknown>;return legacy;
  }
  if(name==='client.register'&&params&&typeof params==='object'&&!Array.isArray(params)){
   const {capture:_,...legacy}=params as Record<string,unknown>;
@@ -127,6 +127,8 @@ export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):
 /** Keep the existing v2 document/schema check stable until the documentation task. */
 export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const schemas=opJsonSchemas();
+ delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.difficulty;
+ delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.model;
  delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.dispatch;
  delete (schemas['client.register'].params as {properties:Record<string,unknown>}).properties.capture;
  for(const op of V3_ONLY_OPS)delete schemas[op];

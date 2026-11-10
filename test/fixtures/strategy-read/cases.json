@@ -400,7 +400,12 @@
             ]
           }
         ],
-        "onNoMatch": "queue"
+        "onNoMatch": "queue",
+        "tierTargets": {
+          "simple": "small",
+          "standard": "medium",
+          "complex": "frontier"
+        }
       },
       "messaging": {
         "defaults": true,
@@ -2398,7 +2403,12 @@
             ]
           }
         ],
-        "onNoMatch": "queue"
+        "onNoMatch": "queue",
+        "tierTargets": {
+          "simple": "small",
+          "standard": "medium",
+          "complex": "frontier"
+        }
       },
       "execution": {},
       "classifier": {}

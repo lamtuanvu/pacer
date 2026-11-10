@@ -10997,5 +10997,124 @@
         "keys": 2
       }
     }
+,
+    {
+      "name": "dispatch tier targets empty",
+      "before": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{}}\n",
+      "key": "update_check",
+      "input": false,
+      "expected": {
+        "result": {
+          "key": "update_check",
+          "value": false,
+          "previous": true,
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -6,0 +6,1 @@\n+update_check: false",
+          "undo": "pacer config set update_check true",
+          "notes": []
+        },
+        "after": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{}}\nupdate_check: false\n",
+        "keys": 48
+      }
+    },
+    {
+      "name": "dispatch tier targets partial",
+      "before": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{\"simple\":\"medium\"}}\n",
+      "key": "update_check",
+      "input": false,
+      "expected": {
+        "result": {
+          "key": "update_check",
+          "value": false,
+          "previous": true,
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -6,0 +6,1 @@\n+update_check: false",
+          "undo": "pacer config set update_check true",
+          "notes": []
+        },
+        "after": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{\"simple\":\"medium\"}}\nupdate_check: false\n",
+        "keys": 48
+      }
+    },
+    {
+      "name": "dispatch tier targets equal",
+      "before": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{\"simple\":\"medium\",\"complex\":\"medium\"}}\n",
+      "key": "update_check",
+      "input": false,
+      "expected": {
+        "result": {
+          "key": "update_check",
+          "value": false,
+          "previous": true,
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -6,0 +6,1 @@\n+update_check: false",
+          "undo": "pacer config set update_check true",
+          "notes": []
+        },
+        "after": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{\"simple\":\"medium\",\"complex\":\"medium\"}}\nupdate_check: false\n",
+        "keys": 48
+      }
+    },
+    {
+      "name": "dispatch tier targets decreasing",
+      "before": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{\"simple\":\"frontier\"}}\n",
+      "key": "update_check",
+      "input": false,
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - Invalid dispatch configuration"
+        },
+        "getError": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - Invalid dispatch configuration"
+        }
+      }
+    },
+    {
+      "name": "dispatch tier targets unknown",
+      "before": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{\"simple\":\"unknown\"}}\n",
+      "key": "update_check",
+      "input": false,
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - Invalid dispatch configuration"
+        },
+        "getError": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - Invalid dispatch configuration"
+        }
+      }
+    },
+    {
+      "name": "dispatch tier targets extra",
+      "before": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{\"extra\":\"small\"}}\n",
+      "key": "update_check",
+      "input": false,
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - Invalid dispatch configuration"
+        },
+        "getError": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - Invalid dispatch configuration"
+        }
+      }
+    },
+    {
+      "name": "dispatch tier targets null",
+      "before": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":null}\n",
+      "key": "update_check",
+      "input": false,
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - Invalid dispatch configuration"
+        },
+        "getError": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - Invalid dispatch configuration"
+        }
+      }
+    }
   ]
 }

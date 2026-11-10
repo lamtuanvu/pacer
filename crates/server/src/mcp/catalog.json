@@ -15,6 +15,19 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "simple",
+              "standard",
+              "complex"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
           "dispatch": {},
           "title": {
             "type": "string",
@@ -1104,6 +1117,19 @@
           "requestId": {
             "type": "string",
             "minLength": 1
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "simple",
+              "standard",
+              "complex"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
           },
           "title": {
             "type": "string"

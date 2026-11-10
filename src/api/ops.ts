@@ -84,7 +84,7 @@ import { publish } from "../link/publish";
 import { checkForUpdate, updateAvailable } from "../update/check";
 import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
 import { currentVersion } from "../update/version";
-import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
+import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask, difficultyWarning } from "../tasks/api";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 import { callerParticipant } from "../messaging/participants";
@@ -448,7 +448,7 @@ export const OPS: Record<string, OpDef> = {
       // The v1 notifier still uses this marker for short tasks started in a UI.
       const result = source === "ui" && readTask(ctx, task.id)
         ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;
-      return summarizeTask(result);
+      return {...summarizeTask(result), ...(result.difficultySource === "unspecified" ? {warnings: [difficultyWarning()]} : {})};
     },
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
@@ -591,7 +591,7 @@ export const OPS: Record<string, OpDef> = {
   "issue.import": op({ description: "Read one GitHub issue (title, body, labels, URL, state) of a registered repository through the user's gh login, as capped plain text for a new task. The GitHub repository comes from the checkout's origin remote. Writes nothing.", params: issueImportParams, handler: (ctx, p, deps) => importIssue(ctx, p, { gh: deps.gh }) }),
   "issue.search": op({ description: "Search a registered repository's GitHub issues for a picker (number, title, labels, URL, state) through the user's gh login. Writes nothing.", params: issueSearchParams, handler: (ctx, p, deps) => searchIssues(ctx, p, { gh: deps.gh }) }),
   "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await submitWork(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
-  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await delegateChild(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
+  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),difficulty:delegateSchema.difficulty,model:delegateSchema.model,requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await delegateChild(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
   "dispatch.tree": op({ description: "Scoped nested work tree, selected decisions, dependencies and aggregate execution time.", params:z.object({id}),handler:(ctx,p)=>scopedWorkTree(ctx,p.id) }),
   "dispatch.list": op({ description: "Page through work roots or children, optionally filtered by repository and state.", params:z.object({relation:z.enum(["roots","children","all"]).optional(),state:z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"]).optional(),repo:z.string().min(1).optional(),before:id.optional(),limit:z.number().int().min(1).max(100).optional()}),handler:(ctx,p)=>listWork(ctx,p) }),
   "dispatch.events": op({ description: "Scoped work timeline after a monotonic cursor.", params:z.object({id,after:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>scopedWorkEvents(ctx,p.id,p.after??0) }),

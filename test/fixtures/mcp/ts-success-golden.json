@@ -12,10 +12,12 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n \"task_id\": \"task-planner\",\n \"title\": \"planner child\",\n \"goal\": \"planner child\",\n \"state\": \"queued\",\n \"kind\": null,\n \"requested_executor\": \"codex\",\n \"placement\": {\n  \"requested\": \"auto\"\n },\n \"queue\": null,\n \"attempts\": [],\n \"result\": null,\n \"review\": null,\n \"resolved\": null\n}"
+          "text": "{\n \"difficulty\": \"standard\",\n \"difficultySource\": \"unspecified\",\n \"task_id\": \"task-planner\",\n \"title\": \"planner child\",\n \"goal\": \"planner child\",\n \"state\": \"queued\",\n \"kind\": null,\n \"requested_executor\": \"codex\",\n \"placement\": {\n  \"requested\": \"auto\"\n },\n \"queue\": null,\n \"attempts\": [],\n \"result\": null,\n \"review\": null,\n \"resolved\": null,\n \"warnings\": [\n  {\n   \"code\": \"difficulty_missing\",\n   \"field\": \"difficulty\",\n   \"values\": [\n    \"simple\",\n    \"standard\",\n    \"complex\"\n   ]\n  }\n ]\n}"
         }
       ],
       "structuredContent": {
+        "difficulty": "standard",
+        "difficultySource": "unspecified",
         "task_id": "task-planner",
         "title": "planner child",
         "goal": "planner child",
@@ -29,7 +31,18 @@
         "attempts": [],
         "result": null,
         "review": null,
-        "resolved": null
+        "resolved": null,
+        "warnings": [
+          {
+            "code": "difficulty_missing",
+            "field": "difficulty",
+            "values": [
+              "simple",
+              "standard",
+              "complex"
+            ]
+          }
+        ]
       }
     }
   },
@@ -95,10 +108,12 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n \"task_id\": \"task-grant\",\n \"title\": \"scoped child\",\n \"goal\": \"scoped child\",\n \"state\": \"queued\",\n \"kind\": null,\n \"requested_executor\": \"codex\",\n \"placement\": {\n  \"requested\": \"new\",\n  \"reason\": \"Isolated delegated child work\"\n },\n \"queue\": null,\n \"attempts\": [],\n \"result\": null,\n \"review\": null,\n \"resolved\": null\n}"
+          "text": "{\n \"difficulty\": \"standard\",\n \"difficultySource\": \"brief\",\n \"task_id\": \"task-grant\",\n \"title\": \"scoped child\",\n \"goal\": \"scoped child\",\n \"state\": \"queued\",\n \"kind\": null,\n \"requested_executor\": \"codex\",\n \"placement\": {\n  \"requested\": \"new\",\n  \"reason\": \"Isolated delegated child work\"\n },\n \"queue\": null,\n \"attempts\": [],\n \"result\": null,\n \"review\": null,\n \"resolved\": null\n}"
         }
       ],
       "structuredContent": {
+        "difficulty": "standard",
+        "difficultySource": "brief",
         "task_id": "task-grant",
         "title": "scoped child",
         "goal": "scoped child",

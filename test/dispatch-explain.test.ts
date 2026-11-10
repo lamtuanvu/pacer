@@ -18,7 +18,7 @@ import { createTask, updateTask } from "../src/tasks/store";
 function setup(used: Record<string, number | null>, extra: Record<string, unknown> = {}) {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, { recursive: true });
   const strategy = validateStrategy({ planner: "claude-code", accounts: { "claude-code": { kind: "claude" }, codex: { kind: "codex" }, cursor: { kind: "cursor" } },
-    runners: { codex: { models: [{ id: "provider/deep", tier: "frontier" }] }, cursor: { models: [{ id: "provider/mid", tier: "medium" }] } }, ...extra }, "test");
+    runners: { codex: { models: [{ id: "provider/deep", tier: "medium" }] }, cursor: { models: [{ id: "provider/mid", tier: "medium" }] } }, ...extra }, "test");
   const status = async (): Promise<Status> => ({ generatedAt: ctx.now, strategy: "test", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false,
     providers: Object.entries(used).map(([id, pct]) => ({ id, usage: "quota" as const, windows: pct === null ? [] : [{ name: "weekly", usedPct: pct, resetsAt: ctx.now + 3600, lengthS: 604800, paced: true, verdict: "ON_PACE" as const }], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
     accounts: Object.entries(used).map(([id, pct]) => ({ name: id, kind: id === "claude-code" ? "claude" as const : id === "codex" ? "codex" as const : "cursor" as const, verdict: "ON_PACE" as const, usedPct: pct, pacePct: 40, resetsAt: ctx.now + 3600, window: "weekly", stale: false, source: null, capturedAt: ctx.now, runners: [id], spendUsd: null })),

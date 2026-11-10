@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { TIERS } from "./candidates";
+
 const name = z.string().min(1).max(256);
 export const tierSchema = z.enum(["small", "medium", "frontier", "unknown"]);
 export const modelBindingSchema = z.discriminatedUnion("kind", [
@@ -16,7 +18,17 @@ export const requirementsSchema = z.object({
 }).strict();
 export const preferencesSchema = z.object({ models: z.array(name).max(256).default([]), strengths: z.array(name).max(64).default([]) }).strict();
 const rankSchema = z.enum(["task-fit", "spare-capacity", "burn-before-reset", "cheapest-first", "preference"]);
+const targetTierSchema = z.enum(["small", "medium", "frontier"]);
+const tierTargetsSchema = z.object({
+  simple: targetTierSchema.default("small"),
+  standard: targetTierSchema.default("medium"),
+  complex: targetTierSchema.default("frontier"),
+}).strict().refine(
+  targets => TIERS[targets.simple] <= TIERS[targets.standard] && TIERS[targets.standard] <= TIERS[targets.complex],
+  "dispatch.tierTargets must not decrease from simple to complex",
+);
 export const dispatchConfigSchema = z.object({
+  tierTargets: tierTargetsSchema.prefault({}),
   engine: z.string().regex(/^(?:ladder|plugin:[a-z0-9][a-z0-9-]{1,63})$/).default("ladder"),
   engineFallback: z.enum(["queue","ladder"]).default("queue"), timeoutMs: z.number().int().min(1).max(10000).default(1000),
   learning: z.object({enabled:z.boolean().default(false),minSamples:z.number().int().min(20).max(1000).default(20),maxAgeDays:z.number().int().min(1).max(365).default(90)}).strict().default({enabled:false,minSamples:20,maxAgeDays:90}),
@@ -71,9 +83,13 @@ export const decisionRequestSchema = z.object({
   observationRevision: name, strategyHash: name, config: dispatchConfigSchema,
 }).strict();
 const choiceSchema = z.object({ id: z.string().min(1).max(1024), factors: z.array(z.number().finite()).max(16), reason: z.string().max(1000) }).strict();
+const proposalTierSchema = z.object({
+  targetTier: targetTierSchema, selectedTier: tierSchema,
+  reason: z.enum(["target-match", "upward-fallback", "unknown-tier-fallback", "explicit-override"]),
+}).strict();
 export const proposalSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("ranked"), choices: z.array(choiceSchema).min(1).max(512), step: name, skipped: z.array(name).max(64) }).strict(),
-  z.object({ state: z.enum(["abstain", "no-match"]), reason: z.string().max(1000), skipped: z.array(name).max(64) }).strict(),
+  z.object({ state: z.literal("ranked"), choices: z.array(choiceSchema).min(1).max(512), step: name, skipped: z.array(name).max(64), tier: proposalTierSchema.optional() }).strict(),
+  z.object({ state: z.enum(["abstain", "no-match"]), reason: z.string().max(1000), skipped: z.array(name).max(64), tier: proposalTierSchema.optional() }).strict(),
 ]);
 export type TaskRequirements = z.infer<typeof requirementsSchema>;
 export type TaskPreferences = z.infer<typeof preferencesSchema>;
@@ -83,6 +99,7 @@ export type ObservationScope = z.infer<typeof observationScopeSchema>;
 export type ObservationMethod = z.infer<typeof observationMethodSchema>;
 export type Candidate = z.infer<typeof candidateSchema>;
 export type DispatchConfig = z.infer<typeof dispatchConfigSchema>;
+export type TierTargets = DispatchConfig["tierTargets"];
 export type DispatchPreviewInput = z.infer<typeof previewInputSchema>;
 export type DecisionRequest = z.infer<typeof decisionRequestSchema>;
 export type DecisionProposal = z.infer<typeof proposalSchema>;

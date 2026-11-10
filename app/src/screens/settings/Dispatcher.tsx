@@ -1,3 +1,4 @@
+import { DispatcherModelChoice } from "./DispatcherModelChoice";
 import type { DispatchConfig, DispatchPreview, ModelRecord } from "../../../../src/dispatch/types";
 import { MAX_PROBES_PER_DAY, MAX_COST_PCT } from "../../../../src/view-model/certification-schedule";
 import { executorLabel } from "../../../../src/view-model/words";
@@ -324,6 +325,7 @@ function DispatcherContent({query}:{query:RouteQuery}){
   const [refreshing,setRefreshing]=useState(false),[refreshError,setRefreshError]=useState<unknown>();
   const refresh=async()=>{setRefreshing(true);setRefreshError(undefined);try{await api.call("dispatch.refresh",{});models.reload();}catch(error){setRefreshError(error);}finally{setRefreshing(false);}};
   return config.data?<><DispatcherReadError error={config.error} reload={config.reload} subject="dispatcher settings"/><DispatcherOverview view={config.data} repositoryChoices={state.features.ops.has("project.strategy.list")}/>
+    <DispatcherModelChoice initialConfig={config.data} initialInventory={models.data} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
     <DispatcherGuidedSetup view={config.data} onLadderDraft={setLadderDraft} onSaved={()=>{config.reload();models.reload();setSetupsRevision(value=>value+1);}}/>
     {(state.features.ops.has("dispatch.explain")||state.features.ops.has("dispatch.preview"))&&<DispatcherPreviewForm query={query} draft={ladderDraft}/>}
     <SavedSetups key={setupsRevision} onActivated={()=>{config.reload();models.reload();}}/>
