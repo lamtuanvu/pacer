@@ -132,7 +132,10 @@ worktree, after the same project policy admission as a new attempt (another admi
 executor replays the thread if policy now excludes it). Otherwise, or when policy holds
 the continuation, the answer retries on the same executor; the retry brief
 includes cumulative `qa: [{ q, a }]`, rendered as `## Question / Answer`.
-Answers contain 1–2000 characters. Answering twice or answering a task that is
+Answers contain 1–2000 characters. `--json` prints the returned
+`{ task, retry }` result as JSON. Answer text that starts with `--` is given after a
+separator: `pacer answer <task-id> -- "--flag off"` treats `--flag off` as the answer,
+not as options. Answering twice or answering a task that is
 not waiting for input returns a conflict. `pacer stop <id>` closes a waiting question.
 API clients use `task.answer { id, text, expect_rev? }`; MCP planners use
 `task_answer { task_id, text, expect_rev? }`. Both return `{ task, retry }`. Task summaries (including MCP `task_status`)
