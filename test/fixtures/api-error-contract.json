@@ -91,6 +91,7 @@
     "dispatch.wait",
     "doctor.fix.delegate",
     "doctor.run",
+    "executor.models.available",
     "executor.setup.candidates",
     "executor.setup.connect",
     "executor.setup.models",

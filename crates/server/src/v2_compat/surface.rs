@@ -56,6 +56,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "files.search",
     "issue.import",
     "issue.search",
+    "executor.models.available",
     "desktop.reconcile.status",
     "desktop.reconcile.request",
     "desktop.reconcile.cancel",

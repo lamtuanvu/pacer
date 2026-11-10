@@ -42,6 +42,8 @@ export const remedies = {
   },
   updateFiles: (agent: string): Remedy => ({ kind: "auto", label: "Update files", op: "agent.connect", params: { agent }, consent: true }),
   review: (agent: string): Remedy => ({ kind: "review", label: "Review and fix", op: "agent.preview", params: { agent } }),
+  replaceModel: (runner: string, model: string): Remedy => ({ kind: "review", label: `Use ${model}`, op: "runner.set", params: { id: runner, model } }),
+  addExecutor: (account: string): Remedy => ({ kind: "user", label: `Add an executor for ${account}` }),
   service: (label: string): Remedy => ({ kind: "auto", label, op: "service.install", consent: true }),
   privacySettings: (): Remedy => ({ kind: "user", label: "Open Privacy settings", url: PRIVACY_FILES }),
   agent: (check: string): Remedy => ({ kind: "agent", label: "Fix with agent", op: "doctor.fix.delegate", params: { check, scope: "fix" } }),

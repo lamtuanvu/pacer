@@ -63,6 +63,7 @@ import { callerIdentity, send as sendMessage } from "../session/send";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
 import * as opencodeSetup from "../core/opencode-setup";
+import { availableModels } from "../models/available";
 import { redactEndpointMessage } from "../endpoints/state";
 import * as executorSettings from "../core/executor-settings";
 import * as runnersConfig from "../core/runners-config";
@@ -329,6 +330,10 @@ export const OPS: Record<string, OpDef> = {
   "executor.setup.candidates": op({ description: "OpenCode providers, local model servers and catalog providers that can become executors; no secrets.", params: z.object({}), handler: (ctx, _p, deps) => opencodeSetup.setupCandidates(ctx, deps.endpoint) }),
   "executor.setup.models": op({ description: "Usable models for one setup candidate, with a recommended pick and usage type.", params: z.object({provider: z.string().min(1), group: setupGroup, base_url: endpointFields.base_url.optional()}), handler: (ctx, p, deps) => opencodeSetup.setupModels(ctx, p, deps.endpoint) }),
   "executor.setup.connect": op({ description: "Connect a catalog provider through OpenCode, which stores the key (never pacer). This release runs nothing and returns the opencode auth login command to run in a terminal; an optional key is accepted for later releases and never used or stored.", params: z.object({provider: opencodeProvider, key: z.string().min(1).optional()}), handler: (ctx, p) => endpointAction(p.key, () => opencodeSetup.connectWithKey(ctx, p.provider)) }),
+  "executor.models.available": op({ description: "Models an executor can use, from its provider's live listing; models is null when the listing is unknown.", params: z.object({runner: id, refresh: z.boolean().optional()}), handler: (ctx, p, deps) => {
+    if (!loadStrategy(ctx).runners[p.runner]) throw new CoreError("invalid_input", `unknown runner ${p.runner}`);
+    return availableModels(ctx, p.runner, {refresh: p.refresh, deps: deps.endpoint});
+  } }),
   "account.models": op({ description: "Discover endpoint models using a supplied or stored key.", params: z.object({name: id.optional(), base_url: endpointFields.base_url.optional(), key: z.string().optional()}), handler: (ctx, p, deps) => endpointAction(p.key, () => endpoints.listModels(ctx, p, deps.endpoint)) }),
   "account.edit": op({ description: "Edit a managed endpoint and regenerate its OpenCode provider.", params: endpointEdit, handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.editEndpoint(ctx, p, deps.endpoint))) }),
   "account.test": op({ description: "Run an endpoint test task in an isolated temporary git repository.", params: z.object({name: id}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(undefined, () => endpoints.testEndpoint(ctx, p.name, deps.endpoint))) }),

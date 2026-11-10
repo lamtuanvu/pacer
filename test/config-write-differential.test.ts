@@ -10,7 +10,7 @@ import * as notify from "../src/core/notify";
 import * as strategy from "../src/strategy/service";
 import { useStrategy } from "../src/config/strategy";
 import { pluginDataDir } from "../src/link/paths";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, tmpDir } from "./helpers";
 import {pluginRegistry} from "../src/plugins";
 function configCtx(options: Parameters<typeof fakeCtx>[0]) {
   const ctx=fakeCtx(options);
@@ -573,3 +573,72 @@ test("signed radix string quoting matches Bun", () => {
     expect(rust(binary,{op:"yaml.stringify",value}).value).toBe(Bun.YAML.stringify(value,null,2).replace(/\n?$/, "\n"));
   }
 });
+
+// runner.set with a string `model` can only be validated against the provider
+// listing in TypeScript, so the native front door must forward it. This drives
+// the same requests through the real front door (no forced forwarding) and
+// through PACER_FORWARD_OPS and asserts the results match: native front door
+// == forced forwarding. Build with `cargo build -p pacer --features test-ops`
+// and run with PACER_TEST_NATIVE_FRONT_DOOR=<abs path>/target/debug/pacer.
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("runner.set with a string model forwards from the native front door", async () => {
+  const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR!;
+  const core = JSON.stringify([process.execPath, join(root, "src/cli.ts")]);
+  const strategy = `planner: claude-code
+accounts:
+  claude: {kind: claude}
+  codex: {kind: codex}
+  acme:
+    kind: endpoint
+    usage: unmetered
+    connection:
+      api: openai-compatible
+      base_url: https://api.example.com
+      key: none
+      models:
+        - {id: a, context: 64000, output: 32000, tools: true}
+        - {id: b, context: 64000, output: 32000, tools: true}
+runners:
+  opencode#acme: {model: pacer-acme/a}
+routing:
+  - default: [opencode#acme, codex]
+`;
+  const open = () => {
+    const dir = tmpDir();
+    const pacer = join(dir, ".pacer");
+    mkdirSync(pacer, { recursive: true });
+    writeFileSync(join(pacer, "strategy.yaml"), strategy, { mode: 0o600 });
+    return dir;
+  };
+  const exchange = async (dir: string, requests: string[], forward: boolean) => {
+    const child = Bun.spawn([front, "api", "--stdio"], {
+      cwd: dir,
+      env: { HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
+        PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: "runner.set" } : {}) },
+      stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    });
+    try {
+      await child.stdin.write([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } }), ...requests].join("\n") + "\n");
+      await child.stdin.end();
+      const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect(code, stderr).toBe(0);
+      const lines = stdout.trim().split("\n");
+      expect(JSON.parse(lines[0]!).result?.protocol).toBe("3.0.0");
+      return lines.slice(1).sort((a, b) => JSON.parse(a).id - JSON.parse(b).id);
+    } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
+  };
+  const request = (id: number, method: string, params: unknown) => JSON.stringify({ jsonrpc: "2.0", id, method, params });
+  const cases = [
+    request(2, "runner.set", { id: "opencode#acme", model: "pacer-acme/b" }),
+    request(3, "runner.set", { id: "opencode#acme", model: "pacer-acme/nope" }),
+  ];
+  const native = await exchange(open(), cases, false);
+  const forwarded = await exchange(open(), cases, true);
+  expect(native).toEqual(forwarded);
+  // The not-offered model is refused by the provider listing with close names.
+  const rejection = JSON.parse(native[1]!);
+  expect(rejection.error?.code).toBe(-32602); // rpcError maps invalid_input to -32602
+  expect(rejection.error?.data?.code).toBe("invalid_input");
+  expect(rejection.error?.message).toBe("pacer-acme/nope is not offered by acme");
+  expect(rejection.error?.data?.hint).toBe("Available: pacer-acme/a, pacer-acme/b");
+}, 60_000);

@@ -767,6 +767,47 @@ export function p6eCases(): any[] {
         row: { usedPct: 20, capturedAt: 1 },
         ...patch,
       });
+    // Model offered: the case supplies the provider listing; offered null is an
+    // unknown listing and absent models is source "none".
+    for (const models of [
+      { source: "opencode", offered: false, closest: ["prov/other"] },
+      { source: "discovery", offered: false, closest: [] },
+      { source: "opencode", offered: true, closest: ["prov/other"] },
+      {
+        source: "opencode",
+        offered: null,
+        closest: [],
+        note: "opencode could not list models",
+      },
+      { source: "none", offered: null, closest: [] },
+    ])
+      cases.push({
+        op: "runner.check",
+        runner: { ...runner, model: "prov/main" },
+        account: { ...account, provider: "prov" },
+        found: { found: true },
+        status: { signedIn: true },
+        row: { usedPct: 20, capturedAt: 1 },
+        models,
+      });
+    for (const models of [
+      { source: "connection", offered: true, closest: [] },
+      {
+        source: "opencode",
+        offered: null,
+        closest: [],
+        note: "opencode could not list models",
+      },
+    ])
+      cases.push({
+        op: "runner.check",
+        runner: { ...runner, model: null },
+        account: { ...account, provider: "prov" },
+        found: { found: true },
+        status: { signedIn: true },
+        row: { usedPct: 20, capturedAt: 1 },
+        models,
+      });
   }
   {
     const restartJob = {

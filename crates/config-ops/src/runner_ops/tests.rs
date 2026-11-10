@@ -139,6 +139,87 @@ fn add_forwards_check_jobs_terminals_invalid_params_and_unparsable_strategies() 
     ));
 }
 
+#[test]
+fn runner_set_with_model_forwards() {
+    // A runner.set carrying a string model must reach TypeScript, which alone can
+    // consult the provider model listing (a fork of closestModels/isOffered).
+    assert!(runner_set_stays_forwarded(
+        &json!({"id": "codex", "model": "acme/b"})
+    ));
+    assert!(runner_set_stays_forwarded(
+        &json!({"id": "codex", "enabled": false, "model": "acme/b"})
+    ));
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    assert!(runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "model": "acme/b"})
+    ));
+}
+
+#[test]
+fn runner_set_with_model_and_invalid_params_stays_native() {
+    // A string model alone does not forward: params failing the native
+    // runner.set parameter validation keep failing natively with the identical
+    // invalid_input error TypeScript produces, instead of a forward marker.
+    let long_id = "😀".repeat(65);
+    for params in [
+        json!({"id": long_id, "model": "", "enabled": null, "max_tasks": 0, "rank": -1}),
+        json!({"id": "codex", "model": ""}),
+    ] {
+        assert!(!runner_set_stays_forwarded(&params), "{params}");
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(&dir, &[]);
+        assert!(
+            !runner_stays_forwarded(&c, "runner.set", &params),
+            "{params}"
+        );
+    }
+    // Valid params with a string model still forward.
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    assert!(runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "enabled": false, "model": "acme/b"})
+    ));
+    // A string model with another invalid field stays native too.
+    assert!(!runner_set_stays_forwarded(
+        &json!({"id": "codex", "model": "acme/b", "max_tasks": 0})
+    ));
+}
+
+#[test]
+fn runner_set_without_model_stays_native() {
+    // Without a string model there is nothing to check against a listing, so
+    // runner.set stays on the native write path like every other option.
+    assert!(!runner_set_stays_forwarded(&json!({"id": "codex"})));
+    assert!(!runner_set_stays_forwarded(
+        &json!({"id": "codex", "model": null})
+    ));
+    assert!(!runner_set_stays_forwarded(
+        &json!({"id": "codex", "model": 1})
+    ));
+    let dir = tempfile::tempdir().unwrap();
+    let c = ctx(&dir, &[]);
+    assert!(!runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "enabled": false})
+    ));
+    assert!(!runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "max_tasks": 2})
+    ));
+    assert!(!runner_stays_forwarded(
+        &c,
+        "runner.set",
+        &json!({"id": "codex", "model": null})
+    ));
+}
+
 #[tokio::test]
 async fn add_declares_routes_and_refuses_duplicates() {
     let dir = tempfile::tempdir().unwrap();

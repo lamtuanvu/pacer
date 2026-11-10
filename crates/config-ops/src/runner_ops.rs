@@ -482,12 +482,22 @@ fn add_params(params: &Value) -> Option<&Map<String, Value>> {
     fine.then_some(p)
 }
 
+/// `runner.set` with a string `model` must hit TypeScript, which alone can read
+/// the provider's model listing (`availableModels`) to validate the selection —
+/// and only when the params otherwise pass the native parameter validation, so
+/// invalid input keeps failing natively with the identical error.
+pub fn runner_set_stays_forwarded(params: &Value) -> bool {
+    params["model"].is_string() && crate::config_params::parse("runner.set", params.clone()).is_ok()
+}
+
 /// `runner.add` with an interactive terminal, a check job or params outside
 /// the non-interactive schema stays with TypeScript, as does an unreadable or
 /// syntactically invalid strategy file: TypeScript reports it in its own
-/// parser's words.
+/// parser's words. `runner.set` stays with TypeScript when it carries a
+/// string `model`, so the model can be checked against the provider listing.
 pub fn runner_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    op == "runner.add" && (add_params(params).is_none() || !strategy_parses(ctx))
+    (op == "runner.add" && (add_params(params).is_none() || !strategy_parses(ctx)))
+        || (op == "runner.set" && runner_set_stays_forwarded(params))
 }
 
 fn strategy_parses(ctx: &Ctx) -> bool {
