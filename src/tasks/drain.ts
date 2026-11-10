@@ -16,7 +16,7 @@ import { withLock } from "../core/lock";
 import { readPause } from "../core/pause";
 import { readBlocked } from "../executors/blocked";
 import { readBroken } from "../exec/broken";
-import { rankExecutors } from "../engine/rank";
+import { rankExecutors, type RankedExecutor } from "../engine/rank";
 import { balanceByLoad } from "../engine/balance";
 import { SLOT_STATES, slotBlock, slotUse, type SlotUse } from "../engine/slots";
 import { queueCapacity } from "./capacity";
@@ -191,11 +191,21 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           return;
         }
         const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }),ctx);
-        // Balance reorders the ranked candidates within a band by load before the first fit;
-        // the budget bands and the routing exclusions (permitted) still decide membership.
-        const permittedIds = new Set(permitted);
-        const ordered = balanceByLoad(ranking.ranked, s, use, statuses).map(e => e.id).filter(id => permittedIds.has(id));
-        const slotCandidates = ordered.length ? ordered : permitted;
+        // Balance reorders the permitted candidates within a band by load before the first fit;
+        // with balance off, permitted keeps its own order exactly as `permitted.find` did before.
+        // Membership never changes: the budget bands and the routing exclusions still decide who
+        // is a candidate.
+        let slotCandidates: readonly string[];
+        if (s.pacing.balance === "least-loaded") {
+          const byId = new Map(ranking.ranked.map(e => [e.id, e] as const));
+          const rankedPermitted: RankedExecutor[] = [];
+          const rest: string[] = [];
+          for (const id of permitted) {
+            const e = byId.get(id);
+            if (e) rankedPermitted.push(e); else rest.push(id);
+          }
+          slotCandidates = [...balanceByLoad(rankedPermitted, s, use, statuses).map(e => e.id), ...rest];
+        } else slotCandidates = permitted;
         const executor = slotCandidates.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
         if (!executor) { refreshCapacityWait(ctx, task.id, s, permitted.find(id => !executorExclusion(ctx, s, id)), use); return; }
         // A running reservation is claimed by the spawned process before its first attempt.
