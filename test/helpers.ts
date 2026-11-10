@@ -1,5 +1,6 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { createTestRoot } from "./temp-roots";
+import { closedPort } from "./child-env";
 import { join } from "node:path";
 import { execProcess } from "../src/exec/process";
 import type { Ctx, RunFn } from "../src/types";
@@ -38,7 +39,7 @@ export function fakeCtx(o: Partial<Ctx> = {}): Ctx {
     home,
     pacerHome: o.pacerHome ?? join(home, ".pacer"),
     now: o.now ?? localTs(2026, 10, 10, 19, 0),
-    env: o.env ?? {},
+    env: { PACER_PORT: process.env.PACER_PORT ?? String(closedPort()), ...o.env },
     run: o.run ?? (async () => ({ code: 127, stdout: "", stderr: "not available in tests" })),
     which: o.which ?? (() => "/usr/bin/fake"),
   };

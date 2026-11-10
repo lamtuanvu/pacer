@@ -28,7 +28,7 @@ test("a snapshot can compute setup without awaiting its own cached context",asyn
 
 for(const major of [2,3]) test(`serve-side v${major} setup.check skips loopback probes on a custom port`,async()=>{
  const {startServer}=await import("../src/serve/http");
- const ctx=fakeCtx(),port=54321;
+ const ctx=fakeCtx({env:{PACER_PORT:undefined}}),port=54321;
  // Exercise the real serve handler without requiring a listening socket.
  let handler!:(request:Request,server:{port:number})=>Promise<Response>;
  const listener=spyOn(Bun,"serve").mockImplementation(((options:{fetch:typeof handler})=>{

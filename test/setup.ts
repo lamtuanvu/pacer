@@ -1,4 +1,5 @@
 import { createTestRoot, sweepTestRoots } from "./temp-roots";
+import { closedPort } from "./child-env";
 import { afterAll, afterEach, beforeEach } from "bun:test";
 import { rmSync, realpathSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
@@ -60,6 +61,8 @@ mkdirSync(isolatedTmp, { mode: 0o700 });
 for (const key of ["TMPDIR", "TMP", "TEMP"]) process.env[key] = isolatedTmp;
 process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
+// Inherited children must never default to the maintainer’s running service.
+process.env.PACER_PORT = String(closedPort());
 delete process.env.PACER_ROLE;
 delete process.env.PACER_TASK_ID;
 // Bundled plugin children must run this source tree, never an installed pacer the shell points at.
