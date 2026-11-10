@@ -21,7 +21,7 @@ const rpc = (id: number, method: string, params: unknown = {}) => JSON.stringify
 
 test.skipIf(!productionFront)("release front door rejects test-only native operations", async () => {
   const fixture = setup();
-  const child = spawnPinned([productionFront!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([productionFront!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "test.echo", { ok: true }), rpc(3, "_debug.native")].join("\n") + "\n");
     await child.stdin.end();
@@ -36,7 +36,7 @@ test.skipIf(!productionFront)("release front door rejects test-only native opera
 
 test.skipIf(!front)("test binary exposes only its feature-gated native operations", async () => {
   const fixture = setup();
-  const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "_debug.native")].join("\n") + "\n");
     await child.stdin.end();
@@ -50,7 +50,7 @@ test.skipIf(!front)("test binary exposes only its feature-gated native operation
 
 test.skipIf(!front)("stdio accepts hello before native dispatch and flips back to v2", async () => {
   const fixture = setup();
-  const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     const lines = [rpc(1, "test.echo", { n: 1 }), rpc(2, "hello", { protocol: 3 }), rpc(3, "test.echo", { n: 3 }),
       rpc(4, "hello", { protocol: 9 }), rpc(5, "test.echo", { n: 5 }), rpc(6, "hello", { protocol: 2 }), rpc(7, "test.echo", { n: 7 }),
@@ -78,7 +78,7 @@ test.skipIf(!front)("stdio accepts hello before native dispatch and flips back t
 
 test.skipIf(!front)("stdio hello notifications negotiate only with accepted parameters", async () => {
   const fixture = setup();
-  const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   const notification = (params: unknown) => JSON.stringify({ jsonrpc: "2.0", method: "hello", params });
   try {
     const lines = [
@@ -143,7 +143,7 @@ test.skipIf(!front)("HTTP native route enforces auth, version, body limit and fo
 
 test.skipIf(!front)("PACER_FORWARD_OPS forces stdio echo back to TypeScript", async () => {
   const fixture = setup();
-  const child = spawnPinned([front!, "api", "--stdio"], { env: { ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([front!, "api", "--stdio"], { env: { ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "test.echo", { ok: true })].join("\n") + "\n");
     await child.stdin.end();

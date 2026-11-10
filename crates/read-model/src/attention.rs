@@ -517,18 +517,46 @@ mod managed_action_tests {
 
     #[test]
     fn managed_and_ordinary_attention_actions_preserve_protocol() {
-        let dir = tempfile::tempdir().unwrap();
-        let ctx = Ctx::with(dir.path().into(), dir.path().join("home"), HashMap::new(), 100.0);
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().join("home"),
+            HashMap::new(),
+            100.0,
+        );
         for state in ["failed", "limit", "needs_input"] {
             for managed in [false, true] {
                 let mut task = json!({"id":"t-1","title":"Task","state":state,"rev":7,"updatedAt":10,"executor":"codex","question":{"text":"Which?","at":5}});
-                if managed { task["work"] = json!({"rootId":"t-1","depth":0}); }
-                let items = raised(&ctx, &[task], &[], &[], &json!({"items":[]}), &Value::Null, false);
+                if managed {
+                    task["work"] = json!({"rootId":"t-1","depth":0});
+                }
+                let items = raised(
+                    &ctx,
+                    &[task],
+                    &[],
+                    &[],
+                    &json!({"items":[]}),
+                    &Value::Null,
+                    false,
+                );
                 let action = &items[0]["actions"][0];
-                let kind = if state == "needs_input" { "answer" } else { "retry" };
-                assert_eq!(action["op"], format!("{}.{}", if managed {"dispatch"} else {"task"}, kind));
-                if managed { assert_eq!(action["params"], json!({"id":"t-1","expect_rev":7,"requestId":format!("t-1.7.{kind}")})); }
-                else { assert_eq!(action["params"], json!({"id":"t-1"})); }
+                let kind = if state == "needs_input" {
+                    "answer"
+                } else {
+                    "retry"
+                };
+                assert_eq!(
+                    action["op"],
+                    format!("{}.{}", if managed { "dispatch" } else { "task" }, kind)
+                );
+                if managed {
+                    assert_eq!(
+                        action["params"],
+                        json!({"id":"t-1","expect_rev":7,"requestId":format!("t-1.7.{kind}")})
+                    );
+                } else {
+                    assert_eq!(action["params"], json!({"id":"t-1"}));
+                }
             }
         }
     }
