@@ -41,7 +41,8 @@ function TrayStatusGlyph({ status }: { status: Status }) {
   return icon ? <span className={`pc-status--${status.tone}`} aria-hidden="true"><Icon name={icon} /></span> : <StatusGlyph status={status} />;
 }
 
-export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc) {
+export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc, ops: ReadonlySet<string> = new Set()) {
+  if (!actionSupported(action, ops)) throw new Error("This service does not support this action");
   if ((action.op === "task.answer" || action.op === "dispatch.answer") && typeof action.params.text !== "string") await ipc.open(`/needs-you?answer=${encodeURIComponent(String(action.params.id))}`);
   else if (action.op === "ui.open") await ipc.open(actionRoute(action));
   else await api.call(action.op, action.params);
@@ -219,7 +220,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           return <ListRow className={`tray-attention tray-attention--${item.kind}`} key={item.id}
             leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
             content={<>{item.taskId?<TextAction className="tray-task-title" href={appHref(`/tasks/${encodeURIComponent(item.taskId)}`)} onClick={navigate(`/tasks/${encodeURIComponent(item.taskId)}`)}>{taskTitle}</TextAction>:taskTitle}<span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></>}
-            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" aria-busy={busy && busyItem === item.id} aria-disabled={busy || sessionEnded} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc, ops), item.id)}><span className="tray-action__label">{busy && busyItem === item.id ? "Working…" : rowLabel(action.label)}</span></Button>}
+            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" busy={busy} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc, ops), item.id)}><span className="tray-action__label">{rowLabel(action.label)}</span></Button>}
           />;
         })}
       </section> : <section className="tray-clear" aria-label="Needs you"><span className="tray-check"><Icon name="check-circle" /></span><span><strong>Nothing needs you</strong>{model.lastReview !== null && <span className="tray-reason">Last review cleared {timeOnly(model.lastReview)}</span>}</span></section>}
