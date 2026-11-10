@@ -208,6 +208,9 @@ export interface LiveWorker {
 }
 
 export interface TaskRecord {
+  difficulty?: import("../dispatch/work").WorkOptions["difficulty"];
+  difficultySource?: "brief" | "unspecified";
+  model?: string;
   /** Host-authorized origin fetch is journaled before effect; unresolved outcomes cannot be retried. */
   baseFetchIntent?: { attempt: number; providerId: string; repoTop: string;
     originHash: string; base?: string; sha?: string };

@@ -1,3 +1,5 @@
+type Difficulty = WorkOptions["difficulty"];
+import { route } from "../core/routing";
 import { visibleTaskState } from "./types";
 import { prepareCreationAdmission } from "./creation-admission";
 import { createHash } from "node:crypto";
@@ -56,6 +58,8 @@ export function validBase(base: string): boolean {
   return spawnSync("git", ["check-ref-format", "--branch", base], { stdio: "ignore" }).status === 0;
 }
 export const delegateSchema = {
+  difficulty: z.enum(["simple", "standard", "complex"]).optional(),
+  model: z.string().min(1).max(256).optional(),
   dispatch: z.unknown().optional(),
   title: z.string().trim().min(1).max(60).describe("Short task title (trimmed, 1–60 characters), stored separately from the full goal. Omitted titles are derived from the first goal clause with paths, URLs and backticked code removed and word-boundary truncation with an ellipsis. Snapshot tasks, task events, task.get, task.list, attention titles and activity text expose this title; older tasks derive it on read.").optional(),
   request_id: z.string().min(1).max(128).optional(),
@@ -76,13 +80,18 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   const parsed=z.object(delegateSchema).safeParse({repo:defaultRepo,...(raw as object)});
   if(!parsed.success)throw new DelegateError(parsed.error.issues.map(i=>i.path[0]==="worktree"?"worktree must be one of current, new, auto":i.path[0]==="worktree_reason"?"worktree_reason must be a string of at most 200 characters":`${i.path.join(".")}: ${i.message}`).join("; "));
   const a=parsed.data;
-  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptanceTimeoutMin:a.acceptance_timeout_min, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
-    dispatch:a.dispatch?workOptionsSchema.parse(a.dispatch):undefined, title:a.title, requestId:a.request_id, source:a.source,
+  const dispatch = a.dispatch ? workOptionsSchema.parse(a.dispatch) : undefined;
+  const alias = (a.dispatch as {difficulty?: Difficulty} | undefined)?.difficulty;
+  if (a.difficulty !== undefined && alias !== undefined && a.difficulty !== alias)
+    throw new CoreError("invalid_input", "Give difficulty once: top-level difficulty and dispatch.difficulty differ");
+  const difficulty = a.difficulty ?? alias;
+  return { difficulty, model: a.model, difficultySource: difficulty === undefined ? "unspecified" : "brief", brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptanceTimeoutMin:a.acceptance_timeout_min, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
+    dispatch:dispatch ? {...dispatch, difficulty: difficulty ?? "standard", model: a.model ?? dispatch.model} : undefined, title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason,
     interactive:a.interactive, group:a.group, messaging:a.messaging, ...(a.grant!==undefined?{grant:a.grant}:{}) };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
-  return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:visibleTaskState(t), kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
+  return { ...(t.difficultySource ? {difficulty:t.difficulty, difficultySource:t.difficultySource, ...(t.model ? {model:t.model} : {}), ...(t.difficultySource === "unspecified" ? {warnings: [difficultyWarning()]} : {})} : {}), ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:visibleTaskState(t), kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
     ...(t.stopPending ? {stop_pending:t.stopPending} : {}),
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
@@ -110,7 +119,9 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { /** Trusted operation lifetime, never parsed from client/plugin input. */ admissionSignal?:AbortSignal; admissionDeadline?:number; admissionTaskLock?:string; admissionPaths?:readonly string[]; admissionPrepare?:()=>Promise<void>; admissionValidate?:(candidate:Readonly<DelegateInput>)=>void; /** Trusted commit discipline; never parsed from client/plugin input. */ commitWith?: (commit:()=>TaskRecord)=>TaskRecord; admissionContext?:()=>string; dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string; origin?: string; messaging?: import("../messaging/types").MessagingOverride; grant?: boolean }
+export const difficultyWarning = () => ({code: "difficulty_missing", field: "difficulty", values: ["simple", "standard", "complex"]});
+
+export interface DelegateInput { difficulty?: Difficulty; difficultySource?: "brief" | "unspecified"; model?: string; /** Trusted operation lifetime, never parsed from client/plugin input. */ admissionSignal?:AbortSignal; admissionDeadline?:number; admissionTaskLock?:string; admissionPaths?:readonly string[]; admissionPrepare?:()=>Promise<void>; admissionValidate?:(candidate:Readonly<DelegateInput>)=>void; /** Trusted commit discipline; never parsed from client/plugin input. */ commitWith?: (commit:()=>TaskRecord)=>TaskRecord; admissionContext?:()=>string; dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string; origin?: string; messaging?: import("../messaging/types").MessagingOverride; grant?: boolean }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -222,9 +233,15 @@ export async function prepareDelegate(
   if(basicProblems.length)throw new DelegateError(basicProblems.join("; "));
   input.repoValidated=true;
   if(input.executor)input.executor=resolveRunner(initial,input.executor)?.id??input.executor;
+  const routedExecutor = input.model && !input.executor
+    ? (await route(fresh(), input.kind ?? null, initial, {repo: input.brief.repo, goal: input.brief.goal})).ranked[0]?.id
+    : input.executor;
   const repo=input.repoRef??registeredRepo(ctx,input.brief.repo);
   const validate=(candidate:DelegateInput,current:Strategy)=>{
     const problems=validateInput(current,candidate);
+    const pinnedRunner = resolveRunner(current, candidate.executor ?? routedExecutor ?? "");
+    if (candidate.model && pinnedRunner?.models && !pinnedRunner.models.some(model => model.id === candidate.model))
+      throw new CoreError("invalid_input", `Model "${candidate.model}" is not declared by executor "${pinnedRunner.id}"`);
     if(candidate.executor){
       const runner=resolveRunner(current,candidate.executor);
       if(runner?.enabled===false)problems.push(`${candidate.executor}: disabled`);
@@ -357,8 +374,8 @@ function commitDelegate(
     ...(input.interactive === false ? {interactive: false} : {}),
     ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}, interactive: true} : {}),
     ...(input.group ? {group: input.group} : {}),
-  }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,input.dispatch??{},input.workParent,input.workGrant);else if(userStartedWork(ctx,s,input,created,origin)){managedSkip=strictCandidateSkip(ctx,s,input,selection,repo?.path??realpathSafe(input.brief.repo));if(!managedSkip)registerWork(ctx,created.id,{allowDelegation:true,delegationEnforcement:"strict"});}if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
-  updateTask(ctx,task.id,t=>{t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};
+  }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,{...input.dispatch, ...(input.difficulty ? {difficulty:input.difficulty} : {}), ...(input.model ? {model:input.model} : {})},input.workParent,input.workGrant);else if(userStartedWork(ctx,s,input,created,origin)){managedSkip=strictCandidateSkip(ctx,s,input,selection,repo?.path??realpathSafe(input.brief.repo));if(!managedSkip)registerWork(ctx,created.id,{allowDelegation:true,delegationEnforcement:"strict",difficulty:input.difficulty??"standard",model:input.model});}if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
+  updateTask(ctx,task.id,t=>{t.difficulty=input.difficulty??input.dispatch?.difficulty??"standard"; t.difficultySource=input.difficultySource??(input.difficulty||input.dispatch?.difficulty?"brief":"unspecified"); if(input.model)t.model=input.model; t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};
     if(origin)t.origin=origin;
     if(input.messaging)t.messaging=input.messaging;
     if(managedSkip)t.managedSkip=managedSkip;});

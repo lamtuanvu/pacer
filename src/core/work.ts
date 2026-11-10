@@ -32,7 +32,7 @@ import { appendWorkEvent, dispatchDatabase, boundedJson } from "../dispatch/stor
 import { recordWorkReview } from "../dispatch/learning";
 import { pidAlive } from "../link/store";
 
-export interface WorkInput {goal:string;repo?:string;kind?:string;title?:string;acceptance?:string;acceptanceTimeoutMin?:number;context?:string;constraints?:string;executor?:string;options?:Partial<WorkOptions>;requestId?:string}
+export interface WorkInput {difficulty?: WorkOptions["difficulty"]; model?: string;goal:string;repo?:string;kind?:string;title?:string;acceptance?:string;acceptanceTimeoutMin?:number;context?:string;constraints?:string;executor?:string;options?:Partial<WorkOptions>;requestId?:string}
 const hash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 /** Executors review a child they personally dispatched through a valid work grant; never their own task (F4). */
@@ -59,7 +59,7 @@ export async function delegateChild(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=sp
  const caller=authorizeWorkGrant(fresh(),token),parent=readTask(ctx,caller.taskId)!;
  if(input.repo&&input.repo!==parent.brief.repo)throw new CoreError("not_allowed","Child work must use its parent's repository");
  if(!input.requestId)throw new CoreError("invalid_input","Child delegation requires an idempotency requestId");
- const options=workOptionsSchema.parse({...caller.options,...input.options,kind:input.kind??input.options?.kind,requirements:input.options?.requirements??caller.options.requirements,preferences:input.options?.preferences??caller.options.preferences});
+ const options=workOptionsSchema.parse({...caller.options,...input.options,...(input.difficulty ? {difficulty:input.difficulty} : {}),...(input.model ? {model:input.model} : {}),kind:input.kind??input.options?.kind,requirements:input.options?.requirements??caller.options.requirements,preferences:input.options?.preferences??caller.options.preferences});
  if(!caller.options.allowDelegation)throw new CoreError("not_allowed","This work cannot delegate children");
  loadStrategy(fresh());
  const scope=caller.taskId,key=hash(input.requestId),fingerprint=hash(input);
@@ -97,7 +97,7 @@ export async function delegateChild(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=sp
   authorizeWorkGrant(fresh(),token);
   const prior=db.query<{fingerprint:string;task_id:string},[string,string]>("SELECT * FROM work_requests WHERE scope=? AND key=?").get(scope,key);
   if(prior){if(prior.fingerprint!==fingerprint)throw new CoreError("conflict","Idempotency key was used for different child work");return readTask(ctx,prior.task_id)!;}
-  const request:DelegateInput={brief:{goal:input.goal,repo:parent.brief.repo,acceptance:input.acceptance,acceptanceTimeoutMin:input.acceptanceTimeoutMin,context:input.context,constraints:input.constraints,base:parentBase,worktreeBase:"head"},title:input.title,
+  const request:DelegateInput={difficulty:input.difficulty??input.options?.difficulty, difficultySource:input.difficulty||input.options?.difficulty?"brief":"unspecified",model:input.model,brief:{goal:input.goal,repo:parent.brief.repo,acceptance:input.acceptance,acceptanceTimeoutMin:input.acceptanceTimeoutMin,context:input.context,constraints:input.constraints,base:parentBase,worktreeBase:"head"},title:input.title,
    repoRef:parent.repo,repoValidated:true,kind:(KINDS as readonly string[]).includes(input.kind??"")?input.kind:null,executor:input.executor,source:"planner",dispatch:options,workParent:caller.taskId,
    workGrant:token,workRequest:{scope,key,fingerprint},worktree:"new",worktree_reason:"Isolated delegated child work",
    admissionTaskLock:caller.taskId,admissionPaths:[parentCheckout],admissionValidate:validateProgress,
