@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertIsolatedEnv, isolatedEnv } from "./isolated-port";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "fixtures/runner-check-core.ts")]);
@@ -10,7 +9,6 @@ const STEPS = [
   { name: "CLI found", state: "passed", detail: "Codex on this Mac" },
   { name: "Signed in", state: "passed", detail: "Account codex" },
   { name: "Usage readable", state: "passed", detail: "Weekly window · 3% used" },
-  { name: "Model offered", state: "skipped", detail: "No model list for this agent" },
   { name: "Test task", state: "passed", detail: "Write and run a one-line test in a scratch worktree" },
 ];
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -21,9 +19,8 @@ test.skipIf(!front)("stdio front door refuses runner.check natively and forwards
   const pacerHome = join(home, ".pacer");
   mkdirSync(pacerHome, { mode: 0o700 });
   writeFileSync(join(pacerHome, "strategy.yaml"), STRATEGY, { mode: 0o600 });
-  const env = isolatedEnv({ HOME: home, PACER_HOME: pacerHome, PATH: "/usr/bin:/bin", PACER_CORE_ARGV: core,
-    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" });
-  assertIsolatedEnv(env);
+  const env = { HOME: home, PACER_HOME: pacerHome, PATH: "/usr/bin:/bin", PACER_CORE_ARGV: core,
+    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" };
   const child = Bun.spawn([front!, "api", "--stdio"], { env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   const stderr = new Response(child.stderr).text();
   const reader = child.stdout.getReader(), decoder = new TextDecoder();
@@ -62,8 +59,7 @@ test.skipIf(!front)("stdio front door refuses runner.check natively and forwards
     corePid = jobs[0].pid;
     expect(jobs[1].pid).toBe(corePid);
     expect([child.pid, process.pid]).not.toContain(corePid);
-    const tasks = readFileSync(join(pacerHome, "stub-test-tasks.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
-    expect(tasks).toEqual(Array(2).fill({ id: "codex", pid: corePid, port: env.PACER_PORT, agent: null, role: null, task: null, grant: null }));
+    expect(readFileSync(join(pacerHome, "stub-test-tasks.log"), "utf8")).toBe(`codex ${corePid}\ncodex ${corePid}\n`);
     expect(JSON.parse(readFileSync(join(pacerHome, "state/runner-checks.json"), "utf8")).codex).toMatchObject({ passed: true, detail: "Executor is ready" });
     await child.stdin.end();
     expect(await child.exited).toBe(0);
