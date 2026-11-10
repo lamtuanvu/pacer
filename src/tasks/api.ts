@@ -492,7 +492,20 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       const { inspectOwnedExecutorRun } = await import("../plugins/executor-run-state");
       const { stopOwnedExecutorAttempt } = await import("../plugins/executor-stop");
       const { pluginRegistry } = await import("../plugins");
-      const intent = t.stopPending, owner = t.executorProvider, run = t.run;
+      // Persist the first reconciliation, not the stop request: legacy intents and time
+      // spent asleep before cleanup must still get an initial cleanup attempt.
+      const started = withTaskLock(ctx, id, () => {
+        const latest = readTask(ctx, id);
+        if (!latest || latest.rev !== t.rev) return null;
+        if (latest.stopPending!.cleanupStartedAt !== undefined) return latest;
+        return updateTask(ctx, id, current => {
+          current.stopPending!.cleanupStartedAt = ctx.now;
+        });
+      });
+      if (!started) return readTask(ctx, id) ?? t;
+      const intent = started.stopPending!, owner = t.executorProvider, run = t.run;
+      const cleanupDeadline = Date.now() + Math.max(0, 600 - (ctx.now - intent.cleanupStartedAt!)) * 1000;
+      const expired = () => Date.now() >= cleanupDeadline;
       let observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
       if (observed.state === "running") {
         await stopOwnedExecutorAttempt(ctx, pluginRegistry(ctx), owner, id, run.attempt, intent.graceMs);
@@ -523,6 +536,58 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
             current.result = { status: deadline ? "failed" : "stopped", executor: run.executor, model: null,
               files: "", report: deadline ? "Executor deadline reached; wrapper exit verified" :
                 "Executor exited after stop was requested", backend: "direct" };
+          });
+        });
+      }
+      // Without a matching launch intent, an ambiguous PID proves neither launch nor
+      // ownership. Keep it pending even after the cleanup deadline; never reap it.
+      const launched = (task: TaskRecord) => task.startIntent?.attempt === run.attempt &&
+        task.startIntent.providerId === owner && task.startIntent.dir === run.dir;
+      // A dead owned wrapper may leave its executor alive. An absent PID can still
+      // be an in-flight launch, so only the bounded cleanup deadline can settle it.
+      if (observed.state === "uncertain" && launched(started) && (observed.pid !== null || expired())) {
+        const { stopOrphanedRun } = await import("../supervisor/orphan");
+        const guard = () => {
+          if (expired()) throw new Error("orphan cleanup deadline reached");
+          const latest = readTask(ctx, id);
+          const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
+          if (!latest || !launched(latest) || latest.executorProvider !== owner || latest.run?.startedAt !== run.startedAt ||
+            latest.stopPending?.requestedAt !== intent.requestedAt ||
+            latest.stopPending.attempt !== run.attempt || checked.pid !== observed.pid ||
+            checked.state !== "uncertain") throw new Error("orphan stop owner changed");
+        };
+        const cleanup = expired() ? "unverified" : await stopOrphanedRun(run.dir, observed.pid!, intent.graceMs, guard);
+        if (!cleanup && !expired()) return readTask(ctx, id) ?? t;
+        const cleanupUnconfirmed = cleanup !== true;
+        return withTaskLock(ctx, id, () => {
+          const latest = readTask(ctx, id);
+          if (!latest || latest.state !== "running" || latest.executorProvider !== owner ||
+            latest.stopPending?.requestedAt !== intent.requestedAt ||
+            latest.stopPending.attempt !== run.attempt || latest.run?.dir !== run.dir ||
+            latest.run.startedAt !== run.startedAt || latest.attempts.length + 1 !== run.attempt)
+            return latest ?? t;
+          const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
+          // Between the outer observation and this lock the wrapper can still have recorded a
+          // proper exit; the verified-exit settle above then owns the next tick's outcome.
+          if (checked.state !== "uncertain" || !launched(latest)) return latest;
+          return updateTask(ctx, id, current => {
+            const deadline = current.stopPending?.reason === "deadline";
+            // Preserve exact attempt ownership for retry, without claiming a verified exit.
+            current.executorExitReceipt = { attempt: run.attempt, providerId: owner,
+              dir: run.dir, startedAt: run.startedAt, exitCode: 143, unverified: true };
+            current.attempts.push({ executor: run.executor, model: null,
+              startedAt: run.startedAt, endedAt: Date.now() / 1000,
+              exitCode: 143, timedOut: deadline, limitHit: false, log: run.logFile });
+            delete current.stopPending;
+            delete current.pendingAttempt;
+            delete current.childPid;
+            delete current.runnerPid;
+            current.state = deadline ? "failed" : "stopped";
+            current.result = { status: deadline ? "failed" : "stopped", executor: run.executor, model: null,
+              files: "", report: cleanupUnconfirmed ?
+                `${deadline ? "Executor deadline reached" : "Stop requested"}; cleanup was not confirmed; settled without a verified exit` : deadline ?
+                "Executor deadline reached; the executor wrapper ended without a recorded exit" :
+                "Executor ended without a recorded exit after stop was requested", backend: "direct" };
           });
         });
       }
