@@ -134,12 +134,8 @@ async fn default_event_tail_delivers_post_connect_external_append_within_750ms()
         .unwrap();
         let frame = tokio::time::timeout(Duration::from_millis(750), body.frame()).await;
         server.abort();
-        let frame = frame
-            .expect("default external event exceeded 750ms")
-            .unwrap()
-            .unwrap()
-            .into_data()
-            .unwrap();
+        assert!(frame.is_ok(), "default external event exceeded 750ms");
+        let frame = frame.unwrap().unwrap().unwrap().into_data().unwrap();
         assert!(
             String::from_utf8(frame.to_vec())
                 .unwrap()
