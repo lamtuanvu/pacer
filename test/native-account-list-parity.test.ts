@@ -241,6 +241,7 @@ function launchers(dir: string) {
   const log = join(dir, "launch.log");
   bin(dir, "tmux", `echo "tmux $*" >> '${log}'`);
   bin(dir, "open", `echo "open $*" >> '${log}'`);
+  bin(dir, "x-terminal-emulator", `echo "x-terminal-emulator $*" >> '${log}'`);
   bin(dir, "orca", `echo "orca $*" >> '${log}'
 case "$1" in
   status) echo '{"ok":true,"result":{"runtime":{"state":"ready","reachable":true}}}' ;;
@@ -279,10 +280,10 @@ test.skipIf(!front)("admitted account.signin requests reach the TypeScript core 
   const results = runs[0]!.out.map(line => JSON.parse(line).result);
   expect(results.map(r => `${r.opened} ${r.target}`)).toEqual(["true tmux", "true orca", "true terminal", "true orca", "true orca"]);
   expect(results[0].command).toBe("CODEX_HOME='<home>/team'\\''s out' codex login");
-  // The core runs the sign-ins concurrently; the terminal app is whatever this machine prefers.
+  // The core runs the sign-ins concurrently; macOS opens whichever terminal app this machine prefers.
   const opened = (title: string) => `orca terminal create --worktree id:wt1 --title Sign in to ${title} --command <home>/.pacer/terminal/<uuid>.sh --json`;
-  expect(runs[0]!.launches.map(line => line.replace(/^open -a \S+ /, "open -a <app> "))).toEqual([
-    "open -a <app> <home>/.pacer/terminal/<uuid>.sh", opened("claude"), opened("linked"), opened("work"),
+  expect(runs[0]!.launches.map(line => line.replace(/^(open -a \S+|x-terminal-emulator -e) /, "<terminal> "))).toEqual([
+    "<terminal> <home>/.pacer/terminal/<uuid>.sh", opened("claude"), opened("linked"), opened("work"),
     ...Array(3).fill("orca status --json"), ...Array(3).fill("orca worktree show --worktree active --json"),
     "tmux new-window <home>/.pacer/terminal/<uuid>.sh",
   ].sort());
@@ -324,14 +325,18 @@ test.skipIf(!front)("admitted account.signin over HTTP keeps the caller's identi
     const server = await serve(dir, forward, TMUX);
     const app = { Cookie: `pacer_session=${session}`, Origin: server.origin, "X-Pacer-Client": "app" };
     const task = { Authorization: `Bearer ${GRANT}` };
-    const bodies = [
+    const raw = [
       await server.post("account.signin", { name: "out", target: "tmux", request_id: UUID }),
       await server.post("account.signin", { name: "work", target: "orca" }),
       await server.post("account.signin", { name: "work", target: "tmux", request_id: UUID }, app),
+      await server.post("account.signin", { name: "work", request_id: UUID }, app),
       await server.post("account.signin", { name: "nope" }, app),
       await server.post("account.signin", { name: "out", target: "tmux" }, task),
       await server.post("account.signin", { name: "nope" }, task),
-    ].map(body => ids(body, dir));
+    ];
+    // The core reserves built-in terminals by request id, so a repeat returns the same terminal.
+    expect(JSON.parse(raw[3]!.slice(4)).result.terminalId).toBe(JSON.parse(raw[2]!.slice(4)).result.terminalId);
+    const bodies = raw.map(body => ids(body, dir));
     const markers = await server.stop();
     const failing = await serve(blocked, forward, TMUX);
     bodies.push(ids(await failing.post("account.signin", { name: "out", target: "tmux" }), blocked));
@@ -345,6 +350,7 @@ test.skipIf(!front)("admitted account.signin over HTTP keeps the caller's identi
   expect(results[0]!.bodies).toEqual([
     `200 {"result":{"opened":true,"target":"tmux","command":"CODEX_HOME='<home>/team'\\\\''s out' codex login"}}`,
     `200 {"result":{"opened":true,"target":"orca","command":"CODEX_HOME=<home>/.codex-work codex login"}}`,
+    `200 {"result":{"opened":true,"target":"builtin","command":"codex login","terminalId":"<uuid>"}}`,
     `200 {"result":{"opened":true,"target":"builtin","command":"codex login","terminalId":"<uuid>"}}`,
     `400 {"error":{"code":"invalid_input","message":"unknown account: nope"}}`,
     "403 forbidden\n",
