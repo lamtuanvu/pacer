@@ -18,7 +18,7 @@ if (import.meta.main) {
     env.OLLAMA_HOST = `http://127.0.0.1:${closedPort()}`;
     env.LMS_API_SERVER_INFO_PATH = join(scratch, "lms-server.json");
     writeFileSync(env.LMS_API_SERVER_INFO_PATH, JSON.stringify({ port: closedPort() }), { mode: 0o600 });
-    const needsSandbox = process.platform === "darwin" && env.PACER_TEST_SANDBOX !== "1";
+    const needsSandbox = process.platform === "darwin";
     if (needsSandbox) {
       // macOS refuses to exec its setuid /bin/ps in any sandbox. Tests need a
       // non-setuid copy for process identity checks; sign only the temporary copy.
@@ -38,7 +38,6 @@ if (import.meta.main) {
           throw new Error(`Test sandbox loopback self-check failed: ${await new Response(child.stderr).text()}`);
         }
       } finally { probe.stop(true); }
-      env.PACER_TEST_SANDBOX = "1";
       env.PACER_TEST_PS = ps;
       env.PATH = `${scratch}:${env.PATH ?? "/usr/bin:/bin"}`;
     }
