@@ -145,7 +145,8 @@ test("task runner selects the bundled provider for a local interactive session",
   } finally { cleanup(); }
 });
 
-test("supervision delivers a pending provider stop and settles only after wrapper exit", async () => {
+for (const keepStartIntent of [true, false]) {
+test(`supervision delivers a pending provider stop (start intent: ${keepStartIntent})`, async () => {
   const { ctx, task, cfg, cleanup } = fixture();
   const executable = ctx.which("codex")!;
   writeFileSync(executable, "#!/bin/sh\ntrap 'exit 0' TERM\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
@@ -157,6 +158,7 @@ test("supervision delivers a pending provider stop and settles only after wrappe
       current = readTask(ctx, task.id);
     }
     expect(current?.startIntent).toBeDefined();
+    if (!keepStartIntent) updateTask(ctx, task.id, row => { delete row.startIntent; });
     expect(taskStop(ctx, task.id)).toMatchObject({ state: "running", stopPending: { attempt: 1 } });
     let settled = await superviseTask(ctx, task.id, () => undefined);
     for (let i = 0; i < 20 && settled?.state === "running"; i++) {
@@ -169,6 +171,7 @@ test("supervision delivers a pending provider stop and settles only after wrappe
       providerId: "pacer-exec-direct" });
   } finally { await running; cleanup(); }
 });
+}
 
 test("supervision stops an exact interactive session and records its wrapper exit", async () => {
   const { ctx, task, cfg, cleanup } = fixture();

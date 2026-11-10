@@ -63,6 +63,8 @@ pacer executor block agy --for 6h --reason "Temporarily unavailable"
 pacer executor unblock agy
 ```
 
+A direct executor stop stays pending until the exact owned wrapper has a verified exit. Recovery checks existing wrapper evidence even if the launch intent is absent, then releases task capacity. A missing runner or an unrecognized PID alone does not prove the executor exited; those runs remain pending.
+
 Replace `TASK_ID` with an actual task ID. A wait timeout returns exit 2; inspect and wait again. `pacer doctor` checks configuration, CLIs and integration health. See [CLI docs](cli.md) for briefs and review contracts.
 
 ## Settings and readiness checks
