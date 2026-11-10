@@ -88,7 +88,7 @@ test("managed work honors the cumulative attempt cap inside one runner invocatio
 test("managed work retries an untried model on an already-tried runner, as on main (B4)",async()=>{
  const {validateStrategy}=await import("../src/config/strategy");const {runTask}=await import("../src/tasks/runner");const {defaultHooks}=await import("../src/classify/hooks");
  const ctx=fakeCtx({now:Date.now()/1000}),repo=tmpDir();
- const s=validateStrategy({execution:{launch_mode:"headless"},planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/fast",tier:"small"},{id:"provider/deep",tier:"frontier"}]}},dispatch:{timeoutMs:5000}},"test");
+ const s=validateStrategy({execution:{launch_mode:"headless"},planner:"codex",accounts:{"claude-code":{kind:"claude"},codex:{kind:"codex",usage:"unmetered"}},runners:{"claude-code":{models:[{id:"provider/fast",tier:"small"},{id:"provider/deep",tier:"frontier"}]}},dispatch:{timeoutMs:5000,tierTargets:{standard:"small"}}},"test");
  const task=createTask(ctx,{brief:{goal:"debug",repo},kind:"debug",requestedExecutor:null,timeoutS:60});registerWork(ctx,task.id,{maxAttempts:3});
  await certifiedClaude(ctx,s,repo);
  const launched:string[]=[];

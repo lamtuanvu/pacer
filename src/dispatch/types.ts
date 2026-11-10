@@ -83,9 +83,13 @@ export const decisionRequestSchema = z.object({
   observationRevision: name, strategyHash: name, config: dispatchConfigSchema,
 }).strict();
 const choiceSchema = z.object({ id: z.string().min(1).max(1024), factors: z.array(z.number().finite()).max(16), reason: z.string().max(1000) }).strict();
+const proposalTierSchema = z.object({
+  targetTier: targetTierSchema, selectedTier: tierSchema,
+  reason: z.enum(["target-match", "upward-fallback", "unknown-tier-fallback", "explicit-override"]),
+}).strict();
 export const proposalSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("ranked"), choices: z.array(choiceSchema).min(1).max(512), step: name, skipped: z.array(name).max(64) }).strict(),
-  z.object({ state: z.enum(["abstain", "no-match"]), reason: z.string().max(1000), skipped: z.array(name).max(64) }).strict(),
+  z.object({ state: z.literal("ranked"), choices: z.array(choiceSchema).min(1).max(512), step: name, skipped: z.array(name).max(64), tier: proposalTierSchema.optional() }).strict(),
+  z.object({ state: z.enum(["abstain", "no-match"]), reason: z.string().max(1000), skipped: z.array(name).max(64), tier: proposalTierSchema.optional() }).strict(),
 ]);
 export type TaskRequirements = z.infer<typeof requirementsSchema>;
 export type TaskPreferences = z.infer<typeof preferencesSchema>;
