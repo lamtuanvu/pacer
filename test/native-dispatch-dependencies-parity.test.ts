@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -15,7 +16,7 @@ const OPS = "dispatch.dependencies,dispatch.dependencies.waive";
 /** Runs one stdio session; `forwardedIndexes` are requests the native front door must still forward. */
 async function exchange(home: string, requests: string[], forward: boolean, forwardedIndexes = new Set<number>(), extra: Record<string, string> = {}) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
-    env: { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin",
+    env: { ...childEnv(home), PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
       PACER_DEBUG_NATIVE: "1", ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",

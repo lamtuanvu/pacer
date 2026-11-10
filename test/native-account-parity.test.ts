@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,7 +38,7 @@ routing:
 async function exchange(home: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, expectNative = !forward) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
     cwd: home,
-    env: { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+    env: { ...childEnv(home), PATH: `${join(home, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`,
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
       PACER_ORCA_USER_DATA: join(home, "orca"), PACER_DEBUG_NATIVE: "1", EP_KEY: "sk-ep-secret-value",
       ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },

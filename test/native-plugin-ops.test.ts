@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -82,7 +83,7 @@ async function service(forward = "", homeKind = "absolute", options: { nativeHos
   }
   if (homeKind.includes("relative")) configuredHome = relative(process.cwd(), configuredHome);
   const child = Bun.spawn([front!, "serve", "--port", String(port)], {
-    env: { HOME: home, PACER_HOME: configuredHome, PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
+    env: { ...childEnv(home, port), PACER_HOME: configuredHome, PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
       PACER_CORE_ARGV: JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]),
       PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
       PACER_DEBUG_NATIVE: "1", PACER_FORWARD_OPS: forward,

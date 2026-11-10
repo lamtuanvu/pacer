@@ -104,8 +104,9 @@ test.skipIf(!front)("stdio hello notifications negotiate only with accepted para
 
 test.skipIf(!front)("HTTP native route enforces auth, version, body limit and forward override", async () => {
   const fixture = setup();
-  const port = closedPort();
-  const child = spawnPinned([front!, "serve", "--port", port], { env: { ...fixture.env, PACER_PORT: port }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  const port = reservation.port!; reservation.stop(true);
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: { ...fixture.env, ...childEnv(fixture.home, port) }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const stderrText = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   try {
@@ -159,8 +160,9 @@ test.skipIf(!front)("PACER_FORWARD_OPS forces stdio echo back to TypeScript", as
 
 test.skipIf(!front)("PACER_FORWARD_OPS forces HTTP echo back to TypeScript", async () => {
   const fixture = setup();
-  const port = closedPort();
-  const child = spawnPinned([front!, "serve", "--port", port], { env: { ...fixture.env, PACER_PORT: port, PACER_FORWARD_OPS: "test.echo" }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  const port = reservation.port!; reservation.stop(true);
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: { ...fixture.env, ...childEnv(fixture.home, port), PACER_FORWARD_OPS: "test.echo" }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const base = `http://127.0.0.1:${port}`;
   try {
     let token = "";
@@ -194,10 +196,11 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
       mkdirSync(join(legacy, "plugins-data/lamtuanvu.pacer"), {recursive:true, mode:0o700});
       writeFileSync(join(legacy, "plugins-data/lamtuanvu.pacer/settings.json"), '{"notifications":"off"}', {mode:0o600});
       writeFileSync(join(fixture.env.PACER_HOME, "strategy.yaml"), golden.initial, {mode:0o600});
-      const port = closedPort();
-      const env = {...fixture.env, PACER_PORT:port, XDG_CONFIG_HOME:xdg, PACER_AGENT:"alice", PACER_FORWARD_OPS:forwarded ? "*" : "",
+      const reservation = Bun.serve({hostname:"127.0.0.1", port:0, fetch:() => new Response()});
+      const port = reservation.port!; reservation.stop(true);
+      const env = {...fixture.env, ...childEnv(fixture.home, port), XDG_CONFIG_HOME:xdg, PACER_AGENT:"alice", PACER_FORWARD_OPS:forwarded ? "*" : "",
         ...(override === undefined ? {} : {PACER_ORCA_USER_DATA:override ? legacy : ""})};
-      const child = spawnPinned([productionFront!, "serve", "--port", port], {env, stdin:"ignore", stdout:"ignore", stderr:"pipe"});
+      const child = Bun.spawn([productionFront!, "serve", "--port", String(port)], {env, stdin:"ignore", stdout:"ignore", stderr:"pipe"});
       const errors = new Response(child.stderr).text();
       const base = `http://127.0.0.1:${port}`;
       try {

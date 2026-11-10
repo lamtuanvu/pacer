@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,8 +28,7 @@ async function reviewExchange(
   });
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
-      HOME: home,
-      PACER_HOME: join(home, ".pacer"),
+      ...childEnv(home),
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1",
