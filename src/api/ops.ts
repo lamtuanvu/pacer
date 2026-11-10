@@ -11,7 +11,7 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { insightsInputSchema, insightsSummary } from "../insights/summary";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
-import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
+import { dispatchConfigSchema, modelDeclarationSchema, previewInputSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
 import { filesSearchInputSchema, searchFiles } from "../core/files-search";
@@ -66,6 +66,7 @@ import * as opencodeSetup from "../core/opencode-setup";
 import { availableModels } from "../models/available";
 import { redactEndpointMessage } from "../endpoints/state";
 import * as executorSettings from "../core/executor-settings";
+import * as runnerModels from "../core/runner-models";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
 import { AGENTS } from "../config/accounts";
@@ -346,6 +347,8 @@ export const OPS: Record<string, OpDef> = {
   "runner.check": op({description: "Check executor CLI, sign-in, usage and a scratch test task.", params: z.object({id}), handler: (ctx, p, deps) => checkRunner(ctx, p.id, deps.runnerCheck)}),
   "runner.settings.get": op({description:"Read editable executor settings and an opaque revision.",params:z.object({}),handler:ctx=>executorSettings.readExecutorSettings(ctx)}),
   "runner.settings.save": op({description:"Atomically save executor order, enabled states and parallel limits against the expected revision.",params:z.object({expectedRevision:z.string().min(1),order:z.array(id),runners:z.array(z.object({id,enabled:z.boolean(),maxTasks:z.number().int().min(1).max(16)}))}),handler:(ctx,p)=>mutation(ctx,"runners",()=>executorSettings.saveExecutorSettings(ctx,p))}),
+  "runner.models.get": op({description:"Read an executor's default and allowed models with tiers, against the strategy revision.",params:z.object({id}),handler:(ctx,p)=>runnerModels.readRunnerModels(ctx,p.id)}),
+  "runner.models.set": op({description:"Atomically save an executor's default and allowed tiered models against the expected revision; every id is checked against the live listing when one is known.",params:z.object({id,expectedRevision:z.string().min(1),default:z.string().min(1),models:modelDeclarationSchema.array().max(256)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnerModels.saveRunnerModels(ctx,p))}),
   "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
   "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
   "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", async () => { const {migrated} = await runnersConfig.remove(ctx, p.id); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
