@@ -420,7 +420,7 @@ impl PluginProcess {
                 }
             }
             let route = Route {
-                token,
+                token: token.clone(),
                 reply: Some(reply),
                 requests,
             };
@@ -434,6 +434,7 @@ impl PluginProcess {
         let exchange = async {
             self.send(request).await?;
             let mut open = true;
+            let mut transfer_started = false;
             loop {
                 // Requests the child sent before its reply are answered first.
                 let request = tokio::select! {
@@ -446,16 +447,47 @@ impl PluginProcess {
                         }
                     },
                     reply = &mut replied => return match reply {
+                        Ok(Ok(result)) if transfer_started && result.get("_chunkedResult").is_none() =>
+                            Err(ProcessError::OwnerRefused(rpc_error("plugin_refused", "incomplete or unnegotiated chunked result".into()).to_string())),
                         Ok(Ok(result)) => Ok(result),
                         Ok(Err(error)) => Err(ProcessError::Unavailable(error.to_string())),
                         Err(_) => Err(self.shared.closed()),
                     },
                 };
-                let reply = match handler(request.method, request.params, request.metadata).await {
+                let chunk = request.method == "$/resultChunk";
+                // Stale/unsolicited chunks do not start or fail the current transfer.
+                if chunk
+                    && (request
+                        .params
+                        .get("request")
+                        .filter(|owner| owner.is_number())
+                        .is_some_and(|owner| owner != &json!(id))
+                        || token.as_deref()
+                            != request
+                                .metadata
+                                .as_ref()
+                                .and_then(|meta| meta.get("capabilityCall"))
+                                .and_then(Value::as_str))
+                {
+                    self.send(frame(json!({"jsonrpc":"2.0","id":request.id,"error":rpc_error("capability_denied", "result chunk does not belong to an active negotiated request".into())}))?).await?;
+                    continue;
+                }
+                // Admission is visible before the handler can await staging in Core.
+                transfer_started |= chunk;
+                let result = handler(request.method, request.params, request.metadata).await;
+                let failure = if chunk {
+                    result.as_ref().err().cloned()
+                } else {
+                    None
+                };
+                let reply = match result {
                     Ok(result) => json!({"jsonrpc":"2.0","id":request.id,"result":result}),
                     Err(error) => json!({"jsonrpc":"2.0","id":request.id,"error":error}),
                 };
                 self.send(frame(reply)?).await?;
+                if let Some(error) = failure {
+                    return Err(ProcessError::OwnerRefused(error.to_string()));
+                }
             }
         };
         let outcome = if let Some(cancel) = cancel {

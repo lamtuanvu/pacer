@@ -177,7 +177,8 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         // mode.hold without until needs computeStatus for the planner reset window.
         if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
             || (op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
-            || (op.name == "routing.route" && crate::native::routing_route_stays_forwarded(&params))
+            || (op.name == "routing.route"
+                && crate::native::routing_route_stays_forwarded(&ctx, &params))
             || (op.name == "task.retry_options"
                 && crate::native::task_retry_options_stays_forwarded(&ctx))
             || (op.name == "repo.remove" && crate::native::repo_remove_stays_forwarded(&ctx))
@@ -457,19 +458,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             let service_effects_sync = service_effects_bridge
                 .as_mut()
                 .map(|b| b as &mut dyn pacer_install::ServiceEffects);
-            let mut handover_bridge =
-                if pacer_update::handover::handover_stays_forwarded(&request_ctx, op.name) {
-                    state.core.target().await.map(|target| {
-                        crate::native::handover_bridge::HttpHandoverBridge {
-                            target: Some(target),
-                        }
-                    })
-                } else {
-                    None
-                };
-            let handover_bridge = handover_bridge
-                .as_mut()
-                .map(|b| b as &mut dyn pacer_update::handover::HandoverBridge);
             let task_stop_effects = if task_stop_probe_cache.is_some() {
                 let id = params
                     .get("id")
@@ -553,7 +541,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 task_review_probe_cache,
                 task_review_effects,
                 service_effects_sync,
-                handover_bridge,
             )
             .await
         };

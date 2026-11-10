@@ -623,9 +623,6 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       // Load or create the machine identity once so activity and task records carry its id; stamping never creates it.
       // Loads are single-flight per home, so identity operations that arrive first share this load.
       void ensureIdentity(ctx).catch(e => console.error(`pacer: machine identity unavailable: ${e instanceof Error ? e.message : String(e)}`));
-      // Expire old undo snapshots at service startup (under the install lock) so
-      // credential-bearing configs do not sit in the store indefinitely (L2).
-      await pruneUndoSnapshotsAtStartup(ctx);
       try {
         if (internal) {
           // Only this process may hold the internal credential: task runners and executors inherit the environment.
@@ -633,6 +630,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           delete ctx.env.PACER_INTERNAL_TOKEN;
           const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
           const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, supervisionWorker: true, backgroundWorker: true, ...(pairedNative ? {pairedNative} : {}) });
+          // Best-effort cleanup starts only after the listener binds; the helper logs errors.
+          void pruneUndoSnapshotsAtStartup(ctx);
           void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
           process.stdout.write(`${JSON.stringify({ internal: { port: s.port } })}\n`);
           if (ctx.env.PACER_INTERNAL_PARENT_PIPE === "1") {
@@ -645,7 +644,9 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           }
           return { code: 0, out: "", err: "", keepAlive: true };
         }
-        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true, backgroundWorker: true });
+        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true });
+        // Best-effort cleanup starts only after the listener binds; the helper logs errors.
+        void pruneUndoSnapshotsAtStartup(ctx);
         ctx.env.PACER_PORT=String(s.port);
         // Routing's installed check reads the cached login PATH and never waits on a shell, so read it now.
         void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);

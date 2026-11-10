@@ -1012,6 +1012,83 @@ async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit()
         "{above}"
     );
 
+    // A refused first chunk is terminal even if the child falls back to a plain
+    // result, or waits forever after receiving the error.
+    for (index, mode) in ["plain", "wait"].iter().enumerate() {
+        let source = CHUNKED_CHILD.replace(
+            "else if(m.id==='chunk'){",
+            &format!(
+                "else if(m.id==='chunk'){{if(m.error){{{}continue;}}",
+                if *mode == "plain" {
+                    "send({id:call.id,result:{schema:1}});"
+                } else {
+                    ""
+                }
+            ),
+        );
+        fs::write(&script, source).unwrap();
+        // Restart so each fixture uses the updated source.
+        session
+            .owner()
+            .lock()
+            .await
+            .terminate("fx-chunk")
+            .await
+            .unwrap();
+        let (refused, forwarded) = dial_with_core(
+            &path,
+            request(80 + index as u64, json!(768 * 1024)),
+            |_| json!({"error":{"code":-32000,"message":"malformed result chunk","data":{"code":"invalid_input"}}}),
+        ).await;
+        assert!(
+            refused["error"]["data"].get("origin").is_none(),
+            "{refused}"
+        );
+        assert_eq!(forwarded.len(), 1, "{forwarded:?}");
+        assert_eq!(
+            refused["error"]["data"]["code"], "invalid_input",
+            "{refused}"
+        );
+    }
+
+    // A stale request id or unsolicited token must not fail the active call.
+    for stale in [
+        "send({id:'stale',method:'$/resultChunk',params:{request:call.id-1,offset:0,base64:'e30='}});",
+        "send({id:'stale',method:'$/resultChunk',_meta:{capabilityCall:'stale'},params:{request:call.id,offset:0,base64:'e30='}});",
+    ] {
+        let source =
+            CHUNKED_CHILD.replace("call=m;const size=", &format!("call=m;{stale}const size="));
+        fs::write(&script, source).unwrap();
+        session
+            .owner()
+            .lock()
+            .await
+            .terminate("fx-chunk")
+            .await
+            .unwrap();
+        let (current, forwarded) =
+            dial_with_core(&path, request(81, json!(600 * 1024)), core).await;
+        assert!(current.get("error").is_none(), "{current}");
+        assert!(forwarded.is_empty(), "{forwarded:?}");
+    }
+
+    let source = CHUNKED_CHILD.replace(
+        "else if(m.id==='chunk'){",
+        "else if(m.id==='chunk'){send({id:call.id,result:{schema:1}});continue;",
+    );
+    fs::write(&script, source).unwrap();
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("fx-chunk")
+        .await
+        .unwrap();
+    let (plain, forwarded) = dial_with_core(&path, request(82, json!(768 * 1024)), core).await;
+    assert_eq!(forwarded.len(), 1, "{forwarded:?}");
+    assert_eq!(plain["error"]["data"]["code"], "plugin_refused", "{plain}");
+    assert!(plain["error"]["data"].get("origin").is_none(), "{plain}");
+
     session
         .owner()
         .lock()
@@ -1320,7 +1397,8 @@ async fn sealed_call_refuses_result_chunk_when_core_did_not_seal_it() {
     tokio::task::yield_now().await;
 
     let (reply, forwarded) = dial_with_core(&path, request, |_| json!({"result":{}})).await;
-    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(reply.get("error").is_some(), "{reply}");
+    assert!(reply["error"]["data"].get("origin").is_none(), "{reply}");
     assert!(
         !forwarded
             .iter()
@@ -1328,7 +1406,7 @@ async fn sealed_call_refuses_result_chunk_when_core_did_not_seal_it() {
         "a chunk on an unsealed call must not be relayed to Core: {forwarded:?}"
     );
     assert_eq!(
-        reply["result"]["value"]["chunkErr"]["data"]["code"], "capability_denied",
+        reply["error"]["data"]["code"], "capability_denied",
         "{reply}"
     );
 
@@ -1391,7 +1469,8 @@ async fn sealed_call_refuses_result_chunk_when_chunked_results_not_negotiated() 
     tokio::task::yield_now().await;
 
     let (reply, forwarded) = dial_with_core(&path, request, |_| json!({"result":{}})).await;
-    assert!(reply.get("error").is_none(), "{reply}");
+    assert!(reply.get("error").is_some(), "{reply}");
+    assert!(reply["error"]["data"].get("origin").is_none(), "{reply}");
     assert!(
         !forwarded
             .iter()
@@ -1399,7 +1478,7 @@ async fn sealed_call_refuses_result_chunk_when_chunked_results_not_negotiated() 
         "a chunk from a child that did not negotiate chunkedResults must not be relayed: {forwarded:?}"
     );
     assert_eq!(
-        reply["result"]["value"]["chunkErr"]["data"]["code"], "capability_denied",
+        reply["error"]["data"]["code"], "capability_denied",
         "{reply}"
     );
 

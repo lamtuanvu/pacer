@@ -1,5 +1,5 @@
 //! Runner-check decisions over detection/sign-in/usage/test-task results.
-use crate::{Error, event, js, n, now, s, truth};
+use crate::{Error, a, event, js, n, now, s, truth};
 use serde_json::{Value, json};
 pub fn usage_detail(row: &Value, usage: &str) -> String {
     if usage == "unmetered" {
@@ -147,6 +147,81 @@ pub fn check(c: &Value) -> Value {
             }
             passed(&mut steps, &current, &detail);
         }
+        // Model offered: the runner's model must still be listed by the
+        // provider before the test task runs. The case snapshot supplies the
+        // listing the TS adapter fetches with availableModels/isOffered:
+        // absent models or source "none" means no adapter, offered null an
+        // unknown listing, offered false with an empty closest an empty
+        // listing (sign-in dropped, provider renamed), and closest the
+        // nearest offered ids.
+        let listing = c.get("models").filter(|v| !v.is_null());
+        let source = listing.map(|m| s(&m["source"])).unwrap_or("none");
+        let model = s(&runner["model"]);
+        let provider = account["provider"].as_str().unwrap_or(name);
+        current = "Model offered".into();
+        event(&mut steps, "start", &current, None);
+        let decision: Result<(), String> = if source == "none" {
+            event(
+                &mut steps,
+                "skip",
+                &current,
+                Some("No model list for this agent"),
+            );
+            Ok(())
+        } else if model.is_empty() {
+            event(
+                &mut steps,
+                "skip",
+                &current,
+                Some("Uses the agent's default model"),
+            );
+            Ok(())
+        } else if listing.map(|m| m["offered"].is_null()).unwrap_or(true) {
+            let note = listing
+                .and_then(|m| m["note"].as_str())
+                .unwrap_or("unknown");
+            event(
+                &mut steps,
+                "skip",
+                &current,
+                Some(&format!("Could not check: {note}")),
+            );
+            Ok(())
+        } else if !truth(&c["models"]["offered"]) && a(&c["models"]["closest"]).is_empty() {
+            // An empty listing is unknown (sign-in dropped, provider renamed),
+            // never "no models".
+            let note = c["models"]["note"].as_str().unwrap_or("unknown");
+            event(
+                &mut steps,
+                "skip",
+                &current,
+                Some(&format!("Could not check: {note}")),
+            );
+            Ok(())
+        } else {
+            let closest: Vec<&str> = a(&c["models"]["closest"]).iter().map(s).collect();
+            if truth(&c["models"]["offered"]) {
+                event(
+                    &mut steps,
+                    "pass",
+                    &current,
+                    Some(&format!("{model} is offered")),
+                );
+                Ok(())
+            } else {
+                Err(format!(
+                    "{model} is no longer offered by {provider}{}",
+                    if closest.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; try {}", closest[0])
+                    }
+                ))
+            }
+        };
+        if let Err(fail) = decision {
+            return Err(Error::new("failed", fail));
+        }
         let detail = "Write and run a one-line test in a scratch worktree";
         perform(&mut steps, &mut current, "Test task", detail);
         if truth(&c["testError"]) {
@@ -192,7 +267,7 @@ pub fn check(c: &Value) -> Value {
         s(&runner["id"]).into(),
         json!({"at":now(c),"passed":ok,"detail":detail}),
     );
-    let mut out = json!({"kind":"runner.check","target":runner["id"],"names":["CLI found","Signed in","Usage readable","Test task"],"steps":steps,"stored":stored});
+    let mut out = json!({"kind":"runner.check","target":runner["id"],"names":["CLI found","Signed in","Usage readable","Model offered","Test task"],"steps":steps,"stored":stored});
     if let Err(e) = result {
         out["error"] = json!(e);
     }

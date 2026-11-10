@@ -4,6 +4,8 @@ import { pause } from "../src/core/pause";
 import { runTask } from "../src/tasks/runner";
 import { readTask, updateTask } from "../src/tasks/store";
 import { queueTask, queueDeps } from "./queue-helpers";
+import { pairStrategy } from "./fixtures/balance-pair";
+import { validateStrategy } from "../src/config/strategy";
 import { fakeCtx } from "./helpers";
 import { policyGateFixture } from "./fixtures/policy-host";
 import { writeFileSync } from "node:fs";
@@ -97,6 +99,97 @@ test("an unpinned task drops its removed executor when draining", async () => {
   await drainQueue(ctx, () => process.pid, queueDeps());
   expect(readTask(ctx, task.id)).toMatchObject({state: "running", executor: "codex"});
 });
+
+test("balance on: four tasks through two equal executors drained in one pass land 2 and 2", async () => {
+  const ctx = fakeCtx();
+  const tasks = ["a", "b", "c", "d"].map((goal, i) => waiting(ctx, goal, ctx.now - 10 + i));
+  const deps = queueDeps(pairStrategy("least-loaded"));
+  expect(await drainQueue(ctx, (_, id) => process.pid, deps)).toEqual(tasks.map(t => t.id));
+  const counts: Record<string, number> = {};
+  for (const t of tasks) {
+    const executor = readTask(ctx, t.id)?.executor;
+    if (executor) counts[executor] = (counts[executor] ?? 0) + 1;
+  }
+  expect(counts).toEqual({ codex: 2, "opencode#tse": 2 });
+});
+
+test("balance off: the pick stays the distilled permitted order even when a hook returns candidates in another order", async () => {
+  // permitted is distilled in rank order; with balance off the first permitted executor runs
+  // exactly as `permitted.find` did before load-aware balance existed, so a classifier hook that
+  // suggests a different order cannot change the pick.
+  const ctx = fakeCtx();
+  const task = waiting(ctx, "waiting", ctx.now);
+  const deps = {...queueDeps(pairStrategy("off")), hooks: {...activeHooks, filterExecutors: async (_ctx: unknown, _task: unknown, ranked: string[]) => [...ranked].reverse()}};
+  expect(await drainQueue(ctx, () => process.pid, deps)).toEqual([task.id]);
+  expect(readTask(ctx, task.id)).toMatchObject({state: "running", executor: "codex"});
+});
+
+test("balance on: survivors left by a mid-band exclusion sort by load within their band", async () => {
+  // ranked is [codex, t1(NEAR_LIMIT), t2]: t1 splits the two ON_PACE executors into separate
+  // bands. The route hook drops t1, and nothing may run on the loaded codex: balancing only the
+  // permitted list must see codex and t2 as one band and start the idle t2, where reordering the
+  // full rank list before filtering keeps the t1-shaped band gap and starts the loaded codex.
+  const ctx = fakeCtx();
+  const trioStrategy = (balance: "off" | "least-loaded") => validateStrategy({
+    planner: "claude-code",
+    accounts: {"claude-code": {kind: "claude"}, codex: {kind: "codex"}, t1: {kind: "endpoint", usage: "quota", quota_source: "arkcli"}, t2: {kind: "endpoint", usage: "quota", quota_source: "arkcli"}},
+    runners: {codex: {max_tasks: 3}, "opencode#t1": {model: "go/t1", max_tasks: 3}, "opencode#t2": {model: "go/t2", max_tasks: 3}},
+    pacing: {policy: "priority", order: ["codex", "opencode#t1", "opencode#t2"], balance},
+    routing: [{default: ["codex", "opencode#t1", "opencode#t2"]}],
+  }, "/x");
+  const holding = queueTask(ctx, "holding", "codex");
+  updateTask(ctx, holding.id, t => {t.state = "running"; t.executor = "codex";});
+  const task = waiting(ctx, "waiting", ctx.now);
+  const base = queueDeps(trioStrategy("least-loaded"));
+  const deps = {...base,
+    hooks: {...activeHooks, filterExecutors: async (_ctx: unknown, _task: unknown, ranked: string[]) => ranked.filter(id => id !== "opencode#t1")},
+    computeStatus: async (...args: Parameters<typeof base.computeStatus>) => {
+      const st = await base.computeStatus(...args);
+      return {...st, providers: st.providers.map(p => p.id === "opencode#t1" ? {...p, verdict: "NEAR_LIMIT" as const} : p)};
+    }};
+  expect(await drainQueue(ctx, () => process.pid, deps)).toEqual([task.id]);
+  expect(readTask(ctx, task.id)).toMatchObject({state: "running", executor: "opencode#t2"});
+});
+
+test("balance off: the same batch lands 3 and 1 on the first executor (fill-then-spill guard)", async () => {
+  const ctx = fakeCtx();
+  const tasks = ["a", "b", "c", "d"].map((goal, i) => waiting(ctx, goal, ctx.now - 10 + i));
+  const deps = queueDeps(pairStrategy("off"));
+  expect(await drainQueue(ctx, () => process.pid, deps)).toEqual(tasks.map(t => t.id));
+  const counts: Record<string, number> = {};
+  for (const t of tasks) {
+    const executor = readTask(ctx, t.id)?.executor;
+    if (executor) counts[executor] = (counts[executor] ?? 0) + 1;
+  }
+  expect(counts).toEqual({ codex: 3, "opencode#tse": 1 });
+});
+
+test("balance on: the runner keeps the drain's reservation even when its own load count would favour another executor", async () => {
+  // Unequal caps: tse carries 2 slots, codex 3. The drain reserves the queued task on tse
+  // (codex 1/3 is ahead of the empty tse 0/2). Before the runner claims it, another attempt
+  // lands on tse: at the runner's own admission (which excludes the task itself) tse counts
+  // 1/2 against codex 1/3, so balancing would move the task to the emptier codex, but the
+  // reservation is kept.
+  const ctx = fakeCtx();
+  const s = validateStrategy({
+    planner: "claude-code",
+    accounts: {"claude-code": {kind: "claude"}, codex: {kind: "codex"}, tse: {kind: "endpoint", usage: "quota", quota_source: "arkcli"}},
+    runners: {codex: {max_tasks: 3}, "opencode#tse": {model: "go/t", max_tasks: 2}},
+    pacing: {policy: "priority", order: ["codex", "opencode#tse"], balance: "least-loaded"},
+    routing: [{default: ["codex", "opencode#tse"]}],
+  }, "/x");
+  const busy = queueTask(ctx, "busy");
+  updateTask(ctx, busy.id, t => {t.state = "running"; t.executor = "codex";});
+  const deps = queueDeps(s);
+  const task = waiting(ctx, "waiting", ctx.now);
+  expect(await drainQueue(ctx, () => process.pid, deps)).toEqual([task.id]);
+  expect(readTask(ctx, task.id)).toMatchObject({state: "running", executor: "opencode#tse"});
+  const loaded = queueTask(ctx, "load");
+  updateTask(ctx, loaded.id, t => {t.state = "running"; t.executor = "opencode#tse";});
+  const result = await runTask(ctx, task.id, deps);
+  expect(result.attempts[0].executor).toBe("opencode#tse");
+});
+
 test("a lane waiting on its question with a live worker keeps its slot, so the queue does not drain into it", async () => {
   const ctx = fakeCtx(), lane = queueTask(ctx, "lane"), task = waiting(ctx, "waiting", ctx.now);
   updateTask(ctx, lane.id, t => {

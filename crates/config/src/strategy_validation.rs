@@ -1314,6 +1314,13 @@ pub(crate) fn validate_strategy(
     if !["spread", "fill"].contains(&accounts_mode.as_str()) {
         p.push("pacing.accounts must be spread or fill".into());
     }
+    let balance_mode = pc
+        .get("balance")
+        .map(string)
+        .unwrap_or_else(|| "off".into());
+    if !["off", "least-loaded"].contains(&balance_mode.as_str()) {
+        p.push("pacing.balance must be off or least-loaded".into());
+    }
     if js_semantics::number(&fill).is_some_and(|n| !n.is_finite() || n < 50. || n > 100.) {
         p.push("pacing.fill_threshold must be between 50 and 100".into());
     }
@@ -1328,7 +1335,7 @@ pub(crate) fn validate_strategy(
     }
     let pacing = json!({"policy":policy,"order":order,"plannerReserve":reserve,"plannerReserveHeadroom":headroom,"plannerProbe":probe,
         "aheadThreshold":number(field(pc,"ahead_threshold"),10.,"ahead_threshold",&mut p),
-        "behindThreshold":number(field(pc,"behind_threshold"),-10.,"behind_threshold",&mut p),"accounts":accounts_mode,"fillThreshold":fill});
+        "behindThreshold":number(field(pc,"behind_threshold"),-10.,"behind_threshold",&mut p),"accounts":accounts_mode,"balance":balance_mode,"fillThreshold":fill});
     let mut routing = Vec::new();
     let default_routing = json!([{"default":providers.keys().collect::<Vec<_>>()}]);
     let raw_routing = root.get("routing").unwrap_or(&default_routing);
