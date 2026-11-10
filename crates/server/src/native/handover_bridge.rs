@@ -1,4 +1,5 @@
 //! Core effects bridge transports for `service.handover` and `service.work`.
+//! Unused while both ops stay forwarded: Core serves no `handover.effects` bridge yet.
 use pacer_foundation::api::OpFuture;
 use pacer_update::handover::HandoverBridge;
 use serde_json::{Value, json};

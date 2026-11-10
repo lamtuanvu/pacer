@@ -6,8 +6,9 @@ function kind(request: unknown): unknown {
   return request && typeof request === "object" && !Array.isArray(request) ? (request as { kind?: unknown }).kind : undefined;
 }
 
-/** Native service.install: Rust refused executor, enforcement and work-grant callers and checked consent. Core runs the
- * install transaction, the service manager and the deferred self-reload through the reference operation. */
+/** Native service.install over HTTP: Rust refused executor, enforcement and work-grant callers and checked consent. Core
+ * runs the install transaction, the service manager and the deferred self-reload through the reference operation. The
+ * front door sets no deadline, so the reply means the install finished, as it does for a forwarded request. */
 export async function serviceEffectsBridge(ctx: Ctx, request: unknown, deps: OpDeps = {}): Promise<unknown> {
   if (kind(request) !== "install") throw new CoreError("invalid_input", "service effect required");
   const { callOp } = await import("./ops");

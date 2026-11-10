@@ -115,6 +115,8 @@ export interface OpDeps {
   openTerminal?: typeof openInTerminal;
   runUpdate?: typeof runUpdate;
   update?: Partial<Pick<UpdateDeps, "standalone" | "execPath">>;
+  /** The login-service backend `service.install` drives (tests inject one). */
+  service?: Parameters<typeof setup.serviceInstall>[2];
   gh?: IssueDeps["gh"];
   /** Runs the doctor for `doctor.fix.delegate` and the recheck after an accepted fix. */
   doctor?: RunDoctor;
@@ -386,7 +388,7 @@ export const OPS: Record<string, OpDef> = {
   }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: (ctx, _p, deps) => setup.check(ctx, {snapshotProbe:deps.snapshotProbe}) }),
   "setup.init": op({ description: "Create a missing strategy and select a planner without connecting agents.", params: z.object({planner: id}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.init(ctx, p.planner)) }),
-  "service.install": op({ description: "Run pacer in the background at login to keep budgets fresh and run delegated tasks, after explicit consent.", params: z.object({consent: z.literal(true)}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.serviceInstall(ctx, p.consent)) }),
+  "service.install": op({ description: "Run pacer in the background at login to keep budgets fresh and run delegated tasks, after explicit consent.", params: z.object({consent: z.literal(true)}), handler: (ctx, p, deps) => mutation(ctx, "setup", () => setup.serviceInstall(ctx, p.consent, deps.service)) }),
   "onboarding.try": op({ description: "Start a tiny docs delegation in a scratch git repository; returns task_id, executor and repo.", params: z.object({}), handler: (ctx, _p, deps) => mutation(ctx, "setup", () => setup.onboardingTry(ctx, {route: deps.onboardingRoute, delegate: deps.delegate, spawnRunner: deps.spawnRunner})) }),
   "onboarding.skip": op({ description: "Skip the first delegation and record the onboarding choice.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.onboardingSkip(ctx)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),

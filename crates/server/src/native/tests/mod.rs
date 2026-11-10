@@ -221,6 +221,17 @@ async fn install_apply_bridge_names_reach_core_endpoints() {
 }
 
 #[test]
+fn install_apply_bridges_wait_like_the_forwarded_path() {
+    use crate::native::core_bridge_sync::deadline;
+    assert_eq!(deadline("service.effects"), None);
+    assert_eq!(deadline("update.effects"), None);
+    assert_eq!(
+        deadline("setup.effects"),
+        Some(std::time::Duration::from_secs(120))
+    );
+}
+
+#[test]
 fn host_check_clean_and_setup_are_not_registered_native_ops() {
     // host.check, host.clean and host.repo.setup stay on TypeScript until Core
     // serves a real host effects bridge; unregistering them makes forwarding

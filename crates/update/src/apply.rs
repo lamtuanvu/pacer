@@ -2,8 +2,8 @@
 //!
 //! Rust owns the `parseOpParams` refusals and the empty schema. The install-method preflight
 //! (package-manager and source installs are refused) and the shared update job (download,
-//! verify, replace, refresh integrations, restart) run in Core through its private effects
-//! bridge (`/_internal/update-effects`, `_internal.update.effects`).
+//! verify, replace, refresh integrations, restart) run in Core: over HTTP through its private
+//! effects bridge (`/_internal/update-effects`), over stdio as the forwarded request.
 use crate::{Code, CoreError, object, refuse_enforcement};
 use pacer_foundation::{Ctx, api::OpFuture};
 use serde_json::{Value, json};
@@ -38,15 +38,20 @@ pub fn stays_forwarded(ctx: &Ctx) -> bool {
         .is_some_and(|grant| !grant.is_empty())
 }
 
+/// The refusals and schema; an admitted request is the reference operation's to run.
+pub fn admit(ctx: &Ctx, params: &Value) -> Result<(), CoreError> {
+    if ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor") {
+        return Err(CoreError::new(Code::NotAllowed, UPGRADE_REFUSAL));
+    }
+    refuse_enforcement(ctx)?;
+    object(params).map(drop)
+}
+
 pub async fn update_apply(
     ctx: &Ctx,
     params: Value,
     effects: &mut dyn UpdateEffects,
 ) -> Result<Value, CoreError> {
-    if ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor") {
-        return Err(CoreError::new(Code::NotAllowed, UPGRADE_REFUSAL));
-    }
-    refuse_enforcement(ctx)?;
-    object(&params)?;
+    admit(ctx, &params)?;
     effects.call(json!({"kind": "apply"})).await
 }

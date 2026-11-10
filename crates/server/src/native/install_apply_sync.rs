@@ -1,6 +1,10 @@
-//! Core effects bridge transports for native `service.install` and `update.apply`.
-//! Core runs the install transaction and service-manager calls (`launchctl`/`systemctl`)
-//! and the shared update job; Rust has already refused callers and validated params.
+//! Front-door dispatch for native `service.install` and `update.apply`.
+//!
+//! Rust refuses callers and validates params. Core runs the install transaction and
+//! service-manager calls (`launchctl`/`systemctl`) or the shared update job. Over HTTP an
+//! admitted request crosses the private effects bridge with no deadline, as a forwarded request
+//! has none. Over stdio it is forwarded unchanged: the bridge would hold the request loop for the
+//! whole install, while the core child answers forwarded requests concurrently.
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
@@ -10,7 +14,7 @@ use pacer_messaging_ops::msg_ops::{current_dir, orca_worktree, own_worktree};
 use pacer_update::apply::{self, UpdateEffects};
 use serde_json::{Value, json};
 
-/// Ops a front door dispatches through [`call`] with a Core effects bridge.
+/// Ops a front door dispatches natively through [`admit`], then Core.
 pub(crate) fn uses_effects(op: &str) -> bool {
     install_ops::uses_effects(op) || apply::uses_effects(op)
 }
@@ -24,6 +28,16 @@ pub(crate) fn stays_forwarded(ctx: &Ctx, op: &str) -> bool {
         _ => return false,
     };
     grant || current_dir().is_some_and(|cwd| own_worktree(ctx, &cwd) || orca_worktree(&cwd))
+}
+
+/// The caller refusals and schema, without any Core effect.
+#[allow(clippy::result_large_err)]
+pub(crate) fn admit(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
+    match op {
+        "service.install" => install_ops::admit(ctx, params),
+        "update.apply" => apply::admit(ctx, params),
+        _ => Err(CoreError::new(Code::UnknownOp, "unknown operation")),
+    }
 }
 
 #[allow(clippy::result_large_err)]
@@ -64,41 +78,6 @@ impl ServiceEffects for HttpEffects {
 }
 
 impl UpdateEffects for HttpEffects {
-    fn call(&mut self, request: Value) -> OpFuture<'_> {
-        self.effect("update.effects", request)
-    }
-}
-
-pub(crate) struct StdioEffects<'a, W> {
-    pub(crate) core: &'a mut W,
-    pub(crate) prefix: &'a str,
-    pub(crate) key: &'a str,
-    pub(crate) replies: &'a mut tokio::sync::mpsc::UnboundedReceiver<Value>,
-}
-
-impl<W: tokio::io::AsyncWrite + Unpin + Send> StdioEffects<'_, W> {
-    fn effect(&mut self, bridge: &'static str, request: Value) -> OpFuture<'_> {
-        Box::pin(async move {
-            crate::native::core_bridge_sync::stdio(
-                self.core,
-                self.prefix,
-                self.key,
-                bridge,
-                json!({ "request": request }),
-                self.replies,
-            )
-            .await
-        })
-    }
-}
-
-impl<W: tokio::io::AsyncWrite + Unpin + Send> ServiceEffects for StdioEffects<'_, W> {
-    fn call(&mut self, request: Value) -> OpFuture<'_> {
-        self.effect("service.effects", request)
-    }
-}
-
-impl<W: tokio::io::AsyncWrite + Unpin + Send> UpdateEffects for StdioEffects<'_, W> {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
         self.effect("update.effects", request)
     }

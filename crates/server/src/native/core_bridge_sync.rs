@@ -31,9 +31,17 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
-        "service.effects" => Ok("_internal.service.effects"),
-        "update.effects" => Ok("_internal.update.effects"),
         _ => Err(unavailable("core bridge unavailable")),
+    }
+}
+
+/// An install or update effect keeps the forwarded request's completion semantics: Core
+/// finishes it whatever the caller does, so a front-door deadline would only report
+/// `unavailable` for an effect still in flight.
+pub(crate) fn deadline(op: &str) -> Option<std::time::Duration> {
+    match op {
+        "service.effects" | "update.effects" => None,
+        _ => Some(std::time::Duration::from_secs(120)),
     }
 }
 
@@ -84,9 +92,12 @@ pub(crate) async fn http(
             .map_err(|_| unavailable("invalid core bridge response"))?;
         map_body(&value)
     };
-    tokio::time::timeout(std::time::Duration::from_secs(120), run)
-        .await
-        .map_err(|_| unavailable("core bridge timed out"))?
+    match deadline(op) {
+        Some(limit) => tokio::time::timeout(limit, run)
+            .await
+            .map_err(|_| unavailable("core bridge timed out"))?,
+        None => run.await,
+    }
 }
 
 pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(

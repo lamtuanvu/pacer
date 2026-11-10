@@ -2,8 +2,8 @@
 //!
 //! Rust owns the `parseOpParams` refusals and the consent schema. The install transaction and
 //! manifest, the `pacerArgv` of the running core, `launchctl bootstrap`/`systemctl enable`, the
-//! deferred self-reload and the health wait run in Core through its private effects bridge
-//! (`/_internal/service-effects`, `_internal.service.effects`).
+//! deferred self-reload and the health wait run in Core: over HTTP through its private effects
+//! bridge (`/_internal/service-effects`), over stdio as the forwarded request.
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
@@ -83,12 +83,17 @@ fn consent_issue() -> CoreError {
     CoreError::new(Code::InvalidInput, "consent: Invalid input: expected true")
 }
 
+/// The refusals and schema; an admitted request is the reference operation's to run.
+pub fn admit(ctx: &Ctx, params: &Value) -> Result<(), CoreError> {
+    authorize_upgrade(ctx)?;
+    consent(params)
+}
+
 pub async fn service_install(
     ctx: &Ctx,
     params: Value,
     effects: &mut dyn ServiceEffects,
 ) -> Result<Value, CoreError> {
-    authorize_upgrade(ctx)?;
-    consent(&params)?;
+    admit(ctx, &params)?;
     effects.call(json!({"kind": "install"})).await
 }

@@ -320,21 +320,16 @@ async fn forward_input<
                 }
                 if crate::native::install_apply_sync::uses_effects(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut effects = crate::native::install_apply_sync::StdioEffects {
-                        core: &mut core,
-                        prefix: sync.0,
-                        key: sync.1,
-                        replies: &mut *sync.2,
-                    };
-                    let result = crate::native::install_apply_sync::call(
-                        &request_ctx,
-                        op.name,
-                        params,
-                        &mut effects,
-                    )
-                    .await;
-                    if let Some(id) = request.get("id") {
-                        write_line(out, &rpc_line(id, result)?).await?;
+                    match crate::native::install_apply_sync::admit(&request_ctx, op.name, &params) {
+                        Ok(()) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                        }
+                        Err(error) => {
+                            if let Some(id) = request.get("id") {
+                                write_line(out, &rpc_line(id, Err(error))?).await?;
+                            }
+                        }
                     }
                     continue;
                 }

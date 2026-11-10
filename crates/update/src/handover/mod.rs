@@ -1,5 +1,6 @@
 //! `service.handover` and `service.work`: running work inventory for post-upgrade reopen.
 //! These read from the task store and session store via the pacer-store crate.
+//! Neither op is registered native: both stay forwarded until Core serves a `handover.effects` bridge.
 pub mod bridge;
 pub use bridge::{HandoverBridge, handover_stub};
 
