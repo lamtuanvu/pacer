@@ -3,13 +3,13 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { startServer } from "../src/serve/http";
 import { createTask, listTasks } from "../src/tasks/store";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, tmpDir } from "./helpers";
 
 /** The background worker mirrors its health here so diagnostics and tests can read it. */
 function diagPath(ctx: ReturnType<typeof fakeCtx>): string {
   return join(ctx.pacerHome, "state", "background-worker.json");
 }
-function readDiag(ctx: ReturnType<typeof fakeCtx>): { state?: string; restarts?: number; loops?: Record<string, { at: number; ok: boolean }>; managed?: string[] } | null {
+function readDiag(ctx: ReturnType<typeof fakeCtx>): { state?: string; restarts?: number; lastError?: string | null; lastHeartbeatAt?: number; loops?: Record<string, { at: number; ok: boolean }>; managed?: string[] } | null {
   try { return JSON.parse(readFileSync(diagPath(ctx), "utf8")); } catch { return null; }
 }
 const outboxPath = (ctx: ReturnType<typeof fakeCtx>) => join(ctx.pacerHome, "link", "outbox.jsonl");
@@ -95,7 +95,70 @@ test("the worker restarts after it dies and diagnostics show it", async () => {
       const diag = readDiag(ctx);
       return diag !== null && (diag.restarts ?? 0) >= 1 && diag.state === "running";
     }, 20000);
+    const diag = readDiag(ctx)!;
+    expect(diag.restarts).toBeGreaterThanOrEqual(1);
+    // A fresh start resets the silence clock: lastHeartbeatAt is stamped at start,
+    // not only on the first heartbeat (so a silent worker is detected promptly).
+    expect(Date.now() - (diag.lastHeartbeatAt ?? 0)).toBeLessThan(5000);
+  } finally { server.stop(); }
+});
+
+test("a worker that stops heartbeating is restarted by silent-tick counting", async () => {
+  const ctx = fakeCtx({ which: () => null });
+  // The worker's heartbeat interval is far longer than the test; silence is
+  // detected by counting monitor ticks without a heartbeat, not wall-clock time.
+  const server = startServer(() => ctx, {
+    port: 0, listener: false, backgroundWorker: true, pumpMs: 0,
+    bgMonitorMs: 20, bgSilenceTicks: 3, bgHeartbeatMs: 60_000,
+  });
+  try {
+    await waitFor(() => {
+      const d = readDiag(ctx);
+      return d !== null && (d.restarts ?? 0) >= 1 && (d.lastError ?? "").includes("went silent");
+    }, 8000);
     expect(readDiag(ctx)!.restarts).toBeGreaterThanOrEqual(1);
+  } finally { server.stop(); }
+});
+
+test("the worker stops gracefully and closes itself on a stop message", async () => {
+  const dir = tmpDir();
+  const worker = new Worker(new URL("../src/serve/background-worker.ts", import.meta.url), { type: "module" });
+  let started = false, stoppedMsg = false, closed = false;
+  worker.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
+    const d = event.data ?? {};
+    if (d.type === "heartbeat") started = true;
+    if (d.type === "stopped") stoppedMsg = true;
+  };
+  worker.onerror = () => { /* a loop error must not stop the worker */ };
+  worker.addEventListener("close", () => { closed = true; });
+  try {
+    worker.postMessage({ type: "init", pacerHome: dir, env: {}, selfCommand: ["bun", "run"], pumpMs: 0, heartbeatMs: 30 });
+    await waitFor(() => started, 4000);
+    // Ask it to stop: the worker must finish its current loop (release file locks)
+    // and close itself, without the parent calling terminate().
+    worker.postMessage({ type: "stop" });
+    await waitFor(() => stoppedMsg && closed, 4000);
+    expect(stoppedMsg).toBe(true);
+    expect(closed).toBe(true);
+  } finally {
+    try { worker.terminate(); } catch { /* already closed */ }
+  }
+});
+
+test("the usage loop runs in the worker and the main thread stays healthy", async () => {
+  const ctx = fakeCtx({ which: () => null });
+  withStrategy(ctx);
+  const server = startServer(() => ctx, {
+    port: 0, listener: false, backgroundWorker: true, pumpMs: 0, bgUsageMs: 40,
+  });
+  try {
+    await waitFor(() => readDiag(ctx)?.state === "running");
+    await waitFor(() => readDiag(ctx)?.loops?.usage?.at !== undefined, 8000);
+    expect(readDiag(ctx)!.loops!.usage!.ok).toBe(true);
+    // The main thread remains responsive after the worker's usage refresh.
+    const res = await fetch(`http://127.0.0.1:${server.port}/health`, {
+      headers: { Authorization: `Bearer ${server.token}` }, signal: AbortSignal.timeout(1000) });
+    expect(res.status).toBe(200);
   } finally { server.stop(); }
 });
 

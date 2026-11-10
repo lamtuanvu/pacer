@@ -43,6 +43,7 @@ import { brokerTick } from "../messaging/broker";
 
 import { DEFAULT_PORT } from "./constants";
 import { writeJsonAtomic } from "../fsutil";
+import { backgroundWorkerEntryURL } from "./worker-location";
 export { DEFAULT_PORT } from "./constants";
 /** How long a request waits for the first status before the snapshot answers as starting. */
 export const STATUS_WARMUP_WAIT_MS = 300;
@@ -63,7 +64,7 @@ export function ensureToken(ctx: Ctx): string {
 
 /** Localhost-only, token-protected API for versioned client protocols. */
 export function startServer(
-  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; supervisionWorker?: boolean; backgroundWorker?: boolean; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps } = {},
+  getCtx: () => Ctx, opts: { internal?: { token: string }; pairedNative?: PairedNativeBootstrap; port?: number; supervisionWorker?: boolean; backgroundWorker?: boolean; listener?: false; sseIntervalMs?: number; tailMs?: number; pumpMs?: number; opDeps?: OpDeps; bgMonitorMs?: number; bgSilenceTicks?: number; bgStopGraceMs?: number; bgHeartbeatMs?: number; bgUsageMs?: number } = {},
 ): { port: number; token: string; backgroundWorker: () => Worker | undefined; stop: () => Promise<void> } {
   const initialCtx = getCtx();
   const bg = !!opts.backgroundWorker;
@@ -626,9 +627,9 @@ export function startServer(
     if (worker || stopped || !opts.supervisionWorker || opts.opDeps?.spawnRunner) return;
     try {
       // A compiled binary gives every module the bundle root's import.meta.url
-      // (/$bunfs/root/...), where the worker entrypoint sits at ./tasks/.
+      // (/$bunfs/root/...); worker entrypoints land at /$bunfs/root/<source>.js.
       const compiled = import.meta.url.includes("/$bunfs/");
-      worker = new Worker(compiled ? new URL("./tasks/supervision-worker.ts", import.meta.url) : new URL("../tasks/supervision-worker.ts", import.meta.url), { type: "module" });
+      worker = new Worker(compiled ? new URL("./src/tasks/supervision-worker.js", import.meta.url) : new URL("../tasks/supervision-worker.ts", import.meta.url), { type: "module" });
       worker.postMessage({
         type: "init",
         pacerHome: initialCtx.pacerHome,
@@ -652,68 +653,126 @@ export function startServer(
   startSupervisionWorker();
   // Background periodic worker (spec §5): the pump, broker, clean sweep, certification,
   // usage and observations run off the request thread in one Worker with its own SQLite
-  // connection. Health is mirrored to state/background-worker.json so diagnostics can
-  // report it; on death or a stale heartbeat the Worker is restarted with backoff (no
-  // silent in-process fallback). The _internal/* bridges and status refresh stay on the
-  // request thread because request handlers need them synchronously.
+  // connection. Health is mirrored to state/background-worker.json (written only on
+  // state change) so diagnostics can report it. On death or sustained silence the
+  // Worker is asked to stop gracefully — its current loop finishes and releases file
+  // locks — and only after a bounded grace period is it force-terminated; then it is
+  // restarted with backoff (no silent fallback to the request thread). The restart
+  // backoff clears once the worker has been healthy for 10 minutes. The _internal/*
+  // bridges and status refresh stay on the request thread because request handlers need
+  // them synchronously.
   const bgDiag: { state: string; restarts: number; startedAt: number; lastError: string | null; lastHeartbeatAt: number; loops: Record<string, { at: number; ok: boolean }>; managed: string[] } =
     { state: "stopped", restarts: 0, startedAt: 0, lastError: null, lastHeartbeatAt: 0, loops: {}, managed: [] };
+  let lastBgDiagSig = "";
   const writeBgDiag = () => {
     if (!bg) return;
+    // Write only on state change: heartbeats advance lastHeartbeatAt but must not touch the file.
+    const sig = JSON.stringify([bgDiag.state, bgDiag.restarts, bgDiag.lastError, bgDiag.managed, bgDiag.loops]);
+    if (sig === lastBgDiagSig) return;
+    lastBgDiagSig = sig;
     try { const dir = join(initialCtx.pacerHome, "state"); mkdirSync(dir, { recursive: true }); writeJsonAtomic(join(dir, "background-worker.json"), bgDiag); }
     catch { /* best-effort diagnostics */ }
   };
   let bgWorker: Worker | undefined;
   let bgRestartTimer: ReturnType<typeof setTimeout> | undefined;
-  const BG_SILENCE_MS = 60_000;
-  const backgroundWorkerDied = (reason: string) => {
-    if (stopped || !bgWorker) return;
-    bgWorker.removeEventListener("close", bgClose);
-    try { bgWorker.terminate(); } catch { /* already gone */ }
-    bgWorker = undefined;
-    bgDiag.lastError = reason; bgDiag.restarts += 1; bgDiag.state = "restarting"; writeBgDiag();
-    if (!stopped) console.error(`pacer: background worker ${reason}; restarting with backoff`);
-    if (bgRestartTimer) return;
-    const backoff = Math.min(1000 * 2 ** Math.max(0, bgDiag.restarts - 1), 30_000);
+  let bgGraceTimer: ReturnType<typeof setTimeout> | undefined;
+  let bgSilentTicks = 0;
+  let bgHeartbeatSinceTick = false;
+  let bgBackoffExp = 0;   // grows per restart, cleared after sustained health
+  let bgLastStartAt = 0;  // reset on each healthy start
+  const bgMonitorMs = opts.bgMonitorMs ?? 5000;
+  const bgSilenceTicks = opts.bgSilenceTicks ?? 12; // ~60s at 5s monitor ticks
+  const bgStopGraceMs = opts.bgStopGraceMs ?? 5000;
+  const bgHeartbeatMs = opts.bgHeartbeatMs ?? 5000;
+  const bgUsageMs = opts.bgUsageMs;
+  const BG_BACKOFF_RESET_MS = 10 * 60_000;
+  const scheduleBgRestart = () => {
+    if (bgRestartTimer || stopped) return;
+    const backoff = Math.min(1000 * 2 ** Math.max(0, bgBackoffExp - 1), 30_000);
     bgRestartTimer = setTimeout(() => { bgRestartTimer = undefined; startBackgroundWorker(); }, backoff);
   };
-  const bgClose = () => backgroundWorkerDied("exited");
+  const bgTrackRestart = (reason: string) => {
+    if (stopped) return;
+    bgDiag.lastError = reason; bgDiag.restarts += 1; bgBackoffExp += 1; bgLastStartAt = Date.now();
+    bgDiag.state = "restarting"; writeBgDiag();
+    if (!stopped) console.error(`pacer: background worker ${reason}; restarting with backoff`);
+  };
+  // Death from an error or sustained silence: ask the worker to stop itself so the
+  // current loop finishes and releases file locks, and force-terminate only if it
+  // does not exit within the bounded grace.
+  const bgRestartAfterStop = (reason: string) => {
+    if (!bgWorker || stopped) return;
+    bgTrackRestart(reason);
+    const w = bgWorker;
+    try { w.postMessage({ type: "stop" }); } catch { /* already gone; close will clean up */ }
+    if (bgGraceTimer) clearTimeout(bgGraceTimer);
+    bgGraceTimer = setTimeout(() => {
+      bgGraceTimer = undefined;
+      if (bgWorker === w) {
+        try { w.terminate(); } catch { /* already gone */ }
+        bgWorker = undefined;
+      }
+      scheduleBgRestart();
+    }, bgStopGraceMs);
+  };
+  const bgClose = () => {
+    const graceful = bgGraceTimer !== undefined;
+    if (graceful) { clearTimeout(bgGraceTimer); bgGraceTimer = undefined; }
+    if (!graceful && bgWorker) bgTrackRestart("exited");
+    bgWorker = undefined;
+    scheduleBgRestart();
+  };
   const startBackgroundWorker = () => {
     if (bgWorker || stopped || !bg || bgRestartTimer) return;
     try {
-      // Same-directory entrypoint resolves identically for source and compiled runs.
-      bgWorker = new Worker(new URL("./background-worker.ts", import.meta.url), { type: "module" });
-      bgDiag.state = "starting"; bgDiag.startedAt = Date.now(); writeBgDiag();
+      bgWorker = new Worker(backgroundWorkerEntryURL(import.meta.url).href, { type: "module" });
+      bgDiag.state = "starting"; bgDiag.startedAt = Date.now(); bgDiag.lastHeartbeatAt = Date.now();
+      bgLastStartAt = Date.now(); bgSilentTicks = 0; bgHeartbeatSinceTick = false; writeBgDiag();
       bgWorker.postMessage({
         type: "init",
         pacerHome: initialCtx.pacerHome,
         env: initialCtx.env,
         selfCommand: selfCommand(),
         pumpMs,
+        ...(typeof bgHeartbeatMs === "number" ? { heartbeatMs: bgHeartbeatMs } : {}),
+        ...(typeof bgUsageMs === "number" ? { usageMs: bgUsageMs } : {}),
       });
       bgWorker.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
         const d = event.data ?? {};
-        if (d.type === "heartbeat") { bgDiag.lastHeartbeatAt = Date.now(); bgDiag.state = "running"; writeBgDiag(); }
+        if (d.type === "heartbeat") { bgHeartbeatSinceTick = true; bgDiag.lastHeartbeatAt = Date.now(); bgDiag.state = "running"; bgLastStartAt = Date.now(); writeBgDiag(); }
         else if (d.type === "outbox") { try { notifyOutbox(initialCtx); } catch { /* SSE wake must not take the thread down */ } }
-        else if (d.type === "loop" && typeof d.name === "string") { bgDiag.loops[d.name] = { at: Date.now(), ok: d.ok === true }; writeBgDiag(); }
+        else if (d.type === "loop" && typeof d.name === "string") {
+          bgDiag.loops[d.name] = { at: Date.now(), ok: d.ok === true }; writeBgDiag();
+          // The usage loop owns refreshAllUsage; once it reports ok, recompute status
+          // on the main thread, exactly as the in-process path used to.
+          if (d.name === "usage" && d.ok === true) { void refreshStatusAfterPending(); }
+        }
         else if (d.type === "loops" && Array.isArray(d.names)) { bgDiag.managed = (d.names as unknown[]) as string[]; writeBgDiag(); }
-        else if (d.type === "failed") { backgroundWorkerDied(`failed to start: ${String(d.reason ?? "")}`); }
+        else if (d.type === "failed") { bgRestartAfterStop(`failed to start: ${String(d.reason ?? "")}`); }
       };
-      bgWorker.onerror = (err) => backgroundWorkerDied(`error: ${err.message}`);
-      bgWorker.onmessageerror = (err) => backgroundWorkerDied(`message error: ${String(err)}`);
+      bgWorker.onerror = (err) => bgRestartAfterStop(`error: ${err.message}`);
+      bgWorker.onmessageerror = (err) => bgRestartAfterStop(`message error: ${String(err)}`);
       bgWorker.addEventListener("close", bgClose);
     } catch (error) {
       bgWorker = undefined;
       bgDiag.lastError = error instanceof Error ? error.message : String(error);
       bgDiag.state = "restarting"; writeBgDiag();
       if (!stopped) console.error(`pacer: failed to start background worker: ${bgDiag.lastError}; retrying`);
-      if (!bgRestartTimer) bgRestartTimer = setTimeout(() => { bgRestartTimer = undefined; startBackgroundWorker(); }, 5000);
+      bgBackoffExp += 1; bgLastStartAt = Date.now();
+      scheduleBgRestart();
     }
   };
   const bgMonitorTimer = bg ? setInterval(() => {
     if (stopped) return;
-    if (bgWorker && Date.now() - bgDiag.lastHeartbeatAt > BG_SILENCE_MS) backgroundWorkerDied("went silent");
-  }, 5000) : undefined;
+    // A main-thread stall can delay delivered heartbeats, so count silence in
+    // monitor ticks rather than wall-clock Date.now() deltas.
+    if (bgWorker && !bgGraceTimer) {
+      if (bgHeartbeatSinceTick) { bgSilentTicks = 0; }
+      else { bgSilentTicks += 1; if (bgSilentTicks > bgSilenceTicks) bgRestartAfterStop("went silent"); }
+      bgHeartbeatSinceTick = false;
+      if (bgLastStartAt && Date.now() - bgLastStartAt > BG_BACKOFF_RESET_MS) { bgBackoffExp = 0; bgLastStartAt = 0; }
+    }
+  }, bgMonitorMs) : undefined;
   startBackgroundWorker();
   let certifying = false;
   const certify = () => {
@@ -773,8 +832,15 @@ export function startServer(
     worker?.terminate();
     clearTimeout(bgRestartTimer);
     if (bgMonitorTimer) clearInterval(bgMonitorTimer);
-    try { bgWorker?.terminate(); } catch { /* already gone */ }
-    bgWorker = undefined;
+    if (bgGraceTimer) clearTimeout(bgGraceTimer);
+    if (bgWorker) {
+      // Ask the worker to finish its current loop and release file locks, then
+      // force-terminate after a bounded grace (the service is going away).
+      const w = bgWorker;
+      try { w.postMessage({ type: "stop" }); } catch { /* already gone */ }
+      setTimeout(() => { try { w.terminate(); } catch { /* already gone */ } }, bgStopGraceMs);
+      bgWorker = undefined;
+    }
     for (const watcher of watchers) watcher.close();
     server.stop(true);
     return Promise.all([history.stop(), shutdownPlugins(initialCtx)]).then(() => {});

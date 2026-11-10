@@ -21,7 +21,12 @@ import { setOutboxCrossPost } from "../link/store";
  * polling, and `{type:"loop"}` after each loop so the parent can report health.
  * Status refresh is NOT owned here: `status()` is a synchronous request-path
  * dependency (read-cache warm-up, budget holder) so the parent computes it per
- * request, while pumpOnce computes its own status through defaultPumpDeps.
+ * request, while pumpOnce computes its own status through defaultPumpDeps. The
+ * parent re-runs status after the usage loop reports ok.
+ *
+ * A `{type:"stop"}` message asks the worker to stop cleanly: it finishes the
+ * current loop (releasing file locks), then closes itself. The parent only calls
+ * terminate() after a bounded grace period.
  */
 interface WorkerInit {
   type: "init";
@@ -29,8 +34,12 @@ interface WorkerInit {
   env: Record<string, string>;
   /** The service's selfCommand(); the worker's own argv names the worker module. */
   selfCommand: string[];
-  /** Link pump cadence; <= 0 disables the periodic pump loop. */
+  /** Link pump cadence; <= 0 disables the periodic pump and observations loops. */
   pumpMs: number;
+  /** Heartbeat cadence; default 5000ms. */
+  heartbeatMs?: number;
+  /** Usage refresh cadence; default 15 minutes. */
+  usageMs?: number;
 }
 
 type LoopName = "pump" | "broker" | "sweep" | "certification" | "usage" | "observations";
@@ -39,6 +48,7 @@ const MANAGED_LOOPS: LoopName[] = ["pump", "broker", "sweep", "certification", "
 let stopped = false;
 let init: { env: Record<string, string>; pacerHome: string } | null = null;
 let pumpMs = 0;
+let usageMs = 15 * 60_000;
 let spawnRunner: ((ctx: ReturnType<typeof makeCtx>, taskId: string) => number | undefined) | null = null;
 const busy = new Set<string>();
 const timers: (ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>)[] = [];
@@ -52,8 +62,24 @@ function report(msg: Record<string, unknown>): void {
   if (!stopped) self.postMessage(msg);
 }
 
+/** Stop after the current loop finishes so in-flight file locks are released. */
+function stopAll(): void {
+  if (stopped) return;
+  stopped = true;
+  for (const t of timers) {
+    if (typeof (t as { refresh?: unknown }).refresh === "function") clearInterval(t as ReturnType<typeof setInterval>);
+    else clearTimeout(t as ReturnType<typeof setTimeout>);
+  }
+  timers.length = 0;
+  self.postMessage({ type: "stopped" });
+  if (busy.size === 0) self.close();
+}
+
 // Heartbeat independent of any loop so a parent can detect a hung worker and restart it.
-timers.push(setInterval(() => report({ type: "heartbeat" }), 5000));
+let heartbeatMs = 5000;
+function armHeartbeat(): void {
+  timers.push(setInterval(() => report({ type: "heartbeat" }), heartbeatMs));
+}
 
 // Outbox publishes happen through notifyOutbox (shared with the main thread); bridge
 // them to the parent so SSE on the request thread wakes without polling.
@@ -72,6 +98,7 @@ function loop(name: LoopName, intervalMs: number, firstDelayMs: number, fn: (c: 
     } finally {
       busy.delete(name);
       firstRunToward = 0;
+      if (stopped && busy.size === 0) self.close();
     }
   };
   timers.push(setTimeout(run, firstDelayMs));
@@ -91,16 +118,24 @@ function runLoops(): void {
   loop("broker", 15_000, 1000, c => brokerTick(c, { spawnRunner: spawnRunner ?? undefined, mode: statusMode }));
   loop("sweep", 60 * 60_000, 500, c => autoCleanSweep(c));
   loop("certification", 10 * 60_000, 2000, c => certificationTick(c));
-  loop("usage", 15 * 60_000, 3000, c => refreshAllUsage({ ...c, now: Date.now() / 1000 }, true));
-  loop("observations", 60_000, 1000, c => refreshObservations(c));
+  loop("usage", usageMs, 3000, c => refreshAllUsage({ ...c, now: Date.now() / 1000 }, true));
+  // Observations follow the pump cadence, as before the worker (spec §5 draft): no
+  // periodic pump means no observations loop either.
+  if (pumpMs > 0) loop("observations", 60_000, 1000, c => refreshObservations(c));
 }
 
-self.onmessage = async (event: MessageEvent<WorkerInit>) => {
+type WorkerMessage = WorkerInit | { type: "stop" };
+
+self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const msg = event.data;
-  if (!msg || msg.type !== "init") return;
+  if (!msg) return;
+  if (msg.type === "stop") { stopAll(); return; }
+  if (msg.type !== "init") return;
   try {
     init = { env: msg.env, pacerHome: msg.pacerHome };
     pumpMs = typeof msg.pumpMs === "number" && Number.isFinite(msg.pumpMs) && msg.pumpMs > 0 ? msg.pumpMs : 0;
+    heartbeatMs = typeof msg.heartbeatMs === "number" && Number.isFinite(msg.heartbeatMs) && msg.heartbeatMs > 0 ? msg.heartbeatMs : 5000;
+    usageMs = typeof msg.usageMs === "number" && Number.isFinite(msg.usageMs) && msg.usageMs > 0 ? msg.usageMs : 15 * 60_000;
     if (!Array.isArray(msg.selfCommand) || !msg.selfCommand.length || msg.selfCommand.some(part => typeof part !== "string" || !part))
       throw new Error("missing service self command");
     const { spawnRunnerWith } = await import("../tasks/api");
@@ -110,6 +145,7 @@ self.onmessage = async (event: MessageEvent<WorkerInit>) => {
     return;
   }
   report({ type: "heartbeat" });
+  armHeartbeat();
   runLoops();
 };
 
