@@ -8,6 +8,7 @@ import { directInputAvailable } from "../session/send";
 import { readTask, updateTask } from "../tasks/store";
 import * as store from "./store";
 import { assertOpen, deliver, notifyMessage, readMessages, type Delivery, type TurnDelivery, type TurnHold } from "./turns";
+import type { TaskRecord } from "../tasks/types";
 import { participantSchema, type Message, type MsgKind } from "./types";
 
 export interface SendInput { to: string; kind?: MsgKind; body: string; replyTo?: string; requestId?: string }
@@ -65,24 +66,34 @@ function directAnswerTarget(ctx: Ctx, m: Message): string | undefined {
   const question = answeredQuestion(ctx, m.from, m.to, m.replyTo!);
   if (!question || !id) return undefined;
   const task = readTask(ctx, id);
-  return task?.question && task.question.answer === undefined && directInputAvailable(task) ? id : undefined;
+  return task?.question && task.question.answer === undefined && isTaskQuestion(task, question) && directInputAvailable(task) ? id : undefined;
 }
+
+/** The task's open question is the one the message replies to, matched as answerLiveTask matches it. */
+const isTaskQuestion = (task: TaskRecord, question: Message) =>
+  task.question !== undefined && task.question.text === question.body && task.question.at === question.createdAt;
 
 /**
  * Answer the question a live run waits on, as pacer answer does: the answer is reserved on the task's question
  * and typed into the running session, and the answer message is marked read so no later turn or live poll
- * delivers it again. A delivery that typed nothing while the session still waits rethrows — the caller must
+ * delivers it again. The message is read before typing: while the answer is reserved the answer message may
+ * not be claimed elsewhere, and a possibly-typed failure keeps it read. A failure that reserved nothing puts
+ * it back to pending. A delivery that typed nothing while the session still waits rethrows — the caller must
  * never report it delivered. When the task moved on beneath the send (another answer, or its run changed),
  * returns false and the ordinary delivery below decides from the task as it is now.
  */
 async function deliverLiveAnswer(ctx: Ctx, m: Message, target: string): Promise<boolean> {
+  readMessages(ctx, m.to, [m.id]);
   try {
     await answerLiveTask(ctx, target, m.body);
   } catch (e) {
+    // Possibly typed: answerLiveTask keeps the reservation on the task's question deliberately, so nothing
+    // here may resend it; the failure reaches the caller.
+    if (readTask(ctx, target)?.question?.answer === m.body) throw e;
+    store.unmarkRead(ctx, m.to, [m.id]);
     if (directAnswerTarget(ctx, m)) throw e;
     return false;
   }
-  readMessages(ctx, m.to, [m.id]);
   return true;
 }
 
@@ -96,7 +107,8 @@ function recordAnswer(ctx: Ctx, caller: string, to: string, replyTo: string, bod
   const id = taskOf(to);
   if (!question || !id) return undefined;
   const task = readTask(ctx, id);
-  if (!task?.question || task.question.answer !== undefined) return { question };
+  // A stale reply to an earlier question is never recorded as the answer of the question the task waits on now.
+  if (!task?.question || task.question.answer !== undefined || !isTaskQuestion(task, question)) return { question };
   updateTask(ctx, id, t => { if (t.question && t.question.answer === undefined) { t.question.answer = body; t.question.answeredAt = ctx.now; } });
   return { question, undo: () => updateTask(ctx, id, t => { if (t.question?.answer === body) { delete t.question.answer; delete t.question.answeredAt; } }) };
 }
