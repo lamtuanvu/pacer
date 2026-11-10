@@ -1,0 +1,13 @@
+import { render } from "preact";
+import snapshot from "./snapshot.json";
+import { Tray } from "../../../app/src/tray/Tray";
+import { ApiError } from "../../../app/src/data/api";
+import type { ClientSnapshot } from "../../../src/view-model/snapshot";
+const snap = structuredClone(snapshot) as unknown as ClientSnapshot;
+const task = {...snap.tasks[0]!, id:"managed", state:"failed", title:"Managed retry", rev:7};
+snap.tasks=[task];
+snap.attention=[{id:"managed-failed",taskId:"managed",kind:"failed",severity:"decide",repo:task.repo!,title:task.title,detail:"Failed",raisedAt:snap.at,since:snap.at,actions:[{label:"Retry",op:"dispatch.retry",params:{id:"managed",expect_rev:7,requestId:"managed.7.retry"}}],notify:"important"}];
+const controls=window as unknown as {actionMode:string;actionCalls:unknown[];releaseAction:()=>void}; controls.actionCalls=[];
+const api={call:async (op:string,params:unknown)=>{if(op!=="dispatch.retry") return {}; controls.actionCalls.push({op,params});if(controls.actionMode==="hold") await new Promise<void>(resolve=>{controls.releaseAction=resolve}); if(controls.actionMode==="conflict")throw new ApiError("conflict","Revision changed",undefined,409);if(controls.actionMode==="error")throw new Error("Service temporarily unavailable");return {};}};
+const ipc={desktop:false,resize:async()=>{},open:async()=>{},hide:async()=>{},loginItem:async()=>false};
+render(<Tray snapshot={snap} api={api as never} ipc={ipc as never} ops={new Set(["dispatch.retry"])} />,document.getElementById("fixture")!);

@@ -78,11 +78,11 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   // A failure on a Needs you row belongs to that row: it clears once the row is gone.
   const [failure, setFailure] = useState<{ message: string; item?: string } | null>(null);
   const setError = (message: string) => setFailure(message ? { message } : null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(false), inFlight = useRef(false);
   const act = (work: () => Promise<unknown>, item?: string) => {
-    if (busy) return;
-    setBusy(true); setFailure(null);
-    void work().catch(e => setFailure({ message: actionError(e), item })).finally(() => setBusy(false));
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true); setFailure(null);
+    void work().catch(e => setFailure({ message: actionError(e), item })).finally(() => { inFlight.current = false; setBusy(false); });
   };
   useLayoutEffect(() => {
     const measure = () => {
