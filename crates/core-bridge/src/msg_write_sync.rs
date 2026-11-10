@@ -1,8 +1,8 @@
 #![allow(clippy::result_large_err)]
 //! Core bridges for the native message writes: turn delivery, the human's task
 //! publication and worktree auto-clean stay in the TypeScript core.
-use crate::native::msg_writes::Bridge;
 use pacer_foundation::api::{Code, CoreError, OpFuture};
+use pacer_messaging_ops::msg_writes::Bridge;
 use serde_json::{Value, json};
 
 fn unavailable(message: &str) -> CoreError {
@@ -11,7 +11,7 @@ fn unavailable(message: &str) -> CoreError {
 
 fn map_reply(value: &Value) -> Result<Value, CoreError> {
     if let Some(error) = value.get("error") {
-        return Err(crate::native::config_sync::error(error));
+        return Err(crate::config_sync::error(error));
     }
     value
         .get("result")
@@ -19,7 +19,7 @@ fn map_reply(value: &Value) -> Result<Value, CoreError> {
         .ok_or_else(|| unavailable("invalid message bridge response"))
 }
 
-pub(crate) fn trace(name: &str, request_id: Option<&Value>) {
+pub fn trace(name: &str, request_id: Option<&Value>) {
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
         match request_id {
             Some(id) => eprintln!("native {name} {id}"),
@@ -38,8 +38,8 @@ fn clean_ids(request: &Value) -> Option<Vec<String>> {
     })
 }
 
-pub(crate) struct HttpBridge {
-    pub(crate) target: Option<(u16, String)>,
+pub struct HttpBridge {
+    pub target: Option<(u16, String)>,
 }
 
 impl HttpBridge {
@@ -88,18 +88,18 @@ impl Bridge for HttpBridge {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
         Box::pin(async move {
             match clean_ids(&request) {
-                Some(ids) => crate::native::task_clean_sync::http(self.target.clone(), &ids).await,
+                Some(ids) => crate::task_clean_sync::http(self.target.clone(), &ids).await,
                 None => self.post(request).await,
             }
         })
     }
 }
 
-pub(crate) struct StdioBridge<'a, W> {
-    pub(crate) core: &'a mut W,
-    pub(crate) prefix: &'a str,
-    pub(crate) key: &'a str,
-    pub(crate) replies: &'a mut tokio::sync::mpsc::UnboundedReceiver<Value>,
+pub struct StdioBridge<'a, W> {
+    pub core: &'a mut W,
+    pub prefix: &'a str,
+    pub key: &'a str,
+    pub replies: &'a mut tokio::sync::mpsc::UnboundedReceiver<Value>,
 }
 
 impl<W: tokio::io::AsyncWrite + Unpin + Send> StdioBridge<'_, W> {
@@ -146,7 +146,7 @@ impl<W: tokio::io::AsyncWrite + Unpin + Send> Bridge for StdioBridge<'_, W> {
         Box::pin(async move {
             match clean_ids(&request) {
                 Some(ids) => {
-                    crate::native::task_clean_sync::stdio(
+                    crate::task_clean_sync::stdio(
                         self.core,
                         self.prefix,
                         self.key,

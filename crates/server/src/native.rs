@@ -1,65 +1,65 @@
 use pacer_assistant_ops::assistant_ops;
 use pacer_config_ops::config_get_ops;
-use pacer_foundation::{
-    Ctx,
-    api::{CoreError, NativeOp, Registry},
-};
-use serde_json::Value;
-pub(crate) mod config_host_sync;
-pub(crate) mod config_sync;
 use pacer_config_ops::config_writes;
-use pacer_config_ops::executor_setup_ops;
-pub(crate) mod core_bridge_sync;
-mod desktop_reconcile_ops;
 use pacer_config_ops::engine_ops;
+use pacer_config_ops::executor_setup_ops;
 use pacer_config_ops::host_mut_ops;
+use pacer_config_ops::host_read_ops;
+use pacer_config_ops::limits_refresh_ops;
+pub(crate) use pacer_core_bridge::config_host_sync;
+pub(crate) use pacer_core_bridge::config_sync;
+pub(crate) use pacer_core_bridge::core_bridge_sync;
+pub(crate) use pacer_core_bridge::host_mut_sync;
+pub(crate) use pacer_core_bridge::host_read_sync;
 use pacer_discovery_ops::{discovery_ops, network_ops};
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
 use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
 use pacer_dispatch_ops::planning_ops;
+use pacer_foundation::{
+    Ctx,
+    api::{CoreError, NativeOp, Registry},
+};
+use pacer_machine_ops::machine_identity;
+use pacer_machine_ops::machine_ops;
 use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
-pub(crate) mod host_mut_sync;
-use pacer_config_ops::host_read_ops;
-use pacer_config_ops::limits_refresh_ops;
-pub(crate) mod host_read_sync;
-use pacer_machine_ops::machine_identity;
-use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
 use pacer_task_ops::session_context_ops;
+use pacer_update::desktop_reconcile_ops;
+use serde_json::Value;
 mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
+pub(crate) use pacer_core_bridge::msg_write_sync;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
-pub(crate) mod msg_write_sync;
 pub mod plugins;
-pub(crate) mod service_effects_sync;
-pub(crate) mod setup_effects_sync;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
 use pacer_config_ops::runner_ops;
-pub(crate) use pacer_task_ops::session_ops;
-pub(crate) mod session_sync;
 use pacer_config_ops::setup_ops;
+pub(crate) use pacer_core_bridge::service_effects_sync;
+pub(crate) use pacer_core_bridge::session_sync;
+pub(crate) use pacer_core_bridge::setup_effects_sync;
+pub(crate) use pacer_core_bridge::snapshot_sync;
+pub(crate) use pacer_core_bridge::status_sync;
+pub(crate) use pacer_core_bridge::task_clean_sync;
+pub(crate) use pacer_core_bridge::task_read_sync;
+pub(crate) use pacer_core_bridge::task_review_sync;
+pub(crate) use pacer_core_bridge::task_stop_sync;
+pub(crate) use pacer_core_bridge::task_wait_sync;
+pub(crate) use pacer_task_ops::session_ops;
 use pacer_task_ops::snapshot_get_ops;
-pub(crate) mod snapshot_sync;
 pub(crate) use pacer_task_ops::status_ops;
-pub(crate) mod status_sync;
-pub(crate) mod task_clean_sync;
 use pacer_task_ops::task_diff_ops;
 pub(crate) use pacer_task_ops::task_dismiss_ops;
 use pacer_task_ops::task_get_ops;
-pub(crate) mod task_read_sync;
 use pacer_task_ops::task_reads;
 use pacer_task_ops::task_review_ops;
-pub(crate) mod task_review_sync;
 use pacer_task_ops::task_stop_ops;
-pub(crate) mod task_stop_sync;
 use pacer_task_ops::task_wait_ops;
-pub(crate) mod task_wait_sync;
 
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
@@ -645,16 +645,16 @@ static OPS: &[NativeOp] = &[
         call: discovery_network_set,
     },
     NativeOp {
-        name: "desktop.reconcile.status",
-        call: desktop_reconcile_ops::desktop_reconcile_status,
+        name: desktop_reconcile_ops::ops()[0].name,
+        call: desktop_reconcile_ops::ops()[0].call,
     },
     NativeOp {
-        name: "desktop.reconcile.request",
-        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+        name: desktop_reconcile_ops::ops()[1].name,
+        call: desktop_reconcile_ops::ops()[1].call,
     },
     NativeOp {
-        name: "desktop.reconcile.cancel",
-        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+        name: desktop_reconcile_ops::ops()[2].name,
+        call: desktop_reconcile_ops::ops()[2].call,
     },
     NativeOp {
         name: "assistant.status",

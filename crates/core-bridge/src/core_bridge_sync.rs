@@ -9,7 +9,7 @@ fn unavailable(message: &str) -> CoreError {
 
 fn map_body(value: &Value) -> Result<Value, CoreError> {
     if let Some(error) = value.get("error") {
-        return Err(crate::native::config_sync::error(error));
+        return Err(crate::config_sync::error(error));
     }
     value
         .get("result")
@@ -33,14 +33,14 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     }
 }
 
-pub(crate) fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
+pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
         "setup.check" | "setup.effects" => Ok(params.clone()),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
 
-pub(crate) async fn http(
+pub async fn http(
     target: Option<(u16, String)>,
     op: &str,
     params: Value,
@@ -83,7 +83,7 @@ pub(crate) async fn http(
         .map_err(|_| unavailable("core bridge timed out"))?
 }
 
-pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
@@ -127,7 +127,7 @@ async fn receive(
             continue;
         }
         return if let Some(error) = value.get("error") {
-            Err(crate::native::config_sync::error(error))
+            Err(crate::config_sync::error(error))
         } else {
             value
                 .get("result")

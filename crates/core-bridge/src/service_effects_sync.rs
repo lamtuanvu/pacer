@@ -5,32 +5,31 @@ use pacer_foundation::api::OpFuture;
 use pacer_install::ServiceEffects;
 use serde_json::Value;
 
-pub(crate) struct HttpServiceEffects {
-    pub(crate) target: Option<(u16, String)>,
+pub struct HttpServiceEffects {
+    pub target: Option<(u16, String)>,
 }
 
 impl ServiceEffects for HttpServiceEffects {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
         Box::pin(async move {
             let body = serde_json::json!({ "request": request });
-            crate::native::core_bridge_sync::http(self.target.clone(), "service.effects", body)
-                .await
+            crate::core_bridge_sync::http(self.target.clone(), "service.effects", body).await
         })
     }
 }
 
-pub(crate) struct StdioServiceEffects<'a, W> {
-    pub(crate) core: &'a mut W,
-    pub(crate) prefix: &'a str,
-    pub(crate) key: &'a str,
-    pub(crate) replies: &'a mut tokio::sync::mpsc::UnboundedReceiver<Value>,
+pub struct StdioServiceEffects<'a, W> {
+    pub core: &'a mut W,
+    pub prefix: &'a str,
+    pub key: &'a str,
+    pub replies: &'a mut tokio::sync::mpsc::UnboundedReceiver<Value>,
 }
 
 impl<W: tokio::io::AsyncWrite + Unpin + Send> ServiceEffects for StdioServiceEffects<'_, W> {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
         Box::pin(async move {
             let body = serde_json::json!({ "request": request });
-            crate::native::core_bridge_sync::stdio(
+            crate::core_bridge_sync::stdio(
                 self.core,
                 self.prefix,
                 self.key,

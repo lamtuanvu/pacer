@@ -14,6 +14,8 @@ tokio.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 ryu-js = "1"
+pacer-mcp = { path = "../mcp" }
+pacer-core-bridge = { path = "../core-bridge" }
 pacer-foundation = { path = "../foundation" }
 pacer-plugin-ops = { path = "../plugin-ops" }
 pacer-plugin-runtime = { path = "../plugin-runtime" }

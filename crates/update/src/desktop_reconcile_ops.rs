@@ -9,8 +9,22 @@ use pacer_foundation::{
 };
 use serde_json::{Map, Value, json};
 
-use super::lifecycle_ops::{invalid, type_name};
-use super::msg_ops::{current_dir, orca_worktree, own_worktree};
+use pacer_messaging_ops::msg_ops::{current_dir, orca_worktree, own_worktree};
+
+fn invalid(message: impl Into<String>) -> CoreError {
+    CoreError::new(Code::InvalidInput, message)
+}
+
+fn type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
 
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 const UPGRADE_REFUSAL: &str =
@@ -128,7 +142,7 @@ fn parse(params: &Value, fields: &[&str]) -> Result<(), CoreError> {
     }
 }
 
-pub(super) fn desktop_reconcile_status(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn desktop_reconcile_status(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         authorize(ctx, false)?;
         parse(&params, &[])?;
@@ -142,7 +156,7 @@ pub(super) fn desktop_reconcile_status(ctx: &Ctx, params: Value) -> OpFuture<'_>
 }
 
 /// Shared by request and cancel: both validate the request, then refuse.
-pub(super) fn desktop_reconcile_unavailable(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn desktop_reconcile_unavailable(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         authorize(ctx, true)?;
         parse(&params, &["candidateId", "expectRevision", "requestId"])?;
@@ -151,6 +165,25 @@ pub(super) fn desktop_reconcile_unavailable(ctx: &Ctx, params: Value) -> OpFutur
             "Service reconciliation is unavailable",
         ))
     })
+}
+
+/// Native desktop reconciliation operations.
+pub const fn ops() -> &'static [pacer_foundation::api::NativeOp] {
+    use pacer_foundation::api::NativeOp;
+    &[
+        NativeOp {
+            name: "desktop.reconcile.status",
+            call: desktop_reconcile_status,
+        },
+        NativeOp {
+            name: "desktop.reconcile.request",
+            call: desktop_reconcile_unavailable,
+        },
+        NativeOp {
+            name: "desktop.reconcile.cancel",
+            call: desktop_reconcile_unavailable,
+        },
+    ]
 }
 
 #[cfg(test)]

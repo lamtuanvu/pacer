@@ -1,7 +1,7 @@
 #![allow(clippy::result_large_err)]
-//! Fixed bridge for host-read injection snapshots from the TypeScript owner.
+//! Fixed bridge for snapshot-probe injection parts from the TypeScript owner.
 use pacer_foundation::api::{Code, CoreError};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 fn unavailable(message: &str) -> CoreError {
     CoreError::new(Code::Unavailable, message)
@@ -9,18 +9,15 @@ fn unavailable(message: &str) -> CoreError {
 
 fn map_body(value: &Value) -> Result<Value, CoreError> {
     if let Some(error) = value.get("error") {
-        return Err(crate::native::config_sync::error(error));
+        return Err(crate::config_sync::error(error));
     }
     value
         .get("result")
         .cloned()
-        .ok_or_else(|| unavailable("invalid host read response"))
+        .ok_or_else(|| unavailable("invalid snapshot probe response"))
 }
 
-pub(crate) async fn http(
-    target: Option<(u16, String)>,
-    alias: Option<&str>,
-) -> Result<Value, CoreError> {
+pub async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::BodyExt;
     use hyper_util::{
@@ -29,68 +26,62 @@ pub(crate) async fn http(
     };
     let run = async {
         let (port, token) = target.ok_or_else(|| unavailable("pacer core is restarting"))?;
-        let body = alias
-            .map(|a| json!({"alias": a}))
-            .unwrap_or_else(|| json!({}));
         let request = axum::http::Request::builder()
             .method("POST")
-            .uri(format!("http://127.0.0.1:{port}/_internal/host-read-parts"))
+            .uri(format!(
+                "http://127.0.0.1:{port}/_internal/snapshot-probe-parts"
+            ))
             .header("authorization", format!("Bearer {token}"))
             .header("content-type", "application/json")
-            .body(Body::from(body.to_string()))
-            .map_err(|_| unavailable("host read bridge unavailable"))?;
+            .body(Body::from("{}"))
+            .map_err(|_| unavailable("snapshot probe bridge unavailable"))?;
         let client: Client<HttpConnector, Body> =
             Client::builder(TokioExecutor::new()).build_http();
         let response = client
             .request(request)
             .await
-            .map_err(|_| unavailable("host read bridge unavailable"))?;
+            .map_err(|_| unavailable("snapshot probe bridge unavailable"))?;
         let bytes = response
             .into_body()
             .collect()
             .await
-            .map_err(|_| unavailable("host read bridge unavailable"))?
+            .map_err(|_| unavailable("snapshot probe bridge unavailable"))?
             .to_bytes();
         let value: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| unavailable("invalid host read response"))?;
+            .map_err(|_| unavailable("invalid snapshot probe response"))?;
         map_body(&value)
     };
     tokio::time::timeout(std::time::Duration::from_secs(120), run)
         .await
-        .map_err(|_| unavailable("host read bridge timed out"))?
+        .map_err(|_| unavailable("snapshot probe bridge timed out"))?
 }
 
-pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
-    alias: Option<&str>,
     replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
 ) -> Result<Value, CoreError> {
     use tokio::io::AsyncWriteExt;
     let id = format!("{prefix}:{}", hex::encode(rand::random::<[u8; 16]>()));
-    let mut params = json!({"key": key});
-    if let Some(alias) = alias {
-        params["alias"] = alias.into();
-    }
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
-        "method": "_internal.host-read.parts",
-        "params": params,
+        "method": "_internal.snapshot-probe.parts",
+        "params": {"key": key},
     });
     let mut bytes = serde_json::to_vec(&request)
-        .map_err(|_| CoreError::new(Code::Internal, "host read encoding failed"))?;
+        .map_err(|_| CoreError::new(Code::Internal, "snapshot probe encoding failed"))?;
     bytes.push(b'\n');
     core.write_all(&bytes)
         .await
-        .map_err(|_| unavailable("host read channel closed"))?;
+        .map_err(|_| unavailable("snapshot probe channel closed"))?;
     core.flush()
         .await
-        .map_err(|_| unavailable("host read channel closed"))?;
+        .map_err(|_| unavailable("snapshot probe channel closed"))?;
     tokio::time::timeout(std::time::Duration::from_secs(120), receive(replies, &id))
         .await
-        .map_err(|_| unavailable("host read bridge timed out"))?
+        .map_err(|_| unavailable("snapshot probe bridge timed out"))?
 }
 
 async fn receive(
@@ -102,13 +93,13 @@ async fn receive(
             continue;
         }
         return if let Some(error) = value.get("error") {
-            Err(crate::native::config_sync::error(error))
+            Err(crate::config_sync::error(error))
         } else {
             value
                 .get("result")
                 .cloned()
-                .ok_or_else(|| unavailable("invalid host read response"))
+                .ok_or_else(|| unavailable("invalid snapshot probe response"))
         };
     }
-    Err(unavailable("host read channel closed"))
+    Err(unavailable("snapshot probe channel closed"))
 }

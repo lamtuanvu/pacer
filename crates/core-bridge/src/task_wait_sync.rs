@@ -1,8 +1,7 @@
 #![allow(clippy::result_large_err)]
-//! Fixed bridge for usage-broker injection parts from the TypeScript `computeStatus`
-//! owner; no caller-controlled operation crosses this channel.
+//! Bridge for `taskWait` settle probe owned by the TypeScript core.
 use pacer_foundation::api::{Code, CoreError};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 fn unavailable(message: &str) -> CoreError {
     CoreError::new(Code::Unavailable, message)
@@ -10,15 +9,22 @@ fn unavailable(message: &str) -> CoreError {
 
 fn map_body(value: &Value) -> Result<Value, CoreError> {
     if let Some(error) = value.get("error") {
-        return Err(crate::native::config_sync::error(error));
+        return Err(crate::config_sync::error(error));
     }
     value
         .get("result")
         .cloned()
-        .ok_or_else(|| unavailable("invalid usage broker response"))
+        .ok_or_else(|| unavailable("invalid task wait bridge response"))
 }
 
-pub(crate) async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
+pub fn task_wait_stays_forwarded(probe: &Value) -> bool {
+    probe
+        .get("forward")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+pub async fn http_probe(target: Option<(u16, String)>, id: &str) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::BodyExt;
     use hyper_util::{
@@ -27,62 +33,65 @@ pub(crate) async fn http(target: Option<(u16, String)>) -> Result<Value, CoreErr
     };
     let run = async {
         let (port, token) = target.ok_or_else(|| unavailable("pacer core is restarting"))?;
+        let body = json!({"id": id});
         let request = axum::http::Request::builder()
             .method("POST")
-            .uri(format!(
-                "http://127.0.0.1:{port}/_internal/status-broker-parts"
-            ))
+            .uri(format!("http://127.0.0.1:{port}/_internal/task-wait-probe"))
             .header("authorization", format!("Bearer {token}"))
             .header("content-type", "application/json")
-            .body(Body::from("{}"))
-            .map_err(|_| unavailable("usage broker bridge unavailable"))?;
+            .body(Body::from(body.to_string()))
+            .map_err(|_| unavailable("task wait probe bridge unavailable"))?;
         let client: Client<HttpConnector, Body> =
             Client::builder(TokioExecutor::new()).build_http();
         let response = client
             .request(request)
             .await
-            .map_err(|_| unavailable("usage broker bridge unavailable"))?;
+            .map_err(|_| unavailable("task wait probe bridge unavailable"))?;
         let bytes = response
             .into_body()
             .collect()
             .await
-            .map_err(|_| unavailable("usage broker bridge unavailable"))?
+            .map_err(|_| unavailable("task wait probe bridge unavailable"))?
             .to_bytes();
         let value: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| unavailable("invalid usage broker response"))?;
+            .map_err(|_| unavailable("invalid task wait probe response"))?;
         map_body(&value)
     };
     tokio::time::timeout(std::time::Duration::from_secs(120), run)
         .await
-        .map_err(|_| unavailable("usage broker bridge timed out"))?
+        .map_err(|_| unavailable("task wait probe bridge timed out"))?
 }
 
-pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+pub async fn stdio_probe<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
+    id: &str,
     replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
 ) -> Result<Value, CoreError> {
     use tokio::io::AsyncWriteExt;
-    let id = format!("{prefix}:{}", hex::encode(rand::random::<[u8; 16]>()));
+    let req_id = format!("{prefix}:{}", hex::encode(rand::random::<[u8; 16]>()));
     let request = serde_json::json!({
         "jsonrpc": "2.0",
-        "id": id,
-        "method": "_internal.status-broker.parts",
-        "params": {"key": key},
+        "id": req_id,
+        "method": "_internal.task-wait.probe",
+        "params": {"key": key, "id": id},
     });
     let mut bytes = serde_json::to_vec(&request)
-        .map_err(|_| CoreError::new(Code::Internal, "usage broker encoding failed"))?;
+        .map_err(|_| CoreError::new(Code::Internal, "task wait probe encoding failed"))?;
     bytes.push(b'\n');
     core.write_all(&bytes)
         .await
-        .map_err(|_| unavailable("usage broker channel closed"))?;
+        .map_err(|_| unavailable("task wait probe channel closed"))?;
     core.flush()
         .await
-        .map_err(|_| unavailable("usage broker channel closed"))?;
-    tokio::time::timeout(std::time::Duration::from_secs(120), receive(replies, &id))
-        .await
-        .map_err(|_| unavailable("usage broker bridge timed out"))?
+        .map_err(|_| unavailable("task wait probe channel closed"))?;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        receive(replies, &req_id),
+    )
+    .await
+    .map_err(|_| unavailable("task wait probe bridge timed out"))?
 }
 
 async fn receive(
@@ -94,13 +103,13 @@ async fn receive(
             continue;
         }
         return if let Some(error) = value.get("error") {
-            Err(crate::native::config_sync::error(error))
+            Err(crate::config_sync::error(error))
         } else {
             value
                 .get("result")
                 .cloned()
-                .ok_or_else(|| unavailable("invalid usage broker response"))
+                .ok_or_else(|| unavailable("invalid task wait bridge response"))
         };
     }
-    Err(unavailable("usage broker channel closed"))
+    Err(unavailable("task wait bridge channel closed"))
 }
