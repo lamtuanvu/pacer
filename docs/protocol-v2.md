@@ -1037,7 +1037,6 @@ Params JSON Schema:
         "pacing.planner_probe",
         "pacing.accounts",
         "pacing.fill_threshold",
-        "pacing.balance",
         "update_check",
         "terminal.app",
         "terminal.open"

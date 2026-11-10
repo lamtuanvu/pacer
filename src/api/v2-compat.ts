@@ -145,6 +145,13 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const {executor,kind,note,expect_state,...first}=review.properties;
  review.properties={...first,executor,kind,note,expect_state};
  review.required=review.required.filter(k=>k!=='verdict');
+ // pacing.balance is a protocol 3 setting (load-aware executor balance); v2 keeps its frozen config keys.
+ const setParams=(schemas['config.set'].params as {properties:Record<string,unknown>}).properties.key as {enum:string[]} & Record<string,unknown>;
+ if(setParams && Array.isArray(setParams.enum)){
+  const keys=setParams.enum as string[];
+  const at=keys.indexOf('pacing.balance');
+  if(at>=0)keys.splice(at,1);
+ }
  return schemas;
 }
 
