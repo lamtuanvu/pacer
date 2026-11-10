@@ -1,4 +1,4 @@
-//! Core effects bridge transports for `service.handover` and `service.work`.
+//! The Core effects bridge trait a native `service.handover` / `service.work` would call.
 use pacer_foundation::api::OpFuture;
 use serde_json::Value;
 

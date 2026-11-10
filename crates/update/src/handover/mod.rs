@@ -1,5 +1,4 @@
 //! `service.handover` and `service.work`: running work inventory for post-upgrade reopen.
-//! These read from the task store and session store via the pacer-store crate.
 //!
 //! The ops stay forwarded to TypeScript on every front door: Core has no real
 //! `handover.effects` bridge yet (`/_internal/handover-effects`,
