@@ -4,6 +4,7 @@ import { pause } from "../src/core/pause";
 import { runTask } from "../src/tasks/runner";
 import { readTask, updateTask } from "../src/tasks/store";
 import { queueTask, queueDeps } from "./queue-helpers";
+import { pairStrategy } from "./fixtures/balance-pair";
 import { fakeCtx } from "./helpers";
 import { policyGateFixture } from "./fixtures/policy-host";
 import { writeFileSync } from "node:fs";
@@ -96,6 +97,32 @@ test("an unpinned task drops its removed executor when draining", async () => {
   updateTask(ctx, task.id, t => {t.executor = "removed";});
   await drainQueue(ctx, () => process.pid, queueDeps());
   expect(readTask(ctx, task.id)).toMatchObject({state: "running", executor: "codex"});
+});
+
+test("balance on: four tasks through two equal executors drained in one pass land 2 and 2", async () => {
+  const ctx = fakeCtx();
+  const tasks = ["a", "b", "c", "d"].map((goal, i) => waiting(ctx, goal, ctx.now - 10 + i));
+  const deps = queueDeps(pairStrategy("least-loaded"));
+  expect(await drainQueue(ctx, (_, id) => process.pid, deps)).toEqual(tasks.map(t => t.id));
+  const counts: Record<string, number> = {};
+  for (const t of tasks) {
+    const executor = readTask(ctx, t.id)?.executor;
+    if (executor) counts[executor] = (counts[executor] ?? 0) + 1;
+  }
+  expect(counts).toEqual({ codex: 2, "opencode#tse": 2 });
+});
+
+test("balance off: the same batch lands 3 and 1 on the first executor (fill-then-spill guard)", async () => {
+  const ctx = fakeCtx();
+  const tasks = ["a", "b", "c", "d"].map((goal, i) => waiting(ctx, goal, ctx.now - 10 + i));
+  const deps = queueDeps(pairStrategy("off"));
+  expect(await drainQueue(ctx, () => process.pid, deps)).toEqual(tasks.map(t => t.id));
+  const counts: Record<string, number> = {};
+  for (const t of tasks) {
+    const executor = readTask(ctx, t.id)?.executor;
+    if (executor) counts[executor] = (counts[executor] ?? 0) + 1;
+  }
+  expect(counts).toEqual({ codex: 3, "opencode#tse": 1 });
 });
 test("a lane waiting on its question with a live worker keeps its slot, so the queue does not drain into it", async () => {
   const ctx = fakeCtx(), lane = queueTask(ctx, "lane"), task = waiting(ctx, "waiting", ctx.now);

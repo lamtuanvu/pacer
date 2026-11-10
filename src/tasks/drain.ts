@@ -17,6 +17,7 @@ import { readPause } from "../core/pause";
 import { readBlocked } from "../executors/blocked";
 import { readBroken } from "../exec/broken";
 import { rankExecutors } from "../engine/rank";
+import { balanceByLoad } from "../engine/balance";
 import { SLOT_STATES, slotBlock, slotUse, type SlotUse } from "../engine/slots";
 import { queueCapacity } from "./capacity";
 import { computeStatus, type Status } from "../engine/status";
@@ -190,7 +191,12 @@ export async function drainQueue(ctx: Ctx, spawn: SpawnRunner = spawnRunner, dep
           return;
         }
         const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }),ctx);
-        const executor = permitted.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
+        // Balance reorders the ranked candidates within a band by load before the first fit;
+        // the budget bands and the routing exclusions (permitted) still decide membership.
+        const permittedIds = new Set(permitted);
+        const ordered = balanceByLoad(ranking.ranked, s, use, statuses).map(e => e.id).filter(id => permittedIds.has(id));
+        const slotCandidates = ordered.length ? ordered : permitted;
+        const executor = slotCandidates.find(id => !executorExclusion(ctx, s, id) && !slotBlock(s, id, use, {guard: true}));
         if (!executor) { refreshCapacityWait(ctx, task.id, s, permitted.find(id => !executorExclusion(ctx, s, id)), use); return; }
         // A running reservation is claimed by the spawned process before its first attempt.
         const selected=updateTask(ctx, task.id, t => {routeAdmission.revalidate();t.state = "running"; t.executor = executor; delete t.queue; delete t.runnerPid;});
