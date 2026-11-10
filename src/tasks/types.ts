@@ -238,7 +238,7 @@ export interface TaskRecord {
   /** Persisted owner of a plugin-backed direct attempt, including before its run directory exists. */
   executorProvider?: string;
   /** A stop request is not terminal until the exact executor exit is verified. */
-  stopPending?: { attempt: number; requestedAt: number; providerId: string; graceMs: number;
+  stopPending?: { attempt: number; requestedAt: number; cleanupStartedAt?: number; providerId: string; graceMs: number;
     reason?: "user" | "deadline" };
   sessionDraftId?: string;
   interactionMode?: InteractionMode;

@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stopOrphanedRun } from "../src/supervisor/orphan";
@@ -67,6 +67,25 @@ test("an interactive group without its recorded child cannot certify cleanup", a
     expect(process.kill(descendant.pid, 0)).toBe(true);
   } finally {
     probe.mockRestore(); descendant.kill("SIGKILL"); await descendant.exited;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test("interactive orphan cleanup refuses a child pid reused after the child record", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pacer-orphan-reused-"));
+  const child = Bun.spawn(["/bin/sleep", "60"], { detached: true });
+  const wrapper = Bun.spawnSync(["/bin/sleep", "0"]).pid;
+  try {
+    writeFileSync(join(dir, "started"), String(Date.now() / 1000 - 60));
+    writeFileSync(join(dir, "child"), String(child.pid));
+    const recordedAt = new Date(Date.now() - 30_000);
+    utimesSync(join(dir, "child"), recordedAt, recordedAt);
+    writeFileSync(join(dir, "interactive.json"), "{}");
+    expect(await stopOrphanedRun(dir, wrapper, 0, () => undefined)).toBe(false);
+    expect(process.kill(child.pid, 0)).toBe(true);
+  } finally {
+    child.kill("SIGKILL"); await child.exited;
     rmSync(dir, { recursive: true, force: true });
   }
 });

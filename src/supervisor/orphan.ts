@@ -23,8 +23,11 @@ export async function stopOrphanedRun(dir: string, wrapper: number, graceMs: num
   try {
     guard();
     let child: number | undefined;
+    let childRecordedAt: number | undefined;
     if (existsSync(join(dir, "child"))) {
-      if (!lstatSync(join(dir, "child")).isFile()) return false;
+      const childStat = lstatSync(join(dir, "child"));
+      if (!childStat.isFile()) return false;
+      childRecordedAt = childStat.mtimeMs / 1000;
       child = Number(readFileSync(join(dir, "child"), "utf8").trim());
       if (!Number.isSafeInteger(child) || child <= 1) return false;
     }
@@ -55,7 +58,12 @@ export async function stopOrphanedRun(dir: string, wrapper: number, graceMs: num
     const start = Number(readFileSync(join(dir, "started"), "utf8").trim());
     if (!Number.isFinite(start) || start <= 0 || !recordedChild) return false;
     const anchor = processIdentity(recordedChild.pid);
-    if (!anchor || startedAt(anchor) < start) return false;
+    if (!anchor || childRecordedAt === undefined || !Number.isFinite(childRecordedAt)) return false;
+    const anchorStartedAt = startedAt(anchor);
+    // A reused child PID can be newer than the run, but cannot predate the child
+    // record written immediately after spawning the original process.
+    if (!Number.isFinite(anchorStartedAt) || anchorStartedAt < start ||
+      anchorStartedAt > childRecordedAt) return false;
     const identities = new Map<number, ProcessIdentity>([[anchor.pid, anchor]]);
     for (const [signal, waitMs] of [["SIGTERM", Math.max(0, Math.min(graceMs, 25_000))], ["SIGKILL", 1000]] as const) {
       const end = Date.now() + waitMs;

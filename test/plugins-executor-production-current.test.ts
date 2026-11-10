@@ -1153,7 +1153,7 @@ for (const reason of ["user", "deadline"] as const) {
         current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
           mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
         current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
-        current.stopPending = { attempt: 1, requestedAt: ctx.now - 601,
+        current.stopPending = { attempt: 1, requestedAt: ctx.now - 601, cleanupStartedAt: ctx.now - 601,
           providerId: "pacer-exec-direct", graceMs: 100, reason };
       });
       const settled = await superviseTask(ctx, task.id, () => undefined);
@@ -1180,6 +1180,109 @@ test("a reused wrapper pid settles without signalling the unrelated process", as
         providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
     });
     const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    expect(settled?.result?.report).toContain("cleanup was not confirmed");
+    expect(process.kill(unrelated.pid, 0)).toBe(true);
+  } finally { unrelated.kill("SIGKILL"); await unrelated.exited; cleanup(); }
+});
+
+test("legacy stop runs orphan cleanup even when requestedAt is hours old", async () => {
+  const { ctx, task, cleanup } = fixture();
+  let pid: number | undefined;
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    const launched = startRun({ dir, argv: ["/bin/sh", "-c", "trap '' TERM; while :; do sleep 0.1; done"],
+      cwd: task.brief.repo, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session: "pipe" });
+    if ("error" in launched) throw new Error(launched.error);
+    pid = launched.pid;
+    chmodSync(dir, 0o700);
+    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
+    const child = Number(readFileSync(join(dir, "child"), "utf8"));
+    await Bun.sleep(100);
+    process.kill(pid, "SIGKILL");
+    for (let i = 0; i < 100 && readRun(dir).alive; i++) await Bun.sleep(20);
+    expect(process.kill(child, 0)).toBe(true);
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now - 7200,
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    const settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    const childState = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(child)]).stdout.toString().trim();
+    expect(childState === "" || childState.startsWith("Z")).toBe(true);
+    expect(settled?.executorExitReceipt).toMatchObject({ exitCode: 143, unverified: true });
+  } finally {
+    if (pid) { try { process.kill(-pid, "SIGKILL"); } catch {} }
+    cleanup();
+  }
+});
+
+for (const cleanupExpired of [false, true]) {
+test(`live wrapper past the ${cleanupExpired ? "cleanup" : "stop request"} deadline is stopped before settling`, async () => {
+  const { ctx, task, cleanup } = fixture();
+  let pid: number | undefined;
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    const launched = startRun({ dir, argv: ["/bin/sh", "-c", "trap '' TERM; while :; do sleep 0.1; done"],
+      cwd: task.brief.repo, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session: "pipe" });
+    if ("error" in launched) throw new Error(launched.error);
+    pid = launched.pid;
+    chmodSync(dir, 0o700);
+    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
+    const child = Number(readFileSync(join(dir, "child"), "utf8"));
+    await Bun.sleep(100);
+    expect(readRun(dir).alive).toBe(true);
+    expect(process.kill(child, 0)).toBe(true);
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now - 700,
+        ...(cleanupExpired ? { cleanupStartedAt: ctx.now - 700 } : {}),
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    let settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(readRun(dir).alive).toBe(false);
+    // A force-killed wrapper may not write an exit receipt; reconcile its orphan
+    // group on the next pass, as the production supervisor does.
+    if (settled?.state === "running") settled = await superviseTask(ctx, task.id, () => undefined);
+    expect(settled?.state).toBe("stopped");
+    const childState = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(child)]).stdout.toString().trim();
+    expect(childState === "" || childState.startsWith("Z")).toBe(true);
+    expect(readRun(dir).alive).toBe(false);
+  } finally {
+    if (pid) { try { process.kill(-pid, "SIGKILL"); } catch {} }
+    cleanup();
+  }
+});
+
+}
+
+test("legacy uncertain stop persists its first cleanup time across reconciliations", async () => {
+  const { ctx, task, cleanup } = fixture();
+  const unrelated = Bun.spawn(["/bin/sleep", "60"], { detached: true });
+  try {
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), String(Bun.spawnSync(["/bin/sleep", "0"]).pid));
+    writeFileSync(join(dir, "child"), String(unrelated.pid));
+    updateTask(ctx, task.id, current => {
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "log") };
+      current.startIntent = { attempt: 1, providerId: "pacer-exec-direct", dir };
+      current.stopPending = { attempt: 1, requestedAt: ctx.now - 7200,
+        providerId: "pacer-exec-direct", graceMs: 100, reason: "user" };
+    });
+    const first = await superviseTask(ctx, task.id, () => undefined);
+    expect(first?.state).toBe("running");
+    expect(first?.stopPending?.cleanupStartedAt).toBe(ctx.now);
+    const second = await superviseTask({ ...ctx, now: ctx.now + 599 }, task.id, () => undefined);
+    expect(second?.state).toBe("running");
+    expect(second?.stopPending?.cleanupStartedAt).toBe(ctx.now);
+    const settled = await superviseTask({ ...ctx, now: ctx.now + 601 }, task.id, () => undefined);
     expect(settled?.state).toBe("stopped");
     expect(settled?.result?.report).toContain("cleanup was not confirmed");
     expect(process.kill(unrelated.pid, 0)).toBe(true);
