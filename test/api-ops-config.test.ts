@@ -9,6 +9,7 @@ import { emptySnapshot, parseOutboxEvent, reduce } from "../src/link/envelope";
 import * as config from "../src/core/config";
 import * as setup from "../src/core/setup";
 import { fakeCtx } from "./helpers";
+import { closedPort } from "./pinned-port";
 import { setMachineReaders } from "../src/engine/machine";
 
 async function configured() {
@@ -66,7 +67,7 @@ test("agent preview, consent, connect and disconnect use only the temp home", as
 });
 
 test("setup.init creates a strategy without connecting agents and preserves existing files", async () => {
-  const ctx = fakeCtx();
+  const ctx = fakeCtx({ env: { OLLAMA_HOST: `127.0.0.1:${closedPort()}` } });
   expect(await callOp(ctx, "setup.init", { planner: "codex" })).toEqual({ strategy: join(ctx.pacerHome, "strategy.yaml") });
   expect(loadStrategy(ctx).planner.agent).toBe("codex");
   expect(existsSync(join(ctx.home, ".codex"))).toBe(false);
