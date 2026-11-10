@@ -163,6 +163,33 @@ test("balance off: the same batch lands 3 and 1 on the first executor (fill-then
   }
   expect(counts).toEqual({ codex: 3, "opencode#tse": 1 });
 });
+
+test("balance on: the runner keeps the drain's reservation even when its own load count would favour another executor", async () => {
+  // Unequal caps: tse carries 2 slots, codex 3. The drain reserves the queued task on tse
+  // (codex 1/3 is ahead of the empty tse 0/2). Before the runner claims it, another attempt
+  // lands on tse: at the runner's own admission (which excludes the task itself) tse counts
+  // 1/2 against codex 1/3, so balancing would move the task to the emptier codex, but the
+  // reservation is kept.
+  const ctx = fakeCtx();
+  const s = validateStrategy({
+    planner: "claude-code",
+    accounts: {"claude-code": {kind: "claude"}, codex: {kind: "codex"}, tse: {kind: "endpoint", usage: "quota", quota_source: "arkcli"}},
+    runners: {codex: {max_tasks: 3}, "opencode#tse": {model: "go/t", max_tasks: 2}},
+    pacing: {policy: "priority", order: ["codex", "opencode#tse"], balance: "least-loaded"},
+    routing: [{default: ["codex", "opencode#tse"]}],
+  }, "/x");
+  const busy = queueTask(ctx, "busy");
+  updateTask(ctx, busy.id, t => {t.state = "running"; t.executor = "codex";});
+  const deps = queueDeps(s);
+  const task = waiting(ctx, "waiting", ctx.now);
+  expect(await drainQueue(ctx, () => process.pid, deps)).toEqual([task.id]);
+  expect(readTask(ctx, task.id)).toMatchObject({state: "running", executor: "opencode#tse"});
+  const loaded = queueTask(ctx, "load");
+  updateTask(ctx, loaded.id, t => {t.state = "running"; t.executor = "opencode#tse";});
+  const result = await runTask(ctx, task.id, deps);
+  expect(result.attempts[0].executor).toBe("opencode#tse");
+});
+
 test("a lane waiting on its question with a live worker keeps its slot, so the queue does not drain into it", async () => {
   const ctx = fakeCtx(), lane = queueTask(ctx, "lane"), task = waiting(ctx, "waiting", ctx.now);
   updateTask(ctx, lane.id, t => {

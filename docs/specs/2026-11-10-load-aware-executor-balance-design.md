@@ -1,6 +1,6 @@
 # Load-aware executor balance
 
-Status: draft, awaiting maintainer approval of the full document (2026-11-10).
+Status: approved by the maintainer on 2026-11-10.
 
 ## Why
 
@@ -126,11 +126,13 @@ lock, so two concurrent admissions never see stale load. Each admission writes
    apply the same reorder to `permitted` before `permitted.find(...)`. `permitted` holds ids,
    so either balance on the `RankedExecutor` list it is derived from, or add a thin
    id-list wrapper. That choice is left to the builder.
-3. **Drain reservation is kept.** The drain reserves `t.executor` and spawns the runner,
-   which ranks again on its fresh start. When the task already holds a drain reservation
-   that is still admissible, the runner keeps it first and does not rebalance away from it.
-   Otherwise the runner's own load count (which excludes the task itself) could flip the
-   choice (planner's call). Tests assert the executor the task finally runs on.
+3. **Drain reservation is kept for plain routing.** The drain reserves `t.executor` and
+   spawns the runner, which ranks again on its fresh start. When a plain task already holds
+   a drain reservation that is still admissible, the runner keeps it first and does not
+   rebalance away from it. Otherwise the runner's own load count (which excludes the task
+   itself) could flip the choice (planner's call). Managed work dispatched by an engine is
+   not kept: the engine's choice decides there, exactly as with balance off. Tests assert
+   the executor the task finally runs on.
 4. **Preview, `dispatch.explain`** (`src/core/dispatch-explain-ranked.ts`): it already
    computes `slotUse(slotTasksReadOnly(store), ctx)` and filters busy candidates with
    `slotBlock`. Apply `balanceByLoad` after that filter. `decisionHash` keeps hashing the
@@ -160,10 +162,12 @@ lock, so two concurrent admissions never see stale load. Each admission writes
   dispatch engine's choices): leave the engine's order alone in this change. (Planner's
   call; dispatch engines own their own ranking. Revisit if managed work shows the same
   pile-up.)
-- **Project selections** (curated `order: "configured"`): balance **does** apply, treating
-  the whole selection as one band per certainty tier, because the selection branch has no
-  verdict tiers. (Planner's call. The maintainer's complaint is about utilization, and a
-  project that wants a strict order can leave balance off. Flagged for review below.)
+- **Project selections** (curated `order: "configured"`): balance **does** apply. The
+  selection branch has no verdict tier re-ordering of its own, but the balance step still
+  bands the selection by certainty AND verdict tier like every other ranked list, so an
+  AHEAD, uncertain or almost-expired executor never trades its band's budget position for
+  emptier slots (safer; planner's call after review). A project that wants a strict order
+  can leave balance off. Flagged for review below.
 - **Rust `rank_executors` / `rank_route`** (`crates/engine`): unchanged. They compute the
   budget preference shown in the planner budget block ("Executor preference: …"), which
   stays a budget-only view. Balance is an admission-time step on top of it. Only the

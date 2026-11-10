@@ -1,12 +1,17 @@
 import { eligibility } from "./fixtures/eligibility";
 import { expect, test } from "bun:test";
-import { validateStrategy } from "../src/config/strategy";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { validateStrategy, loadStrategy } from "../src/config/strategy";
 import { defaultHooks } from "../src/classify/hooks";
 import type { Status } from "../src/engine/status";
 import { ruleFor } from "../src/engine/rank";
 import { runTask, type RunnerDeps } from "../src/tasks/runner";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { registerWork } from "../src/dispatch/work";
+import { dispatchDatabase } from "../src/dispatch/store";
+import { drainQueue } from "../src/tasks/drain";
+import { queueDeps, queueTask } from "./queue-helpers";
 import { fakeCtx } from "./helpers";
 import { pairStrategy } from "./fixtures/balance-pair";
 
@@ -190,5 +195,55 @@ test("balance on: routing.why starts with least loaded when balance changed the 
   const task = mk("balanced");
   const result = await runTask(ctx, task.id, deps);
   expect(result.attempts[0].routing?.why.startsWith("least loaded")).toBe(true);
+  expect(result.attempts[0].routing?.chosen).toBe("opencode#tse");
+});
+
+test("balance on: a managed dispatch engine's first choice runs even when the drain reserved another executor", async () => {
+  // Dispatch engines own their ranking. The drain balances a queued managed task onto the
+  // emptier tse while the engine's own first choice is codex; the engine's choice must run,
+  // not the drain reservation. The ladder step ties on every factor, so it falls back to the
+  // candidate order: alphabetical, where codex sorts ahead of opencode#tse.
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({
+    planner: "claude-code",
+    accounts: {"claude-code": {kind: "claude"}, codex: {kind: "codex"}, tse: {kind: "endpoint", usage: "quota", quota_source: "arkcli"}},
+    runners: {codex: {max_tasks: 3, models: [{id: "provider/deep", tier: "small"}]}, "opencode#tse": {model: "go/t", max_tasks: 3}},
+    pacing: {policy: "priority", order: ["codex", "opencode#tse"], balance: "least-loaded"},
+    routing: [{default: ["codex", "opencode#tse"]}],
+    dispatch: {steps: [{id: "fixture", capacity: "unknown"}]},
+  }));
+  const s = loadStrategy(ctx);
+  const deps = queueDeps(s);
+  const busy = queueTask(ctx, "busy");
+  updateTask(ctx, busy.id, t => {t.state = "running"; t.executor = "codex";});
+  const task = queueTask(ctx, "managed");
+  registerWork(ctx, task.id, {});
+  // New managed work requires strict enforcement; it stays cooperative like existing work (#392).
+  dispatchDatabase(ctx).run("UPDATE work_nodes SET options=json_set(options,'$.delegationEnforcement','cooperative') WHERE task_id=?", [task.id]);
+  updateTask(ctx, task.id, t => {t.queue = {reason: "no_slot", since: ctx.now, position: 1};});
+  expect(await drainQueue(ctx, () => process.pid, deps)).toEqual([task.id]);
+  expect(readTask(ctx, task.id)).toMatchObject({state: "running", executor: "opencode#tse"});
+  const result = await runTask(ctx, task.id, deps);
+  expect(result.attempts[0].executor).toBe("codex");
+}, 10_000);
+
+test("balance on: a retry after the first executor failed is not described as least loaded when load did not change the pick", async () => {
+  // codex fails its refreshed launch evidence, so the runner retries. The retry admission
+  // ranks codex again (it is eligible there), and the only untried candidate tse is the pick
+  // before and after balancing; the note must not claim "least loaded (… codex ahead in order)".
+  const { ctx, mk, deps } = pairSetup("least-loaded");
+  const task = mk("retry");
+  const compute = deps.computeStatus!;
+  let calls = 0;
+  deps.computeStatus = async (...args) => {
+    const st = await compute(...args);
+    const failing = ++calls === 2;
+    return {...st, providers: st.providers.map(p => p.id === "codex" ? {...p, eligibility: failing ? eligibility("ineligible") : eligibility()} : p)};
+  };
+  const result = await runTask(ctx, task.id, deps);
+  expect(result.attempts[0].executor).toBe("opencode#tse");
+  expect(result.attempts[0].routing?.why).toBeTruthy();
+  expect(result.attempts[0].routing?.why.startsWith("least loaded")).toBe(false);
   expect(result.attempts[0].routing?.chosen).toBe("opencode#tse");
 });

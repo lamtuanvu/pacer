@@ -422,7 +422,10 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           // within its budget band by how many tasks each executor already runs.
           const dispatchRanked = work && decision?.proposal?.state === "ranked";
           if (!dispatchRanked) {
-            policyFirst = ranking.ranked[0]?.id;
+            // The policy's first candidate is the first untried one before balancing, so a
+            // retry after a failure is not described as "least loaded (… X ahead in order)"
+            // when load did not actually change the pick among the untried candidates.
+            policyFirst = ranking.ranked.find(e => untried(e.id))?.id;
             ranking.ranked = balanceByLoad(ranking.ranked, s, use, byId);
           }
           const ids = ranking.ranked.map(e => e.id);
@@ -449,8 +452,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             return;
           }
           // A drain reservation (executor set before the first attempt) is still admissible:
-          // balance keeps it instead of rebalancing away from the executor it reserved.
+          // balance keeps it instead of rebalancing away from the executor it reserved. Managed
+          // work dispatched by an engine is not kept: the engine's choice (with its own
+          // dispatchCandidates/triedCandidates logic) decides there, exactly as with balance off.
           const reservedFirst = s.pacing.balance === "least-loaded" && i === 0 && !task.attempts.length && !task.run && !tried.size
+            && !dispatchRanked
             && task.executor && ids.includes(task.executor) ? task.executor : undefined;
           pick = requested && ids.includes(req!) ? req! : reservedFirst ?? ids.find(e => work ? dispatchCandidates.some(c=>c.runner===e&&!triedCandidates.has(c.id)) : !tried.has(e));
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;

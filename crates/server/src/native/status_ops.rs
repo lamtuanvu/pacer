@@ -368,14 +368,8 @@ mod tests {
             "planner: claude-code\nproviders:\n  claude-code: {}\n",
         )
         .unwrap();
-        assert!(routing_route_stays_forwarded(
-            &ctx,
-            &json!({"goal": "add tests"})
-        ));
-        assert!(routing_route_stays_forwarded(
-            &ctx,
-            &json!({"repo": "/tmp/x"})
-        ));
+        // Goal and repo forwarding is covered by routing_route_stays_forwarded_for_goal_or_repo;
+        // this test covers the plain route against the active strategy's balance key.
         assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
         assert!(!routing_route_stays_forwarded(
             &ctx,
@@ -393,5 +387,15 @@ mod tests {
         )
         .unwrap();
         assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
+        // The active strategy may live in strategies/<name>.yaml: with balance least-loaded
+        // there, the plain route must forward even while strategy.yaml has no balance key.
+        std::fs::create_dir_all(pacer_home.join("strategies")).unwrap();
+        std::fs::write(pacer_home.join("active"), "balanced\n").unwrap();
+        std::fs::write(
+            pacer_home.join("strategies/balanced.yaml"),
+            "planner: claude-code\nproviders:\n  claude-code: {}\npacing:\n  balance: least-loaded\n",
+        )
+        .unwrap();
+        assert!(routing_route_stays_forwarded(&ctx, &json!({})));
     }
 }
