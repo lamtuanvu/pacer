@@ -384,6 +384,12 @@ pub struct TaskStore {
 pub struct TaskFilter<'a> {
     pub states: Option<&'a [&'a str]>,
     pub updated_since: Option<f64>,
+    pub created_since: Option<f64>,
+    /// Repository identity; legacy records may match a resolved brief path.
+    pub repo: Option<&'a str>,
+    pub repo_paths: Option<&'a [&'a str]>,
+    pub executor: Option<&'a str>,
+    pub visible_states: Option<&'a [&'a str]>,
     pub settled_before: Option<f64>,
     pub all: bool,
     pub before: Option<&'a str>,
@@ -675,7 +681,10 @@ impl TaskStore {
             .transpose()
     }
     pub fn list(&mut self, filter: &TaskFilter<'_>) -> Result<Vec<Value>> {
-        if filter.states == Some(&[][..]) || filter.limit == Some(0) {
+        if filter.states == Some(&[][..])
+            || filter.visible_states == Some(&[][..])
+            || filter.limit == Some(0)
+        {
             return Ok(Vec::new());
         }
         self.refresh()?;
@@ -700,6 +709,27 @@ impl TaskStore {
             clauses.push("updated_at>=?".into());
             bind.push(SqlValue::Real(v));
         }
+        if let Some(v) = filter.created_since {
+            clauses.push("created_at>=?".into());
+            bind.push(SqlValue::Real(v));
+        }
+        if let Some(v) = filter.repo {
+            let paths = filter.repo_paths.unwrap_or_default();
+            clauses.push(format!(
+                "(json_extract(record, '$.repo.key')=? OR (json_type(record, '$.repo') IS NULL OR json_type(record, '$.repo')='null') AND repo IN ({}))",
+                vec!["?"; paths.len()].join(",")
+            ));
+            bind.push(SqlValue::Text(v.into()));
+            bind.extend(paths.iter().map(|p| SqlValue::Text((*p).into())));
+        }
+        if let Some(v) = filter.executor {
+            clauses.push("COALESCE(json_extract(record, '$.result.executor'),json_extract(record, '$.executor'),json_extract(record, '$.attempts[#-1].executor'),json_extract(record, '$.requestedExecutor'))=?".into());
+            bind.push(SqlValue::Text(v.into()));
+        }
+        if let Some(states) = filter.visible_states {
+            clauses.push(format!("(CASE WHEN state='running' AND json_type(record, '$.question')='object' AND json_type(record, '$.question.answer') IS NULL THEN 'needs_input' ELSE state END) IN ({})",vec!["?"; states.len()].join(",")));
+            bind.extend(states.iter().map(|s| SqlValue::Text((*s).into())));
+        }
         let sql = format!(
             "SELECT record FROM tasks {} ORDER BY id DESC LIMIT ?",
             if clauses.is_empty() {
@@ -716,6 +746,14 @@ impl TaskStore {
             .query_map(params_from_iter(bind), |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         records.into_iter().map(|s| parse_record(&s)).collect()
+    }
+    /// Resolve legacy identities per distinct checkout, without decoding task history.
+    pub fn legacy_repo_paths(&mut self) -> Result<Vec<String>> {
+        self.refresh()?;
+        let mut stmt = self.db.prepare("SELECT DISTINCT repo FROM tasks WHERE repo IS NOT NULL AND (json_type(record, '$.repo') IS NULL OR json_type(record, '$.repo')='null')")?;
+        Ok(stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
     }
     pub fn list_live(&mut self) -> Result<Vec<Value>> {
         self.refresh()?;

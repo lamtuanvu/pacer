@@ -182,3 +182,121 @@ fn select_and_page_filter_before_limit_and_fold_sessions() {
     assert_eq!(filtered["tasks"][0]["id"], "t-20260101-000001-aaaa");
     assert!(filtered["next"].is_null());
 }
+
+#[test]
+fn history_page_decodes_only_limit_plus_one_rows() {
+    let (_dir, ctx) = home();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    for n in 0..1000 {
+        let t = task(
+            &format!("t-20261101-000000-{n:04x}"),
+            "done",
+            n as f64,
+            "repo-a",
+            "/repo-a",
+        );
+        store.insert(&t, 2000.0).unwrap();
+    }
+    // A corrupt older record must not be decoded when selecting the first page.
+    store
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE tasks SET record='{' WHERE id='t-20261101-000000-0000'",
+            [],
+        )
+        .unwrap();
+    let page = task_list_page(
+        &ctx,
+        &ActiveCounts::default(),
+        &mut store,
+        &TaskListOptions {
+            limit: Some(2),
+            ..TaskListOptions::default()
+        },
+        &alive,
+    )
+    .unwrap();
+    assert_eq!(page["tasks"].as_array().unwrap().len(), 2);
+    assert_eq!(page["next"], "t-20261101-000000-03e6");
+}
+
+#[test]
+fn sql_history_resolves_legacy_registry_alias_and_local_repos() {
+    let (_dir, ctx) = home();
+    write_json_atomic(
+        &ctx.pacer_home.join("state/repos.json"),
+        &json!({
+            "/checkout":{"key":"github.com/acme/api","path":"/checkout"},
+            "/checkout/nested":{"key":"github.com/acme/nested","path":"/checkout/nested"}
+        }),
+    )
+    .unwrap();
+    write_json_atomic(
+        &ctx.pacer_home.join("state/repo-paths.json"),
+        &json!({"/alias":"/checkout"}),
+    )
+    .unwrap();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    for (n, path) in [
+        "/checkout/sub",
+        "/checkout/nested/sub",
+        "/alias/sub",
+        "/unregistered",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let mut t = task(
+            &format!("t-20261101-000000-{n:04x}"),
+            "done",
+            10.0,
+            "unused",
+            path,
+        );
+        t.as_object_mut().unwrap().remove("repo");
+        store.insert(&t, 10.0).unwrap();
+    }
+    let options = TaskListOptions {
+        repo: Some("github.com/acme/api"),
+        limit: Some(1),
+        ..TaskListOptions::default()
+    };
+    let page =
+        task_list_page(&ctx, &ActiveCounts::default(), &mut store, &options, &alive).unwrap();
+    assert_eq!(page["tasks"][0]["id"], "t-20261101-000000-0002");
+    assert_eq!(page["next"], "t-20261101-000000-0002");
+    let page = task_list_page(
+        &ctx,
+        &ActiveCounts::default(),
+        &mut store,
+        &TaskListOptions {
+            before: Some("t-20261101-000000-0002"),
+            ..options
+        },
+        &alive,
+    )
+    .unwrap();
+    assert_eq!(page["tasks"][0]["id"], "t-20261101-000000-0000");
+    assert!(page["next"].is_null());
+    let unfiltered = task_list_page(
+        &ctx,
+        &ActiveCounts::default(),
+        &mut store,
+        &TaskListOptions::default(),
+        &alive,
+    )
+    .unwrap();
+    let key = unfiltered["tasks"][0]["repo"]["key"].as_str().unwrap();
+    let local = select_task_list(
+        &ctx,
+        &mut store,
+        &TaskListOptions {
+            repo: Some(key),
+            ..TaskListOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(local.len(), 1);
+    assert_eq!(local[0]["brief"]["repo"], "/unregistered");
+}

@@ -282,17 +282,6 @@ pub fn visible_task_state(task: &Value) -> String {
         text(&task["state"]).into()
     }
 }
-fn chosen_executor(t: &Value) -> Option<&str> {
-    let last = array(&t["attempts"]).last().unwrap_or(&Value::Null);
-    [
-        &t["result"]["executor"],
-        &t["executor"],
-        &last["executor"],
-        &t["requestedExecutor"],
-    ]
-    .into_iter()
-    .find_map(|v| v.as_str().filter(|s| !s.is_empty()))
-}
 pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
     let last = array(&t["attempts"]).last().unwrap_or(&Value::Null);
     let coalesce = |items: &[&Value]| {
@@ -374,8 +363,10 @@ pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
     row
 }
 pub fn registered_repos(ctx: &Ctx) -> Vec<Value> {
-    let reg = read(ctx, "state/repos.json");
-    let mut rows = values(&reg);
+    registered_from(&read(ctx, "state/repos.json"))
+}
+fn registered_from(reg: &Value) -> Vec<Value> {
+    let mut rows = values(reg);
     rows.sort_by(|a, b| num(&b["lastUsed"]).total_cmp(&num(&a["lastUsed"])));
     let mut out = Vec::new();
     for r in rows {
@@ -416,13 +407,11 @@ fn apply_repo_label(repo: &mut Value, peers: &[Value]) {
         short
     });
 }
-fn repo(ctx: &Ctx, t: &Value) -> Value {
+fn repo(reg: &Value, aliases: &Value, t: &Value) -> Value {
     if truth(&t["repo"]) {
         return t["repo"].clone();
     }
     let path = text(&t["brief"]["repo"]);
-    let aliases = read(ctx, "state/repo-paths.json");
-    let reg = read(ctx, "state/repos.json");
     let mut roots: Vec<&String> = reg
         .as_object()
         .into_iter()
@@ -592,8 +581,10 @@ pub fn api_tasks(
 ) -> Result<Vec<Value>, Error> {
     let db = store.connection()?;
     let tables = enrich_tables(db)?;
-    let mut repos: Vec<Value> = records.iter().map(|t| repo(ctx, t)).collect();
-    let all: Vec<Value> = registered_repos(ctx)
+    let reg = read(ctx, "state/repos.json");
+    let aliases = read(ctx, "state/repo-paths.json");
+    let mut repos: Vec<Value> = records.iter().map(|t| repo(&reg, &aliases, t)).collect();
+    let all: Vec<Value> = registered_from(&reg)
         .into_iter()
         .chain(repos.clone())
         .collect();
@@ -618,12 +609,14 @@ pub fn api_task_page(
     if records.is_empty() {
         return Ok(Vec::new());
     }
-    let registered = registered_repos(ctx);
+    let reg = read(ctx, "state/repos.json");
+    let registered = registered_from(&reg);
+    let aliases = read(ctx, "state/repo-paths.json");
     let db = store.connection()?;
     let tables = enrich_tables(db)?;
     let mut out = Vec::with_capacity(records.len());
     for t in records {
-        let mut labeled = repo(ctx, t);
+        let mut labeled = repo(&reg, &aliases, t);
         let peers: Vec<Value> = registered
             .iter()
             .cloned()
@@ -651,62 +644,32 @@ pub fn select_task_list(
     store: &mut TaskStore,
     options: &TaskListOptions<'_>,
 ) -> Result<Vec<Value>, Error> {
-    let limit = options.limit.unwrap_or(20);
-    let sql_states: Option<Vec<&str>> = options.states.map(|states| {
-        let mut out: Vec<&str> = states.to_vec();
-        for extra in ["queued", "running"] {
-            if !out.contains(&extra) {
-                out.push(extra);
-            }
-        }
-        out
-    });
-    let states_ref = sql_states.as_deref();
-    let records = store.list(&TaskFilter {
-        states: states_ref,
-        updated_since: options.since,
+    let paths = if let Some(want) = options.repo {
+        let reg = read(ctx, "state/repos.json");
+        let aliases = read(ctx, "state/repo-paths.json");
+        store
+            .legacy_repo_paths()?
+            .into_iter()
+            .filter(|path| {
+                let resolved = repo(&reg, &aliases, &json!({"brief":{"repo":path}}));
+                text(&resolved["key"]) == want
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let paths_ref = paths.iter().map(String::as_str).collect::<Vec<_>>();
+    Ok(store.list(&TaskFilter {
+        visible_states: options.states,
+        created_since: options.since,
+        repo: options.repo,
+        repo_paths: Some(&paths_ref),
+        executor: options.executor,
+        before: options.before,
+        limit: Some(options.limit.unwrap_or(20)),
         all: options.all,
         ..TaskFilter::default()
-    })?;
-    let mut rows = Vec::new();
-    for t in records {
-        if options
-            .before
-            .is_some_and(|before| text(&t["id"]) >= before)
-        {
-            continue;
-        }
-        let visible = visible_task_state(&t);
-        if options
-            .states
-            .is_some_and(|states| !states.contains(&visible.as_str()))
-        {
-            continue;
-        }
-        if options
-            .executor
-            .is_some_and(|want| chosen_executor(&t) != Some(want))
-        {
-            continue;
-        }
-        if options
-            .since
-            .is_some_and(|since| num(&t["createdAt"]) < since)
-        {
-            continue;
-        }
-        if let Some(want) = options.repo {
-            let resolved = repo(ctx, &t);
-            if text(&resolved["key"]) != want {
-                continue;
-            }
-        }
-        rows.push(t);
-        if rows.len() >= limit {
-            break;
-        }
-    }
-    Ok(rows)
+    })?)
 }
 /// Compose `{ tasks, next }` for a later native `task.list` registration.
 pub fn task_list_page(

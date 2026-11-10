@@ -51,7 +51,12 @@ counts and revision the snapshot needs are translated.
 `tasks::api_task_page`, `tasks::select_task_list` and `tasks::task_list_page`
 mirror the TypeScript `apiTaskPage` / `core.tasks.list` selection path used by
 `task.list`: per-task repo label scope, visible `needs_input` state, filter-
-before-page, and ActiveCounts for `activeAgentSessions`. Native `task.list`
+before-page, and ActiveCounts for `activeAgentSessions`. Selection applies SQL
+filters before the limit and decodes at most the page size plus one record.
+`since` is an inclusive creation-time cutoff (`created_at`), matching the
+TypeScript core's final filter. Legacy repository identities are resolved once
+per distinct checkout path; repository registries are loaded once per enrichment
+call. Native `task.list`
 registers through `pacer-server` once Core supplies session probe parts
 (`/_internal/session-probe-parts` / `_internal.session-probe.parts`). Full
 ## `task.get` composition (library only)
