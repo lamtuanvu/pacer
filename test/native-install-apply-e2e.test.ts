@@ -6,6 +6,7 @@
  * their replies through both front doors must be byte-identical to forcing them through PACER_FORWARD_OPS.
  * The front door is a test-ops build, whose PACER_TEST_BRIDGE_DEADLINE_MS shortens the deadline of the other Core
  * bridges, so a deadline on the install and update effects would fail within seconds instead of after 120.
+ * Every child, and the core each front door starts, gets PACER_PORT: its own server port or a closed one, never 4317.
  */
 import {afterAll, describe, expect, test} from "bun:test";
 import {execFileSync} from "node:child_process";
@@ -16,7 +17,10 @@ import {join} from "node:path";
 import {UPGRADE_REFUSAL} from "../src/api/caller-policy";
 import {createTask, updateTask} from "../src/tasks/store";
 import {fakeCtx} from "./helpers";
+import {closedPort, pinnedEnv, REAL_SERVICE_PORT} from "./isolated-port";
 
+/** PACER_PORT for every child without its own server, so none can reach a real service on 4317. */
+const CLOSED = await closedPort();
 const CORE = JSON.stringify([process.execPath, join(import.meta.dir, "fixtures/install-apply-core.ts")]);
 const FORWARD = "service.install,update.apply";
 const LONG = 300_000;
@@ -25,8 +29,9 @@ const DELAY_MS = 1500;
 let binary = process.env.PACER_TEST_NATIVE_FRONT_DOOR ?? "";
 function frontDoor() {
   if (!binary) {
-    execFileSync("cargo", ["build", "-q", "-p", "pacer", "--locked", "--features", "test-ops"], {stdio: "inherit"});
-    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"]).toString());
+    const env = pinnedEnv({...process.env, PACER_PORT: CLOSED});
+    execFileSync("cargo", ["build", "-q", "-p", "pacer", "--locked", "--features", "test-ops"], {stdio: "inherit", env});
+    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"], {env}).toString());
     binary = join(metadata.target_directory, "debug/pacer");
   }
   return binary;
@@ -54,12 +59,15 @@ function sandbox(forward?: string, extra: Record<string, string> = {}, home = ne
   const env: Record<string, string> = {
     HOME: home, PACER_HOME: pacerHome, PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: CORE,
     PACER_BACKEND: "direct", PACER_ORCA_USER_DATA: join(home, "orca"), PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1",
-    PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", ...(forward ? {PACER_FORWARD_OPS: forward} : {}), ...extra,
+    PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", PACER_PORT: CLOSED, ...(forward ? {PACER_FORWARD_OPS: forward} : {}), ...extra,
   };
+  const lines = (name: string) => existsSync(join(pacerHome, name)) ? readFileSync(join(pacerHome, name), "utf8").trim().split("\n") : [];
   return {
-    home, pacerHome, env,
+    home, pacerHome, env: pinnedEnv(env),
     behave: (fixture: Fixture) => writeFileSync(join(pacerHome, "fixture.json"), JSON.stringify(fixture)),
-    effects: () => existsSync(join(pacerHome, "effects.log")) ? readFileSync(join(pacerHome, "effects.log"), "utf8").trim().split("\n") : [],
+    effects: () => lines("effects.log"),
+    /** `<command> <PACER_PORT>` for each test core the front door started. */
+    corePorts: () => lines("core-port.log"),
   };
 }
 
@@ -95,10 +103,10 @@ function normalize(body: any): unknown {
 }
 
 async function serve(forward?: string, home?: string, extra: Record<string, string> = {}) {
-  const box = sandbox(forward, extra, home);
-  rmSync(join(box.pacerHome, "core-ready"), {force: true});
   const port = await freePort();
-  const child = Bun.spawn([frontDoor(), "serve", "--port", String(port)], {env: {...box.env, PACER_PORT: String(port)}, cwd: box.home, stdout: "ignore", stderr: "pipe"});
+  const box = sandbox(forward, {...extra, PACER_PORT: String(port)}, home);
+  rmSync(join(box.pacerHome, "core-ready"), {force: true});
+  const child = Bun.spawn([frontDoor(), "serve", "--port", String(port)], {env: box.env, cwd: box.home, stdout: "ignore", stderr: "pipe"});
   children.push(child);
   const stderr = drain(child.stderr);
   await until(() => existsSync(join(box.pacerHome, "core-ready")) && existsSync(join(box.pacerHome, "token")), "pacer serve and its core");
@@ -115,7 +123,7 @@ async function serve(forward?: string, home?: string, extra: Record<string, stri
     return {status: response.status, body: normalize(parsed)};
   };
   return {
-    ...box, child, stderr,
+    ...box, port, child, stderr,
     op: (name: string, params: unknown, headers?: Record<string, string>, signal?: AbortSignal) => request(`/v3/ops/${name}`, params, headers, signal),
     /** The reply exactly as sent: status, content type and body bytes. */
     raw: async (name: string, body: string, headers: Record<string, string> = {authorization: `Bearer ${token}`}) => {
@@ -171,6 +179,34 @@ function connect(forward?: string, extra: Record<string, string> = {}, home?: st
     close: async () => { child.stdin.end(); await child.exited; await stderr.done; },
   };
 }
+
+describe("spawned processes stay off the real service port", () => {
+  test("the closed port and the spawn guard refuse 4317 and a missing PACER_PORT", () => {
+    expect(CLOSED).not.toBe(REAL_SERVICE_PORT);
+    expect(() => pinnedEnv({})).toThrow();
+    expect(() => pinnedEnv({PACER_PORT: REAL_SERVICE_PORT})).toThrow();
+    expect(sandbox().env.PACER_PORT).toBe(CLOSED);
+  });
+
+  /** Every core start (including descriptor probes) inherited `port`, and `command` was among them. */
+  function inherited(starts: string[], command: string, port: string) {
+    expect(starts).toContain(`${command} ${port}`);
+    for (const start of starts) expect(start.endsWith(` ${port}`), start).toBe(true);
+  }
+
+  test("each front door hands its pinned PACER_PORT to every core it starts", async () => {
+    const server = await serve();
+    await server.stop();
+    inherited(server.corePorts(), "serve", String(server.port));
+
+    const rpc = connect();
+    await rpc.call("hello", {protocol: 3});
+    rpc.behave({});
+    expect((await rpc.call("service.install", {consent: true})).result).toEqual({installed: true, running: true});
+    await rpc.close();
+    inherited(rpc.corePorts(), "api", CLOSED);
+  }, LONG);
+});
 
 describe("HTTP front door", () => {
   async function scenarios(server: Awaited<ReturnType<typeof serve>>) {

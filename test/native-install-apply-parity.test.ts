@@ -7,12 +7,18 @@ import {callOp, parseOpParams} from "../src/api/ops";
 import {serviceEffectsBridge, updateEffectsBridge} from "../src/api/install-apply-bridge";
 import {toApiError} from "../src/api/errors";
 import {fakeCtx} from "./helpers";
+import {closedPort, pinnedEnv} from "./isolated-port";
+
+const CLOSED = await closedPort();
+/** The process env of every child, and the base env both sides see, never fall back to the real service port. */
+const CHILD_ENV = pinnedEnv({...process.env, PACER_PORT: CLOSED});
+const BASE_ENV = {PATH: "/usr/bin:/bin", PACER_PORT: CLOSED};
 
 let binary: string;
 function driver() {
   if (!binary) {
-    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"]);
-    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"]).toString());
+    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"], {env: CHILD_ENV});
+    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"], {env: CHILD_ENV}).toString());
     binary = join(metadata.target_directory, "debug/examples/config_ops_diff");
   }
   return binary;
@@ -27,8 +33,8 @@ const EFFECT = {installed: true, running: true, restarting: true};
 
 /** Native answers each step through a recording Core bridge that replies with `EFFECT`. */
 function native(steps: Step[], dir: string): Array<Record<string, unknown>> {
-  const input = steps.map(step => JSON.stringify({op: step.op, params: step.params, home: dir, now: NOW, env: {PATH: "/usr/bin:/bin", ...step.env}, effectResult: EFFECT})).join("\n") + "\n";
-  return execFileSync(driver(), {input}).toString().trim().split("\n").map(line => JSON.parse(line));
+  const input = steps.map(step => JSON.stringify({op: step.op, params: step.params, home: dir, now: NOW, env: {...BASE_ENV, ...step.env}, effectResult: EFFECT})).join("\n") + "\n";
+  return execFileSync(driver(), {input, env: CHILD_ENV}).toString().trim().split("\n").map(line => JSON.parse(line));
 }
 
 /**
@@ -41,7 +47,7 @@ function compare(steps: Step[]) {
   const actual = native(steps, rs);
   steps.forEach((step, i) => {
     const label = JSON.stringify(step);
-    const ctx = fakeCtx({pacerHome: ts, home: ts, now: NOW, env: {PATH: "/usr/bin:/bin", ...step.env}});
+    const ctx = fakeCtx({pacerHome: ts, home: ts, now: NOW, env: {...BASE_ENV, ...step.env}});
     const {effects, ...reply} = actual[i];
     let refusal: unknown;
     try { parseOpParams(ctx, step.op, step.params); } catch (error) { refusal = toApiError(error); }

@@ -2,7 +2,8 @@
  * Test core for the Rust front doors (`PACER_CORE_ARGV`): the real `serve --internal` HTTP server and
  * `api --stdio` handler, with the login-service backend and the update job replaced by recorders, so
  * `service.install` and `update.apply` never reach launchd, systemd, a release feed or a binary.
- * `<PACER_HOME>/fixture.json` sets per-call behavior; every effect appends to `<PACER_HOME>/effects.log`.
+ * `<PACER_HOME>/fixture.json` sets per-call behavior; every effect appends to `<PACER_HOME>/effects.log`, and each
+ * start records the PACER_PORT it inherited in `<PACER_HOME>/core-port.log`.
  */
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -47,6 +48,7 @@ const opDeps: OpDeps = {
 };
 
 const [command, flag] = process.argv.slice(2);
+appendFileSync(join(ctx.pacerHome, "core-port.log"), `${command} ${process.env.PACER_PORT ?? "unset"}\n`);
 if (command === "serve" && flag === "--internal") {
   const token = ctx.env.PACER_INTERNAL_TOKEN!;
   delete ctx.env.PACER_INTERNAL_TOKEN;
