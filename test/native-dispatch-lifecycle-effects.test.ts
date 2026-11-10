@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { registerWork, workEvents } from "../src/dispatch/work";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
-import { fakeCtx, gitRepo } from "./helpers";
+import { fakeCtx, gitRepo, pinnedPort } from "./helpers";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -37,6 +37,10 @@ test.skipIf(!front)("valid review, retry and answer reach Core over stdio and pe
   const stubs = join(ctx.home, "bin");
   mkdirSync(stubs, { recursive: true });
   for (const bin of EXECUTORS) writeFileSync(join(stubs, bin), "#!/bin/sh\necho 'executor stub refuses to run' >&2\nexit 3\n", { mode: 0o700 });
+  // Every Bun process below the front door (Core and its detached runners) logs the port it inherited.
+  const spawned = join(ctx.home, "bun-processes");
+  const probe = join(ctx.home, "port-probe.cjs");
+  writeFileSync(probe, `require("node:fs").appendFileSync(${JSON.stringify(spawned)}, JSON.stringify({ port: process.env.PACER_PORT ?? null, args: process.argv.slice(2) }) + "\\n");\n`);
   const review = seed(ctx, repo, "Review me", record => {
     record.state = "done"; record.settledAt = ctx.now - 120;
     record.result = { status: "done", executor: "codex#personal", model: null, backend: "direct", files: "", report: "Done.", acceptance: { cmd: "bun test", passed: true, tail: "1 passed" } };
@@ -56,10 +60,11 @@ test.skipIf(!front)("valid review, retry and answer reach Core over stdio and pe
     { jsonrpc: "2.0", id: 4, method: "dispatch.answer", params: { id: answer.id, expect_rev: answer.rev, requestId: "e2e-answer", text: "Write src/report.ts" } },
     { jsonrpc: "2.0", id: 5, method: "dispatch.review", params: { id: review.id } },
   ];
+  const env = pinnedPort({ HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: `${stubs}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
+    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", BUN_OPTIONS: `--preload ${probe}` });
   const child = Bun.spawn([front!, "api", "--stdio"], {
     cwd: ctx.home,
-    env: { HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: `${stubs}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
-      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" },
+    env,
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
@@ -83,10 +88,17 @@ test.skipIf(!front)("valid review, retry and answer reach Core over stdio and pe
     expect(answered.brief.qa).toEqual([{ q: "Which file should the parser write?", a: "Write src/report.ts" }]);
     expect(answered.question).toBeUndefined();
     expect(workEvents(ctx, answer.id).map(event => event.kind)).toContain("work.answer_recorded");
+
+    const processes = () => existsSync(spawned) ? readFileSync(spawned, "utf8").trim().split("\n").map(line => JSON.parse(line) as { port: string | null; args: string[] }) : [];
+    const runners = () => processes().filter(entry => entry.args[0] === "_run").map(entry => entry.args[1]).sort();
+    for (let n = 0; n < 900 && runners().length < 2; n++) await Bun.sleep(100);
+    expect(runners()).toEqual([retry.id, answer.id].sort());
+    expect(processes().filter(entry => entry.args.join(" ") === "api --stdio")).toHaveLength(1);
+    expect(new Set(processes().map(entry => entry.port))).toEqual(new Set([env.PACER_PORT]));
   } finally {
     if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
     killRunners([review.id, retry.id, answer.id]);
     rmSync(ctx.home, { recursive: true, force: true });
     rmSync(repo, { recursive: true, force: true });
   }
-}, 60000);
+}, 150000);

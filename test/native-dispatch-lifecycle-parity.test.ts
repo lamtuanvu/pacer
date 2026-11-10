@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { fakeCtx } from "./helpers";
+import { closedPort, fakeCtx, pinnedPort } from "./helpers";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -12,9 +12,9 @@ const rawLines = new WeakMap<object, string[]>();
 async function exchange(home: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, native: number[] | null = null) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
     cwd: home,
-    env: { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin",
+    env: pinnedPort({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-      PACER_DEBUG_NATIVE: "1", ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },
+      PACER_DEBUG_NATIVE: "1", ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }),
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
@@ -103,11 +103,10 @@ test.skipIf(!front)("requests Core must run and work options stay with TypeScrip
 }, 60000);
 
 async function serve(home: string, forward: boolean) {
-  const env = { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
+  const port = closedPort();
+  const env = pinnedPort({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
     PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
-    ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) };
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!; reservation.stop(true);
+    ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }, port);
   const child = Bun.spawn([front!, "serve", "--port", String(port)], { env, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;

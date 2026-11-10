@@ -2,7 +2,7 @@ import { request as httpRequest } from "node:http";
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { closedPort, pinnedEnv as pinnedPort, spawnPinned } from "./pinned-port";
+import { closedPort, pinnedPort } from "./helpers";
 
 import golden from "./fixtures/config-writes-goldens.json";
 import { pinnedEnv, spawnPinned } from "./pinned-port";
@@ -114,9 +114,8 @@ test.skipIf(!front)("stdio hello notifications negotiate only with accepted para
 
 test.skipIf(!front)("HTTP native route enforces auth, version, body limit and forward override", async () => {
   const fixture = setup();
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!; reservation.stop(true);
-  const child = spawnPinned([front!, "serve", "--port", String(port)], { env: pinnedEnv(fixture.env, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const port = closedPort();
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: pinnedPort(fixture.env, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const stderrText = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   try {
@@ -170,9 +169,8 @@ test.skipIf(!front)("PACER_FORWARD_OPS forces stdio echo back to TypeScript", as
 
 test.skipIf(!front)("PACER_FORWARD_OPS forces HTTP echo back to TypeScript", async () => {
   const fixture = setup();
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!; reservation.stop(true);
-  const child = spawnPinned([front!, "serve", "--port", String(port)], { env: pinnedEnv({ ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const port = closedPort();
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: pinnedPort({ ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const base = `http://127.0.0.1:${port}`;
   try {
     let token = "";
@@ -210,7 +208,7 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
       const port = reservation.port!; reservation.stop(true);
       const env = pinnedEnv({...fixture.env, XDG_CONFIG_HOME:xdg, PACER_AGENT:"alice", PACER_FORWARD_OPS:forwarded ? "*" : "",
         ...(override === undefined ? {} : {PACER_ORCA_USER_DATA:override ? legacy : ""})}, port);
-      const child = spawnPinned([productionFront!, "serve", "--port", String(port)], {env, stdin:"ignore", stdout:"ignore", stderr:"pipe"});
+      const child = Bun.spawn([productionFront!, "serve", "--port", String(port)], {env, stdin:"ignore", stdout:"ignore", stderr:"pipe"});
       const errors = new Response(child.stderr).text();
       const base = `http://127.0.0.1:${port}`;
       try {
