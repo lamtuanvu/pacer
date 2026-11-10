@@ -5,6 +5,8 @@ import { join } from "node:path";
 import type { Ctx } from "../src/types";
 import { accountListParts } from "../src/api/account-list-bridge";
 import { tmpDir, withLoginIndicators } from "./helpers";
+import { assertPinnedPort, closedPort, spawnPinned } from "./port-isolation";
+import { DEFAULT_PORT } from "../src/serve/constants";
 import { cleanupUsageFixtures, fakeCtx } from "./usage-plugin-fixtures";
 
 afterEach(cleanupUsageFixtures);
@@ -71,10 +73,7 @@ function home(): string {
 // Unmetered readings are captured at the reading process's clock.
 const clocks = (text: string, dir: string) => text.replaceAll(dir, "<home>").replace(/"capturedAt":[\d.]+/g, '"capturedAt":"<now>"');
 
-// Executor callers reach a service over HTTP; give them a closed port, never the default one.
-const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-const CLOSED_PORT = String(reservation.port);
-reservation.stop(true);
+const CLOSED_PORT = closedPort();
 
 const env = (dir: string, forward: boolean, extra: Record<string, string> = {}) => ({
   HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core, PACER_PORT: CLOSED_PORT,
@@ -84,7 +83,7 @@ const env = (dir: string, forward: boolean, extra: Record<string, string> = {}) 
 });
 
 async function exchange(dir: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, expectNative: boolean | string[] = !forward) {
-  const child = Bun.spawn([front!, "api", "--stdio"], { cwd: dir, env: env(dir, forward, extra), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = spawnPinned([front!, "api", "--stdio"], { cwd: dir, env: env(dir, forward, extra), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     await child.stdin.write([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } }), ...requests].join("\n") + "\n");
     await child.stdin.end();
@@ -100,6 +99,21 @@ async function exchange(dir: string, requests: string[], forward: boolean, extra
 }
 const requests = (cases: [string, unknown][]) => cases.map(([method, params], i) =>
   JSON.stringify({ jsonrpc: "2.0", id: i + 2, method, ...(params === undefined ? {} : { params }) }));
+
+test("spawned front doors and cores never fall back to the default service port", async () => {
+  expect(() => assertPinnedPort({})).toThrow("PACER_PORT");
+  expect(() => assertPinnedPort({ PACER_PORT: String(DEFAULT_PORT) })).toThrow("PACER_PORT");
+  for (const forward of [false, true]) {
+    const built = env("/nonexistent", forward, { PACER_WORK_GRANT: GRANT });
+    expect(() => assertPinnedPort(built)).not.toThrow();
+    expect(built.PACER_PORT).toBe(CLOSED_PORT);
+  }
+  const proxy = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/core-stdin-proxy.ts"), "/usr/bin/true"],
+    { env: { PATH: "/usr/bin:/bin", PACER_HOME: "/nonexistent" }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const [code, stderr] = await Promise.all([proxy.exited, new Response(proxy.stderr).text()]);
+  expect(code).not.toBe(0);
+  expect(stderr).toContain("PACER_PORT");
+});
 
 test.skipIf(!front)("account.list rows and account.signin refusals match forced forwarding", async () => {
   const cases: [string, unknown][] = [
@@ -197,9 +211,8 @@ test.skipIf(!front)("an enforcement identity is refused natively", async () => {
 }, 60000);
 
 async function serve(dir: string, forward: boolean, extra: Record<string, string> = {}) {
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe", env: env(dir, forward, { ...extra, PACER_PORT: String(port) }) });
+  const port = closedPort();
+  const child = spawnPinned([front!, "serve", "--port", port], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe", env: env(dir, forward, { ...extra, PACER_PORT: port }) });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;
