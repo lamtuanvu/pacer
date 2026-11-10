@@ -525,10 +525,19 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
           });
         });
       }
-      // A wrapper whose pid was published but that died without an exit record ("uncertain") is
-      // past any second stop or launch: settle it exactly once. An absent pid means a start may
-      // still be reaching the OS across a restart, so that uncertainty stays pending instead.
+      // A dead wrapper may leave its executor alive. Reap its owned group before settling
+      // without an exit record. An absent pid can still be an in-flight launch and stays pending.
       if (observed.state === "uncertain" && observed.pid !== null) {
+        const { stopOrphanedRun } = await import("../supervisor/orphan");
+        const guard = () => {
+          const latest = readTask(ctx, id);
+          const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
+          if (!latest || latest.executorProvider !== owner || latest.run?.startedAt !== run.startedAt ||
+            latest.stopPending?.requestedAt !== intent.requestedAt ||
+            latest.stopPending.attempt !== run.attempt || checked.pid !== observed.pid ||
+            checked.state !== "uncertain") throw new Error("orphan stop owner changed");
+        };
+        if (!await stopOrphanedRun(run.dir, observed.pid, intent.graceMs, guard)) return readTask(ctx, id) ?? t;
         return withTaskLock(ctx, id, () => {
           const latest = readTask(ctx, id);
           if (!latest || latest.state !== "running" || latest.executorProvider !== owner ||
@@ -542,8 +551,9 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
           if (checked.state !== "uncertain") return latest;
           return updateTask(ctx, id, current => {
             const deadline = current.stopPending?.reason === "deadline";
-            // No exit receipt: the wrapper's exit is unverifiable. 143 is the established
-            // "ended without an exit record" code (`recordStoppedHandover`).
+            // Preserve exact attempt ownership for retry, without claiming a verified exit.
+            current.executorExitReceipt = { attempt: run.attempt, providerId: owner,
+              dir: run.dir, startedAt: run.startedAt, exitCode: 143, unverified: true };
             current.attempts.push({ executor: run.executor, model: null,
               startedAt: run.startedAt, endedAt: Date.now() / 1000,
               exitCode: 143, timedOut: deadline, limitHit: false, log: run.logFile });

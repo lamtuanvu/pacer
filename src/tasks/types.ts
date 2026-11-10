@@ -217,8 +217,8 @@ export interface TaskRecord {
     host?: string; remoteDir?: string; remoteBranch?: string; baseSha?: string };
   /** A wrapper start may have reached the OS; never authorize a second start for this attempt. */
   startIntent?: { attempt: number; providerId: string; dir: string };
-  /** Host-verified exit of the exact provider-owned run, safe across later task revision changes. */
-  executorExitReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number; exitCode: number };
+  /** Exact provider-owned run settlement; unverified marks cleanup without a wrapper exit record. */
+  executorExitReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number; exitCode: number; unverified?: true };
   /** Exact terminal interactive report reaped by the host before logical settlement. */
   executorReportReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number;
     status: "done" | "failed"; summary: string; at: number; exitCode: number };
