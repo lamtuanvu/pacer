@@ -842,7 +842,7 @@ fn desktop_hello(hello: &Value, from: Option<u64>) -> Result<Value, String> {
         },
         _ => return Err("Invalid session versions".into()),
     };
-    let mut frame = json!({"type":"hello","v":1,"versions":versions,"client":"app","label":"pacer desktop","cols":cols,"rows":rows});
+    let mut frame = json!({"type":"hello","v":1,"versions":versions,"client":"app","label":"Pacer desktop","cols":cols,"rows":rows});
     if let Some(from) = from {
         frame["from"] = json!(from);
     }
@@ -1006,7 +1006,7 @@ mod tests {
         assert_eq!(hello["versions"], json!([1, 2]));
         assert_eq!(hello["from"], json!(7));
         assert_eq!(hello["client"], json!("app"));
-        assert_eq!(hello["label"], json!("pacer desktop"));
+        assert_eq!(hello["label"], json!("Pacer desktop"));
         let legacy = desktop_hello(&json!({"cols":80,"rows":24}), None).unwrap();
         assert_eq!(legacy["versions"], json!([1, 1]));
         assert!(legacy.get("from").is_none());
@@ -1016,7 +1016,7 @@ mod tests {
         // Unvalidated renderer fields never pass through.
         let extra = desktop_hello(&json!({"cols":80,"rows":24,"readOnly":false,"label":"x"}), None).unwrap();
         assert!(extra.get("readOnly").is_none());
-        assert_eq!(extra["label"], json!("pacer desktop"));
+        assert_eq!(extra["label"], json!("Pacer desktop"));
     }
     #[test]
     fn operation_policy_is_exact_and_replaced_on_reconnect() {
