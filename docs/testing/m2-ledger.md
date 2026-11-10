@@ -105,8 +105,8 @@ Two new rows are red, each with an expected-fail test in the same file. This PR 
 | `dispatch.list`, `dispatch.tree`, `dispatch.events` | Native (P6 dispatch reads) | `pacer-lifecycle::work_reads` reads `work_*`, `attempt_usage` and task records from `state/tasks.db` (`listWork`, `scopedWorkTree`, `scopedWorkEvents`), including restart eligibility (runner PID probe, worktree, deadline, attempts, dependencies, stopped ancestors), token roll-ups, usage pools, wait totals and branch reads from worktree HEAD files. Handlers serve ungranted callers only: both front doors forward every op while `PACER_WORK_GRANT` is set, serve forwards task-grant bearers, and `PACER_ROLE=executor` / `PACER_ENFORCEMENT_TOKEN` refusals match `authorizeWorkOperation`. Records holding lone UTF-16 surrogates fail as `internal` natively (shared `serde_json` record parsing). `PACER_FORWARD_OPS` remains the escape hatch. |
 | `dispatch.wait` | Forwarded (P6) | Polls until a work item settles via `waitWork`; needs queue drain, runner supervision and the same orchestration gap as `task.wait` (P6d). |
 | `dispatch.review`, `dispatch.retry`, `dispatch.answer`, `dispatch.stop` | Forwarded (P6) | Managed-work lifecycle at `expect_rev`: review acceptance, lineage retry, executor Q&A resume and subtree stop (`reviewWork`, `retryWork`, `answerWork`, `stopWork`); overlaps P6c/P6d task op gaps (messaging turns, spawn, `stopWork` tree). |
-| `dispatch.dependencies` | Native (P6 dispatch writes) | `pacer-dispatch-ops::dependency_writes` owns `setWorkDependencies`: the same-root, self and cycle checks, the deduplicated `work_nodes.dependencies` write (clearing waivers), the revision bump with its `work_task_changed` trigger, then the `dependencies.changed` event and the dependency-wait sync, all in one IMMEDIATE transaction under the task lock (`TaskStore::update_admitted_then`); the reply is the native `scopedWorkTree`. TypeScript publishes no event or activity, so Rust publishes none. Callers holding a work grant are forwarded like every dispatch op. |
-| `dispatch.dependencies.waive` | Native (P6 dispatch writes, selective) | `pacer-dispatch-ops::dependency_writes` owns `waiveWorkDependency` with the same checks, transaction, revision bump and dependency-wait sync as `dispatch.dependencies`, writing the waiver upsert and the `dependencies.waived` event; no activity, as in TypeScript. It forwards only a reason whose `trim().slice(0, 2000)` cut would split a surrogate pair, which a Rust string cannot hold. Callers holding a work grant are forwarded like every dispatch op. A pipelined stdio session may answer that forwarded request after later native ones. |
+| `dispatch.dependencies` | Native (P6 dispatch writes) | See `dispatch.dependencies.waive`; `setWorkDependencies` has no selective forward. |
+| `dispatch.dependencies.waive` | Native (P6 dispatch writes, selective) | `pacer-dispatch-ops::dependency_writes` owns `setWorkDependencies` and `waiveWorkDependency`: the same-root, self and cycle checks, the deduplicated `work_nodes.dependencies` write (clearing waivers) or the waiver upsert, the revision bump with its `work_task_changed` trigger, then the `dependencies.changed`/`dependencies.waived` event and the dependency-wait sync, all in one IMMEDIATE transaction under the task lock (`TaskStore::update_admitted_then`); the reply is the native `scopedWorkTree`. TypeScript publishes no event or activity for either op, so Rust publishes none. `waive` forwards only a reason whose `trim().slice(0, 2000)` cut would split a surrogate pair, which a Rust string cannot hold. Callers holding a work grant are forwarded like every dispatch op. A pipelined stdio session may answer that forwarded request after later native ones. |
 | `dispatch.models` | Native (M2 dispatch planning) | `pacer-dispatch-ops::planning_ops` reads `work_observations` in `state/tasks.db` (`storedObservations`: newest 2,048 rows, `observationSchema` with strict objects, Zod defaults and schema key order, unexpired at request time) and the active strategy, then builds `buildModelInventory` (declared models with endpoint `connection.models` capabilities, executor defaults, opted-in discovery, observed capabilities and actual models in `observedAt` order) and the advertised list with its authorization flag. Executor and enforcement identities get `not_allowed`; work grants forward. Residual: an observation row holding a lone UTF-16 surrogate is dropped natively, because `serde_json` rejects the text. Parity: `test/native-dispatch-planning-parity.test.ts`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `dispatch.refresh` | Native (M2 dispatch planning, selective) | Rust owns the caller refusals, Zod issue text, the `Unknown runner` error and the backoff reply (`work_refresh.retry_at` for the runner or `all` scope still in the future and no `force`). A refresh that would run selectively forwards to TypeScript: it calls `computeStatus` and the enabled observation plugins (`collectObservations`), then writes observations and the new backoff. An unloadable strategy also forwards. Parity: `test/native-dispatch-planning-parity.test.ts`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `dispatch.analytics`, `dispatch.learning.reset` | Native (M2 analytics reads) | `pacer-dispatch-ops::learning_ops` reads `work_reviews`, `work_learning_exclusions` and `work_learning_reset` in `state/tasks.db` (`dispatchAnalytics`): the provenance, exclusion and reset filters, the `JSON.stringify` group key in first-seen order, the stable sample-count sort and the Wilson interval in the same float operations. `minimumSamples` comes from `load_strategy`. `dispatch.learning.reset` runs the `resetLearning` IMMEDIATE transaction: the `expect_rev` check, `max(now, current + 0.001)` at millisecond clock resolution and the exclusion toggle. Executor and enforcement identities get `not_allowed`; work grants forward. Parity: `test/native-analytics-parity.test.ts`. |
@@ -172,7 +172,7 @@ Two new rows are red, each with an expected-fail test in the same file. This PR 
 | `issue.import`, `issue.search` | Native (M2 issue reads, selective) | `pacer-issues` owns both ops: published and core Zod params (issue text and order, UTF-16 lengths), the enforcement-identity and executor refusals, registered-repository lookup through `pacer-repos`, the GitHub identity of the `origin` remote (`git remote get-url`, 5 s), issue references (`#n`, digit strings, same-repository URLs through WHATWG URL parsing), and `gh issue view` / `gh issue list` spawned from Rust as argv with the allowlisted environment plus `PWD`, lookup on the service `PATH`, a 20 s deadline over the exit and both output streams that kills the process group, a 4 MiB stdout cap, two running and eight waiting calls, and typed failures from exit codes and stderr. Untrusted titles, bodies and labels are cleaned to plain text as `src/core/issue-import.ts` does; search keeps only this repository's issue URLs, refuses `repo:`/`org:`/`user:` qualifiers and shares a 30 s cache of successes per process. Registries that `repo.list` forwards selectively forward to TypeScript; other unusual registries are read natively with the same JavaScript semantics (`test/native-repo-registry-parity.test.ts` smoke over stdio and HTTP). Residuals: `gh` output with lone-surrogate escapes is not JSON to serde (gh never writes them); the per-process path probe starts cold, so a missing checkout that a long-running TypeScript core has already pruned reads as `not_github` until a native probe has seen it; a `gh` that is found but cannot start reports the operating-system error text rather than Bun's. Parity: `test/native-issue-parity.test.ts` (fake `gh` on `PATH`). |
 | `insights.summary` | Native (M2 analytics reads, selective) | `pacer-dispatch-ops::insights_ops` runs the `src/insights/summary.ts` queries over `tasks`, `task_first_settle`, `work_nodes` and `attempt_usage` for the period and the previous one: first-settle acceptance cohorts, per-agent spread (`parseRunnerId` agent), buckets, kinds, ladder steps and rules, and skip reasons. Sorts use ICU root collation (`localeCompare`), `byAgent` objects keep JavaScript integer-key order, `Math.round` rounds halves up, and parsing a routing `skipped` note stops where TypeScript throws. Params use Zod issue text and order, including the period refinements. Inputs with `from` or `to` at or above 1e15 forward, because only `JSON.stringify` prints those numbers. Residual: a skip reason cut at 200 UTF-16 units inside a surrogate pair keeps the lone surrogate only in TypeScript. Parity: `test/native-analytics-parity.test.ts`. |
 | `onboarding.try` | Forwarded (P9) | Scratch-repo onboarding delegation via setup mutation (`setup.onboardingTry` in `src/setup/`). |
-| `setup.init` | Native (M2, selective) | Rust (`pacer-config-ops::setup_init_ops`) validates the planner (Zod issue text, local planner IDs), sets the planner on an existing strategy without integrations (`pacer-config::settings::set_planner_without_integrations`) or detects installed CLIs, Ollama (`/api/tags`) and LM Studio (`lms ls --json`) and writes the starter strategy with the accounts migration, then publishes the `config` and `setup` changes. Forwarded when `OLLAMA_HOST` is `https://` with an installed `ollama` and no strategy file (TLS probe), or while `PACER_WORK_GRANT` is set. |
+| `setup.init` | Native (M2, selective) | Rust (`pacer-config-ops::setup_init_ops`) validates the planner (Zod issue text, local planner IDs), sets the planner on an existing strategy without integrations (`pacer-config::settings::set_planner_without_integrations`) or detects installed CLIs, Ollama and LM Studio (`lms ls --json`) and writes the starter strategy with the accounts migration, then publishes the `config` and `setup` changes. The Ollama `/api/tags` request is the selective part: Rust asks Core through the setup effects bridge (`ollama_model`), which runs the `pacer init` `fetch` (`ollamaModel` in `src/install/init.ts`), so every `OLLAMA_HOST` form (scheme, port default, path, query, fragment, userinfo, IPv6, invalid values) and every response framing behaves as in TypeScript. Forwarded while `PACER_WORK_GRANT` is set. |
 | `setup.health` | Forwarded (M2, Rust-validated) | Startup Checking-setup gate: bounded doctor and setup checks as fixed steps, a persisted last-pass fingerprint and the snapshot probe; v3-only. Registered on stdio and HTTP for parameter validation only: Rust (`pacer-config-ops::doctor_ops`) checks `trigger` against `startup`/`update`/`manual` with Zod issue text, strips other keys and refuses invalid input itself. Every valid request runs the whole TypeScript gate (`setup.health` through `callOp`, including the doctor step, the `setup.check` step and the fingerprint write) in Core over the setup doctor bridge (see `doctor.run`). Serve adds `snapshotProbe: false` like the HTTP op deps; stdio leaves Core's default. Counted as forwarded in the totals. Forwarded while `PACER_WORK_GRANT` is set. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `tree.status` | Native (M2 analytics reads, selective) | `pacer-messaging-ops::msg_ops::tree_status` resolves the caller as `msg.log` does (an executor may read only its own tree), walks `rootOf`, lists the work-graph node ids in `workTree` order (`depth`, `task_id`) and reads each task record, its pending messages and the tree's turn count from `state/tasks.db` (`pacer-store::messages`). Work-grant, enforcement and Orca-worktree callers forward through `msg_stays_forwarded`. Residual: a corrupt `work_nodes.options` or `work_decisions` row fails `workTree` in TypeScript but not natively. v3-only public op (`liveness.status` remains MCP-only). Parity: `test/native-analytics-parity.test.ts`. |
 
@@ -430,9 +430,9 @@ errors, job files and outbox events against the TypeScript handlers.
 native on stdio and HTTP. Rust owns validation, the strategy file writes,
 the prompt and intent files, idempotency, subprocess probes and event
 publication. The setup effects bridge (`pacer-config-ops::setup_effects`) carries only
-three Core effects: rendering live status text, opening the strategy terminal
-from the Rust-written prompt file, and endpoint-plugin discovery of the fixed
-local server URLs. `setup_stays_forwarded` lists the forwarded inputs in each
+four Core effects: rendering live status text, opening the strategy terminal
+from the Rust-written prompt file, endpoint-plugin discovery of the fixed
+local server URLs, and the `setup.init` Ollama tags request to `OLLAMA_HOST`. `setup_stays_forwarded` lists the forwarded inputs in each
 row. `doctor.run`, `setup.health` and `setup.check` stay as their rows describe;
 the M2 setup doctor slice below registers the first two for parameter validation only.
 `test/native-setup-parity.test.ts` compares stdio and HTTP replies, errors,
@@ -719,7 +719,8 @@ evidence belongs with the fixed `native-config` live fixture and targeted parity
 
 ## Unregistered public ops (Forwarded by default)
 
-Pinned against `stdio_hello.json` v3 (`228` ops). The Rust registry lists
+Pinned against `stdio_hello.json` v3 (`225` ops, the same set as `op_catalog.json`
+and the TypeScript `OPS` at this branch's base). The Rust registry lists
 native names in the detailed table above; every other public op remains TypeScript-owned
 until a cutover PR registers it and updates this ledger. Rows already named in
 the table above are omitted here. Owner streams follow
@@ -731,23 +732,29 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Registered in the Rust registry: **136** of 225 (124 on the Rust stdio registry plus 12
-HTTP-native `plugin.*` ops). Two of these, `setup.health` and `doctor.run`, only validate
+Registered in the Rust registry: **136** of 225 (124 on the Rust stdio registry, the
+`OPS` list in `crates/server/src/native.rs` without the two `test-ops` entries, plus 12
+HTTP-native `plugin.*` ops from `pacer_plugin_ops::public::OPERATIONS` and
+`MUTATION_OPERATIONS`). Two of these, `setup.health` and `doctor.run`, only validate
 params in Rust and execute in Core, so they count as forwarded.
-Total native: **134** of 225. Fifty-seven of these selectively forward some inputs or effects to TypeScript:
-`config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
-`task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
-`project.messaging.remove`, `project.strategy.list`, `project.strategy.get`,
-`project.strategy.set`, `project.strategy.remove`, `msg.inbox`, `msg.log`, `msg.read`, `msg.policy`, `tree.status`,
-`msg.send`, `msg.confirm`, `msg.close`, `msg.wait`,
-`discovery.set`, `discovery.respond`, `discovery.list`, `discovery.network.get`,
-`discovery.network.set`, `runner.add`, `attention.dismiss`, `attention.snooze`, `desktop.reconcile.request`,
-`desktop.reconcile.cancel`, `assistant.status`, `assistant.candidates`,
+Total native: **134** of 225, the ops whose row above says Native. Fifty-eight of these
+selectively forward some inputs or effects to TypeScript; their rows say `selective`, and
+each has a front-door forwarding predicate (`*_stays_forwarded`, the `task.wait`,
+`task.stop` and `task.review` probes) or a Core bridge that runs TypeScript logic for part
+of the request. The `PACER_WORK_GRANT` forward applies to every op and is not counted:
+`config.set`, `repo.list`, `repo.add`, `repo.remove`, `task.get`, `mode.hold`, `routing.route`,
+`task.stop`, `task.wait`, `task.review`, `task.retry_options`, `dispatch.enforcement.consent`,
+`dispatch.dependencies.waive`, `dispatch.refresh`, `msg.send`, `msg.inbox`, `msg.log`, `msg.read`,
+`msg.wait`, `msg.confirm`, `msg.close`, `msg.policy`, `desktop.reconcile.request`,
+`desktop.reconcile.cancel`, `discovery.list`, `discovery.network.get`, `discovery.set`,
+`discovery.respond`, `discovery.network.set`, `assistant.status`, `assistant.candidates`,
 `assistant.settings.get`, `assistant.settings.set`, `assistant.conversations`,
-`assistant.conversation`, `assistant.turn`, `assistant.delete`,
-`assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
-`dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
-`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`.
+`assistant.conversation`, `assistant.turn`, `assistant.delete`, `assistant.card.record`,
+`assistant.card.refresh`, `runner.add`, `strategy.preview`, `strategy.build`,
+`project.messaging.get`, `project.messaging.set`, `project.messaging.remove`,
+`project.strategy.list`, `project.strategy.get`, `project.strategy.set`, `project.strategy.remove`,
+`executor.setup.models`, `executor.setup.candidates`, `attention.dismiss`, `attention.snooze`,
+`issue.import`, `issue.search`, `insights.summary`, `setup.init` and `tree.status`.
 Total still not native (v3 − native set): **91** (89 unregistered plus `setup.health` and `doctor.run`).
 
 When a prefix cutover lands, move those ops into the detailed table as Native

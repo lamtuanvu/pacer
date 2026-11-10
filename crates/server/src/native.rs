@@ -589,26 +589,6 @@ static OPS: &[NativeOp] = &[
         call: pacer_config_ops::setup_effects::effects_stub,
     },
     NativeOp {
-        name: "service.status",
-        call: pacer_update::service_status,
-    },
-    NativeOp {
-        name: "update.check",
-        call: pacer_update::update_check,
-    },
-    NativeOp {
-        name: "agent.detect",
-        call: pacer_install::agent_detect,
-    },
-    NativeOp {
-        name: "service.install",
-        call: install_ops::service_install_stub,
-    },
-    NativeOp {
-        name: "update.apply",
-        call: apply::update_apply_stub,
-    },
-    NativeOp {
         name: "repo.list",
         call: repo_registry_ops::repo_list,
     },
