@@ -11,5 +11,6 @@ pub mod task_dismiss_ops;
 pub mod task_get_ops;
 pub mod task_reads;
 pub mod task_review_ops;
+pub mod task_send_ops;
 pub mod task_stop_ops;
 pub mod task_wait_ops;

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection, createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { readActivity } from "../src/activity/log";
@@ -17,6 +17,7 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { LiveWorker } from "../src/tasks/types";
 import { fakeCtx, gitRepo, tmpDir } from "./helpers";
 import { fakeRun, raw, type Route } from "./fixtures/orca/fake";
+import { closedPort, pinnedEnv } from "./pinned-port";
 
 const TERM = "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d";
 const envelope = (result: object) => raw(JSON.stringify({ ok: true, result }));
@@ -214,12 +215,16 @@ test("send rejects a stale expectRev and accepts a matching one", async () => {
 });
 
 // Built-in sessions (ADR 0023): answers and sends type through the session host's delivery window.
+/** The session hosts and wrappers this file spawns, and their agents, call this port instead of the real service on 4317. */
+const PORT = await closedPort();
+
 async function liveRun() {
   const ctx = fakeCtx(), dir = tmpDir();
   const task = createTask(ctx, { brief: { goal: "answer live", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
-  startRun({ dir, argv: ["sh", "-c", "cat"], cwd: dir, env: { PATH: process.env.PATH }, session: "interactive" });
-  const until = Date.now() + 5000;
-  while ((!readRun(dir).alive || !existsSync(sessionSocket(dir))) && Date.now() < until) await Bun.sleep(25);
+  startRun({ dir, argv: ["sh", "-c", 'printf %s "$PACER_PORT" > agent-port.tmp && mv agent-port.tmp agent-port; exec cat'], cwd: dir, env: pinnedEnv({ PATH: process.env.PATH }, PORT), session: "interactive" });
+  const until = Date.now() + 15000;
+  while ((!readRun(dir).alive || !existsSync(sessionSocket(dir)) || !existsSync(join(dir, "agent-port"))) && Date.now() < until) await Bun.sleep(25);
+  expect(readFileSync(join(dir, "agent-port"), "utf8")).toBe(String(PORT));
   updateTask(ctx, task.id, t => { t.state = "running"; t.origin = "human"; t.run = { dir, attempt: 1, executor: "codex", startedAt: Date.now() / 1000, mode: "current", workdir: t.brief.repo, logFile: join(dir, "log") }; });
   return { ctx, id: task.id, dir };
 }
@@ -309,8 +314,10 @@ test("an answer whose delivery window expired during a slow guard is a definite 
     expect(modern.input).toEqual([]);
   } finally { modern.hub.destroy(); modern.server.close(); await stopRun(dir, { graceMs: 500 }); }
 }, 20000);
-const servers: Server[] = [], wrappers: number[] = [];
+const servers: Server[] = [], wrappers: number[] = [], hubs: ViewerHub[] = [];
 afterEach(() => {
+  // A hub left running writes session.state when its viewers disconnect, after the test's temp dir is gone.
+  for (const h of hubs.splice(0)) h.destroy();
   for (const s of servers.splice(0)) s.close();
   for (const pid of wrappers.splice(0)) killTree(pid, "SIGKILL");
 });
@@ -322,8 +329,8 @@ async function builtinRun() {
   const created = createTask(ctx, { brief: { goal: "g", repo: gitRepo() }, kind: null, requestedExecutor: "claude-code", timeoutS: 600 });
   const dir = tmpDir(), script = join(dir, "run.sh");
   writeFileSync(join(dir, "interactive.json"), "{}");
-  writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
-  const proc = Bun.spawn(["/bin/sh", script, dir], { detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  writeFileSync(script, "#!/bin/sh\nprintf %s \"$PACER_PORT\" > \"$1/port.tmp\" && mv \"$1/port.tmp\" \"$1/port\"\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], { detached: true, env: pinnedEnv(process.env, PORT), stdin: "ignore", stdout: "ignore", stderr: "ignore" });
   wrappers.push(proc.pid);
   writeFileSync(join(dir, "pid"), String(proc.pid));
   const sock = join(mkdtempSync("/tmp/pl-"), "s.sock");
@@ -332,6 +339,7 @@ async function builtinRun() {
   const hub = new ViewerHub(() => wire(FrameType.snapshot, {}), () => null, fn => fn(), () => {},
     (viewers, controller) => writeFileSync(join(dir, "session.state"), JSON.stringify({ viewers, controller, cols: 120, rows: 40 })),
     { input: b => { input.push(Buffer.from(b)); }, resize() {} });
+  hubs.push(hub);
   const server = createServer(s => hub.add(s));
   servers.push(server);
   await new Promise<void>(r => server.listen(sock, r));
@@ -340,6 +348,8 @@ async function builtinRun() {
     t.run = { dir, attempt: 1, executor: "claude-code", startedAt: 1, mode: "new", workdir: tmpDir(), logFile: "/dev/null" };
   });
   await until(() => readRun(dir).alive);
+  await until(() => existsSync(join(dir, "port")));
+  expect(readFileSync(join(dir, "port"), "utf8")).toBe(String(PORT));
   return { ctx, id: created.id, dir, input, hub };
 }
 
