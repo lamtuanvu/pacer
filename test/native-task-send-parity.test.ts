@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { FrameType, wire } from "../src/session/framing";
 import { ViewerHub } from "../src/session/viewers";
 import { readRun } from "../src/supervisor/run";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
-import type { LiveWorker, TaskRecord } from "../src/tasks/types";
+import type { TaskRecord } from "../src/tasks/types";
 import type { Ctx } from "../src/types";
 import { fakeCtx, gitRepo, tmpDir } from "./helpers";
 import { fakeRun, raw } from "./fixtures/orca/fake";
@@ -62,28 +62,40 @@ function clone(home: string) {
   return copy;
 }
 
-async function exchange(home: string, requests: { id: number; params: unknown }[], forward: boolean) {
+type Reply = { result?: unknown; error?: unknown };
+type Output = { stdout: string; stderr: string };
+
+async function exchange(home: string, requests: { id: number; params: unknown }[], forward: boolean,
+  env: Record<string, string> = {}, whileOpen?: (output: Output) => Promise<void>) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
       HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", ...CALLER,
-      ...(forward ? { PACER_FORWARD_OPS: "task.send" } : {}),
+      ...(forward ? { PACER_FORWARD_OPS: "task.send" } : {}), ...env,
     },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
+    const output: Output = { stdout: "", stderr: "" };
+    const pump = async (stream: ReadableStream<Uint8Array>, key: keyof Output) => {
+      const decoder = new TextDecoder();
+      for await (const chunk of stream) output[key] += decoder.decode(chunk, { stream: true });
+    };
+    const reading = Promise.all([pump(child.stdout, "stdout"), pump(child.stderr, "stderr")]);
     const lines = [{ jsonrpc: "2.0", id: 0, method: "hello", params: { protocol: 3 } },
       ...requests.map(r => ({ jsonrpc: "2.0", id: r.id, method: "task.send", params: r.params }))];
-    await child.stdin.write(lines.map(l => JSON.stringify(l)).join("\n") + "\n");
+    child.stdin.write(lines.map(l => JSON.stringify(l)).join("\n") + "\n");
+    await child.stdin.flush();
+    await whileOpen?.(output);
     await child.stdin.end();
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect(code, stderr).toBe(0);
-    const replies = new Map<number, { result?: unknown; error?: unknown }>();
-    for (const line of stdout.trim().split("\n")) {
+    const [code] = await Promise.all([child.exited, reading]);
+    expect(code, output.stderr).toBe(0);
+    const replies = new Map<number, Reply>();
+    for (const line of output.stdout.trim().split("\n")) {
       const reply = JSON.parse(line);
       if (typeof reply.id === "number") replies.set(reply.id, reply);
     }
-    const markers = stderr.split("\n").filter(line => /^native task\.send \d+$/.test(line));
+    const markers = output.stderr.split("\n").filter(line => /^native task\.send \d+$/.test(line));
     expect(markers).toEqual(forward ? [] : requests.map(r => `native task.send ${r.id}`));
     return replies;
   } finally {
@@ -91,18 +103,52 @@ async function exchange(home: string, requests: { id: number; params: unknown }[
   }
 }
 
-test("the probe accepts a lane that can take live input and refuses one that cannot", async () => {
-  const term = "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d";
-  const live: LiveWorker = { backend: "orca", worker: "ctx_live", terminal: term, executor: "codex", agent: "codex", incarnation: "inc-1", since: 1 };
-  const ctx = fakeCtx({ run: fakeRun([]).run });
-  const withLive = make(ctx, "live", t => { t.live = live; });
-  const without = make(ctx, "no live");
-  const direct = make(ctx, "direct", t => { t.live = { ...live, backend: "direct" }; });
-  expect(await taskSendBridge(ctx, { kind: "probe", id: withLive })).toBeNull();
-  await expect(taskSendBridge(ctx, { kind: "probe", id: without })).rejects.toThrow("this task has no live terminal to send into");
-  await expect(taskSendBridge(ctx, { kind: "probe", id: direct })).rejects.toThrow("the direct backend cannot deliver live input");
-  await expect(taskSendBridge(ctx, { kind: "probe", id: "t-20261110-000000-ffff" })).rejects.toThrow("unknown task t-20261110-000000-ffff");
-  await expect(taskSendBridge(ctx, { kind: "other", id: withLive })).rejects.toThrow("kind must be probe or send");
+const replied = (output: Output, id: number) => output.stdout.split("\n").some(line => line.startsWith(`{"jsonrpc":"2.0","id":${id},`));
+
+/**
+ * Sends `requests` while another process holds task `id`'s shared lock, and releases it only after the front door
+ * has dispatched them and nothing has answered; the holder then applies `change` to the task, as a racing writer would.
+ */
+async function underLock(home: string, id: string, change: "run" | "unlease", requests: { id: number; params: unknown }[], forward: boolean) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "lock-")));
+  homes.push(dir);
+  const [locked, go] = [join(dir, "locked"), join(dir, "go")];
+  const holder = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/task-lock-holder.ts"), join(home, ".pacer"), id, change, locked, go], {
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home }, stdout: "ignore", stderr: "pipe",
+  });
+  try {
+    const until = Date.now() + 10_000;
+    while (!existsSync(locked)) {
+      if (holder.exitCode !== null || Date.now() > until) throw new Error(`lock holder failed: ${await new Response(holder.stderr).text()}`);
+      await Bun.sleep(10);
+    }
+    return await exchange(home, requests, forward, {}, async output => {
+      const dispatched = Date.now() + 10_000;
+      while (!forward && !output.stderr.includes(`native task.send ${requests[0]!.id}\n`) && Date.now() < dispatched) await Bun.sleep(10);
+      await Bun.sleep(forward ? 1500 : 300);
+      for (const r of requests) expect(replied(output, r.id), `request ${r.id} answered while the task was locked`).toBe(false);
+      writeFileSync(go, "");
+      expect(await holder.exited).toBe(0);
+    });
+  } finally {
+    if (holder.exitCode === null) { holder.kill("SIGKILL"); await holder.exited; }
+  }
+}
+
+test("the bridge refuses an enforcement identity before reading the request, and anything but a send", async () => {
+  const f = fakeRun([]);
+  const ctx = fakeCtx({ run: f.run });
+  const id = make(ctx, "live", t => {
+    t.live = { backend: "orca", worker: "ctx_live", terminal: "term_a225e7a8-0e55-4cb9-8e30-be7da4952e5d", executor: "codex", agent: "codex", incarnation: "inc-1", since: 1 };
+  });
+  const record = readTask(ctx, id);
+  const enforced = { ...ctx, env: { PACER_ENFORCEMENT_TOKEN: "pet_x" } };
+  for (const request of [{ kind: "send", id, text: "hi", force: false, by: "client:app" }, { kind: "probe" }, null]) {
+    await expect(taskSendBridge(enforced, request)).rejects.toMatchObject({ code: "not_allowed", message: "Enforcement identity only reports a native child denial" });
+  }
+  expect(f.calls).toEqual([]);
+  expect(readTask(ctx, id)).toEqual(record);
+  await expect(taskSendBridge(ctx, { kind: "probe", id })).rejects.toThrow("kind must be send");
 });
 
 test("the bridge send types through Core with the caller Rust named and returns the task record", async () => {
@@ -162,4 +208,60 @@ test.skipIf(!front)("native task.send refuses exactly as TypeScript and delivers
   expect(delivered?.error).toBeUndefined();
   expect(delivered?.result).toMatchObject({ id: live, state: "running", driving: { by: "alice@term_planner" } });
   expect(typed().slice(before)).toContain("go with plan B");
+}, 60000);
+
+test.skipIf(!front)("native task.send refuses an enforcement identity exactly as TypeScript, before its params and without effects", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
+  const live = make(ctx, "built-in run");
+  const typed = await builtinRun(ctx, live);
+  const record = readTask(ctx, live);
+  const requests = [
+    { id: 1, params: { id: live, text: "go with plan B" } },
+    { id: 2, params: { id: live, text: "go with plan B", force: true } },
+    { id: 3, params: { id: "", text: "", expect_rev: 0 } },
+    { id: 4, params: { id: "t-20261110-000000-ffff", text: "hi" } },
+  ];
+  const enforced = { PACER_ENFORCEMENT_TOKEN: "pet_x" };
+  const before = typed().length;
+  const [nativeHome, forwardedHome] = [clone(ctx.home), clone(ctx.home)];
+  const native = await exchange(nativeHome, requests, false, enforced);
+  const forwarded = await exchange(forwardedHome, requests, true, enforced);
+  for (const { id } of requests) {
+    const [n, f] = [native.get(id), forwarded.get(id)];
+    expect(f?.error, `request ${id}`).toMatchObject({ message: "Enforcement identity only reports a native child denial", data: { code: "not_allowed" } });
+    expect(n?.error, `request ${id}`).toEqual(f!.error);
+  }
+  expect(typed().slice(before)).toBe("");
+  for (const home of [nativeHome, forwardedHome]) expect(readTask(fakeCtx({ home }), live)).toEqual(record);
+}, 60000);
+
+test.skipIf(!front)("native task.send decides its refusals under the shared task lock, as TypeScript does", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
+  const settling = make(ctx, "done until the racing writer reopens it", t => { t.state = "done"; });
+  const next = readTask(ctx, settling)!.rev + 1;
+  const reopened = [
+    { id: 1, params: { id: settling, text: "hi" } },
+    { id: 2, params: { id: settling, text: "hi", expect_rev: next } },
+  ];
+  const [native, forwarded] = [
+    await underLock(clone(ctx.home), settling, "run", reopened, false),
+    await underLock(clone(ctx.home), settling, "run", reopened, true),
+  ];
+  for (const { id } of reopened) {
+    expect(forwarded.get(id)?.error, `request ${id}`).toMatchObject({ message: "this task has no live terminal to send into", data: { code: "unavailable" } });
+    expect(native.get(id)?.error, `request ${id}`).toEqual(forwarded.get(id)!.error);
+  }
+
+  const leased = make(ctx, "leased until the racing writer releases it", t => { t.driving = { by: "someone-else", at: Date.now() / 1000 }; });
+  const typed = await builtinRun(ctx, leased);
+  const send = [{ id: 3, params: { id: leased, text: "go with plan B" } }];
+  const before = typed().length;
+  const sent = [await underLock(clone(ctx.home), leased, "unlease", send, false), await underLock(clone(ctx.home), leased, "unlease", send, true)];
+  for (const replies of sent) {
+    expect(replies.get(3)?.error).toBeUndefined();
+    expect(replies.get(3)?.result).toMatchObject({ id: leased, state: "running", driving: { by: "alice@term_planner" } });
+  }
+  expect(typed().slice(before).split("go with plan B").length - 1).toBe(2);
 }, 60000);
