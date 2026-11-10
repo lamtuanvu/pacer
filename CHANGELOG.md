@@ -18,6 +18,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - The service polls task changes every 500 ms and publishes changed or active tasks between the 15-second status and entity passes. Native and TypeScript event streams use a 250 ms fallback, while task-log follow retains its 1,000 ms default. Periodic work runs in a background worker, and settled history is reconciled incrementally. See [service responsiveness](docs/specs/2026-11-09-service-core-responsiveness-design.md).
 
+- Setup checks now test for reviewed tasks without loading every historical task into JavaScript, retaining the existing onboarding cache behavior.
+
 - With the native plugin owner on, a refused first result chunk now ends the plugin call, as it does with the owner off: the plugin can no longer fall back to a plain result after any chunk attempt, the owner's own refusals are reported as pacer's errors rather than the plugin's, and a chunk that belongs to another call is refused without ending the current one.
 
 - Undo snapshot cleanup skips a busy installation lock during diagnostics and runs after the service listener binds, so a long connect or undo no longer delays these paths by up to 30 seconds.

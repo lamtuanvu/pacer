@@ -178,6 +178,8 @@ membership and the reconcile timestamp share that transaction. A private pinned-
 receipt recovers published task data if the worker stops between append and checkpoint,
 including after another runtime rotates the public outbox (ADR 0024).
 
+The setup reviewed-task check uses a migration-free scalar query and exits early on a match. Negative or late matches still scan unarchived record JSON; cold lookup timing is reported separately from store opening and steady-state cache hits.
+
 ### 4. Task events within about 1 s
 
 Native and TypeScript event streams use a 250 ms fallback, preserving TypeScript publisher wakes and the 1,000 ms task-log follow default; empty event polls skip task enrichment and native question-body reads. This cadence leaves delivery headroom but does not guarantee subsecond delivery under load.
