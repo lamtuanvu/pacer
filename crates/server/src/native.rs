@@ -8,6 +8,8 @@ use serde_json::Value;
 pub(crate) mod account_list_sync;
 pub(crate) use account_list_ops::needs_account_list_bridge;
 use pacer_account_ops::account_list_ops;
+pub(crate) mod config_host_sync;
+pub(crate) mod config_sync;
 use pacer_config_ops::config_writes;
 use pacer_config_ops::doctor_ops;
 use pacer_config_ops::executor_setup_ops;
