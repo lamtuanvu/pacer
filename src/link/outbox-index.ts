@@ -41,6 +41,8 @@ interface OutboxIndex {
 
 const MAX_INDEXED_FILES = 16;
 const indexes = new Map<string, OutboxIndex>();
+/** Counts index builds from offset 0, for tests. */
+export const outboxIndexStats = { rebuilds: 0 };
 
 export function replayOutbox(ctx: Ctx, since: number): OutboxReplay {
   const path = outboxPath(ctx);
@@ -53,7 +55,7 @@ export function replayOutbox(ctx: Ctx, since: number): OutboxReplay {
   try {
     const stat = fstatSync(fd);
     let index = indexes.get(path);
-    if (!index || !unchangedBefore(fd, stat, index)) index = emptyIndex(stat);
+    if (!index || !unchangedBefore(fd, stat, index)) { index = emptyIndex(stat); outboxIndexStats.rebuilds++; }
     indexes.delete(path);
     indexes.set(path, index);
     if (indexes.size > MAX_INDEXED_FILES) indexes.delete(indexes.keys().next().value!);

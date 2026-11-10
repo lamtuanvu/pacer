@@ -16,6 +16,9 @@ import { list as listStrategies } from "../strategy/service";
 import { pidAlive } from "./pid";
 export const OUTBOX_MAX_BYTES = 1024 * 1024;
 export const OUTBOX_KEEP = 1000;
+/** Rotation waits until the outbox is a quarter past a limit, so most appends keep the file and its replay index. */
+export const OUTBOX_ROTATE_LINES = Math.ceil(OUTBOX_KEEP * 1.25);
+export const OUTBOX_ROTATE_BYTES = Math.ceil(OUTBOX_MAX_BYTES * 1.25);
 export interface OutboxEntry { seq:number; at?:number; envelope:OutboxEvent }
 const outboxListeners = new Map<string, Set<() => void>>();
 /** Process-local wakeup only; readers still poll for writes from other processes. */

@@ -5,7 +5,8 @@ import { eventsSince } from "../src/api/events";
 import { V3_CURSOR_BASE } from "../src/api/v2-compat";
 import type { OutboxEvent } from "../src/link/envelope";
 import { linkDir, outboxPath } from "../src/link/paths";
-import { appendOutbox, OUTBOX_KEEP, readOutboxSince } from "../src/link/store";
+import { outboxIndexStats, replayOutbox } from "../src/link/outbox-index";
+import { appendOutbox, OUTBOX_KEEP, OUTBOX_MAX_BYTES, OUTBOX_ROTATE_LINES, readOutboxSince } from "../src/link/store";
 import type { Ctx } from "../src/types";
 import { fakeCtx } from "./helpers";
 
@@ -86,6 +87,33 @@ test("rotation rebuilds the index", () => {
   expectSameReplay(ctx, [0, 3000, 4040]);
 });
 
+test("fifty appends past the limit rebuild the index at most once", () => {
+  const ctx = fakeCtx(), start = OUTBOX_ROTATE_LINES - 25;
+  appendOutbox(ctx, Array.from({ length: start }, (_, i) => alert(i + 1)));
+  expect(readOutboxSince(ctx, 0)).toHaveLength(start);
+  const before = outboxIndexStats.rebuilds;
+  for (let seq = start + 1; seq <= start + 50; seq++) {
+    appendOutbox(ctx, [alert(seq)]);
+    expect(eventsSince(ctx, seq - 1, 2).events.map(e => e.seq)).toEqual([seq]);
+  }
+  expect(outboxIndexStats.rebuilds - before).toBeLessThanOrEqual(1);
+  expect(readOutboxSince(ctx, 0).length).toBeLessThanOrEqual(OUTBOX_ROTATE_LINES);
+  expectSameReplay(ctx, [0, start, start + 50]);
+});
+
+test("rotation trims back to both retention limits", () => {
+  const ctx = fakeCtx();
+  appendOutbox(ctx, Array.from({ length: OUTBOX_ROTATE_LINES + 1 }, (_, i) => alert(i + 1)));
+  expect(readOutboxSince(ctx, 0).map(e => e.seq)).toEqual(Array.from({ length: OUTBOX_KEEP }, (_, i) => OUTBOX_ROTATE_LINES + 2 - OUTBOX_KEEP + i));
+
+  const large = fakeCtx(), padding = "x".repeat(2000);
+  appendOutbox(large, Array.from({ length: 700 }, (_, i) => alert(i + 1, padding)));
+  const lines = readFileSync(outboxPath(large), "utf8").trimEnd().split("\n");
+  expect(lines.length).toBeLessThan(700);
+  expect(statSync(outboxPath(large)).size).toBeLessThanOrEqual(OUTBOX_MAX_BYTES);
+  expect(JSON.parse(lines.at(-1)!).seq).toBe(700);
+});
+
 test("discovery aggregates match a full rescan after appends and rotation", () => {
   const ctx = fakeCtx();
   let seq = 0;
@@ -100,11 +128,21 @@ test("discovery aggregates match a full rescan after appends and rotation", () =
   expectSameReplay(ctx, [0, 3, 5, seq]);
 
   // Rotation trims the raise of peer-a, so the rebuilt open set forgets it.
-  for (let i = 0; i < OUTBOX_KEEP / 2; i++) add(alert(0).envelope, alert(0).envelope);
+  for (let i = 0; i < OUTBOX_ROTATE_LINES / 2; i++) add(alert(0).envelope, alert(0).envelope);
   add(attention("discovery:peer-c"), counts(4));
   expect(readOutboxSince(ctx, 0)[0]?.seq).toBeGreaterThan(8);
   expect(v2Counts(seq - 2)).toEqual([3]);
   expectSameReplay(ctx, [0, seq - 2, seq]);
+});
+
+test("a replay's discovery counts stay fixed after later replays", () => {
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [{ seq: 1, at: 1, envelope: attention("discovery:peer-a") }, { seq: 2, at: 1, envelope: counts(1) }]);
+  const first = replayOutbox(ctx, 0).discoveryOpen;
+  expect([...first]).toEqual([[2, 1]]);
+  appendOutbox(ctx, [{ seq: 3, at: 1, envelope: counts(1) }]);
+  expect([...replayOutbox(ctx, 0).discoveryOpen]).toEqual([[2, 1], [3, 1]]);
+  expect([...first]).toEqual([[2, 1]]);
 });
 
 test("reset behaviour unchanged for a too-old cursor", () => {
