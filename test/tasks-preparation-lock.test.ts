@@ -52,3 +52,13 @@ test("a child waiting on the task lock re-probes replaced repository before comm
  let output="";for(;;){const part=await reader!.read();if(part.done)break;output+=new TextDecoder().decode(part.value);}
  expect(await child!.exited).toBe(0);expect(output).toContain('"code":"conflict"');expect(output).not.toContain("committed");expect(readTask(ctx,task.id)?.kind).toBeNull();
 });
+
+test("withTaskLockAsync releases the task lock before yielding, so a sync writer in the same turn is not blocked",async()=>{
+ const {ctx,task,lock}=fixture();
+ const pending=withTaskLockAsync(ctx,task.id,()=>updateTask(ctx,task.id,t=>{t.kind="tests";}));
+ // withTaskLock spins synchronously; a lock still held across the microtask would block this turn until it timed out.
+ expect(existsSync(lock)).toBe(false);
+ withTaskLock(ctx,task.id,()=>updateTask(ctx,task.id,t=>{t.brief.context="sync";}));
+ await pending;
+ expect(readTask(ctx,task.id)).toMatchObject({kind:"tests",brief:{context:"sync"}});
+});

@@ -70,7 +70,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
-- Tasks no longer fail at start with "timed out waiting for …/orca/evidence-….lock". Account evidence reconciliation is synchronous, but its lock was released only after the next microtask, so a synchronous caller in the same process that waited for the same lock blocked the event loop and timed out after 20 seconds. The lock is now released as soon as synchronous work finishes; evidence writes stay serialized and atomic.
+- Tasks no longer fail at start with "timed out waiting for …/orca/evidence-….lock". `withLock` kept a lock until the next microtask even when its work was synchronous. When the holding process then blocked its event loop (for example in a synchronous `withLockSync` wait on another lock), the release could not run, and a runner waiting for the evidence lock in another process timed out after 20 seconds. `withLock` now releases as soon as synchronous work finishes, and evidence reconciliation, `withTaskLockAsync` and the runner's `session-create` section run synchronously inside their locks. Evidence writes stay serialized and atomic.
 
 - The desktop app no longer prints an unstyled "Reconnecting to pacer… Your workspace is kept here." line over the window controls while it reconnects. The app's and tray's own reconnecting notices already cover that state, and the older-service warning now uses the same notice bar, shown below the top bar in the main window.
 
