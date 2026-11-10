@@ -36263,7 +36263,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -36595,7 +36596,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -36914,7 +36916,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -37254,7 +37257,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -37588,7 +37592,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -37873,7 +37878,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -38205,7 +38211,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -38537,7 +38544,8 @@
               "gamma"
             ],
             "accounts": "fill",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -38869,7 +38877,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -39145,7 +39154,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -39426,7 +39436,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -39703,7 +39714,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -39989,7 +40001,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -40173,7 +40186,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -40364,7 +40378,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -40767,7 +40782,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {
@@ -41263,7 +41279,8 @@
               "gamma"
             ],
             "accounts": "spread",
-            "fillThreshold": 90
+            "fillThreshold": 90,
+            "balance": "off"
           }
         },
         "statuses": {

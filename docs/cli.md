@@ -484,6 +484,7 @@ command. Account and runner list JSON are arrays (see the accounts guide).
 | pacing.planner_probe | `ask` (default), `auto` or `off`; whether scheduled certification probes may run, given that each spends the certified account's own quota |
 | pacing.accounts | `spread` or `fill` (default `spread`) |
 | pacing.fill_threshold | Percent, 50–100 (default 90) |
+| pacing.balance | `off` (default) or `least-loaded`; spread work across equally acceptable executors by current load |
 | update_check | `true` or `false` (default `true`) |
 
 For example:

@@ -431,7 +431,10 @@ start a new session from the selected folder to use the new planner account.
 `pacing.accounts` defaults to `spread`. `fill` prefers accounts in pacing order
 until an account is behind pace or reaches `pacing.fill_threshold` (default 90%,
 range 50–100). These choices apply within matching native agent/account-kind
-groups; endpoint routing retains its existing ordering.
+groups; endpoint routing retains its existing ordering. `pacing.balance` set to
+`least-loaded` starts each task on the executor with the fewest running tasks
+within a band of equally budget-acceptable executors; see
+[configuration.md](configuration.md).
 
 ## Limits
 

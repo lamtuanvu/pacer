@@ -91,7 +91,7 @@ export interface Strategy {
   runnerAliases: Record<string, string>;
   /** @deprecated Derived from runners and accounts; use those directly in new consumers. */
   providers: Record<string, ProviderCfg>;
-  pacing: { policy: Policy; order: string[]; plannerReserve: number; plannerReserveHeadroom: number; plannerProbe: "ask" | "auto" | "off"; aheadThreshold: number; behindThreshold: number; accounts: "spread" | "fill"; fillThreshold: number };
+  pacing: { policy: Policy; order: string[]; plannerReserve: number; plannerReserveHeadroom: number; plannerProbe: "ask" | "auto" | "off"; aheadThreshold: number; behindThreshold: number; accounts: "spread" | "fill"; fillThreshold: number; balance: "off" | "least-loaded" };
   routing: RouteRule[];
   execution: Record<string, unknown>;
   classifier: Record<string, unknown>;
@@ -218,9 +218,11 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     aheadThreshold: num("ahead_threshold", 10),
     behindThreshold: num("behind_threshold", -10),
     accounts: (pc.accounts ?? "spread") as "spread" | "fill",
+    balance: (pc.balance ?? "off") as "off" | "least-loaded",
     fillThreshold: num("fill_threshold", 90),
   };
   if (!["spread", "fill"].includes(pacing.accounts)) p.push("pacing.accounts must be spread or fill");
+  if (!["off", "least-loaded"].includes(pacing.balance)) p.push("pacing.balance must be off or least-loaded");
   if (!Number.isFinite(pacing.fillThreshold) || pacing.fillThreshold < 50 || pacing.fillThreshold > 100) p.push("pacing.fill_threshold must be between 50 and 100");
   if (pacing.plannerReserve < 0 || pacing.plannerReserve >= 100) {
     p.push("pacing.planner_reserve must be between 0 and 99");

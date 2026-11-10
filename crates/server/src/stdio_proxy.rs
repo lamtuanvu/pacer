@@ -229,7 +229,7 @@ async fn forward_input<
             if !(op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
                 && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
                 && !(op.name == "routing.route"
-                    && crate::native::routing_route_stays_forwarded(&params))
+                    && crate::native::routing_route_stays_forwarded(&ctx.at_now(), &params))
                 && !(op.name == "task.retry_options"
                     && crate::native::task_retry_options_stays_forwarded(&ctx.at_now()))
                 && !(op.name == "repo.remove"

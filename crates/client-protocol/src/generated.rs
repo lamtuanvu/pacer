@@ -4123,6 +4123,7 @@ impl ::std::default::Default for ConfigGetParams {
 ///        "pacing.planner_probe",
 ///        "pacing.accounts",
 ///        "pacing.fill_threshold",
+///        "pacing.balance",
 ///        "update_check",
 ///        "terminal.app",
 ///        "terminal.open"
@@ -4244,6 +4245,7 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///    "pacing.planner_probe",
 ///    "pacing.accounts",
 ///    "pacing.fill_threshold",
+///    "pacing.balance",
 ///    "update_check",
 ///    "terminal.app",
 ///    "terminal.open"
@@ -4294,6 +4296,8 @@ pub enum ConfigSetParamsKey {
     PacingAccounts,
     #[serde(rename = "pacing.fill_threshold")]
     PacingFillThreshold,
+    #[serde(rename = "pacing.balance")]
+    PacingBalance,
     #[serde(rename = "update_check")]
     UpdateCheck,
     #[serde(rename = "terminal.app")]
@@ -4326,6 +4330,7 @@ impl ::std::fmt::Display for ConfigSetParamsKey {
             Self::PacingPlannerProbe => f.write_str("pacing.planner_probe"),
             Self::PacingAccounts => f.write_str("pacing.accounts"),
             Self::PacingFillThreshold => f.write_str("pacing.fill_threshold"),
+            Self::PacingBalance => f.write_str("pacing.balance"),
             Self::UpdateCheck => f.write_str("update_check"),
             Self::TerminalApp => f.write_str("terminal.app"),
             Self::TerminalOpen => f.write_str("terminal.open"),
@@ -4351,6 +4356,7 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
             "pacing.planner_probe" => Ok(Self::PacingPlannerProbe),
             "pacing.accounts" => Ok(Self::PacingAccounts),
             "pacing.fill_threshold" => Ok(Self::PacingFillThreshold),
+            "pacing.balance" => Ok(Self::PacingBalance),
             "update_check" => Ok(Self::UpdateCheck),
             "terminal.app" => Ok(Self::TerminalApp),
             "terminal.open" => Ok(Self::TerminalOpen),
