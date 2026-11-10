@@ -8,7 +8,9 @@
 //! admission and `launchTaskRunner` spawn, queue drain and runner supervision
 //! while waiting, and the review, retry, answer and subtree-stop transactions
 //! belong to Core. `options` on `submit` and `child` forwards as well, because
-//! `workOptionsSchema` issues interleave with the other fields' issues.
+//! `workOptionsSchema` issues interleave with the other fields' issues. So does
+//! a fractional, exponent or out-of-range number in a schema field, which
+//! serde_json may round differently from `JSON.parse`.
 //! Callers holding a work grant never reach these handlers.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
@@ -175,7 +177,18 @@ fn check(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
     if matches!(op, "dispatch.submit" | "dispatch.child") && p.contains_key("options") {
         return Ok(());
     }
+    if inexact_number(shape, &p) {
+        return Ok(());
+    }
     finish(params_issues(shape, &p))
+}
+
+/// serde_json reads integer literals that fit 64 bits exactly; any other number
+/// may round differently from `JSON.parse`, so Core reads it.
+fn inexact_number(shape: Shape, p: &Map<String, Value>) -> bool {
+    shape
+        .iter()
+        .any(|(name, ..)| matches!(p.get(*name), Some(Value::Number(n)) if n.is_f64()))
 }
 
 /// Inputs Rust would not refuse: Core spawns, supervises and settles the work.

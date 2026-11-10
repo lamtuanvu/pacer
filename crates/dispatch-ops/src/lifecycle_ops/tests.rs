@@ -74,6 +74,33 @@ fn options_forward_whatever_the_other_fields_hold() {
 }
 
 #[test]
+fn numbers_serde_may_round_differently_forward() {
+    let ctx = ctx(&[]);
+    let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap();
+    for body in [
+        r#"{"id": "t", "timeout_s": 1.5}"#,
+        r#"{"id": "t", "timeout_s": 3000.0}"#,
+        r#"{"id": "t", "timeout_s": 1e300}"#,
+        r#"{"id": "", "timeout_s": 99999999999999999999}"#,
+    ] {
+        assert!(
+            lifecycle_stays_forwarded(&ctx, "dispatch.wait", &parse(body)),
+            "{body}"
+        );
+    }
+    for body in [
+        r#"{"id": "", "timeout_s": 18446744073709551615}"#,
+        r#"{"id": "", "timeout_s": -9223372036854775808}"#,
+        r#"{"id": "", "extra": 1.5}"#,
+    ] {
+        assert!(
+            !lifecycle_stays_forwarded(&ctx, "dispatch.wait", &parse(body)),
+            "{body}"
+        );
+    }
+}
+
+#[test]
 fn issues_follow_zod_key_order_and_text() {
     assert_eq!(
         message("dispatch.submit", json!({})),
@@ -91,8 +118,8 @@ fn issues_follow_zod_key_order_and_text() {
         "requestId: Invalid input: expected string, received undefined"
     );
     assert_eq!(
-        message("dispatch.wait", json!({"id": "t", "timeout_s": 1.5})),
-        "timeout_s: Invalid input: expected int, received number"
+        message("dispatch.wait", json!({"id": "t", "timeout_s": 3001})),
+        "timeout_s: Too big: expected number to be <=3000"
     );
     assert_eq!(
         message(

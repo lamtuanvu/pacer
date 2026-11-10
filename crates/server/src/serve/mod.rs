@@ -171,6 +171,15 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Err(error) if plugin && error == pacer_plugin_ops::json::NESTING_FALLBACK => {
                 return forward_plugin_read(&state, parts, bytes, auth).await;
             }
+            Err(_)
+                if crate::native::dispatch_lifecycle_sync::forwards_undecodable_body(op.name) =>
+            {
+                let Some(target) = state.core.target().await else {
+                    return proxy::unavailable(false);
+                };
+                return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
+                    .await;
+            }
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
         // Planner install and backend readiness remain on the TypeScript path.
