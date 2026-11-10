@@ -704,7 +704,10 @@ export function startServer(
       bgWorker.addEventListener("close", bgClose);
     } catch (error) {
       bgWorker = undefined;
-      if (!stopped) console.error(`pacer: failed to start background worker: ${String(error)}`);
+      bgDiag.lastError = error instanceof Error ? error.message : String(error);
+      bgDiag.state = "restarting"; writeBgDiag();
+      if (!stopped) console.error(`pacer: failed to start background worker: ${bgDiag.lastError}; retrying`);
+      if (!bgRestartTimer) bgRestartTimer = setTimeout(() => { bgRestartTimer = undefined; startBackgroundWorker(); }, 5000);
     }
   };
   const bgMonitorTimer = bg ? setInterval(() => {
