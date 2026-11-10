@@ -8,21 +8,12 @@ const NOW: f64 = 1_000_000.0;
 #[derive(Default)]
 struct Recorder {
     calls: Vec<Value>,
-    probe: Option<CoreError>,
 }
 
 impl Bridge for Recorder {
     fn call(&mut self, request: Value) -> OpFuture<'_> {
         self.calls.push(request.clone());
-        let refusal = (request["kind"] == "probe")
-            .then(|| self.probe.clone())
-            .flatten();
-        Box::pin(async move {
-            match refusal {
-                Some(error) => Err(error),
-                None => Ok(json!({"id": request["id"], "delivered": true})),
-            }
-        })
+        Box::pin(async move { Ok(json!({"id": request["id"], "delivered": true})) })
     }
 }
 
@@ -293,77 +284,89 @@ async fn a_free_lane_forwards_the_send_with_the_caller() {
 }
 
 #[tokio::test]
-async fn another_callers_lease_is_a_conflict_after_core_confirms_the_worker() {
+async fn another_callers_lease_is_left_to_cores_locked_check() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(&dir, &[]);
     seed(
         &ctx,
         json!({"driving": {"by": "operator-a", "at": NOW - 12.5}}),
     );
-    let mut bridge = Recorder::default();
-    let error = send(
-        &ctx,
-        json!({"id": ID, "text": "hi"}),
-        "operator-b",
-        &mut bridge,
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(
-        (error.code, error.message.as_str()),
-        (
-            Code::Conflict,
-            "operator-a sent a message 13s ago; use --force to send anyway"
+    for force in [false, true] {
+        let mut bridge = Recorder::default();
+        send(
+            &ctx,
+            json!({"id": ID, "text": "hi", "force": force}),
+            "operator-b",
+            &mut bridge,
         )
-    );
-    assert_eq!(bridge.calls, [json!({"kind": "probe", "id": ID})]);
-
-    let mut bridge = Recorder {
-        probe: Some(CoreError::new(
-            Code::Unavailable,
-            "this task has no live terminal to send into",
-        )),
-        ..Recorder::default()
-    };
-    let error = send(
-        &ctx,
-        json!({"id": ID, "text": "hi"}),
-        "operator-b",
-        &mut bridge,
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(error.code, Code::Unavailable);
-
-    let mut bridge = Recorder::default();
-    send(
-        &ctx,
-        json!({"id": ID, "text": "hi", "force": true}),
-        "operator-b",
-        &mut bridge,
-    )
-    .await
-    .unwrap();
-    assert_eq!(bridge.calls[0]["kind"], "send");
-    assert_eq!(bridge.calls[0]["force"], true);
+        .await
+        .unwrap();
+        assert_eq!(
+            bridge.calls,
+            [json!({"kind": "send", "id": ID, "text": "hi", "force": force, "by": "operator-b"})]
+        );
+    }
 }
 
 #[tokio::test]
-async fn an_expired_lease_needs_no_force() {
+async fn enforcement_identities_are_refused_before_the_params_are_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let enforced = ctx(&dir, &[("PACER_ENFORCEMENT_TOKEN", "x")]);
+    seed(&enforced, json!({}));
+    for params in [
+        json!({"id": ID, "text": "hi"}),
+        json!({"id": "", "text": ""}),
+        json!([]),
+    ] {
+        let mut bridge = Recorder::default();
+        let error = send(&enforced, params, "me", &mut bridge)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (
+                Code::NotAllowed,
+                "Enforcement identity only reports a native child denial"
+            )
+        );
+        assert!(bridge.calls.is_empty());
+    }
+    let empty = ctx(&dir, &[("PACER_ENFORCEMENT_TOKEN", "")]);
+    let mut bridge = Recorder::default();
+    send(&empty, json!({"id": ID, "text": "hi"}), "me", &mut bridge)
+        .await
+        .unwrap();
+    assert_eq!(bridge.calls.len(), 1);
+}
+
+#[tokio::test]
+async fn record_refusals_are_decided_under_the_shared_task_lock() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = ctx(&dir, &[]);
-    seed(
-        &ctx,
-        json!({"driving": {"by": "operator-a", "at": NOW - DRIVING_LEASE_S}}),
-    );
+    seed(&ctx, json!({"state": "done"}));
+    let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let home = ctx.pacer_home.clone();
+    let writer = std::thread::spawn(move || {
+        let mut store = TaskStore::open(&home).unwrap();
+        store
+            .with_task_lock(ID, |locked| {
+                locked_tx.send(()).unwrap();
+                go_rx.recv().unwrap();
+                locked.update(3, NOW, |t| t["state"] = json!("running"))
+            })
+            .unwrap();
+    });
+    locked_rx.recv().unwrap();
+    // The send starts while the writer holds the lock, so it must see the writer's change.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        go_tx.send(()).unwrap();
+    });
     let mut bridge = Recorder::default();
-    send(
-        &ctx,
-        json!({"id": ID, "text": "hi"}),
-        "operator-b",
-        &mut bridge,
-    )
-    .await
-    .unwrap();
+    send(&ctx, json!({"id": ID, "text": "hi"}), "me", &mut bridge)
+        .await
+        .unwrap();
+    writer.join().unwrap();
     assert_eq!(bridge.calls[0]["kind"], "send");
 }

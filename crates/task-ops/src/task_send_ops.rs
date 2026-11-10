@@ -1,8 +1,10 @@
-//! Selective native `task.send` (`send` in `src/session/send.ts`). Rust validates the params as
-//! Zod does and answers the refusals the task record decides: an executor caller, an unknown task,
-//! a stale revision, a lane waiting on its question, a task that is not running and another
-//! caller's driving lease. Core keeps what needs its plugins and the task lock: the live-worker
-//! check, the lease claim, delivery into the worker, the lease rollback and the timeline entry.
+//! Selective native `task.send` (`send` in `src/session/send.ts`). Rust refuses enforcement
+//! identities as `authorizeWorkOperation` does, validates the params as Zod does and answers the
+//! refusals made before the task record is read: an executor caller, a malformed id and the text
+//! check. Under the shared task lock it answers the record refusals: an unknown task, a stale
+//! revision, a lane waiting on its question and a task that is not running. Core keeps what needs
+//! its plugins and decides under the same lock: the live-worker check, the driving lease, delivery
+//! into the worker, the lease rollback and the timeline entry.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
@@ -10,19 +12,17 @@ use pacer_foundation::{
     js_semantics::JsTrim,
 };
 use pacer_lifecycle::files_search::executor_session;
-use pacer_store::{TaskStore, is_task_id};
+use pacer_store::{StoreError, TaskStore, is_task_id};
 use serde_json::{Map, Value, json};
 
 use super::files_search_ops::providers;
 use super::lifecycle_ops::{invalid, object, project_api_task, type_name};
+use super::session_context_ops::authorize;
 
-/// `DRIVING_LEASE_S`: how recently another caller must have sent for a send to need `force`.
-pub const DRIVING_LEASE_S: f64 = 60.0;
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
-/// Core's side of `task.send`. `{"kind":"probe","id"}` resolves when the lane has a worker that
-/// can take live input and fails with Core's `unavailable` refusal otherwise. `{"kind":"send",
-/// "id","text","force","expectRev","by"}` runs TypeScript `send` and returns its task record.
+/// Core's side of `task.send`: `{"kind":"send","id","text","force","expectRev","by"}` runs
+/// TypeScript `send`, which rechecks every refusal under the task lock, and returns its record.
 pub trait Bridge: Send {
     fn call(&mut self, request: Value) -> OpFuture<'_>;
 }
@@ -196,68 +196,54 @@ fn internal(error: impl ToString) -> CoreError {
     CoreError::new(Code::Internal, error.to_string())
 }
 
-/// JavaScript `Math.round`.
-fn js_round(n: f64) -> f64 {
-    (n + 0.5).floor()
+/// A refusal decided from the task record under the shared task lock.
+enum Refusal {
+    Core(CoreError),
+    StaleRev(Value),
+    Store(StoreError),
+}
+
+impl From<StoreError> for Refusal {
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
 }
 
 /// The refusals `send` makes from the task record under its lock, in its order, up to the
-/// live-worker check. `Ok(Some(_))` is the lease conflict, which Core's live-worker refusal
-/// precedes.
-fn check_record(
-    ctx: &Ctx,
-    store: &mut TaskStore,
-    task: &Value,
-    p: &SendParams,
-    by: &str,
-) -> Result<Option<CoreError>, CoreError> {
+/// live-worker check. Core makes the live-worker and lease checks under the same lock.
+fn check_record(task: &Value, p: &SendParams) -> Result<(), Refusal> {
     if let Some(expected) = p.expect_rev
         && task.get("rev").and_then(Value::as_f64) != Some(expected)
     {
-        let mut error = CoreError::new(Code::Conflict, "task changed");
-        if let Ok(projected) = project_api_task(ctx, store, task) {
-            let mut data = Map::new();
-            data.insert("task".into(), projected);
-            error = error.data(data);
-        }
-        return Err(error);
+        return Err(Refusal::StaleRev(task.clone()));
     }
     let state = task.get("state").and_then(Value::as_str);
     let unanswered = task
         .get("question")
         .is_some_and(|q| !q.is_null() && q.get("answer").is_none());
     if state == Some("needs_input") || unanswered {
-        return Err(CoreError::new(
+        return Err(Refusal::Core(CoreError::new(
             Code::Conflict,
             format!("task is waiting for an answer; use pacer answer {}", p.id),
-        ));
+        )));
     }
     if state != Some("running") {
-        return Err(CoreError::new(
+        return Err(Refusal::Core(CoreError::new(
             Code::Conflict,
             format!("task is {}, not running", state.unwrap_or("undefined")),
-        ));
+        )));
     }
-    let Some(holder) = task.get("driving").filter(|h| !h.is_null()) else {
-        return Ok(None);
-    };
-    let holder_by = holder.get("by").and_then(Value::as_str);
-    let age = holder
-        .get("at")
-        .and_then(Value::as_f64)
-        .map(|at| ctx.now - at);
-    let contended = holder_by != Some(by) && age.is_some_and(|age| age < DRIVING_LEASE_S);
-    if !contended || p.force {
-        return Ok(None);
+    Ok(())
+}
+
+fn stale_rev(ctx: &Ctx, store: &mut TaskStore, task: &Value) -> CoreError {
+    let mut error = CoreError::new(Code::Conflict, "task changed");
+    if let Ok(projected) = project_api_task(ctx, store, task) {
+        let mut data = Map::new();
+        data.insert("task".into(), projected);
+        error = error.data(data);
     }
-    Ok(Some(CoreError::new(
-        Code::Conflict,
-        format!(
-            "{} sent a message {}s ago; use --force to send anyway",
-            holder_by.unwrap_or("undefined"),
-            js_round(age.unwrap_or_default()) as i64
-        ),
-    )))
+    error
 }
 
 /// `task.send` for the caller `by` (see [`caller_identity`]).
@@ -268,6 +254,7 @@ pub fn task_send<'a>(
     bridge: &'a mut dyn Bridge,
 ) -> OpFuture<'a> {
     Box::pin(async move {
+        authorize(ctx)?;
         let p = parse(&params)?;
         let cwd = std::env::current_dir().unwrap_or_default();
         if executor_session(ctx, &cwd, || providers(ctx)) {
@@ -282,17 +269,16 @@ pub fn task_send<'a>(
         if p.text.js_trim().is_empty() || p.text.encode_utf16().count() > 4000 {
             return Err(invalid("message must contain 1–4000 characters"));
         }
-        let lease_conflict = {
+        {
             let mut store = TaskStore::open(&ctx.pacer_home).map_err(internal)?;
-            let task = store
-                .read(&p.id)
-                .map_err(internal)?
-                .ok_or_else(|| unknown(&p.id))?;
-            check_record(ctx, &mut store, &task, &p, &by)?
-        };
-        if let Some(conflict) = lease_conflict {
-            bridge.call(json!({"kind": "probe", "id": p.id})).await?;
-            return Err(conflict);
+            let checked = store.with_task_lock(&p.id, |locked| check_record(&locked.read()?, &p));
+            match checked {
+                Ok(()) => {}
+                Err(Refusal::Core(error)) => return Err(error),
+                Err(Refusal::StaleRev(task)) => return Err(stale_rev(ctx, &mut store, &task)),
+                Err(Refusal::Store(StoreError::UnknownTask(_))) => return Err(unknown(&p.id)),
+                Err(Refusal::Store(error)) => return Err(internal(error)),
+            }
         }
         let mut request = json!({
             "kind": "send",
