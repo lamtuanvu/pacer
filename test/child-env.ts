@@ -1,4 +1,13 @@
 import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+
+/** Keep service-manager probes inside a fixture, including spawned native processes. */
+export function fakeServiceManager(home: string): string {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  for (const name of ["launchctl", "systemctl"]) writeFileSync(join(bin, name), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  return bin;
+}
 
 /** Obtain a currently closed ephemeral port, avoiding the real service's default. */
 export function closedPort(): number {

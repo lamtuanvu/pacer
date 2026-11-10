@@ -3,7 +3,7 @@ import { closedPort } from "./child-env";
 import { afterAll, afterEach, beforeEach } from "bun:test";
 import { rmSync, realpathSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
-import { join, resolve, dirname, basename, delimiter } from "node:path";
+import { join, resolve, dirname, basename, delimiter, parse, sep } from "node:path";
 import { cleanupTestTmp } from "./helpers";
 import { setMachineReaders } from "../src/engine/machine";
 import { cleanupFixtureResources } from "./fixture-cleanup";
@@ -23,9 +23,15 @@ function canonical(path: string): string {
 }
 const realPacerHome = canonical(join(userInfo().homedir, ".pacer"));
 (globalThis as typeof globalThis & { pacerHomeGuard?: (path: string) => void }).pacerHomeGuard = path => {
-  const target = canonical(path);
-  if (target === realPacerHome || target.startsWith(realPacerHome + "/")) {
-    throw new Error("bun test refuses real user PACER_HOME");
+  const refuses = (target: string) => target === realPacerHome || target.startsWith(realPacerHome + "/");
+  // Resolve one component at a time so an alias is rejected before looking inside the real home.
+  const absolute = resolve(path), root = parse(absolute).root;
+  let prefix = root;
+  for (const part of absolute.slice(root.length).split(sep).filter(Boolean)) {
+    prefix = join(prefix, part);
+    if (refuses(prefix) || refuses(canonical(prefix))) {
+      throw new Error("bun test refuses real user PACER_HOME");
+    }
   }
 };
 // Compiled release tests must reuse the provisioned Rust toolchain and targets

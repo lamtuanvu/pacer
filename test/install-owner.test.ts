@@ -10,6 +10,7 @@ import { fakeCtx, tmpDir } from "./helpers";
  * literal string, so a record either side writes is provably readable by the other: `at`
  * especially must stay a plain integer token (no decimal point), since Rust declares it `u64`.
  */
+const fixtureRoot = tmpDir();
 const CROSS_LANGUAGE_OWNER_FIXTURE = '{\n  "schema": 1,\n  "owner": "cli",\n  "executable": "/usr/local/bin/pacer",\n  "at": 1700000000\n}\n';
 
 test("readOwner returns null for a missing or malformed record, never throws", () => {
@@ -26,8 +27,8 @@ test("readOwner returns null for a missing or malformed record, never throws", (
 
 test("writeOwner is atomic, mode 0600, and round-trips through readOwner", () => {
   const ctx = fakeCtx();
-  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1700000000 });
-  expect(readOwner(ctx)).toEqual({ schema: 1, owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1700000000 });
+  writeOwner(ctx, { owner: "desktop", executable: join(fixtureRoot, "pacer.app/Contents/Resources/pacer"), at: 1700000000 });
+  expect(readOwner(ctx)).toEqual({ schema: 1, owner: "desktop", executable: join(fixtureRoot, "pacer.app/Contents/Resources/pacer"), at: 1700000000 });
   const path = ownerPath(ctx);
   expect(readFileSync(path, "utf8")).toContain('"owner": "desktop"');
   expect(statSync(path).mode & 0o777).toBe(0o600);
@@ -56,24 +57,24 @@ test("claimCliOwnership only writes cli when unclaimed or already cli; never ove
   // Already cli: a later successful install may update the recorded executable/time.
   claimCliOwnership(ctx, "/opt/pacer", 200);
   expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/opt/pacer", at: 200 });
-  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 300 });
+  writeOwner(ctx, { owner: "desktop", executable: join(fixtureRoot, "pacer.app/Contents/Resources/pacer"), at: 300 });
   claimCliOwnership(ctx, "/usr/local/bin/pacer", 400);
-  expect(readOwner(ctx)).toEqual({ schema: 1, owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 300 });
+  expect(readOwner(ctx)).toEqual({ schema: 1, owner: "desktop", executable: join(fixtureRoot, "pacer.app/Contents/Resources/pacer"), at: 300 });
 });
 
 test("isInsideAppBundle recognizes Contents/Resources and Contents/MacOS paths only", () => {
-  expect(isInsideAppBundle("/Applications/pacer.app/Contents/Resources/pacer")).toBe(true);
-  expect(isInsideAppBundle("/Applications/pacer.app/Contents/MacOS/pacer")).toBe(true);
+  expect(isInsideAppBundle(join(fixtureRoot, "pacer.app/Contents/Resources/pacer"))).toBe(true);
+  expect(isInsideAppBundle(join(fixtureRoot, "pacer.app/Contents/MacOS/pacer"))).toBe(true);
   expect(isInsideAppBundle("/usr/local/bin/pacer")).toBe(false);
   expect(isInsideAppBundle(join(tmpDir(), "pacer.app-backup/pacer"))).toBe(false);
 });
 
 test("claimCliOwnership never claims an executable inside the app bundle, even over an absent or existing cli record", () => {
   const ctx = fakeCtx();
-  claimCliOwnership(ctx, "/Applications/pacer.app/Contents/Resources/pacer", 100);
+  claimCliOwnership(ctx, join(fixtureRoot, "pacer.app/Contents/Resources/pacer"), 100);
   expect(readOwner(ctx)).toBeNull(); // this happens when the desktop's own bundled CLI runs `service install`
   writeOwner(ctx, { owner: "cli", executable: "/usr/local/bin/pacer", at: 50 });
-  claimCliOwnership(ctx, "/Applications/pacer.app/Contents/Resources/pacer", 200);
+  claimCliOwnership(ctx, join(fixtureRoot, "pacer.app/Contents/Resources/pacer"), 200);
   expect(readOwner(ctx)).toMatchObject({ owner: "cli", executable: "/usr/local/bin/pacer", at: 50 }); // unchanged
 });
 
@@ -82,7 +83,7 @@ test("ownerRefusal is null without a desktop owner, and refuses a foreign CLI on
   expect(ownerRefusal(ctx, "update")).toBeNull();
   writeOwner(ctx, { owner: "cli", executable: "/usr/local/bin/pacer", at: 1 });
   expect(ownerRefusal(ctx, "update")).toBeNull();
-  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 2 });
+  writeOwner(ctx, { owner: "desktop", executable: join(fixtureRoot, "pacer.app/Contents/Resources/pacer"), at: 2 });
   expect(ownerRefusal(ctx, "update")).toEqual({ code: 2, out: "", err: `pacer update: ${MANAGED_BY_DESKTOP_MESSAGE}` });
   expect(ownerRefusal(ctx, "service")).toEqual({ code: 2, out: "", err: `pacer service: ${MANAGED_BY_DESKTOP_MESSAGE}` });
 });

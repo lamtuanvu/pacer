@@ -1,12 +1,15 @@
 import { chmodSync, copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { closedPort } from "../test/child-env";
 
 /** The macOS sandbox's localhost address covers both loopback families. */
 export function testSandboxProfile(...ports: number[]): string {
   if (!ports.length || ports.some(port => !Number.isInteger(port) || port < 1 || port > 65535)) throw new Error("Invalid protected port");
-  return `(version 1) (allow default) ${ports.map(port => `(deny network-outbound (remote tcp "localhost:${port}"))`).join(" ")}`;
+  const quote = (path: string) => JSON.stringify(path);
+  const home = userInfo().homedir;
+  const protectedPaths = [join(home, ".pacer"), "/Applications/pacer.app", join(home, ".local/bin/pacer"), join(home, ".local/bin/pacer-core"), join(home, "Library/LaunchAgents/com.pacer.serve.plist")];
+  return `(version 1) (allow default) ${ports.map(port => `(deny network-outbound (remote tcp "localhost:${port}"))`).join(" ")} (deny process-exec (literal "/bin/launchctl")) (deny file-write* ${protectedPaths.map(path => `(subpath ${quote(path)})`).join(" ")})`;
 }
 
 if (import.meta.main) {
@@ -38,6 +41,10 @@ if (import.meta.main) {
           throw new Error(`Test sandbox loopback self-check failed: ${await new Response(child.stderr).text()}`);
         }
       } finally { probe.stop(true); }
+      const launchctl = Bun.spawnSync(["/usr/bin/sandbox-exec", "-p", testSandboxProfile(4317), "/bin/launchctl"], { stdout: "ignore", stderr: "pipe" });
+      if (launchctl.exitCode === 0 || !launchctl.stderr.toString().includes("Operation not permitted")) {
+        throw new Error(`Test sandbox launchctl self-check failed: ${launchctl.stderr.toString()}`);
+      }
       env.PACER_TEST_PS = ps;
       env.PATH = `${scratch}:${env.PATH ?? "/usr/bin:/bin"}`;
     }

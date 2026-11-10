@@ -1,4 +1,4 @@
-import { childEnv } from "./child-env";
+import { childEnv, fakeServiceManager } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,7 +29,7 @@ async function reviewExchange(
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
       ...childEnv(home),
-      PATH: process.env.PATH ?? "/usr/bin:/bin",
+      PATH: `${fakeServiceManager(home)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
       PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1",
       PACER_NO_SELF_REPAIR: "1",
