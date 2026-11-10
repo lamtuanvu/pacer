@@ -131,7 +131,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n \"task\": {\n  \"id\": \"task-grant\",\n  \"title\": \"scoped child\",\n  \"state\": \"done\",\n  \"goal\": \"scoped child\",\n  \"executor\": null,\n  \"backend\": null,\n  \"worktree\": null,\n  \"updatedAt\": 0,\n  \"acceptanceState\": \"none\",\n  \"review\": {\n   \"accepted\": true,\n   \"kind\": null,\n   \"note\": \"checked\",\n   \"at\": 0\n  },\n  \"resolved\": \"reviewed\",\n  \"fullTitle\": \"scoped child\",\n  \"rev\": 4,\n  \"queue\": null,\n  \"source\": \"planner\",\n  \"repo\": {\n   \"key\": \"local:fixture\",\n   \"path\": \"$REPO\",\n   \"label\": \"t-fixture-home\"\n  },\n  \"kind\": null,\n  \"host\": null\n }\n}"
+          "text": "{\n \"task\": {\n  \"id\": \"task-grant\",\n  \"title\": \"scoped child\",\n  \"state\": \"done\",\n  \"goal\": \"scoped child\",\n  \"executor\": null,\n  \"backend\": null,\n  \"worktree\": null,\n  \"updatedAt\": 0,\n  \"acceptanceState\": \"none\",\n  \"review\": {\n   \"accepted\": true,\n   \"kind\": null,\n   \"note\": \"checked\",\n   \"at\": 0\n  },\n  \"resolved\": \"reviewed\",\n  \"work\": {\n   \"rootId\": \"task-root\",\n   \"parentId\": \"task-root\",\n   \"depth\": 1,\n   \"allowDelegation\": true\n  },\n  \"fullTitle\": \"scoped child\",\n  \"rev\": 4,\n  \"queue\": null,\n  \"source\": \"planner\",\n  \"repo\": {\n   \"key\": \"local:fixture\",\n   \"path\": \"$REPO\",\n   \"label\": \"t-fixture-home\"\n  },\n  \"kind\": null,\n  \"host\": null\n }\n}"
         }
       ],
       "structuredContent": {
@@ -152,6 +152,12 @@
             "at": 0
           },
           "resolved": "reviewed",
+          "work": {
+            "rootId": "task-root",
+            "parentId": "task-root",
+            "depth": 1,
+            "allowDelegation": true
+          },
           "fullTitle": "scoped child",
           "rev": 4,
           "queue": null,

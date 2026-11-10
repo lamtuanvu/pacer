@@ -25,14 +25,42 @@ export function validateNativeRegistry(source: string): void {
   const registries = [...source.matchAll(/static OPS: &\[NativeOp\] = &\[([\s\S]*?)\];/g)];
   if (registries.length !== 1) throw Error("Cannot verify feature-gated native registry");
   const body = registries[0][1];
-  const entry = /\s*(#\[cfg\(feature = "test-ops"\)\]\s*)?NativeOp\s*\{\s*name:\s*"([^"]+)"\s*,\s*call:\s*[\w:]+\s*,\s*\}\s*,/gy;
+  const modules: Record<string, string> = {
+    engine_ops: "crates/config-ops/src/engine_ops.rs",
+    setup_ops: "crates/config-ops/src/setup_ops.rs",
+    status_ops: "crates/task-ops/src/status_ops.rs",
+    desktop_reconcile_ops: "crates/update/src/desktop_reconcile_ops.rs",
+  };
+  const entry = /\s*(#\[cfg\(feature = "test-ops"\)\]\s*)?NativeOp\s*\{\s*name:\s*(?:"([^"]+)"|(\w+)::ops\(\)\[(\d+)\]\.name)\s*,\s*call:\s*([\w:]+(?:\(\)\[\d+\]\.call)?)\s*,\s*\}\s*,/gy;
   const testNames: string[] = [];
   let offset = 0;
   while (offset < body.length && body.slice(offset).trim()) {
     entry.lastIndex = offset;
     const match = entry.exec(body);
     if (!match) throw Error("Cannot verify feature-gated native registry");
-    const [, feature, name] = match;
+    const [, feature, literal, module, index, call] = match;
+    let name = literal;
+    if (module) {
+      if (feature || !modules[module] || call !== `${module}::ops()[${index}].call`) throw Error("Cannot verify feature-gated native registry");
+      const path = join(import.meta.dir, "../..", modules[module]);
+      const moduleSource = readFileSync(path, "utf8");
+      const ops = [...moduleSource.matchAll(/pub const fn ops\(\)[\s\S]*?\{([\s\S]*?)\n\}/g)];
+      if (ops.length !== 1) throw Error("Cannot verify feature-gated native registry");
+      const array = ops[0][1].match(/&\[([\s\S]*?)\]/);
+      if (!array) throw Error("Cannot verify feature-gated native registry");
+      const moduleEntry = /\s*(?:pacer_foundation::api::)?NativeOp\s*\{\s*name:\s*"([^"]+)"\s*,\s*call:\s*[\w:]+\s*,\s*\}\s*,?/gy;
+      const entries: string[] = [];
+      let position = 0;
+      while (position < array[1].length && array[1].slice(position).trim()) {
+        moduleEntry.lastIndex = position;
+        const item = moduleEntry.exec(array[1]);
+        if (!item) throw Error("Cannot verify feature-gated native registry");
+        entries.push(item[1]);
+        position = moduleEntry.lastIndex;
+      }
+      name = entries[Number(index)];
+      if (!name) throw Error("Cannot verify feature-gated native registry");
+    }
     if (feature) testNames.push(name);
     else if (name === "test.echo" || name === "_debug.native") throw Error("Cannot verify feature-gated native registry");
     offset = entry.lastIndex;
