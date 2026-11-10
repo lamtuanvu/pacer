@@ -41,8 +41,21 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
 pub(crate) fn deadline(op: &str) -> Option<std::time::Duration> {
     match op {
         "service.effects" | "update.effects" => None,
-        _ => Some(std::time::Duration::from_secs(120)),
+        _ => Some(bridge_deadline()),
     }
+}
+
+fn bridge_deadline() -> std::time::Duration {
+    // Test-ops builds only, so end-to-end tests can prove which bridges have no deadline
+    // without waiting 120 s. Release builds always use 120 s.
+    #[cfg(feature = "test-ops")]
+    if let Some(ms) = std::env::var("PACER_TEST_BRIDGE_DEADLINE_MS")
+        .ok()
+        .and_then(|ms| ms.parse().ok())
+    {
+        return std::time::Duration::from_millis(ms);
+    }
+    std::time::Duration::from_secs(120)
 }
 
 pub(crate) fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
@@ -130,7 +143,7 @@ pub(crate) async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core.flush()
         .await
         .map_err(|_| unavailable("core bridge channel closed"))?;
-    tokio::time::timeout(std::time::Duration::from_secs(120), receive(replies, &id))
+    tokio::time::timeout(bridge_deadline(), receive(replies, &id))
         .await
         .map_err(|_| unavailable("core bridge timed out"))?
 }

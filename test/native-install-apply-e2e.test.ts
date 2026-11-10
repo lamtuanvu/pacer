@@ -4,6 +4,8 @@
  * systemd or a release, in a disposable HOME and PACER_HOME. Each scenario runs natively and with both ops in
  * PACER_FORWARD_OPS; the replies and the effects must match. `service.handover` and `service.work` are not native:
  * their replies through both front doors must be byte-identical to forcing them through PACER_FORWARD_OPS.
+ * The front door is a test-ops build, whose PACER_TEST_BRIDGE_DEADLINE_MS shortens the deadline of the other Core
+ * bridges, so a deadline on the install and update effects would fail within seconds instead of after 120.
  */
 import {afterAll, describe, expect, test} from "bun:test";
 import {execFileSync} from "node:child_process";
@@ -23,7 +25,7 @@ const DELAY_MS = 1500;
 let binary = process.env.PACER_TEST_NATIVE_FRONT_DOOR ?? "";
 function frontDoor() {
   if (!binary) {
-    execFileSync("cargo", ["build", "-q", "-p", "pacer", "--locked"], {stdio: "inherit"});
+    execFileSync("cargo", ["build", "-q", "-p", "pacer", "--locked", "--features", "test-ops"], {stdio: "inherit"});
     const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"]).toString());
     binary = join(metadata.target_directory, "debug/pacer");
   }
@@ -37,7 +39,7 @@ afterAll(() => {
   for (const home of homes) rmSync(home, {recursive: true, force: true});
 });
 
-type Fixture = {installDelayMs?: number; installFail?: string; standalone?: boolean};
+type Fixture = {installDelayMs?: number; installFail?: string; standalone?: boolean; updateBlockMs?: number};
 function newHome() {
   // host.sock must fit SUN_LEN (~104); bun test's TMPDIR is too deep for native serve.
   const home = mkdtempSync("/tmp/piae-");
@@ -92,8 +94,8 @@ function normalize(body: any): unknown {
   return job ? {...body, result: {...body.result, job: {kind: job.kind, target: job.target}}} : body;
 }
 
-async function serve(forward?: string, home?: string) {
-  const box = sandbox(forward, {}, home);
+async function serve(forward?: string, home?: string, extra: Record<string, string> = {}) {
+  const box = sandbox(forward, extra, home);
   rmSync(join(box.pacerHome, "core-ready"), {force: true});
   const port = await freePort();
   const child = Bun.spawn([frontDoor(), "serve", "--port", String(port)], {env: {...box.env, PACER_PORT: String(port)}, cwd: box.home, stdout: "ignore", stderr: "pipe"});
@@ -332,6 +334,72 @@ describe("stdio front door", () => {
     expect(r.executorEffects).toEqual([]);
     expect(r.grantInstall.error).toBeDefined();
     expect(r.grantEffects).toEqual([]);
+  }, LONG);
+});
+
+describe("install and update effects outlive a short bridge deadline", () => {
+  const DEADLINE_MS = 300;
+  const HOLD_MS = 2000;
+  const SHORT = {PACER_TEST_BRIDGE_DEADLINE_MS: String(DEADLINE_MS)};
+  const EFFECTS = ["install 1 start", "install 1 done", "update preflight blocked", "update preflight resumed", "update job"];
+
+  test("HTTP: Core's results arrive after the delayed effects while a deadlined bridge times out", async () => {
+    const server = await serve(undefined, undefined, SHORT);
+    // test.echo exists only in test-ops builds, the only ones that read the shortened deadline.
+    expect(await server.op("test.echo", {n: 1})).toEqual({status: 200, body: {result: {n: 1}}});
+
+    server.behave({installDelayMs: HOLD_MS});
+    let started = Date.now();
+    const install = await server.op("service.install", {consent: true});
+    expect(Date.now() - started).toBeGreaterThanOrEqual(HOLD_MS);
+    expect(install).toEqual({status: 200, body: {result: {installed: true, running: true}}});
+    expect(server.effects()).toEqual(EFFECTS.slice(0, 2));
+
+    server.behave({updateBlockMs: HOLD_MS});
+    started = Date.now();
+    const apply = server.op("update.apply", {});
+    await until(() => server.effects().includes("update preflight blocked"), "core to hold the update preflight", 10_000);
+    // Control: setup.check crosses the same Core bridge with the short deadline and gives up while Core is held.
+    const check = await server.op("setup.check", {});
+    expect(server.effects()).not.toContain("update preflight resumed");
+    expect((check.body as any).error).toMatchObject({code: "unavailable", message: "core bridge timed out"});
+    const applied = await apply;
+    expect(Date.now() - started).toBeGreaterThanOrEqual(HOLD_MS);
+    expect(applied).toEqual({status: 200, body: {result: {job: {kind: "update.apply", target: "pacer"}}}});
+    await until(() => server.effects().includes("update job"), "the update job", 10_000);
+    expect(server.effects()).toEqual(EFFECTS);
+    await server.stop();
+    expect(server.stderr.text).toContain("native service.install");
+    expect(server.stderr.text).toContain("native update.apply");
+  }, LONG);
+
+  test("stdio: admitted install and update replies carry Core's results after the delayed effects", async () => {
+    const rpc = connect(undefined, SHORT);
+    expect((await rpc.call("hello", {protocol: 3})).result.protocol).toStartWith("3.");
+    expect((await rpc.call("test.echo", {n: 1})).result).toEqual({n: 1});
+
+    rpc.behave({installDelayMs: HOLD_MS});
+    let started = Date.now();
+    const install = await rpc.call("service.install", {consent: true});
+    expect(Date.now() - started).toBeGreaterThanOrEqual(HOLD_MS);
+    expect(install.result).toEqual({installed: true, running: true});
+    expect(rpc.effects()).toEqual(EFFECTS.slice(0, 2));
+
+    rpc.behave({updateBlockMs: HOLD_MS});
+    started = Date.now();
+    const apply = rpc.call("update.apply", {});
+    await until(() => rpc.effects().includes("update preflight blocked"), "core to hold the update preflight", 10_000);
+    const check = await rpc.call("setup.check", {});
+    expect(rpc.effects()).not.toContain("update preflight resumed");
+    expect(check.error).toMatchObject({message: "core bridge timed out", data: {code: "unavailable"}});
+    const applied = await apply;
+    expect(Date.now() - started).toBeGreaterThanOrEqual(HOLD_MS);
+    expect(applied.result).toEqual({job: {kind: "update.apply", target: "pacer"}});
+    await until(() => rpc.effects().includes("update job"), "the update job", 10_000);
+    expect(rpc.effects()).toEqual(EFFECTS);
+    await rpc.close();
+    expect(rpc.stderr.text).toContain("native service.install");
+    expect(rpc.stderr.text).toContain("native update.apply");
   }, LONG);
 });
 

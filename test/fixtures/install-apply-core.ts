@@ -13,13 +13,15 @@ import { makeCtx } from "../../src/ctx";
 import { startServer } from "../../src/serve/http";
 import type { ServiceStatus } from "../../src/service";
 
-type Behavior = { installDelayMs?: number; installFail?: string; standalone?: boolean };
+/** `updateBlockMs` holds the whole core once, during the first update.apply preflight, so every bridged request waits on it. */
+type Behavior = { installDelayMs?: number; installFail?: string; standalone?: boolean; updateBlockMs?: number };
 
 const ctx = makeCtx();
 const fresh = () => ({ ...ctx, now: Date.now() / 1000 });
 const behavior = (): Behavior => { try { return JSON.parse(readFileSync(join(ctx.pacerHome, "fixture.json"), "utf8")); } catch { return {}; } };
 const log = (line: string) => appendFileSync(join(ctx.pacerHome, "effects.log"), `${line}\n`);
 let installs = 0;
+let held = false;
 
 const opDeps: OpDeps = {
   service: {
@@ -33,7 +35,14 @@ const opDeps: OpDeps = {
     },
     async status() { return { installed: true, running: true } as ServiceStatus; },
   },
-  get update() { return { standalone: behavior().standalone ?? true, execPath: join(ctx.pacerHome, "bin/pacer") }; },
+  get update() {
+    const b = behavior();
+    if (b.updateBlockMs && !held) {
+      held = true;
+      log("update preflight blocked"); Bun.sleepSync(b.updateBlockMs); log("update preflight resumed");
+    }
+    return { standalone: b.standalone ?? true, execPath: join(ctx.pacerHome, "bin/pacer") };
+  },
   runUpdate: async () => { log("update job"); return { code: 0, out: "", err: "" }; },
 };
 
