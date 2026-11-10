@@ -211,6 +211,20 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
   if (!o.pipeOnly && child !== null && Number.isInteger(child) && child > 1) {
     o.guard?.("signal");
     killTree(child, "SIGKILL");
+    if (beforeKill.interactive) {
+      // The session host owns the exit receipt. Killing it alongside its PTY
+      // child prevents it from reaping the child and publishing that receipt.
+      // Allow its bounded PTY drain (250ms) and recording queue to finish.
+      const receiptDeadline = Date.now() + 1000;
+      while (Date.now() < receiptDeadline) {
+        const current = readRun(dir);
+        if (current.exit !== null) return { code: current.exit, killed: false };
+        await sleep(50);
+      }
+      const current = readRun(dir);
+      if (current.exit !== null) return { code: current.exit, killed: false };
+      if (current.pid !== s.pid || !current.alive) return noReceipt();
+    }
   }
   o.guard?.("signal");
   killTree(s.pid, "SIGKILL");

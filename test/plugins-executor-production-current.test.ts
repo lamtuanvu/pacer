@@ -364,6 +364,28 @@ test("lost interactive completion reply recovers the same reported attempt", asy
   } finally { cleanup(); }
 });
 
+for (const status of ["done", "failed"] as const) {
+  test(`interactive ${status} report retains a verified receipt when the agent ignores TERM`, async () => {
+    const { ctx, task, cfg, cleanup } = fixture();
+    writeFileSync(ctx.which("codex")!, `#!/bin/sh
+if [ "$1" = --version ]; then echo codex-cli 0.162.1; exit 0; fi
+trap '' TERM
+printf '%s' '{"status":"${status}","summary":"finished work","at":101}' > "$PACER_RUN_DIR/report.json"
+while :; do sleep 0.1; done
+`, { mode: 0o700 });
+    try {
+      const out = await runOwnedDirectCurrent({ ...ctx, run: realRun },
+        { ...cfg, session: "interactive" }, task);
+      expect(out.exec.code).toBe(status === "done" ? 0 : 1);
+      expect(out.report).toBe("finished work");
+      const current = readTask(ctx, task.id)!;
+      expect(readRun(current.run!.dir).exit).toBe(143);
+      expect(current.executorReportReceipt).toMatchObject({ status, exitCode: 143 });
+      expect(current.executorExitReceipt?.unverified).toBeUndefined();
+    } finally { stopLiveRun(ctx, task.id); cleanup(); }
+  });
+}
+
 test("a pending stop after interactive provider completion refuses success settlement", async () => {
   const { ctx, task, cfg, cleanup } = fixture();
   writeFileSync(ctx.which("codex")!,
