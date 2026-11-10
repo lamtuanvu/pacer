@@ -48,8 +48,17 @@ for (const status of ["done", "failed"] as const) {
 
 test("a clean interactive exit without an explicit report is not success", async () => {
   const dir = tmpDir();
-  startRun({dir, argv: ["sh", "-c", "echo done; exit 0"], cwd: dir, env, session: "interactive"});
-  while ((await localRunIO(dir).read()).exit === null) await Bun.sleep(25);
+  const started = startRun({dir, argv: ["sh", "-c", "echo done; exit 0"], cwd: dir, env, session: "interactive"});
+  if ("error" in started) throw new Error(`startRun failed: ${started.error}`);
+  // Wait on the actual condition (the wrapper's exit receipt) with a bounded
+  // deadline. An unbounded poll hung this test under a heavily loaded machine.
+  const waited = Date.now();
+  for (;;) {
+    const s = await localRunIO(dir).read();
+    if (s.exit !== null) break;
+    if (Date.now() - waited > 20_000) throw new Error(`run in ${dir} (pid=${s.pid}) never recorded an exit`);
+    await Bun.sleep(25);
+  }
   expect(await supervise({io: localRunIO(dir), deadlineMs: Date.now() + 5000, isStopped: () => false, ...fast}))
     .toEqual({kind: "exited", code: 1});
 });
