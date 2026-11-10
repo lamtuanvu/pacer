@@ -35,6 +35,18 @@ export function taskJsonScanCount(): number { return jsonScanCount; }
 const columns = "id, rev, state, created_at, updated_at, settled_at, repo, record, archived";
 const placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?";
 
+// Expressions are shared by the indexes and predicates: SQLite requires an exact
+// expression match. JSON null is an answered question; only a missing answer waits.
+const visibleStateSql = `CASE WHEN state = 'running'
+  AND json_extract(record, '$.question') IS NOT NULL
+  AND json_type(record, '$.question.answer') IS NULL
+  THEN 'needs_input' ELSE state END`;
+const executorSql = `COALESCE(json_extract(record, '$.result.executor'),
+  json_extract(record, '$.executor'), json_extract(record, '$.attempts[#-1].executor'),
+  json_extract(record, '$.requestedExecutor'))`;
+const repoKeySql = "json_extract(record, '$.repo.key')";
+const legacyRepoSql = "json_extract(record, '$.repo') IS NULL";
+
 // A corrupted or adversarial record can hold a non-number where a timestamp is expected
 // (for example `review` set to a string, which has its own `.at` method). `Math.max`
 // coerces such a value with `Number()` instead of treating it as absent, which can yield
@@ -179,7 +191,8 @@ function schemaReady(db: Database): boolean {
   const objects = new Set(db.query<{ name: string }, []>(
     "SELECT name FROM sqlite_master WHERE type IN ('index', 'table', 'trigger')").all().map(row => row.name));
   return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "task_first_settle",
-    "task_changes", "task_changes_insert", "task_changes_update"]
+    "task_changes", "task_changes_insert", "task_changes_update",
+    "tasks_list_state", "tasks_list_executor", "tasks_list_repo", "tasks_list_legacy_repo"]
     .every(name => objects.has(name));
 }
 
@@ -226,6 +239,10 @@ function connection(ctx: Ctx) {
       if (!fields.some(field => field.name === "json_mtime")) db.run("ALTER TABLE tasks ADD COLUMN json_mtime REAL");
       if (!fields.some(field => field.name === "archived")) db.run("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
       db.run("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at)");
+      db.run(`CREATE INDEX IF NOT EXISTS tasks_list_state ON tasks((${visibleStateSql}), id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_list_executor ON tasks((${executorSql}), id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_list_repo ON tasks((${repoKeySql}), id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_list_legacy_repo ON tasks(repo, id DESC) WHERE ${legacyRepoSql};`);
       // settledAt is overwritten when a task settles again; Insights counts a task once, at its first settle.
       db.run("CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL)");
       // Shared change log, filled by triggers so every writer (any runtime, any
@@ -420,17 +437,23 @@ function markImported(entry: Connection, task: TaskRecord, signature: string): v
 export interface TaskFilter {
   states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number;
   createdSince?: number;
+  visibleStates?: readonly TaskState[];
+  executor?: string;
+  repoKey?: string;
+  legacyRepoPaths?: readonly string[];
 }
 
-/**
- * Indexed filters, combined with AND. Newest id first, matching the file store.
- * `core.tasks.list` uses only the cheap, exact-safe filters here (archived/all,
- * created_at for since, id < before for before) and applies repo, visible state and
- * executor matches in JS per id-DESC page, so a history page still works on a bounded
- * number of rows (spec §7).
- */
+/** Distinct legacy paths from a covering partial index, without decoding task JSON.
+ * Resolve these through repoFor at request time: registry aliases can change without
+ * a task write, so persisting their resolved keys would change list semantics. */
+export function legacyTaskRepoPaths(ctx: Ctx): string[] {
+  return connection(ctx).db.query<{ repo: string }, []>(
+    `SELECT DISTINCT repo FROM tasks WHERE ${legacyRepoSql}`).all().map(row => row.repo);
+}
+
+/** Indexed predicates combined with AND, applied before the newest-first limit. */
 export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] {
-  if (filter.states?.length === 0 || filter.limit === 0) return [];
+  if (filter.states?.length === 0 || filter.visibleStates?.length === 0 || filter.limit === 0) return [];
   const clauses: string[] = [], bindings: SQLQueryBindings[] = [];
   if (!filter.all) clauses.push("archived = 0");
   if (filter.settledBefore !== undefined) { clauses.push("settled_at < ?"); bindings.push(filter.settledBefore); }
@@ -439,10 +462,32 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
     clauses.push(`state IN (${filter.states.map(() => "?").join(",")})`);
     bindings.push(...filter.states);
   }
+  if (filter.visibleStates) {
+    clauses.push(`(${visibleStateSql}) IN (${filter.visibleStates.map(() => "?").join(",")})`);
+    bindings.push(...filter.visibleStates);
+  }
+  if (filter.executor !== undefined) {
+    clauses.push(`(${executorSql}) = ?`);
+    bindings.push(filter.executor);
+  }
+  if (filter.repoKey !== undefined) {
+    const paths = filter.legacyRepoPaths ?? [];
+    // Separate candidate seeks keep SQLite from choosing tasks_retention for an
+    // OR predicate and evaluating repository JSON across unrelated history.
+    clauses.push(paths.length
+      ? `id IN (SELECT id FROM tasks WHERE ${repoKeySql} = ?
+          UNION SELECT id FROM tasks WHERE ${legacyRepoSql} AND repo IN (SELECT value FROM json_each(?)))`
+      : `${repoKeySql} = ?`);
+    bindings.push(filter.repoKey);
+    if (paths.length) bindings.push(JSON.stringify(paths));
+  }
   if (filter.updatedSince !== undefined) { clauses.push("updated_at >= ?"); bindings.push(filter.updatedSince); }
   if (filter.createdSince !== undefined) { clauses.push("created_at >= ?"); bindings.push(filter.createdSince); }
   const limit = filter.limit === undefined || filter.limit === Infinity ? -1 : Math.max(0, Math.floor(filter.limit));
-  const sql = `SELECT record FROM tasks ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`;
+  // Seek the candidate IDs rather than letting archived=0 drive a history range.
+  const index = filter.repoKey !== undefined && filter.legacyRepoPaths?.length
+    ? " INDEXED BY sqlite_autoindex_tasks_1" : "";
+  const sql = `SELECT record FROM tasks${index} ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`;
   const rows = connection(ctx).db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
   return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
 }

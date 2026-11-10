@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { tmpDir, fakeCtx } from "./helpers";
 import { list as taskList, type ListOptions } from "../src/core/tasks";
 import { visibleTaskState, type TaskState } from "../src/tasks/types";
-import { listTasksWhere, createTask, updateTask, taskDatabase } from "../src/tasks/store";
+import { listTasksWhere, createTask, updateTask, taskDatabase, taskArchiveDir } from "../src/tasks/store";
 import { taskStatus } from "../src/tasks/api";
 import { repoFor } from "../src/core/repos";
 import { apiTasks } from "../src/api/read-model/tasks";
@@ -149,4 +149,137 @@ test("repo filter matches a task delegated from a subdirectory and a linked work
   const wtTask = mkTask(ctx, 1, { state: "done", briefRepo: worktree });
   const rows = taskList(ctx, { repo: "github.com/acme/app" }).map(t => t.id);
   expect(rows).toEqual(expect.arrayContaining([subTask.id, wtTask.id]));
+});
+test("selective and empty history filters decode only matching records", () => {
+  const ctx = fakeCtx();
+  for (let i = 0; i < 1000; i++) mkTask(ctx, i, { state: "done", repoKey: "local:bulk", executor: "bulk" });
+  const selected = mkTask(ctx, -1, { state: "failed", repoKey: "local:selected", executor: "selected" });
+  for (const filter of [
+    { executor: "selected" }, { repo: "local:selected" }, { states: ["failed"] as TaskState[] },
+    { executor: "missing" }, { repo: "missing" }, { states: ["stopped"] as TaskState[] },
+    { states: [] }, { repo: "local:selected", executor: "bulk" },
+  ]) {
+    const monitor = countListRowsDecoded(taskDatabase(ctx));
+    try {
+      const rows = taskList(ctx, { ...filter, limit: 20 });
+      expect(rows.map(t => t.id)).toEqual("executor" in filter && filter.executor === "selected"
+        || "repo" in filter && filter.repo === "local:selected" && !("executor" in filter)
+        || "states" in filter && filter.states?.[0] === "failed" ? [selected.id] : []);
+      expect(monitor.count(), JSON.stringify(filter)).toBe(rows.length);
+    } finally { monitor.restore(); }
+  }
+});
+
+test("list filter selection uses expression indexes rather than scanning record JSON", () => {
+  const ctx = fakeCtx();
+  mkTask(ctx, 0, { state: "done", executor: "one", repoKey: "local:one" });
+  const db = taskDatabase(ctx), original = db.query.bind(db);
+  const plans: string[] = [];
+  db.query = (sql: string) => {
+    if (/^SELECT record FROM tasks/.test(sql)) {
+      plans.push(...original(`EXPLAIN QUERY PLAN ${sql}`).all(...Array((sql.match(/\?/g) ?? []).length).fill("one"))
+        .map(row => (row as { detail: string }).detail));
+    }
+    return original(sql);
+  };
+  try {
+    taskList(ctx, { executor: "one" });
+    taskList(ctx, { states: ["done"] });
+    taskList(ctx, { repo: "local:one" });
+    expect(plans.some(p => p.includes("tasks_list_executor")), plans.join("\n")).toBe(true);
+    expect(plans.some(p => p.includes("tasks_list_state")), plans.join("\n")).toBe(true);
+    expect(plans.some(p => p.includes("tasks_list_repo")), plans.join("\n")).toBe(true);
+  } finally { db.query = original; }
+});
+
+test("mixed cached and legacy repo selection seeks both indexes before final filtering", () => {
+  const ctx = fakeCtx(), root = tmpDir();
+  writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [root]: { path: root, key: "selected", lastUsed: ctx.now } });
+  for (let i = 0; i < 1000; i++) mkTask(ctx, i, { state: "done", repoKey: "other", briefRepo: root });
+  const cached = mkTask(ctx, -2, { state: "done", repoKey: "selected", briefRepo: root });
+  const legacy = mkTask(ctx, -1, { state: "done", briefRepo: join(root, "sub") });
+  const db = taskDatabase(ctx), original = db.query.bind(db);
+  const plans: string[][] = [];
+  db.query = ((sql: string) => {
+    const stmt = original(sql);
+    if (!/^SELECT record FROM tasks/.test(sql)) return stmt;
+    return new Proxy(stmt, {
+      get(target, prop, receiver) {
+        if (prop === "all") return (...args: any[]) => {
+          plans.push(original(`EXPLAIN QUERY PLAN ${sql}`).all(...args).map(row => (row as { detail: string }).detail));
+          return target.all(...args);
+        };
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  }) as typeof db.query;
+  try {
+    expect(taskList(ctx, { repo: "selected" }).map(t => t.id)).toEqual([legacy.id, cached.id]);
+    expect(taskList(ctx, { repo: "selected", limit: 1 }).map(t => t.id)).toEqual([legacy.id]);
+    expect(taskList(ctx, { repo: "selected", before: legacy.id, limit: 1 }).map(t => t.id)).toEqual([cached.id]);
+    expect(taskList(ctx, { repo: "selected", before: cached.id })).toEqual([]);
+    expect(taskList(ctx, { repo: "selected", executor: "missing" })).toEqual([]);
+    expect(plans).toHaveLength(5);
+    for (const plan of plans) {
+      const detail = plan.join("\n");
+      expect(detail).toMatch(/SEARCH tasks USING (?:COVERING )?INDEX tasks_list_repo/);
+      expect(detail).toMatch(/SEARCH tasks USING (?:COVERING )?INDEX tasks_list_legacy_repo/);
+      expect(detail).not.toContain("tasks_retention");
+      expect(detail).not.toMatch(/SCAN tasks\b/);
+    }
+  } finally { db.query = original; }
+});
+
+test("indexed filters preserve visible waiting, executor precedence and all filter combinations", () => {
+  const ctx = fakeCtx();
+  const root = tmpDir(), alias = tmpDir();
+  writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [root]: { path: root, key: "registered", lastUsed: ctx.now } });
+  writeJsonAtomic(join(ctx.pacerHome, "state", "repo-paths.json"), { [alias]: root });
+  const ids: string[] = [];
+  for (let i = 0; i < 16; i++) {
+    const task = mkTask(ctx, i, { state: i % 2 ? "running" : "done", briefRepo: join(alias, "sub"), executor: "assigned" });
+    ids.push(task.id);
+    updateTask(ctx, task.id, t => {
+      if (i % 3 === 0) t.question = { text: "question", at: ctx.now };
+      if (i % 3 === 1) t.question = { text: "question", at: ctx.now, answer: "" };
+      if (i % 4 === 0) t.result = { executor: "result" } as TaskRecord["result"];
+      if (i % 4 === 1) { delete t.executor; t.attempts = [{ executor: "attempt", startedAt: ctx.now, endedAt: ctx.now } as TaskRecord["attempts"][number]]; }
+      if (i % 4 === 2) { delete t.executor; t.requestedExecutor = "requested"; }
+      if (i % 5 === 0) t.repo = { key: "cached", label: "cached", path: root };
+      if (i % 7 === 0) { mkdirSync(taskArchiveDir(ctx, t), { recursive: true }); t.archived = true; }
+    });
+  }
+  for (const repo of [undefined, "registered", "cached", "missing"])
+    for (const states of [undefined, [], ["done"], ["running"], ["needs_input"], ["done", "needs_input"]] as (TaskState[] | undefined)[])
+      for (const executor of [undefined, "result", "assigned", "attempt", "requested", "missing"])
+        for (const all of [false, true])
+          for (const before of [undefined, ids[12]]) {
+            const options = { repo, states, executor, all, before, since: ctx.now + 2, limit: 3 };
+            expect(taskList(ctx, options).map(t => t.id), JSON.stringify(options)).toEqual(oldList(ctx, options).map(t => t.id));
+          }
+  // Registry changes must immediately affect legacy rows, without rewriting tasks.
+  writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [root]: { path: root, key: "renamed", lastUsed: ctx.now } });
+  expect(taskList(ctx, { repo: "registered" })).toEqual([]);
+  expect(taskList(ctx, { repo: "renamed" }).length).toBeGreaterThan(0);
+});
+
+test("legacy repo pages remain bounded and null answers and empty executors retain their meaning", () => {
+  const ctx = fakeCtx(), root = tmpDir(), other = tmpDir();
+  writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [root]: { path: root, key: "selected", lastUsed: ctx.now } });
+  for (let i = 0; i < 100; i++) mkTask(ctx, i, { briefRepo: other, state: "done" });
+  const selected = mkTask(ctx, -1, { briefRepo: join(root, "sub"), state: "running", executor: "assigned" });
+  updateTask(ctx, selected.id, t => {
+    t.question = { text: "q", at: ctx.now, answer: null as unknown as string };
+    t.result = { executor: "" } as TaskRecord["result"];
+  });
+  for (const options of [{ repo: "selected" }, { repo: "missing" }, { executor: "" }, { states: ["needs_input"] as TaskState[] }]) {
+    const monitor = countListRowsDecoded(taskDatabase(ctx));
+    try {
+      const rows = taskList(ctx, options);
+      expect(monitor.count()).toBe(rows.length);
+      expect(rows.map(t => t.id)).toEqual(options.repo === "selected" || options.executor === "" ? [selected.id] : []);
+    } finally { monitor.restore(); }
+  }
+  expect(taskList(ctx, { states: ["running"] }).map(t => t.id)).toEqual([selected.id]);
 });

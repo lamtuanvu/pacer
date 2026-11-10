@@ -1,4 +1,3 @@
-import { visibleTaskState } from "../tasks/types";
 import { directInputAvailable, sendDirectInput } from "../session/send";
 import { beginWorkSync, finishUnlaunchedWorkSync, validatePendingWorkSync } from "../update/desktop/admission";
 import { resolvePolicyRepo } from "./project-policy";
@@ -25,7 +24,7 @@ import {
   type DelegateInput, type SpawnRunner, admissionCtx, delegate as apiDelegate, spawnRunner, taskDismiss, taskReview, taskStatus,
   taskStop, taskWait,
 } from "../tasks/api";
-import { isTaskId, listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
+import { isTaskId, legacyTaskRepoPaths, listTasksWhere, readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord, TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
 import { isExecutorSession } from "../install/role";
@@ -71,38 +70,17 @@ export interface ListOptions {
   all?: boolean; limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
 }
 
-/** Newest first; the limit and the cheap exact-safe filters (archived, since, before) run in
- *  SQL, while the page is walked in id-DESC chunks so the previous per-row semantics (visible
- *  state, repoFor match, executor precedence) still hold exactly even when active rows sit
- *  ahead of the result in the ordering (spec §7). */
+/** Newest first; exact filters run before SQL paging. Legacy repository paths
+ * are resolved once per distinct path to preserve aliases and fallback keys. */
 export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
   const limit = o.limit ?? 20;
-  if (limit === 0) return [];
-  const wantState = o.states !== undefined;
-  const wantRepo = o.repo !== undefined;
-  const wantExec = o.executor !== undefined;
-  const result: TaskRecord[] = [];
-  let before = o.before;
-  // Cap the first page at `limit` so the common (unfiltered) case decodes at most `limit`
-  // rows; once a full page still hasn't filled the result, widen the chunk for deep scans.
-  let chunk = limit;
-  while (result.length < limit) {
-    const page = listTasksWhere(ctx, { createdSince: o.since, all: o.all, before, limit: chunk });
-    if (page.length === 0) break;
-    before = page[page.length - 1].id;
-    const finished = page.length < chunk;
-    for (const t of page) {
-      const fresh = taskStatus(ctx, t.id) ?? t;
-      if (wantState && !o.states!.includes(visibleTaskState(fresh))) continue;
-      if (wantRepo && (fresh.repo ?? repoFor(ctx, fresh.brief.repo)).key !== o.repo) continue;
-      if (wantExec && (fresh.result?.executor ?? fresh.executor ?? fresh.attempts.at(-1)?.executor ?? fresh.requestedExecutor) !== o.executor) continue;
-      result.push(fresh);
-      if (result.length >= limit) return result;
-    }
-    if (finished) break;
-    chunk = Math.max(chunk, 500);
-  }
-  return result;
+  if (limit <= 0 || o.states?.length === 0) return [];
+  const legacyRepoPaths = o.repo === undefined ? undefined
+    : legacyTaskRepoPaths(ctx).filter(path => repoFor(ctx, path).key === o.repo);
+  return listTasksWhere(ctx, {
+    createdSince: o.since, all: o.all, before: o.before, limit,
+    visibleStates: o.states, executor: o.executor, repoKey: o.repo, legacyRepoPaths,
+  });
 }
 
 export function requireAskingExecutor(ctx: Ctx, id = ctx.env.PACER_TASK_ID): string {
