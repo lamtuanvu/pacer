@@ -23,9 +23,9 @@ import type { Status } from "../../../src/view-model/words";
 import { Switch } from "../ds/Controls";
 import { Kbd } from "../ds/Kbd";
 import { appHref, type TrayIpc } from "./ipc";
-import { actionError, actionRoute, visibleFailure, executorValue, offExecutorLabel, primaryAction, resetCaption, shortTitle, trayModel } from "./model";
+import { actionError, actionRoute, actionSupported, visibleFailure, executorValue, offExecutorLabel, primaryAction, resetCaption, shortTitle, trayModel } from "./model";
 
-export interface TrayProps { snapshot: ClientSnapshot | null; api: BrowserApi; ipc: TrayIpc; connected?: boolean; sessionEnded?: boolean; activity?: ActivityEntry[] }
+export interface TrayProps { snapshot: ClientSnapshot | null; api: BrowserApi; ipc: TrayIpc; connected?: boolean; sessionEnded?: boolean; activity?: ActivityEntry[]; ops?: ReadonlySet<string> }
 /** One short verb per row, as on the board; the full label stays in the tooltip. */
 export function rowLabel(label: string): string {
   // "Open planner settings" and the like: the row title already says what; the button says where.
@@ -41,7 +41,8 @@ function TrayStatusGlyph({ status }: { status: Status }) {
   return icon ? <span className={`pc-status--${status.tone}`} aria-hidden="true"><Icon name={icon} /></span> : <StatusGlyph status={status} />;
 }
 
-export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc) {
+export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc, ops: ReadonlySet<string> = new Set()) {
+  if (!actionSupported(action, ops)) throw new Error("This service does not support this action");
   if ((action.op === "task.answer" || action.op === "dispatch.answer") && typeof action.params.text !== "string") await ipc.open(`/needs-you?answer=${encodeURIComponent(String(action.params.id))}`);
   else if (action.op === "ui.open") await ipc.open(actionRoute(action));
   else await api.call(action.op, action.params);
@@ -64,7 +65,7 @@ export async function dismissTray(closeMenus: () => void, hide: () => Promise<un
   try { await hide(); }
   catch (error) { report(error instanceof Error ? error.message : "Could not hide tray"); }
 }
-export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = false, activity = [] }: TrayProps) {
+export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = false, activity = [], ops = new Set() }: TrayProps) {
   const root = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
@@ -209,7 +210,8 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
       {model.update && <TextAction className="tray-waiting" href={appHref(model.update.route)} onClick={navigate(model.update.route)}><TrayStatusGlyph status={model.update}/><span className="tray-grow">{model.update.label}</span><span className="tray-chevron"><Icon name="chevron-right" /></span></TextAction>}
       {model.attention.length ? <section className="tray-section" aria-label="Needs you"><div className="tray-section-heading"><SectionHeading className="tray-attention-heading">Needs you</SectionHeading><TextAction href={appHref("/needs-you")} onClick={navigate("/needs-you")}>All {model.needsCount} in Needs you</TextAction></div>
         {model.attention.slice(0, 3).map(item => {
-          const action = primaryAction(item.actions);
+          const proposed = primaryAction(item.actions);
+          const action: Action | undefined = proposed && !actionSupported(proposed, ops) ? (item.taskId ? {label:"Open task",op:"ui.open",params:{view:"task",id:item.taskId}} : undefined) : proposed;
           const task = snapshot?.tasks.find(t => t.id === item.taskId);
           const status = attentionStatus(item, snapshot.tasks);
           const detail = item.detail?.trim();
@@ -217,7 +219,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           return <ListRow className={`tray-attention tray-attention--${item.kind}`} key={item.id}
             leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
             content={<>{item.taskId?<TextAction className="tray-task-title" href={appHref(`/tasks/${encodeURIComponent(item.taskId)}`)} onClick={navigate(`/tasks/${encodeURIComponent(item.taskId)}`)}>{taskTitle}</TextAction>:taskTitle}<span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></>}
-            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" busy={busy} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc), item.id)}><span className="tray-action__label">{rowLabel(action.label)}</span></Button>}
+            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" busy={busy} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc, ops), item.id)}><span className="tray-action__label">{rowLabel(action.label)}</span></Button>}
           />;
         })}
       </section> : <section className="tray-clear" aria-label="Needs you"><span className="tray-check"><Icon name="check-circle" /></span><span><strong>Nothing needs you</strong>{model.lastReview !== null && <span className="tray-reason">Last review cleared {timeOnly(model.lastReview)}</span>}</span></section>}

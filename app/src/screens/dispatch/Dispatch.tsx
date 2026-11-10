@@ -56,7 +56,7 @@ const gone = (item: AttentionItem) => (s: { snapshot: ClientSnapshot | null }) =
 const taskLink = (query: RouteQuery) => (id: string) => withQuery(`#/workspace?task=${encodeURIComponent(id)}`, query);
 
 /** Card actions retain scoped result links and open questions in the Answer panel. */
-function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery) {
+function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean, count: 1 | 2, query: RouteQuery, ops: ReadonlySet<string>) {
   return item.actions.slice(0, count).map((action, i) => {
     if ((action.op === "task.answer" || action.op === "dispatch.answer")) {
       return <TextAction key={i} href={withQuery(`#/workspace?task=${encodeURIComponent(item.taskId!)}`, query)}>{action.label}</TextAction>;
@@ -64,12 +64,13 @@ function itemActions(item: AttentionItem, runner: ActionRunner, strong: boolean,
     if (item.taskId && ((item.kind === "review" && i === 0) || /inspect|review|checks/i.test(action.label))) {
       return <TextAction key={i} href={withQuery(`#/workspace?task=${encodeURIComponent(item.taskId)}`, query)}>{item.kind === "review" ? "Review result" : "Inspect failures"}</TextAction>;
     }
+    if (action.op === "dispatch.retry" && !ops.has(action.op)) return item.taskId ? <TextAction key={i} href={taskLink(query)(item.taskId)}>Open task</TextAction> : null;
     return <ActionButton key={i} runner={runner} id={`${item.id}:${i}`} strong={strong && i === 0} action={action} confirmDone={gone(item)} />;
   });
 }
 
 /** A compact Needs you card: glyph, title, one caption line and one action. Status words stay readable beside the glyph. */
-function AttentionCard({ card, snapshot, runner, now, query, actions, narrow = false }: { narrow?: boolean; card: NeedsYouCard; snapshot: ClientSnapshot; runner: ActionRunner; now: number; query: RouteQuery; actions: 1 | 2 }) {
+function AttentionCard({ card, snapshot, runner, now, query, actions, ops, narrow = false }: { ops: ReadonlySet<string>; narrow?: boolean; card: NeedsYouCard; snapshot: ClientSnapshot; runner: ActionRunner; now: number; query: RouteQuery; actions: 1 | 2 }) {
   const item = card.kind === "task" ? card.items[0]! : card.item, bad = (card.kind === "task" ? card.node.attention : card.level) === "bad";
   const rawStatus = attentionStatus(item, snapshot.tasks), status = item.kind === "question" ? {...rawStatus,glyph:"◐"} : rawStatus, title = card.kind === "task" ? card.node.title : item.title;
   // The board's caption: the service's detail, then when it was raised.
@@ -87,12 +88,12 @@ function AttentionCard({ card, snapshot, runner, now, query, actions, narrow = f
         ? <TextAction className="pc-ellipsis" href={taskLink(query)(card.id)} title={title}>{title}</TextAction>
         : <span className="pc-ellipsis" title={title}>{title}</span>}</div>
         <div className="pc-attn-card__caption muted" title={caption}>{caption}{more}</div></div>}
-      actions={actions === 1 && destination ? <ButtonLink size="sm" variant={item.kind === "failed" ? "primary" : "secondary"} href={withQuery(destination.href, query)}>{destination.label}</ButtonLink> : itemActions(item, runner, bad && card.kind === "task", actions, query)} />
+      actions={actions === 1 && destination ? <ButtonLink size="sm" variant={item.kind === "failed" ? "primary" : "secondary"} href={withQuery(destination.href, query)}>{destination.label}</ButtonLink> : itemActions(item, runner, bad && card.kind === "task", actions, query, ops)} />
   </li>;
 }
 
 /** Needs you as compact cards, most urgent first, one per root task; executor, host and setup items are cards of their own. */
-export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, standalone = false }: { snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean; standalone?: boolean }) {
+export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, standalone = false, ops = new Set() }: { ops?: ReadonlySet<string>; snapshot: ClientSnapshot; scope: Scope; runner: ActionRunner; now: number; query: RouteQuery; narrow: boolean; standalone?: boolean }) {
   // The count is of items, like the activity bar and tray; one card can carry several items about the same task.
   const cards = needsYouCards(snapshot, scope, { now }), waiting = needsYou(snapshot, scope).length, others = otherReposNeedingYou(snapshot, scope);
   const page = useOverviewPage(cards, "Needs you", standalone ? Math.max(1, cards.length) : 3, scope.repo ?? "");
@@ -105,7 +106,7 @@ export function NeedsYouList({ snapshot, scope, runner, now, query, narrow, stan
       <span className="grow" />{standalone ? otherRepos : all}
     </div>
     {cards.length > 0 && <ul className="pc-dispatch-cards pc-dispatch-cards--flush" aria-label="Needs you, most urgent first">
-      {page.rows.map(card => <AttentionCard key={card.id} card={card} snapshot={snapshot} runner={runner} now={now} query={query} narrow={narrow && !standalone} actions={standalone ? 2 : 1} />)}
+      {page.rows.map(card => <AttentionCard key={card.id} card={card} snapshot={snapshot} runner={runner} now={now} query={query} ops={ops} narrow={narrow && !standalone} actions={standalone ? 2 : 1} />)}
     </ul>}
     {!cards.length && <EmptyState title="Nothing needs your attention" description={<TextAction href={withQuery("#/tasks", query)}>View Tasks</TextAction>} />}
 
@@ -346,7 +347,7 @@ function NarrowPlanner({ snapshot, now, routing, shortWindowPct }: { snapshot: C
 }
 
 export interface DispatchProps {
-  snapshot: ClientSnapshot; query: RouteQuery; now: number; runner: ActionRunner;
+  snapshot: ClientSnapshot; query: RouteQuery; now: number; runner: ActionRunner; ops?: ReadonlySet<string>;
   /** The routing preview for new work; null when the service cannot preview routing. */
   routing?: RoutingPreview | null;
   period?: Period; onPeriod?: (period: Period) => void;
@@ -363,14 +364,14 @@ export interface DispatchProps {
 const dispatchScope = (query: RouteQuery, narrow: boolean): Scope => ({ repo: narrow ? activeRepo(query) : query.repo || null });
 const NO_INSIGHTS: InsightsState = { supported: false, loading: false };
 /** The Dispatch home in the board's order: planner budget and next task, the period's figures, tokens and Needs you, then live work. Phones lead with Needs you and live work. */
-export function DispatchView({ snapshot, query, now, runner, routing = null, period = "7d", onPeriod, insights = NO_INSIGHTS, connected = true, shortWindowPct = null, workRows = [], workLoading, workUpdating, workError, onWorkReload, firstRun, sampleTask, contentRepo }: DispatchProps) {
+export function DispatchView({ snapshot, query, now, runner, routing = null, period = "7d", onPeriod, insights = NO_INSIGHTS, connected = true, shortWindowPct = null, workRows = [], workLoading, workUpdating, workError, onWorkReload, firstRun, sampleTask, contentRepo, ops }: DispatchProps) {
   useDispatchStyles();
   const narrow = useNarrow(query);
   const { health, reopenHealth } = useContext(SetupContext);
   const scope = dispatchScope(contentRepo === undefined ? query : { ...query, repo: contentRepo }, narrow);
   const plannerAndNext = <PlannerAndNext snapshot={snapshot} now={now} routing={routing} query={query} shortWindowPct={shortWindowPct} />;
   const glance = <Glance period={period} insights={insights} />, share = <TokenShare summary={insights.current} planner={snapshot.planner?.agent ?? null} />;
-  const needs = <NeedsYouList snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} />;
+  const needs = <NeedsYouList snapshot={snapshot} scope={scope} runner={runner} now={now} query={query} narrow={narrow} ops={ops} />;
   const empty = snapshot.tasks.length === 0 && !(snapshot.attention?.length) && workRows.length === 0 && !workLoading && !workError;
   const liveWork = <LiveDispatch narrow={narrow} workUpdating={workUpdating} workLoading={workLoading} workError={workError} onWorkReload={onWorkReload} workRows={workRows} snapshot={snapshot} scope={scope} now={now} runner={runner} query={query} />;
   const header = <DispatchHeader hideNewTask={empty || !!firstRun} snapshot={snapshot} query={query} narrow={narrow} period={period} onPeriod={insights.supported ? onPeriod : undefined} connected={connected} now={now} />;
@@ -517,7 +518,7 @@ export function DispatchHome({ query }: { query: RouteQuery }) {
   const work = useDispatchWork(scope.repo);
   const insights = useInsights(period, scope.repo);
   if (!state.snapshot) return null;
-  return <><LazyWorkPanels query={query} selected={null} /><DispatchView snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? explanationApplies(explain.data) ? { explain: explain.data } : { strategy: explain.data.strategy.name } : {}) } : null}
+  return <><LazyWorkPanels query={query} selected={null} /><DispatchView ops={state.features.ops} snapshot={state.snapshot} query={query} now={Date.now() / 1000} runner={runner} routing={supported ? { ...routing, ...(canExplain && explain.data && !explain.error ? explanationApplies(explain.data) ? { explain: explain.data } : { strategy: explain.data.strategy.name } : {}) } : null}
     sampleTask={state.features.ops.has("onboarding.try") && checklist?.complete && state.snapshot.executors?.some(e => e.rank !== "planner" && e.enabled && e.state === "ready") ? <SampleTask query={query} /> : undefined}
     firstRun={isFirstRun(state.snapshot, checklist) ? <FirstRunData snapshot={state.snapshot} query={query} /> : undefined}
     contentRepo={work.repo} period={period} onPeriod={setPeriod} insights={insights} connected={state.connected} workRows={work.rows} workLoading={work.loading} workUpdating={work.updating} workError={work.error} onWorkReload={work.reload}

@@ -34,6 +34,16 @@ pub fn dispatch(action: &Value) -> Option<Dispatch> {
         None
     }
 }
+/// Notification answers without text open the composer; complete answers and retries call Core.
+pub fn notification_dispatch(action: &Value) -> Option<Dispatch> {
+    match dispatch(action)? {
+        Dispatch::Op { op, params } if (op == "task.answer" || op == "dispatch.answer") && params.get("text").is_none() => {
+            let route = params["id"].as_str().or_else(|| params["taskId"].as_str()).map_or_else(|| "#/needs-you".into(), |id| format!("#/needs-you?answer={id}"));
+            Some(Dispatch::Open(route))
+        }
+        other => Some(other),
+    }
+}
 pub fn pause(paused: bool) -> Value {
     if paused {
         json!({"op":"delegation.resume","params":{}})
@@ -91,6 +101,16 @@ mod tests {
             })
         );
         assert!(dispatch(&json!({"op":"../x","params":{}})).is_none());
+    }
+    #[test]
+    fn notification_managed_and_legacy_answers_open_or_dispatch() {
+        for op in ["task.answer", "dispatch.answer"] {
+            assert_eq!(notification_dispatch(&json!({"op":op,"params":{"id":"t-1"}})), Some(Dispatch::Open("#/needs-you?answer=t-1".into())));
+            let params = json!({"id":"t-1","text":"yes","expect_rev":3,"requestId":"t-1.3.answer"});
+            assert_eq!(notification_dispatch(&json!({"op":op,"params":params})), Some(Dispatch::Op {op:op.into(),params}));
+        }
+        let params = json!({"id":"t-1","expect_rev":3,"requestId":"t-1.3.retry"});
+        assert_eq!(notification_dispatch(&json!({"op":"dispatch.retry","params":params})), Some(Dispatch::Op {op:"dispatch.retry".into(),params}));
     }
     #[test]
     fn attention_fallback_uses_review_only_for_review_items() {
