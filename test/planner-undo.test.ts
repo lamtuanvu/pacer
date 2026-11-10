@@ -5,6 +5,7 @@ import { fakeCtx, tmpDir } from "./helpers";
 import { restorePlannerInstall } from "../src/plugins/planner-install";
 import { readManifest } from "../src/install/manifest";
 import { writeUndoSnapshot, undoKeyDir, readSnapshotFile, UNDO_CAP_BYTES, pruneUndoSnapshotsAtStartup, UNDO_MISMATCH, type SnapshotChange } from "../src/install/undo-store";
+import { withInstallLock } from "../src/install/lock";
 import { runDoctor } from "../src/install/doctor";
 import { sha256 } from "../src/install/fsx";
 
@@ -315,4 +316,25 @@ test("expired snapshots are pruned at service startup and by doctor (L2)", async
   writeUndoSnapshot(c, "claude-code", [{ path: file, before: small, after: "b\n" }], "rev-expired", c.now - 8 * 86_400);
   await runDoctor(c, { status, service });
   expect(readdirSync(join(c.pacerHome, "undo"))).toEqual(["codex#team"]);
+});
+
+test("startup pruning never queues behind a busy install lock; a starting service must not delay its listener past the installer's health deadline", async () => {
+  const c = ctx();
+  const file = join(c.home, ".claude", "a.txt");
+  // `service install` holds the install lock across its health verification, so a
+  // serve that starts while it runs must skip pruning instead of waiting for it.
+  let release!: () => void;
+  const holder = withInstallLock(c, () => new Promise<void>(resolve => { release = resolve; }));
+  const lockDir = join(c.pacerHome, "install-locks");
+  while (readdirSync(lockDir).filter(other => other.endsWith(".json")).length === 0) await Bun.sleep(10);
+  writeUndoSnapshot(c, "claude-code", [{ path: file, before: "a\n", after: "b\n" }], "rev", c.now - 8 * 86_400);
+  const startedAt = Date.now();
+  await pruneUndoSnapshotsAtStartup(c);
+  expect(Date.now() - startedAt).toBeLessThan(2000);
+  // A busy lock skips the prune but keeps the expired snapshot; a free lock prunes it.
+  expect(existsSync(undoKeyDir(c, "claude-code"))).toBe(true);
+  release();
+  await holder;
+  await pruneUndoSnapshotsAtStartup(c);
+  expect(existsSync(undoKeyDir(c, "claude-code"))).toBe(false);
 });
