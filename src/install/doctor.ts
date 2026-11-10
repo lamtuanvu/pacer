@@ -26,6 +26,7 @@ import { internalCheck, internalErrorCode, isInternalCode, remedies, remedyComma
 import { displayName } from "../render/accounts";
 import type { ProviderStatus } from "../engine/rank";
 import { availableModels as listModels, closestModels, isOffered, type AvailableModels } from "../models/available";
+import { modelDeclarationWarnings } from "../core/runner-models";
 
 /** The one primary fix for a warning or failure. The server decides it; clients render it. */
 export interface Remedy {
@@ -87,6 +88,15 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     try {
       checks.push(...await executorModelsChecks(ctx, strategy, deps.availableModels ?? listModels));
     } catch { /* a failed listing is unknown, never a failure (see executorModelsChecks) */ }
+
+    // Hand-edited drift in the allowed models is pure strategy reading: no listing
+    // is needed, so these checks cannot fail on a fetch like the ones above.
+    for (const runner of Object.values(strategy.runners)) {
+      const warnings = modelDeclarationWarnings(runner);
+      if (warnings.length) checks.push({ name: `Models ${runner.id}`, level: "warn", detail: warnings.join("\n"),
+        remedy: warnings.some(w => w.includes('default model "') && w.endsWith('" is not in models'))
+          ? remedies.agent(`Models ${runner.id}`) : {kind: "user", label: `Rate ${runner.id} models`} });
+    }
 
     for (const cfg of Object.values(strategy.providers)) {
       const bin = binaryFor(cfg);

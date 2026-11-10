@@ -16,6 +16,8 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "api.describe",
     "runner.settings.get",
     "runner.settings.save",
+    "runner.models.get",
+    "runner.models.set",
     "desktop.capture.register",
     "desktop.capture.targets",
     "desktop.capture.request",

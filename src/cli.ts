@@ -71,6 +71,9 @@ import { terminalEnv } from "./exec/login-env";
 import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
 import type { Ctx } from "./types";
 import { ensureIdentity } from "./identity/store";
+import { readRunnerModels, saveRunnerModels, modelDeclarationWarnings, type ModelDeclaration } from "./core/runner-models";
+import { availableModels } from "./models/available";
+import { tierSchema } from "./dispatch/types";
 
 /** Test seam: how the CLI starts a task runner. Tests swap it so they never spawn `pacer _run`. */
 export const cliDeps: { spawnRunner: SpawnRunner } = { spawnRunner };
@@ -97,6 +100,8 @@ const USAGE = `usage: pacer <command>
   tasks prune [--dry-run] [--json]               archive old settled tasks
   tasks restore <task-id> [--json]               restore archived artifacts
   executor set <id> [--enabled true|false] [--model <m>] [--max-tasks <n>]
+  executor models <id>                            print available and allowed models
+                    [--default <m>] [--allow <m>:<tier>] [--remove <m>]  save them
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   report --task <task-id> --outcome done|failed|needs-input|running --summary <text>
   takeover <task-id> [--no-attach]
@@ -388,7 +393,56 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
   };
 }
 
-export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
+ /** Show and edit one executor's allowed models: the CLI face of `runner.models.get/set`. */
+ async function executorModelsCommand(args: string[], ctx: Ctx): Promise<Result> {
+   try {
+     const [id, ...flags] = args;
+     if (!id) throw new Error("usage: pacer executor models <id> [--default <m>] [--allow <m>:<tier>] [--remove <m>]");
+     if (!flags.length) {
+       const m = readRunnerModels(ctx, id);
+       const s = loadStrategy(ctx), runner = s.runners[m.runner];
+       const available = await availableModels(ctx, m.runner);
+       const lines = [
+         `${m.runner}`,
+         `Default model: ${m.default ?? "(agent default)"}`,
+         m.models.length ? `Allowed models:\n${m.models.map(x => `  ${x.id} (${x.tier})`).join("\n")}` : "Allowed models: none declared; the default model always launches",
+         `Available models: ${available.models === null ? `unknown${available.note ? ` (${available.note})` : ""}` : available.models.length ? available.models.map(x => x.id).join(", ") : "none"}`,
+         ...(runner ? modelDeclarationWarnings(runner) : []),
+       ];
+       return {code: 0, out: lines.join("\n"), err: ""};
+     }
+     const current = readRunnerModels(ctx, id);
+     let appliedDefault: string | undefined;
+     const declared: ModelDeclaration[] = [...current.models];
+     for (let i = 0; i < flags.length; i += 2) {
+       const key = flags[i], value = flags[i + 1];
+       if (value === undefined) throw new Error(`missing value for ${key}`);
+       if (key === "--default") appliedDefault = value;
+       else if (key === "--allow") {
+         const at = value.lastIndexOf(":");
+         const tier = at < 0 ? "" : value.slice(at + 1);
+         if (at < 1 || !tierSchema.safeParse(tier).success) throw new Error("--allow expects <model>:<tier>, tier one of small, medium, frontier, unknown");
+         const mid = value.slice(0, at), found = declared.find(x => x.id === mid);
+         if (found) found.tier = tier as ModelDeclaration["tier"];
+         else declared.push({id: mid, tier: tier as ModelDeclaration["tier"]});
+       }
+       else if (key === "--remove") {
+         const at = declared.findIndex(x => x.id === value);
+         if (at === -1) throw new Error(`${value} is not a declared model for ${current.runner}`);
+         declared.splice(at, 1);
+       }
+       else throw new Error(`unknown option ${key}`);
+     }
+     if (appliedDefault === undefined) {
+       if (current.default === null) throw new Error("this executor has no default model; provide --default");
+       appliedDefault = current.default;
+     }
+     const result = await saveRunnerModels(ctx, {id: current.runner, expectedRevision: current.revision, default: appliedDefault, models: declared});
+     return {code: 0, out: [`${result.runner}: updated`, ...result.warnings].join("\n"), err: ""};
+   } catch (e) { return {code: 2, out: "", err: `pacer: ${(e as Error).message}`}; }
+ }
+
+ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   let nativeBootstrap;
   try {
     nativeBootstrap = consumeNativePairedBootstrap(ctx.env);
@@ -471,7 +525,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         return {code:0,out:`${r.provider} exhausted until ${r.exhaustedUntil}`,err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}
     }
-    case "executor": return executorCommand(rest,ctx);
+    case "executor": return rest[0] === "models" ? executorModelsCommand(rest.slice(1), ctx) : executorCommand(rest, ctx);
     case "status":
       return status(rest, ctx);
     case "route":

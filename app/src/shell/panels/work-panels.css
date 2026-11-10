@@ -108,13 +108,13 @@
   line-height: var(--type-number-lg-line);
   font-weight: var(--type-number-lg-weight);
 }
-.pc-scope-panel > .pc-frame-slot,
-.pc-side-panel--right:has(.pc-work-panel-body) > .pc-frame-slot {
+.pc-scope-panel > .pc-frame-slot {
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
   overflow: auto;
+  overscroll-behavior-y: contain;
 }
 /* Board 5's inspector strip retains shared tab semantics and overflow behavior. */
 .pc-work-panel-bar--tabs .pc-panel-tabs__list {

@@ -164,6 +164,8 @@
     "runner.block",
     "runner.check",
     "runner.list",
+    "runner.models.get",
+    "runner.models.set",
     "runner.remove",
     "runner.reorder",
     "runner.set",
