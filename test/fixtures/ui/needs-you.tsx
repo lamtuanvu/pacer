@@ -12,16 +12,20 @@ import { useEffect, useState } from "preact/hooks";
 const snap = structuredClone(snapshot) as unknown as ClientSnapshot;
 const managed = location.search.includes("managed");
 const unsupported = location.search.includes("unsupported");
-const question = { ...snap.tasks[0]!, id: "question", ...(managed ? {work:{rootId:"question",parentId:null,depth:0}} : {}), state: "needs_input", title: "A question about the update plan", executor: "codex", rev: 7, question: { text: "Hide the expired plan?", at: snap.at - 2280, options: ["Hide it", "Keep it visible"] } };
+let question = { ...snap.tasks[0]!, id: "question", ...(managed ? {work:{rootId:"question",parentId:null,depth:0}} : {}), state: "needs_input", title: "A question about the update plan", executor: "codex", rev: 7, question: { text: "Hide the expired plan?", at: snap.at - 2280, options: ["Hide it", "Keep it visible"] } };
 snap.tasks.push(question);
 snap.attention = [{ id: "question", taskId: "question", kind: "question", severity: "decide", repo: question.repo!, title: question.title, detail: question.question.text, raisedAt: snap.at - 2280, since: snap.at - 2280, actions: [{ label: "Answer", op: "task.answer", params: { id: "question" } }], notify: "important" }, ...(snap.attention ?? [])];
 const controls = window as unknown as { actionMode: string; actionCalls: {op:string;params:unknown}[]; releaseAction: () => void };
 controls.actionCalls = [];
-const failedTask = { ...question, id:"managed-failed", state:"failed", title:"Managed failed work", fullTitle:"Managed failed work", question:null, brief:{goal:"Managed failed work",repo:"/tmp/example"}, acceptance:{state:"failed",checks:[]}, attempts:[], work:{rootId:"managed-failed",parentId:null,depth:0} };
+let failedTask = { ...question, id:"managed-failed", state:"failed", title:"Managed failed work", fullTitle:"Managed failed work", question:null, brief:{goal:"Managed failed work",repo:"$HOME/repo"}, acceptance:{state:"failed",checks:[]}, attempts:[], work:{rootId:"managed-failed",parentId:null,depth:0} };
 if (location.search.includes("failed")) {
  snap.tasks.push(failedTask as never);
  snap.attention = [{id:"managed-failed",taskId:"managed-failed",kind:"failed",severity:"decide",repo:question.repo!,title:failedTask.title,detail:"Checks failed",raisedAt:snap.at,since:snap.at,actions:[],notify:"important"}, ...(snap.attention ?? [])];
 }
+(window as any).refreshFixture = () => {
+  question = {...question, rev:8}; failedTask = {...failedTask, rev:8};
+  snap.tasks = snap.tasks.map(task => task.id === "question" ? question as never : task.id === "managed-failed" ? failedTask as never : task);
+};
 const api = { call: async <T,>(op: string, params: unknown): Promise<T> => {
   if (op === "task.retry_options") return [] as T;
   if (op === "task.get") return { ...question, branch: "fix/stale-plan" } as T;

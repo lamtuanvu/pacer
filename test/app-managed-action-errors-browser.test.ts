@@ -69,13 +69,84 @@ for (const surface of ["answer", "retry", "tray"] as const) {
       await page.waitForFunction(() => ((window as any).actionCalls as unknown[]).length >= 1);
       expect(await calls(page)).toEqual([expectedCall(surface)]);
       await page.waitForFunction(() => typeof (window as any).releaseAction === "function");
-      expect(await button.isDisabled()).toBe(true);
+      if (surface === "tray") {
+        const working = page.getByRole("button", { name: "Working…" });
+        expect(await working.getAttribute("aria-disabled")).toBe("true");
+        expect(await working.isVisible()).toBe(true);
+      } else if (surface === "answer") {
+        const sending = page.getByRole("button", { name: "Sending…" });
+        expect(await sending.getAttribute("aria-disabled")).toBe("true");
+        expect(await sending.isVisible()).toBe(true);
+      } else expect(await button.isDisabled()).toBe(true);
       await page.evaluate(() => (window as any).releaseAction());
       if (surface === "answer") await page.getByRole("dialog").waitFor({ state: "detached" });
       else if (surface === "retry") await page.waitForURL(/workspace/);
-      else await button.waitFor({ state: "visible" });
+      else await page.getByRole("button", { name: "Retry", exact: true }).waitFor({ state: "visible" });
       expect(await calls(page)).toEqual([expectedCall(surface)]);
       if (surface === "tray") expect(await page.getByText("Managed retry").count()).toBeGreaterThan(0);
+    } finally { await page.close(); }
+  }, 30000);
+}
+
+for (const surface of ["answer", "retry", "tray"] as const) {
+  test.skipIf(!browserPath)(`${surface}: a failed request can be retried successfully`, async () => {
+    const page = await setup(surface, "error");
+    try {
+      await actionButton(page, surface).click();
+      await page.getByText(/Service temporarily unavailable/).first().waitFor();
+      await page.evaluate(() => { (window as any).actionMode = "success"; });
+      await actionButton(page, surface).click();
+      if (surface === "answer") await page.getByRole("dialog").waitFor({ state: "detached" });
+      else if (surface === "retry") await page.waitForURL(/workspace/);
+      else await page.getByRole("alert").waitFor({ state: "detached" });
+      expect(await calls(page)).toEqual([expectedCall(surface), expectedCall(surface)]);
+    } finally { await page.close(); }
+  }, 30000);
+  test.skipIf(!browserPath)(`${surface}: refresh after conflict uses the new revision`, async () => {
+    const page = await setup(surface, "conflict");
+    try {
+      await actionButton(page, surface).click();
+      await page.getByText(surface === "tray" ? /Revision changed/ : /Already handled elsewhere/).first().waitFor();
+      await page.evaluate(() => { (window as any).refreshFixture(); (window as any).actionMode = "success"; });
+      if (surface === "answer") {
+        await page.getByRole("button", { name: "Close" }).click();
+        await page.getByRole("link", { name: "Answer", exact: true }).click();
+        await page.getByRole("dialog").locator("textarea").fill("Keep this draft");
+      } else if (surface === "retry") {
+        await page.evaluate(() => { location.hash = "#/needs-you"; });
+        await page.locator(".ny-item").filter({ hasText: "Managed failed work" }).getByRole("link", { name: "Inspect failures" }).click();
+        await page.getByRole("radio", { name: /^Retry task/ }).click();
+      }
+      await actionButton(page, surface).click();
+      const actual = await calls(page);
+      expect(actual).toHaveLength(2);
+      expect(actual[0]).toEqual(expectedCall(surface));
+      expect(actual[1].params.expect_rev).toBe(8);
+      expect(actual[1].params.requestId).toBe(`${actual[1].params.id}.8.${surface === "answer" ? "answer" : "retry"}`);
+    } finally { await page.close(); }
+  }, 30000);
+  test.skipIf(!browserPath)(`${surface}: unmount during a request does not affect the remounted view`, async () => {
+    const page = await setup(surface, "hold");
+    try {
+      await actionButton(page, surface).click();
+      await page.waitForFunction(() => typeof (window as any).releaseAction === "function");
+      if (surface === "answer") await page.getByRole("button", { name: "Close" }).click();
+      else if (surface === "retry") await page.evaluate(() => { location.hash = "#/needs-you"; });
+      else await page.evaluate(() => (window as any).unmountFixture());
+      await page.evaluate(() => (window as any).releaseAction());
+      await page.waitForTimeout(100);
+      if (surface === "retry") expect(page.url()).toContain("#/needs-you");
+      if (surface === "tray") await page.evaluate(() => (window as any).mountFixture());
+      if (surface === "answer") {
+        await page.getByRole("link", { name: "Answer", exact: true }).click();
+        await page.getByRole("dialog").locator("textarea").fill("Keep this draft");
+      } else if (surface === "retry") {
+        await page.locator(".ny-item").filter({ hasText: "Managed failed work" }).getByRole("link", { name: "Inspect failures" }).click();
+        await page.getByRole("radio", { name: /^Retry task/ }).click();
+      }
+      await page.evaluate(() => { (window as any).actionMode = "success"; });
+      await actionButton(page, surface).click();
+      expect(await calls(page)).toHaveLength(2);
     } finally { await page.close(); }
   }, 30000);
 }
