@@ -202,7 +202,7 @@ function schemaReady(db: Database): boolean {
   return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "tasks_snapshot_window", "tasks_live", "task_first_settle",
     "task_changes", "task_changes_insert", "task_changes_update",
     "pump_seen", "pump_state", "pump_cursor", "pump_session", "pump_reconcile",
-    "tasks_list_state", "tasks_list_executor", "tasks_list_repo", "tasks_list_legacy_repo"]
+    "tasks_list_state", "tasks_list_executor", "tasks_list_repo", "tasks_list_legacy_repo", "tasks_capacity_failures"]
     .every(name => objects.has(name));
 }
 
@@ -255,6 +255,10 @@ function connection(ctx: Ctx) {
       db.run(`CREATE INDEX IF NOT EXISTS tasks_snapshot_window
         ON tasks(${snapshotUpdatedAt} DESC, id DESC)
         WHERE archived=0 AND COALESCE(json_extract(record,'$.dismissed'),0)=0`);
+      // Failed retry candidates use the API event timestamp, not the write timestamp.
+      // Include dismissed failures: dismissal does not clear executor failure evidence.
+      db.run(`CREATE INDEX IF NOT EXISTS tasks_capacity_failures
+        ON tasks(${snapshotUpdatedAt}) WHERE archived=0 AND state='failed'`);
       // The pump checks live membership every 500ms. Keep this selection bounded
       // by live records; an id-order scan would parse all settled JSON each time.
       db.run("CREATE INDEX IF NOT EXISTS tasks_live ON tasks(id DESC) WHERE json_extract(record, '$.live') IS NOT NULL");
@@ -464,6 +468,20 @@ function writeTask(ctx: Ctx, id: string, mutate: (t: TaskRecord) => void, always
 /** Only a committed outermost write may skip the next scan's lookup; a rollback leaves the JSON to import. */
 function markImported(entry: Connection, task: TaskRecord, signature: string): void {
   if (!task.archived && !entry.db.inTransaction) entry.imported.set(`${task.id}.json`, signature);
+}
+
+/** Only records that can affect executor slots or recent-failure presentation.
+ * Keep the exact event-time expression shared with the snapshot index. No limit:
+ * every running task and every recent failure contributes to capacity semantics.
+ * Callers still apply visible state (an unanswered question is not running).
+ */
+export function capacityTaskRecords(ctx: Ctx): TaskRecord[] {
+  return connection(ctx).db.query<{ record: string }, [number]>(`
+    SELECT record FROM tasks INDEXED BY tasks_state WHERE archived=0 AND state='running'
+    UNION ALL
+    SELECT record FROM tasks INDEXED BY tasks_capacity_failures
+      WHERE archived=0 AND state='failed' AND ${snapshotUpdatedAt} >= ?
+  `).all(ctx.now - 86400).map(row => JSON.parse(row.record) as TaskRecord);
 }
 
 export interface TaskFilter {
