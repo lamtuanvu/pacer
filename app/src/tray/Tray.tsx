@@ -78,11 +78,12 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   // A failure on a Needs you row belongs to that row: it clears once the row is gone.
   const [failure, setFailure] = useState<{ message: string; item?: string } | null>(null);
   const setError = (message: string) => setFailure(message ? { message } : null);
-  const [busy, setBusy] = useState(false), inFlight = useRef(false);
+  const [busy, setBusy] = useState(false), [busyItem, setBusyItem] = useState<string>(), inFlight = useRef(false), mounted = useRef(true);
+  useLayoutEffect(() => () => { mounted.current = false; }, []);
   const act = (work: () => Promise<unknown>, item?: string) => {
     if (inFlight.current) return;
-    inFlight.current = true; setBusy(true); setFailure(null);
-    void work().catch(e => setFailure({ message: actionError(e), item })).finally(() => { inFlight.current = false; setBusy(false); });
+    inFlight.current = true; setBusy(true); setBusyItem(item); setFailure(null);
+    void work().catch(e => { if (mounted.current) setFailure({ message: actionError(e), item }); }).finally(() => { inFlight.current = false; if (mounted.current) { setBusy(false); setBusyItem(undefined); } });
   };
   useLayoutEffect(() => {
     const measure = () => {
@@ -219,7 +220,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
           return <ListRow className={`tray-attention tray-attention--${item.kind}`} key={item.id}
             leading={<span className={`tray-attention-glyph tray-attention-glyph--${item.kind === "failed" ? "bad" : item.kind === "review" ? "info" : "warn"}`} title={status.label} aria-hidden="true">{item.kind === "failed" ? "✕" : item.kind === "review" ? "●" : "◐"}</span>}
             content={<>{item.taskId?<TextAction className="tray-task-title" href={appHref(`/tasks/${encodeURIComponent(item.taskId)}`)} onClick={navigate(`/tasks/${encodeURIComponent(item.taskId)}`)}>{taskTitle}</TextAction>:taskTitle}<span className="tray-reason tray-ellipsis" title={detail}>{[item.repo?.label ?? task?.repo?.label, status.label, detail?.toLowerCase() === status.label.toLowerCase() ? undefined : detail].filter(Boolean).join(" · ")}</span></>}
-            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" busy={busy} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc, ops), item.id)}><span className="tray-action__label">{rowLabel(action.label)}</span></Button>}
+            actions={action && <Button variant={item.id === model.recommendedId ? "primary" : "secondary"} size="sm" aria-busy={busy && busyItem === item.id} aria-disabled={busy || sessionEnded} disabled={sessionEnded} title={action.label} onClick={() => act(() => performAction(action, api, ipc, ops), item.id)}><span className="tray-action__label">{busy && busyItem === item.id ? "Working…" : rowLabel(action.label)}</span></Button>}
           />;
         })}
       </section> : <section className="tray-clear" aria-label="Needs you"><span className="tray-check"><Icon name="check-circle" /></span><span><strong>Nothing needs you</strong>{model.lastReview !== null && <span className="tray-reason">Last review cleared {timeOnly(model.lastReview)}</span>}</span></section>}

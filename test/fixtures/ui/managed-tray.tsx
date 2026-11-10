@@ -10,4 +10,13 @@ snap.attention=[{id:"managed-failed",taskId:"managed",kind:"failed",severity:"de
 const controls=window as unknown as {actionMode:string;actionCalls:unknown[];releaseAction:()=>void}; controls.actionCalls=[];
 const api={call:async (op:string,params:unknown)=>{if(op!=="dispatch.retry") return {}; controls.actionCalls.push({op,params});if(controls.actionMode==="hold") await new Promise<void>(resolve=>{controls.releaseAction=resolve}); if(controls.actionMode==="conflict")throw new ApiError("conflict","Revision changed",undefined,409);if(controls.actionMode==="error")throw new Error("Service temporarily unavailable");return {};}};
 const ipc={desktop:false,resize:async()=>{},open:async()=>{},hide:async()=>{},loginItem:async()=>false};
-render(<Tray snapshot={snap} api={api as never} ipc={ipc as never} ops={new Set(["dispatch.retry"])} />,document.getElementById("fixture")!);
+const root = document.getElementById("fixture")!;
+const mount = () => render(<Tray snapshot={snap} api={api as never} ipc={ipc as never} ops={new Set(location.search.includes("unsupported") ? [] : ["dispatch.retry"])} />,root);
+(window as any).unmountFixture = () => render(null, root);
+(window as any).mountFixture = mount;
+(window as any).refreshFixture = () => {
+  const action = snap.attention![0]!.actions[0]!;
+  action.params = {...action.params, expect_rev:8, requestId:"managed.8.retry"};
+  mount();
+};
+mount();
