@@ -33,7 +33,7 @@ if (import.meta.main) {
       try {
         const url = `http://127.0.0.1:${probe.port}/`;
         const script = `try { await fetch(process.argv[1]); process.exit(0); } catch { process.exit(42); }`;
-        const child = Bun.spawn(["/usr/bin/sandbox-exec", "-p", testSandboxProfile(probe.port!), process.execPath, "-e", script, url], { stdout: "ignore", stderr: "pipe" });
+        const child = Bun.spawn(["/usr/bin/sandbox-exec", "-p", testSandboxProfile(4317, 11434, 1234, 41343, probe.port!), process.execPath, "-e", script, url], { stdout: "ignore", stderr: "pipe" });
         if (await child.exited !== 42 || await (await fetch(url)).text() !== "ok") {
           throw new Error(`Test sandbox loopback self-check failed: ${await new Response(child.stderr).text()}`);
         }
