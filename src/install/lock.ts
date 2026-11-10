@@ -5,8 +5,11 @@ import { readInstallFile, writeInstallFile } from "./atomic";
 
 interface Contender { pid: number; ticket: number | null }
 const active = new Set<string>();
-/** Bakery lock: unique contender files need no shared reaper lock or stale-age takeover. */
-export async function withInstallLock<T>(ctx: Ctx, fn: () => Promise<T>): Promise<T> {
+/** Bakery lock: unique contender files need no shared reaper lock or stale-age takeover.
+ * `waitMs` caps how long a caller queues behind an existing owner (default 30s for
+ * install operations); 0 makes it a single try, so best-effort startup work returns
+ * immediately when the lock is busy instead of delaying what comes after it. */
+export async function withInstallLock<T>(ctx: Ctx, fn: () => Promise<T>, options: { waitMs?: number } = {}): Promise<T> {
   if (ctx.readOnly) throw Error("integration writes are disabled in read-only context");
   const dir = join(ctx.pacerHome, "install-locks"), name = `${process.pid}-${crypto.randomUUID()}.json`;
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -39,9 +42,9 @@ export async function withInstallLock<T>(ctx: Ctx, fn: () => Promise<T>): Promis
     const ticket = Math.max(0, ...contenders().map(([, value]) => value.ticket ?? 0)) + 1;
     if (!Number.isSafeInteger(ticket)) throw Error("installation lock ticket exhausted");
     writeInstallFile(file, JSON.stringify({ pid: process.pid, ticket } satisfies Contender));
-    const deadline = Date.now() + 30000;
+    const waitMs = options.waitMs ?? 30_000, deadline = Date.now() + waitMs;
     while (contenders().some(([other, value]) => other !== name && (value.ticket === null || value.ticket < ticket || value.ticket === ticket && other < name))) {
-      if (Date.now() >= deadline) throw Error("integration installation is busy; retry shortly");
+      if (Date.now() >= deadline) throw Error(waitMs ? "integration installation is busy; retry shortly" : "the installation lock is busy");
       await Bun.sleep(25);
     }
     return await fn();
