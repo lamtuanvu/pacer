@@ -31,7 +31,7 @@ Why these rules exist: rustc compiles each crate as one unit. Type and borrow ch
 
 ## Planned crates and budgets
 
-Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CRATE-1 applies to all of them.
+Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CRATE-1 applies to all of them. The `pacer-mcp` and `pacer-core-bridge` rows and revised `pacer-server` description are proposed under amendment 0.22.0; adopted only by maintainer merge.
 
 | Layer | Crate (folder) | Domain | Planned LOC | Heavy deps allowed |
 |---|---|---|---|---|
@@ -77,7 +77,9 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 8 | `pacer-task-ops` (`crates/task-ops`) | Native task, session, snapshot and shared job operation handlers (reads, list, detail, review, stop, dismiss, diff, wait, `job.*`) | ≤ 2,500 | none |
 | 8 | `pacer-tui` (`crates/tui`) | Dashboard (an API client: ARCH-1) | 1,000–1,200 | `ratatui`, `crossterm` |
 | 8 | `pacer-bundled` (`crates/bundled`) | Table of bundled plugins (manifest text and entry function), from M3 plan 1 | ≤ 300 | none (depends on `plugins-rs/*`) |
-| 9 | `pacer-server` (`crates/server`) | Op registry assembly, HTTP, SSE, WebSocket, stdio, MCP, bridge, embedded app assets | 2,000–2,500 | `axum`, `hyper`, `rmcp` |
+| 8 | `pacer-mcp` (`crates/mcp`) | MCP catalog, validation and stdio wire transport | ≤ 1,500 | none |
+| 8 | `pacer-core-bridge` (`crates/core-bridge`) | Core HTTP and stdio bridge clients for native operations (M2 coexistence) | ≤ 2,500 | `axum`, `hyper` |
+| 9 | `pacer-server` (`crates/server`) | Op registry assembly, HTTP, SSE, WebSocket, stdio, MCP and bridge assembly, embedded app assets | 2,000–2,500 | `axum`, `hyper`, `rmcp` |
 | 10 | `pacer-cli` (`crates/cli`) | Commands, renderers, status line, core exec and self-repair (M1–M2) | 3,000–3,500 | `clap` |
 | 11 | `pacer` (`crates/pacer`) | Binary | ≤ 500 | none |
 | SDK | `pacer-plugin` (`crates/plugin-sdk`) | Rust plugin SDK; features `testing`, `install`, `exec`, `wasm`; depends on the plugin protocol crates (`pacer-plugin-protocol`, `pacer-plugin-decision-protocol`, `pacer-plugin-agent-session-protocol`) only; `pacer_plugin::types` re-exports all three | 1,200 core, 3,500–4,000 with features | `wit-bindgen` (feature `wasm`) |
