@@ -424,6 +424,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                         {
                             map.insert("snapshotProbe".into(), serde_json::json!(false));
                         }
+                        if crate::native::setup_doctor_sync::routes(op.name) {
+                            bridge_params =
+                                crate::native::setup_doctor_sync::serve_body(bridge_params);
+                        }
                         let op_name = op.name.to_owned();
                         state.core.target().await.map(|target| {
                             let bridge_params = bridge_params.clone();

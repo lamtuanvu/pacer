@@ -226,6 +226,15 @@ export async function runStdio(
           result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false);
           break;
         }
+        case "_internal.setup.doctor": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { setupDoctorBridge } = await import("./setup-doctor-bridge");
+          result = await setupDoctorBridge(getCtx(), r.params);
+          break;
+        }
         case "hello": {
           const params=r.params??{};
           if(!params||typeof params!=="object"||Array.isArray(params))throw new CoreError("invalid_input","hello params must be an object");

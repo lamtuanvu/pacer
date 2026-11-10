@@ -435,6 +435,18 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/setup-doctor" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const { setupDoctorBridge } = await import("../api/setup-doctor-bridge");
+            return Response.json({ result: await setupDoctorBridge(getCtx(), body) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
         if (pathname === "/_internal/discovery/config" && req.method === "POST") {
           const { buildRadioConfig } = await import("../discovery/radio");

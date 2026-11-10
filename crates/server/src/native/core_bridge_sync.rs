@@ -3,6 +3,8 @@
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::Value;
 
+use crate::native::setup_doctor_sync;
+
 fn unavailable(message: &str) -> CoreError {
     CoreError::new(Code::Unavailable, message)
 }
@@ -21,6 +23,7 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("/_internal/setup-check"),
         "setup.effects" => Ok("/_internal/setup-effects"),
+        op if setup_doctor_sync::routes(op) => Ok(setup_doctor_sync::HTTP_PATH),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -29,6 +32,7 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
+        op if setup_doctor_sync::routes(op) => Ok(setup_doctor_sync::STDIO_METHOD),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -36,6 +40,7 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
 pub(crate) fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
         "setup.check" | "setup.effects" => Ok(params.clone()),
+        op if setup_doctor_sync::routes(op) => Ok(params.clone()),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
