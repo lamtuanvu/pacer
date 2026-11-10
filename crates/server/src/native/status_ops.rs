@@ -53,13 +53,18 @@ pub(crate) fn task_retry_options_stays_forwarded(ctx: &Ctx) -> bool {
 }
 
 /// `routing.route` with `goal` or `repo` needs classifier / project policy + remote eligibility (TS).
-pub(crate) fn routing_route_stays_forwarded(params: &Value) -> bool {
+/// A strategy with `pacing.balance: least-loaded` also forwards: the load-aware order lives only
+/// in the TypeScript engine, and the preview must agree with what runs.
+pub(crate) fn routing_route_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     params
         .get("goal")
         .is_some_and(|g| g.as_str().is_some_and(|s| !s.is_empty()))
         || params
             .get("repo")
             .is_some_and(|r| r.as_str().is_some_and(|s| !s.is_empty()))
+        || load_strategy(&ctx.pacer_home)
+            .ok()
+            .is_some_and(|strategy| strategy["pacing"]["balance"] == "least-loaded")
 }
 
 fn invalid(message: impl Into<String>) -> CoreError {
@@ -331,9 +336,62 @@ mod tests {
 
     #[test]
     fn routing_route_stays_forwarded_for_goal_or_repo() {
-        assert!(routing_route_stays_forwarded(&json!({"goal": "add tests"})));
-        assert!(routing_route_stays_forwarded(&json!({"repo": "/tmp/x"})));
-        assert!(!routing_route_stays_forwarded(&json!({})));
-        assert!(!routing_route_stays_forwarded(&json!({"kind": "tests"})));
+        let dir = tempdir().unwrap();
+        let home = dir.path().to_path_buf();
+        let pacer_home = home.join(".pacer");
+        std::fs::create_dir_all(&pacer_home).unwrap();
+        let ctx = Ctx::with(home, pacer_home.clone(), HashMap::new(), 1.0);
+        std::fs::write(
+            pacer_home.join("strategy.yaml"),
+            "planner: claude-code\nproviders:\n  claude-code: {}\n",
+        )
+        .unwrap();
+        assert!(routing_route_stays_forwarded(
+            &ctx,
+            &json!({"goal": "add tests"})
+        ));
+        assert!(routing_route_stays_forwarded(
+            &ctx,
+            &json!({"repo": "/tmp/x"})
+        ));
+    }
+
+    #[test]
+    fn routing_route_alone_matches_the_active_strategy_balance() {
+        let dir = tempdir().unwrap();
+        let home = dir.path().to_path_buf();
+        let pacer_home = home.join(".pacer");
+        std::fs::create_dir_all(&pacer_home).unwrap();
+        let ctx = Ctx::with(home, pacer_home.clone(), HashMap::new(), 1.0);
+        std::fs::write(
+            pacer_home.join("strategy.yaml"),
+            "planner: claude-code\nproviders:\n  claude-code: {}\n",
+        )
+        .unwrap();
+        assert!(routing_route_stays_forwarded(
+            &ctx,
+            &json!({"goal": "add tests"})
+        ));
+        assert!(routing_route_stays_forwarded(
+            &ctx,
+            &json!({"repo": "/tmp/x"})
+        ));
+        assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
+        assert!(!routing_route_stays_forwarded(
+            &ctx,
+            &json!({"kind": "tests"})
+        ));
+        std::fs::write(
+            pacer_home.join("strategy.yaml"),
+            "planner: claude-code\nproviders:\n  claude-code: {}\npacing:\n  balance: least-loaded\n",
+        )
+        .unwrap();
+        assert!(routing_route_stays_forwarded(&ctx, &json!({})));
+        std::fs::write(
+            pacer_home.join("strategy.yaml"),
+            "planner: claude-code\nproviders:\n  claude-code: {}\npacing:\n  balance: off\n",
+        )
+        .unwrap();
+        assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
     }
 }

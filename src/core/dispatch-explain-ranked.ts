@@ -5,6 +5,7 @@ import { decisionHash } from "../dispatch/engines";
 import type { explainInputSchema } from "../dispatch/explain-input";
 import { slotTasksReadOnly, type ReadOnlyStore } from "../dispatch/readonly";
 import { exclusionReason, reason, type Reason } from "../dispatch/reasons";
+import { balanceByLoad } from "../engine/balance";
 import { conversationFallback, rankExecutors } from "../engine/rank";
 import { slotBlock, slotUse } from "../engine/slots";
 import { computeStatus } from "../engine/status";
@@ -31,7 +32,7 @@ export async function explainRankedDispatch(
   if (p.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind.value, strategy, byId, requested);
   const exclusions = new Map(ranking.excluded.map(e => [e.id, exclusionReason(e.id, e.reason, e.eligibility)]));
   const use = slotUse(slotTasksReadOnly(store),ctx);
-  const eligible: typeof ranking.ranked = [];
+  let eligible: typeof ranking.ranked = [];
   for (const candidate of ranking.ranked) {
     const host = strategy.runners[candidate.id].host;
     const cached = host ? readHostReachability(ctx, strategy.hosts[host]) : null;
@@ -42,6 +43,9 @@ export async function explainRankedDispatch(
     if (guard) exclusions.set(candidate.id, exclusionReason(candidate.id, guard));
     else eligible.push(candidate);
   }
+  // Balance reorders the eligible candidates within a budget band by load; the revision
+  // hashes the pre-balance budget order, so one task starting does not bump it.
+  if (strategy.pacing.balance === "least-loaded") eligible = balanceByLoad(eligible, strategy, use, byId);
   const reasons: Reason[] = [];
   const uncertainty: Reason[] = [reason("cached_preview", "info")];
   const ignored = Object.entries({ requirements: Object.keys(p.requirements).length > 0,
