@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { verifyRepo } from "../src/exec/verify";
 import { tmpDir } from "./helpers";
 
-const env = { PATH: process.env.PATH, HOME: process.env.HOME };
+const env = { PATH: process.env.PATH, HOME: process.env.HOME, PACER_HOME: process.env.PACER_HOME, PACER_PORT: process.env.PACER_PORT };
 
 async function gitRepo(): Promise<string> {
   const dir = tmpDir();

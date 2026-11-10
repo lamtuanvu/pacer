@@ -1,3 +1,4 @@
+import { spawn, type SpawnOptions } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { createTestRoot } from "./temp-roots";
 import { closedPort } from "./child-env";
@@ -91,7 +92,7 @@ export function pinnedPort<T extends Record<string, string | undefined>>(env: T,
 export const fakeSshEnv = (hostHome: string, log: string, down = "") => {
   const bin = join(import.meta.dir, "fixtures", "bin");
   chmodSync(join(bin, "ssh"), 0o755);
-  return { PATH: `${bin}:${process.env.PATH}`, PACER_FAKE_HOST_HOME: hostHome, PACER_FAKE_SSH_LOG: log, PACER_FAKE_SSH_DOWN: down };
+  return { PACER_PORT: process.env.PACER_PORT ?? String(closedPort()), PATH: `${bin}:${process.env.PATH}`, PACER_FAKE_HOST_HOME: hostHome, PACER_FAKE_SSH_LOG: log, PACER_FAKE_SSH_DOWN: down };
 };
 
 /** Fake login indicators for tests that route to installed native executors. */
@@ -141,6 +142,7 @@ export function folderPlugins(folders: string[], base: Pick<RegistryDeps, "bundl
       const plugin = served.get(id);
       return plugin ? { argv: [join(plugin.folder, plugin.manifest.entry!)], cwd: plugin.folder, env: {} } : base.spawnBundled(ctx, id);
     },
+    spawn: ((file: string, args: string[], options: SpawnOptions) => spawn(file, args, { ...options, env: { ...options.env, PACER_PORT: process.env.PACER_PORT } })) as unknown as typeof spawn,
     eventPumpMs: 0,
   };
 }

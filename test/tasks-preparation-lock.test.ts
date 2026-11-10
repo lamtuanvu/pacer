@@ -45,7 +45,7 @@ test("a child waiting on the task lock re-probes replaced repository before comm
  writeFileSync(script,`import {stat} from "node:fs/promises";const {withTaskPreparation,updateTask}=await import(${JSON.stringify(new URL("../src/tasks/store.ts",import.meta.url).href)});const input=JSON.parse(process.argv[2]);const ctx={...input.ctx,run:async()=>({code:127,stdout:"",stderr:""}),which:()=>null};console.log("ready");try{await withTaskPreparation(ctx,input.id,async()=>{const s=await stat(input.repo);if(s.dev!==input.dev||s.ino!==input.ino)throw Object.assign(Error("changed"),{code:"conflict"});},()=>updateTask(ctx,input.id,t=>{t.kind="tests";}));console.log("committed");}catch(error){console.log(JSON.stringify({code:error.code}));}`);
  let child:ReturnType<typeof Bun.spawn>|undefined;let reader:ReadableStreamDefaultReader<Uint8Array>|undefined;
  await withLock(ctx,`task-${task.id}`,async()=>{
-  child=Bun.spawn([process.execPath,script,JSON.stringify({ctx:{home:ctx.home,pacerHome:ctx.pacerHome,now:ctx.now,env:{}},id:task.id,repo,dev:original.dev,ino:original.ino})],{stdout:"pipe",stderr:"pipe"});
+  child=Bun.spawn([process.execPath,script,JSON.stringify({ctx:{home:ctx.home,pacerHome:ctx.pacerHome,now:ctx.now,env:{PACER_PORT:ctx.env.PACER_PORT}},id:task.id,repo,dev:original.dev,ino:original.ino})],{stdout:"pipe",stderr:"pipe"});
   reader=(child.stdout as ReadableStream<Uint8Array>).getReader();expect(new TextDecoder().decode((await reader.read()).value)).toContain("ready");
   renameSync(repo,`${repo}-retired`);mkdirSync(repo);
  });

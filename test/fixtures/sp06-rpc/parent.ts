@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 import { childEnv } from "../../child-env";
 import { join } from "node:path";
 import { readFileSync, statSync } from "node:fs";
@@ -43,7 +43,7 @@ if (mode === "recover") {
     reentrant: false,
   };
   const registry = new PluginRegistry({
-    spawn: ((file, args, options) => spawn(file, args, { ...options, env: { ...options.env, PACER_PORT: ctx.env.PACER_PORT } })) as typeof spawn,
+    spawn: ((file: string, args: string[], options: SpawnOptions) => spawn(file, args, { ...options, env: { ...options.env, PACER_PORT: ctx.env.PACER_PORT } })) as unknown as typeof spawn,
     bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
     spawnBundled: () => ({
       argv: [process.execPath, join(import.meta.dir, "install.ts")],
