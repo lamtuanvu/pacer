@@ -252,6 +252,18 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
+        if crate::native::install_apply_sync::uses_effects(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut effects = crate::native::install_apply_sync::HttpEffects {
+                target: state.core.target().await,
+            };
+            let result =
+                crate::native::install_apply_sync::call(&ctx, op.name, params, &mut effects);
+            return match result.await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
         if op.name == "task.wait" {
             let Some(id) = params
                 .get("id")
@@ -477,19 +489,19 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            let mut service_effects_bridge = if pacer_install::needs_service_effects_bridge(op.name)
-            {
-                state.core.target().await.map(|target| {
-                    crate::native::service_effects_sync::HttpServiceEffects {
-                        target: Some(target),
-                    }
-                })
-            } else {
-                None
-            };
-            let service_effects_sync = service_effects_bridge
+            let mut handover_bridge =
+                if pacer_update::handover::handover_stays_forwarded(&request_ctx, op.name) {
+                    state.core.target().await.map(|target| {
+                        crate::native::handover_bridge::HttpHandoverBridge {
+                            target: Some(target),
+                        }
+                    })
+                } else {
+                    None
+                };
+            let handover_bridge = handover_bridge
                 .as_mut()
-                .map(|b| b as &mut dyn pacer_install::ServiceEffects);
+                .map(|b| b as &mut dyn pacer_update::handover::HandoverBridge);
             let task_stop_effects = if task_stop_probe_cache.is_some() {
                 let id = params
                     .get("id")
@@ -572,7 +584,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 task_stop_effects,
                 task_review_probe_cache,
                 task_review_effects,
-                service_effects_sync,
+                handover_bridge,
             )
             .await
         };

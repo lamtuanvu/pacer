@@ -1,8 +1,37 @@
 //! Native-registry parity driver on caller-created disposable homes. Endpoint
 //! bridge integration is exercised separately by the fixed live fixture.
-use pacer_foundation::Ctx;
+use pacer_foundation::{Ctx, api::OpFuture};
+use pacer_install::install_ops::ServiceEffects;
+use pacer_update::apply::UpdateEffects;
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
+
+/// Records the Core effects a native op requests and answers each with `effectResult`.
+struct Effects {
+    reply: Value,
+    requests: Vec<Value>,
+}
+
+impl Effects {
+    fn record(&mut self, request: Value) -> OpFuture<'_> {
+        self.requests.push(request);
+        let reply = self.reply.clone();
+        Box::pin(async move { Ok(reply) })
+    }
+}
+
+impl ServiceEffects for Effects {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        self.record(request)
+    }
+}
+
+impl UpdateEffects for Effects {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        self.record(request)
+    }
+}
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let mut stdout = io::BufWriter::new(io::stdout().lock());
@@ -58,6 +87,26 @@ async fn main() -> io::Result<()> {
             || pacer_server::native::service_agent_stays_forwarded(&ctx, name, &input["params"])
         {
             serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        if name == "service.install" || name == "update.apply" {
+            let mut effects = Effects {
+                reply: input.get("effectResult").cloned().unwrap_or(Value::Null),
+                requests: Vec::new(),
+            };
+            let params = input["params"].clone();
+            let result = if name == "service.install" {
+                pacer_install::install_ops::service_install(&ctx, params, &mut effects).await
+            } else {
+                pacer_update::apply::update_apply(&ctx, params, &mut effects).await
+            };
+            let mut output = match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            output["effects"] = json!(effects.requests);
+            serde_json::to_writer(&mut stdout, &output)?;
             stdout.write_all(b"\n")?;
             continue;
         }
