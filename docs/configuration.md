@@ -42,6 +42,39 @@ Orca-linked accounts use their own folders: pacer reads Codex session logs in th
 
 `usage_source: orca` is deprecated and ignored. Existing configurations still load and retain the setting, with a status warning: Claude and Codex use their native readers, and other account kinds use reactive tracking.
 
+## Executor models and difficulty targets
+
+`runners.<id>.model` sets the default. Optional `runners.<id>.models` entries
+have `{id, tier, strengths?, tools?, context?}`. The tiers are `small`, `medium`,
+`frontier` and `unknown`; names do not imply a tier. A nonempty allowed list must
+contain the default. Saving a list without a default selects its first entry.
+Executors without a list retain their default-model behavior.
+
+```yaml
+runners:
+  codex:
+    model: provider/fast
+    models:
+      - {id: provider/fast, tier: small}
+      - {id: provider/deep, tier: frontier, tools: true, context: 128000}
+dispatch:
+  tierTargets:
+    simple: small
+    standard: medium
+    complex: frontier
+```
+
+Model IDs above are placeholders; use IDs your executor serves. The shown
+`dispatch.tierTargets` values are the defaults, including when the mapping is
+omitted. Targets may be `small`, `medium` or `frontier`, never `unknown`.
+They must be nondecreasing from simple to complex: `simple ≤ standard ≤ complex`
+in the order `small < medium < frontier`. Equal targets are allowed.
+
+In **Settings → Dispatcher → Model choice**, preview the model for each difficulty
+and executor, then save and activate a new named setup. Availability can change
+before dispatch. See [executor models](executors.md#default-and-allowed-models)
+for validation and [dispatch](dispatch.md#model-choice-by-difficulty) for fallback.
+
 ## Remote hosts
 
 `hosts:` maps runner host aliases to SSH aliases and repository checkouts.

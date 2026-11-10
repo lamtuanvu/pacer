@@ -41,14 +41,23 @@ Read `pacer status --json`, choose an executor with `pacer route <kind> --json`,
 write a brief JSON file:
 
 ```json
-{"goal":"Fix the flaky test","repo":"/absolute/repo","kind":"debug","scope":"test/","acceptance":"bun test","worktree":"current","worktree_reason":"Follow-up on uncommitted work"}
+{"goal":"Fix the flaky test","repo":"/absolute/repo","kind":"debug","difficulty":"standard","scope":"test/","acceptance":"bun test","worktree":"current","worktree_reason":"Follow-up on uncommitted work"}
 ```
 
 Run `pacer delegate --brief-file brief.json --json`, or pipe the JSON to
 `pacer delegate --brief-file - --json`. Flags override file fields. The brief supports
-`goal`, `repo` (defaults to cwd), `kind`, `scope`, `acceptance`, `acceptance_timeout_min`, `acceptance_pipefail`, `constraints`, `context`,
+`goal`, `repo` (defaults to cwd), `kind`, `difficulty`, `model`, `scope`, `acceptance`, `acceptance_timeout_min`, `acceptance_pipefail`, `constraints`, `context`,
 `worktree_base` (`default` or `head`), `executor`, `timeout_min` (1–240), `worktree` (current/new/auto), and `worktree_reason`
 (max 200 characters). Executors may create child work only with a scoped work grant.
+
+`pacer delegate --difficulty simple|standard|complex` sets the task difficulty.
+Use `--model <id>` to pin an exact model; both flags override the brief fields.
+Include `difficulty` in new briefs. During Release A, omission remains accepted,
+uses `standard`, and returns a `difficulty_missing` warning. The legacy
+`dispatch.difficulty` field is accepted too; conflicting values are rejected.
+A model pin must be declared when the chosen executor has an allowed model list.
+It does not bypass eligibility or managed requirements. See
+[model choice](dispatch.md#model-choice-by-difficulty) for tier selection and fallback.
 
 Human-started delegated tasks can coordinate sub-agents through a scoped work grant by
 default (`messaging.grants.user_started_tasks: on`). Use `pacer delegate --no-grant`,
@@ -553,6 +562,26 @@ planner window resets (seven days if unknown); `mode.release {}` ends the hold.
 Use `pacer executor set <id> --enabled false --model <model> --max-tasks 2` to
 change executor settings. Executor readiness, host checks and updates expose
 shared progress through `job.get`, `job.list` and `job.cancel` when cancellable.
+
+## Executor models
+
+```sh
+pacer executor models <id>
+pacer executor models <id> --default <m>
+pacer executor models <id> --allow <m>:small --allow <other>:frontier
+pacer executor models <id> --remove <m>
+```
+
+The full form is `pacer executor models <id> [--default <m>] [--allow <m>:<tier>]... [--remove <m>]`.
+Without edit flags it lists the executor's default, allowed and available models.
+Tiers are `small`, `medium`, `frontier` or `unknown`. The default must stay in a
+nonempty allowed list; change it when removing that model.
+
+The API equivalents are `runner.models.get {id}` → `{revision, runner, default, models}`
+and `runner.models.set {id, expectedRevision, default, models}`. The latter saves
+the default and full allowed list atomically. Use the revision from a fresh read;
+on conflict, read again before editing. Available models come from
+`executor.models.available {runner, refresh?}`. See [executor models](executors.md#default-and-allowed-models).
 
 New worktrees fetch `origin` and start at `origin/<default-branch>` rather than the source checkout's current branch. The task JSON records `baseBranch` and the immutable `baseSha`. Use `--worktree-base head` (brief/API: `worktree_base: head`) to opt in to the current HEAD, including detached HEAD. An explicit brief `base` or configured `execution.base_branch` still selects that ref. Fetch or default-branch discovery failures stop creation rather than silently using a stale checkout.
 
