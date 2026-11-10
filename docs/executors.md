@@ -13,6 +13,42 @@ Install and authenticate executor CLIs yourself. pacer launches existing tools; 
 
 The planner itself is excluded from executor ranking. An optional `model` selects the model passed to a native launcher; Cursor Free setups can use `model: auto` as in the starter example.
 
+## Default and allowed models
+
+`runners.<id>.model` is the executor's default model. It is used by readiness
+checks and when no task-specific model is selected. With no `models` list, the
+executor keeps using its default (or the agent default when none is set).
+
+`runners.<id>.models` declares the models this executor may use for tasks. Each
+entry has `id` and `tier`, with optional `strengths`, `tools` and `context` facts.
+Tiers are `small`, `medium`, `frontier` and `unknown` (shown as **Unrated**).
+They are user declarations; pacer does not infer them from model names.
+Two executors using the same provider may have different lists and defaults.
+The default must belong to a nonempty allowed list. Saving a list without a
+default uses its first entry. Declaring models enables
+[difficulty-based choice](dispatch.md#model-choice-by-difficulty) without another switch.
+
+Use **Settings → Executors → Models** to change the default, or
+`pacer executor models <id> --default <model>`. Use `--allow <model>:<tier>`
+and `--remove <model>` to edit the allowed list. See [CLI commands](cli.md#executor-models).
+
+`executor.models.available {runner, refresh?}` reports the available IDs, source,
+fetch time and known model facts. OpenCode accounts use `opencode models` filtered
+to their provider. Catalog facts enrich those IDs; catalog-only IDs are not offered.
+Successful OpenCode listings are cached for ten minutes; refresh bypasses the cache.
+Managed endpoint accounts read `connection.models` fresh. Agents without a listing
+adapter, including native Claude Code, Codex, Cursor and Antigravity, accept a typed
+model ID. A failed or empty listing means unknown availability, not an empty provider.
+
+Saving through `runner.set` or `runner.models.set` rejects an ID missing from a
+successful listing and suggests nearby available IDs when possible. An unknown
+listing permits saving but leaves validity unverified. The **Model offered** step
+in `runner.check` fails when the default is no longer offered. It skips with a
+reason when there is no listing or the executor uses the agent default. Doctor
+also reports missing defaults with a replacement action. Saving the default in
+the app runs the readiness check. A successful listing is evidence of availability,
+not a guarantee that the next task will succeed.
+
 ## BytePlus and local models
 
 ```yaml

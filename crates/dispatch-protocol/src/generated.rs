@@ -367,6 +367,14 @@ impl<'de> ::serde::Deserialize<'de> for DispatchAnswerParamsText {
 ///      "type": "string",
 ///      "maxLength": 20000
 ///    },
+///    "difficulty": {
+///      "type": "string",
+///      "enum": [
+///        "simple",
+///        "standard",
+///        "complex"
+///      ]
+///    },
 ///    "executor": {
 ///      "type": "string",
 ///      "maxLength": 128,
@@ -380,6 +388,11 @@ impl<'de> ::serde::Deserialize<'de> for DispatchAnswerParamsText {
 ///    "kind": {
 ///      "type": "string",
 ///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "model": {
+///      "type": "string",
+///      "maxLength": 256,
 ///      "minLength": 1
 ///    },
 ///    "options": {
@@ -542,10 +555,14 @@ pub struct DispatchChildParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub context: ::std::option::Option<DispatchChildParamsContext>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub difficulty: ::std::option::Option<DispatchChildParamsDifficulty>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub executor: ::std::option::Option<DispatchChildParamsExecutor>,
     pub goal: DispatchChildParamsGoal,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<DispatchChildParamsKind>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub model: ::std::option::Option<DispatchChildParamsModel>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub options: ::std::option::Option<DispatchChildParamsOptions>,
     #[serde(rename = "requestId")]
@@ -709,6 +726,72 @@ impl<'de> ::serde::Deserialize<'de> for DispatchChildParamsContext {
             })
     }
 }
+///`DispatchChildParamsDifficulty`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "simple",
+///    "standard",
+///    "complex"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchChildParamsDifficulty {
+    #[serde(rename = "simple")]
+    Simple,
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "complex")]
+    Complex,
+}
+impl ::std::convert::From<&Self> for DispatchChildParamsDifficulty {
+    fn from(value: &DispatchChildParamsDifficulty) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchChildParamsDifficulty {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Simple => f.write_str("simple"),
+            Self::Standard => f.write_str("standard"),
+            Self::Complex => f.write_str("complex"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchChildParamsDifficulty {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "simple" => Ok(Self::Simple),
+            "standard" => Ok(Self::Standard),
+            "complex" => Ok(Self::Complex),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchChildParamsDifficulty {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`DispatchChildParamsExecutor`
 ///
 /// <details><summary>JSON schema</summary>
@@ -866,6 +949,62 @@ impl ::std::convert::TryFrom<&str> for DispatchChildParamsKind {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for DispatchChildParamsKind {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchChildParamsModel`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchChildParamsModel(::std::string::String);
+impl ::std::ops::Deref for DispatchChildParamsModel {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchChildParamsModel> for ::std::string::String {
+    fn from(value: DispatchChildParamsModel) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchChildParamsModel {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchChildParamsModel {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchChildParamsModel {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,

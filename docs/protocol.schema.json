@@ -1946,6 +1946,19 @@
           "minLength": 1,
           "maxLength": 128
         },
+        "difficulty": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "standard",
+            "complex"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
         "requestId": {
           "type": "string",
           "minLength": 1,
@@ -4534,6 +4547,93 @@
       "properties": {},
       "additionalProperties": false
     },
+    "RunnerModelsGetParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RunnerModelsSetParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default": {
+          "type": "string",
+          "minLength": 1
+        },
+        "models": {
+          "maxItems": 256,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "tier": {
+                "default": "unknown",
+                "type": "string",
+                "enum": [
+                  "small",
+                  "medium",
+                  "frontier",
+                  "unknown"
+                ]
+              },
+              "strengths": {
+                "default": [],
+                "maxItems": 64,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "tools": {
+                "type": "boolean"
+              },
+              "context": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "id",
+              "tier",
+              "strengths"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "id",
+        "expectedRevision",
+        "default",
+        "models"
+      ],
+      "additionalProperties": false
+    },
     "RunnerRemoveParams": {
       "type": "object",
       "properties": {
@@ -5391,6 +5491,19 @@
     "TaskDelegateParams": {
       "type": "object",
       "properties": {
+        "difficulty": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "standard",
+            "complex"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
         "dispatch": {},
         "title": {
           "type": "string",

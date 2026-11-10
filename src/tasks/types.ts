@@ -93,6 +93,14 @@ export interface AttemptTokens {
 }
 
 export interface Attempt {
+  tier?: {
+    requestedDifficulty: import("../dispatch/tier-select").Difficulty | "unspecified";
+    difficultySource: "explicit" | "unspecified" | "work" | "legacy";
+    effectiveDifficulty: import("../dispatch/tier-select").Difficulty;
+    targetTier: import("../dispatch/types").TierTargets["standard"];
+    selectedTier: import("../dispatch/types").ModelRecord["tier"] | null;
+    reason: import("../dispatch/tier-select").TierReason;
+  };
   tokens?: AttemptTokens;
   routing?: RoutingNote;
   usageAtStart?: AttemptUsage;
@@ -208,6 +216,9 @@ export interface LiveWorker {
 }
 
 export interface TaskRecord {
+  difficulty?: import("../dispatch/work").WorkOptions["difficulty"];
+  difficultySource?: "brief" | "unspecified";
+  model?: string;
   /** Host-authorized origin fetch is journaled before effect; unresolved outcomes cannot be retried. */
   baseFetchIntent?: { attempt: number; providerId: string; repoTop: string;
     originHash: string; base?: string; sha?: string };
@@ -261,7 +272,7 @@ export interface TaskRecord {
   repo?: RepoRef;
   client?: string;
   /** Checkpoint for the in-flight attempt, retained when its runner resumes. */
-  pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart">;
+  pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart" | "tier"> & {model?: string | null};
   rev: number;
   question?: { text: string; at: number; answer?: string; answeredAt?: number };
   run?: RunRef;

@@ -123,6 +123,7 @@ pub(crate) fn parse_delegate_value(
         string_field(raw, name, 0, None)?;
     }
     for (name, min, max) in [
+        ("model", 1, 256),
         ("request_id", 1, 128),
         ("base", 1, 4096),
         ("worktree_reason", 0, 200),
@@ -139,6 +140,12 @@ pub(crate) fn parse_delegate_value(
     }
     number_field(raw, "acceptance_timeout_min", 1.0, 120.0, true)?;
     number_field(raw, "timeout_min", 1.0, 240.0, false)?;
+    enum_field(
+        raw,
+        "difficulty",
+        &["simple", "standard", "complex"],
+        "invalid difficulty",
+    )?;
     enum_field(
         raw,
         "worktree",
@@ -220,6 +227,53 @@ pub(crate) fn parse_delegate_value(
         && dispatch != ""
     {
         input.insert("dispatch".into(), crate::schema::dispatch(dispatch)?);
+    }
+    let alias = raw
+        .get("dispatch")
+        .and_then(|value| value.get("difficulty"));
+    if let (Some(difficulty), Some(alias)) = (raw.get("difficulty"), alias)
+        && difficulty != alias
+    {
+        return Err(AdmissionError(
+            "Give difficulty once: top-level difficulty and dispatch.difficulty differ".into(),
+        ));
+    }
+    let nested_model = input.get("dispatch").and_then(|value| value.get("model"));
+    if let (Some(model), Some(alias)) = (raw.get("model"), nested_model)
+        && model != alias
+    {
+        return Err(AdmissionError(
+            "Give model once: top-level model and dispatch.model differ".into(),
+        ));
+    }
+    let difficulty = raw.get("difficulty").or(alias).cloned();
+    let model = raw.get("model").or(nested_model).cloned();
+    input.insert(
+        "difficultySource".into(),
+        Value::String(
+            if difficulty.is_some() {
+                "brief"
+            } else {
+                "unspecified"
+            }
+            .into(),
+        ),
+    );
+    if let Some(difficulty) = difficulty {
+        input.insert("difficulty".into(), difficulty.clone());
+        input.entry("dispatch").and_modify(|value| {
+            if let Value::Object(dispatch) = value {
+                dispatch.insert("difficulty".into(), difficulty);
+            }
+        });
+    }
+    if let Some(model) = model {
+        input.insert("model".into(), model.clone());
+        input.entry("dispatch").and_modify(|value| {
+            if let Value::Object(dispatch) = value {
+                dispatch.insert("model".into(), model);
+            }
+        });
     }
     if let Some(messaging) = raw.get("messaging") {
         input.insert("messaging".into(), crate::schema::messaging(messaging)?);

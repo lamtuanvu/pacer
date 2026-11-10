@@ -2827,6 +2827,19 @@ Params JSON Schema:
       "minLength": 1,
       "maxLength": 128
     },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
     "requestId": {
       "type": "string",
       "minLength": 1,
@@ -6371,6 +6384,113 @@ Params JSON Schema:
 }
 ```
 
+### `runner.models.get`
+
+Read an executor's default and allowed models with tiers, against the strategy revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `runner.models.set`
+
+Atomically save an executor's default and allowed tiered models against the expected revision; every id is checked against the live listing when one is known.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "expectedRevision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "default": {
+      "type": "string",
+      "minLength": 1
+    },
+    "models": {
+      "maxItems": 256,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "tier": {
+            "default": "unknown",
+            "type": "string",
+            "enum": [
+              "small",
+              "medium",
+              "frontier",
+              "unknown"
+            ]
+          },
+          "strengths": {
+            "default": [],
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "tools": {
+            "type": "boolean"
+          },
+          "context": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "tier",
+          "strengths"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "id",
+    "expectedRevision",
+    "default",
+    "models"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `runner.remove`
 
 Remove a runner and its routing and pacing order references.
@@ -7620,6 +7740,19 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
     "dispatch": {},
     "title": {
       "type": "string",

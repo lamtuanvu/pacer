@@ -11,7 +11,7 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { insightsInputSchema, insightsSummary } from "../insights/summary";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
-import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
+import { dispatchConfigSchema, modelDeclarationSchema, previewInputSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
 import { filesSearchInputSchema, searchFiles } from "../core/files-search";
@@ -66,6 +66,7 @@ import * as opencodeSetup from "../core/opencode-setup";
 import { availableModels } from "../models/available";
 import { redactEndpointMessage } from "../endpoints/state";
 import * as executorSettings from "../core/executor-settings";
+import * as runnerModels from "../core/runner-models";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
 import { AGENTS } from "../config/accounts";
@@ -83,7 +84,7 @@ import { publish } from "../link/publish";
 import { checkForUpdate, updateAvailable } from "../update/check";
 import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
 import { currentVersion } from "../update/version";
-import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
+import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask, difficultyWarning } from "../tasks/api";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 import { callerParticipant } from "../messaging/participants";
@@ -346,6 +347,8 @@ export const OPS: Record<string, OpDef> = {
   "runner.check": op({description: "Check executor CLI, sign-in, usage and a scratch test task.", params: z.object({id}), handler: (ctx, p, deps) => checkRunner(ctx, p.id, deps.runnerCheck)}),
   "runner.settings.get": op({description:"Read editable executor settings and an opaque revision.",params:z.object({}),handler:ctx=>executorSettings.readExecutorSettings(ctx)}),
   "runner.settings.save": op({description:"Atomically save executor order, enabled states and parallel limits against the expected revision.",params:z.object({expectedRevision:z.string().min(1),order:z.array(id),runners:z.array(z.object({id,enabled:z.boolean(),maxTasks:z.number().int().min(1).max(16)}))}),handler:(ctx,p)=>mutation(ctx,"runners",()=>executorSettings.saveExecutorSettings(ctx,p))}),
+  "runner.models.get": op({description:"Read an executor's default and allowed models with tiers, against the strategy revision.",params:z.object({id}),handler:(ctx,p)=>runnerModels.readRunnerModels(ctx,p.id)}),
+  "runner.models.set": op({description:"Atomically save an executor's default and allowed tiered models against the expected revision; every id is checked against the live listing when one is known.",params:z.object({id,expectedRevision:z.string().min(1),default:z.string().min(1),models:modelDeclarationSchema.array().max(256)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnerModels.saveRunnerModels(ctx,p))}),
   "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
   "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
   "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", async () => { const {migrated} = await runnersConfig.remove(ctx, p.id); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
@@ -445,7 +448,7 @@ export const OPS: Record<string, OpDef> = {
       // The v1 notifier still uses this marker for short tasks started in a UI.
       const result = source === "ui" && readTask(ctx, task.id)
         ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;
-      return summarizeTask(result);
+      return {...summarizeTask(result), ...(result.difficultySource === "unspecified" ? {warnings: [difficultyWarning()]} : {})};
     },
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
@@ -588,7 +591,7 @@ export const OPS: Record<string, OpDef> = {
   "issue.import": op({ description: "Read one GitHub issue (title, body, labels, URL, state) of a registered repository through the user's gh login, as capped plain text for a new task. The GitHub repository comes from the checkout's origin remote. Writes nothing.", params: issueImportParams, handler: (ctx, p, deps) => importIssue(ctx, p, { gh: deps.gh }) }),
   "issue.search": op({ description: "Search a registered repository's GitHub issues for a picker (number, title, labels, URL, state) through the user's gh login. Writes nothing.", params: issueSearchParams, handler: (ctx, p, deps) => searchIssues(ctx, p, { gh: deps.gh }) }),
   "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await submitWork(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
-  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await delegateChild(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
+  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),difficulty:delegateSchema.difficulty,model:delegateSchema.model,requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await delegateChild(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
   "dispatch.tree": op({ description: "Scoped nested work tree, selected decisions, dependencies and aggregate execution time.", params:z.object({id}),handler:(ctx,p)=>scopedWorkTree(ctx,p.id) }),
   "dispatch.list": op({ description: "Page through work roots or children, optionally filtered by repository and state.", params:z.object({relation:z.enum(["roots","children","all"]).optional(),state:z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"]).optional(),repo:z.string().min(1).optional(),before:id.optional(),limit:z.number().int().min(1).max(100).optional()}),handler:(ctx,p)=>listWork(ctx,p) }),
   "dispatch.events": op({ description: "Scoped work timeline after a monotonic cursor.", params:z.object({id,after:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>scopedWorkEvents(ctx,p.id,p.after??0) }),

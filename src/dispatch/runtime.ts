@@ -44,3 +44,13 @@ export function selectedDispatchModel(ctx:Ctx,id:string):string|null|undefined{
  const preview=JSON.parse(row.data) as DispatchPreview & {selectedCandidateId?:string};if(preview.proposal?.state!=="ranked")return undefined;
  const selectedId=preview.selectedCandidateId??preview.proposal.choices[0].id;const candidate=preview.request.candidates.find(c=>c.id===selectedId);return candidate?.binding.kind==="exact"?candidate.binding.id:null;
 }
+
+/** Tier explanation persisted with the reservation for the active attempt. */
+export function selectedDispatchTier(ctx: Ctx, id: string): NonNullable<DispatchPreview["proposal"]>["tier"] {
+  const row = dispatchDatabase(ctx).query<{data: string}, [string]>(
+    "SELECT data FROM work_decisions WHERE task_id=? ORDER BY attempt DESC LIMIT 1",
+  ).get(id);
+  if (!row) return undefined;
+  const preview = JSON.parse(row.data) as DispatchPreview;
+  return preview.proposal?.state === "ranked" ? preview.proposal.tier : undefined;
+}

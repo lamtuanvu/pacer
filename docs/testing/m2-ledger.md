@@ -127,6 +127,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `executor.setup.models` | Native (M2, selective) | `pacer-config-ops::executor_setup_ops` ranks cached catalog models from `cache/models.json` (fresh within 24 hours, strict `parseCatalog` shape): usable filter, coding, context and release ordering with ICU collation, and `classify` usage labels. The `local` group, `base_url` probes and providers without a usable cached catalog entry forward, because they need local model-server probes, the `opencode models` subprocess or a models.dev fetch. |
 | `executor.setup.connect` | Native (M2) | Pure: Zod checks on `provider` and `key`, then the `opencode auth login <provider>` hand-off. It writes nothing. |
 | `executor.models.available` | Forwarded | Lists a runner's models through the `opencode models` subprocess, connection models and the cached catalog, with a 10-minute cache under `cache/available-models/` (`src/models/available.ts`). |
+| `runner.models.get` | Forwarded | Reads an executor's default model and allowed tiered models with the strategy-file sha256 revision (`src/core/runner-models.ts`); `runners.<id>.models` and the load warnings live in the TypeScript strategy parser (`src/config/accounts.ts`). |
+| `runner.models.set` | Forwarded | One revision-checked edit of the default model and the allowed tiered models under the shared `executor-settings` lock, validated against the live listing (`availableModels`/`isOffered`); refuses ids a known listing does not offer and warns when the listing is unknown for agents that have a model list. |
 | `executor.setup.candidates` | Native (M2, selective) | Rust (`pacer-config-ops::executor_candidates_ops`) reads the cached models.dev catalog, the OpenCode config providers and the strategy accounts, runs `opencode auth list --format json` (argv only, 15 s timeout, capped stdout) and builds the candidate groups, order and notes. Probing the two fixed local server URLs (Ollama, LM Studio) goes through the endpoint plugin on Core via the setup effects bridge (`discover`), because endpoint discovery is plugin-owned (P13). Inputs stay forwarded when the catalog is missing, stale or malformed (TypeScript refreshes it over the network), when the strategy does not load, or while `PACER_WORK_GRANT` is set. |
 | `attention.dismiss`, `attention.snooze` | Native (M2, selective) | `pacer-task-ops::attention_ops` raises items with `pacer_read_model::attention::raised` over the snapshot probe bridge (`snapshotProbeParts`, read-only status as in TypeScript `raisedItems`) and owns the `state/attention.json` transaction under the shared `attention` lock: Zod issue text, `unknown attention item` errors, unchanged-store no-op and JS-stringified bytes (`src/core/attention.ts`, `src/attention/store.ts`). Selectively forwards `discovery-network` items (raised from the radio network in TypeScript memory), dismissing task items (TypeScript also dismisses the task), an unloadable strategy, and store files or entries the TypeScript transaction would throw on. |
 | `issue.import`, `issue.search` | Native (M2 issue reads, selective) | `pacer-issues` owns both ops: published and core Zod params (issue text and order, UTF-16 lengths), the enforcement-identity and executor refusals, registered-repository lookup through `pacer-repos`, the GitHub identity of the `origin` remote (`git remote get-url`, 5 s), issue references (`#n`, digit strings, same-repository URLs through WHATWG URL parsing), and `gh issue view` / `gh issue list` spawned from Rust as argv with the allowlisted environment plus `PWD`, lookup on the service `PATH`, a 20 s deadline over the exit and both output streams that kills the process group, a 4 MiB stdout cap, two running and eight waiting calls, and typed failures from exit codes and stderr. Untrusted titles, bodies and labels are cleaned to plain text as `src/core/issue-import.ts` does; search keeps only this repository's issue URLs, refuses `repo:`/`org:`/`user:` qualifiers and shares a 30 s cache of successes per process. Registries that `repo.list` forwards selectively forward to TypeScript. Residuals: `gh` output with lone-surrogate escapes is not JSON to serde (gh never writes them); the per-process path probe starts cold, so a missing checkout that a long-running TypeScript core has already pruned reads as `not_github` until a native probe has seen it; a `gh` that is found but cannot start reports the operating-system error text rather than Bun's. Parity: `test/native-issue-parity.test.ts` (fake `gh` on `PATH`). |
@@ -639,7 +641,7 @@ evidence belongs with the fixed `native-config` live fixture and targeted parity
 
 ## Unregistered public ops (Forwarded by default)
 
-Pinned against `stdio_hello.json` v3 (`229` ops). The Rust registry lists
+Pinned against `stdio_hello.json` v3 (`231` ops). The Rust registry lists
 native names in the detailed table above; every other public op remains TypeScript-owned
 until a cutover PR registers it and updates this ledger. Rows already named in
 the table above are omitted here. Owner streams follow
@@ -651,7 +653,7 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **145** of 229 (133 on the Rust stdio registry plus 12 HTTP-native
+Total native: **145** of 231 (133 on the Rust stdio registry plus 12 HTTP-native
 `plugin.*` ops). Fifty-eight of these selectively forward some inputs or effects to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
@@ -666,7 +668,7 @@ Total native: **145** of 229 (133 on the Rust stdio registry plus 12 HTTP-native
 `assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
 `dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
 `issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`.
-Total still not native (v3 − native set): **84**.
+Total still not native (v3 − native set): **86**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

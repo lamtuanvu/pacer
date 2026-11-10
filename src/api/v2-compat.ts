@@ -18,7 +18,7 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['service.handover','service.work','snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','task.hand_back','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor','plugin.ui.list','plugin.ui.render','plugin.ui.action','plugin.ui.visibility','plugin.settings.get','plugin.settings.set','files.search','issue.import','issue.search','executor.models.available']);
+export const V3_ONLY_OPS = new Set(['service.handover','service.work','snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','runner.models.get','runner.models.set','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','task.hand_back','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor','plugin.ui.list','plugin.ui.render','plugin.ui.action','plugin.ui.visibility','plugin.settings.get','plugin.settings.set','files.search','issue.import','issue.search','executor.models.available']);
 
 for (const op of ["desktop.reconcile.status", "desktop.reconcile.request", "desktop.reconcile.cancel"]) V3_ONLY_OPS.add(op);
 
@@ -87,7 +87,7 @@ export const V3_CURSOR_BASE = 3_000_000_000_000;
 
 export function v2Params(name:string,params:unknown):unknown {
  if(name==='task.delegate'&&params&&typeof params==='object'&&!Array.isArray(params)){
-  const {dispatch:_,...legacy}=params as Record<string,unknown>;return legacy;
+  const {dispatch:_,difficulty:_difficulty,model:_model,...legacy}=params as Record<string,unknown>;return legacy;
  }
  if(name==='client.register'&&params&&typeof params==='object'&&!Array.isArray(params)){
   const {capture:_,...legacy}=params as Record<string,unknown>;
@@ -127,6 +127,8 @@ export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):
 /** Keep the existing v2 document/schema check stable until the documentation task. */
 export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const schemas=opJsonSchemas();
+ delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.difficulty;
+ delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.model;
  delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.dispatch;
  delete (schemas['client.register'].params as {properties:Record<string,unknown>}).properties.capture;
  for(const op of V3_ONLY_OPS)delete schemas[op];

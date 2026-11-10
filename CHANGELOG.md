@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Executor default and allowed model management with `pacer executor models`, declared `small|medium|frontier|unknown` tiers, model availability validation and the **Model offered** readiness check. Delegate briefs accept `difficulty` and `model`; task attempts record model selection and fallback reasons. Dispatcher settings preview difficulty-based model choices.
+
 - Opt-in load-aware executor selection: `pacing.balance: least-loaded` starts each task on the least-loaded executor (running tasks over its `max_tasks`) among those equally acceptable on budget, so parallel work spreads across executors instead of filling the first one before spilling over. Budget tiers (expiring, normal, near-limit, ahead, uncertain; cheap-before-metered under `cheapest-first`; `accounts: fill`) are never crossed, an explicitly requested executor still wins, and `pacer route` / `dispatch.explain` show each candidate's load. The default `off` keeps today's order. See [the design](docs/specs/2026-11-10-load-aware-executor-balance-design.md).
 
 ### Changed
@@ -19,6 +21,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - The service polls task changes every 500 ms and publishes changed or active tasks between the 15-second status and entity passes. Native and TypeScript event streams use a 250 ms fallback, while task-log follow retains its 1,000 ms default. Periodic work runs in a background worker, and settled history is reconciled incrementally. See [service responsiveness](docs/specs/2026-11-09-service-core-responsiveness-design.md).
 
 - Setup checks now test for reviewed tasks without loading every historical task into JavaScript, retaining the existing onboarding cache behavior.
+- Automatic model choice now uses `simple → small`, `standard → medium`, `complex → frontier` by default for executors that declare models. Managed dispatch tries higher tiers, then unrated models, when needed; plain delegation keeps its routed executor and falls back to its default. Executors without model lists retain default-model behavior.
 
 - With the native plugin owner on, a refused first result chunk now ends the plugin call, as it does with the owner off: the plugin can no longer fall back to a plain result after any chunk attempt, the owner's own refusals are reported as pacer's errors rather than the plugin's, and a chunk that belongs to another call is refused without ending the current one.
 
@@ -78,6 +81,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Record every real task change in a shared `task_changes` log in the task database, filled by SQLite triggers so changes from either runtime and from older binaries are captured without re-reading all tasks. `taskChangesSince` reads changes after a cursor and reports a gap when the cursor is outside the retained window; the daily maintenance run prunes the log to 7 days or 100,000 rows. This is the base for a background pass that processes only changed tasks.
 
 ### Fixed
+
+- Preserve the interactive session host while it records an escalated agent exit, so reported completion does not fail because shutdown killed the receipt writer. Missing exit records still cannot certify success.
 
 - An interactive task whose execution budget is exhausted no longer stays **Lost contact / working** forever when its executor wrapper and session have already ended. The runner records the exhausted budget as a pending deadline stop and releases the task, but supervision then only settled an attempt whose wrapper left a recorded exit: a wrapper that died without one (killed, crashed, machine asleep through the stop) satisfied neither the live branch nor the existing settle, so the task stayed running with no runner, no answer and no relaunch, hour after hour. The supervision tick now settles such a pending stop exactly once: a deadline stop settles failed with a clear timeout report ("Executor deadline reached; the executor wrapper ended without a recorded exit", attempt marked timed out), a user stop settles stopped, and the live run past its budget keeps being stopped as deadline as before. Before settling, supervision terminates surviving members of the dead wrapper’s process group with bounded TERM/KILL cleanup; an unidentifiable child or failed process probe leaves the stop pending. An explicitly unverified exit receipt allows retry or continuation on the same task ID.
 
