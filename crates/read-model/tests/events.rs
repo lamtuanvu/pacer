@@ -68,16 +68,16 @@ fn sse_replays_external_writer_retention_heartbeat_and_cancel() {
     assert_eq!(stream.last(), V3_CURSOR_BASE + 1.0);
 }
 #[test]
-fn retention_gaps_filtered_events_and_last_cursor_match_ts() {
+fn retention_gaps_filtered_events_and_last_cursor_keep_replay_semantics() {
     let (_dir, ctx) = ctx();
     let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
-    let entries:Vec<_>=(1..=1001).map(|seq|json!({"seq":seq,"at":ctx.now,"envelope":{"type":"config","data":{"area":"config","at":ctx.now}}})).collect();
+    let entries:Vec<_>=(1..=1251).map(|seq|json!({"seq":seq,"at":ctx.now,"envelope":{"type":"config","data":{"area":"config","at":ctx.now}}})).collect();
     append_outbox(&ctx, &entries).unwrap();
     let batch = events_since(&ctx, 1.0, 3, &mut store, chrono_tz::UTC, &|_| false).unwrap();
     assert_eq!(array(&batch["events"]).len(), 1001);
     assert_eq!(batch["reset"], true);
     assert_eq!(batch["events"][0]["seq"], number(V3_CURSOR_BASE));
-    assert_eq!(batch["events"][1]["seq"], number(V3_CURSOR_BASE + 2.0));
+    assert_eq!(batch["events"][1]["seq"], number(V3_CURSOR_BASE + 252.0));
     let empty = events_since(
         &ctx,
         9007199254740992.0,

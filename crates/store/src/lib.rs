@@ -7,6 +7,8 @@ mod locked;
 pub use locked::LockedTask;
 pub mod messages;
 pub mod outbox;
+mod outbox_index;
+pub use outbox_index::{OutboxReplay, read_outbox_replay};
 pub mod publish;
 mod retention;
 mod task;

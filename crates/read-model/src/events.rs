@@ -2,9 +2,9 @@
 //! its tail interval, and heartbeat at 15 seconds; cancellation releases state.
 use crate::{Error, capacity, js::*, tasks};
 use pacer_foundation::Ctx;
-use pacer_store::{TaskStore, read_outbox_since};
+use pacer_store::{TaskStore, read_outbox_replay};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+
 pub const V3_CURSOR_BASE: f64 = 3_000_000_000_000.0;
 pub const CONNECTED: &str = ": connected\n\n";
 pub const KEEPALIVE: &str = ": keepalive\n\n";
@@ -89,28 +89,11 @@ pub fn events_since(
     } else {
         since
     };
-    let all = read_outbox_since(ctx, 0.0)?;
-    let mut open = HashSet::new();
-    let mut at = HashMap::new();
-    for e in &all {
-        let d = &e["envelope"]["data"];
-        if e["envelope"]["type"] != "entity" {
-            continue;
-        }
-        if d["kind"] == "attention" && discovery_id(&d["id"]) {
-            if truth(&d["removed"]) {
-                open.remove(text(&d["id"]));
-            } else {
-                open.insert(text(&d["id"]));
-            }
-        }
-        if d["kind"] == "counts" {
-            at.insert(num(&e["seq"]) as i64, open.len());
-        }
-    }
-    let oldest = all.first().map(|e| num(&e["seq"]));
+    let replay = read_outbox_replay(ctx, raw_since)?;
+    let at = replay.discovery_at_counts;
+    let oldest = replay.oldest;
     let reset = raw_since > 0.0 && oldest.is_some_and(|n| n > raw_since + 1.0);
-    let after: Vec<_> = all.iter().filter(|e| num(&e["seq"]) > raw_since).collect();
+    let after = replay.entries;
     let mut records = Vec::new();
     for e in &after {
         if e["envelope"]["type"] == "task" {

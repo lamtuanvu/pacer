@@ -856,7 +856,7 @@ fn stop_pending_uses_js_safe_integer_rules() {
 fn outbox_rotation_and_torn_lines() {
     let tmp = tempfile::tempdir().unwrap();
     let c = ctx(tmp.path());
-    let rows: Vec<Value> = (1..=1010).map(|seq| json!({"seq":seq,"envelope":{"type":"entity","data":{"kind":"message","id":format!("m{seq}")}}})).collect();
+    let rows: Vec<Value> = (1..=1260).map(|seq| json!({"seq":seq,"envelope":{"type":"entity","data":{"kind":"message","id":format!("m{seq}")}}})).collect();
     append_outbox(&c, &rows).unwrap();
     assert_eq!(
         fs::read_to_string(c.pacer_home.join("link/outbox.jsonl"))
@@ -883,12 +883,12 @@ fn outbox_rotation_and_torn_lines() {
         .unwrap()
         .write_all(b"\xff{torn\n")
         .unwrap();
-    let read = read_outbox_since(&c, 1008.0).unwrap();
+    let read = read_outbox_since(&c, 1258.0).unwrap();
     assert_eq!(
         read.iter()
             .map(|v| v["seq"].as_u64().unwrap())
             .collect::<Vec<_>>(),
-        vec![1009, 1010]
+        vec![1259, 1260]
     );
 }
 

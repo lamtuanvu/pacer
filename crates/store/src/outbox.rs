@@ -639,9 +639,20 @@ pub(crate) fn rotate_outbox(ctx: &Ctx) -> io::Result<()> {
         .split(|byte| *byte == b'\n')
         .filter(|line| !line.is_empty())
         .collect();
-    if content.len() as u64 > OUTBOX_MAX_BYTES || lines.len() > OUTBOX_KEEP {
-        let mut kept = Vec::new();
-        for line in lines.iter().rev().take(OUTBOX_KEEP).rev() {
+    if content.len() as u64 > OUTBOX_MAX_BYTES * 5 / 4
+        || lines.len() > (OUTBOX_KEEP * 5).div_ceil(4)
+    {
+        let mut retained = Vec::new();
+        let mut size = 0;
+        for line in lines.iter().rev().take(OUTBOX_KEEP) {
+            if size + line.len() + 1 > OUTBOX_MAX_BYTES as usize {
+                break;
+            }
+            size += line.len() + 1;
+            retained.push(*line);
+        }
+        let mut kept = Vec::with_capacity(size);
+        for line in retained.into_iter().rev() {
             kept.extend_from_slice(line);
             kept.push(b'\n');
         }
