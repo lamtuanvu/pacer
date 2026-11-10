@@ -44,7 +44,7 @@ test("a valid strategy normalizes defaults", () => {
   expect(s.providers.codex.allowPaid).toBe(false);
   expect(s.providers["opencode#opencode-go"].weeklyTokens).toBe(20_000_000);
   expect(s.providers["opencode#byteplus"].quotaSource).toBe("arkcli");
-  expect(s.pacing).toEqual({ policy: "even", order: ["codex", "cursor", "opencode"], plannerReserve: 15, plannerReserveHeadroom: 25, plannerProbe: "ask", aheadThreshold: 10, behindThreshold: -10, accounts: "spread", fillThreshold: 90 });
+  expect(s.pacing).toEqual({ policy: "even", order: ["codex", "cursor", "opencode"], plannerReserve: 15, plannerReserveHeadroom: 25, plannerProbe: "ask", aheadThreshold: 10, behindThreshold: -10, accounts: "spread", fillThreshold: 90, balance: "off" });
   expect(s.routing).toEqual([
     { kinds: ["tests", "docs"], executors: ["opencode#byteplus", "opencode#local"] },
     { kinds: null, executors: ["opencode#byteplus", "codex"] },
@@ -131,6 +131,20 @@ test("explicit pacing order rejects unknown providers", () => {
   } catch (e) {
     expect(e).toBeInstanceOf(StrategyError);
     expect((e as StrategyError).problems).toContain('pacing.order: unknown provider "gemini"');
+  }
+});
+
+test("pacing.balance defaults to off and accepts least-loaded", () => {
+  expect(validateStrategy({ ...VALID, pacing: { policy: "priority" } }, "/x").pacing.balance).toBe("off");
+  expect(validateStrategy({ ...VALID, pacing: { accounts: "fill", balance: "least-loaded" } }, "/x").pacing.balance).toBe("least-loaded");
+});
+
+test("pacing.balance rejects other values", () => {
+  try {
+    validateStrategy({ ...VALID, pacing: { balance: "even" } }, "/x");
+    throw new Error("should have thrown");
+  } catch (e) {
+    expect((e as StrategyError).problems).toContain("pacing.balance must be off or least-loaded");
   }
 });
 

@@ -26,7 +26,7 @@ export const ORCA_NOT_RUNNING = "Orca isn't running; tasks run directly until it
 const pendingEdits = new Set<string>();
 const BACKEND_OVERRIDE_HINT = 'PACER_BACKEND overrides the saved task backend setting.';
 
-export const CONFIG_KEYS = ['execution.auto_clean','task_retention_days','execution.local_max_tasks','execution.local_memory_pressure_limit','execution.local_load_limit','execution.launch_mode','execution.backend','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','update_check','terminal.app','terminal.open'] as const;
+export const CONFIG_KEYS = ['execution.auto_clean','task_retention_days','execution.local_max_tasks','execution.local_memory_pressure_limit','execution.local_load_limit','execution.launch_mode','execution.backend','planner','pacing.order','pacing.policy','pacing.planner_reserve','pacing.planner_reserve_headroom','pacing.planner_probe','pacing.accounts','pacing.fill_threshold','pacing.balance','update_check','terminal.app','terminal.open'] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 function plannerId(s: Strategy): string {
   return formatRunnerId({...s.planner,host:null},{...runnerDefaults(s.accounts),opencode:undefined});
@@ -34,7 +34,7 @@ function plannerId(s: Strategy): string {
 function effective(s: Strategy, raw: StrategyDoc): Record<ConfigKey, unknown> {
   return {'execution.auto_clean':validateExecution(s.execution).autoClean ?? true,task_retention_days:s.taskRetentionDays ?? 14,'execution.local_max_tasks':validateExecution(s.execution).localMaxTasks ?? 'unlimited','execution.local_memory_pressure_limit':validateExecution(s.execution).localMemoryPressureLimit ?? 'critical','execution.local_load_limit':validateExecution(s.execution).localLoadLimit ?? 'off','execution.launch_mode':validateExecution(s.execution).launchMode ?? 'interactive','execution.backend':validateExecution(s.execution).backend==='orca'?'orca':'direct','terminal.open':s.terminal?.open ?? '',planner:plannerId(s),'pacing.order':s.pacing.order,'pacing.policy':s.pacing.policy,
     'pacing.planner_reserve':s.pacing.plannerReserve,'pacing.planner_reserve_headroom':s.pacing.plannerReserveHeadroom,'pacing.planner_probe':s.pacing.plannerProbe,'pacing.accounts':s.pacing.accounts,
-    'pacing.fill_threshold':s.pacing.fillThreshold,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
+    'pacing.fill_threshold':s.pacing.fillThreshold,'pacing.balance':s.pacing.balance,update_check:raw.getIn(['update_check']) ?? true,'terminal.app':raw.getIn(['terminal','app']) ?? 'Terminal'};
 }
 function parseValue(key:ConfigKey, value:string): unknown {
   if (key === 'task_retention_days') {
