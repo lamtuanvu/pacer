@@ -28,6 +28,8 @@ pub(crate) mod host_mut_sync;
 use pacer_config_ops::host_read_ops;
 use pacer_config_ops::limits_refresh_ops;
 pub(crate) mod host_read_sync;
+pub(crate) mod install_apply_sync;
+use pacer_install::install_ops;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
@@ -36,16 +38,9 @@ mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
-<<<<<<< HEAD
-||||||| parent of 09ce54e8d (feat(m2): make service.handover and service.work native in Rust)
-pub(crate) mod host_check_clean_setup_sync;
-=======
 pub(crate) mod handover_bridge;
-pub(crate) mod host_check_clean_setup_sync;
->>>>>>> 09ce54e8d (feat(m2): make service.handover and service.work native in Rust)
 pub(crate) mod msg_write_sync;
 pub mod plugins;
-pub(crate) mod service_effects_sync;
 pub(crate) mod setup_effects_sync;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
@@ -69,6 +64,7 @@ use pacer_task_ops::task_stop_ops;
 pub(crate) mod task_stop_sync;
 use pacer_task_ops::task_wait_ops;
 pub(crate) mod task_wait_sync;
+use pacer_update::apply;
 
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
@@ -112,11 +108,13 @@ pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -
     }
 }
 
-/// `service.status`, `update.check`, `agent.detect` and `limits.refresh` inputs only TypeScript answers.
+/// `service.status`, `service.install`, `update.check`, `update.apply`, `agent.detect` and
+/// `limits.refresh` inputs only TypeScript answers.
 pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     match op {
         "agent.detect" => pacer_install::agent_detect_stays_forwarded(ctx, params),
         "limits.refresh" => limits_refresh_ops::limits_refresh_stays_forwarded(ctx, params),
+        "service.install" | "update.apply" => install_apply_sync::stays_forwarded(ctx, op),
         _ => pacer_update::service_update_stays_forwarded(ctx, op),
     }
 }
@@ -502,6 +500,14 @@ static OPS: &[NativeOp] = &[
         call: pacer_install::agent_detect,
     },
     NativeOp {
+        name: "service.install",
+        call: install_ops::service_install_stub,
+    },
+    NativeOp {
+        name: "update.apply",
+        call: apply::update_apply_stub,
+    },
+    NativeOp {
         name: "repo.list",
         call: repo_registry_ops::repo_list,
     },
@@ -757,7 +763,6 @@ pub async fn call_native(
     task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     task_review_probe: Option<Value>,
     task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
-    service_effects: Option<&mut dyn pacer_install::ServiceEffects>,
     handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
@@ -881,17 +886,6 @@ pub async fn call_native(
             "host.list" => host_read_ops::host_list(ctx, params, parts).await?,
             "host.get" => host_read_ops::host_get(ctx, params, parts).await?,
             _ => unreachable!("needs_host_read_bridge"),
-        }
-    } else if pacer_install::needs_service_effects_bridge(op.name) {
-        let effects = service_effects.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "service effects bridge unavailable",
-            )
-        })?;
-        match op.name {
-            "service.install" => pacer_install::service_install(ctx, params, effects).await?,
-            _ => unreachable!("needs_service_effects_bridge"),
         }
     } else if pacer_update::handover::handover_stays_forwarded(ctx, op.name) {
         let bridge = handover_bridge.ok_or_else(|| {

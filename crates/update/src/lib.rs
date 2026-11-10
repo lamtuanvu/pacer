@@ -1,9 +1,11 @@
-//! Release-feed checks and the login service (`update.check`, `service.status`).
+//! Release-feed checks and the login service (`update.check`, `service.status`), and the
+//! update job front (`update.apply`).
 //!
-//! Both handlers run their probes from Rust: the release feed through `ureq`, and the
-//! service manager (`launchctl` or `systemctl --user`) as an argv subprocess (SEC-5).
+//! The check and status handlers run their probes from Rust: the release feed through `ureq`,
+//! and the service manager (`launchctl` or `systemctl --user`) as an argv subprocess (SEC-5).
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 
+pub mod apply;
 mod check;
 mod feed;
 pub mod handover;

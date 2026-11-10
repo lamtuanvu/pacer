@@ -108,9 +108,10 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `agent.preview` | Forwarded (P9) | Integration preview and undo command before consent. The preview is the planner plugin's `planner.preview` capability, which has no host fallback (ARCH-12), so it stays with the TypeScript plugin host. |
 | `agent.connect`, `agent.disconnect` | Forwarded (P9) | Consent-gated integration file writes and recorded undo disconnect under the `setup` config area (`setup.agentConnect`, `agentDisconnect`). The file plan and undo come from the planner plugin (`planner.preview` and install capabilities, ARCH-12) through the TypeScript plugin host and install transaction, so neither is native yet. |
 | `service.status` | Native (M2 service and agent, selective) | `pacer-update` owns `serviceStatus` (`src/core/setup.ts`, `src/service/index.ts`): `installed` is whether the registration file (`~/Library/LaunchAgents/com.pacer.serve.plist` or `~/.config/systemd/user/pacer-serve.service`) reads; `launchctl print gui/<uid>/com.pacer.serve` or `systemctl --user show pacer-serve.service --property=...` is spawned from Rust as argv with a 2 s deadline (SEC-5), and `parseLaunchd`/`parseSystemd` semantics (JavaScript `\s`, `Number`, the `Object.fromEntries` quirk) produce `running` and `pid`. The health probe TypeScript runs does not change this reply. Other platforms (TypeScript refuses them) and macOS OTA fixture builds, whose sandbox label only the compiled fixture policy knows, selectively forward. Residuals: a timed-out manager is killed but not its process group, and its partial stdout is dropped (TypeScript keeps it); the OTA fixture forward is a path heuristic. On macOS hosts Linux parsing is covered by unit tests only. Parity: `test/native-service-update-parity.test.ts` (fake `launchctl`/`systemctl` on `PATH`). |
-| `service.install` | Forwarded (P9) | Login-item/service install with explicit consent: the install transaction and manifest, the `pacerArgv` of the running core, `launchctl bootstrap`/`systemctl enable` and the health wait stay in TypeScript (`src/service/index.ts`, `src/install/`). |
-| `service.handover`, `service.work` | Native (M2, selective) | Rust (`pacer-update::handover`) validates params, runs the handover logic from `pacer-lifecycle::running_work` over injected snapshots. The `handover` effect uses the Core HTTP API to trigger the handover in the running service; the `work` effect returns the inventory from `pacer-lifecycle::running_work`. Inputs needing the running service's HTTP API selectively forward. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `update.check`, `update.apply` | Forwarded (P9) | Release feed check (optional force) and shared `update.apply` job with download/verify/replace/refuse package-manager and source installs (`src/api/ops.ts`, update preflight). |
+| `service.install` | Native (M2 service and agent, selective) | `pacer-install::install_ops` owns the `parseOpParams` refusals (`PACER_ROLE=executor` upgrade refusal, then the enforcement identity) and the `{consent: true}` schema. A valid request sends one `{kind: "install"}` effect through the Core effects bridge (`/_internal/service-effects`, `_internal.service.effects`), where Core runs the reference operation: the install transaction and manifest, the `pacerArgv` of the running core, `launchctl bootstrap`/`systemctl enable`, the deferred self-reload (`restarting: true`) and the health wait (`src/core/setup.ts`, `src/service/index.ts`). Work-grant callers and a pacer or Orca task worktree as the process directory (the executor check needs the strategy) selectively forward. Residual: the bridge call has the shared 120 s Core bridge deadline. Parity: `test/native-install-apply-parity.test.ts` (refusals and schema; the install effect itself is never run against a real service manager). |
+| `service.handover`, `service.work` | Forwarded (P9) | Post-upgrade runner handover wait and running-task/session version inventory for reopen prompts (`src/setup/service.ts`, owner-only handover). `pacer-update::handover` has Rust validation and bridge plumbing, but neither op is registered: Core serves no `handover.effects` bridge yet. |
+| `update.check` | Native (M2 service and agent, selective) | `pacer-update::check` reads the release feed through `ureq`, keeps the day-long `update-check.json` cache and publishes the `update` config area (`checkForUpdate` in `src/update/check.ts`). A cached `latest` that is an array selectively forwards. Parity: `test/native-service-update-parity.test.ts`. |
+| `update.apply` | Native (M2 service and agent, selective) | `pacer-update::apply` owns the `parseOpParams` refusals (executor upgrade refusal, then the enforcement identity) and the empty schema. A valid request sends one `{kind: "apply"}` effect through the Core effects bridge (`/_internal/update-effects`, `_internal.update.effects`), where Core runs the install-method preflight (package-manager and source installs are refused) and starts the shared `update.apply` job (download, verify, replace, refresh integrations, restart; `applyUpdate` in `src/api/ops.ts`). Work-grant callers and a task worktree as the process directory selectively forward. Parity: `test/native-install-apply-parity.test.ts` (refusals, schema and the preflight refusal through the bridge). |
 | `task.attach`, `task.session`, `task.takeover`, `task.hand_back` | Forwarded (P6/P7) | Live session viewers, session-host metadata, headless-to-interactive takeover and hand-back (`src/api/ops-session.ts`, `src/tasks/session.ts`, `takeoverTask`, `handBackTask`). Shares the attach/viewer path with `session.*`; native vt100 replay gate remains **NO-GO**. |
 | `task.send` | Forwarded (P6) | Injects text into an interactive lane's live worker with driving-lease and `expect_rev` rules (`sendMessage` in `src/tasks/send.ts`); does not create attempts. |
 | `runner.list`, `runner.block`, `runner.unblock` | Native (M2) | `pacer-config-ops::runner_ops` owns `blocked.json` (manual blocks, JS-stringified bytes through the private writer) and composes `runner.list` rows from blocks, `broken.json` and the provider eligibility the usage-broker bridge (`/_internal/status-broker-parts`, stdio `_internal.status-broker.parts`) supplies, as `listRunners` does (`src/core/runners.ts`, `src/executors/blocked.ts`, `src/exec/broken.ts`). `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -410,8 +411,9 @@ The M2 analytics-reads slice later registers `insights.summary`, and the M2
 issue-reads slice registers `issue.import` and `issue.search` (see their rows).
 The M2 service-and-agent slice registers `service.status`, `update.check`,
 `agent.detect` (cache hits), `limits.refresh` (accounts without a refresh
-source), `service.handover` and `service.work`; `agent.preview`, `agent.connect`, `agent.disconnect`,
-`service.install` and `update.apply` keep their Forwarded rows.
+source), and later `service.install` and `update.apply` over a Core effects
+bridge; `agent.preview`, `agent.connect`, `agent.disconnect`,
+`service.handover` and `service.work` keep their Forwarded rows.
 
 ## P5b usage refresh triage (library, no new native ops)
 
@@ -650,7 +652,7 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **150** of 228 (138 on the Rust stdio registry plus 12 HTTP-native
+Total native: **147** of 228 (135 on the Rust stdio registry plus 12 HTTP-native
 `plugin.*` ops). Fifty-seven of these selectively forward some inputs or effects to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
@@ -664,8 +666,8 @@ Total native: **150** of 228 (138 on the Rust stdio registry plus 12 HTTP-native
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,
 `assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
 `dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
-`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`, `service.handover`, `service.work`.
-Total still not native (v3 − native set): **78**.
+`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`, `service.install`, `update.apply`.
+Total still not native (v3 − native set): **81**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

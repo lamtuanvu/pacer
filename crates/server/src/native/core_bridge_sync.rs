@@ -21,6 +21,8 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("/_internal/setup-check"),
         "setup.effects" => Ok("/_internal/setup-effects"),
+        "service.effects" => Ok("/_internal/service-effects"),
+        "update.effects" => Ok("/_internal/update-effects"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -29,13 +31,17 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
+        "service.effects" => Ok("_internal.service.effects"),
+        "update.effects" => Ok("_internal.update.effects"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
 
 pub(crate) fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
-        "setup.check" | "setup.effects" => Ok(params.clone()),
+        "setup.check" | "setup.effects" | "service.effects" | "update.effects" => {
+            Ok(params.clone())
+        }
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
