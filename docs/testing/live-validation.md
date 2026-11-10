@@ -87,6 +87,13 @@ Use the guarded public proxy for HTTP checks. To check the forward override in
 a separate sandbox, add `--native-forward-echo`; it fixes
 `PACER_FORWARD_OPS=test.echo` for that sandbox. Record the native trace from
 `logs/serve.log` and the forwarding result as behavior notes in each report.
+Three more `up` options also need `--native-test-ops`. `--local-model-ports <ollama>,<lmstudio>`
+points the local model server probes at fixture ports (`PACER_TEST_LOCAL_SERVER_PORTS`),
+so they never reach a real Ollama or LM Studio. `--core-fixture <file>` runs a test Core entry
+from `test/fixtures/` instead of `src/cli.ts`; the entry reads its own fixture variables
+from the environment of `up` (for example `DISCOVER_PLAN` for `core-discover-plan.ts`).
+`--native-forward-ops <ops>` sets `PACER_FORWARD_OPS` so a second sandbox can compare
+forced forwarding for those operations. `session.json` records each choice.
 The D3 guard refuses generic stdio calls. For a native test-ops sandbox without
 `--native-forward-echo`, run `bun run live native-stdio --id <id>`. This fixed
 fixture starts the sandbox's Rust front door with the sandbox home and Keychain

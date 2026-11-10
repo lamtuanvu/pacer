@@ -30,6 +30,10 @@ export interface Session {
   /** The disposable Rust front door includes test-only native operations. */
   nativeTestOps?: true;
   nativeForwardEcho?: true;
+  /** Test-ops fixtures: local model server ports (`<ollama>,<lmstudio>`), a `test/fixtures` Core entry and forwarded ops. */
+  localModelPorts?: string;
+  coreFixture?: string;
+  nativeForwardOps?: string;
   /** The sandbox uses the login Keychain instead of the `security` stub; `down` deletes its identity items. */
   realKeychain?: true;
   stopped?: boolean;
@@ -119,9 +123,11 @@ export function sandboxEnv(session: Session, inherited = process.env): NodeJS.Pr
   const outside = Object.fromEntries(Object.entries(inherited).filter(([key]) => !key.startsWith("PACER_") || SANDBOX_PASSTHROUGH.includes(key)));
   return {
     ...outside,
-    ...(session.frontDoor === "rust" ? { PACER_CORE_ARGV: JSON.stringify([process.execPath, join(checkout, "src/cli.ts")]) } : {}),
+    ...(session.frontDoor === "rust" ? { PACER_CORE_ARGV: JSON.stringify([process.execPath, join(checkout, session.coreFixture ? `test/fixtures/${session.coreFixture}` : "src/cli.ts")]) } : {}),
     ...(session.nativeTestOps ? { PACER_DEBUG_NATIVE: "1" } : {}),
     ...(session.nativeForwardEcho ? { PACER_FORWARD_OPS: "test.echo" } : {}),
+    ...(session.nativeForwardOps ? { PACER_FORWARD_OPS: session.nativeForwardOps } : {}),
+    ...(session.localModelPorts ? { PACER_TEST_LOCAL_SERVER_PORTS: session.localModelPorts } : {}),
     PATH: `${join(session.root, "bin")}:${inherited.PATH ?? ""}`,
     PACER_BIN: join(session.root, "bin/pacer"),
     PACER_HOME: join(session.root, "home"),
@@ -144,7 +150,8 @@ export function shellQuote(value: string): string {
 }
 export function environmentScript(session: Session): string {
   const env = sandboxEnv(session);
-  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []), ...(session.seed ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
+  return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []),
+    ...(session.nativeForwardOps ? ["PACER_FORWARD_OPS"] : []), ...(session.localModelPorts ? ["PACER_TEST_LOCAL_SERVER_PORTS"] : []), ...(session.seed ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
     .map(key => `export ${key}=${shellQuote(env[key]!)}`).join("\n") + "\n";
 }
 async function reservePort(): Promise<number> {
@@ -223,11 +230,20 @@ export function launch(session: Session, argv: string[], logName: string, overri
     return child.pid;
   } finally { closeSync(log); }
 }
-export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string, realKeychain = false, nativeTestOps = false, nativeForwardEcho = false): Promise<Session> {
+export type NativeFixtures = Pick<Session, "localModelPorts" | "coreFixture" | "nativeForwardOps">;
+export function validateNativeFixtures(fixtures: NativeFixtures, nativeTestOps: boolean, nativeForwardEcho: boolean): void {
+  const { localModelPorts, coreFixture, nativeForwardOps } = fixtures;
+  if ((localModelPorts ?? coreFixture ?? nativeForwardOps) !== undefined && !nativeTestOps) throw Error("--local-model-ports, --core-fixture and --native-forward-ops require --native-test-ops");
+  if (localModelPorts !== undefined && !(/^\d{1,5},\d{1,5}$/.test(localModelPorts) && localModelPorts.split(",").map(Number).every(port => port > 0 && port <= 65535 && port !== 4317))) throw Error("--local-model-ports must be <ollama>,<lmstudio> ports other than 4317");
+  if (coreFixture !== undefined && !(/^[a-z0-9][a-z0-9-]*\.ts$/.test(coreFixture) && existsSync(join(checkout, "test/fixtures", coreFixture)))) throw Error("--core-fixture must name a .ts file in test/fixtures");
+  if (nativeForwardOps !== undefined && (nativeForwardEcho || !/^[a-z0-9.*_-]+(,[a-z0-9.*_-]+)*$/i.test(nativeForwardOps))) throw Error("--native-forward-ops must be a comma-separated op list and cannot be combined with --native-forward-echo");
+}
+export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string, realKeychain = false, nativeTestOps = false, nativeForwardEcho = false, fixtures: NativeFixtures = {}): Promise<Session> {
   validateSeed(seed);
   validateFrontDoor(frontDoor);
   if (nativeTestOps && frontDoor !== "rust") throw Error("--native-test-ops requires --front-door rust");
   if (nativeForwardEcho && !nativeTestOps) throw Error("--native-forward-echo requires --native-test-ops");
+  validateNativeFixtures(fixtures, nativeTestOps, nativeForwardEcho);
   if (frontDoor === "rust") {
     const build = Bun.spawnSync(["cargo", "build", "-q", "--locked", "-p", "pacer", ...(nativeTestOps ? ["--features", "test-ops"] : [])], { cwd: checkout, stdout: "pipe", stderr: "pipe" });
     if (build.exitCode !== 0) throw Error(`cargo build -p pacer failed:\n${build.stderr.toString().trim()}`);
@@ -238,7 +254,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...Object.fromEntries(Object.entries(fixtures).filter(([, value]) => value !== undefined)), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
     if (nativeTestOps) cpSync(join(process.env.CARGO_TARGET_DIR ?? join(checkout, "target"), "debug/pacer"), join(root, "bin/native-pacer"));

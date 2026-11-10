@@ -19,9 +19,11 @@ import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fa
 
 const usage = `usage: bun run live <command> [--id <id>]
   up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--native-test-ops] [--native-forward-echo] [--real-keychain]
+     [--local-model-ports <ollama>,<lmstudio>] [--core-fixture <test/fixtures file>] [--native-forward-ops <ops>]
                                   start isolated service and disposable repo; ui seeds sample data;
                                   plugin-remove adds one inert removable plugin;
-                                  --real-keychain uses the login Keychain instead of a security stub
+                                  --real-keychain uses the login Keychain instead of a security stub;
+                                  the last three need --native-test-ops
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
   ota build [--signer cert] [--initial-layout bridge|paired] [--fixture-continue-old-service] [--baseline-process-type Background|Standard] [--baseline-request-stages] [--cargo-target-dir <dir>]
@@ -68,7 +70,7 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal", "--mode"]);
+  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal", "--mode", "--local-model-ports", "--core-fixture", "--native-forward-ops"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
@@ -87,8 +89,10 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (flags.has("--real-keychain") && command !== "up") throw Error("--real-keychain is only valid for up");
   if (flags.has("--native-test-ops") && command !== "up") throw Error("--native-test-ops is only valid for up");
   if (flags.has("--native-forward-echo") && command !== "up") throw Error("--native-forward-echo is only valid for up");
+  for (const key of ["--local-model-ports", "--core-fixture", "--native-forward-ops"]) if (options.has(key) && command !== "up") throw Error(`${key} is only valid for up`);
   if (command === "up") {
-    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain"), flags.has("--native-test-ops"), flags.has("--native-forward-echo")), null, 2));
+    const fixtures = { localModelPorts: options.get("--local-model-ports"), coreFixture: options.get("--core-fixture"), nativeForwardOps: options.get("--native-forward-ops") };
+    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain"), flags.has("--native-test-ops"), flags.has("--native-forward-echo"), fixtures), null, 2));
     return 0;
   }
   if (command === "status") {
