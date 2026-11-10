@@ -10,7 +10,10 @@ import { extractAttemptTokens } from "../tokens/extract";
 import { attemptUsageText, recordAttemptUsage } from "../tokens/store";
 import { resolveTaskDispatch, reserveDispatch, releaseDispatch, selectedDispatchModel } from "../dispatch/runtime";
 import {dispatchSettingsHash} from "../dispatch/learning";
-import type { Candidate, DispatchPreview } from "../dispatch/types";
+import { dispatchConfigSchema, type Candidate, type DispatchPreview } from "../dispatch/types";
+import { buildModelInventory } from "../dispatch/inventory";
+import { selectModel } from "../dispatch/tier-select";
+import { storedObservations } from "../dispatch/refresh";
 import { ensureRunnerIntegration } from "../core/integrations";
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { installHandoverHandler, registerRunnerLease } from "./handover";
@@ -539,7 +542,25 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         }
       }
 
-      const selectedModel = work ? selectedDispatchModel(ctx,id) : undefined;
+      let selectedModel = work ? selectedDispatchModel(ctx,id) : undefined;
+      let tier = resuming ? task.pendingAttempt?.tier : undefined;
+      const runner = s.runners[pick];
+      if (!work && !resuming && (runner?.models?.length || task.model !== undefined)) {
+        const effectiveDifficulty = task.difficulty ?? "standard";
+        const config = s.dispatch ?? dispatchConfigSchema.parse({});
+        const now = Date.now() / 1000;
+        const records = buildModelInventory(s, storedObservations({ ...ctx, now }), now).filter(record => record.runner === pick);
+        const choice = selectModel(records, {
+          difficulty: effectiveDifficulty, targets: config.tierTargets, pin: task.model,
+          fixedExecutor: true, defaultModel: runner?.model ?? undefined,
+        });
+        if (choice.record?.binding.kind === "exact") selectedModel = choice.record.binding.id;
+        tier = {
+          requestedDifficulty: task.difficulty ?? "unspecified",
+          difficultySource: task.difficultySource === "brief" ? "explicit" : task.difficultySource === "unspecified" ? "unspecified" : "work",
+          effectiveDifficulty, targetTier: choice.targetTier, selectedTier: choice.selectedTier, reason: choice.reason,
+        };
+      }
       const cfg = selectedModel === undefined ? s.providers[pick] : {...s.providers[pick],model:selectedModel};
       if (!resuming && task.executorProvider && task.executor && task.executor !== pick)
         return updateTask(ctx, id, current => {
@@ -613,7 +634,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
        requireAgentWorkspaceBackend(ctx,id,attemptedBackend,!!resolveRunner(s,pick!)?.host);
        return updateTask(ctx, id, t => {
         if(!resuming) routeAdmission!.revalidate();
-        t.pendingAttempt = { routing, usageAtStart };
+        t.pendingAttempt = { routing, usageAtStart, ...(tier ? { tier } : {}) };
         t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming ? t.attemptStartedAt ?? resuming.startedAt : Date.now() / 1000;
        });
       },{staleMs:600000});
@@ -673,7 +694,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             throw new CoreError("conflict","Strategy changed before route commit");
           return updateTask(ctx,id,t=>{
             routeAdmission!.revalidate();
-            t.pendingAttempt={routing,usageAtStart};
+            t.pendingAttempt={routing,usageAtStart,...(tier ? {tier} : {})};
           });
         }));
         routeAdmission!.checkpoint(task);
@@ -766,7 +787,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           updateTask(ctx, id, current => {
             if (current.state !== "running" || current.startIntent || current.stopPending)
               throw new CoreError("conflict", "executor state changed before refusal settlement");
-            current.attempts.push({ executor: cfg.id, model: cfg.model ?? null, startedAt: task.attemptStartedAt!,
+            current.attempts.push({ ...(tier ? { tier } : {}), executor: cfg.id, model: cfg.model ?? null, startedAt: task.attemptStartedAt!,
               endedAt, exitCode: 1, timedOut: false, limitHit: false, log: "" });
             delete current.runClaim; delete current.pendingAttempt; delete current.worktreeIntent;
           });
@@ -800,6 +821,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const latest = readTask(ctx, id);
         if (latest && TERMINAL_STATES.includes(latest.state)) return latest;
       }
+      if (tier) out.attempt.tier = tier;
       if (owned && readTask(ctx, id)?.stopPending) {
         const deadline = readTask(ctx, id)?.stopPending?.reason === "deadline";
         task = updateTask(ctx, id, current => {
