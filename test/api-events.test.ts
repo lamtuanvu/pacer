@@ -42,10 +42,10 @@ test("events retain publication time and map internal entities", async () => {
 });
 test("entity validation and 1000-entry retention", async () => {
  const {parseOutboxEvent}=await import("../src/link/envelope");
- const {readOutboxSince}=await import("../src/link/store");
+ const {OUTBOX_ROTATE_LINES,readOutboxSince}=await import("../src/link/store");
  expect(parseOutboxEvent({type:"entity",data:{kind:"task",id:"x"}})).toBeNull();
  const ctx=fakeCtx();
- await publish(ctx,Array.from({length:1200},(_,i)=>alert(String(i),ctx.now)));
+ await publish(ctx,Array.from({length:OUTBOX_ROTATE_LINES+50},(_,i)=>alert(String(i),ctx.now)));
  expect(readOutboxSince(ctx,0)).toHaveLength(1000);
 });
 

@@ -15,7 +15,6 @@ export interface OutboxReplay {
    * For each counts entity with a seq above 0, how many discovery attention items were open then; v2 counts leave them out.
    * The open set is rebuilt from the retained outbox only, so once the item's raise is trimmed away the v2 counts over-report
    * by that item until the client fetches the next snapshot (N10). That is acceptable for a legacy client.
-   * Read it before the next replay of the same home.
    */
   discoveryOpen: ReadonlyMap<number, number>;
 }
@@ -64,7 +63,7 @@ export function replayOutbox(ctx: Ctx, since: number): OutboxReplay {
     const from = firstOffsetAfter(index, since);
     const bytes = readRange(fd, from, stat.size);
     const entries: OutboxEntry[] = [];
-    let oldest = index.oldest, discoveryOpen: ReadonlyMap<number, number> = index.openAt;
+    let oldest = index.oldest, unterminatedCounts: [number, number] | undefined;
     // Decoding once is faster than per line. A newline byte never sits inside a UTF-8 sequence, so lines pair with
     // offsets; when every byte decoded to one character, string positions are byte offsets.
     const text = bytes.toString("utf8"), ascii = text.length === bytes.length;
@@ -79,11 +78,13 @@ export function replayOutbox(ctx: Ctx, since: number): OutboxReplay {
         // A complete record without its newline counts now but is indexed only once it ends.
         oldest ??= entry.seq;
         const env = entry.envelope;
-        if (env.type === "entity" && env.data.kind === "counts") discoveryOpen = new Map(index.openAt).set(entry.seq, index.open.size);
+        if (env.type === "entity" && env.data.kind === "counts") unterminatedCounts = [entry.seq, index.open.size];
       }
       if (entry && entry.seq > since) entries.push(entry);
       start = stop;
     }
+    const discoveryOpen = new Map(index.openAt);
+    if (unterminatedCounts) discoveryOpen.set(...unterminatedCounts);
     return { entries, oldest: index.oldest ?? oldest, discoveryOpen };
   } finally { closeSync(fd); }
 }

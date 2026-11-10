@@ -147,11 +147,20 @@ export function appendOutbox(ctx:Ctx,entries:OutboxEntry[], rotate = true, notif
 export function notifyOutbox(ctx:Ctx):void {
   for (const listener of outboxListeners.get(ctx.pacerHome) ?? []) listener();
 }
-/** Rotate only after a publisher has committed latest.json, keeping an interrupted append replayable. */
+/**
+ * Rotate only after a publisher has committed latest.json, keeping an interrupted append replayable.
+ * A rotation keeps the newest lines within both OUTBOX_KEEP and OUTBOX_MAX_BYTES, and always the newest line.
+ */
 export function rotateOutbox(ctx:Ctx):void {
-  const p=outboxPath(ctx);
-  if(statSync(p).size>OUTBOX_MAX_BYTES || readFileSync(p,"utf8").split("\n").filter(Boolean).length>OUTBOX_KEEP) {
-    const lines=readFileSync(p,"utf8").split("\n").filter(Boolean).slice(-OUTBOX_KEEP), tmp=`${p}.${process.pid}.${randomUUID()}.tmp`;
+  const p=outboxPath(ctx), size=statSync(p).size, all=readFileSync(p,"utf8").split("\n").filter(Boolean);
+  if(size>OUTBOX_ROTATE_BYTES || all.length>OUTBOX_ROTATE_LINES) {
+    let start=all.length, bytes=0;
+    while(start>0 && all.length-start<OUTBOX_KEEP) {
+      bytes+=Buffer.byteLength(all[start-1]!)+1;
+      if(bytes>OUTBOX_MAX_BYTES && start<all.length) break;
+      start--;
+    }
+    const lines=all.slice(start), tmp=`${p}.${process.pid}.${randomUUID()}.tmp`;
     const rotation=openSync(tmp,"wx",0o600);
     try { writeFileSync(rotation,`${lines.join("\n")}\n`); closeSync(rotation); renameSync(tmp,p); }
     catch(error) { try { closeSync(rotation); } catch { /* already closed */ } unlinkSync(tmp); throw error; }
