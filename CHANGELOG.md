@@ -64,7 +64,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Rust library effects for named strategy saves, routing and runner edits, and notification settings. The TypeScript runtime is unchanged.
 
-
 - Rust strategy activation and removal library effects, with atomic activation and restrictive 0700 home and 0600 active-file modes. The TypeScript runtime is unchanged.
 
 - Per-file change statuses: `agent.preview` now reports how each file a reconnect writes changes (`create`, `update`, `restore`, `unchanged` or `kept`), shown as change pills in the Diagnostics review sheet, and `agent.connect` returns an additive `undo` flag so the done sheet offers Undo only when that repair left something undoable (with a short reason when it did not).
@@ -76,6 +75,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- An interactive task whose execution budget is exhausted no longer stays **Lost contact / working** forever when its executor wrapper and session have already ended. The runner records the exhausted budget as a pending deadline stop and releases the task, but supervision then only settled an attempt whose wrapper left a recorded exit: a wrapper that died without one (killed, crashed, machine asleep through the stop) satisfied neither the live branch nor the existing settle, so the task stayed running with no runner, no answer and no relaunch, hour after hour. The supervision tick now settles such a pending stop exactly once: a deadline stop settles failed with a clear timeout report ("Executor deadline reached; the executor wrapper ended without a recorded exit", attempt marked timed out), a user stop settles stopped, and the live run past its budget keeps being stopped as deadline as before. Before settling, supervision terminates surviving members of the dead wrapper’s process group with bounded TERM/KILL cleanup; an unidentifiable child or failed process probe leaves the stop pending. An explicitly unverified exit receipt allows retry or continuation on the same task ID.
+
+- Pending local stops reap surviving interactive PTY groups after their host dies, checking process birth times and ownership. Stops that remain uncertain for ten minutes from the first durably recorded cleanup attempt settle with an explicit cleanup-unconfirmed report; running wrappers still receive identity-checked stops after that deadline. Legacy requests always get an initial cleanup attempt, and child processes born after the child record are not signalled as owned orphans. Reused wrapper PIDs are never signalled.
 - Direct task stop recovery now inspects an existing wrapper or exit receipt when its start intent is absent, instead of leaving the task running indefinitely. Ambiguous runs without a verified exit remain pending.
 
 - Tasks no longer fail at start with "timed out waiting for …/orca/evidence-….lock". `withLock` kept a lock until the next microtask even when its work was synchronous. When the holding process then blocked its event loop (for example in a synchronous `withLockSync` wait on another lock), the release could not run, and a runner waiting for the evidence lock in another process timed out after 20 seconds. `withLock` now releases as soon as synchronous work finishes, and evidence reconciliation, `withTaskLockAsync` and the runner's `session-create` section run synchronously inside their locks. Evidence writes stay serialized and atomic.
@@ -273,7 +275,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Start Dispatch with Scope and Inspector closed, remember their toggles per window, offer the latest running task from an empty inspector, and preserve the ledger’s 9px by 20px row padding in both densities.
 
 - Apply the saved device density across shared controls: Comfortable defaults to 32px and Compact uses 28px, immediately and after reload, without a service configuration write.
-
 
 - Budget & pacing mode choices update immediately, release holds on Automatic, and restore the previous choice with an inline error when a write fails. Held state no longer inherits the routing-status cache lifetime.
 - Idle settings queries ignore unrelated configuration events; stale snapshots retry with backoff instead of replaying invalidations. Client control and setup polling use bounded intervals without overlapping requests.
@@ -508,7 +509,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Agent live-control commands for browser/tray, TUI and native macOS targets, with authenticated owned-window self-capture and explicit native permission setup.
 - Native permission setup in desktop Diagnostics: a draggable hosting-app chip docks to System Settings, with a Finder alternative, cancellation and owned-window access verification.
-
 
 ## [0.6.2] - 2026-10-21
 
