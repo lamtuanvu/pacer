@@ -1,26 +1,17 @@
 //! `service.handover` and `service.work`: running work inventory for post-upgrade reopen.
 //! These read from the task store and session store via the pacer-store crate.
+//!
+//! The ops stay forwarded to TypeScript on every front door: Core has no real
+//! `handover.effects` bridge yet (`/_internal/handover-effects`,
+//! `_internal.handover.effects`) and the stores live on the TypeScript side, so
+//! the wiring below is kept as library logic until that bridge exists and the
+//! ops are registered natively with parity tests.
 pub mod bridge;
-pub use bridge::{HandoverBridge, handover_stub};
+pub use bridge::HandoverBridge;
 
 use crate::{object, refuse_enforcement};
 use pacer_foundation::{Ctx, api::OpFuture};
 use serde_json::{Value, json};
-
-/// `service.handover` and `service.work` inputs that only the TypeScript core reproduces.
-pub fn handover_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
-    if ctx
-        .env
-        .get("PACER_ENFORCEMENT_TOKEN")
-        .is_some_and(|token| !token.is_empty())
-    {
-        return false;
-    }
-    match op {
-        "service.handover" | "service.work" => true, // blocked on store bridge
-        _ => false,
-    }
-}
 
 pub async fn call<'a>(
     ctx: &'a Ctx,

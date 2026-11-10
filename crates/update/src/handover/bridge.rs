@@ -8,13 +8,3 @@ use serde_json::Value;
 pub trait HandoverBridge: Send {
     fn call(&mut self, request: Value) -> OpFuture<'_>;
 }
-
-/// Registry entry for ops that run only through [`call`] with a Core handover bridge.
-pub fn handover_stub(_: &crate::handover::Ctx, _: serde_json::Value) -> OpFuture<'_> {
-    Box::pin(async move {
-        Err(pacer_foundation::api::CoreError::new(
-            pacer_foundation::api::Code::Unavailable,
-            "handover bridge unavailable",
-        ))
-    })
-}
