@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 
 import golden from "./fixtures/config-writes-goldens.json";
+import { assertIsolatedEnv, isolatedEnv } from "./isolated-port";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const productionFront = process.env.PACER_TEST_FRONT_DOOR;
@@ -12,11 +13,21 @@ function setup() {
   // host.sock must fit SUN_LEN (~104); bun test's TMPDIR is too deep for native serve.
   const home = mkdtempSync("/tmp/pnd-");
   mkdirSync(join(home, ".pacer"), { mode: 0o700 });
-  const env = { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
-    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" };
+  const env = isolatedEnv({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
+    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1" });
   return { home, env, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 const rpc = (id: number, method: string, params: unknown = {}) => JSON.stringify({ jsonrpc: "2.0", id, method, params });
+
+test("spawned front doors and cores never inherit the default service port", async () => {
+  const fixture = setup();
+  try {
+    assertIsolatedEnv(fixture.env);
+    await expect(fetch(`http://127.0.0.1:${fixture.env.PACER_PORT}/health`, { signal: AbortSignal.timeout(2000) })).rejects.toThrow();
+    expect(() => isolatedEnv(fixture.env, 4317)).toThrow("unsafe PACER_PORT");
+    expect(() => assertIsolatedEnv({ ...fixture.env, PACER_PORT: undefined })).toThrow("must pin PACER_PORT");
+  } finally { fixture.cleanup(); }
+});
 
 test.skipIf(!productionFront)("release front door rejects test-only native operations", async () => {
   const fixture = setup();
@@ -104,7 +115,7 @@ test.skipIf(!front)("HTTP native route enforces auth, version, body limit and fo
   const fixture = setup();
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
   const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: fixture.env, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: isolatedEnv(fixture.env, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const stderrText = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   try {
@@ -160,7 +171,7 @@ test.skipIf(!front)("PACER_FORWARD_OPS forces HTTP echo back to TypeScript", asy
   const fixture = setup();
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
   const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: { ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: isolatedEnv({ ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const base = `http://127.0.0.1:${port}`;
   try {
     let token = "";
@@ -196,8 +207,8 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
       writeFileSync(join(fixture.env.PACER_HOME, "strategy.yaml"), golden.initial, {mode:0o600});
       const reservation = Bun.serve({hostname:"127.0.0.1", port:0, fetch:() => new Response()});
       const port = reservation.port!; reservation.stop(true);
-      const env = {...fixture.env, XDG_CONFIG_HOME:xdg, PACER_AGENT:"alice", PACER_FORWARD_OPS:forwarded ? "*" : "",
-        ...(override === undefined ? {} : {PACER_ORCA_USER_DATA:override ? legacy : ""})};
+      const env = isolatedEnv({...fixture.env, XDG_CONFIG_HOME:xdg, PACER_AGENT:"alice", PACER_FORWARD_OPS:forwarded ? "*" : "",
+        ...(override === undefined ? {} : {PACER_ORCA_USER_DATA:override ? legacy : ""})}, port);
       const child = Bun.spawn([productionFront!, "serve", "--port", String(port)], {env, stdin:"ignore", stdout:"ignore", stderr:"pipe"});
       const errors = new Response(child.stderr).text();
       const base = `http://127.0.0.1:${port}`;

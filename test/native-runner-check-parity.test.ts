@@ -6,6 +6,7 @@ import {join} from "node:path";
 import {callOp} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
 import {fakeCtx} from "./helpers";
+import {assertIsolatedEnv, isolatedEnv} from "./isolated-port";
 
 const NOW = 1_700_000_000;
 const root = join(import.meta.dir, "..");
@@ -24,9 +25,14 @@ function home(strategy: string | null) {
   return dir;
 }
 
-const run = (input: Record<string, unknown>) => JSON.parse(execFileSync(driver, [], {input: JSON.stringify(input) + "\n"}).toString());
+const driverEnv = isolatedEnv({...process.env});
+const run = (input: {env: Record<string, string>} & Record<string, unknown>) => {
+  assertIsolatedEnv(input.env);
+  return JSON.parse(execFileSync(driver, [], {input: JSON.stringify(input) + "\n", env: driverEnv}).toString());
+};
 
-async function compare(params: unknown, env: Record<string, string> = {}) {
+async function compare(params: unknown, extra: Record<string, string> = {}) {
+  const env = isolatedEnv(extra);
   const rs = home(STRATEGY), ts = home(STRATEGY);
   let expected: unknown;
   try { expected = {result: await callOp(fakeCtx({pacerHome: ts, home: ts, now: NOW, env}), "runner.check", params)}; } catch (error) { expected = {error: toApiError(error)}; }
@@ -37,7 +43,7 @@ async function compare(params: unknown, env: Record<string, string> = {}) {
 
 function forwarded(params: unknown, strategy: string | null = STRATEGY) {
   const dir = home(strategy);
-  expect(run({op: "runner.check", params, home: dir, now: NOW, env: {}}), JSON.stringify(params)).toEqual({forwarded: true});
+  expect(run({op: "runner.check", params, home: dir, now: NOW, env: isolatedEnv({})}), JSON.stringify(params)).toEqual({forwarded: true});
   expect(existsSync(join(dir, "jobs")), `${JSON.stringify(params)}: no native job`).toBe(false);
 }
 
