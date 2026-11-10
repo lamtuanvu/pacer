@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { stopOrphanedRun } from "../src/supervisor/orphan";
+import { birthMatchesRun, stopOrphanedRun } from "../src/supervisor/orphan";
 
 test("orphan cleanup cannot certify death when the process probe fails", async () => {
   const dir = mkdtempSync(join(tmpdir(), "pacer-orphan-probe-"));
@@ -88,4 +88,41 @@ test("interactive orphan cleanup refuses a child pid reused after the child reco
     child.kill("SIGKILL"); await child.exited;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// Inject Linux's boot clock so these regressions also run on macOS.
+
+const linuxClock = { bootTime: 1_700_000_000, ticksPerSecond: 100 };
+const linuxIdentity = { pid: 12345, bootId: "fixture-boot", birth: "1000" };
+
+test("Linux orphan birth tolerates truncated boot seconds and one clock tick", () => {
+  const birth = linuxClock.bootTime + 10;
+  // The real process starts just after the run, but btime loses its fraction.
+  expect(birthMatchesRun(linuxIdentity, birth + 0.999, birth + 1.005, linuxClock)).toBe(true);
+  expect(birthMatchesRun(linuxIdentity, birth + 1.02, birth + 1.03, linuxClock)).toBe(false);
+  // Group-member validation uses the same lower bound without a child mtime.
+  expect(birthMatchesRun(linuxIdentity, birth + 0.999, Infinity, linuxClock)).toBe(true);
+  expect(birthMatchesRun(linuxIdentity, birth + 1.02, Infinity, linuxClock)).toBe(false);
+});
+
+test("Linux orphan birth refuses a reused child beyond clock precision", () => {
+  const birth = linuxClock.bootTime + 10;
+  expect(birthMatchesRun(linuxIdentity, birth - 60, birth - 1, linuxClock)).toBe(true);
+  expect(birthMatchesRun(linuxIdentity, birth - 60, birth - 1.02, linuxClock)).toBe(false);
+  expect(birthMatchesRun(linuxIdentity, birth - 60, birth - 30, linuxClock)).toBe(false);
+});
+
+test("Darwin orphan birth retains exact run and child record comparisons", () => {
+  const identity = { ...linuxIdentity, birth: "1700000010:500000" };
+  const birth = 1_700_000_010.5;
+  expect(birthMatchesRun(identity, birth, birth, "darwin")).toBe(true);
+  expect(birthMatchesRun(identity, birth + 0.001, Infinity, "darwin")).toBe(false);
+  expect(birthMatchesRun(identity, birth - 60, birth - 0.001, "darwin")).toBe(false);
+});
+
+test("orphan birth comparison fails closed for invalid clock or identity", () => {
+  expect(birthMatchesRun(linuxIdentity, 1, Infinity, { ...linuxClock, ticksPerSecond: 0 })).toBe(false);
+  expect(birthMatchesRun({ ...linuxIdentity, birth: "invalid" }, 1, Infinity, linuxClock)).toBe(false);
+  expect(birthMatchesRun(linuxIdentity, NaN, Infinity, linuxClock)).toBe(false);
+  expect(birthMatchesRun(linuxIdentity, 1, NaN, linuxClock)).toBe(false);
 });

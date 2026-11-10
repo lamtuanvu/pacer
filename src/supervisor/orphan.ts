@@ -2,17 +2,37 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { processIdentity, sameProcess, signalSameProcess, type ProcessIdentity } from "../update/desktop/process-identity";
 
-// Linux birth identities are clock ticks since boot; Darwin records wall-clock seconds/useconds.
-function startedAt(identity: ProcessIdentity): number {
-  if (process.platform === "darwin") {
-    const [seconds, micros] = identity.birth.split(":").map(Number);
-    return seconds! + micros! / 1_000_000;
-  }
+type BirthClock = "darwin" | { bootTime: number; ticksPerSecond: number };
+
+function birthClock(): BirthClock {
+  if (process.platform === "darwin") return "darwin";
   const boot = /^btime (\d+)$/m.exec(readFileSync("/proc/stat", "utf8"));
   const clock = Bun.spawnSync(["getconf", "CLK_TCK"], { stdout: "pipe", stderr: "ignore" });
   const ticks = Number(clock.stdout.toString().trim());
   if (!boot || clock.exitCode !== 0 || !(ticks > 0)) throw new Error("process birth unavailable");
-  return Number(boot[1]) + Number(identity.birth) / ticks;
+  return { bootTime: Number(boot[1]), ticksPerSecond: ticks };
+}
+
+/** Check wall-clock run bounds using the precision of the process birth clock. */
+export function birthMatchesRun(identity: ProcessIdentity, start: number, recordedAt = Infinity,
+  clock: BirthClock = birthClock()): boolean {
+  let birth: number;
+  let precision = 0;
+  if (clock === "darwin") {
+    const [seconds, micros] = identity.birth.split(":").map(Number);
+    birth = seconds! + micros! / 1_000_000;
+  } else {
+    if (!Number.isFinite(clock.bootTime) || !Number.isFinite(clock.ticksPerSecond) ||
+      clock.ticksPerSecond <= 0) return false;
+    birth = clock.bootTime + Number(identity.birth) / clock.ticksPerSecond;
+    // /proc/stat btime has whole-second precision; /proc/<pid>/stat starttime
+    // has CLK_TCK precision. Bound wall-clock comparisons by one second plus
+    // one tick, including the child-record upper bound used to reject PID reuse.
+    // Exact birth identities are still rechecked before every signal.
+    precision = 1 + 1 / clock.ticksPerSecond;
+  }
+  return Number.isFinite(birth) && Number.isFinite(start) &&
+    birth >= start - precision && birth <= recordedAt + precision;
 }
 
 /** Reap a dead wrapper's owned group, including the separate PTY session group.
@@ -59,11 +79,9 @@ export async function stopOrphanedRun(dir: string, wrapper: number, graceMs: num
     if (!Number.isFinite(start) || start <= 0 || !recordedChild) return false;
     const anchor = processIdentity(recordedChild.pid);
     if (!anchor || childRecordedAt === undefined || !Number.isFinite(childRecordedAt)) return false;
-    const anchorStartedAt = startedAt(anchor);
     // A reused child PID can be newer than the run, but cannot predate the child
     // record written immediately after spawning the original process.
-    if (!Number.isFinite(anchorStartedAt) || anchorStartedAt < start ||
-      anchorStartedAt > childRecordedAt) return false;
+    if (!birthMatchesRun(anchor, start, childRecordedAt)) return false;
     const identities = new Map<number, ProcessIdentity>([[anchor.pid, anchor]]);
     for (const [signal, waitMs] of [["SIGTERM", Math.max(0, Math.min(graceMs, 25_000))], ["SIGKILL", 1000]] as const) {
       const end = Date.now() + waitMs;
@@ -73,7 +91,7 @@ export async function stopOrphanedRun(dir: string, wrapper: number, graceMs: num
         for (const row of remaining) {
           const identity = processIdentity(row.pid);
           if (!identity) continue; // It may have exited since the shared table scan.
-          if (startedAt(identity) < start) return false;
+          if (!birthMatchesRun(identity, start)) return false;
           const prior = identities.get(row.pid);
           if (prior && !sameProcess(prior, identity)) return false;
           current.set(row.pid, identity);
