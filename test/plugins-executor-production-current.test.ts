@@ -364,6 +364,8 @@ test("lost interactive completion reply recovers the same reported attempt", asy
   } finally { cleanup(); }
 });
 
+// Integration smoke test: the host's own report watcher usually wins the race here, so this does not
+// reproduce the TERM-first ordering; test/supervisor-run.test.ts holds the regression for that.
 for (const status of ["done", "failed"] as const) {
   test(`interactive ${status} report retains a verified receipt when the agent ignores TERM`, async () => {
     const { ctx, task, cfg, cleanup } = fixture();

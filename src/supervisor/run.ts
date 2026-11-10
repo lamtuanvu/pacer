@@ -219,6 +219,7 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
       while (Date.now() < receiptDeadline) {
         const current = readRun(dir);
         if (current.exit !== null) return { code: current.exit, killed: false };
+        if (!current.alive) break; // The host is gone without a receipt; waiting cannot help.
         await sleep(50);
       }
       const current = readRun(dir);
