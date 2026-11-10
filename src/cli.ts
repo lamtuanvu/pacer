@@ -644,7 +644,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           }
           return { code: 0, out: "", err: "", keepAlive: true };
         }
-        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true });
+        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true, backgroundWorker: true });
         // Best-effort cleanup starts only after the listener binds; the helper logs errors.
         void pruneUndoSnapshotsAtStartup(ctx);
         ctx.env.PACER_PORT=String(s.port);
