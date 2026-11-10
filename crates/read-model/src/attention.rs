@@ -516,8 +516,8 @@ mod managed_action_tests {
     use std::collections::HashMap;
 
     #[test]
-    fn managed_and_ordinary_attention_actions_preserve_protocol() {
-        let dir = tempfile::tempdir().expect("temporary directory");
+    fn managed_and_ordinary_attention_actions_preserve_protocol() -> std::io::Result<()> {
+        let dir = tempfile::tempdir()?;
         let ctx = Ctx::with(
             dir.path().into(),
             dir.path().join("home"),
@@ -559,5 +559,6 @@ mod managed_action_tests {
                 }
             }
         }
+        Ok(())
     }
 }
