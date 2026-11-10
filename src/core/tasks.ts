@@ -7,7 +7,7 @@ import { taskTitle } from "./short-title";
 import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask } from "../api/read-model/types";
 import { createHash } from "node:crypto";
-import { repoFor, requireRepoDirectory } from "./repos";
+import { listRepos, requireRepoDirectory } from "./repos";
 import { closeSync, existsSync, openSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { executorName } from "../link/notification";
@@ -71,19 +71,25 @@ export interface ListOptions {
   all?: boolean; limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
 }
 
-/** Newest first; filter before taking the page. */
+/** Newest first; every filter and the limit are pushed into SQL (spec §7). */
 export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
   // Active tasks may transition during the status refresh, even when the caller
   // requested settled states. Keep them in the SQL selection, then filter again.
   const states: TaskState[] | undefined = o.states ? [...new Set<TaskState>([...o.states, "queued", "running"])] : undefined;
-  return listTasksWhere(ctx, { updatedSince: o.since, states, all: o.all })
-    .filter(t => o.before === undefined || t.id < o.before)
+  // Resolve the repo key to its registered profile paths once, then let SQL match the
+  // brief-repo column and the task's cached repo identity (magic index gone: RUST-7).
+  let repo: string[] | undefined, repoKey: string | undefined;
+  if (o.repo !== undefined) {
+    repoKey = o.repo;
+    repo = listRepos({ ...ctx, readOnly: true }, []).filter(r => r.key === o.repo).map(r => r.path);
+  }
+  const limit = o.limit;
+  return listTasksWhere(ctx, {
+    createdSince: o.since, states, all: o.all, repo, repoKey, executor: o.executor, before: o.before, limit,
+  })
     .map(t => taskStatus(ctx, t.id) ?? t)
-    .filter(t => (o.repo === undefined || (t.repo ?? repoFor(ctx,t.brief.repo)).key === o.repo)
-      && (o.states === undefined || o.states.includes(visibleTaskState(t)))
-      && (o.executor === undefined || (t.result?.executor ?? t.executor ?? t.attempts.at(-1)?.executor ?? t.requestedExecutor) === o.executor)
-      && (o.since === undefined || t.createdAt >= o.since))
-    .slice(0, o.limit ?? 20);
+    .filter(t => o.states === undefined || o.states.includes(visibleTaskState(t)))
+    .slice(0, limit ?? 20);
 }
 
 export function requireAskingExecutor(ctx: Ctx, id = ctx.env.PACER_TASK_ID): string {
