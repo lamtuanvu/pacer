@@ -35,6 +35,27 @@ export function taskJsonScanCount(): number { return jsonScanCount; }
 const columns = "id, rev, state, created_at, updated_at, settled_at, repo, record, archived";
 const placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?";
 
+const snapshotUpdatedAt = `MAX(created_at,
+    COALESCE(json_extract(record,'$.attempts[#-1].startedAt'),0),
+    COALESCE(json_extract(record,'$.attempts[#-1].endedAt'),0),
+    COALESCE(json_extract(record,'$.attemptStartedAt'),0),
+    COALESCE(json_extract(record,'$.reviewRequest.at'),0),
+    COALESCE(json_extract(record,'$.stopPending.requestedAt'),0),
+    COALESCE(json_extract(record,'$.question.at'),0),
+    COALESCE(json_extract(record,'$.question.answeredAt'),0))`;
+
+// Expressions are shared by the indexes and predicates: SQLite requires an exact
+// expression match. JSON null is an answered question; only a missing answer waits.
+const visibleStateSql = `CASE WHEN state = 'running'
+  AND json_extract(record, '$.question') IS NOT NULL
+  AND json_type(record, '$.question.answer') IS NULL
+  THEN 'needs_input' ELSE state END`;
+const executorSql = `COALESCE(json_extract(record, '$.result.executor'),
+  json_extract(record, '$.executor'), json_extract(record, '$.attempts[#-1].executor'),
+  json_extract(record, '$.requestedExecutor'))`;
+const repoKeySql = "json_extract(record, '$.repo.key')";
+const legacyRepoSql = "json_extract(record, '$.repo') IS NULL";
+
 // A corrupted or adversarial record can hold a non-number where a timestamp is expected
 // (for example `review` set to a string, which has its own `.at` method). `Math.max`
 // coerces such a value with `Number()` instead of treating it as absent, which can yield
@@ -178,8 +199,10 @@ function schemaReady(db: Database): boolean {
   if (!["json_mtime", "archived"].every(name => fields.some(field => field.name === name))) return false;
   const objects = new Set(db.query<{ name: string }, []>(
     "SELECT name FROM sqlite_master WHERE type IN ('index', 'table', 'trigger')").all().map(row => row.name));
-  return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "task_first_settle",
-    "task_changes", "task_changes_insert", "task_changes_update"]
+  return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "tasks_snapshot_window", "tasks_live", "task_first_settle",
+    "task_changes", "task_changes_insert", "task_changes_update",
+    "pump_seen", "pump_state", "pump_cursor", "pump_session", "pump_reconcile",
+    "tasks_list_state", "tasks_list_executor", "tasks_list_repo", "tasks_list_legacy_repo"]
     .every(name => objects.has(name));
 }
 
@@ -226,6 +249,20 @@ function connection(ctx: Ctx) {
       if (!fields.some(field => field.name === "json_mtime")) db.run("ALTER TABLE tasks ADD COLUMN json_mtime REAL");
       if (!fields.some(field => field.name === "archived")) db.run("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
       db.run("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at)");
+      // Index the exact snapshot event time once. All writers maintain expression
+      // indexes, including older binaries and the Rust store; steady passes seek
+      // the recent window instead of parsing historical records to sort them.
+      db.run(`CREATE INDEX IF NOT EXISTS tasks_snapshot_window
+        ON tasks(${snapshotUpdatedAt} DESC, id DESC)
+        WHERE archived=0 AND COALESCE(json_extract(record,'$.dismissed'),0)=0`);
+      // The pump checks live membership every 500ms. Keep this selection bounded
+      // by live records; an id-order scan would parse all settled JSON each time.
+      db.run("CREATE INDEX IF NOT EXISTS tasks_live ON tasks(id DESC) WHERE json_extract(record, '$.live') IS NOT NULL");
+
+      db.run(`CREATE INDEX IF NOT EXISTS tasks_list_state ON tasks((${visibleStateSql}), id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_list_executor ON tasks((${executorSql}), id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_list_repo ON tasks((${repoKeySql}), id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_list_legacy_repo ON tasks(repo, id DESC) WHERE ${legacyRepoSql};`);
       // settledAt is overwritten when a task settles again; Insights counts a task once, at its first settle.
       db.run("CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL)");
       // Shared change log, filled by triggers so every writer (any runtime, any
@@ -237,6 +274,14 @@ function connection(ctx: Ctx) {
         CREATE TRIGGER IF NOT EXISTS task_changes_update AFTER UPDATE ON tasks
           WHEN NEW.rev IS NOT OLD.rev OR NEW.state IS NOT OLD.state OR NEW.archived IS NOT OLD.archived BEGIN
           INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,COALESCE(NEW.rev,0),COALESCE(NEW.state,''),COALESCE(NEW.updated_at,NEW.created_at,0)); END;`);
+      // Pump ledgers (src/link/ledger.ts): per-task published state and the change-log
+      // cursor, read and written only for the tasks a tick touches instead of rewriting
+      // whole JSON files (link/task-data-seen.json, task-states.json, task-events-at.json).
+      db.run(`CREATE TABLE IF NOT EXISTS pump_seen(task_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS pump_state(task_id TEXT PRIMARY KEY, state TEXT NOT NULL, event_at REAL);
+        CREATE TABLE IF NOT EXISTS pump_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS pump_session(task_id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS pump_reconcile(id INTEGER PRIMARY KEY CHECK(id=1), at REAL NOT NULL);`);
     }).immediate();
   } catch (error) { db.close(); throw error; }
   for (const [key, entry] of connections) {
@@ -327,11 +372,15 @@ export function withTaskLock<T>(ctx: Ctx, id: string, action: () => T): T {
   if (heldTaskLocks.has(key)) return action();
   // An asynchronous preparer must be able to settle on this event loop.
   if (preparingTaskLocks.has(key)) throw new CoreError("conflict", "Task admission is being prepared; retry the change");
+  // Request mutations must return promptly across isolates too. Internal/offline
+  // synchronous callers retain the established bounded wait: after an external
+  // effect, a busy lock is not permission to discard its completion or rollback.
+  // Async completion paths use withTaskLockAsync to keep their event loop free.
   return withLockSync(ctx, `task-${id}`, () => {
     heldTaskLocks.add(key);
     try { return action(); }
     finally { heldTaskLocks.delete(key); }
-  });
+  }, ctx.operation ? { timeoutMs: 0, conflict: true } : {});
 }
 
 /** Wait for the operation lock asynchronously, then perform a short synchronous
@@ -417,11 +466,26 @@ function markImported(entry: Connection, task: TaskRecord, signature: string): v
   if (!task.archived && !entry.db.inTransaction) entry.imported.set(`${task.id}.json`, signature);
 }
 
-export interface TaskFilter { states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number }
+export interface TaskFilter {
+  states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number;
+  createdSince?: number;
+  visibleStates?: readonly TaskState[];
+  executor?: string;
+  repoKey?: string;
+  legacyRepoPaths?: readonly string[];
+}
 
-/** Indexed filters, combined with AND. Newest id first, matching the file store. */
+/** Distinct legacy paths from a covering partial index, without decoding task JSON.
+ * Resolve these through repoFor at request time: registry aliases can change without
+ * a task write, so persisting their resolved keys would change list semantics. */
+export function legacyTaskRepoPaths(ctx: Ctx): string[] {
+  return connection(ctx).db.query<{ repo: string }, []>(
+    `SELECT DISTINCT repo FROM tasks WHERE ${legacyRepoSql}`).all().map(row => row.repo);
+}
+
+/** Indexed predicates combined with AND, applied before the newest-first limit. */
 export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] {
-  if (filter.states?.length === 0 || filter.limit === 0) return [];
+  if (filter.states?.length === 0 || filter.visibleStates?.length === 0 || filter.limit === 0) return [];
   const clauses: string[] = [], bindings: SQLQueryBindings[] = [];
   if (!filter.all) clauses.push("archived = 0");
   if (filter.settledBefore !== undefined) { clauses.push("settled_at < ?"); bindings.push(filter.settledBefore); }
@@ -430,11 +494,54 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
     clauses.push(`state IN (${filter.states.map(() => "?").join(",")})`);
     bindings.push(...filter.states);
   }
+  if (filter.visibleStates) {
+    clauses.push(`(${visibleStateSql}) IN (${filter.visibleStates.map(() => "?").join(",")})`);
+    bindings.push(...filter.visibleStates);
+  }
+  if (filter.executor !== undefined) {
+    clauses.push(`(${executorSql}) = ?`);
+    bindings.push(filter.executor);
+  }
+  if (filter.repoKey !== undefined) {
+    const paths = filter.legacyRepoPaths ?? [];
+    // Separate candidate seeks keep SQLite from choosing tasks_retention for an
+    // OR predicate and evaluating repository JSON across unrelated history.
+    clauses.push(paths.length
+      ? `id IN (SELECT id FROM tasks WHERE ${repoKeySql} = ?
+          UNION SELECT id FROM tasks WHERE ${legacyRepoSql} AND repo IN (SELECT value FROM json_each(?)))`
+      : `${repoKeySql} = ?`);
+    bindings.push(filter.repoKey);
+    if (paths.length) bindings.push(JSON.stringify(paths));
+  }
   if (filter.updatedSince !== undefined) { clauses.push("updated_at >= ?"); bindings.push(filter.updatedSince); }
+  if (filter.createdSince !== undefined) { clauses.push("created_at >= ?"); bindings.push(filter.createdSince); }
   const limit = filter.limit === undefined || filter.limit === Infinity ? -1 : Math.max(0, Math.floor(filter.limit));
-  const sql = `SELECT record FROM tasks ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`;
+  // Raw state filters seek active states; repository aliases seek candidate IDs.
+  // Neither should let archived=0 drive a scan over settled history.
+  const index = filter.states ? " INDEXED BY tasks_state"
+    : filter.repoKey !== undefined && filter.legacyRepoPaths?.length ? " INDEXED BY sqlite_autoindex_tasks_1" : "";
+  const sql = `SELECT record FROM tasks${index} ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`;
   const rows = connection(ctx).db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
   return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
+}
+
+/** Reconcile cursors read IDs only; the caller decodes each selected page once. */
+export function taskIdPage(ctx: Ctx, before?: string, limit = 200): string[] {
+  const db = connection(ctx).db;
+  const rows = before === undefined
+    ? db.query<{ id: string }, [number]>("SELECT id FROM tasks WHERE archived=0 ORDER BY id DESC LIMIT ?").all(limit)
+    : db.query<{ id: string }, [string, number]>("SELECT id FROM tasks WHERE archived=0 AND id<? ORDER BY id DESC LIMIT ?").all(before, limit);
+  return rows.map(row => row.id);
+}
+
+/** IDs for the bounded recent snapshot window. Match taskData's updatedAt without decoding
+ * records in JS; active tasks outside this window arrive through the pump selection. */
+export function snapshotTaskIds(ctx: Ctx): string[] {
+  return connection(ctx).db.query<{ id: string }, [number]>(`
+    SELECT id FROM tasks INDEXED BY tasks_snapshot_window WHERE archived=0
+      AND COALESCE(json_extract(record,'$.dismissed'),0)=0 AND ${snapshotUpdatedAt}>=?
+    ORDER BY ${snapshotUpdatedAt} DESC, id DESC LIMIT 200
+  `).all(ctx.now - 86400).map(row => row.id);
 }
 
 /** Tasks whose backend still records a live worker (`TaskRecord.live`), newest first. */
@@ -446,6 +553,16 @@ export function listLiveTasks(ctx: Ctx): TaskRecord[] {
 /** Newest first. */
 export function listTasks(ctx: Ctx, limit = 20): TaskRecord[] {
   return listTasksWhere(ctx, { limit });
+}
+
+/** Selected records for the pump's change/active set: an indexed fetch that decodes
+ *  only the named rows instead of every task, newest id first (same order as listTasksWhere). */
+export function readTasksByIds(ctx: Ctx, ids: Iterable<string>): TaskRecord[] {
+  const list = [...new Set(ids)].filter(isTaskId);
+  if (!list.length) return [];
+  const sql = `SELECT record FROM tasks WHERE id IN (${list.map(() => "?").join(",")}) ORDER BY id DESC`;
+  const rows = connection(ctx).db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...list);
+  return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
 }
 
 /** Union of indexed active and recent selections for read-model consumers. */

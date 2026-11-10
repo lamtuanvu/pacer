@@ -43,6 +43,8 @@ export interface DispatchDeps {
   deliver?: (pluginId: string, data: NotifyData) => Promise<boolean>;
   /** Transition envelopes add mode changes and settled tasks at level all. */
   events?: OutboxEvent[];
+  /** Called after all eligible candidates are durably acknowledged (or none qualify). */
+  onAcknowledged?: () => void;
 }
 function warnNotifier(ctx: Ctx, id: string, message: string): void {
   try { appendPluginLog(ctx, id, "warn", message); } catch { /* A failed diagnostic cannot stop notification retries. */ }
@@ -96,6 +98,7 @@ export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], de
       }
     }
     const sent: OutboxEvent[] = [];
+    let failed = false;
     for (const { key, data } of candidates) {
       if (Object.hasOwn(ledger, key)) continue;
       const presenters = deliveryPresenters(ctx);
@@ -108,12 +111,14 @@ export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], de
         delivered = report.transports.includes("outbox");
         if (delivered) sent.push(event);
       } else delivered = await deliverWithPlugins(ctx, data, deps);
+      if (!delivered) failed = true;
       if (delivered) {
         ledger[key] = ctx.now;
         writeJsonAtomic(path, ledger);
       }
     }
     writeJsonAtomic(path, ledger);
+    if (!failed) deps.onAcknowledged?.();
     return sent;
   });
 }

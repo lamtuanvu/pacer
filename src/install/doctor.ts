@@ -166,6 +166,17 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
         remedy: remedies.service(reinstall ? "Install service" : "Restart service") } : {}) });
   } catch (e) { checks.push({ name: "Service", level: "info", detail: errorText(e) }); }
 
+  // The background periodic worker (spec §5) mirrors its health to
+  // state/background-worker.json; surface it so `pacer doctor` reports degradation.
+  try {
+    const bg = readJson<{ state?: string; restarts?: number; lastError?: string | null; lastHeartbeatAt?: number }>(join(ctx.pacerHome, "state", "background-worker.json"));
+    if (bg && typeof bg.state === "string") {
+      const healthy = bg.state === "running";
+      const detail = `state: ${bg.state}; restarts: ${bg.restarts ?? 0}; last error: ${bg.lastError ?? "none"}`;
+      checks.push({ name: "Background worker", level: healthy ? "ok" : "warn", detail });
+    }
+  } catch { /* no background worker reported yet */ }
+
   const profile = readJson<ActivityProfile>(join(ctx.pacerHome, "activity.json"));
   const usableProfile = profile && Array.isArray(profile.active) && Array.isArray(profile.bins)
     && profile.bins.length === 168 && !isCalendar(profile);

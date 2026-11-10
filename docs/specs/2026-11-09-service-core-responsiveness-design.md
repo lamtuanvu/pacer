@@ -173,13 +173,20 @@ written only for the tasks a tick touches. On first start, the existing JSON led
 imported once and left in place (non-destructive).
 
 The pump's cursor is stored durably with its ledgers, in the same transaction as the
-publish bookkeeping, so a crash replays changes rather than skipping them.
+publish bookkeeping, so a crash replays changes rather than skipping them. Session
+membership and the reconcile timestamp share that transaction. A private pinned-outbox
+receipt recovers published task data if the worker stops between append and checkpoint,
+including after another runtime rotates the public outbox (ADR 0024).
 
 ### 4. Task events within about 1 s
 
 Since a tick now costs little when nothing changed, the pump checks the change log often:
-a cheap `SELECT max(seq)` about every 250 to 500 ms, and a full tick only when it moved
-or the active set needs a time-based check. The 15 s cadence stays for the
+a cheap `SELECT max(seq)` every 500 ms in the background worker, and a task pass only
+when it moved or the active set needs a time-based check. A quiet poll returns before
+task decoding, status refresh and queue drain. Task-only passes reuse the most recent
+periodic status for transition alerts. Changed-task notifications run on the fast pass,
+using the cached periodic setup context; recovered transitions also remain notification
+candidates. Quiet polls perform no notification or entity work. The 15 s cadence stays for the
 expensive periodic work (quota alerts, strategy fingerprints, host probes, entity diffs).
 
 ### 5. Background work leaves the request thread
