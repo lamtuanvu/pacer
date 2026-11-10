@@ -255,8 +255,8 @@ export function pruneExpiredUndoSnapshots(
  * Prune expired snapshots at service startup under the install lock so pacer never
  * races a concurrent connect while removing snapshot dirs. Best-effort: startup
  * must not block or fail on pruning, so the lock is a single try: a service start
- * while an install transaction holds it (Linux install verifies the started service
- * while holding the lock) would otherwise delay the service's HTTP listener past the
+ * while an install transaction holds it (a service install outside the job, on Linux and
+ * macOS, verifies the started service while holding the lock) would otherwise delay the service's HTTP listener past the
  * installer's health deadline and fail the install; pruning then happens at the next
  * free startup or via a concurrent connect / doctor.
  */

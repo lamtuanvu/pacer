@@ -335,4 +335,6 @@ test("startup pruning never queues behind a busy install lock; a starting servic
   expect(existsSync(undoKeyDir(c, "claude-code"))).toBe(true);
   release();
   await holder;
+  await pruneUndoSnapshotsAtStartup(c);
+  expect(existsSync(undoKeyDir(c, "claude-code"))).toBe(false);
 });
