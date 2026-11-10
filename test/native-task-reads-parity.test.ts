@@ -195,3 +195,34 @@ test.skipIf(!front)("task.prune and task.restore match forced forwarding with ex
     rmSync(archived, { recursive: true, force: true });
   }
 }, 60000);
+
+test.skipIf(!front)("task.list SQL history filters preserve native parity on 1000 tasks", async () => {
+  const ctx = fakeCtx();
+  const tasks = Array.from({ length: 1000 }, (_, n) => {
+    const t = createTask({ ...ctx, now: ctx.now - 2000 + n }, {
+      brief: { goal: `history ${n}`, repo: ctx.home }, kind: null, requestedExecutor: "codex", timeoutS: 60,
+      repo: { key: n % 2 ? "repo-a" : "repo-b", path: ctx.home, label: "repo" },
+    });
+    updateTask(ctx, t.id, row => {
+      if (n % 11 === 0) delete row.repo;
+      row.state = n % 5 === 0 ? "running" : "done";
+      if (n % 5 === 0) row.question = { text: "help", at: ctx.now };
+      if (n % 3 === 0) row.executor = "claude-code";
+    });
+    return t;
+  }).sort((a, b) => b.id.localeCompare(a.id));
+  writeFileSync(join(ctx.pacerHome, "state/repos.json"), JSON.stringify({ [ctx.home]: { key: "repo-legacy", path: ctx.home, lastUsed: ctx.now } }));
+  const cases = [
+    { limit: 2, repo: "repo-legacy" },
+    { limit: 2 }, { limit: 10, repo: "repo-a" }, { limit: 3, executor: "codex" },
+    { limit: 4, states: ["needs_input"] }, { limit: 4, states: ["running"] },
+    { limit: 5, before: tasks[400]!.id },
+    { limit: 3, before: tasks[300]!.id, repo: "repo-a", executor: "codex", states: ["done"] },
+    { limit: 2, since: ctx.now - 1500 }, { repo: "missing" }, { states: [] },
+  ];
+  const requests = cases.map((params, i) => JSON.stringify({ jsonrpc: "2.0", id: i + 2, method: "task.list", params }));
+  const native = await exchange(ctx.home, requests, false, "task.list");
+  expect(native).toEqual(await exchange(ctx.home, requests, true, "task.list"));
+  expect(native[0]?.result?.tasks).toHaveLength(2);
+  expect(native[1]?.result?.next).toBe(tasks[1]!.id);
+}, 120000);
