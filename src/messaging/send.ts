@@ -90,8 +90,10 @@ async function deliverLiveAnswer(ctx: Ctx, m: Message, target: string): Promise<
     // Possibly typed: answerLiveTask keeps the reservation on the task's question deliberately, so nothing
     // here may resend it; the failure reaches the caller.
     if (readTask(ctx, target)?.question?.answer === m.body) throw e;
-    store.unmarkRead(ctx, m.to, [m.id]);
+    // A refused answer to the question the task waits on reaches the caller and stays read, so no later tick types it
+    // behind the caller's back; only a reply that may still go out another way returns to pending.
     if (directAnswerTarget(ctx, m)) throw e;
+    store.unmarkRead(ctx, m.to, [m.id]);
     return false;
   }
   return true;

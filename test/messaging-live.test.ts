@@ -515,7 +515,13 @@ test("a reply the waiting live session cannot accept is an error: the question s
   expect(error?.message).toContain("nothing was typed");
   expect(readTask(ctx, id)!.question?.answer).toBeUndefined();
   expect(session.input).toHaveLength(0);
-  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(1);
+  // The caller was told it failed, so the reply is not left for a later poll to type behind its back.
+  expect(store.pendingFor(ctx, `task:${id}`)).toHaveLength(0);
+  // Once the desktop lets go, a between-turns poll still types nothing.
+  for (const c of clients.splice(0)) c.destroy();
+  await Bun.sleep(50);
+  await liveTick(ctx, readTask(ctx, id)!, readTask(ctx, id)!.run!, state(), deps);
+  expect(session.input).toHaveLength(0);
 });
 
 const AMBIGUOUS = { modern: true, timing: { quietMs: 30, windowMs: 1000, timeoutMs: 200, maxWindowMs: 60 } } as const;
