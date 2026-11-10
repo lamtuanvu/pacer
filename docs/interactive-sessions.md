@@ -104,3 +104,5 @@ identity after reading. A concurrent replacement returns a retryable conflict
 and discards the cached view, even when the replacement reuses a generation.
 Cold reads and registry mutations still load retained history; this is not a
 lifetime history or disk bound. Safe archival/pruning remains follow-up work.
+
+For delegated interactive tasks, an explicit completion report is checked against a recorded session exit before settlement. If the agent ignores graceful shutdown, Pacer kills the agent and briefly waits for the session host to record its exit before stopping the host. A completion report alone, or an unverified stop receipt, cannot certify successful completion.
