@@ -53,3 +53,38 @@ fn starter_strategy_matches_typescript_text() {
         "planner: claude-code\nproviders:\n  codex: {usage: quota, allow_paid: false}\n  ollama: {via: opencode, model: \"ollama/qwen3:8b\", usage: unmetered}\n  claude-code: {usage: quota}\n# To add opencode-go: use via: opencode, model: opencode-go/<model>,\n# usage: metered, and budget.weekly_tokens (e.g. budget: {weekly_tokens: 20M}).\npacing: {policy: priority, planner_reserve: 15}\nrouting:\n  - default: [codex, ollama]\n"
     );
 }
+
+#[test]
+fn http_responses_lose_their_framing_like_fetch() {
+    let body =
+        |raw: &str| http_response(raw.as_bytes()).map(|(s, b)| (s, String::from_utf8(b).unwrap()));
+    assert_eq!(
+        body(
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4;x=y\r\n{\"mo\r\n1\r\n}\r\n0\r\nTrailer: t\r\n\r\n"
+        ),
+        Some((200, "{\"mo}".into()))
+    );
+    assert_eq!(
+        body("HTTP/1.1 200 OK\r\ntransfer-encoding: Chunked\r\n\r\nA\r\n0123456789\r\n0\r\n\r\n"),
+        Some((200, "0123456789".into()))
+    );
+    assert_eq!(
+        body("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}extra"),
+        Some((200, "{}".into()))
+    );
+    assert_eq!(
+        body("HTTP/1.0 404 Not Found\r\n\r\nno"),
+        Some((404, "no".into()))
+    );
+    for raw in [
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nab",
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab",
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nab\r\n0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\n{}",
+        "HTTP/1.1 200 OK\r\n",
+    ] {
+        assert_eq!(body(raw), None, "{raw:?}");
+    }
+}

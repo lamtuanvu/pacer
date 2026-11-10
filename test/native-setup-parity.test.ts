@@ -33,6 +33,20 @@ const ollama = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: req => new URL
   ? Response.json({ models: [{ name: "" }, { name: "qwen3:8b" }] }) : new Response("no", { status: 404 }) });
 afterAll(() => ollama.stop(true));
 
+// The same endpoint answering with chunked transfer coding (split chunks, an extension and a trailer).
+const chunkedOllama = Bun.listen<{ request: string }>({ hostname: "127.0.0.1", port: 0, socket: {
+  open(socket) { socket.data = { request: "" }; },
+  data(socket, data) {
+    socket.data.request += data.toString();
+    if (!socket.data.request.includes("\r\n\r\n")) return;
+    const json = JSON.stringify({ models: [{ name: "" }, { name: "chunked:7b" }] });
+    const chunks = [json.slice(0, 5), json.slice(5, 21), json.slice(21)]
+      .map((part, i) => `${Buffer.byteLength(part).toString(16)}${i === 1 ? ";ext=1" : ""}\r\n${part}\r\n`).join("");
+    socket.end(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n${chunks}0\r\nX-Trailer: t\r\n\r\n`);
+  },
+} });
+afterAll(() => chunkedOllama.stop(true));
+
 function bin(dir: string, name: string, script: string) {
   mkdirSync(join(dir, "bin"), { recursive: true });
   writeFileSync(join(dir, "bin", name), `#!/bin/sh\n${script}\n`);
@@ -116,6 +130,21 @@ test.skipIf(!front)("setup.init creates or edits the strategy like forced forwar
     expect(Object.keys(strategies(homes[0]!)).length, label).toBeGreaterThan(0);
     expect(events(homes[0]!), label).toEqual(events(homes[1]!));
   }
+}, 120000);
+
+test.skipIf(!front)("setup.init reads a chunked Ollama /api/tags response like forced forwarding", async () => {
+  const env = { OLLAMA_HOST: `127.0.0.1:${chunkedOllama.port}` };
+  const homes = [home(false), home(false)];
+  for (const dir of homes) for (const name of ["opencode", "ollama", "arkcli", "lms"]) bin(dir, name, "exit 1");
+  const write = requests([["setup.init", { planner: "codex" }]]);
+  const native = await exchange(homes[0]!, write, false, env);
+  const forwarded = await exchange(homes[1]!, write, true, env);
+  const local = (value: unknown, dir: string) => JSON.parse(JSON.stringify(value).replaceAll(dir, "$HOME"));
+  expect(local(native, homes[0]!)).toEqual(local(forwarded, homes[1]!));
+  const strategy = (dir: string) => readFileSync(join(dir, ".pacer", "strategy.yaml"), "utf8");
+  expect(strategy(homes[0]!)).toEqual(strategy(homes[1]!));
+  expect(strategy(homes[1]!)).toContain("chunked:7b");
+  expect(events(homes[0]!)).toEqual(events(homes[1]!));
 }, 120000);
 
 test.skipIf(!front)("strategy.build writes the same intent files, prompt and terminal hand-off as forced forwarding", async () => {

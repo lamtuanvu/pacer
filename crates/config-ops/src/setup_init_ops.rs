@@ -132,7 +132,7 @@ async fn ollama_model(ctx: &Ctx) -> Option<String> {
             .await
             .ok()?;
         let request = format!(
-            "GET /api/tags HTTP/1.0\r\nHost: {header}\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+            "GET /api/tags HTTP/1.1\r\nHost: {header}\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n"
         );
         stream.write_all(request.as_bytes()).await.ok()?;
         let mut bytes = Vec::new();
@@ -142,18 +142,79 @@ async fn ollama_model(ctx: &Ctx) -> Option<String> {
     let bytes = tokio::time::timeout(Duration::from_secs(5), fetch)
         .await
         .ok()??;
-    let split = bytes.windows(4).position(|w| w == b"\r\n\r\n")?;
-    let head = String::from_utf8_lossy(&bytes[..split]);
-    let status: u16 = head.split_whitespace().nth(1)?.parse().ok()?;
+    let (status, body) = http_response(&bytes)?;
     if !(200..300).contains(&status) {
         return None;
     }
-    let body: Value = serde_json::from_slice(&bytes[split + 4..]).ok()?;
+    let body = body.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&body);
+    let body: Value = serde_json::from_slice(body).ok()?;
     body["models"]
         .as_array()?
         .iter()
         .find_map(|m| m["name"].as_str().filter(|n| !n.is_empty()))
         .map(str::to_owned)
+}
+
+/// The status and body of a `Connection: close` HTTP/1.1 response, with chunked or
+/// length framing removed as `fetch` does. `None` where `fetch` would fail, and for
+/// content codings, which the request refuses and this client cannot decode.
+fn http_response(bytes: &[u8]) -> Option<(u16, Vec<u8>)> {
+    let split = bytes.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = String::from_utf8_lossy(&bytes[..split]);
+    let mut lines = head.split("\r\n");
+    let status = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
+    let (mut chunked, mut length) = (false, None);
+    for line in lines {
+        let (name, value) = line.split_once(':')?;
+        let (name, value) = (name.trim(), value.trim());
+        if name.eq_ignore_ascii_case("transfer-encoding") {
+            for coding in value.split(',').map(str::trim) {
+                if coding.eq_ignore_ascii_case("chunked") {
+                    chunked = true;
+                } else if !coding.eq_ignore_ascii_case("identity") {
+                    return None;
+                }
+            }
+        } else if name.eq_ignore_ascii_case("content-length") {
+            length = Some(value.parse::<usize>().ok()?);
+        } else if name.eq_ignore_ascii_case("content-encoding")
+            && !value.eq_ignore_ascii_case("identity")
+        {
+            return None;
+        }
+    }
+    let rest = &bytes[split + 4..];
+    let body = if chunked {
+        dechunk(rest)?
+    } else if let Some(length) = length {
+        rest.get(..length)?.to_vec()
+    } else {
+        rest.to_vec()
+    };
+    Some((status, body))
+}
+
+/// A chunked body up to its last chunk; trailers are ignored.
+fn dechunk(mut rest: &[u8]) -> Option<Vec<u8>> {
+    let mut body = Vec::new();
+    loop {
+        let end = rest.windows(2).position(|w| w == b"\r\n")?;
+        let size = std::str::from_utf8(&rest[..end])
+            .ok()?
+            .split(';')
+            .next()?
+            .trim();
+        if size.is_empty() || !size.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let size = usize::from_str_radix(size, 16).ok()?;
+        rest = &rest[end + 2..];
+        if size == 0 {
+            return Some(body);
+        }
+        body.extend_from_slice(rest.get(..size)?);
+        rest = rest.get(size..)?.strip_prefix(b"\r\n")?;
+    }
 }
 
 /// The LM Studio model to start with, from a server already listening.
