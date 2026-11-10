@@ -47,6 +47,19 @@ const chunkedOllama = Bun.listen<{ request: string }>({ hostname: "127.0.0.1", p
 } });
 afterAll(() => chunkedOllama.stop(true));
 
+// An OpenAI-compatible model server for the local candidates probe.
+let modelRequests = 0;
+const models = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: req => {
+  modelRequests++;
+  return new URL(req.url).pathname === "/v1/models" ? Response.json({ data: [{ id: "fixture-a" }, { id: "fixture-b" }] }) : new Response("no", { status: 404 });
+} });
+afterAll(() => models.stop(true));
+
+const deadPort = () => { const s = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() }); const port = s.port!; s.stop(true); return port; };
+const DEAD = [deadPort(), deadPort()] as const;
+// Keeps every run off the machine's pacer service, Ollama and LM Studio (the front door is built with test-ops).
+const isolated = { OLLAMA_HOST: `127.0.0.1:${DEAD[0]}`, PACER_TEST_LOCAL_SERVER_PORTS: `${DEAD[0]},${DEAD[1]}` };
+
 function bin(dir: string, name: string, script: string) {
   mkdirSync(join(dir, "bin"), { recursive: true });
   writeFileSync(join(dir, "bin", name), `#!/bin/sh\n${script}\n`);
@@ -58,7 +71,7 @@ async function exchange(home: string, requests: string[], forward: boolean, extr
     cwd: home,
     env: { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:/usr/bin:/bin`,
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-      PACER_DEBUG_NATIVE: "1", ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },
+      PACER_DEBUG_NATIVE: "1", PACER_PORT: String(DEAD[0]), ...isolated, ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
@@ -74,6 +87,8 @@ async function exchange(home: string, requests: string[], forward: boolean, extr
     return lines.slice(1).sort((a, b) => JSON.parse(a).id - JSON.parse(b).id).map(line => JSON.parse(line));
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
 }
+// The plugin host can miss its local probe deadline under heavy load; that note reflects timing, not parity.
+const probeDeadline = (replies: unknown) => /Could not check local model servers: (plugin call passed its absolute deadline|owning plugin call ended)/.test(JSON.stringify(replies));
 const request = (id: number, method: string, params: unknown) =>
   JSON.stringify({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) });
 const requests = (cases: [string, unknown][]) => cases.map(([op, params], i) => request(i + 2, op, params));
@@ -204,11 +219,23 @@ test.skipIf(!front)("executor.setup.candidates from a fresh catalog matches forc
     ["sign-in failure", dir => signed(dir, "exit 3")],
     ["no opencode", () => {}],
   ];
-  for (const [label, setup] of scenarios) {
+  const servers: [string, string][] = [["serving", `${models.port},${DEAD[1]}`], ["absent", `${DEAD[0]},${DEAD[1]}`]];
+  for (const [variant, ports] of servers) for (const [label, setup] of scenarios) {
     const dir = home();
     catalog(dir, NOW);
     setup(dir);
-    expect(await exchange(dir, cases, false), label).toEqual(await exchange(dir, cases, true));
+    const before = modelRequests;
+    const env = { PACER_TEST_LOCAL_SERVER_PORTS: ports };
+    let native: any[] = [], forwarded: any[] = [];
+    for (let attempt = 0; attempt < 3 && (attempt === 0 || probeDeadline([native, forwarded])); attempt++) {
+      native = await exchange(dir, cases, false, env);
+      forwarded = await exchange(dir, cases, true, env);
+    }
+    expect(native, `${variant} ${label}`).toEqual(forwarded);
+    const local = native[0].result.candidates.filter((c: { group: string }) => c.group === "local");
+    expect(local, `${variant} ${label}`).toEqual(variant === "serving"
+      ? [{ group: "local", provider: "ollama", name: "Ollama", base_url: `http://127.0.0.1:${models.port}/v1`, models: 2, added: null, usage: { usage: "unmetered", known: true } }] : []);
+    expect(modelRequests > before, `${variant} ${label}`).toBe(variant === "serving");
   }
   const stale = home();
   catalog(stale, NOW - 90000);
@@ -221,7 +248,8 @@ async function serve(dir: string, forward: boolean) {
   const port = reservation.port!; reservation.stop(true);
   const child = Bun.spawn([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
     env: { HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
-      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) } });
+      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
+      ...isolated, PACER_TEST_LOCAL_SERVER_PORTS: `${models.port},${DEAD[1]}`, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) } });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;
@@ -254,18 +282,25 @@ test.skipIf(!front)("HTTP callers reach the setup effects bridge like the TypeSc
     writeFileSync(join(dir, ".pacer", "cache", "models.json"), JSON.stringify({ fetchedAt: NOW, providers: { acme: { id: "acme", name: "Acme", env: [], api: null, models: [{ id: "a1", name: "A1", toolCall: true, input: ["text"], output: ["text"], context: 200000, outputLimit: 32000, costIn: 1, costOut: 2, release: "2025-03-01" }] } } }));
     const cookie = createSession(fakeCtx({ home: dir, now: Date.now() / 1000 }));
     const server = await serve(dir, forward);
+    const candidates = async () => {
+      let body = "";
+      for (let attempt = 0; attempt < 3 && (attempt === 0 || probeDeadline(body)); attempt++) body = await server.post("executor.setup.candidates", {}, server.bearer);
+      return body;
+    };
     const bodies = [
       await server.post("strategy.build", { agent: "codex", request_id: "00000000-0000-4000-8000-00000000000a" }, server.bearer),
       await server.post("strategy.build", { agent: "opencode", request_id: "00000000-0000-4000-8000-00000000000b" }, server.app(cookie)),
       await server.post("strategy.build", { brief: 5 }, server.app(cookie)),
-      await server.post("executor.setup.candidates", {}, server.bearer),
+      await candidates(),
       await server.post("setup.init", { planner: "codex" }, server.app(cookie)),
     ];
-    results.push({ bodies: bodies.map(body => body.replaceAll(dir, "$HOME")), markers: await server.stop(), sessions: Object.keys(files(dir, "link/sessions")) });
+    const markers = (await server.stop()).filter((line, i, all) => line !== "native executor.setup.candidates" || all[i - 1] !== line);
+    results.push({ bodies: bodies.map(body => body.replaceAll(dir, "$HOME")), markers, sessions: Object.keys(files(dir, "link/sessions")) });
   }
   const norm = (body: string) => body.replace(/Current status:\\n[\s\S]*?\\n\\nUse the pacer MCP/g, "<status>").replace(/[0-9a-f-]{36}\.sh/g, "<script>.sh")
     .replace(/"terminalId":"[^"]+"/g, '"terminalId":"<id>"');
   expect(results[0]!.bodies.map(norm)).toEqual(results[1]!.bodies.map(norm));
+  expect(results[0]!.bodies[3]).toContain(`"base_url":"http://127.0.0.1:${models.port}/v1","models":2`);
   expect(results[0]!.sessions).toEqual(results[1]!.sessions);
   expect(results[1]!.markers).toEqual([]);
   expect(results[0]!.markers).toEqual(["strategy.build", "strategy.build", "strategy.build", "executor.setup.candidates", "setup.init"].map(op => `native ${op}`));

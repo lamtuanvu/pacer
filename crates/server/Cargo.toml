@@ -7,7 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-test-ops = []
+test-ops = ["pacer-config-ops/test-ops"]
 
 [dependencies]
 tokio.workspace = true

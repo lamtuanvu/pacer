@@ -10,10 +10,20 @@ import { classify, type UsageClass } from "./recommend";
 export type CandidateGroup = "signed_in" | "local" | "catalog";
 export interface Candidate { group: CandidateGroup; provider: string; name: string; added: string | null; usage: UsageClass; base_url?: string; models?: number }
 export interface Detection { candidates: Candidate[]; opencode: boolean; catalog: "fresh" | "stale" | "offline"; notes: string[] }
-export const LOCAL_SERVERS = [
-  { provider: "ollama" as const, name: "Ollama", base_url: "http://127.0.0.1:11434/v1" },
-  { provider: "lmstudio" as const, name: "LM Studio", base_url: "http://127.0.0.1:1234/v1" },
+declare const PACER_COMPONENT_BUILD_ID: string | undefined;
+const LOCAL_SERVERS = [
+  { provider: "ollama" as const, name: "Ollama", port: 11434 },
+  { provider: "lmstudio" as const, name: "LM Studio", port: 1234 },
 ];
+
+/** The fixed local model servers. Uncompiled runs honor PACER_TEST_LOCAL_SERVER_PORTS ("<ollama>,<lmstudio>"),
+ * matching `local_servers` in `crates/config-ops/src/executor_candidates_ops.rs` built with `test-ops`. */
+export function localServers(ctx: Ctx) {
+  const value = typeof PACER_COMPONENT_BUILD_ID === "string" ? undefined : ctx.env.PACER_TEST_LOCAL_SERVER_PORTS;
+  const ports = value?.split(",").map(p => /^\d+$/.test(p) ? Number(p) : NaN);
+  const valid = ports?.length === 2 && ports.every(p => p > 0 && p <= 65535);
+  return LOCAL_SERVERS.map((s, i) => ({ provider: s.provider, name: s.name, base_url: `http://127.0.0.1:${valid ? ports[i] : s.port}/v1` }));
+}
 
 /** Only provider ids and names are read; connection ids and methods are ignored. */
 export async function signedInProviders(ctx: Ctx): Promise<{ id: string; name: string }[] | null> {
@@ -51,7 +61,7 @@ export async function detectCandidates(ctx: Ctx, deps: { discover?: typeof disco
   const catalog = deps.catalog;
   // Each probe settles on its own: one failing server (or an unavailable endpoint plugin) never fails detection.
   const probeFailures = new Set<string>();
-  const local = Promise.all(LOCAL_SERVERS.map(async s => ({ s, r: await (deps.discover ?? discoverEndpointModels)(ctx, { baseUrl: s.base_url, key: null, timeoutMs: 1000 })
+  const local = Promise.all(localServers(ctx).map(async s => ({ s, r: await (deps.discover ?? discoverEndpointModels)(ctx, { baseUrl: s.base_url, key: null, timeoutMs: 1000 })
     .catch((error: unknown) => { probeFailures.add(error instanceof Error ? error.message : String(error)); return { listed: false as const }; }) })));
   if (!opencode) notes.push("Install OpenCode to use providers you have signed in to or connect new ones.");
   const signed = opencode ? await signedInProviders(ctx) : [];

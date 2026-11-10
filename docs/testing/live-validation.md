@@ -18,6 +18,9 @@ authorization. For a diagnostic run, `PACER_DEBUG_NATIVE=1` writes `native <op> 
 to stderr for stdio requests with an ID, and `native <op>` for HTTP requests
 and notifications, when the Rust handler executes. The test-only `test-ops` build exposes
 `test.echo` and `_debug.native` for strict native evidence; release builds do not.
+With a `test-ops` front door and an uncompiled core, `PACER_TEST_LOCAL_SERVER_PORTS=<ollama>,<lmstudio>`
+moves the `executor.setup.candidates` probes off the fixed ports 11434 and 1234 to
+loopback fixtures, so tests never reach model servers running on the machine.
 
 ## Start and inspect a sandbox
 

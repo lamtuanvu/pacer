@@ -6,7 +6,6 @@ import type { Ctx } from "../types";
 import type { OpDeps } from "./ops";
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
-const LOCAL_SERVERS = new Set(["http://127.0.0.1:11434/v1", "http://127.0.0.1:1234/v1"]);
 
 /** Native strategy.build and executor.setup.candidates: Core renders live status, opens the strategy terminal from the
  * prompt file Rust wrote (never a caller-supplied command) and probes the fixed local model servers through the endpoint plugin. */
@@ -27,8 +26,10 @@ export async function setupEffectsBridge(ctx: Ctx, request: unknown, deps: OpDep
     return withWork(ctx, { kind: "operation", id: "strategy-build", label: "Opening strategy planning session" },
       () => open(ctx, r.builtin === true ? { ...options, target: "builtin", requestId } : options));
   }
-  if (r.kind === "discover" && Array.isArray(r.baseUrls) && r.baseUrls.every(url => typeof url === "string" && LOCAL_SERVERS.has(url))) {
-    const { discoverEndpointModels } = await import("../plugins/endpoint-adapter");
+  if (r.kind === "discover" && Array.isArray(r.baseUrls)) {
+    const [{ discoverEndpointModels }, { localServers }] = await Promise.all([import("../plugins/endpoint-adapter"), import("../endpoints/detect")]);
+    const allowed = new Set(localServers(ctx).map(s => s.base_url));
+    if (!r.baseUrls.every(url => typeof url === "string" && allowed.has(url))) throw new CoreError("invalid_input", "setup effect required");
     return { results: await Promise.all((r.baseUrls as string[]).map(baseUrl => discoverEndpointModels(ctx, { baseUrl, key: null, timeoutMs: 1000 })
       .catch((error: unknown) => ({ failure: error instanceof Error ? error.message : String(error) })))) };
   }

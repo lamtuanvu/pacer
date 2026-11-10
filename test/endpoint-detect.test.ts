@@ -3,7 +3,8 @@ import {expect, test} from "bun:test";
 import {mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {parseCatalog} from "../src/endpoints/catalog";
-import {detectCandidates, opencodeModelIds, signedInProviders} from "../src/endpoints/detect";
+import {detectCandidates, localServers, opencodeModelIds, signedInProviders} from "../src/endpoints/detect";
+import {setupEffectsBridge} from "../src/api/setup-bridge";
 import type {AccountCfg} from "../src/config/accounts";
 import {fakeCtx} from "./helpers";
 
@@ -87,3 +88,14 @@ test("detection with the endpoint plugin disabled still lists signed-in provider
   expect(d.candidates.map(c => c.group)).toEqual(["signed_in"]);
   expect(d.notes.some(n => n.startsWith("Could not check local model servers"))).toBe(true);
 });
+
+test("uncompiled runs take both local server ports from PACER_TEST_LOCAL_SERVER_PORTS or neither", async () => {
+  const urls = (value?: string) => localServers(fakeCtx({env: value === undefined ? {} : {PACER_TEST_LOCAL_SERVER_PORTS: value}})).map(s => s.base_url);
+  const fixed = ["http://127.0.0.1:11434/v1", "http://127.0.0.1:1234/v1"];
+  expect(urls()).toEqual(fixed);
+  expect(urls("5,6")).toEqual(["http://127.0.0.1:5/v1", "http://127.0.0.1:6/v1"]);
+  for (const bad of ["", "5", "5,6,7", "0,6", "+5,6", " 5,6", "5,65536", "5,x"]) expect(urls(bad), bad).toEqual(fixed);
+  const ctx = fakeCtx({env: {PACER_TEST_LOCAL_SERVER_PORTS: "5,6"}});
+  await expect(setupEffectsBridge(ctx, {kind: "discover", baseUrls: fixed})).rejects.toMatchObject({code: "invalid_input"});
+});
+
