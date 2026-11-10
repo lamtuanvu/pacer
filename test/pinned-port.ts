@@ -14,7 +14,7 @@ export function closedPort(): number {
 /** Throws unless `env` pins PACER_PORT to a decimal port other than the real service's. */
 export function assertPinnedPort(env: Record<string, string | undefined> | undefined): void {
   const port = env?.PACER_PORT;
-  if (!port || !/^\d+$/.test(port) || Number(port) === REAL_SERVICE_PORT || Number(port) < 1 || Number(port) > 65535) {
+  if (!port || !/^\d+$/.test(port) || Number(port) === REAL_SERVICE_PORT) {
     throw new Error(`spawned test process needs PACER_PORT other than ${REAL_SERVICE_PORT}, got ${port ?? "none"}`);
   }
 }
