@@ -1,8 +1,12 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../src/types";
+import { accountListParts } from "../src/api/account-list-bridge";
 import { tmpDir, withLoginIndicators } from "./helpers";
+import { cleanupUsageFixtures, fakeCtx } from "./usage-plugin-fixtures";
+
+afterEach(cleanupUsageFixtures);
 
 // Native account.list (rows composed in Rust over the account-list Core bridge)
 // and the account.signin refusals against the same requests forced through
@@ -114,6 +118,34 @@ test.skipIf(!front)("account.list rows and account.signin refusals match forced 
   expect(byName.ext).toMatchObject({ state: "external" });
   expect(native.slice(3).map(line => JSON.parse(line).error.data.code)).toEqual(["invalid_input", "not_allowed", "not_allowed", "not_allowed"]);
 }, 120000);
+
+test.skipIf(!front)("a strategy edit during the bridge reads cannot mix snapshots", async () => {
+  // The Orca read runs after the strategy load; it recreates `work` as a Claude account without runners.
+  const edited = STRATEGY.replace("  work: {kind: codex, home: ~/.codex-work}", "  work: {kind: claude}").replace("  codex#work: {}\n", "");
+  const homes = [home(), home()];
+  for (const dir of homes) {
+    writeFileSync(join(dir, "edited.yaml"), edited);
+    bin(dir, "fake-orca", `cp '${join(dir, "edited.yaml")}' '${join(dir, ".pacer", "next.yaml")}' && mv '${join(dir, ".pacer", "next.yaml")}' '${join(dir, ".pacer", "strategy.yaml")}'\necho '${ORCA}'`);
+  }
+  const list = requests([["account.list", {}]]);
+  const native = await exchange(homes[0]!, list, false);
+  expect(native).toEqual(await exchange(homes[1]!, list, true));
+  expect(readFileSync(join(homes[0]!, ".pacer", "strategy.yaml"), "utf8")).toBe(edited);
+  const work = (JSON.parse(native[0]!).result as Record<string, unknown>[]).find(row => row.name === "work");
+  expect(work).toMatchObject({ kind: "codex", home: "~/.codex-work", runners: ["codex#work"], signedIn: true });
+}, 120000);
+
+test("the account-list bridge reports the strategy text its parts were read against", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(join(ctx.pacerHome, "strategies"), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\naccounts:\n  other: {kind: codex}\n");
+  const text = "planner: claude-code\naccounts:\n  personal: {kind: claude}\n  api: {kind: endpoint, usage: unmetered}\n";
+  writeFileSync(join(ctx.pacerHome, "strategies", "named.yaml"), text);
+  writeFileSync(join(ctx.pacerHome, "active"), "named\n");
+  const parts = await accountListParts(ctx);
+  expect(parts.strategy).toEqual({ path: join(ctx.pacerHome, "strategies", "named.yaml"), name: "named", text });
+  expect(parts.accounts.map(a => a.name)).toEqual(["personal", "api"]);
+});
 
 test.skipIf(!front)("account inputs only TypeScript owns stay forwarded", async () => {
   const cases: [string, unknown][] = [

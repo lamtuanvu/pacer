@@ -5,21 +5,23 @@
 //! lock, the folder, `runnable`, `usageCheck`, the sign-in command and the email
 //! redaction. The Core bridge supplies only the reads that need the TypeScript
 //! plugin host, the Orca CLI or login probes: the Orca label, the sign-in state,
-//! the usage reading and the endpoint row. `account.signin` refuses natively;
-//! opening the login terminal forwards.
+//! the usage reading and the endpoint row, with the strategy text they were read
+//! against. `account.signin` refuses natively; opening the login terminal
+//! forwards.
 use crate::{
-    SETTINGS_CONFLICT, authorize, forwarded,
+    authorize, forwarded,
     js::{keys, prototype_key},
     model::{account_folder, path_text, ts_account},
     params, strategy_loads,
 };
-use pacer_config::strategy::load_strategy;
+use pacer_config::strategy::{load_strategy, parse_strategy};
 use pacer_engine::usage_refresh::refresh_capability;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
 use serde_json::{Map, Value, json};
+use std::path::Path;
 
 const TARGETS: &[&str] = &["auto", "orca", "terminal", "tmux"];
 
@@ -50,7 +52,12 @@ pub fn account_list_stub(ctx: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 
-/// `accounts.list` over the bridge parts `{accounts: [{name, label?, signedIn, usageReading, endpoint}]}`.
+/// `accounts.list` over the bridge parts
+/// `{strategy: {path, name, text}, accounts: [{name, label?, signedIn, usageReading, endpoint}]}`.
+///
+/// TypeScript reads every part against one strategy load. Rust parses that
+/// same strategy text rather than its own read of the file, so a concurrent
+/// edit cannot pair one snapshot's account with another snapshot's parts.
 pub async fn account_list(
     ctx: &Ctx,
     params: Value,
@@ -58,14 +65,20 @@ pub async fn account_list(
 ) -> Result<Value, CoreError> {
     authorize(ctx)?;
     params::object(&params).ok_or_else(forwarded)?;
-    let s = load_strategy(&ctx.pacer_home).map_err(|_| forwarded())?;
     let parts = parts.await?;
-    let parts = parts["accounts"]
-        .as_array()
-        .ok_or_else(|| CoreError::new(Code::Unavailable, "invalid account list bridge response"))?;
+    let snapshot = &parts["strategy"];
+    let (Some(path), Some(name), Some(text)) = (
+        snapshot["path"].as_str(),
+        snapshot["name"].as_str(),
+        snapshot["text"].as_str(),
+    ) else {
+        return Err(invalid_parts());
+    };
+    let s = parse_strategy(text, Path::new(path), name).map_err(|_| forwarded())?;
+    let parts = parts["accounts"].as_array().ok_or_else(invalid_parts)?;
     let accounts = s["accounts"].as_object().cloned().unwrap_or_default();
     if parts.len() != accounts.len() {
-        return Err(changed());
+        return Err(invalid_parts());
     }
     let rows = keys(&accounts)
         .into_iter()
@@ -73,15 +86,15 @@ pub async fn account_list(
             let part = parts
                 .iter()
                 .find(|p| p["name"] == name.as_str())
-                .ok_or_else(changed)?;
+                .ok_or_else(invalid_parts)?;
             Ok(row(ctx, &s, &accounts[name], part))
         })
         .collect::<Result<Vec<_>, CoreError>>()?;
     Ok(Value::Array(rows))
 }
 
-fn changed() -> CoreError {
-    CoreError::new(Code::Conflict, SETTINGS_CONFLICT)
+fn invalid_parts() -> CoreError {
+    CoreError::new(Code::Unavailable, "invalid account list bridge response")
 }
 
 fn row(ctx: &Ctx, s: &Value, account: &Value, part: &Value) -> Value {
@@ -274,8 +287,91 @@ pub fn account_signin_stub(ctx: &Ctx, params: Value) -> OpFuture<'_> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    const ON_DISK: &str = "planner: claude-code\naccounts:\n  work: {kind: codex, home: ~/.codex-work}\nrunners:\n  claude-code: {}\n  codex#work: {}\n";
+    // `work` was removed and recreated as a Claude account after the forward check read ON_DISK.
+    const SNAPSHOT: &str = "planner: claude-code\naccounts:\n  work: {kind: claude}\n  extra: {kind: codex}\nrunners:\n  claude-code: {}\n";
+
+    fn ctx(root: &Path) -> Ctx {
+        let ctx = Ctx {
+            home: root.join("home"),
+            pacer_home: root.join("pacer"),
+            env: HashMap::new(),
+            now: 1_000.0,
+        };
+        std::fs::create_dir_all(&ctx.pacer_home).unwrap();
+        std::fs::write(ctx.pacer_home.join("strategy.yaml"), ON_DISK).unwrap();
+        ctx
+    }
+
+    fn parts(ctx: &Ctx, names: &[&str]) -> Value {
+        let path = ctx.pacer_home.join("strategy.yaml");
+        let accounts: Vec<Value> = names
+            .iter()
+            .map(|name| json!({"name": name, "label": format!("snapshot {name}"), "signedIn": true, "usageReading": {"source": "snapshot"}, "endpoint": {}}))
+            .collect();
+        json!({"strategy": {"path": path_text(&path), "name": "default", "text": SNAPSHOT}, "accounts": accounts})
+    }
+
+    fn snapshot_names(ctx: &Ctx) -> Vec<String> {
+        let s = parse_strategy(SNAPSHOT, &ctx.pacer_home.join("strategy.yaml"), "default").unwrap();
+        keys(s["accounts"].as_object().unwrap())
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn rows_come_from_the_bridge_snapshot_not_a_concurrent_file_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        let names = snapshot_names(&ctx);
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        assert!(names.contains(&"work") && names.contains(&"extra"));
+        let reply = parts(&ctx, &names);
+        let rows = account_list(&ctx, json!({}), Box::pin(async move { Ok(reply) }))
+            .await
+            .unwrap();
+        let rows = rows.as_array().unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| r["name"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            names
+        );
+        let work = rows.iter().find(|r| r["name"] == "work").unwrap();
+        assert_eq!(work["kind"], "claude");
+        assert_eq!(work["home"], Value::Null);
+        assert_eq!(work["folder"], Value::Null);
+        // The snapshot binds `claude-code` to the recreated account; the file still has `codex#work`.
+        assert_eq!(work["runners"], json!(["claude-code"]));
+        assert_eq!(work["locked"], "Planner — can't remove");
+        assert_eq!(work["label"], "snapshot work");
+        assert_eq!(work["usageReading"], json!({"source": "snapshot"}));
+    }
+
+    #[tokio::test]
+    async fn parts_that_do_not_cover_the_snapshot_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = ctx(dir.path());
+        // Parts read against the on-disk accounts cannot describe the snapshot's accounts.
+        let reply = parts(&ctx, &["work"]);
+        let error = account_list(&ctx, json!({}), Box::pin(async move { Ok(reply) }))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, Code::Unavailable);
+        assert_eq!(error.message, "invalid account list bridge response");
+        let mut reply = parts(&ctx, &["work", "extra", "claude"]);
+        reply["strategy"] = json!({"path": "x"});
+        let error = account_list(&ctx, json!({}), Box::pin(async move { Ok(reply) }))
+            .await
+            .unwrap_err();
+        assert_eq!(error.message, "invalid account list bridge response");
+    }
 
     #[test]
     fn shq_quotes_like_typescript() {
