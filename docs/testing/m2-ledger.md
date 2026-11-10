@@ -638,7 +638,7 @@ evidence belongs with the fixed `native-config` live fixture and targeted parity
 
 ## Unregistered public ops (Forwarded by default)
 
-Pinned against `stdio_hello.json` v3 (`225` ops). The Rust registry lists
+Pinned against `stdio_hello.json` v3 (`228` ops). The Rust registry lists
 native names in the detailed table above; every other public op remains TypeScript-owned
 until a cutover PR registers it and updates this ledger. Rows already named in
 the table above are omitted here. Owner streams follow
@@ -651,7 +651,13 @@ ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
 Total native: **146** of 228 (134 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Fifty-eight of these selectively forward some inputs or effects to TypeScript:
+`plugin.*` ops). Eighty-four of these selectively forward some inputs or callers to TypeScript.
+The 12 HTTP-native plugin ops forward request bodies nested deeper than 512 levels, and the four
+reads also forward deep prepare or settings records: `plugin.list`, `plugin.doctor`, `plugin.ui.list`,
+`plugin.settings.get`, `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`,
+`plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` and `plugin.install`.
+These 72 stdio registry ops forward through the front-door forwarding predicates or, for
+`task.stop`, `task.wait` and `task.review`, the Core task probe:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
 `project.messaging.remove`, `project.strategy.list`, `project.strategy.get`,
@@ -664,7 +670,8 @@ Total native: **146** of 228 (134 on the Rust stdio registry plus 12 HTTP-native
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,
 `assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
 `dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
-`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`, `runner.check`.
+`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates`, `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`, `runner.check`, `job.list`, `job.get` and `job.cancel`.
+Task-grant and scoped-work HTTP callers forward every operation and are not counted here.
 Total still not native (v3 − native set): **82**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
