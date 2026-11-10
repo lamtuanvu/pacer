@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,16 +13,28 @@ import type { TaskRecord } from "../src/tasks/types";
 import type { Ctx } from "../src/types";
 import { fakeCtx, gitRepo, tmpDir } from "./helpers";
 import { fakeRun, raw } from "./fixtures/orca/fake";
+import { closedPort, pinnedEnv, REAL_SERVICE_PORT } from "./pinned-port";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 const CALLER = { USER: "alice", ORCA_TERMINAL_HANDLE: "term_planner" };
+/** Every process this file spawns, and their descendants, call this port instead of the real service on 4317. */
+const PORT = await closedPort();
 const servers: Server[] = [], wrappers: number[] = [], homes: string[] = [], hubs: ViewerHub[] = [];
 afterEach(() => {
   for (const h of hubs.splice(0)) h.destroy();
   for (const s of servers.splice(0)) s.close();
   for (const pid of wrappers.splice(0)) killTree(pid, "SIGKILL");
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
+});
+
+test("spawned processes are pinned to a closed port, never the real service's", async () => {
+  expect(PORT).not.toBe(REAL_SERVICE_PORT);
+  expect(pinnedEnv({ PACER_PORT: String(REAL_SERVICE_PORT) }, PORT).PACER_PORT).toBe(String(PORT));
+  expect(() => pinnedEnv({}, REAL_SERVICE_PORT)).toThrow("pinned away from 4317");
+  expect(() => pinnedEnv({}, 0)).toThrow("pinned away from 4317");
+  const probe = await fetch(`http://127.0.0.1:${PORT}/health`).then(() => "answered", () => "refused");
+  expect(probe).toBe("refused");
 });
 
 const make = (ctx: Ctx, goal: string, patch: (t: TaskRecord) => void = () => {}) => {
@@ -35,8 +47,8 @@ const make = (ctx: Ctx, goal: string, patch: (t: TaskRecord) => void = () => {})
 async function builtinRun(ctx: Ctx, id: string) {
   const dir = tmpDir(), script = join(dir, "run.sh");
   writeFileSync(join(dir, "interactive.json"), "{}");
-  writeFileSync(script, "#!/bin/sh\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
-  const proc = Bun.spawn(["/bin/sh", script, dir], { detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+  writeFileSync(script, "#!/bin/sh\nprintf %s \"$PACER_PORT\" > \"$1/port.tmp\" && mv \"$1/port.tmp\" \"$1/port\"\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
+  const proc = Bun.spawn(["/bin/sh", script, dir], { detached: true, env: pinnedEnv(process.env, PORT), stdin: "ignore", stdout: "ignore", stderr: "ignore" });
   wrappers.push(proc.pid);
   writeFileSync(join(dir, "pid"), String(proc.pid));
   const sock = join(mkdtempSync("/tmp/pl-"), "s.sock");
@@ -51,7 +63,8 @@ async function builtinRun(ctx: Ctx, id: string) {
   await new Promise<void>(r => server.listen(sock, r));
   updateTask(ctx, id, t => { t.run = { dir, attempt: 1, executor: "codex", startedAt: 1, mode: "new", workdir: tmpDir(), logFile: "/dev/null" }; });
   const until = Date.now() + 5000;
-  while (!readRun(dir).alive && Date.now() < until) await Bun.sleep(25);
+  while ((!readRun(dir).alive || !existsSync(join(dir, "port"))) && Date.now() < until) await Bun.sleep(25);
+  expect(readFileSync(join(dir, "port"), "utf8")).toBe(String(PORT));
   return () => Buffer.concat(input).toString();
 }
 
@@ -68,11 +81,11 @@ type Output = { stdout: string; stderr: string };
 async function exchange(home: string, requests: { id: number; params: unknown }[], forward: boolean,
   env: Record<string, string> = {}, whileOpen?: (output: Output) => Promise<void>) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
-    env: {
+    env: pinnedEnv({
       HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", ...CALLER,
       ...(forward ? { PACER_FORWARD_OPS: "task.send" } : {}), ...env,
-    },
+    }, PORT),
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
@@ -114,7 +127,7 @@ async function underLock(home: string, id: string, change: "run" | "unlease", re
   homes.push(dir);
   const [locked, go] = [join(dir, "locked"), join(dir, "go")];
   const holder = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures/task-lock-holder.ts"), join(home, ".pacer"), id, change, locked, go], {
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home }, stdout: "ignore", stderr: "pipe",
+    env: pinnedEnv({ PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home }, PORT), stdout: "ignore", stderr: "pipe",
   });
   try {
     const until = Date.now() + 10_000;
@@ -122,6 +135,7 @@ async function underLock(home: string, id: string, change: "run" | "unlease", re
       if (holder.exitCode !== null || Date.now() > until) throw new Error(`lock holder failed: ${await new Response(holder.stderr).text()}`);
       await Bun.sleep(10);
     }
+    expect(readFileSync(locked, "utf8")).toBe(String(PORT));
     return await exchange(home, requests, forward, {}, async output => {
       const dispatched = Date.now() + 10_000;
       while (!forward && !output.stderr.includes(`native task.send ${requests[0]!.id}\n`) && Date.now() < dispatched) await Bun.sleep(10);
