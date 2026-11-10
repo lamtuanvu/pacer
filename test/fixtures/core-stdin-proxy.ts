@@ -6,12 +6,10 @@
 import { appendFileSync, copyFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 
-import { spawnPinned } from "../port-isolation";
-
 const replacement = process.env.PACER_TEST_STRATEGY_EDIT;
 const log = process.env.PACER_TEST_CORE_LOG;
 const target = join(process.env.PACER_HOME!, "strategy.yaml");
-const child = spawnPinned(process.argv.slice(2), { stdin: "pipe", stdout: "inherit", stderr: "inherit", env: process.env });
+const child = Bun.spawn(process.argv.slice(2), { stdin: "pipe", stdout: "inherit", stderr: "inherit", env: process.env });
 process.on("SIGTERM", () => { child.kill("SIGTERM"); });
 
 let edited = !replacement, buffer = "";
