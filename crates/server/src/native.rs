@@ -43,7 +43,6 @@ mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
-pub(crate) mod handover_bridge;
 pub(crate) mod msg_write_sync;
 pub mod plugins;
 pub(crate) mod setup_effects_sync;
@@ -817,7 +816,7 @@ pub async fn call_native(
     task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     task_review_probe: Option<Value>,
     task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
-    handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
+    _handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -941,14 +940,6 @@ pub async fn call_native(
             "host.get" => host_read_ops::host_get(ctx, params, parts).await?,
             _ => unreachable!("needs_host_read_bridge"),
         }
-    } else if pacer_update::handover::handover_stays_forwarded(ctx, op.name) {
-        let bridge = handover_bridge.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "handover bridge unavailable",
-            )
-        })?;
-        pacer_update::handover::call(ctx, op.name, params, false, bridge).await?
     } else if needs_task_clean_bridge(op.name) {
         let clean = task_clean_sync.ok_or_else(|| {
             CoreError::new(

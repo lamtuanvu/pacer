@@ -852,7 +852,6 @@ async fn forward_input<
                         None,
                         None,
                         None,
-                        None,
                     )
                     .await
                 } else if crate::native::needs_core_bridge(op.name) {

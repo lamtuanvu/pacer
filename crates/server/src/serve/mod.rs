@@ -489,19 +489,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            let mut handover_bridge =
-                if pacer_update::handover::handover_stays_forwarded(&request_ctx, op.name) {
-                    state.core.target().await.map(|target| {
-                        crate::native::handover_bridge::HttpHandoverBridge {
-                            target: Some(target),
-                        }
-                    })
-                } else {
-                    None
-                };
-            let handover_bridge = handover_bridge
-                .as_mut()
-                .map(|b| b as &mut dyn pacer_update::handover::HandoverBridge);
             let task_stop_effects = if task_stop_probe_cache.is_some() {
                 let id = params
                     .get("id")
@@ -584,7 +571,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 task_stop_effects,
                 task_review_probe_cache,
                 task_review_effects,
-                handover_bridge,
+                None,
             )
             .await
         };
