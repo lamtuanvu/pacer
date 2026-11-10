@@ -29,16 +29,22 @@ browserTest('managed status stays accessible and out of layout in both built sur
       await page.goto(`${server.url}${surface === 'tray' ? 'app/tray.html' : 'answer?managed'}`);
       await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
       if (surface === 'answer') { await page.getByRole('tab',{name:/Questions/}).click(); await page.getByRole('link',{name:'Answer',exact:true}).click(); await page.locator('textarea').fill('Answer'); }
-      const container = page.locator(surface === 'tray' ? '.tray-footer' : '.pc-side-dialog__footer');
-      const before = await container.boundingBox();
+      const selectors = surface === 'tray' ? ['.tray', '.tray-attention', '.tray-footer'] : ['.pc-side-dialog', '.pc-side-dialog__footer'];
+      const geometry = async () => Promise.all(selectors.map(selector => page.locator(selector).evaluateAll(nodes => nodes.map(node => {
+        const {x, y, width, height} = node.getBoundingClientRect();
+        return {x, y, width, height};
+      }))));
+      const before = await geometry();
+      expect(before.every(boxes => boxes.length > 0)).toBe(true);
+      if (process.env.PACER_TEST_VISIBLE_STATUS) await page.addStyleTag({content: '.sr-only[role=status] { position: static !important; width: auto !important; height: auto !important; overflow: visible !important; clip: auto !important; }'});
       await page.getByRole('button',{name:surface === 'tray' ? 'Retry' : 'Send answer',exact:true}).click();
       const status = page.getByRole('status').filter({hasText:surface === 'tray' ? 'Working' : 'Sending'});
       await status.waitFor({state:'attached'});
       expect(await status.count()).toBe(1);
+      expect(await geometry()).toEqual(before);
       const hidden = await status.evaluate(e => { const r=e.getBoundingClientRect(), s=getComputedStyle(e); return {width:r.width,height:r.height,position:s.position,overflow:s.overflow,clip:s.clip}; });
       expect(hidden.width).toBeLessThanOrEqual(1); expect(hidden.height).toBeLessThanOrEqual(1);
       expect(hidden.position).toBe('absolute'); expect(hidden.overflow).toBe('hidden'); expect(hidden.clip).toBe('rect(0px, 0px, 0px, 0px)');
-      expect(await container.boundingBox()).toEqual(before);
       await page.close();
     }
   } finally { await browser.close(); server.stop(true); }
