@@ -343,6 +343,127 @@ async fn forward_input<
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
             {
                 let request_ctx = ctx.at_now();
+                if crate::native::msg_writes::uses_bridge(op.name) {
+                    use crate::native::{msg_write_sync, msg_writes};
+                    msg_write_sync::trace(op.name, request.get("id"));
+                    let id = request.get("id").cloned();
+                    if op.name == "msg.wait" {
+                        if let Some(result) = msg_writes::wait_now(&request_ctx, &params) {
+                            if let Some(id) = id {
+                                write_line(out, &rpc_line(&id, result)?).await?;
+                            }
+                            continue;
+                        }
+                        // A stdio caller is never the human, so a wait needs no Core publication.
+                        let reply = id.clone();
+                        let task = waits.spawn(async move {
+                            let result = msg_writes::call(
+                                &request_ctx,
+                                "msg.wait",
+                                params,
+                                &mut msg_writes::NoBridge,
+                            )
+                            .await;
+                            id.and_then(|id| rpc_line(&id, result).ok())
+                        });
+                        if let Some(id) = reply {
+                            wait_ids.insert(task.id(), id);
+                        }
+                        continue;
+                    }
+                    let mut bridge = msg_write_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = msg_writes::call(&request_ctx, op.name, params, &mut bridge).await;
+                    if matches!(&result, Err(error) if error.message == msg_writes::FORWARD_DUPLICATE_ANSWER)
+                    {
+                        core.write_all(&line).await?;
+                        core.flush().await?;
+                        continue;
+                    }
+                    if let Some(id) = id {
+                        write_line(out, &rpc_line(&id, result)?).await?;
+                    }
+                    continue;
+                }
+                if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let by =
+                        crate::native::task_send_ops::caller_identity(&request_ctx, None, None);
+                    let mut bridge = crate::native::task_send_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = crate::native::task_send_ops::task_send(
+                        &request_ctx,
+                        params,
+                        by,
+                        &mut bridge,
+                    )
+                    .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
+                if pacer_config_ops::setup_effects::uses_effects(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let mut effects = crate::native::setup_effects_sync::StdioEffects {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = pacer_config_ops::setup_effects::call(
+                        &request_ctx,
+                        op.name,
+                        params,
+                        false,
+                        &mut effects,
+                    )
+                    .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
+                if crate::native::install_apply_sync::uses_effects(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    match crate::native::install_apply_sync::admit(&request_ctx, op.name, &params) {
+                        Ok(()) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                        }
+                        Err(error) => {
+                            if let Some(id) = request.get("id") {
+                                write_line(out, &rpc_line(id, Err(error))?).await?;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if crate::native::needs_host_effects(op.name) {
+                    use pacer_config_ops::host_check_clean_setup_ops::{Admission, admit};
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let result = match admit(&request_ctx, op.name, &params) {
+                        Ok(Admission::Core) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                            continue;
+                        }
+                        Ok(Admission::Native(reply)) => Ok(reply),
+                        Err(error) => Err(error),
+                    };
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
                 if op.name == "task.wait" {
                     let task_id = params
                         .get("id")
