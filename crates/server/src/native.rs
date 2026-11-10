@@ -14,6 +14,7 @@ use pacer_config_ops::config_writes;
 use pacer_config_ops::executor_setup_ops;
 pub(crate) mod core_bridge_sync;
 mod desktop_reconcile_ops;
+use pacer_config_ops::doctor_ops;
 use pacer_discovery_ops::{discovery_ops, network_ops};
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
@@ -52,6 +53,7 @@ use pacer_config_ops::runner_check_ops;
 use pacer_config_ops::runner_ops;
 pub(crate) use pacer_task_ops::session_ops;
 pub(crate) mod session_sync;
+pub(crate) mod setup_doctor_sync;
 mod setup_ops;
 use pacer_task_ops::snapshot_get_ops;
 pub(crate) mod snapshot_sync;
@@ -86,6 +88,8 @@ pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
 pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::msg_stays_forwarded;
+#[doc(hidden)]
+pub use p8_bridge_ops::bridge_params as core_bridge_params;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub use pacer_account_ops::account_stays_forwarded;
 use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview_ops};
@@ -505,12 +509,20 @@ static OPS: &[NativeOp] = &[
         call: p8_bridge_ops::bridge_stub,
     },
     NativeOp {
+        name: "setup.health",
+        call: doctor_ops::setup_health_stub,
+    },
+    NativeOp {
+        name: "doctor.run",
+        call: doctor_ops::doctor_run_stub,
+    },
+    NativeOp {
         name: "onboarding.skip",
         call: setup_ops::onboarding_skip,
     },
     NativeOp {
         name: "setup.init",
-        call: pacer_config_ops::setup_init_ops::setup_init,
+        call: pacer_config_ops::setup_effects::effects_stub,
     },
     NativeOp {
         name: "service.status",

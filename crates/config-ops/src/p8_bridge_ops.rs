@@ -1,4 +1,5 @@
-//! P9 `setup.check`, validated in Rust and executed via the TypeScript core bridge.
+//! P9 `setup.check`, `setup.health` and `doctor.run`, validated in Rust and
+//! executed via the TypeScript core bridge.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
@@ -6,10 +7,11 @@ use pacer_foundation::{
 };
 use serde_json::Value;
 
+use crate::doctor_ops;
 use crate::host_read_ops::{invalid, object};
 
 pub fn needs_core_bridge(op: &str) -> bool {
-    op == "setup.check"
+    op == "setup.check" || doctor_ops::needs_setup_doctor_bridge(op)
 }
 
 pub fn bridge_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
@@ -35,6 +37,7 @@ pub fn bridge_params(op: &str, params: &Value) -> Result<Value, CoreError> {
             empty_object(params)?;
             Ok(params.clone())
         }
+        op if doctor_ops::needs_setup_doctor_bridge(op) => doctor_ops::bridge_params(op, params),
         _ => Err(invalid("unknown core bridge op")),
     }
 }

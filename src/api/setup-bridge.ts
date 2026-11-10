@@ -6,10 +6,10 @@ import type { Ctx } from "../types";
 import type { OpDeps } from "./ops";
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
-const LOCAL_SERVERS = new Set(["http://127.0.0.1:11434/v1", "http://127.0.0.1:1234/v1"]);
 
-/** Native strategy.build and executor.setup.candidates: Core renders live status, opens the strategy terminal from the
- * prompt file Rust wrote (never a caller-supplied command) and probes the fixed local model servers through the endpoint plugin. */
+/** Native strategy.build, executor.setup.candidates and setup.init: Core renders live status, opens the strategy terminal
+ * from the prompt file Rust wrote (never a caller-supplied command), probes the fixed local model servers through the
+ * endpoint plugin and asks the Ollama server at OLLAMA_HOST for its first model with the same fetch `pacer init` uses. */
 export async function setupEffectsBridge(ctx: Ctx, request: unknown, deps: OpDeps = {}): Promise<unknown> {
   const r = request && typeof request === "object" && !Array.isArray(request) ? request as Record<string, unknown> : {};
   if (r.kind === "status_text") {
@@ -27,10 +27,19 @@ export async function setupEffectsBridge(ctx: Ctx, request: unknown, deps: OpDep
     return withWork(ctx, { kind: "operation", id: "strategy-build", label: "Opening strategy planning session" },
       () => open(ctx, r.builtin === true ? { ...options, target: "builtin", requestId } : options));
   }
-  if (r.kind === "discover" && Array.isArray(r.baseUrls) && r.baseUrls.every(url => typeof url === "string" && LOCAL_SERVERS.has(url))) {
-    const { discoverEndpointModels } = await import("../plugins/endpoint-adapter");
-    return { results: await Promise.all((r.baseUrls as string[]).map(baseUrl => discoverEndpointModels(ctx, { baseUrl, key: null, timeoutMs: 1000 })
-      .catch((error: unknown) => ({ failure: error instanceof Error ? error.message : String(error) })))) };
+  if (r.kind === "ollama_model" && Object.keys(r).length === 1) {
+    const { ollamaModel } = await import("../install/init");
+    return { model: await ollamaModel(ctx) };
+  }
+  if (r.kind === "discover" && Array.isArray(r.baseUrls)) {
+    const [{ discoverEndpointModels }, { localServers }] = await Promise.all([import("../plugins/endpoint-adapter"), import("../endpoints/detect")]);
+    const allowed = new Set(localServers(ctx).map(s => s.base_url));
+    if (!r.baseUrls.every(url => typeof url === "string" && allowed.has(url))) throw new CoreError("invalid_input", "setup effect required");
+    // `settled` numbers failures as they happen: detectCandidates reports distinct failures in that order.
+    let settled = 0;
+    const discover = deps.endpoint?.discover ?? discoverEndpointModels;
+    return { results: await Promise.all((r.baseUrls as string[]).map(baseUrl => discover(ctx, { baseUrl, key: null, timeoutMs: 1000 })
+      .catch((error: unknown) => ({ failure: error instanceof Error ? error.message : String(error), settled: settled++ })))) };
   }
   throw new CoreError("invalid_input", "setup effect required");
 }

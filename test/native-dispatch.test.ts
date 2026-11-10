@@ -2,9 +2,10 @@ import { request as httpRequest } from "node:http";
 import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { closedPort, pinnedPort } from "./helpers";
+import { closedPort, pinnedEnv as pinnedPort, spawnPinned } from "./pinned-port";
 
 import golden from "./fixtures/config-writes-goldens.json";
+import { pinnedEnv } from "./pinned-port";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const productionFront = process.env.PACER_TEST_FRONT_DOOR;
@@ -21,7 +22,7 @@ const rpc = (id: number, method: string, params: unknown = {}) => JSON.stringify
 
 test.skipIf(!productionFront)("release front door rejects test-only native operations", async () => {
   const fixture = setup();
-  const child = Bun.spawn([productionFront!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = spawnPinned([productionFront!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "test.echo", { ok: true }), rpc(3, "_debug.native")].join("\n") + "\n");
     await child.stdin.end();
@@ -36,21 +37,21 @@ test.skipIf(!productionFront)("release front door rejects test-only native opera
 
 test.skipIf(!front)("test binary exposes only its feature-gated native operations", async () => {
   const fixture = setup();
-  const child = Bun.spawn([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "_debug.native")].join("\n") + "\n");
     await child.stdin.end();
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(exit, stderr).toBe(0);
     const replies = stdout.trim().split("\n").map(line => JSON.parse(line));
-    expect(replies[1].result).toEqual(["_debug.native", "account.add", "account.adopt", "account.edit", "account.list", "account.models", "account.remove", "account.signin", "account.test", "account.usage.check", "activity.list", "agent.detect", "api.describe", "api.list", "assistant.candidates", "assistant.card.record", "assistant.card.refresh", "assistant.conversation", "assistant.conversations", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.status", "assistant.turn", "attention.dismiss", "attention.snooze", "config.get", "config.set", "delegation.pause", "delegation.resume", "desktop.reconcile.cancel", "desktop.reconcile.request", "desktop.reconcile.status", "discovery.list", "discovery.network.get", "discovery.network.set", "discovery.respond", "discovery.set", "dispatch.analytics", "dispatch.answer", "dispatch.child", "dispatch.config.get", "dispatch.dependencies", "dispatch.dependencies.waive", "dispatch.enforcement.consent", "dispatch.events", "dispatch.learning.reset", "dispatch.list", "dispatch.models", "dispatch.refresh", "dispatch.retry", "dispatch.review", "dispatch.stop", "dispatch.submit", "dispatch.tree", "dispatch.wait", "executor.setup.candidates", "executor.setup.connect", "executor.setup.models", "files.search", "host.account.add", "host.add", "host.get", "host.list", "host.remove", "host.repo.map", "host.set", "host.suggest", "insights.summary", "issue.import", "issue.search", "job.cancel", "job.get", "job.list", "limits.check", "limits.refresh", "limits.report", "machine.get", "machine.rotate", "machine.set", "mode.hold", "mode.release", "msg.close", "msg.confirm", "msg.inbox", "msg.log", "msg.policy", "msg.read", "msg.send", "msg.wait", "notifications.get", "notifications.set", "onboarding.skip", "project.messaging.get", "project.messaging.remove", "project.messaging.set", "project.strategy.get", "project.strategy.list", "project.strategy.remove", "project.strategy.set", "repo.add", "repo.list", "repo.remove", "routing.get", "routing.route", "routing.set", "routing.status", "runner.add", "runner.block", "runner.check", "runner.list", "runner.remove", "runner.reorder", "runner.set", "runner.settings.get", "runner.settings.save", "runner.unblock", "service.install", "service.status", "session.context", "setup.check", "setup.init", "snapshot.get", "strategy.build", "strategy.list", "strategy.preview", "strategy.remove", "strategy.save", "strategy.show", "strategy.use", "task.diff", "task.dismiss", "task.get", "task.list", "task.log", "task.prune", "task.request_review", "task.restore", "task.retry_options", "task.review", "task.send", "task.stop", "task.wait", "test.echo", "tree.status", "update.apply", "update.check", "version.get"]);
+    expect(replies[1].result).toEqual(["_debug.native", "account.add", "account.adopt", "account.edit", "account.list", "account.models", "account.remove", "account.signin", "account.test", "account.usage.check", "activity.list", "agent.detect", "api.describe", "api.list", "assistant.candidates", "assistant.card.record", "assistant.card.refresh", "assistant.conversation", "assistant.conversations", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.status", "assistant.turn", "attention.dismiss", "attention.snooze", "config.get", "config.set", "delegation.pause", "delegation.resume", "desktop.reconcile.cancel", "desktop.reconcile.request", "desktop.reconcile.status", "discovery.list", "discovery.network.get", "discovery.network.set", "discovery.respond", "discovery.set", "dispatch.analytics", "dispatch.answer", "dispatch.child", "dispatch.config.get", "dispatch.dependencies", "dispatch.dependencies.waive", "dispatch.enforcement.consent", "dispatch.events", "dispatch.learning.reset", "dispatch.list", "dispatch.models", "dispatch.refresh", "dispatch.retry", "dispatch.review", "dispatch.stop", "dispatch.submit", "dispatch.tree", "dispatch.wait", "doctor.run", "executor.setup.candidates", "executor.setup.connect", "executor.setup.models", "files.search", "host.account.add", "host.add", "host.get", "host.list", "host.remove", "host.repo.map", "host.set", "host.suggest", "insights.summary", "issue.import", "issue.search", "job.cancel", "job.get", "job.list", "limits.check", "limits.refresh", "limits.report", "machine.get", "machine.rotate", "machine.set", "mode.hold", "mode.release", "msg.close", "msg.confirm", "msg.inbox", "msg.log", "msg.policy", "msg.read", "msg.send", "msg.wait", "notifications.get", "notifications.set", "onboarding.skip", "project.messaging.get", "project.messaging.remove", "project.messaging.set", "project.strategy.get", "project.strategy.list", "project.strategy.remove", "project.strategy.set", "repo.add", "repo.list", "repo.remove", "routing.get", "routing.route", "routing.set", "routing.status", "runner.add", "runner.block", "runner.check", "runner.list", "runner.remove", "runner.reorder", "runner.set", "runner.settings.get", "runner.settings.save", "runner.unblock", "service.install", "service.status", "session.context", "setup.check", "setup.health", "setup.init", "snapshot.get", "strategy.build", "strategy.list", "strategy.preview", "strategy.remove", "strategy.save", "strategy.show", "strategy.use", "task.diff", "task.dismiss", "task.get", "task.list", "task.log", "task.prune", "task.request_review", "task.restore", "task.retry_options", "task.review", "task.send", "task.stop", "task.wait", "test.echo", "tree.status", "update.apply", "update.check", "version.get"]);
     expect(stderr).toContain("native _debug.native");
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } fixture.cleanup(); }
 }, 30000);
 
 test.skipIf(!front)("stdio accepts hello before native dispatch and flips back to v2", async () => {
   const fixture = setup();
-  const child = Bun.spawn([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     const lines = [rpc(1, "test.echo", { n: 1 }), rpc(2, "hello", { protocol: 3 }), rpc(3, "test.echo", { n: 3 }),
       rpc(4, "hello", { protocol: 9 }), rpc(5, "test.echo", { n: 5 }), rpc(6, "hello", { protocol: 2 }), rpc(7, "test.echo", { n: 7 }),
@@ -78,7 +79,7 @@ test.skipIf(!front)("stdio accepts hello before native dispatch and flips back t
 
 test.skipIf(!front)("stdio hello notifications negotiate only with accepted parameters", async () => {
   const fixture = setup();
-  const child = Bun.spawn([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = spawnPinned([front!, "api", "--stdio"], { env: fixture.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   const notification = (params: unknown) => JSON.stringify({ jsonrpc: "2.0", method: "hello", params });
   try {
     const lines = [
@@ -104,7 +105,7 @@ test.skipIf(!front)("stdio hello notifications negotiate only with accepted para
 test.skipIf(!front)("HTTP native route enforces auth, version, body limit and forward override", async () => {
   const fixture = setup();
   const port = closedPort();
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: pinnedPort(fixture.env, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const child = spawnPinned([front!, "serve", "--port", String(port)], { env: pinnedPort(fixture.env, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const stderrText = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   try {
@@ -143,7 +144,7 @@ test.skipIf(!front)("HTTP native route enforces auth, version, body limit and fo
 
 test.skipIf(!front)("PACER_FORWARD_OPS forces stdio echo back to TypeScript", async () => {
   const fixture = setup();
-  const child = Bun.spawn([front!, "api", "--stdio"], { env: { ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = spawnPinned([front!, "api", "--stdio"], { env: { ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     await child.stdin.write([rpc(1, "hello", { protocol: 3 }), rpc(2, "test.echo", { ok: true })].join("\n") + "\n");
     await child.stdin.end();
@@ -159,7 +160,7 @@ test.skipIf(!front)("PACER_FORWARD_OPS forces stdio echo back to TypeScript", as
 test.skipIf(!front)("PACER_FORWARD_OPS forces HTTP echo back to TypeScript", async () => {
   const fixture = setup();
   const port = closedPort();
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: pinnedPort({ ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const child = spawnPinned([front!, "serve", "--port", String(port)], { env: pinnedPort({ ...fixture.env, PACER_FORWARD_OPS: "test.echo" }, port), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const base = `http://127.0.0.1:${port}`;
   try {
     let token = "";
@@ -196,7 +197,7 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
       const port = closedPort();
       const env = pinnedPort({...fixture.env, XDG_CONFIG_HOME:xdg, PACER_AGENT:"alice", PACER_FORWARD_OPS:forwarded ? "*" : "",
         ...(override === undefined ? {} : {PACER_ORCA_USER_DATA:override ? legacy : ""})}, port);
-      const child = Bun.spawn([productionFront!, "serve", "--port", String(port)], {env, stdin:"ignore", stdout:"ignore", stderr:"pipe"});
+      const child = spawnPinned([productionFront!, "serve", "--port", String(port)], {env, stdin:"ignore", stdout:"ignore", stderr:"pipe"});
       const errors = new Response(child.stderr).text();
       const base = `http://127.0.0.1:${port}`;
       try {
