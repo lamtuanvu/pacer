@@ -40,6 +40,9 @@ routing:
   - default: [claude-code, codex]
 `;
 
+// Recreates `work` as a Claude account without runners.
+const EDITED = STRATEGY.replace("  work: {kind: codex, home: ~/.codex-work}", "  work: {kind: claude, home: ~/.claude-work}").replace("  codex#work: {}\n", "");
+
 const ORCA = JSON.stringify({ claude: { accounts: [] }, codex: { activeAccountId: "acct1", accounts: [{ id: "acct1", label: "Team Codex" }] }, rateLimits: {} });
 
 function bin(dir: string, name: string, body: string) {
@@ -120,19 +123,34 @@ test.skipIf(!front)("account.list rows and account.signin refusals match forced 
 }, 120000);
 
 test.skipIf(!front)("a strategy edit during the bridge reads cannot mix snapshots", async () => {
-  // The Orca read runs after the strategy load; it recreates `work` as a Claude account without runners.
-  const edited = STRATEGY.replace("  work: {kind: codex, home: ~/.codex-work}", "  work: {kind: claude}").replace("  codex#work: {}\n", "");
+  // The Orca read runs after the strategy load.
   const homes = [home(), home()];
   for (const dir of homes) {
-    writeFileSync(join(dir, "edited.yaml"), edited);
+    writeFileSync(join(dir, "edited.yaml"), EDITED);
     bin(dir, "fake-orca", `cp '${join(dir, "edited.yaml")}' '${join(dir, ".pacer", "next.yaml")}' && mv '${join(dir, ".pacer", "next.yaml")}' '${join(dir, ".pacer", "strategy.yaml")}'\necho '${ORCA}'`);
   }
   const list = requests([["account.list", {}]]);
   const native = await exchange(homes[0]!, list, false);
   expect(native).toEqual(await exchange(homes[1]!, list, true));
-  expect(readFileSync(join(homes[0]!, ".pacer", "strategy.yaml"), "utf8")).toBe(edited);
+  expect(readFileSync(join(homes[0]!, ".pacer", "strategy.yaml"), "utf8")).toBe(EDITED);
   const work = (JSON.parse(native[0]!).result as Record<string, unknown>[]).find(row => row.name === "work");
   expect(work).toMatchObject({ kind: "codex", home: "~/.codex-work", runners: ["codex#work"], signedIn: true });
+}, 120000);
+
+test.skipIf(!front)("a strategy edit between the native read and the bridge load cannot mix snapshots", async () => {
+  // The wrapper core swaps in the edited strategy after the native forward check has read
+  // the original and before the core loads it for the bridge (or for the forwarded op).
+  const wrapped = JSON.stringify([process.execPath, join(import.meta.dir, "fixtures/strategy-edit-core.ts"), ...JSON.parse(core)]);
+  const homes = [home(), home()];
+  for (const dir of homes) writeFileSync(join(dir, "edited.yaml"), EDITED);
+  const list = requests([["account.list", {}]]);
+  const extra = (dir: string) => ({ PACER_CORE_ARGV: wrapped, PACER_TEST_STRATEGY_EDIT: join(dir, "edited.yaml") });
+  const native = await exchange(homes[0]!, list, false, extra(homes[0]!));
+  expect(native).toEqual(await exchange(homes[1]!, list, true, extra(homes[1]!)));
+  for (const dir of homes) expect(readFileSync(join(dir, ".pacer", "strategy.yaml"), "utf8")).toBe(EDITED);
+  const work = (JSON.parse(native[0]!).result as Record<string, unknown>[]).find(row => row.name === "work");
+  expect(work).toMatchObject({ kind: "claude", home: "~/.claude-work", folder: "<home>/.claude-work", runners: [], signedIn: false });
+  expect(work).not.toHaveProperty("locked");
 }, 120000);
 
 test("the account-list bridge reports the strategy text its parts were read against", async () => {
