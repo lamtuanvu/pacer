@@ -5,6 +5,9 @@ use pacer_foundation::{
     api::{CoreError, NativeOp, Registry},
 };
 use serde_json::Value;
+pub(crate) mod account_list_sync;
+pub(crate) use account_list_ops::needs_account_list_bridge;
+use pacer_account_ops::account_list_ops;
 pub(crate) mod config_host_sync;
 pub(crate) mod config_sync;
 use pacer_config_ops::config_writes;
@@ -338,6 +341,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "account.usage.check",
         call: pacer_account_ops::account_usage_check,
+    },
+    NativeOp {
+        name: "account.list",
+        call: account_list_ops::account_list_stub,
+    },
+    NativeOp {
+        name: "account.signin",
+        call: account_list_ops::account_signin_stub,
     },
     NativeOp {
         name: "activity.list",
@@ -959,6 +970,14 @@ pub async fn call_native(
             "task.review" => task_review_ops::task_review(ctx, params, probe, effects).await?,
             _ => unreachable!("needs_task_review_bridge"),
         }
+    } else if needs_account_list_bridge(op.name) {
+        let parts = core_bridge_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "account list bridge unavailable",
+            )
+        })?;
+        account_list_ops::account_list(ctx, params, parts).await?
     } else if needs_core_bridge(op.name) {
         let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
         let parts = core_bridge_sync.ok_or_else(|| {

@@ -808,6 +808,32 @@ async fn forward_input<
                         None,
                     )
                     .await
+                } else if crate::native::needs_account_list_bridge(op.name) {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::account_list_sync::stdio(
+                            &mut core, sync.0, sync.1, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
                 } else if crate::native::needs_core_bridge(op.name) {
                     match crate::native::p8_bridge_ops::bridge_params(op.name, &params) {
                         Ok(bridge_params) => {

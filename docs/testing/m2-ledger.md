@@ -7,7 +7,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | Operation | M2 P3-D route | Retained TypeScript caller or reason |
 | --- | --- | --- |
 | `config.get` | Native (P2) | Pure keys/sources via `pacer_config::settings::get_settings`; Core supplies filtered terminal choices, machine guard/slots and planner candidates through `/_internal/config-host-parts` (serve) or `_internal.config-host.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns terminal detection, slot sampling and planner discovery. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `config.set` | Native (P2-E) | Pure keys use `pacer_config::settings::set_setting` plus the P3-B publisher. `planner` and `execution.backend` selectively forward to TypeScript for install/uninstall and backend readiness. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `config.set` | Native (P2-E, selective) | Pure keys use `pacer_config::settings::set_setting` plus the P3-B publisher. `planner` and `execution.backend` selectively forward to TypeScript for install/uninstall and backend readiness. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.account.add` | Native (P2-D) | `pacer-config::host` maps `hosts.<alias>.accounts.<account>.home` and returns the login command (`account_login_command`); native callers retain endpoint sync and `hosts` publication. No SSH or host-adapter I/O. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.add`, `host.set`, `host.remove`, `host.repo.map` | Native (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Native callers retain the private TypeScript endpoint-plugin synchronization bridge (`finishNativeConfigEdit`), publish the `hosts` area, and record `host.set` pause activity in Rust. `host.set` composes its summary via the host-read bridge after sync. Plugin-owned SSH execution stays forwarded. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.suggest` | Native (P2-D) | `pacer-config::ssh_config` reads `~/.ssh` aliases (Includes, HostName, no shell execution) and filters configured host `ssh` targets from `load_strategy`. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -98,8 +98,8 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `assistant.conversations`, `assistant.conversation`, `assistant.turn`, `assistant.delete` | Native (P7/P8 assistant reads, selective) | Rust reads conversation pages and turns with usage, cards, citations and scope parsed in `JSON.parse` key order. `conversations` first enforces retention like TypeScript; deletes drop turn text, keep usage aggregates and run `wal_checkpoint(TRUNCATE)` (`src/assistant/store.ts`). `conversations` forwards when stored settings are unusable. |
 | `assistant.ask`, `assistant.cancel` | Forwarded (P7/P8) | Turn lifecycle: redacted read-tool loop, bundled `pacer-assistant` plugin `respond`, checkpointing and SSE answer stream at `/v3/assistant/turns/<turnId>/stream` (`src/assistant/service.ts`, `src/api/http.ts`). `cancel` aborts the in-process live-turn map of the TypeScript service. Proposed actions stay client-confirmed; nothing executes from the turn itself. |
 | `assistant.card.record`, `assistant.card.refresh` | Native (P7/P8 assistant reads, selective) | Rust rewrites the stored `cards` JSON in place, keeping key positions and `JSON.stringify` spelling (`src/assistant/actions.ts`). `refresh` reads the task revision from the task store; a task without a brief or title forwards because TypeScript `taskTitle` throws there. |
-| `account.list` | Forwarded (P7/P9) | Account inventory with usage/sign-in commands and no emails (`src/core/accounts.ts`). Each row needs `readAccountUsage` (usage plugin and CLI readers behind a per-process cache), endpoint-plugin rows (`endpointRow`), Orca account reads and sign-in evidence, so it is not a pure store read. M2 re-evaluation: the usage-broker bridge carries reconciled `computeStatus` readings, not the per-account `readAccountUsage` reading each row reports, so no input has a native path without a new bridge. |
-| `account.signin` | Forwarded (P7/P9) | Opens provider login in a terminal/tmux/Orca target or returns the command; interactive account-add/init flows share the handler (`src/api/ops.ts`, `accounts.signin`). |
+| `account.list` | Native (M2 accounts, selective) | `pacer-account-ops::account_list_ops` composes every row of `accounts.list` (`src/core/accounts.ts`): the loaded account fields in `AccountCfg` order and `Object.keys` account order, the sorted `runners` and `executors`, the planner and in-use `locked` text, `folder` (`accountFolder`, including Orca homes), `runnable`, `usageCheck` (`accountUsageCapability` over `pacer_engine::usage_refresh`), the Claude and Codex `signin_command` with `shq` quoting, and the `publicValue` email redaction. The reads that need the TypeScript plugin host, the Orca CLI or login probes come from a fixed Core bridge (`/_internal/account-list-parts` over HTTP, `_internal.account-list.parts` sealed by the stdio sync key, `src/api/account-list-bridge.ts`): per account the Orca label, the sign-in state (`accountSignIn`, `accountAuthFailure`), the `readAccountUsage` reading with `markFreshness`, and the `endpointRow` fields. TypeScript `list` reads the same parts through `accountListPart`. Params that are not an object, work-grant callers (the bridge refuses them) and strategy files TypeScript reports in its own parser's words forward; an enforcement identity is refused natively. The bridge returns the exact strategy text (with its path and name) its parts were read against (`loadStrategySnapshot`), and Rust composes the rows by parsing that text (`pacer_config::strategy::parse_strategy`), never its own read of the file, so a concurrent edit or same-name recreate cannot mix two snapshots; parts that do not cover the parsed accounts are refused as an invalid bridge response. Parity: `test/native-account-list-parity.test.ts` (stdio and HTTP). `PACER_FORWARD_OPS` remains the escape hatch. |
+| `account.signin` | Native (M2 accounts, selective) | `pacer-account-ops::account_list_ops` refuses natively as `accounts.signin` does before it opens the login: `unknown account` (`invalid_input`), an account kind without a supported login and an Orca account whose folder is missing (`not_allowed`). Opening the login in a terminal, tmux, Orca or built-in target (or returning the headless command) and the ten-minute usage refresh after it forward, as do the interactive account-add and init flows, params outside the `{name, target?, request_id?}` branch (Zod issue text), prototype-key names and unloadable strategies. An enforcement identity is refused natively. Parity: `test/native-account-list-parity.test.ts`. |
 | `account.remove` | Native (M2 accounts, selective) | `pacer-account-ops` owns `accounts.remove` (`src/core/accounts.ts`): legacy strategy migration, `unknown account` and `in use` refusals, the `deletionHome` checks (pacer-managed source, symlinked, root, protected and shared folders, including other accounts' Orca and pacer homes), the `accounts` mapping removal in one validated strategy edit, evidence retirement (`state/evidence/<identity>.json` under the `evidence-<identity>` lock, the SHA-256 identity of `accountEvidenceScope` with ICU-collated host rows) and the home deletion. The `accounts` config publication and the endpoint-plugin sync follow as for `runner.set`. Malformed params, prototype-key names and strategy files TypeScript reports in its own parser's words forward. Residual: the endpoint-plugin sync runs after the evidence retirement and home deletion, where TypeScript synced right after the strategy edit. |
 | `account.add`, `account.edit`, `account.adopt` | Native (M2 accounts, selective) | Managed endpoints (`src/core/endpoints.ts` `save`): `account.add` with `kind: endpoint` and `test: false`, `account.edit` and `account.adopt` without `test: true`, all without a `key` param. Rust owns the name, usage and key-source checks, the connection, budget, quota source, OpenCode runner models and the `opencode#<name>` runner and default route in one validated strategy edit, the `endpoints/state.json` reset (private atomic write), `adoptEndpoint`'s read of the external provider's `baseURL` and model ids from `~/.config/opencode/opencode.json` (never `options.apiKey`), and the reply row with key presence (`env:`, `file`, and `security find-generic-password` without `-w` for `keychain`; no key is read). Errors are redacted as `redactEndpointMessage` does. Claude, Codex, Orca and `source: opencode` adds (their reply embeds the plugin usage row of `account.list`), key writes, test tasks, malformed params, prototype-key names, an unloadable strategy, an unreadable or non-JSON `state.json`, and external provider files with non-object `models` or prototype-key providers forward. Residual: the endpoint-plugin sync runs after the endpoint state write and keychain presence check, where TypeScript synced right after the strategy edit. |
 | `account.models`, `account.test` | Native (M2 accounts, selective) | `pacer-account-ops` refuses natively when the named account is not a configured endpoint, when `account.models` has no base URL, and when an `env:` or `file` key source has no key (unset variable, missing or empty key file). Model discovery (supplied or stored key, including every `keychain` source) and the endpoint test task in a temporary git repo forward. |
@@ -312,8 +312,8 @@ it does not register native handlers. Native cutover waits on plugin host
 ownership, usage refresh bridges, and P9 setup/service owners. The later
 assistant-reads slice registers ten `assistant.*` ops (see below);
 `assistant.ask` and `assistant.cancel` stay Forwarded. The later M2 accounts
-slice registers seven `account.*` ops (see below); `account.list` and
-`account.signin` stay Forwarded.
+slice registers seven `account.*` ops (see below); a later slice registers
+`account.list` and `account.signin` (see their rows).
 
 ## M2 accounts (native, selective)
 
@@ -326,9 +326,10 @@ and home deletion. No op calls TypeScript to execute; the
 rows, and an enforcement identity is refused natively. After a native write the
 existing endpoint-sync hook (`_internal.native-config.finish`) regenerates the
 OpenCode endpoint configuration, and the `accounts` config area is published.
-No handler reads, logs or returns an endpoint key. `account.list` stays
-Forwarded on plugin usage readings and `account.signin` on the terminal
-hand-off. `test/native-account-parity.test.ts` compares replies, errors,
+No handler reads, logs or returns an endpoint key. `account.list` later
+became native over the account-list Core bridge, which carries the plugin usage
+readings, endpoint rows, Orca labels and sign-in state, and `account.signin`
+refuses natively while the terminal hand-off forwards (see their rows). `test/native-account-parity.test.ts` compares replies, errors,
 strategy, endpoint state, evidence, OpenCode configuration and outbox events
 against the TypeScript handlers.
 
@@ -467,7 +468,8 @@ Orca task worktree to TypeScript. `discovery.list`, `discovery.network.get` and
 `discovery.network.set` later became native over the Rust `currentNetwork`
 probe (see the detailed table);
 `desktop.update.status` and `desktop.capture.targets` read in-memory service
-runtimes; `account.list` needs usage, endpoint and Orca plugin reads.
+runtimes; `account.list` later became native over a bridge for its usage,
+endpoint and Orca plugin reads (see its row).
 `test/native-discovery-desktop-parity.test.ts` compares results, errors, state
 file bytes and outbox events against the TypeScript handlers.
 
@@ -661,7 +663,7 @@ Total unregistered (not in the detailed table): **0**.
 Total native: **152** of 228 (140 on the Rust stdio registry plus 12 HTTP-native
 `plugin.*` ops). Seventy-five of these selectively forward some inputs or effects to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
-`task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
+`task.get`, `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
 `project.messaging.remove`, `project.strategy.list`, `project.strategy.get`,
 `project.strategy.set`, `project.strategy.remove`, `msg.inbox`, `msg.log`, `msg.read`, `msg.policy`, `tree.status`,
 `msg.send`, `msg.confirm`, `msg.close`, `msg.wait`,

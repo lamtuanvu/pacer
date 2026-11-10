@@ -6,10 +6,12 @@
 //! Inputs that write a key, run the endpoint test task, start a usage job or
 //! discover models stay forwarded; so do the subscription account kinds,
 //! whose replies carry plugin usage readings. `account.usage.check`,
-//! `account.models` and `account.test` refuse natively. No handler reads or
-//! reports an endpoint key.
+//! `account.models`, `account.test` and `account.signin` refuse natively.
+//! `account.list` composes its rows over the account-list Core bridge. No
+//! handler reads or reports an endpoint key.
 #![allow(clippy::result_large_err)]
 
+pub mod account_list_ops;
 mod endpoint;
 mod evidence;
 mod js;
@@ -78,6 +80,8 @@ pub fn account_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
         "account.usage.check" | "account.models" | "account.test" => {
             refusals::refusal(ctx, op, params).is_none()
         }
+        "account.list" => account_list_ops::list_stays_forwarded(ctx, params),
+        "account.signin" => account_list_ops::signin_refusal(ctx, params).is_none(),
         _ => false,
     }
 }
