@@ -73,7 +73,7 @@ test("background terminal membership strips inherited Orca caller attestation", 
      return { code: 0, stdout: JSON.stringify({ ok: true, result: { terminals: [] } }), stderr: "" };
    } });
  await refreshConsoleTerminals(ctx);
- expect(observed).toEqual({ PATH: "/bin" });
+ expect(observed).toEqual({ PATH: "/bin", PACER_PORT: ctx.env.PACER_PORT, OLLAMA_HOST: ctx.env.OLLAMA_HOST, LMS_API_SERVER_INFO_PATH: ctx.env.LMS_API_SERVER_INFO_PATH });
 });
 
 test("new registrations survive an older cached list and trigger one immediate rate-limited refresh", async () => {

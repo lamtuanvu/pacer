@@ -48,7 +48,7 @@ test("console discovery strips inherited Orca caller attestation", async () => {
     env: { PATH: "/bin", ORCA_PANE_KEY: "T:L", ORCA_AGENT_SESSION_ID: "foreign", ORCA_AGENT_SESSION_ID_ENV: "CUSTOM_SESSION", CUSTOM_SESSION: "foreign" },
     run: async (argv, _timeout, options) => {
       calls.push(argv);
-      expect(options?.env).toEqual({ PATH: "/bin", PACER_PORT: ctx.env.PACER_PORT });
+      expect(options?.env).toEqual({ PATH: "/bin", PACER_PORT: ctx.env.PACER_PORT, OLLAMA_HOST: ctx.env.OLLAMA_HOST, LMS_API_SERVER_INFO_PATH: ctx.env.LMS_API_SERVER_INFO_PATH });
       return { code: 0, stderr: "", stdout: JSON.stringify({ ok: true, result: argv[1] === "terminal"
         ? { terminals: [{ handle: "term_x", tabId: "T", leafId: "L" }] }
         : { worktree: { path: "/wt/project" } } }) };

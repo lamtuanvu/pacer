@@ -1,7 +1,7 @@
 import { createTestRoot, sweepTestRoots } from "./temp-roots";
 import { closedPort } from "./child-env";
 import { afterAll, afterEach, beforeEach } from "bun:test";
-import { rmSync, realpathSync, mkdirSync, existsSync } from "node:fs";
+import { rmSync, realpathSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { join, resolve, dirname, basename, delimiter } from "node:path";
 import { cleanupTestTmp } from "./helpers";
@@ -63,6 +63,10 @@ process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
 // Inherited children must never default to the maintainer’s running service.
 process.env.PACER_PORT = String(closedPort());
+process.env.OLLAMA_HOST = `http://127.0.0.1:${closedPort()}`;
+const lmsInfo = join(isolatedHome, "lms-server.json");
+writeFileSync(lmsInfo, JSON.stringify({ port: closedPort() }), { mode: 0o600 });
+process.env.LMS_API_SERVER_INFO_PATH = lmsInfo;
 delete process.env.PACER_ROLE;
 delete process.env.PACER_TASK_ID;
 // Bundled plugin children must run this source tree, never an installed pacer the shell points at.

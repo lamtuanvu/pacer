@@ -6,7 +6,7 @@ export function closedPort(): number {
     const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
     const port = listener.port;
     listener.stop(true);
-    if (port && port !== 4317) return port;
+    if (port && ![4317, 11434, 1234, 41343].includes(port)) return port;
   }
 }
 
@@ -18,7 +18,7 @@ export function childEnv(home: string, port?: number): NodeJS.ProcessEnv & { HOM
   if (!port || port === 4317 || port > 65535 || port < 1 || !Number.isInteger(port)) {
     throw new Error("Invalid test service port");
   }
-  return { HOME: home, PACER_HOME: join(home, ".pacer"), PACER_PORT: String(port) };
+  return { HOME: home, PACER_HOME: join(home, ".pacer"), PACER_PORT: String(port), OLLAMA_HOST: `http://127.0.0.1:${closedPort()}`, LMS_API_SERVER_INFO_PATH: process.env.LMS_API_SERVER_INFO_PATH };
 }
 
 /** Fail closed before launching a child with a constructed environment. */

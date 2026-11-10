@@ -40,7 +40,7 @@ export function fakeCtx(o: Partial<Ctx> = {}): Ctx {
     home,
     pacerHome: o.pacerHome ?? join(home, ".pacer"),
     now: o.now ?? localTs(2026, 10, 10, 19, 0),
-    env: { PACER_PORT: process.env.PACER_PORT ?? String(closedPort()), ...o.env },
+    env: { PACER_PORT: process.env.PACER_PORT ?? String(closedPort()), OLLAMA_HOST: process.env.OLLAMA_HOST ?? `http://127.0.0.1:${closedPort()}`, LMS_API_SERVER_INFO_PATH: process.env.LMS_API_SERVER_INFO_PATH, ...o.env },
     run: o.run ?? (async () => ({ code: 127, stdout: "", stderr: "not available in tests" })),
     which: o.which ?? (() => "/usr/bin/fake"),
   };
@@ -92,7 +92,7 @@ export function pinnedPort<T extends Record<string, string | undefined>>(env: T,
 export const fakeSshEnv = (hostHome: string, log: string, down = "") => {
   const bin = join(import.meta.dir, "fixtures", "bin");
   chmodSync(join(bin, "ssh"), 0o755);
-  return { PACER_PORT: process.env.PACER_PORT ?? String(closedPort()), PATH: `${bin}:${process.env.PATH}`, PACER_FAKE_HOST_HOME: hostHome, PACER_FAKE_SSH_LOG: log, PACER_FAKE_SSH_DOWN: down };
+  return { PACER_PORT: process.env.PACER_PORT ?? String(closedPort()), OLLAMA_HOST: process.env.OLLAMA_HOST, LMS_API_SERVER_INFO_PATH: process.env.LMS_API_SERVER_INFO_PATH, PATH: `${bin}:${process.env.PATH}`, PACER_FAKE_HOST_HOME: hostHome, PACER_FAKE_SSH_LOG: log, PACER_FAKE_SSH_DOWN: down };
 };
 
 /** Fake login indicators for tests that route to installed native executors. */
