@@ -2,7 +2,7 @@ import { TIERS } from "./candidates";
 import type { ModelRecord, TierTargets } from "./types";
 
 export type Difficulty = "simple" | "standard" | "complex";
-export type TierReason = "target-match" | "upward-fallback" | "unknown-tier-fallback" | "explicit-override" | "executor-fixed-below-target";
+export type TierReason = "target-match" | "upward-fallback" | "unknown-tier-fallback" | "explicit-override" | "executor-fixed-below-target" | "no-eligible";
 type Tier = TierTargets[Difficulty];
 export interface TierChoice {
   record: ModelRecord | null;
@@ -34,7 +34,7 @@ export function selectModel(records: ModelRecord[], o: {
 }): TierChoice {
   const target = targetTier(o.difficulty, o.targets, o.minTier);
   const choice = (record: ModelRecord | undefined, reason: TierReason): TierChoice => ({
-    record: record ?? null, targetTier: target, selectedTier: record?.tier ?? null, reason,
+    record: record ?? null, targetTier: target, selectedTier: record?.tier ?? null, reason: record ? reason : "no-eligible",
   });
   const eligible = records.filter(record =>
     (o.minTier === undefined || TIERS[record.tier] >= TIERS[o.minTier]) && (o.isUsable?.(record) ?? true));

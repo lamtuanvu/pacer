@@ -84,7 +84,7 @@ import { publish } from "../link/publish";
 import { checkForUpdate, updateAvailable } from "../update/check";
 import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
 import { currentVersion } from "../update/version";
-import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
+import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask, difficultyWarning } from "../tasks/api";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 import { callerParticipant } from "../messaging/participants";
@@ -448,7 +448,7 @@ export const OPS: Record<string, OpDef> = {
       // The v1 notifier still uses this marker for short tasks started in a UI.
       const result = source === "ui" && readTask(ctx, task.id)
         ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;
-      return summarizeTask(result);
+      return {...summarizeTask(result), ...(result.difficultySource === "unspecified" ? {warnings: [difficultyWarning()]} : {})};
     },
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),

@@ -1,3 +1,4 @@
+import { managedDispatchConfigured } from "../dispatch/configured";
 type Difficulty = WorkOptions["difficulty"];
 import { route } from "../core/routing";
 import { visibleTaskState } from "./types";
@@ -84,14 +85,16 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   const alias = (a.dispatch as {difficulty?: Difficulty} | undefined)?.difficulty;
   if (a.difficulty !== undefined && alias !== undefined && a.difficulty !== alias)
     throw new CoreError("invalid_input", "Give difficulty once: top-level difficulty and dispatch.difficulty differ");
+  if (a.model !== undefined && dispatch?.model !== undefined && a.model !== dispatch.model)
+    throw new CoreError("invalid_input", "Give model once: top-level model and dispatch.model differ");
   const difficulty = a.difficulty ?? alias;
-  return { difficulty, model: a.model, difficultySource: difficulty === undefined ? "unspecified" : "brief", brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptanceTimeoutMin:a.acceptance_timeout_min, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
+  return { difficulty, model: a.model ?? dispatch?.model, difficultySource: difficulty === undefined ? "unspecified" : "brief", brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptanceTimeoutMin:a.acceptance_timeout_min, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
     dispatch:dispatch ? {...dispatch, difficulty: difficulty ?? "standard", model: a.model ?? dispatch.model} : undefined, title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason,
     interactive:a.interactive, group:a.group, messaging:a.messaging, ...(a.grant!==undefined?{grant:a.grant}:{}) };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
-  return { ...(t.difficultySource ? {difficulty:t.difficulty, difficultySource:t.difficultySource, ...(t.model ? {model:t.model} : {}), ...(t.difficultySource === "unspecified" ? {warnings: [difficultyWarning()]} : {})} : {}), ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:visibleTaskState(t), kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
+  return { ...(t.difficultySource ? {difficulty:t.difficulty, difficultySource:t.difficultySource, ...(t.model ? {model:t.model} : {})} : {}), ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:visibleTaskState(t), kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
     ...(t.stopPending ? {stop_pending:t.stopPending} : {}),
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
@@ -374,7 +377,7 @@ function commitDelegate(
     ...(input.interactive === false ? {interactive: false} : {}),
     ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}, interactive: true} : {}),
     ...(input.group ? {group: input.group} : {}),
-  }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,{...input.dispatch, ...(input.difficulty ? {difficulty:input.difficulty} : {}), ...(input.model ? {model:input.model} : {})},input.workParent,input.workGrant);else if(userStartedWork(ctx,s,input,created,origin)){managedSkip=strictCandidateSkip(ctx,s,input,selection,repo?.path??realpathSafe(input.brief.repo));if(!managedSkip)registerWork(ctx,created.id,{allowDelegation:true,delegationEnforcement:"strict",difficulty:input.difficulty??"standard",model:input.model});}if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
+  }, created => {if(input.dispatch || managedDispatchConfigured(s))registerWork(ctx,created.id,{...input.dispatch, ...(input.difficulty ? {difficulty:input.difficulty} : {}), ...(input.model ? {model:input.model} : {})},input.workParent,input.workGrant);else if(userStartedWork(ctx,s,input,created,origin)){managedSkip=strictCandidateSkip(ctx,s,input,selection,repo?.path??realpathSafe(input.brief.repo));if(!managedSkip)registerWork(ctx,created.id,{allowDelegation:true,delegationEnforcement:"strict",difficulty:input.difficulty??"standard",model:input.model});}if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
   updateTask(ctx,task.id,t=>{t.difficulty=input.difficulty??input.dispatch?.difficulty??"standard"; t.difficultySource=input.difficultySource??(input.difficulty||input.dispatch?.difficulty?"brief":"unspecified"); if(input.model)t.model=input.model; t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};
     if(origin)t.origin=origin;
     if(input.messaging)t.messaging=input.messaging;

@@ -22,7 +22,7 @@ export async function saveTierTargets(call: BrowserApi["call"], saved: ConfigVie
   if (profileName === saved.strategy) throw new Error("Choose a new saved setup name; the active setup cannot be overwritten.");
   const latest = await call<ConfigView>("dispatch.config.get", {});
   if (!same(latest.config, saved.config) || latest.strategy !== saved.strategy) throw new Error("The active saved setup changed in another client. Discard to load it.");
-  const draft = { from: saved.strategy, set: { dispatch: { ...saved.config, tierTargets: targets } } };
+  const draft = { from: saved.strategy, set: { "dispatch.tierTargets": targets } };
   const preview = await call<{ ok: boolean; errors: string[] }>("strategy.preview", { draft });
   if (!preview.ok) throw new Error(preview.errors?.join(" ") || "Model choices could not be validated.");
   await call("strategy.save", { name: profileName, draft, reason: "Update model choices by task difficulty" });
@@ -68,7 +68,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
         </Field>)}
         {invalid && <p role="alert">{invalid}</p>}
         <ResourceState resource={inventory}>
-          <div className="u3-table-wrap"><table className="u3-table"><caption>Model preview by executor</caption><thead><tr><th scope="col">Executor</th>{difficulties.map(d => <th scope="col" key={d}>{difficultyLabels[d]}</th>)}</tr></thead>
+          <div className="u3-table-wrap"><table className="u3-table"><caption>Managed dispatch preview by executor</caption><thead><tr><th scope="col">Executor</th>{difficulties.map(d => <th scope="col" key={d}>{difficultyLabels[d]}</th>)}</tr></thead>
             <tbody>{[...groups].map(([executor, records]) => <tr key={executor}><th scope="row">{executor}</th>{difficulties.map(d => <td key={d} data-label={difficultyLabels[d]}>{choiceModel(records, d, targets)}</td>)}</tr>)}</tbody>
           </table></div>
           {!groups.size && <p className="u3-muted">No executors in the model inventory.</p>}

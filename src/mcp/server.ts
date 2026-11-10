@@ -14,7 +14,7 @@ import { isExecutorSession } from "../install/role";
 import { callerParticipant } from "../messaging/participants";
 import { MSG_KINDS } from "../messaging/types";
 import { makeCtx } from "../ctx";
-import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, summarizeTask, spawnRunner } from "../tasks/api";
+import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, summarizeTask, spawnRunner, difficultyWarning } from "../tasks/api";
 import { appendLabel } from "../tasks/labels";
 import type { Ctx } from "../types";
 
@@ -102,7 +102,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
     const origin = callerParticipant(ctx, msgDeps()).id;
     const t = await core.tasks.delegate(ctx, {...input, brief:{...input.brief,repo:isAbsolute(input.brief.repo)?input.brief.repo:repoRef.path}, source:"planner", repoRef, origin}, spawnFn);
-    return json(summarizeTask(t));
+    return json({...summarizeTask(t), ...(t.difficultySource === "unspecified" ? {warnings: [difficultyWarning()]} : {})});
   });
 
   server.registerTool("task_status", {

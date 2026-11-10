@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../src/mcp/server";
-import { parseDelegateBrief } from "../src/tasks/api";
+import { parseDelegateBrief, summarizeTask } from "../src/tasks/api";
 import { callOp } from "../src/api/ops";
 import { listTasks, readTask } from "../src/tasks/store";
 import { getWork } from "../src/dispatch/work";
@@ -73,4 +73,27 @@ test("both MCP delegate schemas expose difficulty and model", async () => {
       expect(tool.inputSchema.properties?.model).toMatchObject({type: "string"});
     } finally { await client.close(); await server.close(); }
   }
+});
+
+test("model aliases must agree", () => {
+  expect(() => parseDelegateBrief({goal: "g", model: "one", dispatch: {model: "two"}}, "/tmp"))
+    .toThrow("Give model once: top-level model and dispatch.model differ");
+  expect(parseDelegateBrief({goal: "g", dispatch: {model: "one"}}, "/tmp").model).toBe("one");
+});
+
+test("difficulty warning appears only on creation", async () => {
+  const ctx = await setup();
+  const result = await callOp(ctx, "task.delegate", {goal: "g", repo: gitRepo()}, {spawnRunner: () => 1}) as any;
+  expect(result.warnings).toEqual([warning]);
+  expect(summarizeTask(readTask(ctx, result.task_id)!)).not.toHaveProperty("warnings");
+});
+
+test("saving only model choices from built-in dispatch defaults keeps plain delegation", async () => {
+  const {saveTierTargets} = await import("../app/src/screens/settings/DispatcherModelChoice");
+  const ctx = await setup();
+  const saved = await callOp(ctx, "dispatch.config.get", {}) as any;
+  await saveTierTargets(((op: any, params: any) => callOp(ctx, op, params)) as any, saved,
+    {simple: "medium", standard: "medium", complex: "frontier"}, "choices");
+  const result = await callOp(ctx, "task.delegate", {goal: "plain", repo: gitRepo()}, {spawnRunner: () => 1}) as any;
+  expect(getWork(ctx, result.task_id)).toBeNull();
 });

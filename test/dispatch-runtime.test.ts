@@ -59,6 +59,7 @@ test("work runner executes the model selected by the decision engine",async()=>{
   launched.push(cfg.model??"");return{exec:{code:0,stdout:"ok",stderr:"",timedOut:false},report:"ok",attempt:{executor:cfg.id,model:cfg.model,startedAt:ctx.now,endedAt:ctx.now+1,exitCode:0,timedOut:false,limitHit:false,log:""}};
  },verifyRepo:async()=>({files:""})});
  expect(result.state).toBe("done");expect(launched).toEqual(["provider/deep"]);expect(result.attempts[0].model).toBe("provider/deep");
+ expect(result.attempts[0].tier).toMatchObject({targetTier:"medium",selectedTier:"frontier",reason:"upward-fallback",difficultySource:"legacy",requestedDifficulty:"unspecified",effectiveDifficulty:"standard"});
  expect(workTree(ctx,task.id).nodes[0]!.decisions[0]!.enforcement).toMatchObject({policy:"strict",adapter:"claude-code",version:"2.1.281",account:"claude-code"});
 });
 test("a guard report failure is recorded as enforcement loss after the attempt",async()=>{

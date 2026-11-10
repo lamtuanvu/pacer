@@ -97,7 +97,7 @@ export async function delegateChild(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=sp
   authorizeWorkGrant(fresh(),token);
   const prior=db.query<{fingerprint:string;task_id:string},[string,string]>("SELECT * FROM work_requests WHERE scope=? AND key=?").get(scope,key);
   if(prior){if(prior.fingerprint!==fingerprint)throw new CoreError("conflict","Idempotency key was used for different child work");return readTask(ctx,prior.task_id)!;}
-  const request:DelegateInput={difficulty:input.difficulty??input.options?.difficulty, difficultySource:input.difficulty||input.options?.difficulty?"brief":"unspecified",model:input.model,brief:{goal:input.goal,repo:parent.brief.repo,acceptance:input.acceptance,acceptanceTimeoutMin:input.acceptanceTimeoutMin,context:input.context,constraints:input.constraints,base:parentBase,worktreeBase:"head"},title:input.title,
+  const request:DelegateInput={difficulty:options.difficulty, difficultySource:"brief",model:options.model,brief:{goal:input.goal,repo:parent.brief.repo,acceptance:input.acceptance,acceptanceTimeoutMin:input.acceptanceTimeoutMin,context:input.context,constraints:input.constraints,base:parentBase,worktreeBase:"head"},title:input.title,
    repoRef:parent.repo,repoValidated:true,kind:(KINDS as readonly string[]).includes(input.kind??"")?input.kind:null,executor:input.executor,source:"planner",dispatch:options,workParent:caller.taskId,
    workGrant:token,workRequest:{scope,key,fingerprint},worktree:"new",worktree_reason:"Isolated delegated child work",
    admissionTaskLock:caller.taskId,admissionPaths:[parentCheckout],admissionValidate:validateProgress,

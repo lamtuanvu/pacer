@@ -152,7 +152,7 @@ export function ExecutorModels({runner, model, provider, initialAvailable, initi
       </>}
       <ResourceState resource={declarations}>
         <h3>Models for tasks</h3>
-        <ResourceState resource={config}>{draft && config.data && <p className="u3-muted">{tierSummary(draft.models, config.data.config.tierTargets)}</p>}</ResourceState>
+        <ResourceState resource={config}>{draft && config.data && <p className="u3-muted">{tierSummary(draft.models, config.data.config.tierTargets, draft.default ?? undefined)}</p>}</ResourceState>
         {draft?.models.map(row => {
           const offered = models?.find(m => m.id === row.id);
           const suggestion = offered && row.tier === "unknown" ? suggestTier(offered) : null;

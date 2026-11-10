@@ -6,7 +6,7 @@ import { launchFor } from "../src/exec/launch";
 import { outcome } from "../src/exec/direct";
 import { parseDelegateBrief } from "../src/tasks/api";
 import { runTask, type RunnerDeps } from "../src/tasks/runner";
-import { createTask } from "../src/tasks/store";
+import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { eligibility } from "./fixtures/eligibility";
 import { fakeCtx } from "./helpers";
 
@@ -103,4 +103,84 @@ test("pin without model declarations records an explicit override", async () => 
   const result = await runTask(ctx, task.id, deps);
   expect(argv[0]).toContain("legacy-model");
   expect(result.attempts[0].tier).toMatchObject({ selectedTier: "unknown", reason: "explicit-override" });
+});
+
+test("undeclared pin on legacy runner is passed through", async () => {
+  const {ctx, task, deps, argv} = setup({models: null, model: "custom-pin"});
+  const result = await runTask(ctx, task.id, deps);
+  expect(argv[0]).toContain("custom-pin");
+  expect(result.attempts[0].tier).toMatchObject({reason: "explicit-override", selectedTier: "unknown"});
+});
+
+test("pin skips a runner that does not declare it", async () => {
+  const {ctx, task, deps, argv} = setup({model: "retry-medium", retry: true});
+  // No quota retry: the first runner must never launch.
+  deps.runAttempt = async (_ctx, cfg) => {
+    argv.push([cfg.id, cfg.model!]);
+    return outcome(cfg, 1, {code: 0, stdout: "ok", stderr: "", timedOut: false}, "", "ok");
+  };
+  const result = await runTask(ctx, task.id, deps);
+  expect(argv).toEqual([["codex", "retry-medium"]]);
+  expect(result.attempts[0].routing?.skipped).toContainEqual({executor: "cursor", reason: "pinned model retry-medium is not declared by cursor"});
+});
+
+test("pin with no eligible executor fails without launching", async () => {
+  const {ctx, task, deps, argv} = setup({model: "missing"});
+  const result = await runTask(ctx, task.id, deps);
+  expect(argv).toEqual([]);
+  expect(result.state).toBe("failed");
+  expect(result.result?.report).toContain("pinned model missing is not declared by cursor");
+});
+
+test("stored standard with unspecified source records unspecified request", async () => {
+  const {ctx, task, deps} = setup();
+  updateTask(ctx, task.id, t => {t.difficulty = "standard";});
+  const result = await runTask(ctx, task.id, deps);
+  expect(result.attempts[0].tier).toMatchObject({requestedDifficulty: "unspecified", effectiveDifficulty: "standard"});
+});
+
+test("pre-difficulty tasks record legacy provenance", async () => {
+  const {ctx, task, deps} = setup();
+  updateTask(ctx, task.id, t => {delete t.difficultySource;});
+  const result = await runTask(ctx, task.id, deps);
+  expect(result.attempts[0].tier?.difficultySource).toBe("legacy");
+});
+
+test("selected model is checkpointed for resume", async () => {
+  const {ctx, task, deps} = setup({difficulty: "simple"});
+  const run = deps.runAttempt!;
+  deps.runAttempt = async (...args) => {
+    expect(readTask(ctx, task.id)?.pendingAttempt).toHaveProperty("model", "model-small");
+    return run(...args);
+  };
+  const result = await runTask(ctx, task.id, deps);
+  expect(result.state).toBe("done");
+});
+
+test.each([false, true])("resume retains the checkpointed model; removed executor: %s", async removed => {
+  const {mkdirSync, writeFileSync} = await import("node:fs");
+  const {join} = await import("node:path");
+  const {runDir} = await import("../src/exec/direct");
+  const {ctx, task, deps} = setup({difficulty: "simple"});
+  const dir = runDir(ctx, task.id, 1), startedAt = Date.now() / 1000;
+  mkdirSync(dir, {recursive: true});
+  writeFileSync(join(dir, "exit"), "0");
+  writeFileSync(join(dir, "stdout"), "resumed");
+  writeFileSync(join(dir, "stderr"), "");
+  updateTask(ctx, task.id, t => {
+    t.state = "running"; t.executor = "cursor"; t.attemptStartedAt = startedAt;
+    t.pendingAttempt = {model: "model-small"};
+    t.run = {dir, attempt: 1, executor: "cursor", startedAt, mode: "current", workdir: ctx.home,
+      logFile: join(dir, "attempt.log")};
+  });
+  if (removed) deps.loadStrategy = () => validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}}, ctx.home);
+  const result = await runTask(ctx, task.id, deps);
+  if (removed) {
+    expect(result.state).toBe("failed");
+    expect(result.result?.report).toBe("cannot resume: executor cursor is no longer configured");
+    expect(result.attempts).toHaveLength(0);
+  } else {
+    expect(result.state).toBe("done");
+    expect(result.attempts[0].model).toBe("model-small");
+  }
 });

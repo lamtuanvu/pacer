@@ -64,8 +64,10 @@ dispatch:
     complex: frontier
 ```
 
-Model IDs above are placeholders; use IDs your executor serves. The shown
-`dispatch.tierTargets` values are the defaults, including when the mapping is
+Model IDs above are placeholders; use IDs your executor serves. Setting
+`dispatch.tierTargets` alone does not enable managed dispatch for plain delegates.
+
+The shown `dispatch.tierTargets` values are the defaults, including when the mapping is
 omitted. Targets may be `small`, `medium` or `frontier`, never `unknown`.
 They must be nondecreasing from simple to complex: `simple ≤ standard ≤ complex`
 in the order `small < medium < frontier`. Equal targets are allowed.

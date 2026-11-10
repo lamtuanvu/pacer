@@ -19,6 +19,7 @@ test("scoped child delegation is idempotent and cannot cross repositories or rev
  const child=await delegateChild(ctx,{goal:"Child task",requestId:"stable",acceptanceTimeoutMin:25},spawn);
  expect(readTask(ctx,child.id)?.brief.acceptanceTimeoutMin).toBe(25);
  expect(child.id).toMatch(/^t-/);
+ expect(child).toMatchObject({difficulty:"standard",difficultySource:"brief"});
  expect((await delegateChild(ctx,{goal:"Child task",requestId:"stable",acceptanceTimeoutMin:25},spawn)).id).toBe(child.id);
  await expect(delegateChild(ctx,{goal:"Changed",requestId:"stable"},spawn)).rejects.toMatchObject({code:"conflict"});
  await expect(delegateChild(ctx,{goal:"Escape",repo:"/tmp/other",requestId:"escape"},spawn)).rejects.toMatchObject({code:"not_allowed"});

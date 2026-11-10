@@ -95,7 +95,7 @@ export interface AttemptTokens {
 export interface Attempt {
   tier?: {
     requestedDifficulty: import("../dispatch/tier-select").Difficulty | "unspecified";
-    difficultySource: "explicit" | "unspecified" | "work";
+    difficultySource: "explicit" | "unspecified" | "work" | "legacy";
     effectiveDifficulty: import("../dispatch/tier-select").Difficulty;
     targetTier: import("../dispatch/types").TierTargets["standard"];
     selectedTier: import("../dispatch/types").ModelRecord["tier"] | null;
@@ -272,7 +272,7 @@ export interface TaskRecord {
   repo?: RepoRef;
   client?: string;
   /** Checkpoint for the in-flight attempt, retained when its runner resumes. */
-  pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart" | "tier">;
+  pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart" | "tier"> & {model?: string | null};
   rev: number;
   question?: { text: string; at: number; answer?: string; answeredAt?: number };
   run?: RunRef;

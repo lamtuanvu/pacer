@@ -38,7 +38,7 @@ test("save checks concurrent edits, previews then saves and activates the profil
   const targets = { simple: "medium", standard: "medium", complex: "frontier" } as const;
   await saveTierTargets(async (op, params) => { calls.push({ op, params }); return (op === "dispatch.config.get" ? view : { ok: true }) as never; }, view, targets);
   expect(calls.map(c => c.op)).toEqual(["dispatch.config.get", "strategy.preview", "strategy.save", "strategy.use"]);
-  expect(calls[1]!.params).toEqual({ draft: { from: "custom", set: { dispatch: { ...config, tierTargets: targets } } } });
+  expect(calls[1]!.params).toEqual({ draft: { from: "custom", set: { "dispatch.tierTargets": targets } } });
   await expect(saveTierTargets(async () => ({ ...view, strategy: "changed" }) as never, view, targets)).rejects.toThrow("changed in another client");
 });
 
@@ -69,4 +69,10 @@ test("preview keeps separate runners of the same agent in separate rows", () => 
     initialInventory={{ models: [{ ...models[0]!, runner: "codex#team", executor: "codex" }, { ...models[1]!, runner: "codex#personal", executor: "codex" }], advertised: [], observedAt: null }} /></TaskContext.Provider>);
   expect(html).toContain("codex#team");
   expect(html).toContain("codex#personal");
+});
+
+
+test("executor summary uses its configured default below target", () => {
+  expect(tierSummary([{id: "only-small", tier: "small", strengths: []}], config.tierTargets, "only-small"))
+    .toBe("Simple → only-small · Standard → only-small · Complex → only-small");
 });

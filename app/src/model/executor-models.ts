@@ -53,14 +53,14 @@ export function editModels(draft: RunnerModels, edit: ModelsEdit): RunnerModels 
 
 export const difficultyLabels = { simple: "Simple", standard: "Standard", complex: "Complex" } as const;
 export const difficulties = ["simple", "standard", "complex"] as const;
-export function choiceModel(records: ModelRecord[], difficulty: typeof difficulties[number], targets: TierTargets): string {
+export function choiceModel(records: ModelRecord[], difficulty: typeof difficulties[number], targets: TierTargets, options: {fixedExecutor?: boolean; defaultModel?: string} = {}): string {
   if (!records.some(record => record.binding.kind === "exact")) return "Always uses the default model";
-  const { record } = selectModel(records, { difficulty, targets });
+  const { record } = selectModel(records, { difficulty, targets, ...options });
   return record?.binding.kind === "exact" ? displayModel(record.binding.id) : record ? "Always uses the default model" : "No usable model";
 }
-export function tierSummary(models: ModelDeclaration[], targets: TierTargets): string {
+export function tierSummary(models: ModelDeclaration[], targets: TierTargets, defaultModel?: string): string {
   if (!models.length) return "Always uses the default model";
   const records: ModelRecord[] = models.map(model => ({ ...model, strengths: model.strengths ?? [], runner: "preview", account: "preview", executor: "preview",
     binding: { kind: "exact", id: model.id }, actualModel: null, provenance: "declared" }));
-  return difficulties.map(difficulty => `${difficultyLabels[difficulty]} → ${choiceModel(records, difficulty, targets)}`).join(" · ");
+  return difficulties.map(difficulty => `${difficultyLabels[difficulty]} → ${choiceModel(records, difficulty, targets, {fixedExecutor: true, defaultModel})}`).join(" · ");
 }
