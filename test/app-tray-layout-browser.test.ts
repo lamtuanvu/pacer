@@ -357,7 +357,7 @@ browserTest("production tray contains footer across its breakpoint and scrolls l
   } });
   const browser = await chromium.launch({ executablePath: process.env.PACER_TEST_BROWSER!, headless: true });
   try {
-    const page = await browser.newPage();
+    const page = await browser.newPage({ viewport: { width: 340, height: 560 } });
     await page.addInitScript(() => { (window as any).__TAURI__ = { core: { invoke: async () => true } }; });
     await page.goto(`${server.url}app/tray.html`);
     await page.locator(".tray-mode").waitFor();
