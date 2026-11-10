@@ -10,6 +10,7 @@ const STEPS = [
   { name: "CLI found", state: "passed", detail: "Codex on this Mac" },
   { name: "Signed in", state: "passed", detail: "Account codex" },
   { name: "Usage readable", state: "passed", detail: "Weekly window · 3% used" },
+  { name: "Model offered", state: "skipped", detail: "No model list for this agent" },
   { name: "Test task", state: "passed", detail: "Write and run a one-line test in a scratch worktree" },
 ];
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
