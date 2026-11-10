@@ -67,8 +67,7 @@ Two new rows are red, each with an expected-fail test in the same file. This PR 
 | `files.search` | Native (P8) | `pacer-lifecycle::files_search` owns the whole operation with no Core bridge: zod-equivalent validation, the executor/work-grant refusal (`isExecutorSession` including Orca worktree names from the active strategy), the read-only registry listing with its own stale-while-revalidate path probe, bounded `git ls-files` / running-task `git diff --name-only` with the scrubbed git environment, 5 s listing caches, UTF-16 matching/ranking, and symlink-safe sizes. The path probe starts cold per process, so a missing repository reads as `error` until a probe has seen it, as on a fresh TypeScript core. When several running tasks change one path, `changedBy` follows task id order (TypeScript follows git completion order). The registry is always read natively, including the shapes `repo.list` forwards, so `files.search` searches fewer or none of their repositories: entries TypeScript fails on with a `TypeError` (a `null` entry, a non-string `key`) and relative entry paths are skipped; a registry with lone surrogates or nesting past the depth limit lists nothing; a NaN-inconsistent `lastUsed` order is left unsorted, which can change which repositories survive the repository limit; a FIFO registry lists nothing where TypeScript hangs. `test/files-search-parity.test.ts` compares both runtimes byte for byte. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `setup.check` | Forwarded (P9, Rust-validated) | Rust validates empty params, then every valid request runs the whole TypeScript `checkSetup` through `/_internal/setup-check` / `_internal.setup.check` (stdio, sealed). Serve passes `snapshotProbe: false` like the HTTP op deps. `PACER_FORWARD_OPS` remains the escape hatch. Rust ownership needs cache-only `computeStatus` (in-process status cache and plugin readings), `policySummary` over plugin registry metadata and the service backend status. |
 | `onboarding.skip` | Native (P9) | Writes `onboarding/skipped` and publishes the `setup` config area via `pacer_store`; TypeScript remains the forward fallback via `PACER_FORWARD_OPS`. |
-| `doctor.run` | Forwarded (P9) | Setup/service/account/handler diagnostics and isolated Claude probes remain in TypeScript (`runDoctor`); not registered natively. M2 re-evaluation: the report needs the planner plugin's `planner.check`/`planner.plan` through the in-process plugin registry, in-process probes of the TypeScript build's Claude hook handlers (`probeClaudeHandlers`) and `computeStatus` over live plugin usage readers, so no input has a pure native path. |
-| `doctor.fix.delegate` | Forwarded (P9) | Starts a fix or investigate task for one failing diagnostics check (`delegateDiagnosticFix`, `src/core/doctor-fix.ts`). The brief comes from the service's latest `doctor.run` result, which stays in TypeScript, and the task goes through `task.delegate` routing, pacing and review in the TypeScript core. Executor sessions are refused. |
+| `doctor.run` | Native (M2, selective) | Registered on stdio and HTTP. Rust (`pacer-config-ops::doctor_ops`) validates params as the stripping `z.object({})` does (`null` reads as `{}`; non-objects get Zod issue text) and sends Core `{op, params: {}}` over the setup doctor bridge (`/_internal/setup-doctor`, `_internal.setup.doctor` sealed on stdio, `pacer-server::native::setup_doctor_sync`). Core runs the diagnostics there (`runDoctor`): the planner plugin's `planner.check`/`planner.plan` read the in-process plugin registry, the Claude handler probes run the TypeScript hook handlers (`probeClaudeHandlers`) and the status checks need `computeStatus` over live plugin usage readers, so no check has a pure native path. Forwarded while `PACER_WORK_GRANT` is set. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `version.get` | Native (P9) | Package and protocol metadata from `PACER_BUILD_VERSION` / workspace `package.json` and the frozen v3 protocol string. Login-service install/running status remains on `service.status`. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `api.list`, `api.describe` | Native (P9) | Registry introspection from checked-in `op_catalog.json` (parity with TypeScript `opJsonSchemas()`). `api.list` filters match TS prefix/search semantics; `api.describe` returns captured JSON parameter schemas. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `delegation.pause`, `delegation.resume` | Native (P5) | `pacer-engine::pause` writes `state/pause.json`, publishes the `pause` event, appends activity, then publishes the `delegation` config area. No usage broker. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -173,8 +172,8 @@ Two new rows are red, each with an expected-fail test in the same file. This PR 
 | `issue.import`, `issue.search` | Native (M2 issue reads, selective) | `pacer-issues` owns both ops: published and core Zod params (issue text and order, UTF-16 lengths), the enforcement-identity and executor refusals, registered-repository lookup through `pacer-repos`, the GitHub identity of the `origin` remote (`git remote get-url`, 5 s), issue references (`#n`, digit strings, same-repository URLs through WHATWG URL parsing), and `gh issue view` / `gh issue list` spawned from Rust as argv with the allowlisted environment plus `PWD`, lookup on the service `PATH`, a 20 s deadline over the exit and both output streams that kills the process group, a 4 MiB stdout cap, two running and eight waiting calls, and typed failures from exit codes and stderr. Untrusted titles, bodies and labels are cleaned to plain text as `src/core/issue-import.ts` does; search keeps only this repository's issue URLs, refuses `repo:`/`org:`/`user:` qualifiers and shares a 30 s cache of successes per process. Registries that `repo.list` forwards selectively forward to TypeScript; other unusual registries are read natively with the same JavaScript semantics (`test/native-repo-registry-parity.test.ts` smoke over stdio and HTTP). Residuals: `gh` output with lone-surrogate escapes is not JSON to serde (gh never writes them); the per-process path probe starts cold, so a missing checkout that a long-running TypeScript core has already pruned reads as `not_github` until a native probe has seen it; a `gh` that is found but cannot start reports the operating-system error text rather than Bun's. Parity: `test/native-issue-parity.test.ts` (fake `gh` on `PATH`). |
 | `insights.summary` | Native (M2 analytics reads, selective) | `pacer-dispatch-ops::insights_ops` runs the `src/insights/summary.ts` queries over `tasks`, `task_first_settle`, `work_nodes` and `attempt_usage` for the period and the previous one: first-settle acceptance cohorts, per-agent spread (`parseRunnerId` agent), buckets, kinds, ladder steps and rules, and skip reasons. Sorts use ICU root collation (`localeCompare`), `byAgent` objects keep JavaScript integer-key order, `Math.round` rounds halves up, and parsing a routing `skipped` note stops where TypeScript throws. Params use Zod issue text and order, including the period refinements. Inputs with `from` or `to` at or above 1e15 forward, because only `JSON.stringify` prints those numbers. Residual: a skip reason cut at 200 UTF-16 units inside a surrogate pair keeps the lone surrogate only in TypeScript. Parity: `test/native-analytics-parity.test.ts`. |
 | `onboarding.try` | Forwarded (P9) | Scratch-repo onboarding delegation via setup mutation (`setup.onboardingTry` in `src/setup/`). |
-| `setup.init` | Native (M2) | Rust (`pacer-config-ops::setup_init_ops`) validates the planner (Zod issue text, local planner IDs), sets the planner on an existing strategy without integrations (`pacer-config::settings::set_planner_without_integrations`) or detects installed CLIs, Ollama and LM Studio (`lms ls --json`) and writes the starter strategy with the accounts migration, then publishes the `config` and `setup` changes. The Ollama `/api/tags` sub-effect uses a bridge: Rust asks Core through the setup effects bridge (`ollama_model`), which runs the `pacer init` `fetch` (`ollamaModel` in `src/install/init.ts`), so every `OLLAMA_HOST` form (scheme, port default, path, query, fragment, userinfo, IPv6, invalid values) and every response framing behaves as in TypeScript. Forwarded while `PACER_WORK_GRANT` is set. |
-| `setup.health` | Forwarded (M2, Rust-validated) | Startup Checking-setup gate: bounded doctor and setup checks as fixed steps, a persisted last-pass fingerprint and the snapshot probe; v3-only. Registered on stdio and HTTP for parameter validation only: Rust (`pacer-config-ops::doctor_ops`) checks `trigger` against `startup`/`update`/`manual` with Zod issue text, strips other keys and refuses invalid input itself. Every valid request runs the whole TypeScript gate (`setup.health` through `callOp`, including the doctor step, the `setup.check` step and the fingerprint write) in Core over the setup doctor bridge (see `doctor.run`). Serve adds `snapshotProbe: false` like the HTTP op deps; stdio leaves Core's default. Counted as forwarded in the totals. Forwarded while `PACER_WORK_GRANT` is set. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `setup.init` | Native (M2, selective) | Rust (`pacer-config-ops::setup_init_ops`) validates the planner (Zod issue text, local planner IDs), sets the planner on an existing strategy without integrations (`pacer-config::settings::set_planner_without_integrations`) or detects installed CLIs, Ollama (`/api/tags`) and LM Studio (`lms ls --json`) and writes the starter strategy with the accounts migration, then publishes the `config` and `setup` changes. Forwarded when `OLLAMA_HOST` is `https://` with an installed `ollama` and no strategy file (TLS probe), or while `PACER_WORK_GRANT` is set. |
+| `setup.health` | Native (M2, selective) | Startup Checking-setup gate: bounded doctor and setup checks as fixed steps, a persisted last-pass fingerprint and the snapshot probe; v3-only. Registered on stdio and HTTP. Rust (`pacer-config-ops::doctor_ops`) validates `trigger` against `startup`/`update`/`manual` with Zod issue text, strips other keys and sends Core `{op, params}` over the setup doctor bridge (see `doctor.run`). Serve adds `snapshotProbe: false` like the HTTP op deps; stdio leaves Core's default. Core runs the gate there because every run includes the full doctor step and the `setup.check` step, which stay on Core (see their rows), and writes the fingerprint from that report. Forwarded while `PACER_WORK_GRANT` is set. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `tree.status` | Native (M2 analytics reads, selective) | `pacer-messaging-ops::msg_ops::tree_status` resolves the caller as `msg.log` does (an executor may read only its own tree), walks `rootOf`, lists the work-graph node ids in `workTree` order (`depth`, `task_id`) and reads each task record, its pending messages and the tree's turn count from `state/tasks.db` (`pacer-store::messages`). Work-grant, enforcement and Orca-worktree callers forward through `msg_stays_forwarded`. Residual: a corrupt `work_nodes.options` or `work_decisions` row fails `workTree` in TypeScript but not natively. v3-only public op (`liveness.status` remains MCP-only). Parity: `test/native-analytics-parity.test.ts`. |
 
 The fixed `bun run live native-config --id <id>` fixture compares all nine P2-C operations with `PACER_FORWARD_OPS=*` over stdio and HTTP. It requires a UI-seeded Rust test-ops sandbox, uses exclusive disposable homes, verifies native traces and persisted bytes, and reads config/strategy events through public SSE. All `/v2` operations and work-grant requests continue forwarding.
@@ -433,27 +432,25 @@ the prompt and intent files, idempotency, subprocess probes and event
 publication. The setup effects bridge (`pacer-config-ops::setup_effects`) carries only
 three Core effects: rendering live status text, opening the strategy terminal
 from the Rust-written prompt file, and endpoint-plugin discovery of the fixed
-local server URLs and the `setup.init` Ollama tags request. `setup_stays_forwarded` lists the forwarded inputs in each
-row. `doctor.run`, `setup.health` and `setup.check` stay as their rows describe.
+local server URLs. `setup_stays_forwarded` lists the forwarded inputs in each
+row. `doctor.run`, `setup.health` and `setup.check` stay as their rows describe;
+the M2 setup doctor slice below registers the first two.
 `test/native-setup-parity.test.ts` compares stdio and HTTP replies, errors,
 strategy files, session files, terminal hand-offs and outbox events against the
 TypeScript handlers, with fake CLIs on `PATH`.
 
-## M2 setup health and doctor (Rust-validated, executed in Core)
+## M2 setup health and doctor (native, selective)
 
-`setup.health` and `doctor.run` are registered on stdio and HTTP, but only
-parameter validation is native. Rust (`pacer-config-ops::doctor_ops`) checks the
-params with Zod issue text and refuses invalid input; every valid request runs
-the whole TypeScript operation in Core over the setup doctor bridge
-(`/_internal/setup-doctor`, `_internal.setup.doctor`). The maintainer approved
-this scope: the planner and plugin checks read Core's in-process plugin
-registry, the Claude handler probes run the TypeScript hook handlers and the
-status checks need `computeStatus`. The totals count both as forwarded.
-`test/native-setup-doctor-parity.test.ts` drives the real stdio and HTTP front
-doors against `PACER_FORWARD_OPS=setup.health,doctor.run` in disposable homes and
-compares complete doctor and gate reports, the stored gate fingerprint, invalid
-param errors, enforcement-identity refusals and unauthenticated HTTP replies.
-
+`setup.health` and `doctor.run` are registered native on stdio and HTTP. Rust
+(`pacer-config-ops::doctor_ops`) owns parameter validation with Zod issue text and
+sends Core the parsed params over the setup doctor bridge
+(`/_internal/setup-doctor`, `_internal.setup.doctor`). Core produces both reports,
+because the planner and plugin checks read its in-process plugin registry, the
+Claude handler probes run the TypeScript hook handlers and the status checks
+need `computeStatus`. `test/native-setup-doctor-parity.test.ts` compares invalid
+param errors with the TypeScript handlers, checks the request Rust sends to
+Core, runs that request through the Core bridge against `callOp` and checks
+that the native reply passes the bridge report through unchanged.
 
 ## P6 project messaging cutover (native, selective)
 
@@ -732,14 +729,8 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **146** of 228 (134 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Eighty-four of these selectively forward some inputs or callers to TypeScript.
-The 12 HTTP-native plugin ops forward request bodies nested deeper than 512 levels, and the four
-reads also forward deep prepare or settings records: `plugin.list`, `plugin.doctor`, `plugin.ui.list`,
-`plugin.settings.get`, `plugin.enable`, `plugin.disable`, `plugin.remove`, `plugin.ui.render`,
-`plugin.ui.action`, `plugin.ui.visibility`, `plugin.settings.set` and `plugin.install`.
-These 72 stdio registry ops forward through the front-door forwarding predicates or, for
-`task.stop`, `task.wait` and `task.review`, the Core task probe:
+Total native: **136** of 225 (124 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Fifty-nine of these selectively forward some inputs or effects to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
 `project.messaging.remove`, `project.strategy.list`, `project.strategy.get`,
@@ -752,9 +743,9 @@ These 72 stdio registry ops forward through the front-door forwarding predicates
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,
 `assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
 `dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
-`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates`, `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`, `runner.check`, `job.list`, `job.get` and `job.cancel`.
-Task-grant and scoped-work HTTP callers forward every operation and are not counted here.
-Total still not native (v3 − native set): **82**.
+`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates`, `setup.init`,
+`setup.health` and `doctor.run`.
+Total still not native (v3 − native set): **89**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
