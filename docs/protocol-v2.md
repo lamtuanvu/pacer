@@ -1117,33 +1117,6 @@ Params JSON Schema:
 }
 ```
 
-### `executor.models.available`
-
-Models an executor can use, from its provider's live listing; models is null when the listing is unknown.
-
-Params JSON Schema:
-
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "runner": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128
-    },
-    "refresh": {
-      "type": "boolean"
-    }
-  },
-  "required": [
-    "runner"
-  ],
-  "additionalProperties": false
-}
-```
-
 ### `executor.setup.candidates`
 
 OpenCode providers, local model servers and catalog providers that can become executors; no secrets.
