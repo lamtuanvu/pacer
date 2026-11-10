@@ -317,6 +317,26 @@ export function taskStoreVersion(ctx: Ctx): string {
   return `${generation}:${external}:${local}`;
 }
 
+/** JS review truthiness for canonical JSON emitted by supported task writers.
+ * Only the scalar crosses into JS. The existing unarchived index permits early
+ * exit, but negative/late matches still scan unarchived record JSON in SQLite.
+ * Raw duplicate keys/JSON5 are not part of the canonical writer contract. */
+export function hasReviewedTask(ctx: Ctx): boolean {
+  const { db } = connection(ctx);
+  return db.query<{ reviewed: number }, []>(`SELECT EXISTS(
+    SELECT 1 FROM tasks INDEXED BY tasks_native_unarchived_id
+    WHERE archived=0 AND CASE json_type(record,'$.review')
+      WHEN 'true' THEN 1
+      WHEN 'object' THEN 1
+      WHEN 'array' THEN 1
+      WHEN 'text' THEN length(CAST(json_extract(record,'$.review') AS BLOB))>0
+      WHEN 'integer' THEN json_extract(record,'$.review')<>0
+      WHEN 'real' THEN json_extract(record,'$.review')<>0
+      ELSE 0
+    END
+  ) AS reviewed`).get()!.reviewed !== 0;
+}
+
 /** Service-owned extensions share the task transaction for claims and creation. */
 export function taskDatabase(ctx: Ctx): Database { return connection(ctx).db; }
 
