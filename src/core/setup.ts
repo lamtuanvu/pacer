@@ -178,7 +178,7 @@ export function onboardingSkip(ctx:Ctx) {
   }catch(e){throw toCoreError(e);}finally{rmSync(tmp,{force:true});}
 }
 
-/** Read diagnostics and run fixed isolated handler fixtures; never repair installations. */
+/** Read diagnostics and run fixed isolated handler fixtures; also prune expired undo files without repairing installations. */
 export async function doctor(ctx: Ctx) {
   try {
     const checks = await runDoctor(ctx);
