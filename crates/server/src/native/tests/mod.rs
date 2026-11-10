@@ -243,6 +243,15 @@ fn host_check_clean_and_setup_are_not_registered_native_ops() {
 }
 
 #[test]
+fn service_handover_and_work_are_not_registered_native_ops() {
+    // Both stay on TypeScript until Core serves a `handover.effects` bridge.
+    for name in ["service.handover", "service.work"] {
+        assert!(registry("").get(name).is_none(), "{name}");
+        assert!(super::service_registry("").get(name).is_none(), "{name}");
+    }
+}
+
+#[test]
 fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
     for name in super::plugins::registered_names() {
         assert!(super::service_registry("").get(name).is_some(), "{name}");
