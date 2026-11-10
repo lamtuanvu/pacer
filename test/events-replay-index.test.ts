@@ -130,6 +130,18 @@ test("reset behaviour unchanged for a too-old cursor", () => {
   expectSameReplay(ctx, [1, cursor, oldest - 2, oldest - 1, oldest]);
 });
 
+test("multi-byte and invalid UTF-8 text keeps the indexed offsets exact", () => {
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [alert(1, "Tiếng Việt 🚀"), alert(2, "日本語")]);
+  appendFileSync(outboxPath(ctx), Buffer.from([0xe2, 0x82, 0x0a, 0xff, 0x0a]));
+  appendOutbox(ctx, [alert(3, "naïve ✓")]);
+  expect(eventsSince(ctx, 0, 2).events.map(e => e.seq)).toEqual([1, 2, 3]);
+  appendOutbox(ctx, [alert(4, "über 🚀"), alert(5)]);
+  expect(eventsSince(ctx, 3, 2).events.map(e => [e.seq, (e.data as { body: string }).body])).toEqual([[4, "über 🚀"], [5, ""]]);
+  expect(eventsSince(ctx, 4, 2).events.map(e => e.seq)).toEqual([5]);
+  expectSameReplay(ctx, [0, 1, 2, 3, 4, 5]);
+});
+
 test("an unterminated last line is replayed when it is complete and not before", () => {
   const ctx = fakeCtx();
   appendOutbox(ctx, [alert(1), alert(2)]);

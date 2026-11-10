@@ -63,10 +63,15 @@ export function replayOutbox(ctx: Ctx, since: number): OutboxReplay {
     const bytes = readRange(fd, from, stat.size);
     const entries: OutboxEntry[] = [];
     let oldest = index.oldest, discoveryOpen: ReadonlyMap<number, number> = index.openAt;
-    for (let start = 0; start < bytes.length;) {
-      const newline = bytes.indexOf(10, start);
+    // Decoding once is faster than per line. A newline byte never sits inside a UTF-8 sequence, so lines pair with
+    // offsets; when every byte decoded to one character, string positions are byte offsets.
+    const text = bytes.toString("utf8"), ascii = text.length === bytes.length;
+    let start = 0;
+    for (const line of text.split("\n")) {
+      if (start >= bytes.length) break;
+      const newline = ascii ? (start + line.length < bytes.length ? start + line.length : -1) : bytes.indexOf(10, start);
       const stop = newline < 0 ? bytes.length : newline + 1;
-      const entry = parseLine(bytes.toString("utf8", start, newline < 0 ? stop : newline));
+      const entry = parseLine(line);
       if (newline >= 0 && from + start >= index.end) addLine(index, entry, from + start, bytes.subarray(start, stop));
       else if (newline < 0 && entry && entry.seq > 0) {
         // A complete record without its newline counts now but is indexed only once it ends.
