@@ -15,7 +15,9 @@ function fixture(platform = "darwin") {
   const calls: string[][] = [];
   const ctx = fakeCtx({ env: { PATH: "/bin:/usr/bin:/bin", PACER_BIN: "/opt/pacer" }, which: b => ["orca", "bun"].includes(b) ? `/opt/tools/${b}` : null,
     run: async argv => { calls.push(argv); return { code: 0, stdout: platform === "darwin" ? "service = {\n state = running\n pid = 456\n last exit code = 9\n}\n" : "LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=456\nExecMainStatus=9\n", stderr: "" }; } });
-  return { ctx, calls, d: { ...deps, platform }, path: servicePath(ctx, platform) };
+  // The fake manager registrations below omit a port and therefore represent 4317.
+  // All manager commands and health requests in this fixture are mocked.
+  return { ctx, calls, d: { ...deps, platform, port: 4317 }, path: servicePath(ctx, platform) };
 }
 test("plist escapes XML and assembles deterministic argv, home, paths and launchd policy", () => {
   const ctx = fakeCtx({ home: '/tmp/a&b<"\'>', pacerHome: "/tmp/p&x", env: { PATH: "/bin:/bin:/usr/bin" }, which: b => b === "bun" ? "/tools/bun" : null });
