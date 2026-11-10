@@ -548,7 +548,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       if (!work && !resuming && (runner?.models?.length || task.model !== undefined)) {
         const effectiveDifficulty = task.difficulty ?? "standard";
         const config = s.dispatch ?? dispatchConfigSchema.parse({});
-        const now = Date.now() / 1000;
+        const now = ctx.now;
         const records = buildModelInventory(s, storedObservations({ ...ctx, now }), now).filter(record => record.runner === pick);
         const choice = selectModel(records, {
           difficulty: effectiveDifficulty, targets: config.tierTargets, pin: task.model,

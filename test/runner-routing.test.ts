@@ -208,7 +208,8 @@ test("balance on: a managed dispatch engine's first choice runs even when the dr
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({
     planner: "claude-code",
     accounts: {"claude-code": {kind: "claude"}, codex: {kind: "codex"}, tse: {kind: "endpoint", usage: "quota", quota_source: "arkcli"}},
-    runners: {codex: {max_tasks: 3, models: [{id: "provider/deep", tier: "small"}]}, "opencode#tse": {model: "go/t", max_tasks: 3}},
+    // Medium keeps codex in the task's target tier bucket.
+    runners: {codex: {max_tasks: 3, models: [{id: "provider/deep", tier: "medium"}]}, "opencode#tse": {model: "go/t", max_tasks: 3}},
     pacing: {policy: "priority", order: ["codex", "opencode#tse"], balance: "least-loaded"},
     routing: [{default: ["codex", "opencode#tse"]}],
     dispatch: {steps: [{id: "fixture", capacity: "unknown"}]},
