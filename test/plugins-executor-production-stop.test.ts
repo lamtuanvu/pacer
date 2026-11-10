@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { superviseTask, taskStop, taskWait, summarizeTask } from "../src/tasks/api";
 import { parseOutboxEvent } from "../src/link/envelope";
 import { taskData } from "../src/link/pump";
 import { callOp } from "../src/api/ops";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { registerWork } from "../src/dispatch/work";
+import { dispatchDatabase } from "../src/dispatch/store";
 import { fakeCtx, tmpDir } from "./helpers";
 
 test("provider-owned stop returns pending before a safe prelaunch settlement", async () => {
@@ -136,3 +138,73 @@ test("supervisor restarts a provider-owned placement journal without a run", asy
   expect(observed?.state).toBe("running");
   expect(observed?.worktreeIntent?.attempt).toBe(1);
 });
+
+for (const reason of ["user", "deadline"] as const) {
+  test(`stop recovery without start intent consumes an existing exit (${reason})`, async () => {
+    const ctx = fakeCtx();
+    const task = createTask(ctx, { brief: { goal: "fixture", repo: tmpDir() }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    registerWork(ctx, task.id);
+    const dir = join(ctx.pacerHome, "runs", task.id, "2");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), "999999");
+    writeFileSync(join(dir, "exit"), "143");
+    const running = updateTask(ctx, task.id, current => {
+      current.state = "running";
+      current.executor = "codex";
+      current.executorProvider = "pacer-exec-direct";
+      current.runnerPid = 999_999;
+      current.childPid = 999_999;
+      current.attempts.push({ executor: "codex", model: null, startedAt: ctx.now - 100,
+        endedAt: ctx.now - 50, exitCode: 0, timedOut: false, limitHit: false, log: "prior-output" });
+      current.run = { dir, attempt: 2, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "stdout") };
+      current.stopPending = { attempt: 2, requestedAt: ctx.now, providerId: "pacer-exec-direct",
+        graceMs: 5000, reason };
+      current.progress = { phase: "lost-contact", updatedAt: ctx.now, lastOutputAt: ctx.now,
+        lastChangeAt: ctx.now, files: 2, commits: 1, logBytes: 123, host: "local" };
+    });
+    const db = dispatchDatabase(ctx);
+    db.query("INSERT INTO work_reservations VALUES(?,?,?,?,?,?)")
+      .run(task.id, task.id, "codex", "[]", 5, ctx.now);
+    let launches = 0;
+    const settled = await superviseTask(ctx, task.id, () => { launches++; });
+    expect(settled?.state).toBe(reason === "deadline" ? "failed" : "stopped");
+    expect(settled?.stopPending).toBeUndefined();
+    expect(settled?.attempts).toHaveLength(2);
+    expect(settled?.attempts[0]).toEqual(running.attempts[0]);
+    expect(settled?.attempts[1]).toMatchObject({ exitCode: 143, timedOut: reason === "deadline" });
+    expect(settled?.progress).toEqual(running.progress);
+    expect(db.query("SELECT * FROM work_reservations WHERE task_id=?").get(task.id)).toBeNull();
+    expect(launches).toBe(0);
+    await superviseTask(ctx, task.id, () => { launches++; });
+    expect(readTask(ctx, task.id)?.attempts).toHaveLength(2);
+  });
+}
+
+for (const pid of [process.pid, 999_999]) {
+  test(`missing start intent does not settle an ambiguous PID without an exit (${pid === process.pid ? "live" : "absent"})`, async () => {
+    const ctx = fakeCtx();
+    const task = createTask(ctx, { brief: { goal: "fixture", repo: tmpDir() }, kind: null,
+      requestedExecutor: "codex", timeoutS: 60 });
+    const dir = join(ctx.pacerHome, "runs", task.id, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "pid"), String(pid));
+    updateTask(ctx, task.id, current => {
+      current.state = "running";
+      current.executor = "codex";
+      current.executorProvider = "pacer-exec-direct";
+      current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
+        mode: "current", workdir: task.brief.repo, logFile: join(dir, "stdout") };
+    });
+    taskStop(ctx, task.id);
+    let launches = 0;
+    const observed = await superviseTask(ctx, task.id, () => { launches++; });
+    expect(observed?.state).toBe("running");
+    expect(observed?.stopPending).toBeDefined();
+    expect(observed?.attempts).toHaveLength(0);
+    expect(observed?.executorExitReceipt).toBeUndefined();
+    expect(launches).toBe(0);
+    expect(() => process.kill(process.pid, 0)).not.toThrow();
+  });
+}

@@ -429,7 +429,8 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   if (!["queued", "running"].includes(t.state) && !(t.state === "stopped" && handedOver)) return t;
   const id = t.id;
   if (t.state === "running" && t.executorProvider && t.stopPending && t.run &&
-    !t.startIntent) {
+    !t.startIntent && !t.childPid &&
+    !existsSync(`${t.run.dir}/pid`) && !existsSync(`${t.run.dir}/exit`)) {
     return withTaskLock(ctx, id, () => {
       const latest = readTask(ctx, id);
       if (!latest || latest.state !== "running" || !latest.stopPending ||
