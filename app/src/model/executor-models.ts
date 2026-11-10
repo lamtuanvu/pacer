@@ -25,7 +25,16 @@ export type ModelsEdit = { type: "add" | "remove" | "default"; id: string } | { 
 /** Edit only the local draft, preserving metadata and the revision used for the eventual save. */
 export function editModels(draft: RunnerModels, edit: ModelsEdit): RunnerModels {
   const exists = draft.models.some(m => m.id === edit.id);
-  if (edit.type === "add") return exists || !edit.id.trim() ? draft : { ...draft, default: draft.models.length ? draft.default : edit.id, models: [...draft.models, { id: edit.id, tier: "unknown" }] };
+  if (edit.type === "add") {
+    if (exists || !edit.id.trim()) return draft;
+    const models: ModelDeclaration[] = [...draft.models];
+    // Declaring task options must not silently replace an executor's existing default.
+    if (!models.length && draft.default && draft.default !== edit.id) {
+      models.push({ id: draft.default, tier: "unknown" });
+    }
+    models.push({ id: edit.id, tier: "unknown" });
+    return { ...draft, default: draft.default || edit.id, models };
+  }
   if (!exists) return draft;
   if (edit.type === "default") return { ...draft, default: edit.id };
   if (edit.type === "tier") return { ...draft, models: draft.models.map(m => m.id === edit.id ? { ...m, tier: edit.tier } : m) };

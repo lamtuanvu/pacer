@@ -44,3 +44,25 @@ test("add, remove and default keep a valid local draft", () => {
   expect(editModels(added, { type: "default", id: "absent" })).toEqual(added);
   expect(editModels(added, { type: "remove", id: "a" }).default).toBe("b");
 });
+
+test("the first declaration preserves and seeds an existing default", () => {
+  const empty = { ...draft, default: "kimi-k2.7-code", models: [] };
+  expect(editModels(empty, { type: "add", id: "glm-5.3-flash" })).toEqual({
+    ...empty,
+    models: [{ id: "kimi-k2.7-code", tier: "unknown" }, { id: "glm-5.3-flash", tier: "unknown" }],
+  });
+  expect(empty.models).toEqual([]);
+  expect(editModels(empty, { type: "add", id: empty.default }).models).toEqual([
+    { id: empty.default, tier: "unknown" },
+  ]);
+});
+
+test("the first declaration becomes the default only when none exists", () => {
+  for (const currentDefault of [null, ""]) {
+    expect(editModels({ ...draft, default: currentDefault, models: [] }, { type: "add", id: "glm-5.3-flash" })).toEqual({
+      ...draft,
+      default: "glm-5.3-flash",
+      models: [{ id: "glm-5.3-flash", tier: "unknown" }],
+    });
+  }
+});

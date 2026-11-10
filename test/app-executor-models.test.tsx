@@ -207,7 +207,7 @@ test("a row no longer offered shows the warning", () => {
   expect(html).toContain("old is no longer offered by Zhipu");
 });
 
-async function withModelScreen(run: (container: FakeElement, calls: Array<{op: string; params: any}>, saved: () => number) => Promise<void>, failure?: string, listing: AvailableModels = served) {
+async function withModelScreen(run: (container: FakeElement, calls: Array<{op: string; params: any}>, saved: () => number) => Promise<void>, failure?: string, listing: AvailableModels = served, initialModels = declarations) {
   const previous = { document: globalThis.document, CSSStyleSheet: globalThis.CSSStyleSheet, window: globalThis.window, getComputedStyle: globalThis.getComputedStyle, requestAnimationFrame: globalThis.requestAnimationFrame };
   // Preact renders against a document; keep the stub scoped to this test.
   globalThis.document = {
@@ -226,7 +226,7 @@ async function withModelScreen(run: (container: FakeElement, calls: Array<{op: s
     const api = { call: async (op: string, params: any) => {
       calls.push({op, params});
       if (op === "executor.models.available") return listing;
-      if (op === "runner.models.get") return calls.some(c => c.op === "runner.models.set") ? {...declarations, revision: "v2", models: [{id: declarations.default, tier: "small"}]} : declarations;
+      if (op === "runner.models.get") return calls.some(c => c.op === "runner.models.set") ? {...initialModels, revision: "v2", models: [{id: initialModels.default, tier: "small"}]} : initialModels;
       if (op === "runner.models.set") {
         if (failure) throw Object.assign(new Error(failure === "conflict" ? "stale" : "Save refused"), {code: failure});
         return {runner: "go", revision: "v2", default: params.default, models: params.models, warnings: ["Example warning"]};
@@ -235,7 +235,7 @@ async function withModelScreen(run: (container: FakeElement, calls: Array<{op: s
     }} as BrowserApi;
     const actions = createActionRunner({call: api.call, waitFor: async () => true, refetch() {}, navigate() {}});
     await act(async () => { preactRender(<TaskContext.Provider value={{state: {...initialState(), connected: true}, api}}>
-      <ActionContext.Provider value={actions}><ExecutorModels runner="go" model={declarations.default} provider="Go" initialAvailable={listing} initialModels={declarations} onSaved={() => {saved++;}} /></ActionContext.Provider>
+      <ActionContext.Provider value={actions}><ExecutorModels runner="go" model={initialModels.default} provider="Go" initialAvailable={listing} initialModels={initialModels} onSaved={() => {saved++;}} /></ActionContext.Provider>
     </TaskContext.Provider>, container as never); });
     await run(container, calls, () => saved);
   } finally {
@@ -305,4 +305,22 @@ test("adding a model from an unknown listing starts Unrated and stays local unti
     await clickText(container, "Save model");
     expect(calls.find(c => c.op === "runner.models.set")?.params.models).toEqual([...declarations.models, {id: "custom/new", tier: "unknown"}]);
   }, undefined, unknown);
+});
+
+test("the default picker keeps the existing default after the first model is added", async () => {
+  const empty = { ...declarations, default: "kimi-k2.7-code", models: [] };
+  await withModelScreen(async (container, calls) => {
+    const addField = findNode(container, n => textOf(n).startsWith("Add model") && !!findNode(n, child => child.tagName === "input"));
+    const input = addField && findNode(addField, n => n.tagName === "input");
+    expect(input).toBeTruthy();
+    await act(async () => { fire(input!, "input", { currentTarget: { value: "glm-5.3-flash" } }); });
+    await clickText(container, "Add model");
+    const pickerValue = findNode(container, n => n.attrs.class === "pc-choice-picker__value");
+    expect(pickerValue && textOf(pickerValue)).toBe(empty.default);
+    await clickText(container, "Save model");
+    expect(calls.find(c => c.op === "runner.models.set")?.params).toEqual({
+      id: "go", expectedRevision: "v1", default: empty.default,
+      models: [{ id: empty.default, tier: "unknown" }, { id: "glm-5.3-flash", tier: "unknown" }],
+    });
+  }, undefined, unknown, empty);
 });
