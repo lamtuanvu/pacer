@@ -1328,6 +1328,7 @@
             "pacing.planner_probe",
             "pacing.accounts",
             "pacing.fill_threshold",
+            "pacing.balance",
             "update_check",
             "terminal.app",
             "terminal.open"
@@ -2945,6 +2946,23 @@
     "DoctorRunParams": {
       "type": "object",
       "properties": {},
+      "additionalProperties": false
+    },
+    "ExecutorModelsAvailableParams": {
+      "type": "object",
+      "properties": {
+        "runner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "refresh": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "runner"
+      ],
       "additionalProperties": false
     },
     "ExecutorSetupCandidatesParams": {

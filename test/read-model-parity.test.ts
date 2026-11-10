@@ -14,7 +14,7 @@ import { listAgentSessions, type StoredAgentSession } from "../src/session/agent
 import { writeJsonAtomic } from "../src/fsutil";
 import { taskData } from "../src/link/pump";
 import { toBudget } from "../src/link/budget";
-import { OUTBOX_KEEP, OUTBOX_MAX_BYTES } from "../src/link/store";
+import { OUTBOX_KEEP, OUTBOX_MAX_BYTES, OUTBOX_ROTATE_LINES } from "../src/link/store";
 import { capacityFixture, record } from "./read-model-helpers";
 import { snapshotTasks } from "../src/api/read-model/tasks";
 import { buildRustProbe, rustSnapshot, rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
@@ -86,12 +86,11 @@ test("SSE sends the 15-second keepalive and cancellation closes its stream", asy
 
 test("outbox retention enforces both entry and byte limits", () => {
   const ctx = fakeCtx();
-  appendOutbox(ctx, Array.from({ length: OUTBOX_KEEP + 1 }, (_, i) => ({ seq: i + 1, at: ctx.now, envelope: { type: "config" as const, data: { area: "config", at: ctx.now, padding: "x".repeat(1100) } as never } })));
+  appendOutbox(ctx, Array.from({ length: OUTBOX_ROTATE_LINES + 1 }, (_, i) => ({ seq: i + 1, at: ctx.now, envelope: { type: "config" as const, data: { area: "config", at: ctx.now, padding: "x".repeat(1100) } as never } })));
   const lines = readFileSync(outboxPath(ctx), "utf8").trimEnd().split("\n");
-  expect(lines.length).toBeLessThanOrEqual(OUTBOX_KEEP);
-  // The TS writer's existing rotation retains the last 1000 records even when
-  // those records exceed the byte threshold. The Rust port must match it.
-  expect(statSync(outboxPath(ctx)).size).toBeGreaterThan(OUTBOX_MAX_BYTES);
+  expect(lines.length).toBeLessThan(OUTBOX_KEEP);
+  expect(statSync(outboxPath(ctx)).size).toBeLessThanOrEqual(OUTBOX_MAX_BYTES);
+  expect(JSON.parse(lines.at(-1)!).seq).toBe(OUTBOX_ROTATE_LINES + 1);
 });
 
 test("oversized outbox entry is retained by the existing TS writer", () => {
@@ -493,3 +492,23 @@ test("S8 capacity op drives real TS buildExecutors vs Rust probe (status/strateg
     expect(JSON.stringify(actual.executors)).toBe(JSON.stringify(expected));
   } finally { if (previousTz === undefined) delete process.env.TZ; else process.env.TZ = previousTz; }
 }, 120_000);
+
+test("native replay keeps discovery aggregates through warm appends and rotation", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(join(ctx.pacerHome, "link"), { recursive: true });
+  const row = (seq: number, kind: string, id: string, removed = false) => JSON.stringify({ seq, envelope: { type: "entity", data: { kind, id, removed, value: { attention: 2 } } } }) + "\n";
+  const check = async (since: number, protocol: 2 | 3) => {
+    expect(await rustRequest(ctx, { op: "events", since, protocol })).toEqual(JSON.parse(JSON.stringify(eventsSince(ctx, since, protocol))));
+  };
+  writeFileSync(outboxPath(ctx), row(1, "attention", "discovery:open") + row(2, "counts", "counts"));
+  await check(0, 2);
+  await check(V3_CURSOR_BASE + 2, 3);
+  appendFileSync(outboxPath(ctx), row(3, "counts", "counts") + row(4, "attention", "discovery:open", true) + row(5, "counts", "counts"));
+  await check(2, 2);
+  await check(V3_CURSOR_BASE + 2, 3);
+  const { renameSync } = await import("node:fs");
+  writeFileSync(outboxPath(ctx) + ".replacement", row(10, "counts", "counts"));
+  renameSync(outboxPath(ctx) + ".replacement", outboxPath(ctx));
+  await check(2, 2);
+  await check(V3_CURSOR_BASE + 2, 3);
+});

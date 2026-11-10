@@ -110,6 +110,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -315,6 +316,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -674,6 +676,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -906,6 +909,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -1102,6 +1106,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -1249,6 +1254,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -1393,6 +1399,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -1545,6 +1552,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -1671,6 +1679,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -1771,6 +1780,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -2009,6 +2019,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -2178,6 +2189,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -2323,6 +2335,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -2511,6 +2524,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -2765,6 +2779,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -3005,6 +3020,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -3162,6 +3178,7 @@
         "aheadThreshold": 10,
         "behindThreshold": -10,
         "accounts": "spread",
+        "balance": "off",
         "fillThreshold": 90
       },
       "routing": [
@@ -3250,6 +3267,311 @@
     },
     "problems": [
       "runner codex@box: interactive sessions require a local runner"
+    ]
+  },
+  {
+    "name": "pacing-balance-off",
+    "raw": {
+      "planner": "claude-code",
+      "providers": {
+        "codex": {}
+      },
+      "pacing": {
+        "policy": "priority",
+        "balance": "off"
+      },
+      "routing": [
+        {
+          "default": [
+            "codex"
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "name": "pacing-balance-off",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude-code"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "claude-code": {
+          "name": "claude-code",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        },
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude-code",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "balance": "off",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "pacing-balance-least-loaded",
+    "raw": {
+      "planner": "claude-code",
+      "providers": {
+        "codex": {}
+      },
+      "pacing": {
+        "policy": "priority",
+        "balance": "least-loaded"
+      },
+      "routing": [
+        {
+          "default": [
+            "codex"
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "name": "pacing-balance-least-loaded",
+      "planner": {
+        "agent": "claude-code",
+        "account": "claude-code"
+      },
+      "accounts": {
+        "codex": {
+          "name": "codex",
+          "model": null,
+          "kind": "codex",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        },
+        "claude-code": {
+          "name": "claude-code",
+          "model": null,
+          "kind": "claude",
+          "source": "default",
+          "home": null,
+          "orcaAccount": null,
+          "usage": "quota",
+          "usageSource": "native",
+          "quotaSource": null,
+          "provider": null,
+          "weeklyUsd": null,
+          "weeklyTokens": null,
+          "cooldownS": 21600,
+          "allowPaid": false
+        }
+      },
+      "hosts": {},
+      "runners": {
+        "codex": {
+          "id": "codex",
+          "name": "codex",
+          "host": null,
+          "agent": "codex",
+          "account": "codex",
+          "model": null
+        },
+        "claude-code": {
+          "id": "claude-code",
+          "name": "claude-code",
+          "host": null,
+          "agent": "claude-code",
+          "account": "claude-code",
+          "model": null
+        }
+      },
+      "legacy": true,
+      "runnerAliases": {
+        "codex": "codex"
+      },
+      "providers": {
+        "codex": {
+          "id": "codex",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        },
+        "claude-code": {
+          "id": "claude-code",
+          "via": null,
+          "model": null,
+          "usage": "quota",
+          "allowPaid": false,
+          "cooldownS": 21600,
+          "quotaSource": null,
+          "weeklyTokens": null,
+          "weeklyUsd": null
+        }
+      },
+      "pacing": {
+        "policy": "priority",
+        "order": [
+          "codex"
+        ],
+        "plannerReserve": 15,
+        "plannerReserveHeadroom": 25,
+        "plannerProbe": "ask",
+        "aheadThreshold": 10,
+        "behindThreshold": -10,
+        "accounts": "spread",
+        "balance": "least-loaded",
+        "fillThreshold": 90
+      },
+      "routing": [
+        {
+          "kinds": null,
+          "executors": [
+            "codex"
+          ]
+        }
+      ],
+      "taskRetentionDays": 14,
+      "plugins": {
+        "policy": {
+          "mode": "open"
+        },
+        "disabled": [],
+        "installed": {},
+        "config": {}
+      },
+      "execution": {},
+      "classifier": {}
+    }
+  },
+  {
+    "name": "pacing-balance-invalid",
+    "raw": {
+      "planner": "claude-code",
+      "providers": {
+        "codex": {}
+      },
+      "pacing": {
+        "policy": "priority",
+        "balance": "even"
+      },
+      "routing": [
+        {
+          "default": [
+            "codex"
+          ]
+        }
+      ]
+    },
+    "problems": [
+      "pacing.balance must be off or least-loaded"
     ]
   }
 ]

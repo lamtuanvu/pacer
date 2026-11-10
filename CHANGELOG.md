@@ -4,7 +4,15 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in load-aware executor selection: `pacing.balance: least-loaded` starts each task on the least-loaded executor (running tasks over its `max_tasks`) among those equally acceptable on budget, so parallel work spreads across executors instead of filling the first one before spilling over. Budget tiers (expiring, normal, near-limit, ahead, uncertain; cheap-before-metered under `cheapest-first`; `accounts: fill`) are never crossed, an explicitly requested executor still wins, and `pacer route` / `dispatch.explain` show each candidate's load. The default `off` keeps today's order. See [the design](docs/specs/2026-11-10-load-aware-executor-balance-design.md).
+
 ### Changed
+
+- With the native plugin owner on, a refused first result chunk now ends the plugin call, as it does with the owner off: the plugin can no longer fall back to a plain result after any chunk attempt, the owner's own refusals are reported as pacer's errors rather than the plugin's, and a chunk that belongs to another call is refused without ending the current one.
+
+- Undo snapshot cleanup skips a busy installation lock during diagnostics and runs after the service listener binds, so a long connect or undo no longer delays these paths by up to 30 seconds.
 
 - Live sessions have one interactive mode (session protocol 1.2): every attached interactive client can type, the PTY size follows the most recently active client, pacer's answers and live messages go through a quiet, guarded delivery window instead of a controller lease, terminal-query replies are answered by the host, and ending a takeover session is an explicit `task.hand_back` rather than a side effect of releasing control. `controller` stays on `TaskData.session` and `task.session` as a deprecated field (always `null` for 1.2 sessions, removed only in the next major API protocol release); additive `active` (the label of the client that typed last) and `sessionMinor` fields are added. Viewers of a session on a remote host (reaching it through the SSH bridge) stay read-only until a later decision grants them input; paired-machine session viewing does not exist yet and will need its own enforcement, and delivery refusals name the cause and the client, e.g. "Not delivered: unsent input in the agent from Pacer desktop". See [ADR 0023](docs/decisions/0023-single-interactive-session-mode.md).
 
@@ -26,6 +34,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Show session output directly under a status strip, name only the session in the workspace header, float the reconnect banner over the page, cross-fade between screens without overlapping tab panels, and let dragged executor rows follow the pointer.
 
 ### Added
+
+- Executor models: Settings › Agents › executor detail gains a Models section to choose or change the default model from the models its provider serves (live `opencode models` listing for OpenCode executors, `connection.models` for managed endpoints), with a warning and Replace when the provider stops serving it. `runner.set` refuses a model the provider does not serve and warns when it cannot check; the runner check gains a "Model offered" step; doctor reports drifted defaults and OpenCode accounts left without an executor. New v3 operation `executor.models.available`. See the [design](docs/specs/2026-11-09-executor-model-management-design.md).
 
 - Diagnostics remedies: every warning or failure from `doctor.run` and `pacer doctor` carries an optional typed `remedy` (`auto`, `review`, `user`, `agent` or `internal`) naming the one operation, URL or agent task that fixes it, and `pacer doctor` prints its CLI equivalent on a `run:` line. A remedy whose operation requires consent (`agent.connect`, `service.install`) carries `consent: true`; clients show what will change and send consent only after the person's click. Failures pacer raises itself (such as `plugin_unavailable`) are classified by error code as warnings pacer could not check, with a restart of the pacer service rather than an agent reinstall; a plugin's own error reply never counts as pacer's failure, whatever code it carries. The new `doctor.fix.delegate` operation turns a failing check into a delegated fix or investigation task whose brief pacer builds from its own redacted result for that check and the checks about the same agent, with reported output fenced as untrusted data; accepting the task (in the app or with `pacer review --accept`) reruns the check and records whether it passes. Task reads (`task.get`, `task.list`, snapshot tasks) expose `diagnosticCheck` and `diagnosticRecheck`. Diagnostics and Setup Health keep their existing setup links for checks whose remedy they cannot run yet.
 
@@ -59,6 +69,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Record every real task change in a shared `task_changes` log in the task database, filled by SQLite triggers so changes from either runtime and from older binaries are captured without re-reading all tasks. `taskChangesSince` reads changes after a cursor and reports a gap when the cursor is outside the retained window; the daily maintenance run prunes the log to 7 days or 100,000 rows. This is the base for a background pass that processes only changed tasks.
 
 ### Fixed
+
+- Direct task stop recovery now inspects an existing wrapper or exit receipt when its start intent is absent, instead of leaving the task running indefinitely. Ambiguous runs without a verified exit remain pending.
+
+- Tasks no longer fail at start with "timed out waiting for …/orca/evidence-….lock". `withLock` kept a lock until the next microtask even when its work was synchronous. When the holding process then blocked its event loop (for example in a synchronous `withLockSync` wait on another lock), the release could not run, and a runner waiting for the evidence lock in another process timed out after 20 seconds. `withLock` now releases as soon as synchronous work finishes, and evidence reconciliation, `withTaskLockAsync` and the runner's `session-create` section run synchronously inside their locks. Evidence writes stay serialized and atomic.
 
 - The desktop app no longer prints an unstyled "Reconnecting to pacer… Your workspace is kept here." line over the window controls while it reconnects. The app's and tray's own reconnecting notices already cover that state, and the older-service warning now uses the same notice bar, shown below the top bar in the main window.
 

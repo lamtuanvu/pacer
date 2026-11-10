@@ -29,7 +29,7 @@ import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy
 import { projectPolicy, type ProjectSelection } from "../engine/project-routing";
 import { queueCapacity } from "./capacity";
 import { persistTaskDiff } from "./diff";
-import { SLOT_STATES, localMachineGuard, slotBlock, slotUse } from "../engine/slots";
+import { slotLimit, SLOT_STATES, localMachineGuard, slotBlock, slotUse } from "../engine/slots";
 import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
 import { onRunEnded } from "../messaging/turns";
@@ -46,6 +46,7 @@ import { activeHooks } from "../classify/active";
 import type { DecisionHooks } from "../classify/hooks";
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
 import { conversationFallback, type Excluded, rankExecutors, ruleFor } from "../engine/rank";
+import { balanceByLoad } from "../engine/balance";
 import { type Status, computeStatus } from "../engine/status";
 import { terminalEnv } from "../exec/login-env";
 import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
@@ -291,6 +292,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       let pick: string | undefined;
       let routing: RoutingNote | undefined;
       let pickReason: string | undefined;
+      let policyFirst: string | undefined;
+      let pickNote: string | undefined;
       let startStatus: Status | undefined;
       let applicableIds: string[] = [];
       let decision: DispatchPreview | undefined;
@@ -415,6 +418,16 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             remoteSkipped.set(candidate.id, reason);
             return false;
           });
+          // Dispatch engines own their own ranking; everything else may be rebalanced
+          // within its budget band by how many tasks each executor already runs.
+          const dispatchRanked = work && decision?.proposal?.state === "ranked";
+          if (!dispatchRanked) {
+            // The policy's first candidate is the first untried one before balancing, so a
+            // retry after a failure is not described as "least loaded (… X ahead in order)"
+            // when load did not actually change the pick among the untried candidates.
+            policyFirst = ranking.ranked.find(e => untried(e.id))?.id;
+            ranking.ranked = balanceByLoad(ranking.ranked, s, use, byId);
+          }
           const ids = ranking.ranked.map(e => e.id);
           applicableIds = ids;
           const paused = readPause(ctx);
@@ -438,8 +451,21 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             });
             return;
           }
-          pick = requested && ids.includes(req!) ? req! : ids.find(e => work ? dispatchCandidates.some(c=>c.runner===e&&!triedCandidates.has(c.id)) : !tried.has(e));
+          // A drain reservation (executor set before the first attempt) is still admissible:
+          // balance keeps it instead of rebalancing away from the executor it reserved. Managed
+          // work dispatched by an engine is not kept: the engine's choice (with its own
+          // dispatchCandidates/triedCandidates logic) decides there, exactly as with balance off.
+          const reservedFirst = s.pacing.balance === "least-loaded" && i === 0 && !task.attempts.length && !task.run && !tried.size
+            && !dispatchRanked
+            && task.executor && ids.includes(task.executor) ? task.executor : undefined;
+          pick = requested && ids.includes(req!) ? req! : reservedFirst ?? ids.find(e => work ? dispatchCandidates.some(c=>c.runner===e&&!triedCandidates.has(c.id)) : !tried.has(e));
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
+          const balanced = s.pacing.balance === "least-loaded" && !dispatchRanked && policyFirst && pick && pick !== policyFirst
+            && !requested && !reservedFirst;
+          if (balanced && policyFirst && pick) {
+            const ahead = ranking.ranked.find(e => e.id === policyFirst);
+            if (ahead) pickNote = pickReason = `least loaded (${pick} ${use.byExecutor[pick] ?? 0}/${slotLimit(s, pick).executor}; ${policyFirst} ${use.byExecutor[policyFirst] ?? 0}/${slotLimit(s, policyFirst).executor} ahead in order)`;
+          }
           if (work && pick && decision) {
             const c = dispatchCandidates.find(c=>c.runner===pick);
             if (!c || !reserveDispatch({...ctx,now},id,c,decision)) pick=undefined;
@@ -582,7 +608,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       };
       const usageAtStart = resuming ? task.pendingAttempt?.usageAtStart : usage(startStatus);
       if (resuming) routing = task.pendingAttempt?.routing;
-      task = await withLock(ctx,'session-create',async()=>{
+      // Synchronous body: withLock then releases before yielding (session-create is also taken by withLockSync).
+      task = await withLock(ctx,'session-create',()=>{
        requireAgentWorkspaceBackend(ctx,id,attemptedBackend,!!resolveRunner(s,pick!)?.host);
        return updateTask(ctx, id, t => {
         if(!resuming) routeAdmission!.revalidate();
@@ -637,7 +664,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         }
         routing = { ...routing!, eligibility: prepared.decision,
           ...(prepared.decision.state === "uncertain" ? { fallback: "uncertain" as const } : {}),
-          why: candidate.reason };
+          why: pickNote ?? candidate.reason };
         task = await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
           routeAdmission!.revalidate();
           if(policySnapshot && projectRevision(readProjectStrategies(ctx),policySnapshot.repoKey)!==policySnapshot.rev)

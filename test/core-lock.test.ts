@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { withLock } from "../src/core/lock";
+import { withLock, withLockSync } from "../src/core/lock";
 import { fakeCtx } from "./helpers";
 
 test("withLock serialises holders of the same name", async () => {
@@ -29,4 +29,15 @@ test("withLock takes over a stale lock", async () => {
   const old = (Date.now() - 10 * 60_000) / 1000;
   utimesSync(f, old, old);
   expect(await withLock(ctx, "z", async () => "ran", { timeoutMs: 1000 })).toBe("ran");
+});
+
+
+test("synchronous lock callbacks release before another synchronous caller waits", async () => {
+  const ctx = fakeCtx();
+  const pending = withLock(ctx, "startup", () => "merged");
+  try {
+    expect(withLockSync(ctx, "startup", () => "started", { timeoutMs: 100 })).toBe("started");
+  } finally {
+    await pending;
+  }
 });

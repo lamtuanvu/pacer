@@ -43,6 +43,11 @@ const { redactEndpointError } = load(
   ["redactEndpointError"],
   { sliceText },
 );
+const { isOffered, closestModels } = load(
+  "src/models/available.ts",
+  ["isOffered", "closestModels"],
+  {},
+);
 const rules = load("src/attention/rules.ts", ["deriveItems", "sortItems"], {
   ...runnerId,
   ...taskFns,
@@ -478,6 +483,25 @@ export async function reference(c: any): Promise<any> {
         readAccountUsage: async () => {},
         accountSignIn: () => ({ reason: c.signInReason }),
         accountEvidenceScope: () => ({}),
+        availableModels: async () => {
+          const m = c.models;
+          if (!m) return { runner: c.runner.id, source: "none", models: null, fetchedAt: ctx.now };
+          return {
+            runner: c.runner.id,
+            source: m.source,
+            models:
+              m.offered !== null && m.offered !== undefined
+                ? [
+                    ...(m.offered === true ? [{ id: c.runner.model }] : []),
+                    ...m.closest.map((id: string) => ({ id })),
+                  ]
+                : null,
+            fetchedAt: ctx.now,
+            ...(m.note !== undefined ? { note: m.note } : {}),
+          };
+        },
+        isOffered,
+        closestModels,
         redactEndpointError,
       });
       return await api.checkRunner(ctx, c.runner.id);

@@ -2533,9 +2533,12 @@ export class PluginRegistry {
         // Core stages a chunked result for this call with the flag-off bounds and
         // ordering (`ResultStaging`): contiguous offsets, a bounded chunk, a 16 MiB cap.
         let staging: ResultStaging | undefined;
-        let stagedChunk = false;
-        const onRequest = local && ((name: string, params: unknown) => {
+        let transferStarted = false;
+        const onRequest = local && ((name: string, params: unknown, request: number) => {
           if (name === RESULT_CHUNK_METHOD) {
+            if (params && typeof params === "object" && "request" in params && params.request !== request)
+              return Promise.reject(new CoreError("capability_denied", "result chunk does not belong to an active negotiated request"));
+            transferStarted = true;
             // Mirror flag-off: a call chunks only when Core sealed the transport
             // (`coreMethods`), otherwise the child must keep its result within the
             // plain single-frame limit (read-only planner calls, diagnostics, …).
@@ -2544,7 +2547,7 @@ export class PluginRegistry {
             if (!staging) staging = new ResultStaging(local);
             const parsed = resultChunkParams.safeParse(params);
             if (!parsed.success) return Promise.reject(new CoreError("invalid_input", "malformed result chunk"));
-            return staging.stage(parsed.data.offset, parsed.data.base64).then(accepted => { stagedChunk = true; return accepted; });
+            return staging.stage(parsed.data.offset, parsed.data.base64);
           }
           return coreMethods.includes(name)
             ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
@@ -2592,7 +2595,7 @@ export class PluginRegistry {
             const parsed = chunkedResult.safeParse(value);
             if (!parsed.success || !staging) throw new CoreError("plugin_refused", "incomplete or unnegotiated chunked result");
             value = await staging.finish(parsed.data._chunkedResult.bytes);
-          } else if (stagedChunk) {
+          } else if (transferStarted) {
             throw new CoreError("plugin_refused", "incomplete or unnegotiated chunked result");
           }
         } finally {

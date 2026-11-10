@@ -2,6 +2,7 @@
 import { sortItems } from "../attention/rules";
 import { legacySetup, legacyCheck } from "../setup/v2";
 import type { LinkSnapshot, BudgetData } from '../link/envelope';
+import { isDiscoveryItemId } from '../link/outbox-index';
 import type { SnapshotV2, SnapshotV3 } from './read-model/types';
 import { callOp, opJsonSchemas, LEGACY_TASK_LIST, type OpDeps } from './ops';
 import { CoreError } from '../core/errors';
@@ -17,7 +18,7 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['service.handover','service.work','snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','task.hand_back','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor','plugin.ui.list','plugin.ui.render','plugin.ui.action','plugin.ui.visibility','plugin.settings.get','plugin.settings.set','files.search','issue.import','issue.search']);
+export const V3_ONLY_OPS = new Set(['service.handover','service.work','snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','task.hand_back','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor','plugin.ui.list','plugin.ui.render','plugin.ui.action','plugin.ui.visibility','plugin.settings.get','plugin.settings.set','files.search','issue.import','issue.search','executor.models.available']);
 
 for (const op of ["desktop.reconcile.status", "desktop.reconcile.request", "desktop.reconcile.cancel"]) V3_ONLY_OPS.add(op);
 
@@ -70,7 +71,7 @@ export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
  const d=e.data as {area?:unknown;id?:unknown;key?:unknown}|null;
  return e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
 }
-export const isDiscoveryItemId=(id:unknown)=>typeof id==='string'&&(id.startsWith('discovery:')||id.startsWith('discovery-network:'));
+export { isDiscoveryItemId };
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;

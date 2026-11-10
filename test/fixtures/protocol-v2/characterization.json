@@ -16393,6 +16393,7 @@
         "agent.detect",
         "agent.disconnect",
         "agent.preview",
+        "agent.undo",
         "api.describe",
         "api.list",
         "assistant.ask",
@@ -16467,7 +16468,9 @@
         "dispatch.submit",
         "dispatch.tree",
         "dispatch.wait",
+        "doctor.fix.delegate",
         "doctor.run",
+        "executor.models.available",
         "executor.setup.candidates",
         "executor.setup.connect",
         "executor.setup.models",
@@ -17292,7 +17295,7 @@
         }
       },
       "agent.connect": {
-        "description": "Connect an agent after explicit consent to write its integration files.",
+        "description": "Connect an agent after explicit consent to write its integration files. Returns installed plus an additive 'undo' flag reporting whether this connect left something undoable (with its revision) or, when it did not, a short reason.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -17357,7 +17360,7 @@
         }
       },
       "agent.preview": {
-        "description": "Preview agent integration files and the undo command before consenting.",
+        "description": "Preview agent integration files, the undo command and each file's change (create, update, restore, unchanged or kept) before consenting.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -17370,6 +17373,34 @@
                 "cursor",
                 "opencode"
               ]
+            }
+          },
+          "required": [
+            "agent"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "agent.undo": {
+        "description": "Undo exactly the files changed by the most recent connect, from its recorded snapshot, after explicit consent bound to that connect's preview revision, within 7 days. Reports restored, removed, reverted and kept files.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "enum": [
+                "claude-code",
+                "codex",
+                "cursor",
+                "opencode"
+              ]
+            },
+            "consent": {
+              "type": "boolean"
+            },
+            "preview_revision": {
+              "type": "string"
             }
           },
           "required": [
@@ -18119,7 +18150,7 @@
         }
       },
       "client.heartbeat": {
-        "description": "Renew a client lease, which lapses after 45 seconds without a heartbeat.",
+        "description": "Renew a client lease, which lapses after 45 seconds without a heartbeat. A boolean `notifier` replaces the client's notifier flag, so a client that can no longer present notifications stops receiving them.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -18128,6 +18159,9 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128
+            },
+            "notifier": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -18214,6 +18248,7 @@
                 "pacing.planner_probe",
                 "pacing.accounts",
                 "pacing.fill_threshold",
+                "pacing.balance",
                 "update_check",
                 "terminal.app",
                 "terminal.open"
@@ -19997,12 +20032,59 @@
           "additionalProperties": false
         }
       },
+      "doctor.fix.delegate": {
+        "description": "Start a pacer task to fix (scope fix) or investigate (scope investigate, changes nothing) one failing diagnostics check. The brief is built from the service's latest doctor result for that check, never from client text, and goes through task.delegate routing, pacing and review. The task records diagnosticCheck; accepting it reruns the check and records diagnosticRecheck. Task reads (task.get, task.list, snapshot tasks) expose both.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "check": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "fix",
+                "investigate"
+              ]
+            }
+          },
+          "required": [
+            "check",
+            "scope"
+          ],
+          "additionalProperties": false
+        }
+      },
       "doctor.run": {
-        "description": "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.",
+        "description": "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed. Each warning or failure carries one remedy { kind: auto|review|user|agent|internal, label, op?, params?, consent?, url?, secondary? } naming a registered operation; params never include consent. consent: true marks an op that requires it: show what will change and send consent: true only after the user's click.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
           "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "executor.models.available": {
+        "description": "Models an executor can use, from its provider's live listing; models is null when the listing is unknown.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "runner": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "refresh": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "runner"
+          ],
           "additionalProperties": false
         }
       },
@@ -24507,6 +24589,7 @@
                 "pacing.planner_probe",
                 "pacing.accounts",
                 "pacing.fill_threshold",
+                "pacing.balance",
                 "update_check",
                 "terminal.app",
                 "terminal.open"
@@ -26601,6 +26684,7 @@
     "files.search",
     "issue.import",
     "issue.search",
+    "executor.models.available",
     "desktop.reconcile.status",
     "desktop.reconcile.request",
     "desktop.reconcile.cancel",

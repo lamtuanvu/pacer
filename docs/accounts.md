@@ -431,7 +431,10 @@ start a new session from the selected folder to use the new planner account.
 `pacing.accounts` defaults to `spread`. `fill` prefers accounts in pacing order
 until an account is behind pace or reaches `pacing.fill_threshold` (default 90%,
 range 50–100). These choices apply within matching native agent/account-kind
-groups; endpoint routing retains its existing ordering.
+groups; endpoint routing retains its existing ordering. `pacing.balance` set to
+`least-loaded` starts each task on the executor with the fewest running tasks
+within a band of equally budget-acceptable executors; see
+[configuration.md](configuration.md).
 
 ## Limits
 
@@ -456,6 +459,8 @@ accounts referenced by executors show why they cannot be removed. After opening
 sign-in, the service checks usage every 15 seconds for up to ten minutes.
 
 ## Eligibility evidence
+
+Account evidence updates are serialized across processes and written atomically. Reconciliation releases its lock before yielding to other startup work; a completed update does not hold the lock during unrelated account checks. Lock failures remain errors rather than silently discarding quota or authentication restrictions.
 
 Account evidence is stored by account source identity. Replacing an account home or source does not reuse its previous evidence. Availability, quota and spending signals have separate timestamps. See [execution eligibility](executors.md#execution-eligibility-and-evidence) for freshness and recovery rules.
 

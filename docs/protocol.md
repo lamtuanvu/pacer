@@ -1939,6 +1939,7 @@ Params JSON Schema:
         "pacing.planner_probe",
         "pacing.accounts",
         "pacing.fill_threshold",
+        "pacing.balance",
         "update_check",
         "terminal.app",
         "terminal.open"
@@ -4048,6 +4049,33 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `executor.models.available`
+
+Models an executor can use, from its provider's live listing; models is null when the listing is unknown.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "runner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "refresh": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "runner"
+  ],
   "additionalProperties": false
 }
 ```
