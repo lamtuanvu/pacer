@@ -11,6 +11,13 @@ pub(crate) fn dispatch_lifecycle_stays_forwarded(ctx: &Ctx, op: &str, params: &V
     lifecycle_ops::lifecycle_stays_forwarded(ctx, op, params)
 }
 
+/// An HTTP body serde_json rejects may still be JSON to Core: `TextDecoder`
+/// replaces invalid UTF-8 and drops a BOM, and `JSON.parse` accepts unpaired
+/// surrogate escapes and numbers past the f64 range.
+pub(crate) fn forwards_undecodable_body(op: &str) -> bool {
+    lifecycle_ops::LIFECYCLE_OPS.contains(&op)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,5 +51,14 @@ mod tests {
             "task.wait",
             &json!({"id": "t"})
         ));
+    }
+
+    #[test]
+    fn only_lifecycle_ops_forward_bodies_serde_rejects() {
+        for op in lifecycle_ops::LIFECYCLE_OPS {
+            assert!(forwards_undecodable_body(op));
+        }
+        assert!(!forwards_undecodable_body("dispatch.tree"));
+        assert!(!forwards_undecodable_body("task.wait"));
     }
 }
