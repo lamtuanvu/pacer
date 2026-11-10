@@ -8,13 +8,13 @@ use pacer_store::publish_config_change;
 use serde_json::{Value, json};
 use std::{fs, io::Write, path::Path};
 
-use super::lifecycle_ops::{invalid, type_name};
+use super::executor_setup_ops::{invalid, type_name};
 
 fn empty_object(params: &Value) -> Result<(), CoreError> {
     let map = params.as_object().ok_or_else(|| {
         invalid(format!(
             "params: Invalid input: expected object, received {}",
-            type_name(params)
+            type_name(Some(params))
         ))
     })?;
     if !map.is_empty() {
@@ -57,7 +57,7 @@ fn uuid_simple() -> String {
     hex::encode(bytes)
 }
 
-pub(super) fn onboarding_skip(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+pub fn onboarding_skip(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
         empty_object(&params)?;
         let dir = ctx.pacer_home.join("onboarding");
@@ -67,6 +67,14 @@ pub(super) fn onboarding_skip(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         })?;
         Ok(json!({"skipped": true}))
     })
+}
+
+/// Native setup operations provided to the server registry.
+pub const fn ops() -> &'static [pacer_foundation::api::NativeOp] {
+    &[pacer_foundation::api::NativeOp {
+        name: "onboarding.skip",
+        call: onboarding_skip,
+    }]
 }
 
 #[cfg(test)]

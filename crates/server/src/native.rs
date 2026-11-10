@@ -11,14 +11,14 @@ use pacer_config_ops::config_writes;
 use pacer_config_ops::executor_setup_ops;
 pub(crate) mod core_bridge_sync;
 mod desktop_reconcile_ops;
+use pacer_config_ops::engine_ops;
+use pacer_config_ops::host_mut_ops;
 use pacer_discovery_ops::{discovery_ops, network_ops};
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
 use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
 use pacer_dispatch_ops::planning_ops;
-mod engine_ops;
-use pacer_config_ops::host_mut_ops;
 use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
@@ -43,10 +43,10 @@ use pacer_config_ops::repo_ops;
 use pacer_config_ops::runner_ops;
 pub(crate) use pacer_task_ops::session_ops;
 pub(crate) mod session_sync;
-mod setup_ops;
+use pacer_config_ops::setup_ops;
 use pacer_task_ops::snapshot_get_ops;
 pub(crate) mod snapshot_sync;
-pub(crate) mod status_ops;
+pub(crate) use pacer_task_ops::status_ops;
 pub(crate) mod status_sync;
 pub(crate) mod task_clean_sync;
 use pacer_task_ops::task_diff_ops;
@@ -389,44 +389,44 @@ static OPS: &[NativeOp] = &[
         call: meta_ops::api_describe,
     },
     NativeOp {
-        name: "delegation.pause",
-        call: engine_ops::delegation_pause,
+        name: engine_ops::ops()[0].name,
+        call: engine_ops::ops()[0].call,
     },
     NativeOp {
-        name: "delegation.resume",
-        call: engine_ops::delegation_resume,
+        name: engine_ops::ops()[1].name,
+        call: engine_ops::ops()[1].call,
     },
     NativeOp {
-        name: "mode.hold",
-        call: engine_ops::mode_hold_op,
+        name: engine_ops::ops()[2].name,
+        call: engine_ops::ops()[2].call,
     },
     NativeOp {
-        name: "mode.release",
-        call: engine_ops::mode_release,
+        name: engine_ops::ops()[3].name,
+        call: engine_ops::ops()[3].call,
     },
     NativeOp {
-        name: "limits.report",
-        call: engine_ops::limits_report,
+        name: engine_ops::ops()[4].name,
+        call: engine_ops::ops()[4].call,
     },
     NativeOp {
-        name: "limits.check",
-        call: status_ops::limits_check_stub,
+        name: status_ops::ops()[0].name,
+        call: status_ops::ops()[0].call,
     },
     NativeOp {
         name: "limits.refresh",
         call: limits_refresh_ops::limits_refresh,
     },
     NativeOp {
-        name: "routing.status",
-        call: status_ops::routing_status_stub,
+        name: status_ops::ops()[1].name,
+        call: status_ops::ops()[1].call,
     },
     NativeOp {
-        name: "routing.route",
-        call: status_ops::routing_route_stub,
+        name: status_ops::ops()[2].name,
+        call: status_ops::ops()[2].call,
     },
     NativeOp {
-        name: "task.retry_options",
-        call: status_ops::task_retry_options_stub,
+        name: status_ops::ops()[3].name,
+        call: status_ops::ops()[3].call,
     },
     NativeOp {
         name: "task.request_review",
@@ -473,8 +473,8 @@ static OPS: &[NativeOp] = &[
         call: p8_bridge_ops::bridge_stub,
     },
     NativeOp {
-        name: "onboarding.skip",
-        call: setup_ops::onboarding_skip,
+        name: setup_ops::ops()[0].name,
+        call: setup_ops::ops()[0].call,
     },
     NativeOp {
         name: "setup.init",

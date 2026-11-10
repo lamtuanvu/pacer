@@ -1839,6 +1839,7 @@ version = "0.0.0"
 dependencies = [
  "chrono-tz",
  "pacer-config",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
  "pacer-read-model",

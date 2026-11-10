@@ -16,5 +16,8 @@ pub mod repo_registry_ops;
 pub mod runner_ops;
 pub mod setup_effects;
 pub mod setup_init_ops;
+pub mod setup_ops;
 pub mod strategy_build_ops;
 pub mod strategy_preview_ops;
+
+pub mod engine_ops;
