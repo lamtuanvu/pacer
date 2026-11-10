@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { fakeCtx, pinnedPort } from "./helpers";
+import { fakeCtx } from "./helpers";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -11,9 +11,9 @@ const HELLO = '{"jsonrpc":"2.0","id":1,"method":"hello","params":{"protocol":3}}
 async function exchange(home: string, lines: string[], forward: boolean) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
     cwd: home,
-    env: pinnedPort({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin",
+    env: { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-      PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }),
+      PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
@@ -41,11 +41,7 @@ test.skipIf(!front)("native replies echo request ids exactly as forced forwardin
   ])];
   const native = await exchange(ctx.home, lines, false);
   const forwarded = await exchange(ctx.home, lines, true);
-  // Only hello succeeds here; its coreBuild is omitted when the descriptor read times out under load.
-  const errors = (replies: string[]) => replies.filter(line => !line.includes('"result":')).toSorted();
-  expect(native.replies.length).toBe(forwarded.replies.length);
-  expect(native.replies.filter(line => line.startsWith('{"jsonrpc":"2.0","id":1,"result":')).length).toBe(1);
-  expect(errors(native.replies)).toEqual(errors(forwarded.replies));
+  expect(native.replies.toSorted()).toEqual(forwarded.replies.toSorted());
   expect(native.replies.filter(line => line.includes('"id":9007199254740992,')).length).toBe(4);
   expect(native.replies.some(line => line.includes('"id":9007199254740993'))).toBe(false);
   expect(native.markers.length).toBe(exact.length * 2);
