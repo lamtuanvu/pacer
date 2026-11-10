@@ -182,6 +182,17 @@ fn service_install_is_not_a_registered_native_op() {
 }
 
 #[test]
+fn service_handover_and_work_are_not_registered_native_ops() {
+    // service.handover and service.work stay on TypeScript until Core serves a
+    // real handover.effects bridge (/_internal/handover-effects,
+    // _internal.handover.effects); the stores they read live on the TS side.
+    for name in ["service.handover", "service.work"] {
+        assert!(registry("").get(name).is_none(), "{name}");
+        assert!(super::service_registry("").get(name).is_none(), "{name}");
+    }
+}
+
+#[test]
 fn host_check_clean_and_setup_are_not_registered_native_ops() {
     // host.check, host.clean and host.repo.setup stay on TypeScript until Core
     // serves a real host effects bridge; unregistering them makes forwarding
