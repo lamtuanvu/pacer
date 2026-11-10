@@ -109,7 +109,7 @@ The Rust registry owns only the operations listed as native below. `PACER_FORWAR
 | `agent.connect`, `agent.disconnect` | Forwarded (P9) | Consent-gated integration file writes and recorded undo disconnect under the `setup` config area (`setup.agentConnect`, `agentDisconnect`). The file plan and undo come from the planner plugin (`planner.preview` and install capabilities, ARCH-12) through the TypeScript plugin host and install transaction, so neither is native yet. |
 | `service.status` | Native (M2 service and agent, selective) | `pacer-update` owns `serviceStatus` (`src/core/setup.ts`, `src/service/index.ts`): `installed` is whether the registration file (`~/Library/LaunchAgents/com.pacer.serve.plist` or `~/.config/systemd/user/pacer-serve.service`) reads; `launchctl print gui/<uid>/com.pacer.serve` or `systemctl --user show pacer-serve.service --property=...` is spawned from Rust as argv with a 2 s deadline (SEC-5), and `parseLaunchd`/`parseSystemd` semantics (JavaScript `\s`, `Number`, the `Object.fromEntries` quirk) produce `running` and `pid`. The health probe TypeScript runs does not change this reply. Other platforms (TypeScript refuses them) and macOS OTA fixture builds, whose sandbox label only the compiled fixture policy knows, selectively forward. Residuals: a timed-out manager is killed but not its process group, and its partial stdout is dropped (TypeScript keeps it); the OTA fixture forward is a path heuristic. On macOS hosts Linux parsing is covered by unit tests only. Parity: `test/native-service-update-parity.test.ts` (fake `launchctl`/`systemctl` on `PATH`). |
 | `service.install` | Forwarded (P9) | Login-item/service install with explicit consent: the install transaction and manifest, the `pacerArgv` of the running core, `launchctl bootstrap`/`systemctl enable` and the health wait stay in TypeScript (`src/service/index.ts`, `src/install/`). |
-| `service.handover`, `service.work` | Forwarded (P9) | Post-upgrade runner handover wait and running-task/session version inventory for reopen prompts (`src/setup/service.ts`, owner-only handover). |
+| `service.handover`, `service.work` | Native (M2, selective) | Rust (`pacer-update::handover`) validates params, runs the handover logic from `pacer-lifecycle::running_work` over injected snapshots. The `handover` effect uses the Core HTTP API to trigger the handover in the running service; the `work` effect returns the inventory from `pacer-lifecycle::running_work`. Inputs needing the running service's HTTP API selectively forward. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `update.check`, `update.apply` | Forwarded (P9) | Release feed check (optional force) and shared `update.apply` job with download/verify/replace/refuse package-manager and source installs (`src/api/ops.ts`, update preflight). |
 | `task.attach`, `task.session`, `task.takeover`, `task.hand_back` | Forwarded (P6/P7) | Live session viewers, session-host metadata, headless-to-interactive takeover and hand-back (`src/api/ops-session.ts`, `src/tasks/session.ts`, `takeoverTask`, `handBackTask`). Shares the attach/viewer path with `session.*`; native vt100 replay gate remains **NO-GO**. |
 | `task.send` | Forwarded (P6) | Injects text into an interactive lane's live worker with driving-lease and `expect_rev` rules (`sendMessage` in `src/tasks/send.ts`); does not create attempts. |
@@ -409,8 +409,8 @@ The M2 setup slice later registers `setup.init` (see its row).
 The M2 analytics-reads slice later registers `insights.summary`, and the M2
 issue-reads slice registers `issue.import` and `issue.search` (see their rows).
 The M2 service-and-agent slice registers `service.status`, `update.check`,
-`agent.detect` (cache hits) and `limits.refresh` (accounts without a refresh
-source); `agent.preview`, `agent.connect`, `agent.disconnect`,
+`agent.detect` (cache hits), `limits.refresh` (accounts without a refresh
+source), `service.handover` and `service.work`; `agent.preview`, `agent.connect`, `agent.disconnect`,
 `service.install` and `update.apply` keep their Forwarded rows.
 
 ## P5b usage refresh triage (library, no new native ops)
@@ -650,7 +650,7 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **145** of 228 (133 on the Rust stdio registry plus 12 HTTP-native
+Total native: **150** of 228 (138 on the Rust stdio registry plus 12 HTTP-native
 `plugin.*` ops). Fifty-seven of these selectively forward some inputs or effects to TypeScript:
 `config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
@@ -664,8 +664,8 @@ Total native: **145** of 228 (133 on the Rust stdio registry plus 12 HTTP-native
 `assistant.conversation`, `assistant.turn`, `assistant.delete`,
 `assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
 `dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
-`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`.
-Total still not native (v3 − native set): **83**.
+`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`, `service.handover`, `service.work`.
+Total still not native (v3 − native set): **78**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

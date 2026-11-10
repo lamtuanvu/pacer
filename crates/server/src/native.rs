@@ -22,6 +22,8 @@ use pacer_config_ops::host_mut_ops;
 use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
+#[allow(unused_imports)]
+use pacer_update::handover;
 pub(crate) mod host_mut_sync;
 use pacer_config_ops::host_read_ops;
 use pacer_config_ops::limits_refresh_ops;
@@ -34,6 +36,13 @@ mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
+<<<<<<< HEAD
+||||||| parent of 09ce54e8d (feat(m2): make service.handover and service.work native in Rust)
+pub(crate) mod host_check_clean_setup_sync;
+=======
+pub(crate) mod handover_bridge;
+pub(crate) mod host_check_clean_setup_sync;
+>>>>>>> 09ce54e8d (feat(m2): make service.handover and service.work native in Rust)
 pub(crate) mod msg_write_sync;
 pub mod plugins;
 pub(crate) mod service_effects_sync;
@@ -749,6 +758,7 @@ pub async fn call_native(
     task_review_probe: Option<Value>,
     task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     service_effects: Option<&mut dyn pacer_install::ServiceEffects>,
+    handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -883,6 +893,14 @@ pub async fn call_native(
             "service.install" => pacer_install::service_install(ctx, params, effects).await?,
             _ => unreachable!("needs_service_effects_bridge"),
         }
+    } else if pacer_update::handover::handover_stays_forwarded(ctx, op.name) {
+        let bridge = handover_bridge.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "handover bridge unavailable",
+            )
+        })?;
+        pacer_update::handover::call(ctx, op.name, params, false, bridge).await?
     } else if needs_task_clean_bridge(op.name) {
         let clean = task_clean_sync.ok_or_else(|| {
             CoreError::new(
