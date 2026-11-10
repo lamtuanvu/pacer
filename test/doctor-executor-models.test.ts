@@ -148,3 +148,12 @@ test("doctor emits no Models check when the allowed models are consistent", asyn
   const checks = await runDoctorWith(ctx, {});
   expect(checks.some(c => c.name.startsWith("Models "))).toBe(false);
 });
+test("doctor asks the user to rate models when there is no default drift", async () => {
+  const ctx = modelsDriftFixture(driftStrategy(`  codex:
+    model: acme/a
+    models:
+      - {id: acme/a, tier: unknown}
+`));
+  const checks = await runDoctorWith(ctx, {});
+  expect(checks.find(c => c.name === "Models codex")?.remedy).toEqual({kind: "user", label: "Rate codex models"});
+});

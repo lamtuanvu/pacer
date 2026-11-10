@@ -99,7 +99,7 @@ type FakeElement = {
   addEventListener: (type: string, fn: (event?: unknown) => void) => void; removeEventListener: (type: string) => void;
   setAttribute: (name: string, value: unknown) => void; getAttribute: (name: string) => string | null; removeAttribute: (name: string) => void;
   appendChild: (child: FakeElement) => FakeElement; insertBefore: (child: FakeElement, before: FakeElement | null) => FakeElement;
-  removeChild: (child: FakeElement) => FakeElement; focus: () => void;
+  removeChild: (child: FakeElement) => FakeElement; focus: () => void; querySelector: () => null;
 };
 
 const fakeElement = (tag: string): FakeElement => {
@@ -116,7 +116,7 @@ const fakeElement = (tag: string): FakeElement => {
     appendChild(child) { insert(node, child, null); return child; },
     insertBefore(child, before) { insert(node, child, before); return child; },
     removeChild(child) { node.childNodes = node.childNodes.filter(c => c !== child); child.parentNode = null; return child; },
-    focus() {},
+    focus() { (document as unknown as {activeElement: FakeElement}).activeElement = node; }, querySelector() { return null; },
   };
   return node;
 };
@@ -150,7 +150,7 @@ test("a successful save refreshes the models listing and calls onSaved afterward
   globalThis.document = {
     adoptedStyleSheets: [], createElement: (t: string) => fakeElement(t), createElementNS: (_ns: string, t: string) => fakeElement(t),
     createTextNode: (t: string) => { const n = fakeElement("#text"); n.nodeType = 3; n.data = t; return n; },
-    addEventListener() {}, removeEventListener() {}, getElementById: () => null, querySelector: () => null, contains: () => false, activeElement: null,
+    dispatchEvent() {}, addEventListener() {}, removeEventListener() {}, getElementById: () => null, querySelector: () => null, contains: () => false, activeElement: null,
   } as never;
   globalThis.CSSStyleSheet = class { replaceSync() {} } as never;
   globalThis.window = { addEventListener() {}, removeEventListener() {}, innerHeight: 800, innerWidth: 1200, matchMedia: () => ({ matches: false }) } as never;
@@ -207,13 +207,13 @@ test("a row no longer offered shows the warning", () => {
   expect(html).toContain("old is no longer offered by Zhipu");
 });
 
-async function withModelScreen(run: (container: FakeElement, calls: Array<{op: string; params: any}>, saved: () => number) => Promise<void>, failure?: string, listing: AvailableModels = served, initialModels = declarations) {
+async function withModelScreen(run: (container: FakeElement, calls: Array<{op: string; params: any}>, saved: () => number) => Promise<void>, failure?: string, listing: AvailableModels = served, initialModels = declarations, readState?: "loading" | "error") {
   const previous = { document: globalThis.document, CSSStyleSheet: globalThis.CSSStyleSheet, window: globalThis.window, getComputedStyle: globalThis.getComputedStyle, requestAnimationFrame: globalThis.requestAnimationFrame };
   // Preact renders against a document; keep the stub scoped to this test.
   globalThis.document = {
     adoptedStyleSheets: [], createElement: (t: string) => fakeElement(t), createElementNS: (_ns: string, t: string) => fakeElement(t),
     createTextNode: (t: string) => { const n = fakeElement("#text"); n.nodeType = 3; n.data = t; return n; },
-    addEventListener() {}, removeEventListener() {}, getElementById: () => null, querySelector: () => null, contains: () => false, activeElement: null,
+    dispatchEvent() {}, addEventListener() {}, removeEventListener() {}, getElementById: () => null, querySelector: () => null, contains: () => false, activeElement: null,
   } as never;
   globalThis.CSSStyleSheet = class { replaceSync() {} } as never;
   globalThis.window = { addEventListener() {}, removeEventListener() {}, innerHeight: 800, innerWidth: 1200, matchMedia: () => ({ matches: false }) } as never;
@@ -226,16 +226,19 @@ async function withModelScreen(run: (container: FakeElement, calls: Array<{op: s
     const api = { call: async (op: string, params: any) => {
       calls.push({op, params});
       if (op === "executor.models.available") return listing;
+      if (op === "runner.models.get" && readState === "error") throw new Error("Unavailable declarations");
+      if (op === "runner.models.get" && readState === "loading") return new Promise(() => {});
+      if (op === "runner.models.get" && calls.some(c => c.op === "runner.set")) return {...initialModels, revision: "v3", default: "new-default"};
       if (op === "runner.models.get") return calls.some(c => c.op === "runner.models.set") ? {...initialModels, revision: "v2", models: [{id: initialModels.default, tier: "small"}]} : initialModels;
       if (op === "runner.models.set") {
         if (failure) throw Object.assign(new Error(failure === "conflict" ? "stale" : "Save refused"), {code: failure});
-        return {runner: "go", revision: "v2", default: params.default, models: params.models, warnings: ["Example warning"]};
+        return {runner: "go", revision: "v2", default: params.default, models: params.models, warnings: ["Example warning", 'runners.go: model "x" is unrated (tier unknown)', 'runners.go: default model "x" is not in models', "x could not be checked: offline"]};
       }
       return {};
     }} as BrowserApi;
     const actions = createActionRunner({call: api.call, waitFor: async () => true, refetch() {}, navigate() {}});
     await act(async () => { preactRender(<TaskContext.Provider value={{state: {...initialState(), connected: true}, api}}>
-      <ActionContext.Provider value={actions}><ExecutorModels runner="go" model={initialModels.default} provider="Go" initialAvailable={listing} initialModels={initialModels} onSaved={() => {saved++;}} /></ActionContext.Provider>
+      <ActionContext.Provider value={actions}><ExecutorModels runner="go" model={initialModels.default} provider="Go" initialAvailable={listing} initialModels={readState ? undefined : initialModels} onSaved={() => {saved++;}} /></ActionContext.Provider>
     </TaskContext.Provider>, container as never); });
     await run(container, calls, () => saved);
   } finally {
@@ -260,6 +263,8 @@ test("tier edits save once with the revision, then check and notify", async () =
     expect(calls.some(c => c.op === "runner.check")).toBe(true);
     expect(saved()).toBe(1);
     expect(textOf(container)).toContain("Example warning");
+    expect(textOf(container)).toContain("x could not be checked: offline");
+    expect(textOf(container)).not.toContain("runners.go:");
   });
 });
 test("a stale save reloads declarations and announces the conflict", async () => {
@@ -324,3 +329,74 @@ test("the default picker keeps the existing default after the first model is add
     });
   }, undefined, unknown, empty);
 });
+
+test("saving a plain default refreshes the revision before adding models", async () => {
+  await withModelScreen(async (container, calls) => {
+    const input = findNode(container, n => n.tagName === "input");
+    await act(async () => { fire(input!, "input", {currentTarget: {value: "new-default"}}); });
+    await clickText(container, "Save model");
+    const addField = findNode(container, n => textOf(n).startsWith("Add model") && !!findNode(n, child => child.tagName === "input"));
+    const addInput = findNode(addField!, n => n.tagName === "input");
+    await act(async () => { fire(addInput!, "input", {currentTarget: {value: "extra"}}); });
+    await clickText(container, "Add model");
+    await clickText(container, "Save model");
+    expect(calls.find(c => c.op === "runner.models.set")?.params).toEqual({
+      id: "go", expectedRevision: "v3", default: "new-default",
+      models: [{id: "new-default", tier: "unknown"}, {id: "extra", tier: "unknown"}],
+    });
+  }, undefined, unknown, {...declarations, models: []});
+});
+
+test("unavailable declared defaults and rows each offer Replace", () => {
+  const html = render(<ExecutorModels runner="go" model="old" provider="Go" initialAvailable={served}
+    initialModels={{...declarations, default: "old", models: [{id: "old", tier: "unknown"}]}} />);
+  expect(html.match(/Replace…/g)?.length).toBe(2);
+});
+
+for (const target of ["row", "default"] as const) {
+test(`a ${target} replacement focuses the picker and saves the replacement with its tier and default`, async () => {
+  await withModelScreen(async (container, calls) => {
+    const row = findNode(container, n => n.attrs.role === "group" && n.attrs["aria-label"] === "old");
+    await clickText(target === "row" ? row! : container, "Replace…");
+    const picker = document.activeElement as unknown as FakeElement;
+    expect(picker.attrs["aria-haspopup"]).toBe("listbox");
+    await act(async () => { fire(picker, "click"); });
+    const option = findNode(container, n => n.attrs.role === "option" && textOf(n).startsWith("glm-4.7-air"));
+    expect(option).toBeTruthy();
+    await act(async () => { fire(option!, "click"); });
+    await clickText(container, "Save model");
+    expect(calls.find(c => c.op === "runner.models.set")?.params).toEqual({
+      id: "go", expectedRevision: "v1", default: "zhipu/glm-4.7-air",
+      models: [{id: "zhipu/glm-4.7-air", tier: "unknown"}],
+    });
+  }, undefined, served, {...declarations, default: "old", models: [{id: "old", tier: "unknown"}]});
+});
+
+}
+
+test("the first addition preserves an unsaved default choice", async () => {
+  await withModelScreen(async (container, calls) => {
+    const input = findNode(container, n => n.tagName === "input");
+    await act(async () => { fire(input!, "input", {currentTarget: {value: " unsaved-default "}}); });
+    const addField = findNode(container, n => textOf(n).startsWith("Add model") && !!findNode(n, child => child.tagName === "input"));
+    await act(async () => { fire(findNode(addField!, n => n.tagName === "input")!, "input", {currentTarget: {value: "extra"}}); });
+    await clickText(container, "Add model");
+    await clickText(container, "Save model");
+    expect(calls.find(c => c.op === "runner.models.set")?.params).toMatchObject({
+      default: "unsaved-default", models: [{id: "unsaved-default", tier: "unknown"}, {id: "extra", tier: "unknown"}],
+    });
+  }, undefined, unknown, {...declarations, models: []});
+});
+
+for (const state of ["loading", "error"] as const) {
+  test(`a plain default can save while declarations are ${state}`, async () => {
+    await withModelScreen(async (container, calls) => {
+      const input = findNode(container, n => n.tagName === "input");
+      await act(async () => { fire(input!, "input", {currentTarget: {value: "new-default"}}); });
+      const button = findNode(container, n => n.tagName === "button" && textOf(n) === "Save model");
+      expect(button!.attrs.disabled).toBeUndefined();
+      await clickText(container, "Save model");
+      expect(calls.find(c => c.op === "runner.set")?.params).toEqual({id: "go", model: "new-default"});
+    }, undefined, unknown, {...declarations, models: []}, state);
+  });
+}

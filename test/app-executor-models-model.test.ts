@@ -66,3 +66,13 @@ test("the first declaration becomes the default only when none exists", () => {
     });
   }
 });
+
+test("replace keeps the row metadata and moves its default in one edit", () => {
+  const source: RunnerModels = {...draft, models: [{id: "a", tier: "frontier", strengths: ["review"], tools: true}, {id: "b", tier: "small"}]};
+  expect(editModels(source, {type: "replace", id: "a", with: "c"})).toEqual({
+    ...source, default: "c", models: [{...source.models[0], id: "c"}, source.models[1]],
+  });
+  expect(editModels(source, {type: "replace", id: "b", with: "c"}).default).toBe("a");
+  expect(editModels(source, {type: "replace", id: "a", with: "b"})).toEqual(source);
+  expect(editModels(source, {type: "replace", id: "a", with: " "})).toEqual(source);
+});

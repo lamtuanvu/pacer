@@ -94,7 +94,8 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     for (const runner of Object.values(strategy.runners)) {
       const warnings = modelDeclarationWarnings(runner);
       if (warnings.length) checks.push({ name: `Models ${runner.id}`, level: "warn", detail: warnings.join("\n"),
-        remedy: remedies.agent(`Models ${runner.id}`) });
+        remedy: warnings.some(w => w.includes('default model "') && w.endsWith('" is not in models'))
+          ? remedies.agent(`Models ${runner.id}`) : {kind: "user", label: `Rate ${runner.id} models`} });
     }
 
     for (const cfg of Object.values(strategy.providers)) {

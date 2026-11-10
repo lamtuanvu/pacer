@@ -41,6 +41,8 @@ export function ExecutorModels({runner, model, provider, initialAvailable, initi
   const [draft, setDraft] = useState(initialModels);
   const [base, setBase] = useState(initialModels);
   const [adding, setAdding] = useState("");
+  const [replacing, setReplacing] = useState<string | null>(null);
+  const addPicker = useRef<HTMLButtonElement>(null);
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
   const [error, setError] = useState<unknown>();
@@ -60,7 +62,7 @@ export function ExecutorModels({runner, model, provider, initialAvailable, initi
       const result = await api.call<RunnerModels & {warnings: string[]}>("runner.models.set", {
         id: runner, expectedRevision: draft.revision, default: draft.default, models: draft.models,
       });
-      setDraft(result); setBase(result); setPicked(result.default ?? ""); setWarnings(result.warnings ?? []); setNotice("Saved.");
+      setDraft(result); setBase(result); setPicked(result.default ?? ""); setWarnings((result.warnings ?? []).filter(w => !/^runners\..+: (?:model ".*" is unrated \(tier unknown\)|default model ".*" is not in models)$/.test(w))); setNotice("Saved.");
       void refreshList();
       void check.run("runner.check", {id: runner});
       onSaved?.();
@@ -88,7 +90,7 @@ export function ExecutorModels({runner, model, provider, initialAvailable, initi
   const save = useOperation(), check = useOperation();
   const models = list.data?.models ?? null, listing = list.data;
   // The listing knows the provider it came from (cached or unknown listings fall back to the account name).
-  const warning = listing ? modelWarning(listing, model, listing.provider ?? provider) : null;
+  const warning = listing ? modelWarning(listing, declared ? draft.default : model, listing.provider ?? provider) : null;
   const changePicked = (value: string) => {
     setPicked(value);
     if (base?.models.length) setDraft(d => d ? {...d, default: value.trim()} : d);
@@ -99,23 +101,41 @@ export function ExecutorModels({runner, model, provider, initialAvailable, initi
   const saveModel = () => {
     // The picker holds full ids; the free-text fallback holds the id as the user typed it. Saving
     // only happens on a change: an empty field or the current model id are not edits.
-    if (unchanged || !draft || draft.runner !== runner || declarations.error || saving) return;
+    if (unchanged || saving || (hasDeclarations && (!draft || draft.runner !== runner || declarations.loading || declarations.error))) return;
     if (hasDeclarations) { void saveDeclarations(); return; }
-    void save.run("runner.set", {id: runner, model: chosen}, () => {
+    void save.run("runner.set", {id: runner, model: chosen}, async () => {
       // The saved default reroutes work to the provider that serves it now: refresh the cached
       // listing so the no-longer-offered warning matches, and let the executor detail refresh
       // its facts (Model fact, row state) instead of waiting for the next page reload.
+      try {
+        const current = await api.call<RunnerModels>("runner.models.get", {id: runner});
+        setDraft(current); setBase(current); setPicked(current.default ?? "");
+      } catch (e) { setError(e); }
       void refreshList();
       onSaved?.();
       void check.run("runner.check", {id: runner});
     });
   };
+  const replace = (id: string) => {
+    setReplacing(id); setAdding(""); addPicker.current?.focus();
+  };
+  const chooseAddition = (id: string) => {
+    if (replacing) {
+      edit({type: "replace", id: replacing, with: id}); setReplacing(null); setAdding("");
+    } else setAdding(id);
+  };
+  const addModel = () => {
+    setDraft(d => d ? editModels(!d.models.length ? {...d, default: picked.trim() || d.default} : d, {type: "add", id: adding.trim()}) : d);
+    setNotice(""); setAdding("");
+  };
   return <Section id="models" title="Models" actions={<Button size="sm" disabled={refreshing} onClick={() => void refreshList()}>Refresh list</Button>}>
     <ResourceState resource={list}>
-      {declared ? <Field label="Default model">
+      {declared ? <>
+        {warning && <Alert tone="warning" title={warning}><Button size="sm" disabled={saving} onClick={() => replace(draft.default!)}>Replace…</Button></Alert>}
+        <Field label="Default model">
         <ChoicePicker value={draft.default ?? ""} disabled={saving} options={draft.models.map(m => ({value: m.id, label: displayModel(m.id)}))}
           onValueChange={id => edit({type: "default", id})} />
-      </Field> : models?.length ? <>
+      </Field></> : models?.length ? <>
         {warning && <Alert tone="warning" title={warning}><Button size="sm" onClick={() => picker.current?.focus()}>Replace…</Button></Alert>}
         <Field label="Default model">
           <ChoicePicker ref={picker} value={hasDeclarations ? draft?.default ?? "" : picked} disabled={saving} searchable className="pc-choice-picker--mono"
@@ -136,7 +156,7 @@ export function ExecutorModels({runner, model, provider, initialAvailable, initi
           const rowWarning = listing ? modelWarning(listing, row.id, listing.provider ?? provider) : null;
           return <div key={row.id} role="group" aria-label={displayModel(row.id)}>
             <p>{displayModel(row.id)}</p>
-            {rowWarning && <Alert tone="warning" title={rowWarning} />}
+            {rowWarning && <Alert tone="warning" title={rowWarning}><Button size="sm" disabled={saving} onClick={() => replace(row.id)}>Replace…</Button></Alert>}
             <div className="u3-actions" role="group" aria-label={`Tier for ${displayModel(row.id)}`}>
               {(Object.keys(tierLabels) as ModelDeclaration["tier"][]).map(tier => <FilterChip key={tier} selected={row.tier === tier} disabled={saving}
                 onClick={() => edit({type: "tier", id: row.id, tier})}>{tierLabels[tier]}</FilterChip>)}
@@ -145,19 +165,19 @@ export function ExecutorModels({runner, model, provider, initialAvailable, initi
             </div>
           </div>;
         })}
-        <Field label="Add model">
-          {models?.length ? <ChoicePicker value={adding} searchable disabled={saving}
+        <Field label={replacing ? `Replace ${displayModel(replacing)}` : "Add model"}>
+          {models?.length ? <ChoicePicker ref={addPicker} value={adding} searchable disabled={saving || save.busy}
             options={models.filter(m => !draft?.models.some(row => row.id === m.id)).map(m => ({value: m.id, label: displayModel(m.id), description: optionDescription(m)}))}
-            onValueChange={setAdding} /> : <TextInput value={adding} disabled={saving} onInput={e => setAdding(e.currentTarget.value)} />}
+            onValueChange={chooseAddition} /> : <TextInput value={adding} disabled={saving} onInput={e => setAdding(e.currentTarget.value)} />}
         </Field>
-        <Button size="sm" disabled={!draft || saving || !adding.trim() || draft.models.some(m => m.id === adding.trim())}
-          onClick={() => { edit({type: "add", id: adding.trim()}); setAdding(""); }}>Add model</Button>
+        <Button size="sm" disabled={!draft || saving || save.busy || !adding.trim() || draft.models.some(m => m.id === adding.trim())}
+          onClick={addModel}>Add model</Button>
       </ResourceState>
       <ErrorMessage error={error} />
       {notice && <p role="status">{notice}</p>}
       {warnings.map(w => <Alert key={w} tone="warning" title={w} />)}
       <div className="u3-actions">
-        <Button variant="primary" disabled={!!save.unavailable || save.busy || saving || unchanged || !!declarations.error || !draft || draft.runner !== runner || (hasDeclarations && (!draft.default || (declared && !draft.models.some(m => m.id === draft.default))))} onClick={saveModel}>Save model</Button>
+        <Button variant="primary" disabled={!!save.unavailable || save.busy || saving || unchanged || (hasDeclarations && (declarations.loading || !!declarations.error || !draft || draft.runner !== runner || !draft.default || (declared && !draft.models.some(m => m.id === draft.default))))} onClick={saveModel}>Save model</Button>
       </div>
       <Feedback action={save} />
       <Feedback action={check} />

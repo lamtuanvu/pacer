@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fakeCtx } from './helpers';
 const runnerCtx = () => {
@@ -129,3 +129,40 @@ test('pacer executor models --allow a:small --default a saves both', async () =>
   expect(read.out).toContain('acme/a');
   expect(read.out).toContain('acme/b');
 });
+
+test('model YAML omits empty strengths but preserves explicitly supplied metadata', async () => {
+  const ctx = runnerCtx(), base = readRunnerModels(ctx, 'codex');
+  await saveRunnerModels(ctx, {id: 'codex', expectedRevision: base.revision, default: 'a',
+    models: [{id: 'a', tier: 'small', strengths: [], tools: false, context: 32000}, {id: 'b', tier: 'medium', strengths: ['review']}]});
+  const text = readFileSync(join(ctx.pacerHome, 'strategy.yaml'), 'utf8');
+  expect(text).not.toContain('strengths: []');
+  expect(text.match(/strengths:/g)).toHaveLength(1);
+  expect(loadStrategy(ctx).runners.codex.models).toMatchObject([{id: 'a', tools: false, context: 32000}, {id: 'b', strengths: ['review']}]);
+});
+
+for (const concurrentEdit of [false, true]) {
+  test(`provider listing runs outside the settings lock (concurrent edit: ${concurrentEdit})`, async () => {
+    const ctx = runnerCtx(), path = join(ctx.pacerHome, 'strategy.yaml');
+    writeFileSync(path, `planner: claude-code
+accounts:
+  claude: {kind: claude}
+  go: {kind: endpoint, source: opencode, provider: acme, usage: unmetered}
+runners:
+  opencode#go: {model: acme/a}
+`);
+    const base = readRunnerModels(ctx, 'opencode#go');
+    let probed = false;
+    ctx.run = async () => {
+      probed = true;
+      expect(existsSync(join(ctx.pacerHome, 'orca', 'executor-settings.lock'))).toBe(false);
+      if (concurrentEdit) writeFileSync(path, readFileSync(path, 'utf8') + '\n# concurrent edit\n');
+      return {code: 0, stdout: 'acme/a\n', stderr: ''};
+    };
+    const saving = saveRunnerModels(ctx, {id: 'opencode#go', expectedRevision: base.revision, default: 'acme/a', models: [{id: 'acme/a', tier: 'small'}]});
+    if (concurrentEdit) {
+      await expect(saving).rejects.toMatchObject({code: 'conflict'});
+      expect(readFileSync(path, 'utf8')).not.toContain('models:');
+    } else expect((await saving).models).toMatchObject([{id: 'acme/a', tier: 'small'}]);
+    expect(probed).toBe(true);
+  });
+}

@@ -39,6 +39,10 @@ export function readRunnerModels(ctx: Ctx, runner: string): RunnerModels {
 
 /** Validate and save the default model and allowed tiered models in one revision-checked edit under the executor-settings CAS lock. */
 export async function saveRunnerModels(ctx: Ctx, input: { id: string; expectedRevision: string; default: string; models: ModelDeclaration[] }): Promise<RunnerModels & {warnings: string[]}> {
+  // Probing a provider can be slow; the CAS check below covers changes while it runs.
+  const before = loadStrategy(ctx), resolved = resolveRunner(before, input.id);
+  if (!resolved) throw new CoreError("invalid_input", `unknown runner ${input.id}`);
+  const list = await availableModels(ctx, resolved.id);
   return await withLock(ctx, "executor-settings", async () => {
     const path = strategyPath(ctx), text = readFileSync(path, "utf8"), s = loadStrategy(ctx);
     if (input.expectedRevision !== strategyRevision(text)) throw new CoreError("conflict", "Executor settings changed elsewhere.", "Reload saved settings, then reapply your changes.");
@@ -48,12 +52,11 @@ export async function saveRunnerModels(ctx: Ctx, input: { id: string; expectedRe
     if (isPlannerRunner(s, r)) throw new CoreError("not_allowed", "cannot edit the planner runner");
     const parsed = modelDeclarationSchema.array().max(256).safeParse(input.models);
     if (!parsed.success) throw new CoreError("invalid_input", "models must be valid model declarations (id, tier, optional strengths).");
-    const models = parsed.data;
+    const models = parsed.data.map(({strengths, ...model}) => strengths.length ? {...model, strengths} : model);
     if (new Set(models.map(m => m.id)).size !== models.length) throw new CoreError("invalid_input", "duplicate models");
     if (models.length && !models.some(m => m.id === input.default)) throw new CoreError("invalid_input", `default must be one of models: ${models.map(m => m.id).join(", ")}`);
     // Every saved id is checked against the live listing: an absent model from a known
     // listing is refused with the closest offers; an unknown listing only warns.
-    const list = await availableModels(ctx, r.id);
     const warnings: string[] = [];
     for (const mid of models.length ? models.map(m => m.id) : [input.default]) {
       const offered = isOffered(list, mid);

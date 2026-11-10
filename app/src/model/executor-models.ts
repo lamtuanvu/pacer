@@ -21,7 +21,7 @@ export function suggestTier(model: AvailableModel): "small" | "medium" | "fronti
   return model.costOut == null ? null : model.costOut < 1 ? "small" : model.costOut < 5 ? "medium" : "frontier";
 }
 export const tierLabels = { small: "Small", medium: "Medium", frontier: "Frontier", unknown: "Unrated" };
-export type ModelsEdit = { type: "add" | "remove" | "default"; id: string } | { type: "tier"; id: string; tier: ModelDeclaration["tier"] };
+export type ModelsEdit = { type: "replace"; id: string; with: string } | { type: "add" | "remove" | "default"; id: string } | { type: "tier"; id: string; tier: ModelDeclaration["tier"] };
 /** Edit only the local draft, preserving metadata and the revision used for the eventual save. */
 export function editModels(draft: RunnerModels, edit: ModelsEdit): RunnerModels {
   const exists = draft.models.some(m => m.id === edit.id);
@@ -36,6 +36,12 @@ export function editModels(draft: RunnerModels, edit: ModelsEdit): RunnerModels 
     return { ...draft, default: draft.default || edit.id, models };
   }
   if (!exists) return draft;
+  if (edit.type === "replace") {
+    const replacement = edit.with.trim();
+    if (!replacement || draft.models.some(m => m.id === replacement)) return draft;
+    return { ...draft, default: draft.default === edit.id ? replacement : draft.default,
+      models: draft.models.map(m => m.id === edit.id ? { ...m, id: replacement } : m) };
+  }
   if (edit.type === "default") return { ...draft, default: edit.id };
   if (edit.type === "tier") return { ...draft, models: draft.models.map(m => m.id === edit.id ? { ...m, tier: edit.tier } : m) };
   const models = draft.models.filter(m => m.id !== edit.id);
