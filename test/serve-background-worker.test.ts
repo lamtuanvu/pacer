@@ -50,7 +50,7 @@ test("periodic loops run in the background worker", async () => {
     await waitFor(() => !!readDiag(ctx)?.loops?.pump?.at);
     await waitFor(() => outboxHasTask(ctx));
     expect(server.backgroundWorker()).toBeDefined();
-  } finally { server.stop(); }
+  } finally { await server.stop(); }
 });
 
 test("a blocked worker tick does not delay /health or a task.get", async () => {
@@ -80,7 +80,7 @@ test("a blocked worker tick does not delay /health or a task.get", async () => {
     expect(got.status).toBe(200);
     expect((await got.json()).result?.id).toBeDefined();
     expect(performance.now() - started).toBeLessThan(700);
-  } finally { server.stop(); }
+  } finally { await server.stop(); }
 });
 
 test("the worker restarts after it dies and diagnostics show it", async () => {
@@ -100,7 +100,7 @@ test("the worker restarts after it dies and diagnostics show it", async () => {
     // A fresh start resets the silence clock: lastHeartbeatAt is stamped at start,
     // not only on the first heartbeat (so a silent worker is detected promptly).
     expect(Date.now() - (diag.lastHeartbeatAt ?? 0)).toBeLessThan(5000);
-  } finally { server.stop(); }
+  } finally { await server.stop(); }
 });
 
 test("a worker that stops heartbeating is restarted by silent-tick counting", async () => {
@@ -117,7 +117,7 @@ test("a worker that stops heartbeating is restarted by silent-tick counting", as
       return d !== null && (d.restarts ?? 0) >= 1 && (d.lastError ?? "").includes("went silent");
     }, 8000);
     expect(readDiag(ctx)!.restarts).toBeGreaterThanOrEqual(1);
-  } finally { server.stop(); }
+  } finally { await server.stop(); }
 });
 
 test("the worker stops gracefully and closes itself on a stop message", async () => {
@@ -159,7 +159,7 @@ test("the usage loop runs in the worker and the main thread stays healthy", asyn
     const res = await fetch(`http://127.0.0.1:${server.port}/health`, {
       headers: { Authorization: `Bearer ${server.token}` }, signal: AbortSignal.timeout(1000) });
     expect(res.status).toBe(200);
-  } finally { server.stop(); }
+  } finally { await server.stop(); }
 });
 
 test("SSE wakes on a worker publish", async () => {
@@ -187,5 +187,34 @@ test("SSE wakes on a worker publish", async () => {
     }
     reader.cancel();
     expect(sawTask).toBe(true);
-  } finally { server.stop(); }
+  } finally { await server.stop(); }
+});
+test("server stop waits for worker close and persists stopped diagnostics", async () => {
+  const ctx = fakeCtx({ which: () => null });
+  const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true, pumpMs: 0 });
+  try {
+    await waitFor(() => readDiag(ctx)?.state === "running");
+    const worker = server.backgroundWorker()!;
+    let closed = false;
+    worker.addEventListener("close", () => { closed = true; });
+    await server.stop();
+    expect(closed).toBe(true);
+    expect(readDiag(ctx)?.state).toBe("stopped");
+  } finally { await server.stop(); }
+});
+
+test("server stop bounds an unresponsive worker by the grace period", async () => {
+  const ctx = fakeCtx({ which: () => null });
+  const server = startServer(() => ctx, { port: 0, listener: false, backgroundWorker: true,
+    pumpMs: 0, bgStopGraceMs: 100 });
+  try {
+    await waitFor(() => readDiag(ctx)?.state === "running");
+    // Drop the stop request to simulate a worker that cannot handle messages.
+    server.backgroundWorker()!.postMessage = () => {};
+    const started = performance.now();
+    await server.stop();
+    expect(performance.now() - started).toBeGreaterThanOrEqual(90);
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(readDiag(ctx)?.state).toBe("stopped");
+  } finally { await server.stop(); }
 });

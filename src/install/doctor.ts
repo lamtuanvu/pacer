@@ -166,8 +166,7 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     const bg = readJson<{ state?: string; restarts?: number; lastError?: string | null; lastHeartbeatAt?: number }>(join(ctx.pacerHome, "state", "background-worker.json"));
     if (bg && typeof bg.state === "string") {
       const healthy = bg.state === "running";
-      const when = bg.lastHeartbeatAt ? new Date(bg.lastHeartbeatAt).toISOString() : "never";
-      const detail = `state: ${bg.state}; restarts: ${bg.restarts ?? 0}; last error: ${bg.lastError ?? "none"}; last heartbeat: ${when}`;
+      const detail = `state: ${bg.state}; restarts: ${bg.restarts ?? 0}; last error: ${bg.lastError ?? "none"}`;
       checks.push({ name: "Background worker", level: healthy ? "ok" : "warn", detail });
     }
   } catch { /* no background worker reported yet */ }
