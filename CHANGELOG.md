@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in load-aware executor selection: `pacing.balance: least-loaded` starts each task on the least-loaded executor (running tasks over its `max_tasks`) among those equally acceptable on budget, so parallel work spreads across executors instead of filling the first one before spilling over. Budget tiers (expiring, normal, near-limit, ahead, uncertain; cheap-before-metered under `cheapest-first`; `accounts: fill`) are never crossed, an explicitly requested executor still wins, and `pacer route` / `dispatch.explain` show each candidate's load. The default `off` keeps today's order. See [the design](docs/specs/2026-11-10-load-aware-executor-balance-design.md).
+
 ### Changed
 
 - With the native plugin owner on, a refused first result chunk now ends the plugin call, as it does with the owner off: the plugin can no longer fall back to a plain result after any chunk attempt, the owner's own refusals are reported as pacer's errors rather than the plugin's, and a chunk that belongs to another call is refused without ending the current one.
