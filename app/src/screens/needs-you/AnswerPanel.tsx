@@ -1,5 +1,6 @@
+import { workActionRequestId } from "../../../../src/work/action-id";
 import { useWorkspaceKey, useWorkspaceState } from '../../workspace/state';
-import { useState } from "preact/hooks";
+import { useId, useState } from "preact/hooks";
 import type { TaskDetail } from "../../../../src/core/task-detail";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { durationWords } from "../../../../src/view-model/time";
@@ -8,22 +9,26 @@ import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { Checkbox, TextArea } from "../../ds/Controls";
 import { SideDialog } from "../../ds/SideDialog";
 import { useOutputTail } from "./output-tail";
-import { ErrorMessage, useAction, useQuery } from "../task-shared";
+import { ErrorMessage, useAction, useQuery, useTaskContext } from "../task-shared";
 
 export function AnswerPanel({ id, close }: { id: string; close: () => void }) {
+  const { state } = useTaskContext();
   const { data: task, loading, error } = useQuery<TaskDetail>("task.get", { id });
   const log = useOutputTail(id);
   const action = useAction(), [text, setText] = useWorkspaceState(useWorkspaceKey(id), "draft:answer", "");
   const agent = markAgent(task?.executor ?? "codex"), name = agentInfo(agent).name;
   const question = task?.question as (NonNullable<TaskDetail["question"]> & { options?: string[] }) | undefined;
   const available = task?.state === "needs_input" && question && question.answer === undefined && !task.retriedBy;
+  const supported = !task?.work || state.features.ops.has("dispatch.answer");
+  const reasonId = useId();
+  const unavailableReason = action.unavailable ?? (!supported ? "This service does not support this action. Open the task to continue." : undefined);
   const session = `#/workspace?task=${encodeURIComponent(id)}&panel=session&tab=answer`;
   const send = () => {
-    if (!text.trim() || text.length > 2000 || !available || action.busy) return;
-    void action.run("task.answer", { id, text: text.trim(), expect_rev: task.rev }, () => { setText(""); close(); });
+    if (!text.trim() || text.length > 2000 || !available || !supported || action.busy) return;
+    void action.run(task.work ? "dispatch.answer" : "task.answer", { id, text: text.trim(), expect_rev: task.rev, ...(task.work ? { requestId: workActionRequestId(id, task.rev, "answer") } : {}) }, () => { setText(""); close(); });
   };
-  return <SideDialog title={`${name} asks`} mark={<AgentMark agent={agent} size={20} labelled={false} />} close={close} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); send(); } }} footer={<>
-    <span className="ny-cap ny-resume">{name} resumes on send · ⌘↵</span><ButtonLink href={session}>Answer in workspace</ButtonLink><Button variant="primary" busy={action.busy} onClick={send} disabled={!!action.unavailable || !available || !text.trim() || text.length > 2000} title={action.unavailable}>Send answer</Button>
+  return <SideDialog fallbackFocusId="main-content" title={`${name} asks`} mark={<AgentMark agent={agent} size={20} labelled={false} />} close={close} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); send(); } }} footer={<>
+    <span className="sr-only" role="status" aria-live="polite">{action.busy ? "Sending…" : ""}</span><div className={unavailableReason || action.error || action.message ? "ny-cap" : "ny-cap ny-resume"}><ErrorMessage error={action.error} />{action.message && <span role="status">{action.message}</span>}{unavailableReason ? <span id={reasonId}>{unavailableReason}</span> : !action.error && !action.message && `${name} resumes on send · ⌘↵`}</div><ButtonLink href={session}>Answer in workspace</ButtonLink><Button variant="primary" aria-busy={action.busy} aria-disabled={action.busy || !!action.unavailable || !available || !supported || !text.trim() || text.length > 2000} onClick={send} disabled={!!action.unavailable || !available || !supported || !text.trim() || text.length > 2000} aria-describedby={unavailableReason ? reasonId : undefined} title={unavailableReason}>{action.busy ? "Sending…" : "Send answer"}</Button>
   </>}>
     {loading && <span role="status">Loading question…</span>}<ErrorMessage error={error} />
     {task && <>
@@ -33,6 +38,5 @@ export function AnswerPanel({ id, close }: { id: string; close: () => void }) {
       {!!question?.options?.length && <div className="ny-quick"><span className="ny-label">Quick answers</span><div className="ny-options">{question.options.map(option => <Button className="ny-chip" key={option} onClick={() => setText(option)}>{option}</Button>)}</div></div>}
       {available ? <><label className="ny-answer"><span className="ny-label">Your answer</span><TextArea rows={4} value={text} maxLength={2000} onInput={event => setText(event.currentTarget.value)} placeholder={`Answer in your own words. ${name} continues from here.`} /></label><div className="ny-heading"><Checkbox checked disabled label="Add this answer to the task's brief" /><span className="ny-cap">Answers are always included in the resumed task's brief.</span></div>{!text.trim() && <span className="ny-cap">Enter an answer to send.</span>}</> : <span role="status">This task is no longer waiting for an answer. Open its session to see what happened.</span>}
     </>}
-    {action.unavailable && <p className="muted">{action.unavailable}</p>}<ErrorMessage error={action.error} />{action.message && <span role="status">{action.message}</span>}
   </SideDialog>;
 }

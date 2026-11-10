@@ -261,3 +261,19 @@ test("work list rows show the checked-out branch read from the worktree HEAD, fo
  writeFileSync(join(gitDir,"HEAD"),"0123456789abcdef0123456789abcdef01234567\n");
  expect(listWork(ctx,{relation:"all"}).tasks.find(t=>t.id===task.id)!.branch).toBeNull();
 });
+
+test("emitted managed attention actions execute through Core and replay idempotently", async () => {
+ const {callOp}=await import("../src/api/ops");
+ const {apiTask}=await import("../src/api/read-model/tasks");
+ const {deriveItems}=await import("../src/attention/rules");
+ for(const state of ["failed","needs_input"] as const){
+  const {ctx,task}=root();
+  updateTask(ctx,task.id,t=>{t.state=state;if(state==="needs_input")t.question={text:"Which?",at:ctx.now};});
+  const item=deriveItems({now:ctx.now,tasks:[apiTask(ctx,readTask(ctx,task.id)!)],executors:[],accounts:[],planner:null,setup:{complete:true,open:0,items:[]},update:null,retryTarget:()=>null})[0]!;
+  const action=item.actions[0]!,params={...action.params,...(state==="needs_input"?{text:"Blue"}:{})};
+  let launches=0; const deps={spawnRunner:()=>{launches++;return 1;}};
+  const first=await callOp(ctx,action.op,params,deps);
+  const second=await callOp(ctx,action.op,params,deps);
+  expect(second).toEqual(first); expect(launches).toBe(1);
+ }
+});

@@ -39,7 +39,7 @@ export function serviceAct(ctx: ScreenCtx, action: Action, subject?: string): Ac
     const label = action.params.tab === "answer" ? "Open task" : action.label;
     return { label, effect: { type: "navigate", screen, ...(id ? { id } : {}), ...(section ? { section } : {}) } };
   }
-  if (action.op === "task.answer" && ctx.supports(action.op)) {
+  if ((action.op === "task.answer" || action.op === "dispatch.answer") && ctx.supports(action.op)) {
     return {label:action.label,effect:{type:"prompt",prompt:{title:"Answer the agent",label:subject??"Your answer",required:"Add an answer.",submit:text=>({type:"action",action:{...action,params:{...action.params,text}}})}}};
   }
   if (!ctx.supports(action.op)) return undefined;

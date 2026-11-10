@@ -632,12 +632,12 @@ review or failure page. Other next-step actions retain their existing panel beha
 
 ### SideDialog
 
-`SideDialog({ title, mark?, close, footer, children, onKeyDown? })` is the native
+`SideDialog({ title, mark?, close, footer, children, onKeyDown?, fallbackFocusId? })` is the native
 modal side panel used by Needs you → Answer. It is 480px wide on desktop and
 contained by the viewport on narrow screens, between the shared top and status
 bars. The header is 48px; body padding is 20px and content gap is 16px. Escape
 closes, Tab/Shift-Tab cycle through enabled controls, and closing restores the
-invoker's focus. The caller owns loading, error, question, answer and busy states.
+invoker's focus. When there is no focusable invoker, `fallbackFocusId` names a continuation target such as the main region. The caller owns loading, error, question, answer and busy states.
 The Answer board supplies provisional `answer-scrim`, `shadow-answer` and `radius-answer-chip` (99px) tokens. The panel follows the application-owned `--frame-top` and `--frame-status` layout offsets, whose values reference generated size tokens. This is
 original project code; no new upstream component is incorporated.
 

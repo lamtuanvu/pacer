@@ -21,7 +21,8 @@ import type { ResultPageProps } from "./LazyResultPage";
 export interface WorkResult { nodes: { taskId: string; parentId: string | null; review: {accepted: boolean} | null; waivedChildren: string[]; retryEligibility?: {allowed: boolean; reason?: string} }[] }
 export function useResultAction() {
   useTaskContext();
-  const runner = useActions(), inFlight = useRef(false);
+  const runner = useActions(), inFlight = useRef(false), mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
   async function run(op: string, params: Record<string, unknown>, done: (result: unknown) => void | Promise<void>) {
     if (inFlight.current) return;
@@ -29,10 +30,11 @@ export function useResultAction() {
     try {
       const key = `result:${op}:${JSON.stringify(params)}`;
       const outcome = await runner.run(key, {label: "Update task", op, params});
+      if (!mounted.current) return;
       if (outcome.status === "done") await done(runner.result(key));
       else if (outcome.status === "error" || outcome.status === "handled") setError(new Error(outcome.message));
-    } catch (error) { setError(error); }
-    finally { inFlight.current = false; setBusy(false); }
+    } catch (error) { if (mounted.current) setError(error); }
+    finally { inFlight.current = false; if (mounted.current) setBusy(false); }
   }
   return {run, busy, error, unavailable: runner?.unavailable()};
 }

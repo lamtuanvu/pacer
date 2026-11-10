@@ -4,12 +4,12 @@ import { cycleDialogFocus } from "./Dialog";
 import { Button } from "./Button";
 
 /** A native modal side panel; Escape closes, Tab cycles, and focus returns to its invoker. */
-export function SideDialog({ title, mark, close, footer, children, onKeyDown }: { title: string; mark?: ComponentChildren; close: () => void; footer: ComponentChildren; children: ComponentChildren; onKeyDown?: JSX.KeyboardEventHandler<HTMLDialogElement> }) {
+export function SideDialog({ title, mark, close, footer, children, onKeyDown, fallbackFocusId }: { title: string; mark?: ComponentChildren; close: () => void; footer: ComponentChildren; children: ComponentChildren; onKeyDown?: JSX.KeyboardEventHandler<HTMLDialogElement>; fallbackFocusId?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
     const dialog = ref.current!, invoking = document.activeElement as HTMLElement | null;
     dialog.showModal();
-    return () => { dialog.close(); if (invoking?.isConnected) invoking.focus(); };
+    return () => { dialog.close(); if (invoking?.isConnected && invoking !== dialog.ownerDocument.body) invoking.focus(); else if (fallbackFocusId) dialog.ownerDocument.getElementById(fallbackFocusId)?.focus(); };
   }, []);
   return <dialog ref={ref} className="pc-side-dialog" aria-label={title} tabIndex={-1} onCancel={event => { event.preventDefault(); close(); }} onKeyDown={event => { cycleDialogFocus(event.currentTarget, event); onKeyDown?.(event); }}>
     <header className="pc-side-dialog__header">{mark}<h2>{title}</h2><Button variant="quiet" size="sm" aria-label="Close" onClick={close}>×</Button></header>

@@ -148,3 +148,12 @@ test("review counts count decisions, not failing requested tasks",()=>{
  const items=deriveTaskItems({...input(),tasks:[t]});
  expect(buildCounts([t],[],input().setup,[],items)).toMatchObject({attention:1,problems:1,review:0});
 });
+
+test("managed work actions use revision-scoped dispatch requests", () => {
+ for (const state of ["failed", "limit"] as const) {
+  const t = {...task(state), rev: 7, work: {rootId:"root",parentId:null,depth:0}};
+  expect(deriveItems({...input(),tasks:[t],retryTarget:()=>"cursor#cursor"})[0]?.actions[0]).toEqual({label:"Retry",op:"dispatch.retry",params:{id:t.id,expect_rev:7,requestId:`${t.id}.7.retry`}});
+ }
+ const t = {...task("needs_input"),rev:8,work:{rootId:"root",parentId:null,depth:0},question:{text:"Question?",at:ctx.now}};
+ expect(deriveItems({...input(),tasks:[t]})[0]?.actions[0]).toEqual({label:"Answer",op:"dispatch.answer",params:{id:t.id,expect_rev:8,requestId:`${t.id}.8.answer`}});
+});

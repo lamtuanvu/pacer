@@ -52,6 +52,9 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
   if(a.id==="setup:connect"||isDiscoveryItemId(a.id))return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
   const item=setup.items.find(i=>`setup:${i.id}`===id);
+  const compatibleAction = (action: typeof a.actions[number]) => action.op === "dispatch.retry" || action.op === "dispatch.answer"
+   ? {...action,op:"ui.open",params:{view:"task",id:action.params.id,...(action.op === "dispatch.answer" ? {tab:"answer"} : {})}} : action;
+  a = {...a,actions:a.actions.map(compatibleAction)};
   if(!item)return [a]; // Plugin reload notices are independent of the checklist.
   if(item.status==="done")return [];
   return [{...a,id,title:item.title,actions:a.actions.map(action=>action.op==="ui.open"?{...action,params:{...action.params,section:item.id}}:action)}];

@@ -5,7 +5,7 @@ import { emptySnapshot } from "../src/link/envelope";
 import type { ClientSnapshot, ClientTask } from "../src/view-model/snapshot";
 import type { ExecutorRow } from "../src/api/read-model/types";
 import { initialState, reduceStore } from "../app/src/data/store";
-import { createApi } from "../app/src/data/api";
+import { createApi, type BrowserApi } from "../app/src/data/api";
 import { Tray, moveFocus, performAction } from "../app/src/tray/Tray";
 import { createTrayIpc } from "../app/src/tray/ipc";
 import { actionRoute, executorValue, resetCaption, shortTitle, trayModel } from "../app/src/tray/model";
@@ -541,4 +541,29 @@ test("a failed row action's message clears when its attention item disappears", 
   expect(visibleFailure(failure, undefined)).toBe("");
   expect(visibleFailure({ message: "Hide failed" }, [])).toBe("Hide failed");
   expect(visibleFailure(null, [{ id: "message:t-1" }])).toBe("");
+});
+
+test("managed attention routes answers and dispatches retries with their revision", async () => {
+ const calls: unknown[] = [], routes: string[] = [];
+ const api = { call: async (op: string, params: unknown) => { calls.push({op,params}); return {}; } } as unknown as BrowserApi;
+ const native = {...ipc, open: async (route: string) => { routes.push(route); }};
+ const params = {id:"managed",expect_rev:4,requestId:"managed.4.retry"};
+ await expect(performAction({label:"Retry",op:"dispatch.retry",params},api,native)).rejects.toThrow("does not support");
+ await performAction({label:"Retry",op:"dispatch.retry",params},api,native,new Set(["dispatch.retry"]));
+ await expect(performAction({label:"Answer",op:"dispatch.answer",params:{id:"managed",expect_rev:4,requestId:"managed.4.answer"}},api,native)).rejects.toThrow("does not support");
+ await performAction({label:"Answer",op:"dispatch.answer",params:{id:"managed",expect_rev:4,requestId:"managed.4.answer"}},api,native,new Set(["dispatch.answer"]));
+ expect(calls).toEqual([{op:"dispatch.retry",params}]);
+ expect(routes).toEqual(["/needs-you?answer=managed"]);
+});
+
+
+test("tray substitutes task navigation for unsupported managed actions", () => {
+ for (const kind of ["retry","answer"] as const) {
+ const snap=fixture();
+ snap.attention=[{...snap.attention![0]!,actions:[{label:kind === "retry" ? "Retry" : "Answer",op:`dispatch.${kind}`,params:{id:"task-0",expect_rev:1,requestId:`task-0.1.${kind}`}}]}];
+ const disabled=renderToString(<Tray snapshot={snap} api={api} ipc={ipc} ops={new Set()} />);
+ const enabled=renderToString(<Tray snapshot={snap} api={api} ipc={ipc} ops={new Set([`dispatch.${kind}`])} />);
+ expect(section(disabled,"Needs you")).toContain("Open task");
+ expect(section(enabled,"Needs you")).toContain(kind === "retry" ? "Retry" : "Answer");
+ }
 });

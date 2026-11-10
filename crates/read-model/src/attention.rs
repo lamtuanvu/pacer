@@ -145,10 +145,8 @@ pub fn raised(
                 vec![
                     action(
                         "Answer",
-                        "task.answer",
-                        json!({
-                        "id":id}
-                        ),
+                        if truth(&t["work"]) { "dispatch.answer" } else { "task.answer" },
+                        if truth(&t["work"]) { json!({"id":id,"expect_rev":t["rev"],"requestId":format!("{}.{}.answer",id,t["rev"])}) } else { json!({"id":id}) },
                     ),
                     stop,
                 ],
@@ -194,6 +192,7 @@ pub fn raised(
                 .iter()
                 .any(|key| truth(&t[key]))
         {
+            let managed = truth(&t["work"]);
             let target = executors.iter().find(|e| {
                 e["id"] != t["executor"]
                     && e["enabled"] == true
@@ -201,16 +200,19 @@ pub fn raised(
                     && e["state"] == "ready"
                     && num(&e["slots"]["used"]) < num(&e["slots"]["max"])
             });
-            let mut params = json!({
-            "id":id}
-            );
+            let target = if managed { None } else { target };
+            let mut params = if managed {
+                json!({"id":id,"expect_rev":t["rev"],"requestId":format!("{}.{}.retry",id,t["rev"])})
+            } else {
+                json!({"id":id})
+            };
             let label = target.map_or("Retry".into(), |e| {
                 format!("Retry on {}", capacity::display(text(&e["id"])))
             });
             if let Some(e) = target {
                 params["executor"] = e["id"].clone();
             }
-            let detail = if target.is_some() {
+            let detail = if managed || target.is_some() {
                 format!(
                     "{} {}",
                     capacity::display(text(&t["executor"])),
@@ -229,7 +231,15 @@ pub fn raised(
                 title,
                 &detail,
                 vec![
-                    action(&label, "task.retry", params),
+                    action(
+                        &label,
+                        if managed {
+                            "dispatch.retry"
+                        } else {
+                            "task.retry"
+                        },
+                        params,
+                    ),
                     open(
                         "See error",
                         json!({
@@ -498,4 +508,28 @@ pub fn raised(
         }
     }
     items
+}
+
+#[cfg(test)]
+mod managed_action_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn managed_and_ordinary_attention_actions_preserve_protocol() {
+        let dir = tempfile::tempdir().unwrap();
+        let ctx = Ctx::with(dir.path().into(), dir.path().join("home"), HashMap::new(), 100.0);
+        for state in ["failed", "limit", "needs_input"] {
+            for managed in [false, true] {
+                let mut task = json!({"id":"t-1","title":"Task","state":state,"rev":7,"updatedAt":10,"executor":"codex","question":{"text":"Which?","at":5}});
+                if managed { task["work"] = json!({"rootId":"t-1","depth":0}); }
+                let items = raised(&ctx, &[task], &[], &[], &json!({"items":[]}), &Value::Null, false);
+                let action = &items[0]["actions"][0];
+                let kind = if state == "needs_input" { "answer" } else { "retry" };
+                assert_eq!(action["op"], format!("{}.{}", if managed {"dispatch"} else {"task"}, kind));
+                if managed { assert_eq!(action["params"], json!({"id":"t-1","expect_rev":7,"requestId":format!("t-1.7.{kind}")})); }
+                else { assert_eq!(action["params"], json!({"id":"t-1"})); }
+            }
+        }
+    }
 }

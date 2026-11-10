@@ -570,3 +570,12 @@ test("first run detection never invents installed agents", () => {
   expect(renderToString(<FirstRun query={{ repo: null, scope: null }} />)).not.toContain("Looking for agent CLIs");
   expect(renderToString(<FirstRun query={{ repo: null, scope: null }} error={new Error("Detection failed")} retry={() => {}} />)).toContain("Check again");
 });
+
+
+test("standalone attention offers retry only when advertised", () => {
+ const item={...snap.attention![0]!,kind:"failed" as const,taskId:snap.tasks[0]!.id,actions:[{label:"Retry",op:"dispatch.retry",params:{id:snap.tasks[0]!.id,expect_rev:1,requestId:"retry"}}]};
+ const current={...snap,attention:[item]};
+ const draw=(ops:Set<string>)=>renderToString(<NeedsYouList snapshot={current} scope={{repo:null}} runner={runner} now={snap.at} query={{repo:null,scope:null}} narrow={false} standalone ops={ops}/>);
+ expect(draw(new Set())).toContain(">Open task</a>");
+ expect(draw(new Set(["dispatch.retry"]))).toContain(">Retry</button>");
+});
