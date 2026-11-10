@@ -524,6 +524,26 @@ test("a reply the waiting live session cannot accept is an error: the question s
   expect(session.input).toHaveLength(0);
 });
 
+test("retrying a refused answer with the same request id types it once the desktop lets go", async () => {
+  const { ctx, id, question, session } = await questionRun();
+  const app = await viewer(session, { label: "Pacer desktop", client: "app" });
+  await app.take();
+  const send = () => sendMessage(ctx, { to: `task:${id}`, body: REPLY, kind: "answer", replyTo: question.id, requestId: "answer-retry" }, { participant: "human" });
+  expect(await send().then(() => null, (e: unknown) => e as Error)).toBeInstanceOf(Error);
+  for (const c of clients.splice(0)) c.destroy();
+  await Bun.sleep(50);
+  const r = await send();
+  expect(r.duplicate).toBe(true);
+  expect(r.delivery).toBe("live");
+  expect(readTask(ctx, id)!.question?.answer).toBe(REPLY);
+  expect(Buffer.concat(session.input).toString().split(REPLY)).toHaveLength(2);
+  // A further retry of the delivered answer types nothing more.
+  const typed = session.input.length;
+  expect((await send()).delivery).toBe("queued");
+  await liveTick(ctx, readTask(ctx, id)!, readTask(ctx, id)!.run!, state(), deps);
+  expect(session.input).toHaveLength(typed);
+});
+
 const AMBIGUOUS = { modern: true, timing: { quietMs: 30, windowMs: 1000, timeoutMs: 200, maxWindowMs: 60 } } as const;
 
 test("an answer whose live delivery fails after input was typed is an error: no live result, the answer stays reserved and is never retyped", async () => {

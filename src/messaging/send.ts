@@ -77,9 +77,9 @@ const isTaskQuestion = (task: TaskRecord, question: Message) =>
  * Answer the question a live run waits on, as pacer answer does: the answer is reserved on the task's question
  * and typed into the running session, and the answer message is marked read so no later turn or live poll
  * delivers it again. The message is read before typing: while the answer is reserved the answer message may
- * not be claimed elsewhere, and a possibly-typed failure keeps it read. A failure that reserved nothing puts
- * it back to pending. A delivery that typed nothing while the session still waits rethrows — the caller must
- * never report it delivered. When the task moved on beneath the send (another answer, or its run changed),
+ * not be claimed elsewhere, and a possibly-typed failure keeps it read. A delivery that typed nothing while the
+ * session still waits rethrows and keeps it read, so only the caller's retry (same request id) delivers it — the
+ * caller must never report it delivered. When the task moved on beneath the send (another answer, or its run changed),
  * returns false and the ordinary delivery below decides from the task as it is now.
  */
 async function deliverLiveAnswer(ctx: Ctx, m: Message, target: string): Promise<boolean> {
@@ -130,6 +130,11 @@ async function duplicate(ctx: Ctx, prior: Message & { fingerprint: string | null
   if (message.status === "held") return { message, duplicate: true, delivery: "held" };
   // The first delivery never started a turn (project policy may have held it): try again, answering the question as a first send does.
   if (message.status === "pending") {
+    const { delivery, hold } = await deliverMessage(ctx, message, deps);
+    return { message, duplicate: true, delivery, ...(hold ? { hold } : {}) };
+  }
+  // A refused live answer stays read while its question stays open: a retry of the same request delivers it again.
+  if (message.kind === "answer" && message.replyTo && directAnswerTarget(ctx, message)) {
     const { delivery, hold } = await deliverMessage(ctx, message, deps);
     return { message, duplicate: true, delivery, ...(hold ? { hold } : {}) };
   }
