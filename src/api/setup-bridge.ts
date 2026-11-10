@@ -7,8 +7,9 @@ import type { OpDeps } from "./ops";
 
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 
-/** Native strategy.build and executor.setup.candidates: Core renders live status, opens the strategy terminal from the
- * prompt file Rust wrote (never a caller-supplied command) and probes the fixed local model servers through the endpoint plugin. */
+/** Native strategy.build, executor.setup.candidates and setup.init: Core renders live status, opens the strategy terminal
+ * from the prompt file Rust wrote (never a caller-supplied command), probes the fixed local model servers through the
+ * endpoint plugin and asks the Ollama server at OLLAMA_HOST for its first model with the same fetch `pacer init` uses. */
 export async function setupEffectsBridge(ctx: Ctx, request: unknown, deps: OpDeps = {}): Promise<unknown> {
   const r = request && typeof request === "object" && !Array.isArray(request) ? request as Record<string, unknown> : {};
   if (r.kind === "status_text") {
@@ -25,6 +26,10 @@ export async function setupEffectsBridge(ctx: Ctx, request: unknown, deps: OpDep
     const open = deps.openTerminal ?? deps.openInTerminal ?? openInTerminal;
     return withWork(ctx, { kind: "operation", id: "strategy-build", label: "Opening strategy planning session" },
       () => open(ctx, r.builtin === true ? { ...options, target: "builtin", requestId } : options));
+  }
+  if (r.kind === "ollama_model" && Object.keys(r).length === 1) {
+    const { ollamaModel } = await import("../install/init");
+    return { model: await ollamaModel(ctx) };
   }
   if (r.kind === "discover" && Array.isArray(r.baseUrls)) {
     const [{ discoverEndpointModels }, { localServers }] = await Promise.all([import("../plugins/endpoint-adapter"), import("../endpoints/detect")]);

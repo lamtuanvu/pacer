@@ -99,3 +99,16 @@ test("uncompiled runs take both local server ports from PACER_TEST_LOCAL_SERVER_
   await expect(setupEffectsBridge(ctx, {kind: "discover", baseUrls: fixed})).rejects.toMatchObject({code: "invalid_input"});
 });
 
+test("the ollama_model setup effect runs pacer init's OLLAMA_HOST fetch and takes no other input", async () => {
+  const server = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: req => {
+    const url = new URL(req.url);
+    return url.pathname === "/api/tags" && url.search === "?token=abc" ? Response.json({models: [{name: ""}, {name: "q:1"}]}) : new Response("no", {status: 401});
+  }});
+  try {
+    const model = (host: string) => setupEffectsBridge(fakeCtx({env: {OLLAMA_HOST: host}}), {kind: "ollama_model"});
+    expect(await model(`127.0.0.1:${server.port}/ignored?token=abc#f`)).toEqual({model: "q:1"});
+    expect(await model(`http://127.0.0.1:${server.port}`)).toEqual({model: null});
+    await expect(setupEffectsBridge(fakeCtx({env: {OLLAMA_HOST: `127.0.0.1:${server.port}?token=abc`}}), {kind: "ollama_model", host: "x"}))
+      .rejects.toMatchObject({code: "invalid_input"});
+  } finally { server.stop(true); }
+});

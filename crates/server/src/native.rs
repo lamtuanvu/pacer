@@ -446,7 +446,7 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "setup.init",
-        call: pacer_config_ops::setup_init_ops::setup_init,
+        call: pacer_config_ops::setup_effects::effects_stub,
     },
     NativeOp {
         name: "repo.list",

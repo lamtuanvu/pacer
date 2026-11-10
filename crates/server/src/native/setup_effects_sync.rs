@@ -1,4 +1,4 @@
-//! Core effects bridge transports for `strategy.build` and `executor.setup.candidates`.
+//! Core effects bridge transports for `strategy.build`, `executor.setup.candidates` and `setup.init`.
 use pacer_config_ops::setup_effects::SetupEffects;
 use pacer_foundation::api::OpFuture;
 use serde_json::{Value, json};

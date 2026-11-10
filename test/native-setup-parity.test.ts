@@ -162,6 +162,67 @@ test.skipIf(!front)("setup.init reads a chunked Ollama /api/tags response like f
   expect(events(homes[0]!)).toEqual(events(homes[1]!));
 }, 120000);
 
+// Answers only when the query OLLAMA_HOST carried reaches /api/tags.
+const queried: string[] = [];
+const tagsFor = (name: string) => (req: Request) => {
+  const url = new URL(req.url);
+  queried.push(`${name} ${url.pathname}${url.search}`);
+  return url.pathname === "/api/tags" && url.search === "?token=abc" ? Response.json({ models: [{ name: `${name}:1` }] }) : new Response("no", { status: 401 });
+};
+const query = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: tagsFor("query") });
+afterAll(() => query.stop(true));
+let v6: ReturnType<typeof Bun.serve> | null = null;
+try { v6 = Bun.serve({ port: 0, hostname: "::1", fetch: tagsFor("v6") }); } catch { /* no IPv6 loopback */ }
+afterAll(() => v6?.stop(true));
+// Sends a complete Content-Length response and leaves the connection open.
+const keptOpen = Bun.listen<{ request: string }>({ hostname: "127.0.0.1", port: 0, socket: {
+  open(socket) { socket.data = { request: "" }; },
+  data(socket, data) {
+    socket.data.request += data.toString();
+    if (!socket.data.request.includes("\r\n\r\n")) return;
+    const json = JSON.stringify({ models: [{ name: "kept:1" }] });
+    socket.write(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(json)}\r\nConnection: keep-alive\r\n\r\n${json}`);
+  },
+} });
+afterAll(() => keptOpen.stop(true));
+const large = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ models: [{ name: "large:1" }], padding: "x".repeat(5 << 20) }) });
+afterAll(() => large.stop(true));
+
+test.skipIf(!front)("setup.init resolves every OLLAMA_HOST form like forced forwarding", async () => {
+  const forms: [string, string | null][] = [
+    [`127.0.0.1:${query.port}?token=abc`, "query:1"],
+    [`http://127.0.0.1:${query.port}/some/path?token=abc#frag`, "query:1"],
+    [`  HTTP://127.0.0.1:${query.port}/?token=abc  `, "query:1"],
+    [`http://127.0.0.1:${query.port}`, null],
+    [`127.0.0.1:${query.port}#?token=abc`, null],
+    [`http://user:pw@127.0.0.1:${query.port}?token=abc`, "query:1"],
+    [`http://127.0.0.1:${keptOpen.port}`, "kept:1"],
+    [`127.0.0.1:${large.port}`, "large:1"],
+    ...(v6 ? [[`http://[::1]:${v6.port}?token=abc`, "v6:1"], [`[::1]:${v6.port}?token=abc`, "v6:1"]] as [string, string][] : []),
+    [`https://127.0.0.1:${query.port}?token=abc`, null],
+    [`ftp://127.0.0.1:${query.port}?token=abc`, null],
+    ["http://127.0.0.1:notaport", null],
+    ["http://[::1", null],
+    [`127.0.0.1:${DEAD[0]}?token=abc`, null],
+  ];
+  const local = (value: unknown, dir: string) => JSON.parse(JSON.stringify(value).replaceAll(dir, "$HOME"));
+  const strategy = (dir: string) => readFileSync(join(dir, ".pacer", "strategy.yaml"), "utf8");
+  const write = requests([["setup.init", { planner: "codex" }]]);
+  for (const [host, model] of forms) {
+    const homes = [home(false), home(false)];
+    for (const dir of homes) for (const name of ["opencode", "ollama", "arkcli", "lms"]) bin(dir, name, "exit 1");
+    const env = { OLLAMA_HOST: host };
+    const before = queried.length;
+    const native = await exchange(homes[0]!, write, false, env);
+    const forwarded = await exchange(homes[1]!, write, true, env);
+    expect(local(native, homes[0]!), host).toEqual(local(forwarded, homes[1]!));
+    expect(strategy(homes[0]!), host).toEqual(strategy(homes[1]!));
+    expect(strategy(homes[0]!).match(/ollama\/[^\s",}]+/)?.[0] ?? null, host).toBe(model && `ollama/${model}`);
+    expect(events(homes[0]!), host).toEqual(events(homes[1]!));
+    if (host.includes(`:${query.port}`) && model) expect(queried.slice(before), host).toEqual(["query /api/tags?token=abc", "query /api/tags?token=abc"]);
+  }
+}, 300000);
+
 test.skipIf(!front)("strategy.build writes the same intent files, prompt and terminal hand-off as forced forwarding", async () => {
   const request_id = "00000000-0000-4000-8000-000000000001";
   const cases: [string, unknown][] = [
