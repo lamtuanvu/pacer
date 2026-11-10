@@ -429,7 +429,8 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   if (!["queued", "running"].includes(t.state) && !(t.state === "stopped" && handedOver)) return t;
   const id = t.id;
   if (t.state === "running" && t.executorProvider && t.stopPending && t.run &&
-    !t.startIntent) {
+    !t.startIntent && !t.childPid &&
+    !existsSync(`${t.run.dir}/pid`) && !existsSync(`${t.run.dir}/exit`)) {
     return withTaskLock(ctx, id, () => {
       const latest = readTask(ctx, id);
       if (!latest || latest.state !== "running" || !latest.stopPending ||
@@ -538,15 +539,19 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
           });
         });
       }
-      // A dead wrapper may leave its executor alive. Reap its owned group before settling
-      // without an exit record. An absent pid can still be an in-flight launch and stays pending.
-      if (observed.state === "uncertain" && (observed.pid !== null || expired())) {
+      // Without a matching launch intent, an ambiguous PID proves neither launch nor
+      // ownership. Keep it pending even after the cleanup deadline; never reap it.
+      const launched = (task: TaskRecord) => task.startIntent?.attempt === run.attempt &&
+        task.startIntent.providerId === owner && task.startIntent.dir === run.dir;
+      // A dead owned wrapper may leave its executor alive. An absent PID can still
+      // be an in-flight launch, so only the bounded cleanup deadline can settle it.
+      if (observed.state === "uncertain" && launched(started) && (observed.pid !== null || expired())) {
         const { stopOrphanedRun } = await import("../supervisor/orphan");
         const guard = () => {
           if (expired()) throw new Error("orphan cleanup deadline reached");
           const latest = readTask(ctx, id);
           const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
-          if (!latest || latest.executorProvider !== owner || latest.run?.startedAt !== run.startedAt ||
+          if (!latest || !launched(latest) || latest.executorProvider !== owner || latest.run?.startedAt !== run.startedAt ||
             latest.stopPending?.requestedAt !== intent.requestedAt ||
             latest.stopPending.attempt !== run.attempt || checked.pid !== observed.pid ||
             checked.state !== "uncertain") throw new Error("orphan stop owner changed");
@@ -564,7 +569,7 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
           const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
           // Between the outer observation and this lock the wrapper can still have recorded a
           // proper exit; the verified-exit settle above then owns the next tick's outcome.
-          if (checked.state !== "uncertain") return latest;
+          if (checked.state !== "uncertain" || !launched(latest)) return latest;
           return updateTask(ctx, id, current => {
             const deadline = current.stopPending?.reason === "deadline";
             // Preserve exact attempt ownership for retry, without claiming a verified exit.
