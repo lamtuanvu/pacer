@@ -27,8 +27,9 @@ test("publication files and existing link state are private", async () => {
     expect(statSync(path).mode & 0o777).toBe(mode);
 });
 test("outbox rotation keeps the last 1000 records", async () => {
-  const c = fakeCtx(); const entries = Array.from({ length: 1010 }, (_, i) => ({ seq: i + 1, envelope: { type: "alert" as const, data: { key: `k${i}`, level: "info" as const, title: "x".repeat(2000), body: "", at: i } } }));
-  const { appendOutbox } = await import("../src/link/store"); appendOutbox(c, entries); expect(readFileSync(outboxPath(c), "utf8").trim().split("\n")).toHaveLength(1000);
+  const { appendOutbox, OUTBOX_ROTATE_LINES } = await import("../src/link/store");
+  const c = fakeCtx(); const entries = Array.from({ length: OUTBOX_ROTATE_LINES + 10 }, (_, i) => ({ seq: i + 1, envelope: { type: "alert" as const, data: { key: `k${i}`, level: "info" as const, title: "x", body: "", at: i } } }));
+  appendOutbox(c, entries); expect(readFileSync(outboxPath(c), "utf8").trim().split("\n")).toHaveLength(1000);
   expect(statSync(outboxPath(c)).mode & 0o777).toBe(0o600);
 });
 test("stale rotation temp does not block publication or change the stale file", async () => {

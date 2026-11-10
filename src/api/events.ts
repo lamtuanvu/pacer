@@ -1,12 +1,12 @@
-import { V2_STATE, V2_EVENT, V2_PROTOCOL, V3_CURSOR_BASE, isDiscoveryItemId, toV2Snapshot, toV2Event, v3OnlyEvent, type CompatEvent } from "./v2-compat";
-import type { OutboxEvent } from "../link/envelope";
+import { V2_STATE, V2_EVENT, V2_PROTOCOL, V3_CURSOR_BASE, toV2Snapshot, toV2Event, v3OnlyEvent, type CompatEvent } from "./v2-compat";
 import type { SnapshotV3 } from "./read-model/types";
 import { buildPlanner } from "./read-model/capacity";
 import { fullTaskTitle, shortTitle } from "../core/short-title";
 import { plannerMode } from "../engine/mode";
 import { readHold } from "../core/mode-hold";
 import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
-import { currentSnapshot, readOutboxSince } from "../link/store";
+import { currentSnapshot } from "../link/store";
+import { replayOutbox } from "../link/outbox-index";
 import { toBudget } from "../link/budget";
 import { apiTasks, snapshotTasks } from "./read-model/tasks";
 import { buildReadModel, readModelContext } from "./read-model";
@@ -68,12 +68,10 @@ export async function liveSnapshot(
   return { protocol: PROTOCOL_VERSION, seq: result.seq, snapshot: result };
 }
 
-function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last: number; reset: boolean; discoveryOpen: Map<number, number> } {
-  const all = readOutboxSince(ctx, 0);
-  const discoveryOpen = openDiscoveryAtCounts(all);
-  const oldest = all[0]?.seq;
+function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last: number; reset: boolean; discoveryOpen: ReadonlyMap<number, number> } {
+  // Discovery counts and the oldest seq cover entries above 0 only, so an earlier cursor replays from 0.
+  const { entries: after, oldest, discoveryOpen } = replayOutbox(ctx, Math.max(0, since));
   const reset = since > 0 && oldest !== undefined && oldest > since + 1;
-  const after = all.filter((e) => e.seq > since);
   // Enrich task events in one batch, with the task's current unread messages: per-event apiTask re-reads every task file for repo
   // labels, which made a replay from cursor 0 O(events × tasks) and blocked the service.
   const ids = [...new Set(after.flatMap(e => e.envelope.type === "task" ? [e.envelope.data.id] : []))];
@@ -94,21 +92,6 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
     }),
   ];
   return { events, last: after.at(-1)?.seq ?? since, reset, discoveryOpen };
-}
-
-/**
- * For each counts entity in the outbox, how many discovery attention items were open then; v2 counts leave them out.
- * The open set is rebuilt from the retained outbox only, so once the item's raise is trimmed away the v2 counts over-report
- * by that item until the client fetches the next snapshot (N10). That is acceptable for a legacy client.
- */
-function openDiscoveryAtCounts(all: { seq: number; envelope: OutboxEvent }[]): Map<number, number> {
-  const open = new Set<string>(), at = new Map<number, number>();
-  for (const { seq, envelope: env } of all) {
-    if (env.type !== "entity") continue;
-    if (env.data.kind === "attention" && isDiscoveryItemId(env.data.id)) { if (env.data.removed) open.delete(env.data.id); else open.add(env.data.id); }
-    if (env.data.kind === "counts") at.set(seq, open.size);
-  }
-  return at;
 }
 
 
