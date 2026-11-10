@@ -35,7 +35,7 @@ export function readEvidence(ctx: Ctx, scope: EvidenceScope): EvidenceSnapshot {
 }
 export const evidenceRevision = (ctx: Ctx, scope: EvidenceScope): number => readEvidence(ctx, scope).revision;
 export async function mergeEvidence(ctx: Ctx, scope: EvidenceScope, incoming: AccountEvidence, budgetPolicy?: string): Promise<EvidenceSnapshot> {
-  const merge = async () => {
+  const merge = () => {
     const previous = readEvidence(ctx, scope);
     const accepted = emptyEvidence();
     for (const kind of ["availability", "budget", "spending"] as const) {
