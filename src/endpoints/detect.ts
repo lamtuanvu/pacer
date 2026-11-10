@@ -11,7 +11,7 @@ export type CandidateGroup = "signed_in" | "local" | "catalog";
 export interface Candidate { group: CandidateGroup; provider: string; name: string; added: string | null; usage: UsageClass; base_url?: string; models?: number }
 export interface Detection { candidates: Candidate[]; opencode: boolean; catalog: "fresh" | "stale" | "offline"; notes: string[] }
 declare const PACER_COMPONENT_BUILD_ID: string | undefined;
-const LOCAL_SERVERS = [
+export const LOCAL_SERVERS = [
   { provider: "ollama" as const, name: "Ollama", port: 11434 },
   { provider: "lmstudio" as const, name: "LM Studio", port: 1234 },
 ];

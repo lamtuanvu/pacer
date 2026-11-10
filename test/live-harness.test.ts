@@ -153,7 +153,7 @@ test("native test-ops fixtures set probe ports, a test Core entry and forwarded 
   expect(JSON.parse(env.PACER_CORE_ARGV!)).toEqual([process.execPath, join(import.meta.dir, "fixtures", "core-discover-plan.ts")]);
   expect(environmentScript(chosen)).toContain("export PACER_TEST_LOCAL_SERVER_PORTS='5001,5002'");
   expect(() => validateNativeFixtures({ localModelPorts: "5001,5002" }, false, false)).toThrow("require --native-test-ops");
-  for (const ports of ["4317,5002", "0,1", "1", "1,2,3", "70000,1", "a,b"]) expect(() => validateNativeFixtures({ localModelPorts: ports }, true, false)).toThrow("--local-model-ports");
+  for (const ports of ["4317,5002", "11434,5002", "5001,1234", "5001,5001", "0,1", "1", "1,2,3", "70000,1", "a,b"]) expect(() => validateNativeFixtures({ localModelPorts: ports }, true, false)).toThrow("--local-model-ports");
   for (const file of ["../cli.ts", "missing.ts", "core-discover-plan.js", "/abs.ts"]) expect(() => validateNativeFixtures({ coreFixture: file }, true, false)).toThrow("--core-fixture");
   expect(() => validateNativeFixtures({ nativeForwardOps: "test.echo" }, true, true)).toThrow("--native-forward-echo");
   expect(() => validateNativeFixtures({ nativeForwardOps: "a b" }, true, false)).toThrow("--native-forward-ops");
@@ -639,3 +639,28 @@ test.skipIf(!canBind)("proxy preserves refused WebSocket handshake statuses, hea
     }
   } finally { proxy.stop(true); for (const socket of sockets) socket.destroy(); upstream.close(); }
 }, 30000);
+
+
+test("local model fixture binds both ports and refuses an existing listener", async () => {
+  const occupied = createServer();
+  await new Promise<void>(resolve => occupied.listen(0, "127.0.0.1", resolve));
+  const address = occupied.address();
+  if (!address || typeof address === "string") throw Error("no port");
+  const free = await freePort();
+  const root = tmpDir();
+  const script = join(import.meta.dir, "../scripts/live/model-port-fixture.ts");
+  const failed = Bun.spawn([process.execPath, script, `${address.port},${free}`, join(root, "failed")], { stderr: "pipe" });
+  for (let i = 0; i < 100 && !existsSync(join(root, "failed.error")); i++) await Bun.sleep(20);
+  expect(existsSync(join(root, "failed.error"))).toBe(true);
+  expect(existsSync(join(root, "failed"))).toBe(false);
+  failed.kill(); await failed.exited;
+  await new Promise<void>(resolve => occupied.close(() => resolve()));
+  const child = Bun.spawn([process.execPath, script, `${address.port},${free}`, join(root, "ready")], { stderr: "pipe" });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    const contender = createServer();
+    const error = await new Promise<NodeJS.ErrnoException>(resolve => { contender.once("error", resolve); contender.listen(address.port, "127.0.0.1"); });
+    expect(error.code).toBe("EADDRINUSE");
+  } finally { child.kill(); await child.exited; }
+});

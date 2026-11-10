@@ -3,6 +3,7 @@ import { join, resolve, basename, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
+import { LOCAL_SERVERS } from "../../src/endpoints/detect";
 
 import { captureOwnedProcessGroup, stopOwnedProcessGroup, validOwnedProcessGroup, type OwnedProcessGroup } from "./process-group";
 import { sourceFingerprint, type SourceFingerprint } from "./control/fingerprint";
@@ -23,6 +24,9 @@ export interface Session {
   proxyIdentity?: ProcessIdentity;
   serviceGroup?: OwnedProcessGroup;
   proxyGroup?: OwnedProcessGroup;
+  modelProbeSandbox?: boolean;
+  modelFixturePid?: number;
+  modelFixtureGroup?: OwnedProcessGroup;
   createdAt: string;
   seed?: "ui" | "plugin-remove";
   /** "rust": the Rust front door (target/debug/pacer) serves and dispatches, forwarding to the TypeScript core. */
@@ -95,7 +99,7 @@ export function loadSession(id?: string, base = liveRoot): Session {
   for (const [identity, pid] of [[session.serviceIdentity, session.pid], [session.proxyIdentity, session.proxyPid]] as const) {
     if (identity && (identity.pid !== pid || !identity.bootId || !identity.birth)) throw Error("Invalid live source process identity");
   }
-  for (const [group, pid] of [[session.serviceGroup, session.pid], [session.proxyGroup, session.proxyPid]] as const) {
+  for (const [group, pid] of [[session.serviceGroup, session.pid], [session.proxyGroup, session.proxyPid], [session.modelFixtureGroup, session.modelFixturePid]] as const) {
     if (group !== undefined && (pid === undefined || !validOwnedProcessGroup(group, pid))) throw Error("Invalid live process-group identity");
   }
   return session;
@@ -234,7 +238,7 @@ export type NativeFixtures = Pick<Session, "localModelPorts" | "coreFixture" | "
 export function validateNativeFixtures(fixtures: NativeFixtures, nativeTestOps: boolean, nativeForwardEcho: boolean): void {
   const { localModelPorts, coreFixture, nativeForwardOps } = fixtures;
   if ((localModelPorts ?? coreFixture ?? nativeForwardOps) !== undefined && !nativeTestOps) throw Error("--local-model-ports, --core-fixture and --native-forward-ops require --native-test-ops");
-  if (localModelPorts !== undefined && !(/^\d{1,5},\d{1,5}$/.test(localModelPorts) && localModelPorts.split(",").map(Number).every(port => port > 0 && port <= 65535 && port !== 4317))) throw Error("--local-model-ports must be <ollama>,<lmstudio> ports other than 4317");
+  if (localModelPorts !== undefined && !(/^\d{1,5},\d{1,5}$/.test(localModelPorts) && localModelPorts.split(",").map(Number).every(port => port > 0 && port <= 65535 && ![4317, ...LOCAL_SERVERS.map(server => server.port)].includes(port)) && new Set(localModelPorts.split(",").map(Number)).size === 2)) throw Error("--local-model-ports requires two distinct non-default ports (excluding 4317 and local model defaults)");
   if (coreFixture !== undefined && !(/^[a-z0-9][a-z0-9-]*\.ts$/.test(coreFixture) && existsSync(join(checkout, "test/fixtures", coreFixture)))) throw Error("--core-fixture must name a .ts file in test/fixtures");
   if (nativeForwardOps !== undefined && (nativeForwardEcho || !/^[a-z0-9.*_-]+(,[a-z0-9.*_-]+)*$/i.test(nativeForwardOps))) throw Error("--native-forward-ops must be a comma-separated op list and cannot be combined with --native-forward-echo");
 }
@@ -272,12 +276,27 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     if (seed === "ui") seedUi(root);
     if (seed === "plugin-remove") seedPluginRemove(root);
     saveSession(session);
+    if (session.localModelPorts) {
+      session.modelFixturePid = launch(session, [process.execPath, join(checkout, "scripts/live/model-port-fixture.ts"), session.localModelPorts, join(root, "model-fixture-ready")], "model-fixture.log");
+      const identity = processIdentity(session.modelFixturePid);
+      if (!identity) throw Error("Cannot identify local model fixture process");
+      session.modelFixtureGroup = captureOwnedProcessGroup(session.modelFixturePid, identity);
+      saveSession(session);
+      const deadline = Date.now() + 3000;
+      while (!existsSync(join(root, "model-fixture-ready")) && !existsSync(join(root, "model-fixture-ready.error")) && Date.now() < deadline && processIdentity(session.modelFixturePid)) await Bun.sleep(25);
+      if (!existsSync(join(root, "model-fixture-ready"))) throw Error("--local-model-ports could not bind fixture ports; a port may already be listening (see model-fixture.log)");
+    }
     for (const args of [["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=Live validation", "-c", "user.email=live@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "Sandbox baseline"]]) {
       const result = await run(["git", ...args], session, false);
       if (result.code) throw Error(`Sandbox git setup failed: ${result.stderr}`);
     }
     atomicWrite(join(root, "env.sh"), environmentScript(session));
-    session.pid = launch(session, [...pacerArgv(session), "serve", "--port", String(session.innerPort)], "serve.log");
+    const serviceArgv = [...pacerArgv(session), "serve", "--port", String(session.innerPort)];
+    if (session.localModelPorts && process.platform === "darwin") {
+      session.modelProbeSandbox = true;
+      serviceArgv.unshift("/usr/bin/sandbox-exec", "-p", '(version 1)(allow default)(deny network-outbound (remote tcp "localhost:4317") (remote tcp "localhost:11434") (remote tcp "localhost:1234") (remote tcp "*:4317") (remote tcp "*:11434") (remote tcp "*:1234"))');
+    } else if (session.localModelPorts) session.modelProbeSandbox = false;
+    session.pid = launch(session, serviceArgv, "serve.log");
     saveSession(session);
     const serviceIdentity = processIdentity(session.pid);
     if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
@@ -307,6 +326,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     for (const [name, pid, identity, group] of [
       ["proxy", session.proxyPid, session.proxyIdentity, session.proxyGroup],
       ["service", session.pid, session.serviceIdentity, session.serviceGroup],
+      ["model fixture", session.modelFixturePid, session.modelFixtureGroup?.leader, session.modelFixtureGroup],
     ] as const) {
       if (!pid || pid <= 1) continue;
       try {
@@ -343,7 +363,7 @@ export async function down(session: Session, keep = false): Promise<void> {
   }
   // A closed HTTP listener does not mean history/plugin descendants have stopped.
   // Group ownership is persisted at launch, before a leader can disappear or be reused.
-  for (const [pid, group] of [[session.proxyPid, session.proxyGroup], [session.pid, session.serviceGroup]] as const) {
+  for (const [pid, group] of [[session.proxyPid, session.proxyGroup], [session.pid, session.serviceGroup], [session.modelFixturePid, session.modelFixtureGroup]] as const) {
     if (!pid) continue;
     if (!group || !validOwnedProcessGroup(group, pid)) {
       throw Error("Sandbox has no verified process-group identity; refusing to signal or remove sandbox");
