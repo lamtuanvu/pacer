@@ -121,7 +121,7 @@ async function serve(home: string, forward: boolean) {
     if (!token) await Bun.sleep(20);
   }
   expect(token).not.toBe("");
-  const post = async (op: string, body: string | Uint8Array) => {
+  const post = async (op: string, body: string | Uint8Array<ArrayBuffer>) => {
     const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body, signal: AbortSignal.timeout(20000) });
     return { status: response.status, type: response.headers.get("content-type"), body: await response.text() };
   };
@@ -135,7 +135,7 @@ async function serve(home: string, forward: boolean) {
 test.skipIf(!front)("HTTP bodies serde_json cannot represent reach Core exactly as forced forwarding does", async () => {
   const bytes = (...parts: (string | number[])[]) => new Uint8Array(parts.flatMap(part => typeof part === "string" ? [...new TextEncoder().encode(part)] : part));
   // `native` marks the requests Rust answers itself; every other body must reach Core unchanged.
-  const cases: { op: string; body: string | Uint8Array; native?: true }[] = [
+  const cases: { op: string; body: string | Uint8Array<ArrayBuffer>; native?: true }[] = [
     { op: "dispatch.answer", body: String.raw`{"id":"missing","expect_rev":1,"requestId":"r","text":"\ud800"}` },
     { op: "dispatch.answer", body: String.raw`{"id":"","expect_rev":0,"requestId":"r","text":"a\udfffb"}` },
     { op: "dispatch.submit", body: String.raw`{"goal":"\ud83d","repo":""}` },
