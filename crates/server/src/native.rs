@@ -16,7 +16,9 @@ use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
 use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
+use pacer_dispatch_ops::lifecycle_ops as dispatch_lifecycle_ops;
 use pacer_dispatch_ops::planning_ops;
+pub(crate) mod dispatch_lifecycle_sync;
 mod engine_ops;
 use pacer_config_ops::host_mut_ops;
 use pacer_task_ops::attention_ops;
@@ -70,6 +72,7 @@ pub(crate) use config_writes::config_set_stays_forwarded;
 pub use dependency_writes::dependencies_waive_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
+pub(crate) use dispatch_lifecycle_sync::dispatch_lifecycle_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub use insights_ops::insights_stays_forwarded;
@@ -594,6 +597,34 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.events",
         call: dispatch_ops::dispatch_events,
+    },
+    NativeOp {
+        name: "dispatch.submit",
+        call: dispatch_lifecycle_ops::dispatch_submit,
+    },
+    NativeOp {
+        name: "dispatch.child",
+        call: dispatch_lifecycle_ops::dispatch_child,
+    },
+    NativeOp {
+        name: "dispatch.wait",
+        call: dispatch_lifecycle_ops::dispatch_wait,
+    },
+    NativeOp {
+        name: "dispatch.review",
+        call: dispatch_lifecycle_ops::dispatch_review,
+    },
+    NativeOp {
+        name: "dispatch.retry",
+        call: dispatch_lifecycle_ops::dispatch_retry,
+    },
+    NativeOp {
+        name: "dispatch.answer",
+        call: dispatch_lifecycle_ops::dispatch_answer,
+    },
+    NativeOp {
+        name: "dispatch.stop",
+        call: dispatch_lifecycle_ops::dispatch_stop,
     },
     NativeOp {
         name: "dispatch.dependencies",
