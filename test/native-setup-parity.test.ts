@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Ctx } from "../src/types";
 import { createSession } from "../src/serve/app-auth";
 import { fakeCtx, tmpDir, withLoginIndicators } from "./helpers";
+import { closedPort, pinnedEnv, spawnPinned } from "./pinned-port";
 
 // Native setup.init, strategy.build and executor.setup.candidates against the
 // same requests forced through PACER_FORWARD_OPS to the TypeScript core.
@@ -55,8 +56,7 @@ const models = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: req => {
 } });
 afterAll(() => models.stop(true));
 
-const deadPort = () => { const s = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() }); const port = s.port!; s.stop(true); return port; };
-const DEAD = [deadPort(), deadPort()] as const;
+const DEAD = [closedPort(), closedPort()] as const;
 // Keeps every run off the machine's pacer service, Ollama and LM Studio (the front door is built with test-ops).
 const isolated = { OLLAMA_HOST: `127.0.0.1:${DEAD[0]}`, PACER_TEST_LOCAL_SERVER_PORTS: `${DEAD[0]},${DEAD[1]}` };
 
@@ -67,11 +67,11 @@ function bin(dir: string, name: string, script: string) {
 }
 
 async function exchange(home: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, expectNative = !forward) {
-  const child = Bun.spawn([front!, "api", "--stdio"], {
+  const child = spawnPinned([front!, "api", "--stdio"], {
     cwd: home,
-    env: { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:/usr/bin:/bin`,
+    env: pinnedEnv({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:/usr/bin:/bin`,
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-      PACER_DEBUG_NATIVE: "1", PACER_PORT: String(DEAD[0]), ...isolated, ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },
+      PACER_DEBUG_NATIVE: "1", ...isolated, ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }, closedPort()),
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
@@ -244,12 +244,11 @@ test.skipIf(!front)("executor.setup.candidates from a fresh catalog matches forc
 }, 120000);
 
 async function serve(dir: string, forward: boolean) {
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
-    env: { HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
+  const port = closedPort();
+  const child = spawnPinned([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
+    env: pinnedEnv({ HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
-      ...isolated, PACER_TEST_LOCAL_SERVER_PORTS: `${models.port},${DEAD[1]}`, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) } });
+      ...isolated, PACER_TEST_LOCAL_SERVER_PORTS: `${models.port},${DEAD[1]}`, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }, port) });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;

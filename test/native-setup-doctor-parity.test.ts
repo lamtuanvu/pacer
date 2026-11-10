@@ -9,6 +9,7 @@ import { createSession } from "../src/serve/app-auth";
 import type { Ctx } from "../src/types";
 import { keychainStubPath } from "./keychain-stub";
 import { fakeCtx, tmpDir } from "./helpers";
+import { closedPort, pinnedEnv, spawnPinned } from "./pinned-port";
 
 // Native setup.health and doctor.run against the same requests forced through
 // PACER_FORWARD_OPS to the TypeScript core, over the real stdio and HTTP front doors.
@@ -22,14 +23,15 @@ let driver: string | undefined;
 
 function nativeResult(home: string, op: string, params: unknown, bridge: { echo: true } | { result: unknown }) {
   if (!driver) {
-    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"], { cwd: root });
+    const env = pinnedEnv(process.env);
+    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"], { cwd: root, env });
     const metadata = JSON.parse(
-      execFileSync("cargo", ["metadata", "--no-deps", "--locked", "--format-version", "1"], { cwd: root }).toString(),
+      execFileSync("cargo", ["metadata", "--no-deps", "--locked", "--format-version", "1"], { cwd: root, env }).toString(),
     );
     driver = join(metadata.target_directory, "debug/examples/config_ops_diff");
   }
   const input = { op, params, home, now: 1_700_000_000, ...("echo" in bridge ? { bridgeEcho: true } : { bridgeResult: bridge.result }) };
-  return JSON.parse(execFileSync(driver, [], { input: `${JSON.stringify(input)}\n` }).toString());
+  return JSON.parse(execFileSync(driver, [], { input: `${JSON.stringify(input)}\n`, env: pinnedEnv(process.env) }).toString());
 }
 
 function bin(dir: string, name: string, script: string) {
@@ -49,20 +51,14 @@ function home(strategy = STRATEGY): string {
   return dir;
 }
 
-async function freePort() {
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!;
-  reservation.stop(true);
-  return port;
-}
-
-async function env(dir: string, forward: boolean, extra: Record<string, string> = {}) {
-  return {
+/** The child environment; PACER_PORT is the test's own server port, or a closed one for stdio. */
+function env(dir: string, forward: boolean, extra: Record<string, string> = {}, port = closedPort()) {
+  return pinnedEnv({
     HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: keychainStubPath(dir, `${join(dir, "bin")}:/usr/bin:/bin`),
     PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-    PACER_DEBUG_NATIVE: "1", PACER_PORT: String(await freePort()), LANG: "C", ...extra,
+    PACER_DEBUG_NATIVE: "1", LANG: "C", ...extra,
     ...(forward ? { PACER_FORWARD_OPS: OPS } : {}),
-  };
+  }, port);
 }
 
 const request = (id: number, method: string, params: unknown) =>
@@ -70,7 +66,7 @@ const request = (id: number, method: string, params: unknown) =>
 
 async function exchange(dir: string, cases: [string, unknown][], forward: boolean, extra: Record<string, string> = {}) {
   const requests = cases.map(([op, params], i) => request(i + 2, op, params));
-  const child = Bun.spawn([front!, "api", "--stdio"], { cwd: dir, env: await env(dir, forward, extra), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const child = spawnPinned([front!, "api", "--stdio"], { cwd: dir, env: env(dir, forward, extra), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   try {
     await child.stdin.write([request(1, "hello", { protocol: 3 }), ...requests].join("\n") + "\n");
     await child.stdin.end();
@@ -157,8 +153,8 @@ test.skipIf(!front)("stdio doctor and health reports, errors and refusals match 
 }, 180000);
 
 async function serve(dir: string, forward: boolean) {
-  const port = await freePort();
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe", env: await env(dir, forward) });
+  const port = closedPort();
+  const child = spawnPinned([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe", env: env(dir, forward, {}, port) });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;
