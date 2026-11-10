@@ -189,3 +189,23 @@ test("the gate's repair host waits for the restarted service before its rerun", 
   await host.awaitRestart!(10);
   expect(pids).toEqual([]);
 });
+
+test("the gate's restart wait keeps one snapshot.get in flight: its call is one stable function per host", async () => {
+  let calls = 0, releaseRead!: (value: unknown) => void;
+  const api = {
+    call: async <T,>(op: string) => {
+      if (op !== "snapshot.get") return {} as T;
+      if (++calls === 1) return new Promise<T>(resolve => { releaseRead = value => resolve(value as T); });
+      return { snapshot: { service: { pid: 11 } } } as T;
+    },
+  } as unknown as Pick<BrowserApi, "call">;
+  const host = gateRemedyHost(api, async () => true);
+  const wait = host.awaitRestart!(10);
+  // The first poll's read holds past servicePid's own timeout; the next poll must reuse that
+  // pending read (same call identity) instead of starting a second request.
+  await new Promise<void>(resolve => setTimeout(resolve, 4500));
+  expect(calls).toBe(1);
+  releaseRead({ snapshot: { service: { pid: 11 } } });
+  await wait;
+  expect(calls).toBe(1);
+}, 20000);

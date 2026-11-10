@@ -31,6 +31,8 @@ const INTERNAL = "\u0000internal", FIX_ALL = "\u0000fix-all";
 /** Confirmation key for undo a repair from a review sheet. */
 const UNDO = "\u0000undo";
 const glyphs = {good: "✓", warn: "!", bad: "✕", neutral: "–"} as const;
+/** How long a service fix waits for the restarted service before rechecking anyway; DOM fixtures shorten it. */
+export const RESTART_WAIT = { timeoutMs: 60_000 };
 function diagnosticTiming(report: DoctorReport): string {
   const checked = time(report.checkedAt);
   return `Last run ${/^\d{2}:\d{2}$/.test(checked) ? `today ${checked}` : checked}${report.durationSeconds != null ? ` · took ${report.durationSeconds < 1 ? "<1" : Math.round(report.durationSeconds)}s` : ""}`;
@@ -290,7 +292,7 @@ export function DiagnosticsSection() {
   /** Waits for the service that `before` named to be replaced, so the recheck reaches the new one. */
   async function awaitRestart(before: number | undefined) {
     setProgress("Waiting for pacer to restart…");
-    if (!await awaitServiceRestart(before, () => servicePid(api.call)))
+    if (!await awaitServiceRestart(before, () => servicePid(api.call), RESTART_WAIT))
       setProgress("pacer has not come back after a minute. Checking anyway; if checks fail, run all checks again shortly.");
   }
   /** When the focused control went away (a fixed row, the last fix-all), keep focus on the page. */
