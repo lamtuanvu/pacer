@@ -61,7 +61,8 @@ test.skipIf(!front)("stdio front door refuses runner.check natively and forwards
     corePid = jobs[0].pid;
     expect(jobs[1].pid).toBe(corePid);
     expect([child.pid, process.pid]).not.toContain(corePid);
-    expect(readFileSync(join(pacerHome, "stub-test-tasks.log"), "utf8")).toBe(`codex ${corePid} ${env.PACER_PORT}\n`.repeat(2));
+    const tasks = readFileSync(join(pacerHome, "stub-test-tasks.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(tasks).toEqual(Array(2).fill({ id: "codex", pid: corePid, port: env.PACER_PORT, agent: null, role: null, task: null, grant: null }));
     expect(JSON.parse(readFileSync(join(pacerHome, "state/runner-checks.json"), "utf8")).codex).toMatchObject({ passed: true, detail: "Executor is ready" });
     await child.stdin.end();
     expect(await child.exited).toBe(0);
