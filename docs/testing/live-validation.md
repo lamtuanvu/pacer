@@ -20,7 +20,7 @@ and notifications, when the Rust handler executes. The test-only `test-ops` buil
 `test.echo` and `_debug.native` for strict native evidence; release builds do not.
 With a `test-ops` front door and an uncompiled core, `PACER_TEST_LOCAL_SERVER_PORTS=<ollama>,<lmstudio>`
 moves the `executor.setup.candidates` probes off the fixed ports 11434 and 1234 to
-loopback fixture ports; see the harness safeguards below.
+loopback fixtures, so tests never reach model servers running on the machine.
 
 ## Start and inspect a sandbox
 
