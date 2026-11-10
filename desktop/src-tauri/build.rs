@@ -95,6 +95,7 @@ fn main() {
             "terminal_resize",
             "terminal_take",
             "terminal_release",
+            "terminal_focus",
             "terminal_detach",
             "terminal_ack",
             "client_control",
