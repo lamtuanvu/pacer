@@ -1065,6 +1065,15 @@ fn dispatch_action(app: &AppHandle, action: Value) {
             return;
         };
         if let actions::Dispatch::Op { op, params } = dispatch {
+            if (op == "task.answer" || op == "dispatch.answer") && params.get("text").is_none() {
+                // The dialog plugin has no text input. Use the task's existing answer composer.
+                if let Some(id) = params["id"].as_str().or_else(|| params["taskId"].as_str()) {
+                    navigate(&app, &format!("#/needs-you?answer={id}"));
+                } else {
+                    navigate(&app, "#/needs-you");
+                }
+                return;
+            }
             if session.op(&op, &params).await.is_err() {
                 let _ = native_dialog(
                     &app,

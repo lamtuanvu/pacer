@@ -41,8 +41,7 @@ function TrayStatusGlyph({ status }: { status: Status }) {
   return icon ? <span className={`pc-status--${status.tone}`} aria-hidden="true"><Icon name={icon} /></span> : <StatusGlyph status={status} />;
 }
 
-export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc, ops: ReadonlySet<string> = new Set()) {
-  if (!actionSupported(action, ops)) throw new Error("This service does not support this action");
+export async function performAction(action: Action, api: BrowserApi, ipc: TrayIpc) {
   if ((action.op === "task.answer" || action.op === "dispatch.answer") && typeof action.params.text !== "string") await ipc.open(`/needs-you?answer=${encodeURIComponent(String(action.params.id))}`);
   else if (action.op === "ui.open") await ipc.open(actionRoute(action));
   else await api.call(action.op, action.params);
