@@ -124,7 +124,7 @@ test("endpoint registry validates inputs, reuses stored keys and publishes only 
   for (const path of ['strategy.yaml', 'opencode/opencode.json', 'endpoints/state.json', 'link/outbox.jsonl']) assertSafe(readFileSync(join(ctx.pacerHome, path), 'utf8'));
 });
 
-test.skipIf(!Bun.which('opencode'))("real OpenCode creates hello.txt through the generated provider and sends its stored key", async () => {
+test.skipIf(process.env.PACER_TEST_REAL_OPENCODE !== '1' || !Bun.which('opencode'))("real OpenCode creates hello.txt through the generated provider and sends its stored key (opt in with PACER_TEST_REAL_OPENCODE=1)", async () => {
   const {addEndpoint} = await import('../src/core/endpoints');
   const ctx = configured();
   ctx.which = name => Bun.which(name);
