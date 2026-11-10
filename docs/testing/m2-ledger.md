@@ -682,12 +682,21 @@ in the detailed Native or Forwarded table above (including HTTP-native plugin
 ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
-Total native: **75** of 224 (63 on the Rust stdio registry plus 12 HTTP-native
-`plugin.*` ops). Thirteen of these selectively forward some inputs to TypeScript:
-`config.set`, `mode.hold`, `routing.route`, `repo.remove`, `task.stop`,
+Total native: **146** of 228 (134 on the Rust stdio registry plus 12 HTTP-native
+`plugin.*` ops). Sixty-nine of these selectively forward some inputs or effects to TypeScript:
+`config.set`, `mode.hold`, `routing.route`, `task.retry_options`, `repo.list`, `repo.add`, `repo.remove`, `task.stop`, `task.send`,
 `task.wait`, `task.review`, `project.messaging.get`, `project.messaging.set`,
-`project.messaging.remove`, `msg.inbox`, `msg.log` and `msg.read`.
-Total still not native (v3 − native set): **149**.
+`project.messaging.remove`, `project.strategy.list`, `project.strategy.get`,
+`project.strategy.set`, `project.strategy.remove`, `msg.inbox`, `msg.log`, `msg.read`, `msg.policy`, `tree.status`,
+`discovery.set`, `discovery.respond`, `discovery.list`, `discovery.network.get`,
+`discovery.network.set`, `runner.add`, `attention.dismiss`, `attention.snooze`, `desktop.reconcile.request`,
+`desktop.reconcile.cancel`, `assistant.status`, `assistant.candidates`,
+`assistant.settings.get`, `assistant.settings.set`, `assistant.conversations`,
+`assistant.conversation`, `assistant.turn`, `assistant.delete`,
+`assistant.card.record`, `assistant.card.refresh`, `dispatch.dependencies.waive`, `insights.summary`,
+`dispatch.refresh`, `dispatch.enforcement.consent`, `strategy.preview`, `executor.setup.models`,
+`issue.import`, `issue.search`, `strategy.build`, `executor.setup.candidates` and `setup.init`, `service.status`, `update.check`, `agent.detect`, `limits.refresh`, `account.remove`, `account.add`, `account.edit`, `account.adopt`, `account.models`, `account.test`, `account.usage.check`.
+Total still not native (v3 − native set): **82**.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a
