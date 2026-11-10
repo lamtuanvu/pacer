@@ -36,6 +36,7 @@ export interface Session {
   nativeForwardEcho?: true;
   /** Test-ops fixtures: local model server ports (`<ollama>,<lmstudio>`), a `test/fixtures` Core entry and forwarded ops. */
   localModelPorts?: string;
+  localModelFixture?: string;
   coreFixture?: string;
   nativeForwardOps?: string;
   /** The sandbox uses the login Keychain instead of the `security` stub; `down` deletes its identity items. */
@@ -234,11 +235,12 @@ export function launch(session: Session, argv: string[], logName: string, overri
     return child.pid;
   } finally { closeSync(log); }
 }
-export type NativeFixtures = Pick<Session, "localModelPorts" | "coreFixture" | "nativeForwardOps">;
+export type NativeFixtures = Pick<Session, "localModelPorts" | "localModelFixture" | "coreFixture" | "nativeForwardOps">;
 export function validateNativeFixtures(fixtures: NativeFixtures, nativeTestOps: boolean, nativeForwardEcho: boolean): void {
-  const { localModelPorts, coreFixture, nativeForwardOps } = fixtures;
-  if ((localModelPorts ?? coreFixture ?? nativeForwardOps) !== undefined && !nativeTestOps) throw Error("--local-model-ports, --core-fixture and --native-forward-ops require --native-test-ops");
+  const { localModelPorts, localModelFixture, coreFixture, nativeForwardOps } = fixtures;
+  if ((localModelPorts ?? localModelFixture ?? coreFixture ?? nativeForwardOps) !== undefined && !nativeTestOps) throw Error("--local-model-ports, --core-fixture and --native-forward-ops require --native-test-ops");
   if (localModelPorts !== undefined && !(/^\d{1,5},\d{1,5}$/.test(localModelPorts) && localModelPorts.split(",").map(Number).every(port => port > 0 && port <= 65535 && ![4317, ...LOCAL_SERVERS.map(server => server.port)].includes(port)) && new Set(localModelPorts.split(",").map(Number)).size === 2)) throw Error("--local-model-ports requires two distinct non-default ports (excluding 4317 and local model defaults)");
+  if (localModelFixture !== undefined && (!localModelPorts || !/^ollama=(ok|fail(?::\d{1,4})?),lmstudio=(ok|fail(?::\d{1,4})?)$/.test(localModelFixture))) throw Error("--local-model-fixture requires --local-model-ports and ollama=ok|fail[:ms],lmstudio=ok|fail[:ms]");
   if (coreFixture !== undefined && !(/^[a-z0-9][a-z0-9-]*\.ts$/.test(coreFixture) && existsSync(join(checkout, "test/fixtures", coreFixture)))) throw Error("--core-fixture must name a .ts file in test/fixtures");
   if (nativeForwardOps !== undefined && (nativeForwardEcho || !/^[a-z0-9.*_-]+(,[a-z0-9.*_-]+)*$/i.test(nativeForwardOps))) throw Error("--native-forward-ops must be a comma-separated op list and cannot be combined with --native-forward-echo");
 }
@@ -277,7 +279,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     if (seed === "plugin-remove") seedPluginRemove(root);
     saveSession(session);
     if (session.localModelPorts) {
-      session.modelFixturePid = launch(session, [process.execPath, join(checkout, "scripts/live/model-port-fixture.ts"), session.localModelPorts, join(root, "model-fixture-ready")], "model-fixture.log");
+      session.modelFixturePid = launch(session, [process.execPath, join(checkout, "scripts/live/model-port-fixture.ts"), session.localModelPorts, join(root, "model-fixture-ready"), session.localModelFixture ?? "ollama=fail,lmstudio=fail"], "model-fixture.log");
       const identity = processIdentity(session.modelFixturePid);
       if (!identity) throw Error("Cannot identify local model fixture process");
       session.modelFixtureGroup = captureOwnedProcessGroup(session.modelFixturePid, identity);

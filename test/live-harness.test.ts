@@ -158,6 +158,10 @@ test("native test-ops fixtures set probe ports, a test Core entry and forwarded 
   expect(() => validateNativeFixtures({ nativeForwardOps: "test.echo" }, true, true)).toThrow("--native-forward-echo");
   expect(() => validateNativeFixtures({ nativeForwardOps: "a b" }, true, false)).toThrow("--native-forward-ops");
   expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", coreFixture: "core-discover-plan.ts", nativeForwardOps: "executor.setup.candidates" }, true, false)).not.toThrow();
+  for (const mode of ["ollama=ok", "ollama=ok,lmstudio=no", "ollama=ok,ollama=fail", "lmstudio=ok,ollama=fail"]) expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", localModelFixture: mode }, true, false)).toThrow("--local-model-fixture");
+  expect(() => validateNativeFixtures({ localModelFixture: "ollama=ok,lmstudio=fail" }, true, false)).toThrow("--local-model-ports");
+  expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", localModelFixture: "ollama=ok,lmstudio=fail:100" }, true, false)).not.toThrow();
+  await expect(main(["status", "--local-model-fixture", "ollama=ok,lmstudio=fail"])).rejects.toThrow("only valid for up");
   await expect(main(["status", "--local-model-ports", "1,2"])).rejects.toThrow("only valid for up");
 });
 
@@ -662,5 +666,29 @@ test("local model fixture binds both ports and refuses an existing listener", as
     const contender = createServer();
     const error = await new Promise<NodeJS.ErrnoException>(resolve => { contender.once("error", resolve); contender.listen(address.port, "127.0.0.1"); });
     expect(error.code).toBe("EADDRINUSE");
+  } finally { child.kill(); await child.exited; }
+});
+
+ test("model fixture serves both listing formats and closes failures", async () => {
+  const first = await freePort(), second = await freePort(), root = tmpDir();
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/live/model-port-fixture.ts"), `${first},${second}`, join(root, "ready"), "ollama=ok,lmstudio=fail:50"], { stderr: "pipe" });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    expect((await (await fetch(`http://127.0.0.1:${first}/v1/models`)).json()).data).toHaveLength(2);
+    expect((await (await fetch(`http://127.0.0.1:${first}/api/tags`)).json()).models).toHaveLength(2);
+    expect((await fetch(`http://127.0.0.1:${first}/other`)).status).toBe(404);
+    await expect(fetch(`http://127.0.0.1:${second}/v1/models`)).rejects.toThrow();
+  } finally { child.kill(); await child.exited; }
+});
+
+ test("model fixture can serve LM Studio while Ollama fails", async () => {
+  const first = await freePort(), second = await freePort(), root = tmpDir();
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/live/model-port-fixture.ts"), `${first},${second}`, join(root, "ready"), "ollama=fail,lmstudio=ok"], { stderr: "pipe" });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    await expect(fetch(`http://127.0.0.1:${first}/v1/models`)).rejects.toThrow();
+    expect((await (await fetch(`http://127.0.0.1:${second}/v1/models`)).json()).data).toHaveLength(2);
   } finally { child.kill(); await child.exited; }
 });
