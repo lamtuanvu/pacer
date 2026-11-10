@@ -6,7 +6,7 @@ import { checkRev, taskActivity } from "../core/tasks";
 import { CoreError } from "../core/errors";
 import { isExecutorSession } from "../install/role";
 import { type Backend, backendById } from "../exec/backend";
-import { isTaskId, readTask, updateTask, withTaskLock } from "../tasks/store";
+import { isTaskId, readTask, updateTask, withTaskLock, withTaskLockAsync } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 
@@ -77,8 +77,9 @@ export async function send(ctx: Ctx, id: string, text: string, o: SendOptions = 
     ? await backendById(live.backend, o.backends)!.live!.send(ctx, claim.task, text)
     : await sendDirectInput(ctx, claim.task, text);
   if (!delivered.ok) {
-    // Nothing was delivered: give the lease back unless someone else has claimed it since.
-    withTaskLock(ctx, id, () => updateTask(ctx, id, t => {
+    // Nothing was delivered: wait for the rollback lock, then give the lease back
+    // unless someone else has claimed it since. Request cancellation cannot skip this.
+    await withTaskLockAsync(ctx, id, () => updateTask(ctx, id, t => {
       if (t.driving?.by !== by || t.driving.at !== ctx.now) return;
       if (claim.previous) t.driving = claim.previous; else delete t.driving;
     }));

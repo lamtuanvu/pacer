@@ -18,10 +18,6 @@ import { tmpDir } from "./helpers";
 // Bun process alone shows tens of milliseconds of lag.
 const SETTLED = Number(process.env.PACER_PERF_TASKS ?? 1_000);
 const WALLCLOCK = process.env.PACER_PERF_WALLCLOCK === "1";
-// The service still decodes task history while idle, so this guard fails until the incremental
-// pump lands (docs/specs/2026-11-09-service-core-responsiveness-design.md, step 4). Until then it
-// runs only with PACER_PERF_GATE=1; `bun run perf` measures on every branch.
-const GATE = process.env.PACER_PERF_GATE === "1";
 const BUDGET = {
   settledDecodesPerSecond: 10,
   idleJsonBytesPerSecond: 1024 * 1024,
@@ -36,7 +32,7 @@ const gitOnly: RunFn = (argv, timeoutMs, o) => argv[0] === "git"
   ? execProcess({ argv, cwd: process.cwd(), env: { ...process.env, ...(o?.env ?? {}) }, timeoutMs })
   : Promise.resolve({ code: 127, stdout: "", stderr: "not available in this test" });
 
-test.skipIf(!GATE)(`core main thread stays idle-cheap with ${SETTLED} settled tasks`, async () => {
+test(`core main thread stays idle-cheap with ${SETTLED} settled tasks`, async () => {
   const root = tmpDir();
   const pacerHome = join(root, "pacer"), home = join(root, "home");
   const build = buildSyntheticHome({
@@ -46,7 +42,7 @@ test.skipIf(!GATE)(`core main thread stays idle-cheap with ${SETTLED} settled ta
   const settled = new Set(build.settledIds);
   const ctx: Ctx = {
     home, pacerHome, now: Date.now() / 1000, run: gitOnly, which: () => null,
-    env: { HOME: home, PACER_HOME: pacerHome, PACER_NO_UPDATE_CHECK: "1", PACER_BACKEND: "direct", PACER_LOGIN_ENV: "off", PATH: process.env.PATH ?? "/usr/bin:/bin" },
+    env: { HOME: home, PACER_HOME: pacerHome, PACER_NO_UPDATE_CHECK: "1", PACER_BACKEND: "direct", PACER_LOGIN_ENV: "off", PATH: "/usr/bin:/bin" },
   };
 
   const realParse = JSON.parse;
@@ -60,7 +56,8 @@ test.skipIf(!GATE)(`core main thread stays idle-cheap with ${SETTLED} settled ta
     return realParse.call(JSON, text, reviver);
   } as typeof JSON.parse;
   const t0 = Date.now();
-  const server = startServer(() => ({ ...ctx, now: Date.now() / 1000 }), { port: 0, listener: false, pumpMs: 2_000 });
+  // Match the production CLI: both periodic work and supervision run off the request thread.
+  const server = startServer(() => ({ ...ctx, now: Date.now() / 1000 }), { port: 0, listener: false, supervisionWorker: true, backgroundWorker: true });
   const lags: number[] = [], hello: number[] = [];
   try {
     const probe = async () => {

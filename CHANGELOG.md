@@ -12,6 +12,15 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Native task cost reads skip peers when usage is absent and query a private scalar projection instead of decoding historical task records. The first cost-bearing read builds the projection in resumable transaction batches; large histories can still delay that read. See [ADR 0025](docs/decisions/0025-private-task-cost-projection.md).
+
+- Task history pages apply repository, visible-state and executor filters in indexed SQL before selecting the page, avoiding full-history record decoding for selective and empty results while preserving existing filter semantics.
+
+- The service owns periodic background work in a separate worker to keep request handling responsive. HTTP task mutations that encounter a busy task lock return `conflict` promptly and can be retried; required runner completion and cleanup after definite input-delivery failures wait asynchronously for the lock. See [dispatch](docs/dispatch.md).
+
+- The service polls task changes every 500 ms and publishes changed or active tasks between the 15-second status and entity passes. Native and TypeScript event streams use a 250 ms fallback, while task-log follow retains its 1,000 ms default. Periodic work runs in a background worker, and settled history is reconciled incrementally. See [service responsiveness](docs/specs/2026-11-09-service-core-responsiveness-design.md).
+
+- Setup checks now test for reviewed tasks without loading every historical task into JavaScript, retaining the existing onboarding cache behavior.
 - Automatic model choice now uses `simple → small`, `standard → medium`, `complex → frontier` by default for executors that declare models. Managed dispatch tries higher tiers, then unrated models, when needed; plain delegation keeps its routed executor and falls back to its default. Executors without model lists retain default-model behavior.
 
 - With the native plugin owner on, a refused first result chunk now ends the plugin call, as it does with the owner off: the plugin can no longer fall back to a plain result after any chunk attempt, the owner's own refusals are reported as pacer's errors rather than the plugin's, and a chunk that belongs to another call is refused without ending the current one.

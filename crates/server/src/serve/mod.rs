@@ -626,7 +626,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             protocol,
             last_event_id.as_deref(),
             since.as_deref(),
-            1_000,
+            250,
         )
         .await;
     }

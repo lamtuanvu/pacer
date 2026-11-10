@@ -684,7 +684,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
           delete process.env.PACER_INTERNAL_TOKEN;
           delete ctx.env.PACER_INTERNAL_TOKEN;
           const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
-          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, supervisionWorker: true, ...(pairedNative ? {pairedNative} : {}) });
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, supervisionWorker: true, backgroundWorker: true, ...(pairedNative ? {pairedNative} : {}) });
           // Best-effort cleanup starts only after the listener binds; the helper logs errors.
           void pruneUndoSnapshotsAtStartup(ctx);
           void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
@@ -699,7 +699,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
           }
           return { code: 0, out: "", err: "", keepAlive: true };
         }
-        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true });
+        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true, backgroundWorker: true });
         // Best-effort cleanup starts only after the listener binds; the helper logs errors.
         void pruneUndoSnapshotsAtStartup(ctx);
         ctx.env.PACER_PORT=String(s.port);
