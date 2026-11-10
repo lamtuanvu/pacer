@@ -35,6 +35,15 @@ export function taskJsonScanCount(): number { return jsonScanCount; }
 const columns = "id, rev, state, created_at, updated_at, settled_at, repo, record, archived";
 const placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?";
 
+const snapshotUpdatedAt = `MAX(created_at,
+    COALESCE(json_extract(record,'$.attempts[#-1].startedAt'),0),
+    COALESCE(json_extract(record,'$.attempts[#-1].endedAt'),0),
+    COALESCE(json_extract(record,'$.attemptStartedAt'),0),
+    COALESCE(json_extract(record,'$.reviewRequest.at'),0),
+    COALESCE(json_extract(record,'$.stopPending.requestedAt'),0),
+    COALESCE(json_extract(record,'$.question.at'),0),
+    COALESCE(json_extract(record,'$.question.answeredAt'),0))`;
+
 // A corrupted or adversarial record can hold a non-number where a timestamp is expected
 // (for example `review` set to a string, which has its own `.at` method). `Math.max`
 // coerces such a value with `Number()` instead of treating it as absent, which can yield
@@ -178,8 +187,9 @@ function schemaReady(db: Database): boolean {
   if (!["json_mtime", "archived"].every(name => fields.some(field => field.name === name))) return false;
   const objects = new Set(db.query<{ name: string }, []>(
     "SELECT name FROM sqlite_master WHERE type IN ('index', 'table', 'trigger')").all().map(row => row.name));
-  return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "task_first_settle",
-    "task_changes", "task_changes_insert", "task_changes_update"]
+  return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "tasks_snapshot_window", "task_first_settle",
+    "task_changes", "task_changes_insert", "task_changes_update",
+    "pump_seen", "pump_state", "pump_cursor", "pump_session", "pump_reconcile"]
     .every(name => objects.has(name));
 }
 
@@ -226,6 +236,12 @@ function connection(ctx: Ctx) {
       if (!fields.some(field => field.name === "json_mtime")) db.run("ALTER TABLE tasks ADD COLUMN json_mtime REAL");
       if (!fields.some(field => field.name === "archived")) db.run("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
       db.run("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at)");
+      // Index the exact snapshot event time once. All writers maintain expression
+      // indexes, including older binaries and the Rust store; steady passes seek
+      // the recent window instead of parsing historical records to sort them.
+      db.run(`CREATE INDEX IF NOT EXISTS tasks_snapshot_window
+        ON tasks(${snapshotUpdatedAt} DESC, id DESC)
+        WHERE archived=0 AND COALESCE(json_extract(record,'$.dismissed'),0)=0`);
       // settledAt is overwritten when a task settles again; Insights counts a task once, at its first settle.
       db.run("CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL)");
       // Shared change log, filled by triggers so every writer (any runtime, any
@@ -237,6 +253,14 @@ function connection(ctx: Ctx) {
         CREATE TRIGGER IF NOT EXISTS task_changes_update AFTER UPDATE ON tasks
           WHEN NEW.rev IS NOT OLD.rev OR NEW.state IS NOT OLD.state OR NEW.archived IS NOT OLD.archived BEGIN
           INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,COALESCE(NEW.rev,0),COALESCE(NEW.state,''),COALESCE(NEW.updated_at,NEW.created_at,0)); END;`);
+      // Pump ledgers (src/link/ledger.ts): per-task published state and the change-log
+      // cursor, read and written only for the tasks a tick touches instead of rewriting
+      // whole JSON files (link/task-data-seen.json, task-states.json, task-events-at.json).
+      db.run(`CREATE TABLE IF NOT EXISTS pump_seen(task_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS pump_state(task_id TEXT PRIMARY KEY, state TEXT NOT NULL, event_at REAL);
+        CREATE TABLE IF NOT EXISTS pump_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS pump_session(task_id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS pump_reconcile(id INTEGER PRIMARY KEY CHECK(id=1), at REAL NOT NULL);`);
     }).immediate();
   } catch (error) { db.close(); throw error; }
   for (const [key, entry] of connections) {
@@ -436,6 +460,25 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
 }
 
+/** Reconcile cursors read IDs only; the caller decodes each selected page once. */
+export function taskIdPage(ctx: Ctx, before?: string, limit = 200): string[] {
+  const db = connection(ctx).db;
+  const rows = before === undefined
+    ? db.query<{ id: string }, [number]>("SELECT id FROM tasks WHERE archived=0 ORDER BY id DESC LIMIT ?").all(limit)
+    : db.query<{ id: string }, [string, number]>("SELECT id FROM tasks WHERE archived=0 AND id<? ORDER BY id DESC LIMIT ?").all(before, limit);
+  return rows.map(row => row.id);
+}
+
+/** IDs for the bounded recent snapshot window. Match taskData's updatedAt without decoding
+ * records in JS; active tasks outside this window arrive through the pump selection. */
+export function snapshotTaskIds(ctx: Ctx): string[] {
+  return connection(ctx).db.query<{ id: string }, [number]>(`
+    SELECT id FROM tasks INDEXED BY tasks_snapshot_window WHERE archived=0
+      AND COALESCE(json_extract(record,'$.dismissed'),0)=0 AND ${snapshotUpdatedAt}>=?
+    ORDER BY ${snapshotUpdatedAt} DESC, id DESC LIMIT 200
+  `).all(ctx.now - 86400).map(row => row.id);
+}
+
 /** Tasks whose backend still records a live worker (`TaskRecord.live`), newest first. */
 export function listLiveTasks(ctx: Ctx): TaskRecord[] {
   const rows = connection(ctx).db.query<{ record: string }, []>("SELECT record FROM tasks WHERE json_extract(record, '$.live') IS NOT NULL ORDER BY id DESC").all();
@@ -445,6 +488,16 @@ export function listLiveTasks(ctx: Ctx): TaskRecord[] {
 /** Newest first. */
 export function listTasks(ctx: Ctx, limit = 20): TaskRecord[] {
   return listTasksWhere(ctx, { limit });
+}
+
+/** Selected records for the pump's change/active set: an indexed fetch that decodes
+ *  only the named rows instead of every task, newest id first (same order as listTasksWhere). */
+export function readTasksByIds(ctx: Ctx, ids: Iterable<string>): TaskRecord[] {
+  const list = [...new Set(ids)].filter(isTaskId);
+  if (!list.length) return [];
+  const sql = `SELECT record FROM tasks WHERE id IN (${list.map(() => "?").join(",")}) ORDER BY id DESC`;
+  const rows = connection(ctx).db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...list);
+  return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
 }
 
 /** Union of indexed active and recent selections for read-model consumers. */

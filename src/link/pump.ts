@@ -28,16 +28,19 @@ import { join } from "node:path";
 import { appendActivity, rotateActivity } from "../activity/log";
 import { loadStrategy } from "../config/strategy";
 import { type Status, computeStatus } from "../engine/status";
-import { taskStatus } from "../tasks/api";
-import { listTasks } from "../tasks/store";
+import { readTasksByIds, listTasks, taskIdPage, snapshotTaskIds } from "../tasks/store";
+import { taskChangesSince } from "../tasks/changes";
 import { TERMINAL_STATES, type TaskRecord, type TaskState } from "../tasks/types";
 import type { Ctx } from "../types";
+import { defaultLedgerApi, type PumpLedgerApi, type LedgerRow } from "./ledger";
+import { type ApiTask } from "../api/read-model/types";
+import { type ExecutorRow } from "../api/read-model/types";
 import { budgetKey, toBudget } from "./budget";
 import { type AlertData, type OutboxEvent, LIMITS, type TaskData, clip } from "./envelope";
 import { type PublishReport, publish } from "./publish";
 import { pidAlive, readLatest } from "./store";
-export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx):TaskRecord[]; publish(ctx:Ctx,envs:OutboxEvent[]):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
-export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:ctx=>listTasks(ctx,Infinity).map(t=>taskStatus(ctx,t.id)??t),publish};
+export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx, ids?: Set<string>):TaskRecord[]; publish(ctx:Ctx,envs:OutboxEvent[]):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
+export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:(ctx,ids)=>(ids?readTasksByIds(ctx,ids):listTasks(ctx,Infinity)),publish};
 export function acceptanceState(t: TaskRecord): import("./envelope").AcceptanceState {
   return t.result?.acceptance ? t.result.acceptance.passed ? "passed" : "failed"
     : !t.brief.acceptance ? "none" : t.progress?.phase === "testing" ? "running" : "pending";
@@ -137,7 +140,60 @@ async function pumpResolution(ctx: Ctx, task: TaskRecord): Promise<TaskRecord> {
   return withTimeout(() => pending!, 250).catch(() => task);
 }
 
-export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<OutboxEvent[]> {
+/** Full-reconcile trigger for Lane 6's maintenance wiring: one full pass over every task plus
+ *  the strategy/entity block, in addition to cursor 0, `gap:true` and the periodic cadence. */
+export interface PumpOpts { reconcile?: boolean; ledger?: PumpLedgerApi }
+
+/** Expensive periodic work (quota alerts, strategy fingerprints, host probes, entity
+ *  diffs — spec §4) leaves the per-tick path: the bounded snapshot read model
+ *  runs at most this often, and always on a full reconcile. A ~1 s tolerance keeps
+ *  the cadence when the calling loop spent part of the interval in its own console
+ *  terminal refresh before this tick started. */
+const STRATEGY_PASS_SECONDS = 15;
+const strategyPasses = new Map<string, number>();
+
+/** Full-reconcile cadence inside pumpOnce (spec §3 safety net): the change log covers
+ *  only what newer binaries write — same-revision JSON imports and pre-change-log
+ *  settled-task edits arrive without a task_changes row, so one full pass runs at
+ *  least this often, and always at startup (first tick), on a cursor `gap`, on an
+ *  explicit request and when a full changes page queues up. */
+const RECONCILE_SECONDS = 600;
+/** A full reconcile walks the task table this many rows per page, yielding
+ *  between pages, instead of decoding and Promise.all-resolving every record at once. */
+const RECONCILE_PAGE = 200;
+/** taskChangesSince page size used here: a page standing full means more than one
+ *  page of work is queued, and a reconcile catches it up instead of 500 rows a tick. */
+const CHANGES_PAGE = 500;
+
+/** Full reconcile: pages of task IDs through the store.
+ *  A dep that ignores the selected-id hint (the old shape) returns everything on
+ *  its first call — processed once, exactly like before, and the loop stops. */
+async function fullTasks(ctx:Ctx,deps:PumpDeps):Promise<TaskRecord[]>{
+  const all:TaskRecord[]=[],seen=new Set<string>();
+  let before:string|undefined;
+  for(let first=true;;first=false){
+    const page=taskIdPage(ctx,before,RECONCILE_PAGE);
+    // The very first call may hit an empty store yet still must reach a custom dep (an
+    // old-shape dep never reads the store). Later pages only fetch while rows remain.
+    if(!first&&!page.length)break;
+    const taken=new Set(page);
+    const got=await Promise.all(deps.tasks(ctx,taken).map(t=>pumpResolution(ctx,t)));
+    if(got.every(t=>t.id!==undefined&&taken.has(t.id))){
+      for(const t of got)if(!seen.has(t.id)){seen.add(t.id);all.push(t);}
+      if(!page.length)break;
+      before=page[page.length-1]!; // IDs are newest first, like the store
+      await new Promise<void>(done=>setImmediate(done));
+    }else{
+      // Old-shape dep: it handed over its complete list above; further pages would repeat it.
+      for(const t of got)if(!seen.has(t.id)){seen.add(t.id);all.push(t);}
+      break;
+    }
+  }
+  return all;
+}
+
+export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps,opts:PumpOpts={}) : Promise<OutboxEvent[]>{
+  const ledger=opts.ledger??defaultLedgerApi;
   const lifecycleEvents:OutboxEvent[]=[];
   const agentRevision=agentSessionsRevision(ctx),agentSeen=join(ctx.pacerHome,'link','agent-sessions-seen.json');
   const priorAgentRevision=readJson<string>(agentSeen);
@@ -171,43 +227,93 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
   }
   statusActivity(ctx, st);
   const b=toBudget(st); if(budgetKey(b)!==budgetKey(latest.budget))out.push({type:"budget",data:b});
-  const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`Budget mode changed to ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}));}
-  // Keep the main hotfix ledger even when a task falls out of the capped snapshot.
-  const statesPath=join(ctx.pacerHome,"link","task-states.json"),knownRaw=readJson<unknown>(statesPath);
-  const known:Record<string,string>=isObj(knownRaw)?Object.fromEntries(Object.entries(knownRaw).filter(([,v])=>typeof v==="string")) as Record<string,string>:{};
-  let statesChanged=false;
+  const previous=latest.mode?.mode??null; if(previous!==b.mode){out.push({type:"mode",data:{mode:b.mode,previous,strategy:b.strategy,at:ctx.now}});if(previous!==null)out.push(alert({key:"mode",level:b.mode==="emergency"?"warn":"info",title:`Budget mode changed to ${b.mode}`,body:`${previous} -> ${b.mode} (strategy ${b.strategy})`,at:ctx.now}))}
+
   const workers=Object.values(loadOrcaState(ctx).workers), client=new OrcaClient(ctx.run,ctx.env);
-  // Let healthy, larger comparisons finish in the background without delaying clients.
-  const records=await Promise.all(deps.tasks(ctx).map(t=>pumpResolution(ctx,t)));
-  await withTimeout(()=>(deps.backfillRepos??backfillRepos)(ctx,records.map(t=>t.brief.repo).filter((p):p is string=>typeof p==="string")),250).catch(()=>{});
+  const workerTerminals=new Map<string,string>();
+  for(const w of workers) if(w.taskId&&w.terminal) workerTerminals.set(w.taskId,w.terminal);
+
+  // Selection (spec §3): change-log rows since the durable cursor plus the active set —
+  // non-terminal tasks, tasks with a live worker record, session-registry entries and Orca
+  // terminals. A full reconcile (every task, paged with yields) is the safety net: first
+  // tick with nothing known, a cursor gap, an explicit request, a ten-minute cadence, or a
+  // full page of pending changes.
+  const cursor=ledger.readCursor(ctx);
+  if(cursor===null)ledger.importLegacyLedgers(ctx);
+  const {changes,head,gap}=taskChangesSince(ctx,cursor??0,CHANGES_PAGE);
+  const lastReconcile=ledger.readReconcileAt(ctx);
+  const reconcile=opts.reconcile===true||gap||changes.length>=CHANGES_PAGE
+    ||lastReconcile===null||ctx.now<lastReconcile||ctx.now-lastReconcile>=RECONCILE_SECONDS
+    ||(cursor===null&&ledger.isEmpty(ctx));
+  const selected=new Set<string>();
+  if(!reconcile){
+    for(const change of changes)selected.add(change.taskId);
+    for(const id of ledger.nonTerminalTaskIds(ctx))selected.add(id);
+    for(const id of ledger.liveTaskIds(ctx))selected.add(id);
+    for(const id of ledger.registryTaskIds(ctx))selected.add(id);
+    for(const id of workerTerminals.keys())selected.add(id);
+  }
+  const memo=strategyPasses.get(ctx.pacerHome);
+  const pass=reconcile||memo===undefined||ctx.now<memo||ctx.now-memo>=STRATEGY_PASS_SECONDS-1;
+  if(pass)strategyPasses.set(ctx.pacerHome,ctx.now);
+  // Periodic entity work uses the changed/active set plus a bounded snapshot,
+  // while only reconciliation walks history. Union IDs before fetching to avoid
+  // decoding active or changed records twice.
+  const fetchIds = new Set(selected);
+  if (pass && !reconcile) for (const id of snapshotTaskIds(ctx)) fetchIds.add(id);
+  const all = reconcile ? await fullTasks(ctx,deps)
+    : await Promise.all(deps.tasks(ctx,fetchIds).map(t=>pumpResolution(ctx,t)));
+  const records = reconcile || !pass ? all : all.filter(t=>selected.has(t.id));
+  if(pass)await withTimeout(()=>Promise.resolve((deps.backfillRepos??backfillRepos)(ctx,all.map(t=>t.brief.repo).filter((p):p is string=>typeof p==="string"))),250).catch(()=>{});
   let strategy:Strategy|undefined;
   try{strategy=(deps.strategy??loadStrategy)(ctx);}catch{/* No configured strategy yet. */}
   let policies: ProjectStrategyFile | undefined;
   try { policies = readProjectStrategies(ctx); } catch { /* Invalid policy must never produce a global retry suggestion. */ }
-  const policyTasks = strategy ? apiTasks(ctx, records) : [];
-  const retryExecutors = strategy ? buildExecutors(st, strategy, policyTasks, ctx.now, ctx) : [];
-  const timesPath=join(ctx.pacerHome,"link","task-events-at.json"),times=readJson<Record<string,number>>(timesPath)??{};
-  let timesChanged=false;
-  const dataPath=join(ctx.pacerHome,"link","task-data-seen.json"),seenData=readJson<Record<string,TaskData>>(dataPath)??{};
-  const nextData:Record<string,TaskData>={...seenData};
-  const terminals=await Promise.all(records.map(async t=>{const handle=workers.find(w=>w.taskId===t.id)?.terminal;if(!handle)return false;try{return isLiveTerminal(await client.terminalShow(handle));}catch{return false;}}));
+  // Retry suggestions are per-task policy readings; a non-pass tick computes them from the
+  // selection so a settled task's transition alert keeps its exact shape.
+  let policyTasks: ApiTask[] | undefined;
+  let retryExecutors: ExecutorRow[] | undefined;
+  const ledgerPrev=ledger.readLedger(ctx,records.map(t=>t.id));
+  const known:Record<string,string|undefined>={},times:Record<string,number>={},seenData:Record<string,TaskData>={};
+  for(const row of ledgerPrev.values()){
+    if(row.state!==undefined)known[row.id]=row.state;
+    if(row.eventAt!==undefined)times[row.id]=row.eventAt;
+    if(row.data)seenData[row.id]=row.data;
+  }
+  const stateRows=new Set<string>(),dataRows=new Set<string>();
+  let statesChanged=false;
+  const terminals=await Promise.all(records.map(async t=>{
+    const handle=workerTerminals.get(t.id);
+    if(!handle)return false;
+    try{return isLiveTerminal(await client.terminalShow(handle));}catch{return false;}
+  }));
   // Each iteration's awaits (sessionTaskData -> sessionInfo) resolve without ever reaching
   // real I/O for most historical tasks, so they never yield to the macrotask queue; a tick
   // with thousands of tasks ran this whole loop as one uninterrupted stretch and blocked
   // concurrent requests (desktop heartbeat, event stream) for hundreds of ms. Yielding every
   // 100 tasks keeps each stretch short without changing any result (PUMP_YIELD_EVERY tasks is
   // an arbitrary batch size, not a behavior change).
+  const nextData:Record<string,TaskData>={};
+  const keepSessions=new Set<string>(),dropSessions=new Set<string>();
+  let settledThisTick=false;
   for(const [index,t] of records.entries()){
     if(index>0 && index%PUMP_YIELD_EVERY===0) await new Promise<void>(done=>setImmediate(done));
     const d=await sessionTaskData(ctx,taskData(t),terminals[index]),prev=latest.tasks.find(x=>x.id===d.id)??seenData[d.id],before=known[d.id]??prev?.state;
-    if(known[d.id]!==d.state){known[d.id]=d.state;statesChanged=true;}
+    // Session and terminal state is the second change source (spec §3): a settled task
+    // stays in the active set only while its session is actually live — the 14-day
+    // runs/<id>/<n> history must not keep every past builtin session pumping forever.
+    (d.terminalPresent===true||d.session?.live===true||workerTerminals.has(t.id)?keepSessions:dropSessions).add(t.id);
+    if(known[d.id]!==d.state){known[d.id]=d.state;statesChanged=true;stateRows.add(d.id);}
     if(prev && Object.keys({...prev,...d}).every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])))continue;
     // Coalesce progress-only changes; state transitions always publish immediately.
     if(prev && prev.state===d.state && Object.keys({...prev,...d}).filter(k=>k!=="progress").every(k=>JSON.stringify(prev[k as keyof TaskData])===JSON.stringify(d[k as keyof TaskData])) && ctx.now-(times[d.id]??-Infinity)<1)continue;
-    out.push({type:"task",data:d});times[d.id]=ctx.now;nextData[d.id]=d;timesChanged=true;
+    out.push({type:"task",data:d});times[d.id]=ctx.now;nextData[d.id]=d;dataRows.add(d.id);
     const terminal=TERMINAL_STATES.includes(d.state as TaskState);
     if(terminal&&d.state!=="needs_input"&&before!==d.state&&(before!==undefined||latest.seq>0)) {
-      const last=t.attempts.at(-1), name=executorName(d.executor), next=strategy && policies ? retryTargetFor(policyTasks[index]!,strategy,retryExecutors,policies) : null;
+      settledThisTick=true;
+      const last=t.attempts.at(-1), name=executorName(d.executor);
+      let next: string|null=null;
+      if(strategy && policies){policyTasks??=apiTasks(ctx,records);retryExecutors??=buildExecutors(st,strategy,policyTasks,ctx.now,ctx);next=retryTargetFor(policyTasks[index]!,strategy,retryExecutors,policies);}
       const kind=d.state==="done"?"done":"failed";
       // A pending provider stop is recorded only when the exact wrapper exit settles it.
       if (d.state === "stopped" && t.executorProvider && t.executorExitReceipt) appendActivity(ctx, {
@@ -226,6 +332,11 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
       if(broken)out.push(alert({key:`broken-${broken.executor}-${d.id}`,level:"warn",title:`${executorName(broken.executor)} isn't starting`,body:`${shortGoal(d.goal)}\n${d.executor&&d.executor!==broken.executor?`Moved to ${executorName(d.executor)} automatically.`:"Open the pacer panel to retry."}`,at:ctx.now,notification:{kind:"broken",executor:broken.executor,goal:d.goal,...(d.executor&&d.executor!==broken.executor?{nextExecutor:d.executor}:{})}}));
     }
   }
+  // Expensive periodic work (spec §4): quota alerts and strategy fingerprints run on the
+  // pass cadence, aligned with the read-model work that also needs every task. The quota
+  // comparison itself runs every tick: latest.budget updates each tick, so a verdict
+  // change (ON_PACE -> NEAR_LIMIT) that lands on a non-pass tick must alert before the
+  // next pass would otherwise see no change. It reads one small JSON file.
   const quotaPath=join(ctx.pacerHome,"link","quota-alerts.json");
   const quotaSeen=readJson<Record<string,number>>(quotaPath) ?? {};
   let quotaChanged=false;
@@ -237,34 +348,54 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
       out.push(alert({key:quotaKey,level:"warn",title:`${executorName(p.id)} ${p.verdict==="EXHAUSTED"?"is out of quota":"is near its limit"}`,body:"Nothing to do.",at:ctx.now,notification:{kind:"quota",near:p.verdict==="NEAR_LIMIT",executor:p.id,...(p.resetsAt?{resetsAt:p.resetsAt}:{})}}));
     }
   }
-  const seenPath=join(ctx.pacerHome,"link","strategy-seen.json"), previousSeen=readJson<unknown>(seenPath), entries=list(ctx);
+  const seenPath=join(ctx.pacerHome,"link","strategy-seen.json");
+  let previousSeen:unknown,next:Record<string,string>|undefined;
+  if(pass){
+    previousSeen=readJson<unknown>(seenPath);
+    const entries=list(ctx);
   // Accept the old name-only ledger as a baseline, then persist content fingerprints.
-  const seen:Record<string,unknown>|null=Array.isArray(previousSeen) ? Object.fromEntries(previousSeen.map(name=>[name,null])) : isObj(previousSeen) ? previousSeen : null;
-  const next:Record<string,string>={};
-  for(const entry of entries) {
-    let yaml="", revision="";
-    try {
-      const file=pathFor(ctx,entry.name), stat=statSync(file,{bigint:true});
-      // Atomic replacement changes the inode even when the bytes are identical.
-      revision=`${stat.ino}:${stat.mtimeNs}`;
-      yaml=show(ctx,entry.name).yaml;
-    }catch{ /* Keep malformed files visible. */ }
-    next[entry.name]=createHash("sha256").update(revision+"\0"+yaml).digest("hex");
-    if(entry.name==="default" || !seen || Object.hasOwn(seen,entry.name) && (seen[entry.name]===null || seen[entry.name]===next[entry.name]))continue;
-    const who=/# created by (.*?) on /.exec(yaml)?.[1]??"agent";
-    out.push(alert({key:`strategySaved-${entry.name}`,level:"info",title:Object.hasOwn(seen,entry.name)?`Strategy "${entry.name}" updated`:`New strategy "${entry.name}" saved`,body:`${entry.summary} · by ${who}`,at:ctx.now}));
+    const seen:Record<string,unknown>|null=Array.isArray(previousSeen) ? Object.fromEntries(previousSeen.map(name=>[name,null])) : isObj(previousSeen) ? previousSeen : null;
+    next={};
+    for(const entry of entries) {
+      let yaml="", revision="";
+      try {
+        const file=pathFor(ctx,entry.name), stat=statSync(file,{bigint:true});
+        // Atomic replacement changes the inode even when the bytes are identical.
+        revision=`${stat.ino}:${stat.mtimeNs}`;
+        yaml=show(ctx,entry.name).yaml;
+      }catch{ /* Keep malformed files visible. */ }
+      next[entry.name]=createHash("sha256").update(revision+"\0"+yaml).digest("hex");
+      if(entry.name==="default" || !seen || Object.hasOwn(seen,entry.name) && (seen[entry.name]===null || seen[entry.name]===next[entry.name]))continue;
+      const who=/# created by (.*?) on /.exec(yaml)?.[1]??"agent";
+      out.push(alert({key:`strategySaved-${entry.name}`,level:"info",title:Object.hasOwn(seen,entry.name)?`Strategy "${entry.name}" updated`:`New strategy "${entry.name}" saved`,body:`${entry.summary} · by ${who}`,at:ctx.now}));
+    }
   }
   const report=out.length ? await deps.publish(ctx,out) : null;
-  if(statesChanged && report?.transports.includes("outbox"))writeJsonAtomic(statesPath,known);
-  if(timesChanged && report?.transports.includes("outbox")){writeJsonAtomic(timesPath,times);writeJsonAtomic(dataPath,nextData);}
-  if(strategy){
+  // Publish bookkeeping stays ordered after a successful outbox publish: ledger rows
+  // first, then the registry and cursor last, so a crash between them replays changes
+  // instead of skipping them and replays nothing duplicated (the rows describe what
+  // was published). Nothing between the ledger rows and the cursor may throw first:
+  // registry bookkeeping runs only after a cursor write succeeded.
+  const reportOk=!report || report.transports.includes("outbox");
+  if(reportOk && (statesChanged||dataRows.size)){
+    const ledgerRows=new Map<string,LedgerRow>();
+    for(const id of stateRows)ledgerRows.set(id,{id,state:known[id]});
+    for(const id of dataRows){const row=ledgerRows.get(id)??{id};row.data=nextData[id];row.eventAt=times[id];ledgerRows.set(id,row);}
+    ledger.writeLedger(ctx,ledgerRows.values());
+  }
+  const nextCursor=reconcile?head:changes.length?changes[changes.length-1]!.seq:head;
+  if(reportOk && (cursor===null||nextCursor!==(cursor??-Infinity)))ledger.writeCursor(ctx,nextCursor);
+  if(reportOk && reconcile)ledger.writeReconcileAt(ctx,ctx.now); // a completed full pass schedules the next one
+  if(reportOk)ledger.writeSessions(ctx,[...keepSessions],[...dropSessions]);
+  if(reportOk && (reconcile||settledThisTick))ledger.writeLegacyLedgers(ctx); // rollback bridge: JSON ledgers stay true
+  if(pass && strategy){
     const probePath=join(ctx.pacerHome,"state","host-probe-at.json"),lastProbe=readJson<number>(probePath);
     if(lastProbe===null||ctx.now<lastProbe||ctx.now-lastProbe>=300){
       await (deps.probeHosts??probeHosts)(ctx,{strategy:()=>strategy!});
       writeJsonAtomic(probePath,ctx.now);
     }
     const context=deps.setup?{setup:await deps.setup(ctx),accounts:[]}:await readModelContext(ctx);
-    const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,records),setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
+    const model=buildReadModel(ctx,{status:st,strategy,tasks:snapshotTasks(ctx,all),setup:context.setup,hosts:Object.values(strategy.hosts),signedIn:context.accounts});
     out.push(...await dispatchNotifications(ctx,model.attention,{publish:deps.publish,events:[...out]}));
     const rows:{kind:EntityData["kind"];id:string;value:unknown}[]=[
       {kind:"planner",id:"planner",value:model.planner},
@@ -286,6 +417,6 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps):Promise<Ou
   }
   if(quotaChanged && report?.transports.includes("outbox"))writeJsonAtomic(quotaPath,quotaSeen);
   // Only acknowledge changes after the durable alert reached the link outbox.
-  if((!report || report.transports.includes("outbox")) && JSON.stringify(previousSeen)!==JSON.stringify(next))writeJsonAtomic(seenPath,next);
+  if(pass && next && (!report || report.transports.includes("outbox")) && JSON.stringify(previousSeen)!==JSON.stringify(next))writeJsonAtomic(seenPath,next);
   return [...lifecycleEvents,...expiredEvents,...out];
 }

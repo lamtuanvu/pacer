@@ -12,6 +12,8 @@ import type { Ctx, RunFn } from "../../src/types";
 import { buildSyntheticHome } from "./synthetic-home";
 
 const settled = Number(process.argv[2] ?? 5000);
+const gapIndex = process.argv.indexOf("--gap-ms");
+const gapMs = gapIndex < 0 ? 1100 : Number(process.argv[gapIndex + 1]);
 const ROUNDS = 4;
 const root = mkdtempSync(join(tmpdir(), "pacer-perf-tick-"));
 const pacerHome = join(root, "pacer"), home = join(root, "home");
@@ -29,6 +31,7 @@ const time = async (label: string, f: () => unknown) => {
 
 try {
   if (!Number.isInteger(settled) || settled < 1) throw new Error(`settled task count must be a positive integer, got ${process.argv[2]}`);
+  if (!Number.isFinite(gapMs) || gapMs < 0) throw new Error("--gap-ms must be a non-negative number");
   buildSyntheticHome({ pacerHome, home, repos: [join(root, "repos", "alpha"), join(root, "repos", "beta")], settled, unsettled: 10, runDirs: "last", logBytes: 1024 * 1024 });
   await pumpOnce(ctx(), defaultPumpDeps); // first-open import and cold caches
   for (let i = 0; i < ROUNDS; i++) {
@@ -39,7 +42,7 @@ try {
       await time("pumpTasks", () => defaultPumpDeps.tasks(c)),
       await time("snapshotTasks", () => snapshotTasks(c, records)),
     ].join(", ")}`);
-    await Bun.sleep(1100);
+    await Bun.sleep(gapMs);
   }
 } catch (error) {
   console.error(error);
