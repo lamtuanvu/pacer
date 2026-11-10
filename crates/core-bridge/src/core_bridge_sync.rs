@@ -3,7 +3,7 @@
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::Value;
 
-use pacer_config_ops::doctor_ops;
+use crate::native::setup_doctor_sync;
 
 fn unavailable(message: &str) -> CoreError {
     CoreError::new(Code::Unavailable, message)
@@ -23,10 +23,7 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("/_internal/setup-check"),
         "setup.effects" => Ok("/_internal/setup-effects"),
-        op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("/_internal/setup-doctor"),
-        "service.effects" => Ok("/_internal/service-effects"),
-        "update.effects" => Ok("/_internal/update-effects"),
-        "host.effects" => Ok("/_internal/host-effects"),
+        op if setup_doctor_sync::routes(op) => Ok(setup_doctor_sync::HTTP_PATH),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -35,8 +32,7 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
-        op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("_internal.setup.doctor"),
-        "host.effects" => Ok("_internal.host.effects"),
+        op if setup_doctor_sync::routes(op) => Ok(setup_doctor_sync::STDIO_METHOD),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -46,30 +42,8 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
 /// `unavailable` for an effect still in flight.
 pub fn deadline(op: &str) -> Option<std::time::Duration> {
     match op {
-        "service.effects" | "update.effects" | "host.effects" => None,
-        _ => Some(bridge_deadline()),
-    }
-}
-
-fn bridge_deadline() -> std::time::Duration {
-    // Test-ops builds only, so end-to-end tests can prove which bridges have no deadline
-    // without waiting 120 s. Release builds always use 120 s.
-    #[cfg(feature = "test-ops")]
-    if let Some(ms) = std::env::var("PACER_TEST_BRIDGE_DEADLINE_MS")
-        .ok()
-        .and_then(|ms| ms.parse().ok())
-    {
-        return std::time::Duration::from_millis(ms);
-    }
-    std::time::Duration::from_secs(120)
-}
-
-pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
-    match op {
-        op if doctor_ops::needs_setup_doctor_bridge(op) => Ok(params.clone()),
-        "setup.check" | "setup.effects" | "service.effects" | "update.effects" | "host.effects" => {
-            Ok(params.clone())
-        }
+        "setup.check" | "setup.effects" => Ok(params.clone()),
+        op if setup_doctor_sync::routes(op) => Ok(params.clone()),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
