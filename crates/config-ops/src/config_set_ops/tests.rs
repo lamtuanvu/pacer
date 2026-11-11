@@ -61,6 +61,21 @@ fn only_changed_planner_installs_and_orca_without_env_forward() {
 }
 
 #[test]
+fn planner_changed_after_the_predicate_replies_like_a_strategy_changed_during_edit() {
+    let (_dir, plain) = ctx(&[]);
+    let params = json!({"key": "planner", "value": "claude-code", "integrations": "install"});
+    assert!(!config_set_stays_forwarded(&plain, &params));
+    let path = plain.pacer_home.join("strategy.yaml");
+    let raced = "planner: codex\nproviders: {claude-code: {}, codex: {}}\n";
+    std::fs::write(&path, raced).unwrap();
+    let error = config_set(&plain, &params).unwrap_err();
+    assert_eq!(error.code, Code::Conflict);
+    assert_eq!(error.message, "Strategy changed during edit");
+    assert_eq!(error.hint.as_deref(), Some("Refresh and retry."));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), raced);
+}
+
+#[test]
 fn pending_edit_key_is_released_on_drop_and_unwind() {
     let key = "test:pending-edit".to_string();
     let first = PendingEdit::claim(key.clone()).unwrap();
