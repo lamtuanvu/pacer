@@ -23,6 +23,9 @@ export interface Session {
   proxyIdentity?: ProcessIdentity;
   serviceGroup?: OwnedProcessGroup;
   proxyGroup?: OwnedProcessGroup;
+  waitingPid?: number;
+  waitingGroup?: OwnedProcessGroup;
+  waitingFixture?: true;
   createdAt: string;
   seed?: "ui" | "plugin-remove";
   /** "rust": the Rust front door (target/debug/pacer) serves and dispatches, forwarding to the TypeScript core. */
@@ -91,7 +94,7 @@ export function loadSession(id?: string, base = liveRoot): Session {
   for (const [identity, pid] of [[session.serviceIdentity, session.pid], [session.proxyIdentity, session.proxyPid]] as const) {
     if (identity && (identity.pid !== pid || !identity.bootId || !identity.birth)) throw Error("Invalid live source process identity");
   }
-  for (const [group, pid] of [[session.serviceGroup, session.pid], [session.proxyGroup, session.proxyPid]] as const) {
+  for (const [group, pid] of [[session.serviceGroup, session.pid], [session.proxyGroup, session.proxyPid], [session.waitingGroup, session.waitingPid]] as const) {
     if (group !== undefined && (pid === undefined || !validOwnedProcessGroup(group, pid))) throw Error("Invalid live process-group identity");
   }
   return session;
@@ -116,7 +119,7 @@ export function sandboxEnv(session: Session, inherited = process.env): NodeJS.Pr
   // PACER_ROLE, task id, work grant or tokens, would make the sandbox act as that session, so they
   // are dropped unless they are display or diagnostic settings. PACER (no underscore, e.g. PACER=off)
   // is policy rather than identity and is intentionally kept.
-  const outside = Object.fromEntries(Object.entries(inherited).filter(([key]) => !key.startsWith("PACER_") || SANDBOX_PASSTHROUGH.includes(key)));
+  const outside = Object.fromEntries(Object.entries(inherited).filter(([key]) => (!key.startsWith("PACER_") || SANDBOX_PASSTHROUGH.includes(key)) && !(session.waitingFixture && ["CODEX_THREAD_ID", "CODEX_SANDBOX"].includes(key))));
   return {
     ...outside,
     ...(session.frontDoor === "rust" ? { PACER_CORE_ARGV: JSON.stringify([process.execPath, join(checkout, "src/cli.ts")]) } : {}),
@@ -223,7 +226,7 @@ export function launch(session: Session, argv: string[], logName: string, overri
     return child.pid;
   } finally { closeSync(log); }
 }
-export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string, realKeychain = false, nativeTestOps = false, nativeForwardEcho = false): Promise<Session> {
+export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string, realKeychain = false, nativeTestOps = false, nativeForwardEcho = false, waitingFixture = false): Promise<Session> {
   validateSeed(seed);
   validateFrontDoor(frontDoor);
   if (nativeTestOps && frontDoor !== "rust") throw Error("--native-test-ops requires --front-door rust");
@@ -238,7 +241,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(waitingFixture ? { waitingFixture: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
     if (nativeTestOps) cpSync(join(process.env.CARGO_TARGET_DIR ?? join(checkout, "target"), "debug/pacer"), join(root, "bin/native-pacer"));
@@ -253,6 +256,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     prepareKeychain(session);
     // Only sandbox-owned config is created; never copy the user's strategy or credentials.
     atomicWrite(join(root, "home/strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {usage: quota}\nrouting:\n  - default: [codex]\n");
+    if (waitingFixture) atomicWrite(join(root, "home/strategy.yaml"), JSON.stringify({ planner: "codex#fixture", accounts: { fixture: { kind: "codex", home: join(root, "home/accounts/fixture"), usage: "quota" } }, runners: { "codex#fixture": {} }, routing: [{ default: ["codex#fixture"] }], messaging: { rules: [{ effect: "allow", relation: "any" }] } }));
     if (seed === "ui") seedUi(root);
     if (seed === "plugin-remove") seedPluginRemove(root);
     saveSession(session);
@@ -280,6 +284,15 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     const deadline = Date.now() + 8000;
     while (Date.now() < deadline) {
       if (await healthy(session)) {
+    if (waitingFixture) {
+      session.waitingPid = launch(session, [process.execPath, join(checkout, "scripts/live/waiting-session.ts")], "waiting.log", { HOME: join(root, "home") });
+      saveSession(session);
+      session.waitingGroup = captureOwnedProcessGroup(session.waitingPid);
+      saveSession(session);
+      const deadline = Date.now() + 8000;
+      while (!existsSync(join(root, "home/waiting-fixtures.json")) && Date.now() < deadline) await Bun.sleep(50);
+      if (!existsSync(join(root, "home/waiting-fixtures.json"))) throw Error("Waiting fixture startup timed out; inspect logs/waiting.log");
+    }
         record(session, { kind: "note", text: `Service ready on sandbox port ${session.port}` });
         return session;
       }
@@ -291,6 +304,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     for (const [name, pid, identity, group] of [
       ["proxy", session.proxyPid, session.proxyIdentity, session.proxyGroup],
       ["service", session.pid, session.serviceIdentity, session.serviceGroup],
+      ["waiting fixture", session.waitingPid, session.waitingGroup?.leader, session.waitingGroup],
     ] as const) {
       if (!pid || pid <= 1) continue;
       try {
@@ -327,7 +341,7 @@ export async function down(session: Session, keep = false): Promise<void> {
   }
   // A closed HTTP listener does not mean history/plugin descendants have stopped.
   // Group ownership is persisted at launch, before a leader can disappear or be reused.
-  for (const [pid, group] of [[session.proxyPid, session.proxyGroup], [session.pid, session.serviceGroup]] as const) {
+  for (const [pid, group] of [[session.proxyPid, session.proxyGroup], [session.pid, session.serviceGroup], [session.waitingPid, session.waitingGroup]] as const) {
     if (!pid) continue;
     if (!group || !validOwnedProcessGroup(group, pid)) {
       throw Error("Sandbox has no verified process-group identity; refusing to signal or remove sandbox");

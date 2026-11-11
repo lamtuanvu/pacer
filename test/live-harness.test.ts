@@ -619,3 +619,26 @@ test.skipIf(!canBind)("proxy preserves refused WebSocket handshake statuses, hea
     }
   } finally { proxy.stop(true); for (const socket of sockets) socket.destroy(); upstream.close(); }
 }, 30000);
+
+test.skipIf(!canBind)("waiting session fixture starts isolated hosts and tears them down", async () => {
+  const session = await up("waiting-cycle", undefined, tmpDir(), undefined, undefined, false, false, false, true);
+  try {
+    const fixtures = JSON.parse(readFileSync(join(session.root, "home/waiting-fixtures.json"), "utf8"));
+    expect(fixtures.map((entry: { name: string }) => entry.name)).toEqual(["cli", "http", "retry", "stale", "message"]);
+    for (const entry of fixtures) {
+      expect(entry.dir.startsWith(join(session.root, "home/"))).toBe(true);
+      expect(existsSync(join(session.root, "home", `waiting-${entry.name}.sock`))).toBe(true);
+    }
+    const first = fixtures[0];
+    const sent = await run([join(session.root, "bin/pacer"), "msg", "send", first.task, "main", "--answer", first.question, "--json"], session, false);
+    expect(sent.code).toBe(0);
+    expect(JSON.parse(sent.stdout).delivery).toBe("live");
+    for (let i = 0; i < 100 && !existsSync(join(first.dir, "input")); i++) await Bun.sleep(10);
+    expect(readFileSync(join(first.dir, "input"), "utf8")).toContain("main");
+    expect(loadStrategy(makeCtx({ home: join(session.root, "home"), pacerHome: join(session.root, "home") })).messaging?.rules[0]?.effect).toBe("allow");
+    expect(await healthy(session)).toBe(true);
+  } finally { await down(session, true); }
+  expect(loadSession(session.id, join(session.root, "..")).waitingGroup?.stopped).toBe(true);
+  await expect(main(["status", "--waiting-session-fixture"])).rejects.toThrow("only valid for up");
+  await expect(main(["up", "--seed", "ui", "--waiting-session-fixture"])).rejects.toThrow("cannot be combined");
+}, 30000);
