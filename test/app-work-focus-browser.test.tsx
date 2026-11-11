@@ -41,3 +41,14 @@ browserTest("keyboard review keeps focus in Work details when Accept disappears"
    expect(await page.locator('#root').innerText()).not.toMatch(/\d+\.\d+%/);
   } finally { await page.close(); }
  });
+
+
+browserTest("offline managed actions expose their shared visible reason",async()=>{
+ const page=await browser.newPage();
+ try{
+  await page.goto(`${server.url}?offline`);await page.getByRole("button",{name:"Details",exact:true}).click();
+  const reason=page.getByText("Reconnecting… Service actions are available when pacer reconnects.",{exact:true});
+  expect(await reason.isVisible()).toBe(true);const id=await reason.getAttribute("id");expect(id).toBeTruthy();
+  for(const name of ["Accept","Reject","Answer and resume","Stop work"]){const button=page.getByRole("button",{name,exact:true});expect(await button.isDisabled()).toBe(true);expect(await button.getAttribute("aria-describedby")).toBe(id);}
+ }finally{await page.close();}
+});

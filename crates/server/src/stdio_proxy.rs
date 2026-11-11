@@ -90,6 +90,23 @@ async fn write_line<W: AsyncWrite + Unpin>(out: &Mutex<W>, line: &[u8]) -> io::R
     out.flush().await
 }
 
+/// Request ids the front door may answer itself: null, strings and safe integers,
+/// which the core's `JSON.parse`/`JSON.stringify` echo byte for byte. Every other
+/// number forwards so the core's own echo decides, even one JavaScript happens to
+/// round-trip, such as `1.5`.
+fn natively_answered_id(id: &Value) -> bool {
+    const MAX_SAFE: u64 = (1 << 53) - 1;
+    match id {
+        Value::Null | Value::String(_) => true,
+        Value::Number(n) => n
+            .as_i64()
+            .map(i64::unsigned_abs)
+            .or_else(|| n.as_u64())
+            .is_some_and(|n| n <= MAX_SAFE),
+        _ => false,
+    }
+}
+
 fn rpc_line(id: &Value, result: Result<Value, CoreError>) -> io::Result<Vec<u8>> {
     let response = match result {
         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
@@ -170,11 +187,15 @@ async fn forward_input<
                 && r.get("id")
                     .is_none_or(|id| id.is_null() || id.is_string() || id.is_number())
         });
+        let native_id = request
+            .as_ref()
+            .and_then(|r| r.get("id"))
+            .is_none_or(natively_answered_id);
         if method == Some("hello")
             && valid
             && let Some(request) = request.as_ref()
         {
-            if core_build.forward_hello {
+            if core_build.forward_hello || !native_id {
                 if let Ok(version) = hello_version(request.get("params")) {
                     protocol = version;
                 }
@@ -221,6 +242,7 @@ async fn forward_input<
         }
         if protocol == 3
             && valid
+            && native_id
             && let Some(op) = method.and_then(|name| registry.get(name))
             && let Some(request) = request.as_ref()
         {
@@ -248,6 +270,11 @@ async fn forward_input<
                 && !crate::native::dependencies_waive_stays_forwarded(op.name, &params)
                 && !crate::native::insights_stays_forwarded(op.name, &params)
                 && !crate::native::planning_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::dispatch_lifecycle_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
                 && !crate::native::job_strategy_setup_stays_forwarded(
                     &ctx.at_now(),
                     op.name,
@@ -304,6 +331,28 @@ async fn forward_input<
                     }
                     continue;
                 }
+                if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let by =
+                        crate::native::task_send_ops::caller_identity(&request_ctx, None, None);
+                    let mut bridge = crate::native::task_send_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = crate::native::task_send_ops::task_send(
+                        &request_ctx,
+                        params,
+                        by,
+                        &mut bridge,
+                    )
+                    .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
                 if pacer_config_ops::setup_effects::uses_effects(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     let mut effects = crate::native::setup_effects_sync::StdioEffects {
@@ -325,19 +374,18 @@ async fn forward_input<
                     }
                     continue;
                 }
-                if pacer_install::needs_service_effects_bridge(op.name) {
+                if crate::native::install_apply_sync::uses_effects(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut effects = crate::native::service_effects_sync::StdioServiceEffects {
-                        core: &mut core,
-                        prefix: sync.0,
-                        key: sync.1,
-                        replies: &mut *sync.2,
-                    };
-                    let result =
-                        pacer_install::call(&request_ctx, op.name, params, false, &mut effects)
-                            .await;
-                    if let Some(id) = request.get("id") {
-                        write_line(out, &rpc_line(id, result)?).await?;
+                    match crate::native::install_apply_sync::admit(&request_ctx, op.name, &params) {
+                        Ok(()) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                        }
+                        Err(error) => {
+                            if let Some(id) = request.get("id") {
+                                write_line(out, &rpc_line(id, Err(error))?).await?;
+                            }
+                        }
                     }
                     continue;
                 }
@@ -788,6 +836,31 @@ async fn forward_input<
                         None,
                     )
                     .await
+                } else if crate::native::needs_account_list_bridge(op.name) {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::account_list_sync::stdio(
+                            &mut core, sync.0, sync.1, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
                 } else if crate::native::needs_core_bridge(op.name) {
                     match crate::native::p8_bridge_ops::bridge_params(op.name, &params) {
                         Ok(bridge_params) => {
@@ -1002,5 +1075,39 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
                 return Ok(status?.code().unwrap_or(1));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::natively_answered_id;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn only_null_string_and_safe_integer_ids_are_answered_natively() {
+        let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap_or(Value::Null);
+        for id in [
+            "null",
+            "\"a\\u0001\"",
+            "0",
+            "-1",
+            "9007199254740991",
+            "-9007199254740991",
+        ] {
+            assert!(natively_answered_id(&parse(id)), "{id}");
+        }
+        for id in [
+            "9007199254740992",
+            "-9007199254740993",
+            "18446744073709551615",
+            "1e300",
+            "1.5",
+            "1.0",
+            "1e3",
+            "100000000000000000000000",
+        ] {
+            assert!(!natively_answered_id(&parse(id)), "{id}");
+        }
+        assert!(!natively_answered_id(&json!([1])));
     }
 }

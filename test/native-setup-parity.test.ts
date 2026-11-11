@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Ctx } from "../src/types";
 import { createSession } from "../src/serve/app-auth";
 import { fakeCtx, tmpDir, withLoginIndicators } from "./helpers";
+import { closedPort, pinnedEnv, spawnPinned } from "./pinned-port";
 
 // Native setup.init, strategy.build and executor.setup.candidates against the
 // same requests forced through PACER_FORWARD_OPS to the TypeScript core.
@@ -33,6 +34,32 @@ const ollama = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: req => new URL
   ? Response.json({ models: [{ name: "" }, { name: "qwen3:8b" }] }) : new Response("no", { status: 404 }) });
 afterAll(() => ollama.stop(true));
 
+// The same endpoint answering with chunked transfer coding (split chunks, an extension and a trailer).
+const chunkedOllama = Bun.listen<{ request: string }>({ hostname: "127.0.0.1", port: 0, socket: {
+  open(socket) { socket.data = { request: "" }; },
+  data(socket, data) {
+    socket.data.request += data.toString();
+    if (!socket.data.request.includes("\r\n\r\n")) return;
+    const json = JSON.stringify({ models: [{ name: "" }, { name: "chunked:7b" }] });
+    const chunks = [json.slice(0, 5), json.slice(5, 21), json.slice(21)]
+      .map((part, i) => `${Buffer.byteLength(part).toString(16)}${i === 1 ? ";ext=1" : ""}\r\n${part}\r\n`).join("");
+    socket.end(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n${chunks}0\r\nX-Trailer: t\r\n\r\n`);
+  },
+} });
+afterAll(() => chunkedOllama.stop(true));
+
+// An OpenAI-compatible model server for the local candidates probe.
+let modelRequests = 0;
+const models = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: req => {
+  modelRequests++;
+  return new URL(req.url).pathname === "/v1/models" ? Response.json({ data: [{ id: "fixture-a" }, { id: "fixture-b" }] }) : new Response("no", { status: 404 });
+} });
+afterAll(() => models.stop(true));
+
+const DEAD = [closedPort(), closedPort()] as const;
+// Keeps every run off the machine's pacer service, Ollama and LM Studio (the front door is built with test-ops).
+const isolated = { OLLAMA_HOST: `127.0.0.1:${DEAD[0]}`, PACER_TEST_LOCAL_SERVER_PORTS: `${DEAD[0]},${DEAD[1]}` };
+
 function bin(dir: string, name: string, script: string) {
   mkdirSync(join(dir, "bin"), { recursive: true });
   writeFileSync(join(dir, "bin", name), `#!/bin/sh\n${script}\n`);
@@ -40,11 +67,11 @@ function bin(dir: string, name: string, script: string) {
 }
 
 async function exchange(home: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, expectNative = !forward) {
-  const child = Bun.spawn([front!, "api", "--stdio"], {
+  const child = spawnPinned([front!, "api", "--stdio"], {
     cwd: home,
-    env: { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:/usr/bin:/bin`,
+    env: pinnedEnv({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:/usr/bin:/bin`,
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-      PACER_DEBUG_NATIVE: "1", ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) },
+      PACER_DEBUG_NATIVE: "1", ...isolated, ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }, closedPort()),
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   try {
@@ -60,6 +87,8 @@ async function exchange(home: string, requests: string[], forward: boolean, extr
     return lines.slice(1).sort((a, b) => JSON.parse(a).id - JSON.parse(b).id).map(line => JSON.parse(line));
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
 }
+// The plugin host can miss its local probe deadline under heavy load; that note reflects timing, not parity.
+const probeDeadline = (replies: unknown) => /Could not check local model servers: (plugin call passed its absolute deadline|owning plugin call ended)/.test(JSON.stringify(replies));
 const request = (id: number, method: string, params: unknown) =>
   JSON.stringify({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) });
 const requests = (cases: [string, unknown][]) => cases.map(([op, params], i) => request(i + 2, op, params));
@@ -118,6 +147,82 @@ test.skipIf(!front)("setup.init creates or edits the strategy like forced forwar
   }
 }, 120000);
 
+test.skipIf(!front)("setup.init reads a chunked Ollama /api/tags response like forced forwarding", async () => {
+  const env = { OLLAMA_HOST: `127.0.0.1:${chunkedOllama.port}` };
+  const homes = [home(false), home(false)];
+  for (const dir of homes) for (const name of ["opencode", "ollama", "arkcli", "lms"]) bin(dir, name, "exit 1");
+  const write = requests([["setup.init", { planner: "codex" }]]);
+  const native = await exchange(homes[0]!, write, false, env);
+  const forwarded = await exchange(homes[1]!, write, true, env);
+  const local = (value: unknown, dir: string) => JSON.parse(JSON.stringify(value).replaceAll(dir, "$HOME"));
+  expect(local(native, homes[0]!)).toEqual(local(forwarded, homes[1]!));
+  const strategy = (dir: string) => readFileSync(join(dir, ".pacer", "strategy.yaml"), "utf8");
+  expect(strategy(homes[0]!)).toEqual(strategy(homes[1]!));
+  expect(strategy(homes[1]!)).toContain("chunked:7b");
+  expect(events(homes[0]!)).toEqual(events(homes[1]!));
+}, 120000);
+
+// Answers only when the query OLLAMA_HOST carried reaches /api/tags.
+const queried: string[] = [];
+const tagsFor = (name: string) => (req: Request) => {
+  const url = new URL(req.url);
+  queried.push(`${name} ${url.pathname}${url.search}`);
+  return url.pathname === "/api/tags" && url.search === "?token=abc" ? Response.json({ models: [{ name: `${name}:1` }] }) : new Response("no", { status: 401 });
+};
+const query = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: tagsFor("query") });
+afterAll(() => query.stop(true));
+let v6: ReturnType<typeof Bun.serve> | null = null;
+try { v6 = Bun.serve({ port: 0, hostname: "::1", fetch: tagsFor("v6") }); } catch { /* no IPv6 loopback */ }
+afterAll(() => v6?.stop(true));
+// Sends a complete Content-Length response and leaves the connection open.
+const keptOpen = Bun.listen<{ request: string }>({ hostname: "127.0.0.1", port: 0, socket: {
+  open(socket) { socket.data = { request: "" }; },
+  data(socket, data) {
+    socket.data.request += data.toString();
+    if (!socket.data.request.includes("\r\n\r\n")) return;
+    const json = JSON.stringify({ models: [{ name: "kept:1" }] });
+    socket.write(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(json)}\r\nConnection: keep-alive\r\n\r\n${json}`);
+  },
+} });
+afterAll(() => keptOpen.stop(true));
+const large = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ models: [{ name: "large:1" }], padding: "x".repeat(5 << 20) }) });
+afterAll(() => large.stop(true));
+
+test.skipIf(!front)("setup.init resolves every OLLAMA_HOST form like forced forwarding", async () => {
+  const forms: [string, string | null][] = [
+    [`127.0.0.1:${query.port}?token=abc`, "query:1"],
+    [`http://127.0.0.1:${query.port}/some/path?token=abc#frag`, "query:1"],
+    [`  HTTP://127.0.0.1:${query.port}/?token=abc  `, "query:1"],
+    [`http://127.0.0.1:${query.port}`, null],
+    [`127.0.0.1:${query.port}#?token=abc`, null],
+    [`http://user:pw@127.0.0.1:${query.port}?token=abc`, "query:1"],
+    [`http://127.0.0.1:${keptOpen.port}`, "kept:1"],
+    [`127.0.0.1:${large.port}`, "large:1"],
+    ...(v6 ? [[`http://[::1]:${v6.port}?token=abc`, "v6:1"], [`[::1]:${v6.port}?token=abc`, "v6:1"]] as [string, string][] : []),
+    [`https://127.0.0.1:${query.port}?token=abc`, null],
+    [`ftp://127.0.0.1:${query.port}?token=abc`, null],
+    ["http://127.0.0.1:notaport", null],
+    ["http://[::1", null],
+    [`127.0.0.1:${DEAD[0]}?token=abc`, null],
+  ];
+  const local = (value: unknown, dir: string) => JSON.parse(JSON.stringify(value).replaceAll(dir, "$HOME"));
+  const strategy = (dir: string) => readFileSync(join(dir, ".pacer", "strategy.yaml"), "utf8");
+  const write = requests([["setup.init", { planner: "codex" }]]);
+  for (const [host, model] of forms) {
+    const homes = [home(false), home(false)];
+    for (const dir of homes) for (const name of ["opencode", "ollama", "arkcli", "lms"]) bin(dir, name, "exit 1");
+    const env = { OLLAMA_HOST: host };
+    const before = queried.length;
+    const native = await exchange(homes[0]!, write, false, env);
+    const forwarded = await exchange(homes[1]!, write, true, env);
+    expect(local(native, homes[0]!), host).toEqual(local(forwarded, homes[1]!));
+    expect(strategy(homes[0]!), host).toEqual(strategy(homes[1]!));
+    expect(strategy(homes[0]!).match(/ollama\/[^\s",}]+/)?.[0] ?? null, host).toBe(model && `ollama/${model}`);
+    expect(events(homes[0]!), host).toEqual(events(homes[1]!));
+    if (host.includes(`:${query.port}`) && model) expect(queried.slice(before), host).toEqual(["query /api/tags?token=abc", "query /api/tags?token=abc"]);
+  }
+}, 300000);
+
 test.skipIf(!front)("strategy.build writes the same intent files, prompt and terminal hand-off as forced forwarding", async () => {
   const request_id = "00000000-0000-4000-8000-000000000001";
   const cases: [string, unknown][] = [
@@ -175,11 +280,23 @@ test.skipIf(!front)("executor.setup.candidates from a fresh catalog matches forc
     ["sign-in failure", dir => signed(dir, "exit 3")],
     ["no opencode", () => {}],
   ];
-  for (const [label, setup] of scenarios) {
+  const servers: [string, string][] = [["serving", `${models.port},${DEAD[1]}`], ["absent", `${DEAD[0]},${DEAD[1]}`]];
+  for (const [variant, ports] of servers) for (const [label, setup] of scenarios) {
     const dir = home();
     catalog(dir, NOW);
     setup(dir);
-    expect(await exchange(dir, cases, false), label).toEqual(await exchange(dir, cases, true));
+    const before = modelRequests;
+    const env = { PACER_TEST_LOCAL_SERVER_PORTS: ports };
+    let native: any[] = [], forwarded: any[] = [];
+    for (let attempt = 0; attempt < 3 && (attempt === 0 || probeDeadline([native, forwarded])); attempt++) {
+      native = await exchange(dir, cases, false, env);
+      forwarded = await exchange(dir, cases, true, env);
+    }
+    expect(native, `${variant} ${label}`).toEqual(forwarded);
+    const local = native[0].result.candidates.filter((c: { group: string }) => c.group === "local");
+    expect(local, `${variant} ${label}`).toEqual(variant === "serving"
+      ? [{ group: "local", provider: "ollama", name: "Ollama", base_url: `http://127.0.0.1:${models.port}/v1`, models: 2, added: null, usage: { usage: "unmetered", known: true } }] : []);
+    expect(modelRequests > before, `${variant} ${label}`).toBe(variant === "serving");
   }
   const stale = home();
   catalog(stale, NOW - 90000);
@@ -187,12 +304,33 @@ test.skipIf(!front)("executor.setup.candidates from a fresh catalog matches forc
   expect(await exchange(stale, one, false, {}, false)).toEqual(await exchange(stale, one, true));
 }, 120000);
 
+test.skipIf(!front)("executor.setup.candidates reports distinct probe failures in the order they settle", async () => {
+  const [ollamaUrl, lmstudioUrl] = DEAD.map(port => `http://127.0.0.1:${port}/v1`);
+  const plannedCore = JSON.stringify([process.execPath, join(import.meta.dir, "fixtures", "core-discover-plan.ts")]);
+  const one = requests([["executor.setup.candidates", {}]]);
+  const orders: [string, Record<string, { delayMs: number; error: string }>, string[]][] = [
+    ["reverse of server order", { [ollamaUrl!]: { delayMs: 600, error: "ollama failed" }, [lmstudioUrl!]: { delayMs: 20, error: "lmstudio failed" } }, ["lmstudio failed", "ollama failed"]],
+    ["server order", { [ollamaUrl!]: { delayMs: 20, error: "ollama failed" }, [lmstudioUrl!]: { delayMs: 600, error: "lmstudio failed" } }, ["ollama failed", "lmstudio failed"]],
+  ];
+  for (const [label, plan, expected] of orders) {
+    const dir = home();
+    mkdirSync(join(dir, ".pacer", "cache"), { recursive: true });
+    writeFileSync(join(dir, ".pacer", "cache", "models.json"), JSON.stringify({ fetchedAt: NOW, providers: {} }));
+    const env = { PACER_CORE_ARGV: plannedCore, DISCOVER_PLAN: JSON.stringify(plan) };
+    const native = await exchange(dir, one, false, env);
+    const forwarded = await exchange(dir, one, true, env);
+    expect(native, label).toEqual(forwarded);
+    expect(native[0].result.notes, label).toEqual(["Install OpenCode to use providers you have signed in to or connect new ones.",
+      ...expected.map(e => `Could not check local model servers: ${e}`)]);
+  }
+}, 120000);
+
 async function serve(dir: string, forward: boolean) {
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
-    env: { HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
-      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) } });
+  const port = closedPort();
+  const child = spawnPinned([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
+    env: pinnedEnv({ HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
+      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
+      ...isolated, PACER_TEST_LOCAL_SERVER_PORTS: `${models.port},${DEAD[1]}`, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }, port) });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;
@@ -225,18 +363,25 @@ test.skipIf(!front)("HTTP callers reach the setup effects bridge like the TypeSc
     writeFileSync(join(dir, ".pacer", "cache", "models.json"), JSON.stringify({ fetchedAt: NOW, providers: { acme: { id: "acme", name: "Acme", env: [], api: null, models: [{ id: "a1", name: "A1", toolCall: true, input: ["text"], output: ["text"], context: 200000, outputLimit: 32000, costIn: 1, costOut: 2, release: "2025-03-01" }] } } }));
     const cookie = createSession(fakeCtx({ home: dir, now: Date.now() / 1000 }));
     const server = await serve(dir, forward);
+    const candidates = async () => {
+      let body = "";
+      for (let attempt = 0; attempt < 3 && (attempt === 0 || probeDeadline(body)); attempt++) body = await server.post("executor.setup.candidates", {}, server.bearer);
+      return body;
+    };
     const bodies = [
       await server.post("strategy.build", { agent: "codex", request_id: "00000000-0000-4000-8000-00000000000a" }, server.bearer),
       await server.post("strategy.build", { agent: "opencode", request_id: "00000000-0000-4000-8000-00000000000b" }, server.app(cookie)),
       await server.post("strategy.build", { brief: 5 }, server.app(cookie)),
-      await server.post("executor.setup.candidates", {}, server.bearer),
+      await candidates(),
       await server.post("setup.init", { planner: "codex" }, server.app(cookie)),
     ];
-    results.push({ bodies: bodies.map(body => body.replaceAll(dir, "$HOME")), markers: await server.stop(), sessions: Object.keys(files(dir, "link/sessions")) });
+    const markers = (await server.stop()).filter((line, i, all) => line !== "native executor.setup.candidates" || all[i - 1] !== line);
+    results.push({ bodies: bodies.map(body => body.replaceAll(dir, "$HOME")), markers, sessions: Object.keys(files(dir, "link/sessions")) });
   }
   const norm = (body: string) => body.replace(/Current status:\\n[\s\S]*?\\n\\nUse the pacer MCP/g, "<status>").replace(/[0-9a-f-]{36}\.sh/g, "<script>.sh")
     .replace(/"terminalId":"[^"]+"/g, '"terminalId":"<id>"');
   expect(results[0]!.bodies.map(norm)).toEqual(results[1]!.bodies.map(norm));
+  expect(results[0]!.bodies[3]).toContain(`"base_url":"http://127.0.0.1:${models.port}/v1","models":2`);
   expect(results[0]!.sessions).toEqual(results[1]!.sessions);
   expect(results[1]!.markers).toEqual([]);
   expect(results[0]!.markers).toEqual(["strategy.build", "strategy.build", "strategy.build", "executor.setup.candidates", "setup.init"].map(op => `native ${op}`));

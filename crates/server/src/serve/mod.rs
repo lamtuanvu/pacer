@@ -171,6 +171,15 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             Err(error) if plugin && error == pacer_plugin_ops::json::NESTING_FALLBACK => {
                 return forward_plugin_read(&state, parts, bytes, auth).await;
             }
+            Err(_)
+                if crate::native::dispatch_lifecycle_sync::forwards_undecodable_body(op.name) =>
+            {
+                let Some(target) = state.core.target().await else {
+                    return proxy::unavailable(false);
+                };
+                return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
+                    .await;
+            }
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
         // Planner install and backend readiness remain on the TypeScript path.
@@ -192,6 +201,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::dependencies_waive_stays_forwarded(op.name, &params)
             || crate::native::insights_stays_forwarded(op.name, &params)
             || crate::native::planning_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::dispatch_lifecycle_stays_forwarded(&ctx, op.name, &params)
             || crate::native::job_strategy_setup_stays_forwarded(&ctx, op.name, &params)
             || crate::native::runner_attention_stays_forwarded(&ctx, op.name, &params)
             || crate::native::service_agent_stays_forwarded(&ctx, op.name, &params)
@@ -222,6 +232,23 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
+        if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let by = crate::native::task_send_ops::caller_identity(
+                &ctx,
+                header_value(&parts.headers, "x-pacer-client").as_deref(),
+                header_value(&parts.headers, "x-pacer-client-instance").as_deref(),
+            );
+            let mut bridge = crate::native::task_send_sync::HttpBridge {
+                target: state.core.target().await,
+            };
+            return match crate::native::task_send_ops::task_send(&ctx, params, by, &mut bridge)
+                .await
+            {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
         if pacer_config_ops::setup_effects::uses_effects(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
             let mut effects = crate::native::setup_effects_sync::HttpEffects {
@@ -230,6 +257,18 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             let app = auth == auth::AuthKind::Cookie;
             let result =
                 pacer_config_ops::setup_effects::call(&ctx, op.name, params, app, &mut effects);
+            return match result.await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
+        if crate::native::install_apply_sync::uses_effects(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut effects = crate::native::install_apply_sync::HttpEffects {
+                target: state.core.target().await,
+            };
+            let result =
+                crate::native::install_apply_sync::call(&ctx, op.name, params, &mut effects);
             return match result.await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
                 Err(error) => native_error(error),
@@ -437,6 +476,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                         {
                             map.insert("snapshotProbe".into(), serde_json::json!(false));
                         }
+                        if crate::native::setup_doctor_sync::routes(op.name) {
+                            bridge_params =
+                                crate::native::setup_doctor_sync::serve_body(bridge_params);
+                        }
                         let op_name = op.name.to_owned();
                         state.core.target().await.map(|target| {
                             let bridge_params = bridge_params.clone();
@@ -452,22 +495,14 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     }
                     Err(error) => return native_error(error),
                 }
-            } else {
-                None
-            };
-            let mut service_effects_bridge = if pacer_install::needs_service_effects_bridge(op.name)
-            {
+            } else if crate::native::needs_account_list_bridge(op.name) {
                 state.core.target().await.map(|target| {
-                    crate::native::service_effects_sync::HttpServiceEffects {
-                        target: Some(target),
-                    }
+                    Box::pin(crate::native::account_list_sync::http(Some(target)))
+                        as pacer_foundation::api::OpFuture<'_>
                 })
             } else {
                 None
             };
-            let service_effects_sync = service_effects_bridge
-                .as_mut()
-                .map(|b| b as &mut dyn pacer_install::ServiceEffects);
             let task_stop_effects = if task_stop_probe_cache.is_some() {
                 let id = params
                     .get("id")
@@ -550,7 +585,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 task_stop_effects,
                 task_review_probe_cache,
                 task_review_effects,
-                service_effects_sync,
+                None,
             )
             .await
         };

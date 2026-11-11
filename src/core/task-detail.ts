@@ -200,6 +200,7 @@ export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
   return {
     ...overlay,
     ...apiTask(ctx, task),
+    ...(overlay.work ? { work: overlay.work } : {}),
     brief: task.brief,
     routing: task.pendingAttempt?.routing ?? last?.routing ?? null,
     cost: costFor(ctx, task),

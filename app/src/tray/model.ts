@@ -33,6 +33,7 @@ export function actionError(error: unknown): string {
 export function visibleFailure(failure: { message: string; item?: string } | null, attention: Array<{ id: string }> | undefined): string {
   return failure && (!failure.item || !!attention?.some(item => item.id === failure.item)) ? failure.message : "";
 }
+export const actionSupported = (action: Action, ops: ReadonlySet<string>) => !["dispatch.retry", "dispatch.answer"].includes(action.op) || ops.has(action.op);
 export const primaryAction = (actions: Action[]) => actions.find(a => a.style === "primary") ?? actions[0];
 /** Compact capacity values never invent an unknown usage percentage. */
 const OFF_STATES = new Set(["disabled", "down", "failing", "blocked"]);

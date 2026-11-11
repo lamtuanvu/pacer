@@ -1348,3 +1348,5 @@ a.pc-btn--primary:hover{color:var(--ink-on-ink)}
 
 /* Active-panel status remains part of the identity on narrow frames. */
 .pc-app--narrow .pc-topbar .pc-workspace-panel-details>.pc-pill{display:inline-flex}
+
+.sr-only{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

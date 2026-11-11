@@ -23,6 +23,6 @@ function TrayApp() {
     const detachContextMenu = attachContextMenuPolicy(window);
     return () => { stopControl(); unsubscribe(); stop(); detachContextMenu(); };
   }, []);
-  return <Tray snapshot={state.snapshot} activity={state.activity} connected={state.connected} sessionEnded={state.sessionEnded || sessionEnded} api={api} ipc={ipc} />;
+  return <Tray ops={state.features.ops} snapshot={state.snapshot} activity={state.activity} connected={state.connected} sessionEnded={state.sessionEnded || sessionEnded} api={api} ipc={ipc} />;
 }
 render(<DesktopConnectionShell><TrayApp /></DesktopConnectionShell>, document.getElementById("app")!);

@@ -62,7 +62,8 @@ fn number(v: &Value) -> String {
     }
 }
 
-fn keys(m: &serde_json::Map<String, Value>) -> Vec<&String> {
+/// `Object.keys` order: array indices ascending, then insertion order.
+pub(crate) fn keys(m: &serde_json::Map<String, Value>) -> Vec<&String> {
     let mut indices: Vec<_> = m.keys().filter(|k| array_index(k)).collect();
     indices.sort_by_key(|k| k.parse::<u32>().unwrap_or(0));
     indices

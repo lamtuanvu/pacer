@@ -16,6 +16,7 @@ test("M1 gate requires test operations to remain feature-gated", () => {
   expect(() => validateNativeRegistry(source.replace('name: "test.echo"', 'name: "different.echo"'))).toThrow("coverage changed");
   expect(() => validateNativeRegistry(source.replace('name: "activity.list"', 'name: "test.echo"'))).toThrow("feature-gated native registry");
   expect(() => validateNativeRegistry(source.replace('static OPS: &[NativeOp] = &[', 'static OPS: &[NativeOp] = &[\n    unknown_entry(),'))).toThrow("feature-gated native registry");
+  expect(() => validateNativeRegistry(source.replace('name: engine_ops::ops()[0].name', 'name: engine_ops::ops()[1].name'))).toThrow("feature-gated native registry");
 });
 
 test("M1 gate requires the exact paired host release bytes", () => {

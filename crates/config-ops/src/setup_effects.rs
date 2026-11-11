@@ -1,9 +1,10 @@
-//! Native `strategy.build` and `executor.setup.candidates` with their private
-//! Core effects bridge (`/_internal/setup-effects`, `_internal.setup.effects`).
-//! Rust owns validation, files, prompts and result assembly. Core runs only
-//! effects that need its in-process state: the rendered live status, the
-//! terminal hand-off under desktop work admission, and endpoint-plugin probes
-//! of the fixed local model servers.
+//! Native `strategy.build`, `executor.setup.candidates` and `setup.init` with
+//! their private Core effects bridge (`/_internal/setup-effects`,
+//! `_internal.setup.effects`). Rust owns validation, files, prompts and result
+//! assembly. Core runs only effects that need its in-process state or its exact
+//! `fetch`: the rendered live status, the terminal hand-off under desktop work
+//! admission, endpoint-plugin probes of the fixed local model servers, and the
+//! Ollama tags request to `OLLAMA_HOST`.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
@@ -19,7 +20,10 @@ pub trait SetupEffects: Send {
 
 /// Ops a front door dispatches through [`call`] with a Core effects bridge.
 pub fn uses_effects(op: &str) -> bool {
-    matches!(op, "strategy.build" | "executor.setup.candidates")
+    matches!(
+        op,
+        "strategy.build" | "executor.setup.candidates" | "setup.init"
+    )
 }
 
 /// Registry entry for ops that run only through [`call`].
@@ -47,12 +51,13 @@ pub async fn call(
         "executor.setup.candidates" => {
             crate::executor_candidates_ops::candidates(ctx, params, effects).await
         }
+        "setup.init" => crate::setup_init_ops::setup_init(ctx, params, effects).await,
         _ => Err(CoreError::new(Code::UnknownOp, "unknown operation")),
     }
 }
 
 /// Inputs only TypeScript reproduces, and work-grant callers, whose scope Core checks.
-pub fn setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+pub fn setup_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
     if !matches!(
         op,
         "strategy.build" | "executor.setup.candidates" | "setup.init"
@@ -69,11 +74,7 @@ pub fn setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     if crate::executor_setup_ops::enforcement(ctx).is_err() {
         return false;
     }
-    match op {
-        "executor.setup.candidates" => crate::executor_candidates_ops::stays_forwarded(ctx),
-        "setup.init" => crate::setup_init_ops::stays_forwarded(ctx, params),
-        _ => false,
-    }
+    op == "executor.setup.candidates" && crate::executor_candidates_ops::stays_forwarded(ctx)
 }
 
 pub(crate) fn unavailable(message: &str) -> CoreError {

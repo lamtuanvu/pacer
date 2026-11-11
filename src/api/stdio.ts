@@ -83,6 +83,15 @@ export async function runStdio(
           result = configHostParts(getCtx());
           break;
         }
+        case "_internal.account-list.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { accountListParts } = await import("./account-list-bridge");
+          result = await accountListParts(getCtx());
+          break;
+        }
         case "_internal.host-read.parts": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -207,6 +216,15 @@ export async function runStdio(
           result = await msgEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps?.spawnRunner);
           break;
         }
+        case "_internal.task-send": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { taskSendBridge } = await import("./task-send-bridge");
+          result = await taskSendBridge(getCtx(), (r.params as { request?: unknown }).request);
+          break;
+        }
         case "_internal.setup.effects": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -224,6 +242,15 @@ export async function runStdio(
           const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
           const { setupCheckBridge } = await import("./setup-check-bridge");
           result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false);
+          break;
+        }
+        case "_internal.setup.doctor": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { setupDoctorBridge } = await import("./setup-doctor-bridge");
+          result = await setupDoctorBridge(getCtx(), r.params);
           break;
         }
         case "hello": {

@@ -231,6 +231,17 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/account-list-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { accountListParts } = await import("../api/account-list-bridge");
+            return Response.json({ result: await accountListParts(getCtx()) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/host-read-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -407,6 +418,19 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/task-send" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { taskSendBridge } = await import("../api/task-send-bridge");
+            return Response.json({ result: await taskSendBridge(getCtx(), request) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -431,6 +455,20 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if ((pathname === "/_internal/service-effects" || pathname === "/_internal/update-effects") && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { serviceEffectsBridge, updateEffectsBridge } = await import("../api/install-apply-bridge");
+            const bridge = pathname === "/_internal/service-effects" ? serviceEffectsBridge : updateEffectsBridge;
+            return Response.json({ result: await bridge(getCtx(), request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/setup-check" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -442,6 +480,18 @@ export function startServer(
             return Response.json({
               result: await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false),
             });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/setup-doctor" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const { setupDoctorBridge } = await import("../api/setup-doctor-bridge");
+            return Response.json({ result: await setupDoctorBridge(getCtx(), body) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);

@@ -11,6 +11,7 @@ mod snapshot;
 mod summary;
 pub mod task_detail;
 pub mod tasks;
+pub mod v2_compat;
 pub mod wire;
 use pacer_foundation::Ctx;
 use serde_json::Value;

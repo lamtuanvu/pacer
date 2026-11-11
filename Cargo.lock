@@ -1357,6 +1357,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-core-bridge"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "hex",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pacer-config-ops",
+ "pacer-foundation",
+ "pacer-install",
+ "pacer-messaging-ops",
+ "rand 0.9.5",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-desktop-protocol"
 version = "0.0.0"
 dependencies = [
@@ -1523,6 +1542,15 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-mcp"
+version = "0.0.0"
+dependencies = [
+ "ryu-js",
+ "serde_json",
  "tokio",
 ]
 
@@ -1710,6 +1738,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "icu_collator",
  "pacer-config",
  "pacer-engine",
  "pacer-foundation",
@@ -1759,6 +1788,7 @@ dependencies = [
  "pacer-assistant-ops",
  "pacer-config",
  "pacer-config-ops",
+ "pacer-core-bridge",
  "pacer-discovery-ops",
  "pacer-dispatch-ops",
  "pacer-engine",
@@ -1767,6 +1797,7 @@ dependencies = [
  "pacer-issues",
  "pacer-lifecycle",
  "pacer-machine-ops",
+ "pacer-mcp",
  "pacer-mdns",
  "pacer-messaging-ops",
  "pacer-plugin-ops",
@@ -1839,6 +1870,7 @@ version = "0.0.0"
 dependencies = [
  "chrono-tz",
  "pacer-config",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
  "pacer-read-model",
@@ -1888,6 +1920,7 @@ version = "0.0.0"
 dependencies = [
  "nix",
  "pacer-foundation",
+ "pacer-messaging-ops",
  "pacer-store",
  "ryu-js",
  "serde_json",

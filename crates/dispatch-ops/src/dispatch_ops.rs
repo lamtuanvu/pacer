@@ -140,7 +140,13 @@ fn int_value(name: &str, value: &Value, issues: &mut Vec<String>) -> Option<f64>
 }
 
 /// `z.number().int()` with an inclusive range.
-fn int_issues(name: &str, value: &Value, min: f64, max: Option<f64>, issues: &mut Vec<String>) {
+pub(crate) fn int_issues(
+    name: &str,
+    value: &Value,
+    min: f64,
+    max: Option<f64>,
+    issues: &mut Vec<String>,
+) {
     let Some(n) = int_value(name, value, issues) else {
         return;
     };

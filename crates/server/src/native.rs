@@ -5,61 +5,75 @@ use pacer_foundation::{
     api::{CoreError, NativeOp, Registry},
 };
 use serde_json::Value;
-pub(crate) mod config_host_sync;
-pub(crate) mod config_sync;
+pub(crate) mod account_list_sync;
+pub(crate) use account_list_ops::needs_account_list_bridge;
+use pacer_account_ops::account_list_ops;
 use pacer_config_ops::config_writes;
+use pacer_config_ops::doctor_ops;
 use pacer_config_ops::executor_setup_ops;
-pub(crate) mod core_bridge_sync;
-mod desktop_reconcile_ops;
+pub(crate) use pacer_core_bridge::config_host_sync;
+pub(crate) use pacer_core_bridge::config_sync;
+pub(crate) use pacer_core_bridge::core_bridge_sync;
 use pacer_discovery_ops::{discovery_ops, network_ops};
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
 use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
+use pacer_dispatch_ops::lifecycle_ops as dispatch_lifecycle_ops;
 use pacer_dispatch_ops::planning_ops;
-mod engine_ops;
+use pacer_update::desktop_reconcile_ops;
+pub(crate) mod dispatch_lifecycle_sync;
+use pacer_config_ops::engine_ops;
 use pacer_config_ops::host_mut_ops;
+use pacer_config_ops::host_read_ops;
+use pacer_config_ops::limits_refresh_ops;
+pub(crate) use pacer_core_bridge::host_mut_sync;
+pub(crate) use pacer_core_bridge::host_read_sync;
 use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
-pub(crate) mod host_mut_sync;
-use pacer_config_ops::host_read_ops;
-use pacer_config_ops::limits_refresh_ops;
-pub(crate) mod host_read_sync;
+#[allow(unused_imports)]
+use pacer_update::handover;
+pub(crate) mod install_apply_sync;
+use pacer_install::install_ops;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
 use pacer_task_ops::session_context_ops;
 mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
+pub(crate) use pacer_core_bridge::msg_write_sync;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
-pub(crate) mod msg_write_sync;
 pub mod plugins;
-pub(crate) mod service_effects_sync;
-pub(crate) mod setup_effects_sync;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
+use pacer_config_ops::runner_check_ops;
 use pacer_config_ops::runner_ops;
+pub(crate) use pacer_core_bridge::session_sync;
+pub(crate) use pacer_core_bridge::setup_effects_sync;
 pub(crate) use pacer_task_ops::session_ops;
-pub(crate) mod session_sync;
-mod setup_ops;
+pub(crate) mod setup_doctor_sync;
+use pacer_config_ops::setup_ops;
+pub(crate) use pacer_core_bridge::snapshot_sync;
+pub(crate) use pacer_core_bridge::status_sync;
+pub(crate) use pacer_core_bridge::task_clean_sync;
+pub(crate) use pacer_core_bridge::task_read_sync;
+pub(crate) use pacer_core_bridge::task_review_sync;
 use pacer_task_ops::snapshot_get_ops;
-pub(crate) mod snapshot_sync;
-pub(crate) mod status_ops;
-pub(crate) mod status_sync;
-pub(crate) mod task_clean_sync;
+pub(crate) use pacer_task_ops::status_ops;
 use pacer_task_ops::task_diff_ops;
 pub(crate) use pacer_task_ops::task_dismiss_ops;
 use pacer_task_ops::task_get_ops;
-pub(crate) mod task_read_sync;
 use pacer_task_ops::task_reads;
 use pacer_task_ops::task_review_ops;
-pub(crate) mod task_review_sync;
+pub(crate) use pacer_task_ops::task_send_ops;
+pub(crate) mod task_send_sync;
+pub(crate) use pacer_core_bridge::task_stop_sync;
+pub(crate) use pacer_core_bridge::task_wait_sync;
 use pacer_task_ops::task_stop_ops;
-pub(crate) mod task_stop_sync;
 use pacer_task_ops::task_wait_ops;
-pub(crate) mod task_wait_sync;
+use pacer_update::apply;
 
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
@@ -67,12 +81,15 @@ pub(crate) use config_writes::config_set_stays_forwarded;
 pub use dependency_writes::dependencies_waive_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
+pub(crate) use dispatch_lifecycle_sync::dispatch_lifecycle_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
 pub use machine_identity::set_identity_platform_for_tests;
 pub(crate) use msg_ops::{msg_answer_stays_forwarded, msg_stays_forwarded};
+#[doc(hidden)]
+pub use p8_bridge_ops::bridge_params as core_bridge_params;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub use pacer_account_ops::account_stays_forwarded;
 use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview_ops};
@@ -103,18 +120,21 @@ pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -
     }
 }
 
-/// `service.status`, `update.check`, `agent.detect` and `limits.refresh` inputs only TypeScript answers.
+/// `service.status`, `service.install`, `update.check`, `update.apply`, `agent.detect` and
+/// `limits.refresh` inputs only TypeScript answers.
 pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     match op {
         "agent.detect" => pacer_install::agent_detect_stays_forwarded(ctx, params),
         "limits.refresh" => limits_refresh_ops::limits_refresh_stays_forwarded(ctx, params),
+        "service.install" | "update.apply" => install_apply_sync::stays_forwarded(ctx, op),
         _ => pacer_update::service_update_stays_forwarded(ctx, op),
     }
 }
 
-/// `runner.add` and `attention.*` inputs whose effects only the TypeScript core owns.
+/// `runner.add`, `runner.check` and `attention.*` inputs whose effects only the TypeScript core owns.
 pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     runner_ops::runner_stays_forwarded(ctx, op, params)
+        || runner_check_ops::runner_check_stays_forwarded(ctx, op, params)
         || attention_ops::attention_stays_forwarded(ctx, op, params)
 }
 pub(crate) use session_ops::needs_session_probe;
@@ -241,6 +261,10 @@ static OPS: &[NativeOp] = &[
         call: runner_ops::runner_add,
     },
     NativeOp {
+        name: "runner.check",
+        call: runner_check_ops::runner_check,
+    },
+    NativeOp {
         name: "runner.block",
         call: runner_ops::runner_block,
     },
@@ -337,6 +361,14 @@ static OPS: &[NativeOp] = &[
         call: pacer_account_ops::account_usage_check,
     },
     NativeOp {
+        name: "account.list",
+        call: account_list_ops::account_list_stub,
+    },
+    NativeOp {
+        name: "account.signin",
+        call: account_list_ops::account_signin_stub,
+    },
+    NativeOp {
         name: "activity.list",
         call: task_reads::activity_list,
     },
@@ -389,44 +421,44 @@ static OPS: &[NativeOp] = &[
         call: meta_ops::api_describe,
     },
     NativeOp {
-        name: "delegation.pause",
-        call: engine_ops::delegation_pause,
+        name: engine_ops::ops()[0].name,
+        call: engine_ops::ops()[0].call,
     },
     NativeOp {
-        name: "delegation.resume",
-        call: engine_ops::delegation_resume,
+        name: engine_ops::ops()[1].name,
+        call: engine_ops::ops()[1].call,
     },
     NativeOp {
-        name: "mode.hold",
-        call: engine_ops::mode_hold_op,
+        name: engine_ops::ops()[2].name,
+        call: engine_ops::ops()[2].call,
     },
     NativeOp {
-        name: "mode.release",
-        call: engine_ops::mode_release,
+        name: engine_ops::ops()[3].name,
+        call: engine_ops::ops()[3].call,
     },
     NativeOp {
-        name: "limits.report",
-        call: engine_ops::limits_report,
+        name: engine_ops::ops()[4].name,
+        call: engine_ops::ops()[4].call,
     },
     NativeOp {
-        name: "limits.check",
-        call: status_ops::limits_check_stub,
+        name: status_ops::ops()[0].name,
+        call: status_ops::ops()[0].call,
     },
     NativeOp {
         name: "limits.refresh",
         call: limits_refresh_ops::limits_refresh,
     },
     NativeOp {
-        name: "routing.status",
-        call: status_ops::routing_status_stub,
+        name: status_ops::ops()[1].name,
+        call: status_ops::ops()[1].call,
     },
     NativeOp {
-        name: "routing.route",
-        call: status_ops::routing_route_stub,
+        name: status_ops::ops()[2].name,
+        call: status_ops::ops()[2].call,
     },
     NativeOp {
-        name: "task.retry_options",
-        call: status_ops::task_retry_options_stub,
+        name: status_ops::ops()[3].name,
+        call: status_ops::ops()[3].call,
     },
     NativeOp {
         name: "task.request_review",
@@ -435,6 +467,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "task.stop",
         call: task_stop_ops::task_stop_stub,
+    },
+    NativeOp {
+        name: "task.send",
+        call: task_send_ops::task_send_stub,
     },
     NativeOp {
         name: "task.wait",
@@ -473,12 +509,20 @@ static OPS: &[NativeOp] = &[
         call: p8_bridge_ops::bridge_stub,
     },
     NativeOp {
-        name: "onboarding.skip",
-        call: setup_ops::onboarding_skip,
+        name: "setup.health",
+        call: doctor_ops::setup_health_stub,
+    },
+    NativeOp {
+        name: "doctor.run",
+        call: doctor_ops::doctor_run_stub,
+    },
+    NativeOp {
+        name: setup_ops::ops()[0].name,
+        call: setup_ops::ops()[0].call,
     },
     NativeOp {
         name: "setup.init",
-        call: pacer_config_ops::setup_init_ops::setup_init,
+        call: pacer_config_ops::setup_effects::effects_stub,
     },
     NativeOp {
         name: "service.status",
@@ -491,6 +535,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "agent.detect",
         call: pacer_install::agent_detect,
+    },
+    NativeOp {
+        name: "service.install",
+        call: install_ops::service_install_stub,
+    },
+    NativeOp {
+        name: "update.apply",
+        call: apply::update_apply_stub,
     },
     NativeOp {
         name: "repo.list",
@@ -593,6 +645,34 @@ static OPS: &[NativeOp] = &[
         call: dispatch_ops::dispatch_events,
     },
     NativeOp {
+        name: "dispatch.submit",
+        call: dispatch_lifecycle_ops::dispatch_submit,
+    },
+    NativeOp {
+        name: "dispatch.child",
+        call: dispatch_lifecycle_ops::dispatch_child,
+    },
+    NativeOp {
+        name: "dispatch.wait",
+        call: dispatch_lifecycle_ops::dispatch_wait,
+    },
+    NativeOp {
+        name: "dispatch.review",
+        call: dispatch_lifecycle_ops::dispatch_review,
+    },
+    NativeOp {
+        name: "dispatch.retry",
+        call: dispatch_lifecycle_ops::dispatch_retry,
+    },
+    NativeOp {
+        name: "dispatch.answer",
+        call: dispatch_lifecycle_ops::dispatch_answer,
+    },
+    NativeOp {
+        name: "dispatch.stop",
+        call: dispatch_lifecycle_ops::dispatch_stop,
+    },
+    NativeOp {
         name: "dispatch.dependencies",
         call: dependency_writes::dispatch_dependencies,
     },
@@ -645,16 +725,16 @@ static OPS: &[NativeOp] = &[
         call: discovery_network_set,
     },
     NativeOp {
-        name: "desktop.reconcile.status",
-        call: desktop_reconcile_ops::desktop_reconcile_status,
+        name: desktop_reconcile_ops::ops()[0].name,
+        call: desktop_reconcile_ops::ops()[0].call,
     },
     NativeOp {
-        name: "desktop.reconcile.request",
-        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+        name: desktop_reconcile_ops::ops()[1].name,
+        call: desktop_reconcile_ops::ops()[1].call,
     },
     NativeOp {
-        name: "desktop.reconcile.cancel",
-        call: desktop_reconcile_ops::desktop_reconcile_unavailable,
+        name: desktop_reconcile_ops::ops()[2].name,
+        call: desktop_reconcile_ops::ops()[2].call,
     },
     NativeOp {
         name: "assistant.status",
@@ -748,7 +828,7 @@ pub async fn call_native(
     task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     task_review_probe: Option<Value>,
     task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
-    service_effects: Option<&mut dyn pacer_install::ServiceEffects>,
+    _handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -872,17 +952,6 @@ pub async fn call_native(
             "host.get" => host_read_ops::host_get(ctx, params, parts).await?,
             _ => unreachable!("needs_host_read_bridge"),
         }
-    } else if pacer_install::needs_service_effects_bridge(op.name) {
-        let effects = service_effects.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "service effects bridge unavailable",
-            )
-        })?;
-        match op.name {
-            "service.install" => pacer_install::service_install(ctx, params, effects).await?,
-            _ => unreachable!("needs_service_effects_bridge"),
-        }
     } else if needs_task_clean_bridge(op.name) {
         let clean = task_clean_sync.ok_or_else(|| {
             CoreError::new(
@@ -928,6 +997,14 @@ pub async fn call_native(
             "task.review" => task_review_ops::task_review(ctx, params, probe, effects).await?,
             _ => unreachable!("needs_task_review_bridge"),
         }
+    } else if needs_account_list_bridge(op.name) {
+        let parts = core_bridge_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "account list bridge unavailable",
+            )
+        })?;
+        account_list_ops::account_list(ctx, params, parts).await?
     } else if needs_core_bridge(op.name) {
         let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
         let parts = core_bridge_sync.ok_or_else(|| {

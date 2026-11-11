@@ -2,7 +2,7 @@ import { accountUsageCapability } from "./account-usage-check";
 import { accountEvidenceScope, retireEvidence } from "./evidence";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { join, resolve, sep, parse } from "node:path";
-import { parseSize } from "../config/accounts";
+import { parseSize, type AccountCfg } from "../config/accounts";
 import { editStrategy } from "../config/edit";
 import { loadStrategy, strategyPath, type Strategy } from "../config/strategy";
 import { migrateStrategy, type MigrationResult } from "../config/migrate";
@@ -122,21 +122,27 @@ function publicValue<T>(value: T): T {
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, publicValue(v)])) as T;
   return value;
 }
+/** The `account.list` reads that need usage plugins, Orca or login probes; native `account.list` composes the rest. */
+export async function accountListPart(ctx: Ctx, s: Strategy, orca: Awaited<ReturnType<typeof readOrcaAccounts>>, a: AccountCfg) {
+  const runners = Object.values(s.runners).filter(r=>r.account===a.name);
+  const identity = a.orcaAccount && (a.kind === "claude" || a.kind === "codex") ? orca?.[a.kind].find(v=>v.id===a.orcaAccount) : undefined;
+  const usageReading = markFreshness(await readAccountUsage({...ctx,readOnly:true},a,runners,false,false,s.hosts), ctx.now);
+  const signedIn = (runners.length && runners.every(r => r.host !== null)
+    ? accountAuthFailure(ctx, accountEvidenceScope(a, s.hosts)) ? false : null
+    : accountSignIn(ctx, a, accountEvidenceScope(a, s.hosts)).signedIn) ?? (identity ? true : null);
+  return {label: identity?.label, signedIn, usageReading, endpoint: await endpointRow(ctx, a)};
+}
 export async function list(ctx: Ctx) {
   const s = loadStrategy(ctx);
   const orca = await readOrcaAccounts(ctx);
   const rows = await Promise.all(Object.values(s.accounts).map(async a => {
     const runners = Object.values(s.runners).filter(r=>r.account===a.name);
-    const identity = a.orcaAccount && (a.kind === "claude" || a.kind === "codex") ? orca?.[a.kind].find(v=>v.id===a.orcaAccount) : undefined;
     const folder = accountFolder(ctx,a);
-    const usageReading = markFreshness(await readAccountUsage({...ctx,readOnly:true},a,runners,false,false,s.hosts), ctx.now);
+    const {label, signedIn, usageReading, endpoint} = await accountListPart(ctx, s, orca, a);
     // Keep listing order stable when declarations precede inferred runners.
-    return {...a, label: identity?.label ?? a.name, folder, runners:runners.map(r=>r.id).sort(), executors:runners.map(r=>r.id).sort(),
+    return {...a, label: label ?? a.name, folder, runners:runners.map(r=>r.id).sort(), executors:runners.map(r=>r.id).sort(),
       ...(s.planner.account === a.name ? {locked: "Planner — can't remove"} : runners.length ? {locked: `In use by ${runners.length} executor(s)`} : {}),
-      signedIn: (runners.length && runners.every(r => r.host !== null)
-        ? accountAuthFailure(ctx, accountEvidenceScope(a, s.hosts)) ? false : null
-        : accountSignIn(ctx, a, accountEvidenceScope(a, s.hosts)).signedIn) ?? (identity ? true : null),
-      usageCheck: accountUsageCapability(a), runnable: a.source !== "orca" || folder !== null, usageReading, ...await endpointRow(ctx, a)};
+      signedIn, usageCheck: accountUsageCapability(a), runnable: a.source !== "orca" || folder !== null, usageReading, ...endpoint};
   }));
   return rows.map(row => {
     const native = row.kind === "claude" || row.kind === "codex";

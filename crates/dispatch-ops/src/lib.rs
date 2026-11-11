@@ -3,4 +3,5 @@ pub mod dependency_writes;
 pub mod dispatch_ops;
 pub mod insights_ops;
 pub mod learning_ops;
+pub mod lifecycle_ops;
 pub mod planning_ops;

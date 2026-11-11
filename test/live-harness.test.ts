@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, validateNativeFixtures, type Session } from "../scripts/live/core";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
@@ -139,6 +139,30 @@ test("the rust front door runs the Rust binary and points it at the checkout cor
   expect(pacerArgv({})).toEqual(core);
   expect(JSON.parse(sandboxEnv(session, {}).PACER_CORE_ARGV!)).toEqual(core);
   expect(environmentScript(session)).toContain("export PACER_CORE_ARGV=");
+});
+
+test("native test-ops fixtures set probe ports, a test Core entry and forwarded ops only when chosen", async () => {
+  const session = { ...fixture(), frontDoor: "rust" as const, nativeTestOps: true as const };
+  const inherited = { PACER_TEST_LOCAL_SERVER_PORTS: "1,2", PACER_FORWARD_OPS: "*" };
+  const plain = sandboxEnv(session, inherited);
+  expect([plain.PACER_TEST_LOCAL_SERVER_PORTS, plain.PACER_FORWARD_OPS]).toEqual([undefined, undefined]);
+  const chosen = { ...session, localModelPorts: "5001,5002", coreFixture: "core-discover-plan.ts", nativeForwardOps: "executor.setup.candidates" };
+  const env = sandboxEnv(chosen, inherited);
+  expect(env.PACER_TEST_LOCAL_SERVER_PORTS).toBe("5001,5002");
+  expect(env.PACER_FORWARD_OPS).toBe("executor.setup.candidates");
+  expect(JSON.parse(env.PACER_CORE_ARGV!)).toEqual([process.execPath, join(import.meta.dir, "fixtures", "core-discover-plan.ts")]);
+  expect(environmentScript(chosen)).toContain("export PACER_TEST_LOCAL_SERVER_PORTS='5001,5002'");
+  expect(() => validateNativeFixtures({ localModelPorts: "5001,5002" }, false, false)).toThrow("require --native-test-ops");
+  for (const ports of ["4317,5002", "11434,5002", "5001,1234", "5001,5001", "0,1", "1", "1,2,3", "70000,1", "a,b"]) expect(() => validateNativeFixtures({ localModelPorts: ports }, true, false)).toThrow("--local-model-ports");
+  for (const file of ["../cli.ts", "missing.ts", "core-discover-plan.js", "/abs.ts"]) expect(() => validateNativeFixtures({ coreFixture: file }, true, false)).toThrow("--core-fixture");
+  expect(() => validateNativeFixtures({ nativeForwardOps: "test.echo" }, true, true)).toThrow("--native-forward-echo");
+  expect(() => validateNativeFixtures({ nativeForwardOps: "a b" }, true, false)).toThrow("--native-forward-ops");
+  expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", coreFixture: "core-discover-plan.ts", nativeForwardOps: "executor.setup.candidates" }, true, false)).not.toThrow();
+  for (const mode of ["ollama=ok", "ollama=ok,lmstudio=no", "ollama=ok,ollama=fail", "lmstudio=ok,ollama=fail"]) expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", localModelFixture: mode }, true, false)).toThrow("--local-model-fixture");
+  expect(() => validateNativeFixtures({ localModelFixture: "ollama=ok,lmstudio=fail" }, true, false)).toThrow("--local-model-ports");
+  expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", localModelFixture: "ollama=ok,lmstudio=fail:100" }, true, false)).not.toThrow();
+  await expect(main(["status", "--local-model-fixture", "ollama=ok,lmstudio=fail"])).rejects.toThrow("only valid for up");
+  await expect(main(["status", "--local-model-ports", "1,2"])).rejects.toThrow("only valid for up");
 });
 
 test("native OTA source ownership follows the selected service executable", () => {
@@ -620,8 +644,57 @@ test.skipIf(!canBind)("proxy preserves refused WebSocket handshake statuses, hea
   } finally { proxy.stop(true); for (const socket of sockets) socket.destroy(); upstream.close(); }
 }, 30000);
 
+
+test("local model fixture binds both ports and refuses an existing listener", async () => {
+  const occupied = createServer();
+  await new Promise<void>(resolve => occupied.listen(0, "127.0.0.1", resolve));
+  const address = occupied.address();
+  if (!address || typeof address === "string") throw Error("no port");
+  const free = await freePort();
+  const root = tmpDir();
+  const script = join(import.meta.dir, "../scripts/live/model-port-fixture.ts");
+  const failed = Bun.spawn([process.execPath, script, `${address.port},${free}`, join(root, "failed")], { stderr: "pipe" });
+  for (let i = 0; i < 100 && !existsSync(join(root, "failed.error")); i++) await Bun.sleep(20);
+  expect(existsSync(join(root, "failed.error"))).toBe(true);
+  expect(existsSync(join(root, "failed"))).toBe(false);
+  failed.kill(); await failed.exited;
+  await new Promise<void>(resolve => occupied.close(() => resolve()));
+  const child = Bun.spawn([process.execPath, script, `${address.port},${free}`, join(root, "ready")], { stderr: "pipe" });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    const contender = createServer();
+    const error = await new Promise<NodeJS.ErrnoException>(resolve => { contender.once("error", resolve); contender.listen(address.port, "127.0.0.1"); });
+    expect(error.code).toBe("EADDRINUSE");
+  } finally { child.kill(); await child.exited; }
+});
+
+ test("model fixture serves both listing formats and closes failures", async () => {
+  const first = await freePort(), second = await freePort(), root = tmpDir();
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/live/model-port-fixture.ts"), `${first},${second}`, join(root, "ready"), "ollama=ok,lmstudio=fail:50"], { stderr: "pipe" });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    expect((await (await fetch(`http://127.0.0.1:${first}/v1/models`)).json()).data).toHaveLength(2);
+    expect((await (await fetch(`http://127.0.0.1:${first}/api/tags`)).json()).models).toHaveLength(2);
+    expect((await fetch(`http://127.0.0.1:${first}/other`)).status).toBe(404);
+    await expect(fetch(`http://127.0.0.1:${second}/v1/models`)).rejects.toThrow();
+  } finally { child.kill(); await child.exited; }
+});
+
+ test("model fixture can serve LM Studio while Ollama fails", async () => {
+  const first = await freePort(), second = await freePort(), root = tmpDir();
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/live/model-port-fixture.ts"), `${first},${second}`, join(root, "ready"), "ollama=fail,lmstudio=ok"], { stderr: "pipe" });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    await expect(fetch(`http://127.0.0.1:${first}/v1/models`)).rejects.toThrow();
+    expect((await (await fetch(`http://127.0.0.1:${second}/v1/models`)).json()).data).toHaveLength(2);
+  } finally { child.kill(); await child.exited; }
+});
+
 test.skipIf(!canBind)("waiting session fixture starts isolated hosts and tears them down", async () => {
-  const session = await up("waiting-cycle", undefined, tmpDir(), undefined, undefined, false, false, false, true);
+  const session = await up("waiting-cycle", undefined, tmpDir(), undefined, undefined, false, false, false, {}, true);
   try {
     const fixtures = JSON.parse(readFileSync(join(session.root, "home/waiting-fixtures.json"), "utf8"));
     expect(fixtures.map((entry: { name: string }) => entry.name)).toEqual(["cli", "http", "retry", "stale", "message"]);
