@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { join } from "node:path";
 import { buildSyntheticHome } from "../scripts/perf/synthetic-home";
 import { execProcess } from "../src/exec/process";
@@ -32,13 +32,18 @@ const gitOnly: RunFn = (argv, timeoutMs, o) => argv[0] === "git"
   ? execProcess({ argv, cwd: process.cwd(), env: { ...process.env, ...(o?.env ?? {}) }, timeoutMs })
   : Promise.resolve({ code: 127, stdout: "", stderr: "not available in this test" });
 
-test(`core main thread stays idle-cheap with ${SETTLED} settled tasks`, async () => {
-  const root = tmpDir();
-  const pacerHome = join(root, "pacer"), home = join(root, "home");
-  const build = buildSyntheticHome({
-    pacerHome, home, repos: [join(root, "repos", "alpha"), join(root, "repos", "beta")],
+let root = "", build!: ReturnType<typeof buildSyntheticHome>;
+// Building a 50,000-task history takes minutes on its own, so it runs outside the test's timeout.
+beforeAll(() => {
+  root = tmpDir();
+  build = buildSyntheticHome({
+    pacerHome: join(root, "pacer"), home: join(root, "home"), repos: [join(root, "repos", "alpha"), join(root, "repos", "beta")],
     settled: SETTLED, unsettled: 10, runDirs: "last", logBytes: 2 * 1024 * 1024,
   });
+}, 600_000);
+
+test(`core main thread stays idle-cheap with ${SETTLED} settled tasks`, async () => {
+  const pacerHome = join(root, "pacer"), home = join(root, "home");
   const settled = new Set(build.settledIds);
   const ctx: Ctx = {
     home, pacerHome, now: Date.now() / 1000, run: gitOnly, which: () => null,
