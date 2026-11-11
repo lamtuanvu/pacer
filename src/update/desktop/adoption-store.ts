@@ -5,6 +5,7 @@ import {
   fstatSync,
   lstatSync,
   openSync,
+  readSync,
   realpathSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
@@ -54,6 +55,8 @@ export function readAdoption(
 export function listAdoptions(ctx: Ctx): AdoptionRecord[] {
   return adoptionSnapshot(ctx, adoptionRows, []);
 }
+/** Last verified `adoptionRows` result per admission database path. */
+const snapshots = new Map<string, { version: string; value: unknown }>();
 function adoptionSnapshot<T>(
   ctx: Ctx,
   action: (db: Database) => T,
@@ -84,10 +87,13 @@ function adoptionSnapshot<T>(
       file.mode & 0o077
     )
       throw adoptionConflict();
+    let sidecarCount = 0;
     const sidecars = () => {
+      sidecarCount = 0;
       for (const suffix of ["-journal", "-wal", "-shm"]) {
         try {
           const value = lstatSync(path + suffix);
+          sidecarCount++;
           if (
             value.isSymbolicLink() ||
             !value.isFile() ||
@@ -122,6 +128,21 @@ function adoptionSnapshot<T>(
       )
         throw adoptionConflict();
     };
+    // Opening SQLite takes its process-wide VFS mutex, which another thread can hold
+    // for seconds; the request thread polls this file, so reuse an unchanged read.
+    // Timestamps can repeat across commits; every rollback-journal commit increments the
+    // header's file change counter. WAL commits do not, so WAL files are never reused.
+    const header = Buffer.alloc(100);
+    const stamp = fstatSync(fileFd, { bigint: true });
+    const version = readSync(fileFd, header, 0, 100, 0) === 100 && header[18] === 1
+      ? `${stamp.dev}:${stamp.ino}:${stamp.size}:${stamp.mtimeNs}:${stamp.ctimeNs}:${header.readUInt32BE(24)}`
+      : undefined;
+    const cacheable = action === adoptionRows && version !== undefined;
+    const cached = snapshots.get(path);
+    if (cacheable && !sidecarCount && cached?.version === version) {
+      unchanged();
+      return structuredClone(cached.value) as T;
+    }
     // SQLITE_OPEN_READONLY | SQLITE_OPEN_NOFOLLOW. Keep the canonical pathname so
     // SQLite observes its original rollback journal; /dev/fd aliases would not.
     const db = new Database(path, 0x01000001);
@@ -133,6 +154,8 @@ function adoptionSnapshot<T>(
       const rows = action(db);
       unchanged();
       db.exec("COMMIT");
+      if (cacheable && !sidecarCount) snapshots.set(path, { version, value: structuredClone(rows) });
+      else if (action === adoptionRows) snapshots.delete(path);
       return rows;
     } finally {
       db.close();

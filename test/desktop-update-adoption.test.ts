@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { fakeCtx } from "./helpers";
 import {
   beginAdoption,
@@ -67,6 +67,60 @@ test("adoption intent and receipt are one SQLite mutation without an update cand
   expect(adopted.receipts).toHaveLength(1);
   expect(readAdoption(f.ctx, f.target.id)).toEqual(adopted);
   expect(readUpdate(f.ctx, f.target.id)).toEqual(before);
+});
+test("unchanged adoption state is not reopened and a committed change is read", async () => {
+  const { Database } = await import("bun:sqlite");
+  const f = fixture(),
+    adopted = beginAdoption(f.ctx, f.request, f.authority);
+  expect(readAdoption(f.ctx, f.target.id)).toEqual(adopted);
+  const opens = { count: 0 },
+    exec = Database.prototype.exec;
+  Database.prototype.exec = function (this: InstanceType<typeof Database>, ...args: Parameters<typeof exec>) {
+    if (String(args[0]).includes("query_only=ON")) opens.count++;
+    return exec.apply(this, args);
+  } as typeof exec;
+  try {
+    const first = readAdoption(f.ctx, f.target.id)!;
+    first.phase = "cancelled";
+    expect(readAdoption(f.ctx, f.target.id)).toEqual(adopted);
+    expect(opens.count).toBe(0);
+    const cancelled = cancelAdoption(f.ctx, {
+      installationId: f.target.id,
+      requestId: "cancel",
+      expectRevision: adopted.revision,
+    });
+    opens.count = 0;
+    expect(readAdoption(f.ctx, f.target.id)).toEqual(cancelled);
+    expect(opens.count).toBe(1);
+    expect(readAdoption(f.ctx, f.target.id)).toEqual(cancelled);
+    expect(opens.count).toBe(1);
+  } finally {
+    Database.prototype.exec = exec;
+  }
+});
+test("a commit is read even when the database file's timestamps do not change", async () => {
+  const fs = await import("node:fs");
+  const f = fixture(),
+    adopted = beginAdoption(f.ctx, f.request, f.authority);
+  expect(readAdoption(f.ctx, f.target.id)).toEqual(adopted);
+  const real = fs.fstatSync;
+  let frozen: ReturnType<typeof real> | undefined;
+  const fstat = spyOn(fs, "fstatSync").mockImplementation(((fd: number, options?: { bigint?: boolean }) => {
+    const value = real(fd, options as never);
+    if (!options?.bigint) return value;
+    return (frozen ??= value);
+  }) as typeof real);
+  try {
+    expect(readAdoption(f.ctx, f.target.id)).toEqual(adopted);
+    const cancelled = cancelAdoption(f.ctx, {
+      installationId: f.target.id,
+      requestId: "cancel",
+      expectRevision: adopted.revision,
+    });
+    expect(readAdoption(f.ctx, f.target.id)).toEqual(cancelled);
+  } finally {
+    fstat.mockRestore();
+  }
 });
 test("adoption exact retries replay original intent and altered authority or stale requests conflict", () => {
   const f = fixture(),
@@ -226,9 +280,15 @@ test("adoption authority reads reject hardlinked and redirected SQLite state", a
   beginAdoption(f.ctx, f.request, f.authority);
   const path = join(f.ctx.pacerHome, "desktop-updates/admission.sqlite"),
     alias = path + ".alias";
+  // Each refusal follows a successful read, so it also covers a reused snapshot.
+  expect(readAdoption(f.ctx, "attached")).not.toBeNull();
   fs.linkSync(path, alias);
   expect(() => readAdoption(f.ctx, "attached")).toThrow();
   fs.unlinkSync(alias);
+  expect(readAdoption(f.ctx, "attached")).not.toBeNull();
+  fs.writeFileSync(path + "-journal", "", { mode: 0o644 });
+  expect(() => readAdoption(f.ctx, "attached")).toThrow();
+  fs.unlinkSync(path + "-journal");
   fs.renameSync(path, alias);
   fs.symlinkSync(alias, path);
   expect(() => readAdoption(f.ctx, "attached")).toThrow();

@@ -12,7 +12,10 @@ import { observationSchema, type Observation } from "./types";
  * store, or a store without a table, reads as empty and says so through `available`.
  */
 export interface ReadOnlyStore {
-  available: boolean;
+  readonly available: boolean;
+  /** True only for the cleanly closed WAL fallback, which cannot observe a later WAL. */
+  immutable: boolean;
+  refresh(): void;
   has(table: string): boolean;
   query<T>(sql: string, ...bindings: (string | number)[]): T[];
   close(): void;
@@ -20,6 +23,7 @@ export interface ReadOnlyStore {
 export function openReadOnlyStore(ctx: Ctx, strict = false): ReadOnlyStore {
   const path = resolve(ctx.pacerHome, "state", "tasks.db");
   let db = null as Database | null;
+  let immutable = false;
   const open = (target: string, options: ConstructorParameters<typeof Database>[1]) => { const d = new Database(target, options); d.run("PRAGMA query_only = ON"); return d; };
   try {
     if (existsSync(path)) {
@@ -30,13 +34,21 @@ export function openReadOnlyStore(ctx: Ctx, strict = false): ReadOnlyStore {
         const wal = `${path}-wal`;
         if (existsSync(wal) && statSync(wal).size > 0) throw error;
         db = open(`file:${path}?mode=ro&immutable=1`, { readonly: true, strict: true });
+        immutable = true;
       }
     }
   } catch { db?.close(); db = null; if(strict)throw new CoreError("conflict","Session reservations are unavailable; retry before changing workspaces"); }
-  const tables = new Set<string>();
-  if (db) try { for (const r of db.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all()) tables.add(r.name); } catch { if(strict){db.close();throw new CoreError("conflict","Session reservations are unreadable");} /* previews read empty */ }
+  let tables = new Set<string>();
+  const readTables = () => new Set(db!.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name));
+  if (db) try { tables = readTables(); } catch { if(strict){db.close();throw new CoreError("conflict","Session reservations are unreadable");} /* previews read empty */ }
   return {
-    available: db !== null && tables.has("tasks"),
+    get available() { return db !== null && tables.has("tasks"); },
+    immutable,
+    refresh: () => {
+      if (!db) return;
+      try { tables = readTables(); }
+      catch { tables = new Set(); if (strict) throw new CoreError("conflict", "Session reservations are unreadable"); }
+    },
     has: t => tables.has(t),
     query: <T>(sql: string, ...b: (string | number)[]) => { try { return db ? db.query<T, (string | number)[]>(sql).all(...b) : []; } catch { if(strict)throw new CoreError("conflict","Session reservations could not be read"); return []; } },
     close: () => db?.close(),

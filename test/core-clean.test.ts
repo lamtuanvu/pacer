@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { gitInfo } from "../src/core/git";
 import * as tasks from "../src/core/tasks";
 import { createTaskWorktree, taskWorktreesDir } from "../src/supervisor/worktree";
-import { createTask, readTask, updateTask } from "../src/tasks/store";
+import { createTask, readTask, taskDatabase, updateTask } from "../src/tasks/store";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
 
 async function finished(o: { dirty?: boolean; reviewed?: boolean } = {}) {
@@ -40,6 +40,17 @@ test("clean removes reviewed task worktrees, keeps review evidence and the branc
   expect(await tasks.diff(ctx, t.id)).toEqual(before);
   expect(existsSync(join(ctx.pacerHome, "runs", t.id, "1", "stdout"))).toBe(false);
   expect(Bun.spawnSync(["git", "-C", repo, "rev-parse", "--verify", `pacer/${t.id}`]).exitCode).toBe(0);
+});
+
+test("clean selects terminal task IDs without loading their records through the state index", async () => {
+  const { ctx, t } = await finished();
+  const db = taskDatabase(ctx), query = db.query.bind(db), seen: string[] = [];
+  db.query = ((sql: string) => { seen.push(sql); return query(sql); }) as typeof db.query;
+  try {
+    expect(await tasks.clean(ctx, { dryRun: true })).toEqual({ removed: [t.id], kept: [] });
+  } finally { db.query = query; }
+  expect(seen.some(sql => /^SELECT id FROM tasks INDEXED BY tasks_state/.test(sql))).toBe(true);
+  expect(seen.some(sql => /^SELECT record FROM tasks INDEXED BY tasks_state/.test(sql))).toBe(false);
 });
 
 test("clean keeps dirty worktrees without --force", async () => {

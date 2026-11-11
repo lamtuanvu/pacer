@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import { tmpDir, fakeCtx } from "./helpers";
 import { list as taskList, type ListOptions } from "../src/core/tasks";
 import { visibleTaskState, type TaskState } from "../src/tasks/types";
-import { listTasksWhere, readTask, newTaskId, taskSettledAt, createTask, updateTask, taskDatabase, taskArchiveDir } from "../src/tasks/store";
+import { listTasksWhere, readTasksByIds, readTask, newTaskId, taskSettledAt, createTask, updateTask, taskDatabase, taskArchiveDir } from "../src/tasks/store";
 import { taskStatus } from "../src/tasks/api";
 import { repoFor } from "../src/core/repos";
 import { apiTasks } from "../src/api/read-model/tasks";
@@ -99,6 +99,87 @@ test("task.list pages history in SQL without loading every row", () => {
   } finally {
     monitor.restore();
   }
+});
+
+test("recent task reads preserve rows without sorting task records into a temp b-tree", () => {
+  const ctx = fakeCtx();
+  const tasks = Array.from({ length: 24 }, (_, i) => mkTask(ctx, i, { state: i % 2 ? "done" : "failed" }));
+  const db = taskDatabase(ctx), originalQuery = db.query.bind(db);
+  tasks.forEach((task, i) => db.query("UPDATE tasks SET updated_at=? WHERE id=?").run(ctx.now + (i % 2), task.id));
+  let sql = "", candidateSql = "";
+  db.query = (statement: string) => {
+    if (/SELECT record FROM tasks/.test(statement)) sql = statement;
+    if (/SELECT id FROM tasks/.test(statement)) candidateSql = statement;
+    return originalQuery(statement);
+  };
+  try {
+    const filter = { updatedSince: ctx.now + 1, limit: 5 };
+    const got = listTasksWhere(ctx, filter).map(task => task.id);
+    const oldRows = originalQuery<{ record: string }, number[]>(
+      "SELECT record FROM tasks WHERE archived=0 AND updated_at>=? ORDER BY id DESC LIMIT ?",
+    ).all(filter.updatedSince, filter.limit).map(row => (JSON.parse(row.record) as TaskRecord).id);
+    const candidatePlan = originalQuery<{ detail: string }, number[]>(`EXPLAIN QUERY PLAN ${candidateSql}`).all(filter.updatedSince);
+    expect(got).toEqual(oldRows);
+    expect(sql).not.toContain("ORDER BY");
+    expect(candidatePlan.map(row => row.detail).join(" ")).toContain("tasks_updated_at");
+    expect(candidatePlan.map(row => row.detail).join(" ")).not.toContain("USE TEMP B-TREE");
+  } finally { db.query = originalQuery; }
+});
+
+test("state reads order candidate IDs outside SQLite and match the sorted query across batches", () => {
+  const ctx = fakeCtx();
+  seedHistory(ctx, { repoKey: "local:K" });
+  const running = mkTask(ctx, 2000, { state: "running" });
+  const db = taskDatabase(ctx), originalQuery = db.query.bind(db);
+  const ids = originalQuery<{ id: string }, []>("SELECT id FROM tasks ORDER BY id DESC").all().map(row => row.id);
+  const settledBefore = ctx.now + 600;
+  const sorted = (where: string, ...b: (string | number)[]) => originalQuery<{ record: string }, (string | number)[]>(
+    `SELECT record FROM tasks WHERE archived=0 AND ${where} ORDER BY id DESC`).all(...b).map(row => (JSON.parse(row.record) as TaskRecord).id);
+  let candidateSql = "";
+  db.query = (statement: string) => { if (/^SELECT id FROM tasks INDEXED BY tasks_state/.test(statement)) candidateSql = statement; return originalQuery(statement); };
+  try {
+    expect(listTasksWhere(ctx, { states: ["done", "running"] }).map(t => t.id)).toEqual(sorted("state IN ('done','running')"));
+    expect(listTasksWhere(ctx, { states: ["done"], limit: 7 }).map(t => t.id)).toEqual(sorted("state='done'").slice(0, 7));
+    expect(listTasksWhere(ctx, { states: ["done"], settledBefore, before: ids[300], limit: 25 }).map(t => t.id))
+      .toEqual(sorted("state='done' AND settled_at<? AND id<?", settledBefore, ids[300]).slice(0, 25));
+    expect(listTasksWhere(ctx, { states: ["running"] }).map(t => t.id)).toEqual([running.id]);
+    const plan = originalQuery<{ detail: string }, string[]>(`EXPLAIN QUERY PLAN ${candidateSql}`).all("running");
+    expect(plan.map(row => row.detail).join(" ")).not.toContain("TEMP B-TREE");
+  } finally { db.query = originalQuery; }
+});
+
+test("full reconcile task ID pages use the existing ID-order index", async () => {
+  const ctx = fakeCtx();
+  for (let i = 0; i < 24; i++) mkTask(ctx, i, { state: "done" });
+  const { taskIdPage } = await import("../src/tasks/store");
+  const db = taskDatabase(ctx), originalQuery = db.query.bind(db);
+  let sql = "";
+  db.query = (statement: string) => { if (/SELECT id FROM tasks/.test(statement)) sql = statement; return originalQuery(statement); };
+  try {
+    const got = taskIdPage(ctx, undefined, 7);
+    const plan = originalQuery<{ detail: string }, number[]>(`EXPLAIN QUERY PLAN ${sql}`).all(7);
+    const before = originalQuery<{ id: string }, number[]>("SELECT id FROM tasks WHERE archived=0 ORDER BY id DESC LIMIT ?").all(7).map(row => row.id);
+    expect(got).toEqual(before);
+    expect(sql).toContain("INDEXED BY tasks_native_unarchived_id");
+    expect(plan.map(row => row.detail).join(" ")).not.toContain("USE TEMP B-TREE");
+  } finally { db.query = originalQuery; }
+});
+
+test("reconcile record batches keep ID ordering out of SQLite's JSON sort", () => {
+  const ctx = fakeCtx();
+  const ids = Array.from({ length: 12 }, (_, i) => mkTask(ctx, i, { state: "done" }).id);
+  const db = taskDatabase(ctx), originalQuery = db.query.bind(db);
+  let sql = "";
+  db.query = (statement: string) => { if (/SELECT record FROM tasks WHERE id IN/.test(statement)) sql = statement; return originalQuery(statement); };
+  try {
+    const got = readTasksByIds(ctx, ids).map(task => task.id);
+    const marks = ids.map(() => "?").join(",");
+    const expected = originalQuery<{ record: string }, string[]>(`SELECT record FROM tasks WHERE id IN (${marks}) ORDER BY id DESC`).all(...ids).map(row => (JSON.parse(row.record) as TaskRecord).id);
+    const plan = originalQuery<{ detail: string }, string[]>(`EXPLAIN QUERY PLAN ${sql}`).all(...ids);
+    expect(got).toEqual(expected);
+    expect(sql).not.toContain("ORDER BY");
+    expect(plan.map(row => row.detail).join(" ")).not.toContain("USE TEMP B-TREE");
+  } finally { db.query = originalQuery; }
 });
 
 test("task.list filters by repo, states, executor and before exactly as before", () => {
