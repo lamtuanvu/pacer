@@ -5,7 +5,10 @@ import { isObj } from "../util";
 import { plannerSessionId, type PlannerKind } from "./identity";
 import { clearHookBlocks, getLiveness, recordHookBlock, upsertLiveness } from "./liveness-store";
 import { effectivePolicy } from "./policy";
+import { readTask } from "../tasks/store";
+import { taskOf } from "./participants";
 import { getMessage, inbox, messagesDatabase } from "./store";
+import { isClosed } from "./closed";
 import type { Message } from "./types";
 
 const MAX_MESSAGES = 20;
@@ -25,9 +28,26 @@ export function pendingFor(ctx: Ctx, me: string): Message[] {
     for (const m of inbox(ctx, to, { unreadOnly: true })) found.set(m.id, m);
     const open = messagesDatabase(ctx).query<{ id: string }, [string]>(`SELECT id FROM messages q WHERE recipient=? AND kind='question' AND status='read'
       AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.reply_to=q.id AND a.kind='answer') ORDER BY id`).all(to);
-    for (const { id } of open) found.set(id, getMessage(ctx, id)!);
+    for (const { id } of open) {
+      const q = getMessage(ctx, id)!;
+      if (stillAsking(ctx, q)) found.set(id, q);
+    }
   }
   return [...found.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * A closed task takes no answer. A `pacer ask` question is answered live or by retry only on the task record, without
+ * a linked answer message, so it waits only while it is still the task's open question.
+ */
+function stillAsking(ctx: Ctx, q: Message): boolean {
+  const id = taskOf(q.from);
+  const task = id ? readTask(ctx, id) : null;
+  if (!task) return true;
+  if (isClosed(task)) return false;
+  if (!q.requestId?.startsWith("ask:")) return true;
+  const asked = task.question;
+  return !!asked && asked.answer === undefined && !task.retriedBy && asked.text === q.body && asked.at === q.createdAt;
 }
 
 function render(pending: Message[]): string {
