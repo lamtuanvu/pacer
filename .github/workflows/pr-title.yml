@@ -10,7 +10,7 @@ permissions:
 jobs:
   validate:
     name: Validate Conventional Commit title
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # This privileged event reads PR metadata only; never check out PR code.
       - name: Validate PR title
