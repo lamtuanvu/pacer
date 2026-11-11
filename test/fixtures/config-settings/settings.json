@@ -6799,6 +6799,84 @@
         "value": "",
         "source": "default"
       }
+    },
+    {
+      "execution.auto_clean": {
+        "value": true,
+        "source": "default"
+      },
+      "task_retention_days": {
+        "value": 14,
+        "source": "default"
+      },
+      "execution.local_max_tasks": {
+        "value": "unlimited",
+        "source": "default"
+      },
+      "execution.local_memory_pressure_limit": {
+        "value": "critical",
+        "source": "default"
+      },
+      "execution.local_load_limit": {
+        "value": "off",
+        "source": "default"
+      },
+      "execution.launch_mode": {
+        "value": "interactive",
+        "source": "default"
+      },
+      "execution.backend": {
+        "value": "direct",
+        "source": "default"
+      },
+      "planner": {
+        "value": "claude-code",
+        "source": "strategy.yaml"
+      },
+      "pacing.order": {
+        "value": [],
+        "source": "default"
+      },
+      "pacing.policy": {
+        "value": "priority",
+        "source": "default"
+      },
+      "pacing.planner_reserve": {
+        "value": 15,
+        "source": "default"
+      },
+      "pacing.planner_reserve_headroom": {
+        "value": 25,
+        "source": "default"
+      },
+      "pacing.planner_probe": {
+        "value": "ask",
+        "source": "default"
+      },
+      "pacing.accounts": {
+        "value": "spread",
+        "source": "default"
+      },
+      "pacing.fill_threshold": {
+        "value": 90,
+        "source": "default"
+      },
+      "pacing.balance": {
+        "value": "off",
+        "source": "default"
+      },
+      "update_check": {
+        "value": true,
+        "source": "default"
+      },
+      "terminal.app": {
+        "value": "Terminal",
+        "source": "default"
+      },
+      "terminal.open": {
+        "value": "",
+        "source": "default"
+      }
     }
   ],
   "cases": [
@@ -11982,6 +12060,20 @@
           "message": "invalid strategy strategy.yaml:\n  - planner must be one of claude-code, codex, cursor, opencode (got \"codex#codex\")"
         },
         "keys": 2
+      }
+    },
+    {
+      "name": "planner-20",
+      "key": "planner",
+      "input": "codex",
+      "integrations": "install",
+      "before": "planner: claude-code\nproviders: {claude-code: {}}\n",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner account not found"
+        },
+        "keys": 85
       }
     }
   ]
