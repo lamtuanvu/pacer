@@ -139,85 +139,210 @@ fn add_forwards_check_jobs_terminals_invalid_params_and_unparsable_strategies() 
     ));
 }
 
+const MODELS: &str = "planner: claude-code
+accounts:
+  claude: {kind: claude}
+  codex: {kind: codex}
+  acme:
+    kind: endpoint
+    usage: unmetered
+    connection:
+      api: openai-compatible
+      base_url: https://api.example.com
+      key: none
+      models:
+        - {id: a, context: 64000, output: 32000, tools: true}
+        - {id: b, context: 64000, output: 32000, tools: true}
+  oc: {kind: endpoint, source: opencode, provider: acme, usage: unmetered}
+runners:
+  claude-code: {}
+  codex: {}
+  opencode#acme: {model: pacer-acme/a}
+  opencode#oc: {model: acme/a}
+routing:
+  - kinds: [docs]
+    executors: [opencode#oc]
+  - default: [opencode#acme, codex]
+";
+
+fn models_ctx(dir: &tempfile::TempDir) -> Ctx {
+    let c = ctx(dir, &[]);
+    fs::write(dir.path().join("strategy.yaml"), MODELS).unwrap();
+    c
+}
+
+fn seed_cache(dir: &tempfile::TempDir, runner: &str, text: &str) {
+    let path = pacer_models::cache_file(dir.path(), runner);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+fn listing(models: &str, fetched_at: f64) -> String {
+    format!(
+        r#"{{"runner":"opencode#oc","source":"opencode","models":{models},"fetchedAt":{fetched_at}}}"#
+    )
+}
+
 #[test]
-fn runner_set_with_model_forwards() {
-    // A runner.set carrying a string model must reach TypeScript, which alone can
-    // consult the provider model listing (a fork of closestModels/isOffered).
-    assert!(runner_set_stays_forwarded(
-        &json!({"id": "codex", "model": "acme/b"})
-    ));
-    assert!(runner_set_stays_forwarded(
-        &json!({"id": "codex", "enabled": false, "model": "acme/b"})
-    ));
+fn runner_set_model_forwards_only_where_typescript_lists_models() {
     let dir = tempfile::tempdir().unwrap();
-    let c = ctx(&dir, &[]);
-    assert!(runner_stays_forwarded(
-        &c,
-        "runner.set",
-        &json!({"id": "codex", "model": "acme/b"})
+    let c = models_ctx(&dir);
+    let forwards = |params: Value| runner_stays_forwarded(&c, "runner.set", &params);
+    // No listing source, connection models, unknown or planner runners: native.
+    for params in [
+        json!({"id": "codex", "model": "acme/b"}),
+        json!({"id": "codex", "enabled": false, "model": "acme/b"}),
+        json!({"id": "opencode#acme", "model": "pacer-acme/b"}),
+        json!({"id": "acme", "model": "pacer-acme/nope"}),
+        json!({"id": "missing", "model": "x"}),
+        json!({"id": "claude-code", "model": "x"}),
+    ] {
+        assert!(!forwards(params.clone()), "{params}");
+    }
+    // An OpenCode provider without a fresh cache runs `opencode models` in TypeScript.
+    let oc = json!({"id": "opencode#oc", "model": "acme/b"});
+    assert!(forwards(oc.clone()));
+    seed_cache(
+        &dir,
+        "opencode#oc",
+        &listing(r#"[{"id":"acme/a"}]"#, c.now - 600.0),
+    );
+    assert!(forwards(oc.clone()));
+    seed_cache(
+        &dir,
+        "opencode#oc",
+        &listing(r#"[{"id":"acme/a"}]"#, c.now - 599.0),
+    );
+    assert!(!forwards(oc.clone()));
+    // Odd cache entries make TypeScript compare or throw on values natively unrepresented.
+    seed_cache(&dir, "opencode#oc", &listing(r#"[null]"#, c.now));
+    assert!(forwards(oc.clone()));
+    seed_cache(&dir, "codex", &listing(r#"["acme/a"]"#, c.now));
+    assert!(forwards(json!({"id": "codex", "model": "acme/b"})));
+    // A stale cache for a connection runner lists the declared models natively.
+    seed_cache(&dir, "opencode#acme", &listing("[]", c.now - 601.0));
+    assert!(!forwards(
+        json!({"id": "opencode#acme", "model": "pacer-acme/b"})
     ));
+    // A legacy strategy is migrated by TypeScript first; a broken one is reported there.
+    fs::write(
+        dir.path().join("strategy.yaml"),
+        "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n",
+    )
+    .unwrap();
+    assert_eq!(load_strategy(dir.path()).unwrap()["legacy"], true);
+    assert!(forwards(json!({"id": "codex", "model": "x"})));
+    assert!(!forwards(json!({"id": "codex", "enabled": false})));
+    fs::write(dir.path().join("strategy.yaml"), "planner: [").unwrap();
+    assert!(forwards(json!({"id": "codex", "model": "x"})));
 }
 
 #[test]
 fn runner_set_with_model_and_invalid_params_stays_native() {
-    // A string model alone does not forward: params failing the native
-    // runner.set parameter validation keep failing natively with the identical
-    // invalid_input error TypeScript produces, instead of a forward marker.
+    // Params failing the native runner.set validation keep failing natively
+    // with the identical invalid_input error TypeScript produces.
     let long_id = "😀".repeat(65);
+    let dir = tempfile::tempdir().unwrap();
+    let c = models_ctx(&dir);
     for params in [
         json!({"id": long_id, "model": "", "enabled": null, "max_tasks": 0, "rank": -1}),
-        json!({"id": "codex", "model": ""}),
+        json!({"id": "opencode#oc", "model": ""}),
+        json!({"id": "opencode#oc", "model": "acme/b", "max_tasks": 0}),
+        json!({"id": "opencode#oc", "model": "acme/b", "rank": 1.5}),
     ] {
-        assert!(!runner_set_stays_forwarded(&params), "{params}");
-        let dir = tempfile::tempdir().unwrap();
-        let c = ctx(&dir, &[]);
-        assert!(
-            !runner_stays_forwarded(&c, "runner.set", &params),
-            "{params}"
-        );
+        assert!(!runner_set_stays_forwarded(&c, &params), "{params}");
     }
-    // Valid params with a string model still forward.
-    let dir = tempfile::tempdir().unwrap();
-    let c = ctx(&dir, &[]);
-    assert!(runner_stays_forwarded(
+    assert!(runner_set_stays_forwarded(
         &c,
-        "runner.set",
-        &json!({"id": "codex", "enabled": false, "model": "acme/b"})
-    ));
-    // A string model with another invalid field stays native too.
-    assert!(!runner_set_stays_forwarded(
-        &json!({"id": "codex", "model": "acme/b", "max_tasks": 0})
+        &json!({"id": "opencode#oc", "model": "acme/b"})
     ));
 }
 
 #[test]
 fn runner_set_without_model_stays_native() {
-    // Without a string model there is nothing to check against a listing, so
-    // runner.set stays on the native write path like every other option.
-    assert!(!runner_set_stays_forwarded(&json!({"id": "codex"})));
-    assert!(!runner_set_stays_forwarded(
-        &json!({"id": "codex", "model": null})
-    ));
-    assert!(!runner_set_stays_forwarded(
-        &json!({"id": "codex", "model": 1})
-    ));
     let dir = tempfile::tempdir().unwrap();
-    let c = ctx(&dir, &[]);
-    assert!(!runner_stays_forwarded(
+    let c = models_ctx(&dir);
+    for params in [
+        json!({"id": "opencode#oc"}),
+        json!({"id": "opencode#oc", "model": null}),
+        json!({"id": "opencode#oc", "model": 1}),
+        json!({"id": "opencode#oc", "enabled": false}),
+        json!({"id": "opencode#oc", "max_tasks": 2}),
+    ] {
+        assert!(
+            !runner_stays_forwarded(&c, "runner.set", &params),
+            "{params}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn runner_set_checks_models_natively_before_editing() {
+    use crate::config_writes::runner_set;
+    let dir = tempfile::tempdir().unwrap();
+    let c = models_ctx(&dir);
+    let path = dir.path().join("strategy.yaml");
+    let refused = runner_set(
         &c,
-        "runner.set",
-        &json!({"id": "codex", "enabled": false})
-    ));
-    assert!(!runner_stays_forwarded(
+        json!({"id": "opencode#acme", "model": "pacer-acme/nope"}),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refused.code, Code::InvalidInput);
+    assert_eq!(refused.message, "pacer-acme/nope is not offered by acme");
+    assert_eq!(
+        refused.hint.as_deref(),
+        Some("Available: pacer-acme/a, pacer-acme/b")
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), MODELS);
+    // Runner refusals come before the model check.
+    let unknown = runner_set(&c, json!({"id": "missing", "model": "x"}))
+        .await
+        .unwrap_err();
+    assert_eq!(unknown.message, "unknown runner");
+    let planner = runner_set(&c, json!({"id": "claude-code", "model": "x"}))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (planner.code, planner.message.as_str()),
+        (Code::NotAllowed, "cannot edit the planner runner")
+    );
+    let out = runner_set(&c, json!({"id": "opencode#acme", "model": "pacer-acme/b"}))
+        .await
+        .unwrap();
+    assert_eq!(out, json!({"id": "opencode#acme", "warnings": []}));
+    assert!(
+        fs::read_to_string(&path)
+            .unwrap()
+            .contains("opencode#acme: {model: pacer-acme/b}")
+    );
+    // The unchecked-model warning follows the routing warnings.
+    seed_cache(
+        &dir,
+        "opencode#oc",
+        &format!(
+            r#"{{"runner":"opencode#oc","source":"opencode","models":null,"fetchedAt":{},"note":"seeded"}}"#,
+            c.now
+        ),
+    );
+    let out = runner_set(
         &c,
-        "runner.set",
-        &json!({"id": "codex", "max_tasks": 2})
-    ));
-    assert!(!runner_stays_forwarded(
-        &c,
-        "runner.set",
-        &json!({"id": "codex", "model": null})
-    ));
+        json!({"id": "opencode#oc", "enabled": false, "model": "acme/zz"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        out["warnings"],
+        json!([
+            "routing rule 'docs' has no enabled executor left",
+            "acme/zz could not be checked: seeded"
+        ])
+    );
+    seed_cache(&dir, "opencode#oc", &listing("[]", c.now - 600.0));
+    let forwarded = runner_set(&c, json!({"id": "opencode#oc", "model": "acme/a"}))
+        .await
+        .unwrap_err();
+    assert_eq!(forwarded.code, Code::Unavailable);
 }
 
 #[tokio::test]

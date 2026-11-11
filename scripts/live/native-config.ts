@@ -1,4 +1,5 @@
 /** Fixed P2-C fixture. No caller-selected operation, payload, path or environment. */
+import {createHash} from "node:crypto";
 import {existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {isDeepStrictEqual} from "node:util";
@@ -9,6 +10,12 @@ import {createFixtureHome, settingsFixtureRoot} from "./settings";
 const blockRouting = golden.initial.replace(
   "  - kinds: [docs]\n    executors: [codex, cursor] # keep list\n  - default: [codex, cursor]",
   "  - kinds: \n      - docs\n    executors: \n      - codex\n  - kinds: [tests]\n    executors: [cursor] # c\n  - default: \n      - codex");
+const connection = (id: string) => `        - {id: "${id}", context: 64000, output: 32000, tools: true}\n`;
+const models = golden.initial
+  .replace("  cursor: {kind: cursor}\n", "  cursor: {kind: cursor}\n  acme:\n    kind: endpoint\n    usage: unmetered\n    connection:\n      api: openai-compatible\n      base_url: https://api.example.com\n      key: none\n      models:\n"
+    + ["a", "x😁", "xa"].map(connection).join("") + "  oc: {kind: endpoint, source: opencode, provider: acme, usage: unmetered}\n")
+  .replace("  cursor: {}\n", "  cursor: {}\n  opencode#acme: {model: pacer-acme/a}\n  opencode#oc: {model: acme/a}\n");
+const listing = (age: number) => ({runner: "opencode#oc", models: [{id: "acme/a"}, {id: "acme/b"}, {id: "acme/zy"}], age});
 
 export const configSteps = [
   {op:"notifications.get",params:{}},
@@ -39,13 +46,19 @@ export const configSteps = [
   {op:"runner.set",params:{id:"codex",enabled:false},error:"invalid_input",fixture:golden.initial.replace("  claude: {kind: claude}", `  claude: {padding: "${"x".repeat(100)}", kind: claude, kind: claude}`)},
   {op:"runner.set",params:{id:"codex",enabled:false},error:"invalid_input",fixture:golden.initial.replace("  codex: {kind: codex}", "  codex: {kind: codex}\n  &k codex: {kind: codex}")},
   {op:"runner.set",params:{id:"codex",enabled:true},fixture:golden.initial},
+  // Model checks: connection models and a fresh OpenCode listing are native; a stale listing forwards to `opencode models`.
+  {op:"runner.set",params:{id:"opencode#acme",model:"pacer-acme/xa"},fixture:models},
+  {op:"runner.set",params:{id:"opencode#acme",model:"pacer-acme/x😀"},error:"invalid_input",hint:"Available: pacer-acme/x😁, pacer-acme/xa, pacer-acme/a"},
+  {op:"runner.set",params:{id:"opencode#oc",model:"acme/b",max_tasks:2},cache:listing(0)},
+  {op:"runner.set",params:{id:"opencode#oc",model:"acme/zz"},error:"invalid_input",hint:"Available: acme/zy, acme/a, acme/b"},
+  {op:"runner.set",params:{id:"opencode#oc",model:"acme/c"},cache:listing(601),forwards:true},
 ] as const;
 
 function normalized(value: unknown, home: string): unknown {
   return JSON.parse(JSON.stringify(value).replaceAll(home,"$HOME").replace(/on \d{4}-\d\d-\d\dT[^ ]+: Fixed live fixture/g,"on $DATE: Fixed live fixture"));
 }
 function files(home: string) {
-  return Object.fromEntries(["strategy.yaml","active","strategies/review.yaml","settings.json","opencode/opencode.json"].map(file=>{
+  return Object.fromEntries(["strategy.yaml","active","strategies/review.yaml","settings.json","opencode/opencode.json","opencode-calls.log"].map(file=>{
     const path=join(home,file);
     if (!existsSync(path)) return [file,null];
     if ((statSync(path).mode & 0o077) !== 0) throw Error(`Nonprivate fixture state: ${file}`);
@@ -55,7 +68,8 @@ function files(home: string) {
   }));
 }
 function fixtureEnv(session: Session, home: string, forwarded: boolean) {
-  return {...sandboxEnv(session),HOME:home,PACER_HOME:home,PACER_BIN:pacerArgv(session)[0],
+  const env=sandboxEnv(session);
+  return {...env,PATH:`${join(home,"bin")}:${env.PATH ?? ""}`,HOME:home,PACER_HOME:home,PACER_BIN:pacerArgv(session)[0],
     PACER_ORCA_USER_DATA:join(home,"orca-user-data"),CODEX_HOME:join(home,".codex"),CLAUDE_CONFIG_DIR:join(home,".claude"),
     XDG_CONFIG_HOME:join(home,".config"),XDG_DATA_HOME:join(home,".local/share"),PACER_DEBUG_NATIVE:"1",PACER_NO_SELF_REPAIR:"1",
     PACER_AGENT:"alice",PACER_FORWARD_OPS:forwarded?"*":""};
@@ -68,8 +82,16 @@ function prepare(home: string) {
   writeFileSync(join(legacy,"settings.json"),'{"notifications":"off"}',{mode:0o600,flag:"wx"});
   // Exercise Node-compatible replacement decoding during get migration and set.
   writeFileSync(join(home,"settings.json"), Buffer.concat([Buffer.from('{"keep":"'), Buffer.from([0xff]), Buffer.from('","notifications":"invalid"}')]), {mode:0o600,flag:"wx"});
+  // Stand-in OpenCode for forwarded model listings: never the real CLI or its configuration.
+  mkdirSync(join(home,"bin"),{mode:0o700});
+  writeFileSync(join(home,"bin","opencode"),`#!/bin/sh\necho "$*" >> "$HOME/opencode-calls.log"\nprintf 'acme/a\\nacme/b\\nacme/c\\n'\n`,{mode:0o700,flag:"wx"});
 }
 function resetFixture(home: string, step: typeof configSteps[number]) {
+  if ("cache" in step) {
+    const dir=join(home,"cache","available-models");mkdirSync(dir,{recursive:true,mode:0o700});
+    const {runner,models,age}=step.cache;
+    atomicWrite(join(dir,`${createHash("sha256").update(runner).digest("hex")}.json`),JSON.stringify({runner,source:"opencode",models,fetchedAt:Date.now()/1000-age}));
+  }
   if (!("fixture" in step)) return;
   const active=join(home,"active");
   const name=existsSync(active)?readFileSync(active,"utf8").trim():"default";
@@ -132,14 +154,15 @@ async function stdio(session: Session, home: string, forwarded: boolean) {
     await child.exited;
   }
 }
-function checkReply(step: typeof configSteps[number], reply: {error?:{code:string};result?:unknown}) {
+function checkReply(step: typeof configSteps[number], reply: {error?:{code:string;hint?:string};result?:unknown}) {
   if (step.op==="notifications.get" && (reply.result as {level?:string})?.level!=="off") throw Error("Legacy notification environment was ignored");
   if ("error" in step ? reply.error?.code!==step.error : reply.error || reply.result===undefined) throw Error(`Fixed ${step.op} returned an unexpected result: ${JSON.stringify(reply)}`);
+  if ("hint" in step && reply.error?.hint!==step.hint) throw Error(`Fixed ${step.op} returned an unexpected hint: ${JSON.stringify(reply)}`);
 }
 function checkTrace(trace: string, forwarded: boolean) {
   for (const op of new Set(configSteps.map(s=>s.op))) {
     const count=trace.split("\n").filter(line=>line.startsWith(`native ${op}`)).length;
-    const expected=forwarded?0:configSteps.filter(s=>s.op===op).length;
+    const expected=forwarded?0:configSteps.filter(s=>s.op===op && !("forwards" in s)).length;
     if (count!==expected) throw Error(`Native dispatch evidence differs for ${op}`);
   }
 }
@@ -232,6 +255,7 @@ export async function exerciseNativeConfig(session: Session): Promise<void> {
         throw Error(`${transport} native/forwarded config parity differs`);
       }
       comparisons[transport]=results[0];
+      record(session,{kind:"note",behavior:"runner.set model check",surface:`${transport} API`,verdict:"PASS",text:"Connection-account models (accepted, and refused with UTF-16 closest-model hints) and a fresh OpenCode listing cache are checked natively; a stale listing forwards to TypeScript, which lists through the stand-in opencode. Replies, hints, strategy bytes and opencode calls match PACER_FORWARD_OPS=*."});
       for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:`${transport} API`,verdict:"PASS",text:"Fixed native and PACER_FORWARD_OPS=* results and file states match; native trace verified. Legacy migration and alice author environment, CRLF/trailing-space rule removal, exact rejected-edit diagnostics, IEEE-754 infinity/NaN/overflow, literal marker rejection and endpoint synchronization exercised."});
     }
     writeFileSync(join(fixture,"results.json"),JSON.stringify(comparisons,null,2),{mode:0o600,flag:"wx"});
@@ -256,7 +280,7 @@ async function guardedCli(session: Session, fixture: string): Promise<void> {
   await call("strategy.use", {name});
   const states = [];
   for (const step of configSteps) {
-    if ("error" in step) continue;
+    if ("error" in step || "forwards" in step) continue;
     resetFixture(home,step);
     if (step.op === "strategy.save" && "fixture" in step) atomicWrite(path, step.fixture);
     const params = JSON.parse(JSON.stringify(step.params).replaceAll('"review"', JSON.stringify(saved)).replace('"from":"default"', `"from":"${name}"`));
