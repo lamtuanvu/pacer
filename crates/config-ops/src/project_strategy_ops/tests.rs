@@ -144,6 +144,50 @@ fn forwards_only_runtime_text() {
     assert!(!forwarded("project.strategy.list", json!({})));
     fs::write(dir.path().join("strategy.yaml"), "planner: [\n").unwrap();
     assert!(forwarded("project.strategy.list", json!({})));
+    // Bun reads tab indentation differently; `path.join` keeps an absolute active name inside home.
+    fs::write(dir.path().join("strategy.yaml"), "\tplanner: nobody\n").unwrap();
+    assert!(forwarded("project.strategy.list", json!({})));
+    fs::write(dir.path().join("strategy.yaml"), "planner: nobody\n").unwrap();
+    fs::write(dir.path().join("active"), "/nonexistent/work").unwrap();
+    assert!(forwarded("project.strategy.list", json!({})));
+}
+
+#[test]
+fn policy_files_read_as_json_parse_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let read = |text: &[u8]| {
+        fs::write(dir.path().join(FILE), text).unwrap();
+        read_project_strategies(dir.path()).map_err(|error| error.0)
+    };
+    let app = r#""github.com/a/b":{"rev":1,"executors":null}"#;
+    let deep = format!("{}{}", "[".repeat(300), "]".repeat(300));
+    let valid =
+        json!({"version": 1, "projects": {"github.com/a/b": {"rev": 1, "executors": null}}});
+    for value in [r#""\ud800""#, &deep, "1e400"] {
+        let text = format!(r#"{{"version":1,"projects":{{"__proto__":{value},{app}}}}}"#);
+        assert_eq!(read(text.as_bytes()).unwrap(), valid, "{text}");
+        let text = format!(r#"{{"version":{value},"version":1,"projects":{{{app}}}}}"#);
+        assert_eq!(read(text.as_bytes()).unwrap(), valid, "{text}");
+    }
+    let mut bytes = br#"{"version":1,"projects":{"__proto__":"x"#.to_vec();
+    bytes.extend([0xff, 0xe2, 0x82]);
+    bytes.extend(format!(r#"",{app}}}}}"#).as_bytes());
+    assert_eq!(read(&bytes).unwrap(), valid);
+    // Withheld or overflowing content where Zod looks still fails.
+    for text in [
+        format!(r#"{{"version":1,"projects":{{"\ud800":{{"rev":1,"executors":null}},{app}}}}}"#),
+        r#"{"version":1,"projects":{"github.com/a/b":{"rev":1,"executors":1e400}}}"#.into(),
+        format!(r#"{{"version":1,"projects":{{{app}}},"x":{deep}}}"#),
+        format!(r#"{{"version":1,"projects":{{{app}}},"\udc00":1}}"#),
+        r#"{"version":1,"projects":{"github.com/a/b":{"rev":1,"executors":null,"\ud800":1}}}"#
+            .into(),
+    ] {
+        assert_eq!(
+            read(text.as_bytes()).unwrap_err(),
+            "Invalid project strategies",
+            "{text}"
+        );
+    }
 }
 
 #[tokio::test]

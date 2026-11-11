@@ -43,6 +43,22 @@ async fn ranking_only_drafts_stay_native_and_others_forward() {
     assert!(!strategy_preview_stays_forwarded(&ctx, &draft(json!({}))));
     fs::remove_file(ctx.pacer_home.join("strategy.yaml")).unwrap();
     assert!(!strategy_preview_stays_forwarded(&ctx, &draft(json!({}))));
+    // A listed draft source Bun may read differently forwards; an unknown one never is read.
+    fs::write(ctx.pacer_home.join("strategy.yaml"), BASE).unwrap();
+    fs::create_dir(ctx.pacer_home.join("strategies")).unwrap();
+    fs::write(
+        ctx.pacer_home.join("strategies/tabs.yaml"),
+        format!("{BASE}\t# x\n"),
+    )
+    .unwrap();
+    let from = |name: &str| json!({"draft": {"from": name, "set": {}}});
+    assert!(strategy_preview_stays_forwarded(&ctx, &from("tabs")));
+    assert!(!strategy_preview_stays_forwarded(
+        &ctx,
+        &from("strategies/tabs")
+    ));
+    fs::write(ctx.pacer_home.join("active"), "/nonexistent/work").unwrap();
+    assert!(strategy_preview_stays_forwarded(&ctx, &from("default")));
 }
 
 #[tokio::test]

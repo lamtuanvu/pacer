@@ -2,12 +2,13 @@
 //! serializes and validates the draft, then ranks both strategies over the
 //! usage-broker rows TypeScript composed for the active strategy. Those rows are
 //! valid for the draft only while it keeps every input of a provider row, so a
-//! draft that changes one forwards, as does a base strategy with a YAML syntax or
-//! I/O error. A missing or schema-invalid base strategy fails natively.
+//! draft that changes one forwards, as does a base strategy `strategy_load` leaves
+//! to TypeScript and a draft source whose YAML Bun may read differently. A missing
+//! or schema-invalid base strategy fails natively.
 #![allow(clippy::result_large_err)]
 use crate::config_writes::STRATEGY_HINT;
 use pacer_config::{
-    strategy::load_strategy,
+    strategy::{list_strategies, load_strategy},
     strategy_write::{DraftPreview, preview_draft},
 };
 use pacer_engine::usage_broker;
@@ -59,10 +60,25 @@ pub fn strategy_preview_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     let Ok(params) = crate::config_params::parse("strategy.preview", params.clone()) else {
         return false;
     };
-    let current = match load_strategy(&ctx.pacer_home) {
-        Ok(current) => current,
-        Err(error) => return crate::strategy_load::needs_core(&error),
+    let current = match crate::strategy_load::native_load(&ctx.pacer_home) {
+        None => return true,
+        Some(Err(_)) => return false,
+        Some(Ok(current)) => current,
     };
+    // Only a listed strategy is read; any other source fails as unknown before reading.
+    let source = params["draft"]["from"].as_str().unwrap_or("default");
+    let listed =
+        list_strategies(&ctx.pacer_home).is_ok_and(|names| names.iter().any(|n| n == source));
+    let path = if source == "default" {
+        ctx.pacer_home.join("strategy.yaml")
+    } else {
+        ctx.pacer_home
+            .join("strategies")
+            .join(format!("{source}.yaml"))
+    };
+    if listed && crate::strategy_load::text_may_differ(&path) {
+        return true;
+    }
     match preview_draft(&ctx.pacer_home, &params["draft"]) {
         DraftPreview::Unreadable => true,
         DraftPreview::Invalid { .. } => false,

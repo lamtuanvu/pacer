@@ -1,4 +1,5 @@
 use crate::{AdmissionError, semantics::js_numbers};
+use pacer_js_json::WireReply;
 use serde_json::{Value, json};
 use std::{collections::HashSet, path::Path};
 
@@ -12,9 +13,28 @@ pub fn read_project_strategies(home: &Path) -> Result<Value, AdmissionError> {
         }
         Err(_) => return Err(AdmissionError("Cannot read project strategies".into())),
     };
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|_| AdmissionError("Invalid project strategies".into()))?;
-    validate_project_strategies(&value)
+    let invalid = || AdmissionError("Invalid project strategies".into());
+    // `readFileSync(path, "utf8")` replaces invalid UTF-8; `JSON.parse` keeps lone surrogates,
+    // out-of-range numbers, any depth and the last of duplicate keys.
+    let mut doc = WireReply::parse(&String::from_utf8_lossy(&bytes)).map_err(|_| invalid())?;
+    // `z.record` skips an own `__proto__` project, whatever it holds.
+    let _ = doc.remove("/projects/__proto__");
+    // Zod rejects any other withheld content (a key that isn't text, depth past 128), and an
+    // out-of-range number previews as null where `executors` may be null. A lone surrogate
+    // previews as U+FFFD, which fails the same string checks.
+    let overflow = doc.preview()["projects"]
+        .as_object()
+        .is_some_and(|projects| {
+            projects.keys().any(|key| {
+                let key = key.replace('~', "~0").replace('/', "~1");
+                doc.number_at(&format!("/projects/{key}/executors"))
+                    .is_some()
+            })
+        });
+    if doc.preview_omits() || overflow {
+        return Err(invalid());
+    }
+    validate_project_strategies(doc.preview())
 }
 pub fn validate_project_strategies(value: &Value) -> Result<Value, AdmissionError> {
     let invalid = || AdmissionError("Invalid project strategies".into());
