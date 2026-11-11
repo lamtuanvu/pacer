@@ -19,6 +19,21 @@ test('selected service cannot fall back when forced local or unavailable', async
   await expect(connectClient(ctx, { protocol: 3, allowFallback: false })).rejects.toMatchObject({ code: 'not_allowed' });
 });
 
+test('inline config.set params pass D3 only under the D8 body rule', () => {
+  expect(refusal(['api', 'call', 'config.set', '--params', '{"key":"execution.backend","value":"direct"}', '--json'])).toBeUndefined();
+  expect(refusal(['api', 'call', '--params', '{"key":"planner","value":"codex","integrations":"skip"}', 'config.set'])).toBeUndefined();
+  for (const args of [
+    ['api', 'call', 'config.set', '--params', '{"key":"planner","value":"codex","integrations":"install"}'],
+    ['api', 'call', 'config.set', '--params', '{"key":"planner","value":"codex"}'],
+    ['api', 'call', 'config.set', '--params', 'not json'],
+    ['api', 'call', 'config.set', '--params-file', '-'],
+    ['api', 'call', 'config.set', '--params', '{"key":"pacing.policy","value":"even"}', '--params-file', '-'],
+    ['api', 'call', 'config.set', '--params', '{"key":"pacing.policy","value":"even"}', '--params', '{"key":"planner","value":"codex","integrations":"install"}'],
+    ['api', 'call', 'config.set'],
+    ['api', 'call', 'agent.connect', '--params', '{"key":"pacing.policy","value":"even"}'],
+  ]) expect(refusal(args), args.join(' ')).toContain('D3');
+});
+
 test('generic guard identifies operations after flags without reading stdin payloads', () => {
   expect(refusal(['api','call','--params-file','-','--json','service.install'])).toContain('D3');
   expect(refusal(['api','call','--params','{}','account.add','--json'])).toContain('D3');

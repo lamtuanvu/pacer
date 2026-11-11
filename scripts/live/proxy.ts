@@ -8,6 +8,7 @@ import { authorizeSeedPluginRemove } from "./plugin-remove";
 import { authorizeFixtureRequest } from "./ota-request";
 import { FIXTURE_UPDATE_OPS } from "./ota-exercise-record";
 import { createOtaRequestTrace, emitOtaRequestTrace } from "./ota-request-trace";
+import { CONFIG_KEYS } from "../../src/core/config";
 
 /** D8 policy source of truth; the procedure table is checked against these rows. */
 export const BLOCKED_OPS: Readonly<Record<string, string>> = {
@@ -27,7 +28,7 @@ export const BLOCKED_OPS: Readonly<Record<string, string>> = {
   "host.terminal": "hosts.terminal opens a real SSH terminal",
   "update.apply": "applyUpdate may replace the installed binary and refresh integrations",
   "strategy.build": "buildStrategy opens a planning terminal in Orca, tmux or the OS",
-  "config.set": "config.set can install and uninstall planner integrations (whole op refused conservatively)",
+  "config.set": "config.set can install and uninstall planner integrations; only a known key other than planner, or planner with integrations \"skip\", passes (CONDITIONAL_OPS)",
   "runner.add": "interactiveTerminal opens a real terminal (whole op refused conservatively)",
   "task.attach": "openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively)",
   "host.clean": "hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively)",
@@ -35,6 +36,39 @@ export const BLOCKED_OPS: Readonly<Record<string, string>> = {
   "plugin.remove": "plugins.remove deletes a plugin folder under the home (whole op refused conservatively)",
   "service.*": "all service operations except service.status can change the real login service",
 };
+
+/** A planner change with `integrations: "install"` connects real agent folders; every other known setting stays in the sandbox. */
+export function configSetAllowed(body: string): boolean {
+  try {
+    const params: unknown = JSON.parse(body);
+    if (!params || typeof params !== "object" || Array.isArray(params)) return false;
+    const { key, integrations } = params as Record<string, unknown>;
+    if (typeof key !== "string" || !(CONFIG_KEYS as readonly string[]).includes(key)) return false;
+    return key !== "planner" || integrations === "skip";
+  } catch { return false; }
+}
+
+/** BLOCKED_OPS rows that pass when their request body satisfies the rule. Malformed, oversized or non-UTF-8 bodies stay refused. */
+export const CONDITIONAL_OPS: Readonly<Record<string, (body: string) => boolean>> = { "config.set": configSetAllowed };
+const CONDITIONAL_BODY_LIMIT = 256 * 1024;
+
+export async function conditionallyAllowed(op: string, req: Request): Promise<boolean> {
+  const allowed = Object.hasOwn(CONDITIONAL_OPS, op) ? CONDITIONAL_OPS[op] : undefined;
+  const reader = allowed && req.clone().body?.getReader();
+  if (!allowed || !reader) return false;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      size += next.value.length;
+      if (size > CONDITIONAL_BODY_LIMIT) return false;
+      chunks.push(next.value);
+    }
+    return allowed(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+  } catch { return false; } finally { await reader.cancel().catch(() => {}); }
+}
 
 export function refusedOp(method: string, pathname: string): string | undefined {
   if (method !== "POST") return;
@@ -112,7 +146,7 @@ export function startProxy(session: Session) {
       const trace = traceOp ? createOtaRequestTrace(session, traceOp) : undefined;
       const op = refusedOp(req.method, url.pathname);
       const unsafeTerminal = req.method === "POST" && url.pathname === "/v3/ops/terminal.create" && !await safeTerminalCreate(session, req);
-      if (unsafeTerminal || (op && !await authorizeSeedRepair(session, req) && !await authorizeSeedPluginRemove(session, req) && !await authorizeFixtureRequest(session, req, trace))) {
+      if (unsafeTerminal || (op && !await conditionallyAllowed(op, req) && !await authorizeSeedRepair(session, req) && !await authorizeSeedPluginRemove(session, req) && !await authorizeFixtureRequest(session, req, trace))) {
         const blocked = unsafeTerminal ? "terminal.create" : op!;
         const message = `Live validation D8: ${blocked} changes the real user environment`;
         record(session, { kind: "note", behavior: `D8 blocked ${blocked}`, surface: "API proxy", verdict: "UNVERIFIED", steps: `${req.method} ${url.pathname}`, text: message });

@@ -1,4 +1,4 @@
-import { refusedOp } from "./proxy";
+import { CONDITIONAL_OPS, refusedOp } from "./proxy";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pacerArgv, sandboxEnv, type Session } from "./core";
@@ -10,11 +10,16 @@ export function refusal(args: string[]): string | undefined {
   if (command === "api" && action === "--stdio") return "D3: stdio can execute local operations; use api call through the guarded service";
   if (command === "api" && action === "call") {
     let name: string | undefined;
+    const inline: string[] = [];
+    let file = false;
     for (let i = 2; i < args.length; i++) {
-      if (["--params", "--params-file"].includes(args[i])) { i++; continue; }
-      if (!args[i].startsWith("-")) { name = args[i]; break; }
+      if (args[i] === "--params") { inline.push(args[++i] ?? ""); continue; }
+      if (args[i] === "--params-file") { file = true; i++; continue; }
+      if (!name && !args[i].startsWith("-")) name = args[i];
     }
-    if (!name || refusedOp("POST", `/v3/ops/${name}`)) return "D3: generic operation changes the real user environment";
+    // A params file cannot be inspected here; a single inline body must pass the same D8 body rule.
+    const admitted = name && Object.hasOwn(CONDITIONAL_OPS, name) && !file && inline.length === 1 && CONDITIONAL_OPS[name](inline[0]);
+    if (!name || (refusedOp("POST", `/v3/ops/${name}`) && !admitted)) return "D3: generic operation changes the real user environment";
   }
   if (command === "desktop-update" && action !== "status") return "D3: desktop update requires a verified OTA fixture";
   if (["integrations", "install", "uninstall", "init", "setup", "statusline", "update", "orca"].includes(command)) return `D3: ${command} changes the real user environment`;

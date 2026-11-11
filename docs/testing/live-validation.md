@@ -163,7 +163,7 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | `host.terminal` | hosts.terminal opens a real SSH terminal |
 | `update.apply` | applyUpdate may replace the installed binary and refresh integrations |
 | `strategy.build` | buildStrategy opens a planning terminal in Orca, tmux or the OS |
-| `config.set` | config.set can install and uninstall planner integrations (whole op refused conservatively) |
+| `config.set` | config.set can install and uninstall planner integrations; only a known key other than planner, or planner with integrations "skip", passes (CONDITIONAL_OPS) |
 | `runner.add` | interactiveTerminal opens a real terminal (whole op refused conservatively) |
 | `task.attach` | openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively) |
 | `host.clean` | hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively) |
@@ -171,6 +171,8 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | `plugin.remove` | plugins.remove deletes a plugin folder under the home (whole op refused conservatively) |
 | `service.*` | all service operations except service.status can change the real login service |
 <!-- /D8 policy -->
+
+A row can pass conditionally only through `CONDITIONAL_OPS` in the same file, which inspects the request body. `config.set` is the only conditional row: the proxy reads at most 256 KiB of UTF-8 JSON and forwards the request only when `key` is exactly one of the `CONFIG_KEYS` and is not `planner`, or is `planner` with `integrations` exactly `"skip"`. Duplicate JSON fields resolve as in the service (the last one wins). A planner change with `integrations: "install"` or without `integrations`, an unknown or differently spelled key, and a malformed, oversized or non-UTF-8 body are refused with the same 403 response and evidence note. The command bar's `config-set` always sends `install`, so a planner change from the command bar stays refused. D3 applies the same body rule to a single inline `pacer api call config.set --params '<json>'`; `--params-file` and repeated `--params` stay refused because the guard cannot inspect them.
 
 `setup.init` is **allowed**: `setup.init` in `src/core/setup.ts` creates only `PACER_HOME/strategy.yaml`, or calls `config.set` with `integrations: "skip"`. Detection reads installed tools; it does not install integrations. Endpoint provider config regeneration itself is under `PACER_HOME/opencode`; account edit/adopt remain refused because their key paths can use the real Keychain. `host.add`, account mapping and repo mapping are conservatively refused even though their immediate config edits are sandbox-local: they enable later work on real hosts. Read-only operations and sandbox state changes remain available. Legacy delegation remains cooperative; new managed work requires strict native child control. Use only the disposable repository and do not register outside repos or add remote runners. This filter is not isolation for arbitrary executor code.
 
@@ -604,10 +606,12 @@ policy and config bytes. It refuses existing fixture directories, redirected
 paths and unsafe evidence files. No subprocesses, real accounts or integrations
 are used. Fixture files remain with the sandbox for inspection.
 
-D8 continues to refuse **every network `config.set` request**. This fixture
-validates handler persistence and validation, not the browser's saving indicator,
-rollback rendering, concurrency, planner integration side effects or other
-settings. Those surfaces remain UNVERIFIED until safely exercised separately.
+D8 now forwards network `config.set` requests for every known key except a
+planner change that would connect integrations (see the D8 section), so Settings
+saves through the public proxy can be exercised directly. This fixture still
+validates only handler persistence and validation, not the browser's saving
+indicator, rollback rendering, concurrency, planner integration side effects or
+other settings. Record those surfaces separately or mark them UNVERIFIED.
 
 ## Test temporary files
 
