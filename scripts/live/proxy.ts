@@ -9,7 +9,6 @@ import { authorizeFixtureRequest } from "./ota-request";
 import { FIXTURE_UPDATE_OPS } from "./ota-exercise-record";
 import { createOtaRequestTrace, emitOtaRequestTrace } from "./ota-request-trace";
 import { CONFIG_KEYS } from "../../src/core/config";
-import { OPS } from "../../src/api/ops";
 
 /** D8 policy source of truth; the procedure table is checked against these rows. */
 export const BLOCKED_OPS: Readonly<Record<string, string>> = {
@@ -69,22 +68,6 @@ export async function conditionallyAllowed(op: string, req: Request): Promise<bo
     }
     return allowed(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
   } catch { return false; } finally { await reader.cancel().catch(() => {}); }
-}
-
-/** Rust `--native-test-ops` builds register these beside the TypeScript operations. */
-const NATIVE_TEST_OPS = ["test.echo", "_debug.native"];
-
-/**
- * BLOCKED_OPS matches exact names, so an operation path in any other spelling (case, percent-encoding,
- * repeated or trailing slashes) or naming an unregistered operation must not reach the service.
- */
-export function inexactOpPath(pathname: string): boolean {
-  let decoded = pathname;
-  try { decoded = decodeURIComponent(pathname); } catch {}
-  const opsPath = /^\/+v[23]\/+ops(\/|$)/i;
-  if (!opsPath.test(pathname) && !opsPath.test(decoded)) return false;
-  const name = pathname.match(/^\/v[23]\/ops\/(.+)$/)?.[1];
-  return !name || !(Object.hasOwn(OPS, name) || NATIVE_TEST_OPS.includes(name));
 }
 
 export function refusedOp(method: string, pathname: string): string | undefined {
