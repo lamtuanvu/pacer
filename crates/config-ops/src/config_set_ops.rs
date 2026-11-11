@@ -103,7 +103,15 @@ pub(crate) fn config_set(ctx: &Ctx, p: &Value) -> Result<Value, CoreError> {
                 .hint("Refresh and retry."),
         );
     };
-    let mut result = write(ctx, &path, &name, p).map_err(super::config_writes::settings_error)?;
+    let mut result = write(ctx, &path, &name, p).map_err(|e| {
+        // The predicate saw an unchanged planner; the strategy changed since.
+        if e.message == PLANNER_INSTALL_FORWARDED {
+            CoreError::new(Code::Conflict, "Strategy changed during edit")
+                .hint("Refresh and retry.")
+        } else {
+            super::config_writes::settings_error(e)
+        }
+    })?;
     // Match the TypeScript op handler: notes stay internal.
     if let Some(obj) = result.as_object_mut() {
         obj.remove("notes");
