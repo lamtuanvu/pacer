@@ -72,6 +72,14 @@ pub fn msg_stays_forwarded(name: &str, ctx: &Ctx) -> bool {
     }
 }
 
+/// Live interactive answer delivery and retries depend on Core-owned session state.
+/// Forward before any native writes, including validation and request-id lookup.
+pub fn msg_answer_stays_forwarded(name: &str, params: &Value) -> bool {
+    name == "msg.send"
+        && params.get("kind").and_then(Value::as_str) == Some("answer")
+        && params.get("reply_to").and_then(Value::as_str).is_some()
+}
+
 #[derive(Debug, PartialEq)]
 enum Caller {
     Id(String),

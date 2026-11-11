@@ -153,7 +153,7 @@ test.skipIf(!front)("stdio msg.send, msg.confirm, msg.close and msg.wait match t
       expect(state(nativeHome), scenario.name).toEqual(state(forwardHome));
       expect(forwarded.markers, scenario.name).toEqual([]);
       const ops = requests.map(request => JSON.parse(request)).filter(r => OPS.includes(r.method));
-      expect(native.markers, scenario.name).toEqual(ops.map(r => `native ${r.method} ${r.id}`));
+      expect(native.markers, scenario.name).toEqual(ops.filter(r => !(r.method === "msg.send" && r.params?.kind === "answer" && typeof r.params?.reply_to === "string")).map(r => `native ${r.method} ${r.id}`));
       // A blocking wait does not hold back the requests after it.
       const order = native.lines.map(line => JSON.parse(line).id);
       expect(order.indexOf(37), scenario.name).toBeLessThan(order.indexOf(36));

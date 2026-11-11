@@ -240,6 +240,7 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
+                && !crate::native::msg_answer_stays_forwarded(op.name, &params)
                 && !crate::native::repo_registry_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::desktop_reconcile_stays_forwarded(op.name)
