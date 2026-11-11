@@ -194,7 +194,11 @@ jobs:
       # browser tests, so install it whenever that suite runs, not only when the change selects e2e.
       - name: Install locked Chromium test browser
         if: ${{ env.RUN_CHECKS == 'true' && (needs.changes.outputs.e2e == 'true' || needs.changes.outputs.full == 'true') }}
+        # Drop the Azure apt mirror only when it does not resolve; a no-op (and no sudo) when it resolves or on macOS.
         run: |
+          if [ -f /etc/apt/apt-mirrors.txt ] && ! getent hosts azure.archive.ubuntu.com >/dev/null; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Test (full suite, sharded)
