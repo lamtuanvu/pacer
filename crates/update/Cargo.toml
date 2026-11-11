@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 nix = { version = "0.31", features = ["user"] }
+pacer-messaging-ops = { path = "../messaging-ops" }
 pacer-foundation = { path = "../foundation" }
 pacer-store = { path = "../store" }
 ryu-js = "1"

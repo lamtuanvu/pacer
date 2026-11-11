@@ -19,25 +19,6 @@ fn planners_are_local_planner_agents() {
 }
 
 #[test]
-fn ollama_host_matches_fetch_urls() {
-    let env = |host: &str| HashMap::from([("OLLAMA_HOST".to_owned(), host.to_owned())]);
-    assert_eq!(
-        ollama_target(&HashMap::new()),
-        Some(("127.0.0.1".into(), "127.0.0.1:11434".into(), 11434))
-    );
-    assert_eq!(
-        ollama_target(&env("0.0.0.0")),
-        Some(("0.0.0.0".into(), "0.0.0.0:11434".into(), 11434))
-    );
-    assert_eq!(
-        ollama_target(&env("http://Box:8080/x")),
-        Some(("box".into(), "box:8080".into(), 8080))
-    );
-    assert_eq!(ollama_target(&env("http://box")).unwrap().2, 80);
-    assert_eq!(ollama_target(&env("https://box")), None);
-}
-
-#[test]
 fn starter_strategy_matches_typescript_text() {
     let clis = BINS
         .iter()

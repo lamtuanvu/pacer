@@ -18,6 +18,9 @@ authorization. For a diagnostic run, `PACER_DEBUG_NATIVE=1` writes `native <op> 
 to stderr for stdio requests with an ID, and `native <op>` for HTTP requests
 and notifications, when the Rust handler executes. The test-only `test-ops` build exposes
 `test.echo` and `_debug.native` for strict native evidence; release builds do not.
+With a `test-ops` front door and an uncompiled core, `PACER_TEST_LOCAL_SERVER_PORTS=<ollama>,<lmstudio>`
+moves the `executor.setup.candidates` probes off the fixed ports 11434 and 1234 to
+loopback fixture ports; see the harness safeguards below.
 
 ## Start and inspect a sandbox
 
@@ -84,6 +87,12 @@ Use the guarded public proxy for HTTP checks. To check the forward override in
 a separate sandbox, add `--native-forward-echo`; it fixes
 `PACER_FORWARD_OPS=test.echo` for that sandbox. Record the native trace from
 `logs/serve.log` and the forwarding result as behavior notes in each report.
+Four more `up` options also need `--native-test-ops`. `--local-model-ports <ollama>,<lmstudio>`
+points local model probes at two distinct harness-owned loopback fixtures (`PACER_TEST_LOCAL_SERVER_PORTS`). The harness refuses 4317 and the probe defaults 11434 and 1234, binds both requested ports before starting the service, and refuses startup if either is already bound. By default the fixtures close connections. Choose `--local-model-fixture ollama=ok,lmstudio=fail:100` to serve a fixed two-model list on the first port and delay failure by 100 ms on the second; each mode is `ok`, `fail`, or `fail:<milliseconds>` (0–9999). The fixture serves `/v1/models` and `/api/tags` locally and never forwards requests. Fixtures are stopped with the session; use only while the fixture process remains alive. On macOS the service and its Core child also run under a sandbox denying outbound TCP to ports 4317, 11434 and 1234; `session.json` records `modelProbeSandbox`. This does not sandbox unrelated network traffic or protect against a fixture process dying and its port being reused. `--core-fixture <file>` runs a test Core entry
+from `test/fixtures/` instead of `src/cli.ts`; the entry reads its own fixture variables
+from the environment of `up` (for example `DISCOVER_PLAN` for `core-discover-plan.ts`).
+`--native-forward-ops <ops>` sets `PACER_FORWARD_OPS` so a second sandbox can compare
+forced forwarding for those operations. `session.json` records each choice.
 The D3 guard refuses generic stdio calls. For a native test-ops sandbox without
 `--native-forward-echo`, run `bun run live native-stdio --id <id>`. This fixed
 fixture starts the sandbox's Rust front door with the sandbox home and Keychain

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { fakeCtx } from "./helpers";
 import { createTask, updateTask } from "../src/tasks/store";
+import { registerWork } from "../src/dispatch/work";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -86,4 +87,19 @@ test.skipIf(!front).each([
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });
   }
+}, 120_000);
+
+test.skipIf(!front)("task.get preserves user-started managed work after retry", async () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "root", repo: realpathSync(ctx.home) }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  registerWork(ctx, task.id, { allowDelegation: true, delegationEnforcement: "strict" });
+  const failed = updateTask(ctx, task.id, t => {
+    t.origin = "human"; t.state = "failed";
+    t.attempts.push({ executor: "codex", model: null, startedAt: ctx.now - 2, endedAt: ctx.now - 1, exitCode: 1, timedOut: false, limitHit: false, log: "" });
+  });
+  await callOp(ctx, "task.retry", { id: task.id, expect_rev: failed.rev }, { spawnRunner: () => 1 });
+  const native = await exchange(ctx.home, task.id, false);
+  const forwarded = await exchange(ctx.home, task.id, true);
+  expect(forwarded.result.work).toMatchObject({ userStarted: true });
+  expect(native.result.work).toEqual(forwarded.result.work);
 }, 120_000);

@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use crate::{
+    Code, apply,
     check::{compare_versions, is_version, update_check_false},
     feed::{latest, normalize_base, parse_latest},
     service::{js_number, launchd_number, systemd_fields},
@@ -172,4 +173,80 @@ fn service_manager_output_parses_like_the_reference() {
     assert_eq!(js_number(" 12 "), Some(12.0));
     assert_eq!(js_number(""), Some(0.0));
     assert_eq!(js_number("12abc"), None);
+}
+
+#[derive(Default)]
+struct Effects(Vec<Value>);
+
+impl apply::UpdateEffects for Effects {
+    fn call(&mut self, request: Value) -> pacer_foundation::api::OpFuture<'_> {
+        self.0.push(request);
+        Box::pin(async { Ok(json!({"job": {"id": "j-1"}})) })
+    }
+}
+
+fn apply_update(
+    env: &[(&str, &str)],
+    params: Value,
+) -> (Result<Value, pacer_foundation::api::CoreError>, Vec<Value>) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut effects = Effects::default();
+    let result = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(apply::update_apply(
+            &ctx(dir.path(), env),
+            params,
+            &mut effects,
+        ));
+    (result, effects.0)
+}
+
+#[test]
+fn update_apply_requests_one_core_update_job() {
+    for params in [json!({}), json!(null), json!({"force": true})] {
+        let (result, effects) = apply_update(&[], params);
+        assert_eq!(result.unwrap(), json!({"job": {"id": "j-1"}}));
+        assert_eq!(effects, vec![json!({"kind": "apply"})]);
+    }
+}
+
+#[test]
+fn update_apply_refusals_and_schema_issues_never_reach_core() {
+    let error = |env: &[(&str, &str)], params: Value| {
+        let (result, effects) = apply_update(env, params);
+        assert!(effects.is_empty());
+        let error = result.unwrap_err();
+        (error.code, error.message)
+    };
+    assert_eq!(
+        error(&[], json!(false)),
+        (
+            Code::InvalidInput,
+            "params: Invalid input: expected object, received boolean".to_owned()
+        )
+    );
+    assert_eq!(
+        error(
+            &[("PACER_ROLE", "executor"), ("PACER_ENFORCEMENT_TOKEN", "t")],
+            json!([])
+        ),
+        (
+            Code::NotAllowed,
+            "PACER_ROLE=executor: upgrades are not allowed from a delegated task.".to_owned()
+        )
+    );
+    assert_eq!(
+        error(&[("PACER_ENFORCEMENT_TOKEN", "t")], json!([])),
+        (
+            Code::NotAllowed,
+            "Enforcement identity only reports a native child denial".to_owned()
+        )
+    );
+    let dir = tempfile::tempdir().unwrap();
+    assert!(apply::stays_forwarded(&ctx(
+        dir.path(),
+        &[("PACER_WORK_GRANT", "g")]
+    )));
+    assert!(!apply::stays_forwarded(&ctx(dir.path(), &[])));
 }

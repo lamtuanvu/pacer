@@ -2,6 +2,10 @@
 // reference.ts from the current TS implementation, never by Rust.
 export function p6eCases(): any[] {
   const cases: any[] = [
+    ...["failed", "limit", "needs_input"].flatMap(state => [true, false].map(managed => ({
+      op: "attention", now: 100,
+      input: {tasks: [{id:"t", goal:"Managed parity", title:"Managed parity", state, rev:7, updatedAt:10, repo:null, executor:"codex", ...(managed ? {work:{rootId:"t",parentId:null,depth:0}} : {}), ...(state === "needs_input" ? {question:{text:"Which?",at:5}} : {})}], retryTargets:{t:"cursor"}}
+    }))),
     {
       op: "clients",
       now: 100,

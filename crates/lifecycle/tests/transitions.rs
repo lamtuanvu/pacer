@@ -294,3 +294,41 @@ fn repo_identity_accepts_supported_git_transports_and_rejects_secrets_and_nested
         assert!(hosts::repo_key(origin).is_none(), "{origin}");
     }
 }
+
+#[test]
+fn managed_and_ordinary_attention_actions_keep_revision_and_target() {
+    for state in ["failed", "limit", "needs_input"] {
+        for managed in [false, true] {
+            let mut task = json!({"id":"t-1","goal":"Task","state":state,"rev":7,"updatedAt":10,"executor":"codex","question":{"text":"Which?","at":5}});
+            if managed {
+                task["work"] = json!({"rootId":"t-1"});
+            }
+            let items = attention::derive(
+                &json!({"tasks":[task],"retryTargets":{"t-1":"cursor"}}),
+                100.0,
+            );
+            let action = &items[0].get("actions")[0];
+            let kind = if state == "needs_input" {
+                "answer"
+            } else {
+                "retry"
+            };
+            assert_eq!(
+                action["op"],
+                format!("{}.{}", if managed { "dispatch" } else { "task" }, kind)
+            );
+            if managed {
+                assert_eq!(
+                    action["params"],
+                    json!({"id":"t-1","expect_rev":7,"requestId":format!("t-1.7.{kind}")})
+                );
+                assert_eq!(
+                    action["label"],
+                    if kind == "retry" { "Retry" } else { "Answer" }
+                );
+            } else if kind == "retry" {
+                assert_eq!(action["params"], json!({"id":"t-1","executor":"cursor"}));
+            }
+        }
+    }
+}

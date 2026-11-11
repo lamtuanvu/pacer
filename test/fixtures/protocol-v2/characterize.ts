@@ -114,6 +114,11 @@ export function cases() {
       input: { ...copy(base), ...patch },
       ...(legacy === undefined ? {} : { legacy }),
     });
+  add('managed-actions-navigation', {attention: [
+    {...attention('question:managed','blocked',1),kind:'question',taskId:'managed',actions:[{label:'Answer',op:'dispatch.answer',params:{id:'managed',expect_rev:7,requestId:'managed.7.answer'}}]},
+    {...attention('failed:managed','problem',2),kind:'failed',taskId:'managed',actions:[{label:'Retry',op:'dispatch.retry',params:{id:'managed',expect_rev:7,requestId:'managed.7.retry'}}]},
+    {...attention('failed:ordinary','problem',3),kind:'failed',taskId:'ordinary',actions:[{label:'Retry on Codex',op:'task.retry',params:{id:'ordinary',executor:'codex'}}]},
+  ]});
   add('empty-unlimited', {});
   add('null-machine', { machine: null });
   add('no-planner-fixed', {

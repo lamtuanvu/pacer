@@ -2,6 +2,7 @@ import type { AccountSummary, ApiTask, ExecutorRow, HostSummary, PlannerMeter, S
 import { taskAttentionReason } from "../api/read-model/tasks";
 import { parseRunnerId } from "../config/runner-id";
 import { executorName } from "../link/notification";
+import { workActionRequestId } from "../work/action-id";
 import type { Action, AttentionItem, AttentionKind } from "./types";
 import { discoveryPrompts, type DiscoveryRuleInput } from "../discovery/prompts";
 
@@ -31,7 +32,7 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     const reason = taskAttentionReason(t);
     if (t.state === "needs_input" && t.question && t.question.answer === undefined && !t.retriedBy && !t.dismissed) {
       add("question",t.id,t.goal,t.question.text.slice(0,200),[
-        {label:"Answer",op:"task.answer",params:{id:t.id}},
+        {label:"Answer",op:t.work ? "dispatch.answer" : "task.answer",params:{id:t.id,...(t.work ? {expect_rev:t.rev,requestId:workActionRequestId(t.id,t.rev,"answer")} : {})}},
         {label:"Stop",op:"task.stop",params:{id:t.id},style:"danger"},
       ],{...extra,severity:"blocked",since:t.question.at,raisedAt:t.question.at});
     } else if (reason === "checks_failed" || reason === "incomplete") {
@@ -42,9 +43,9 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
       add("review", t.id, t.goal, t.reviewRequest!.note,
         [open("Review changes", {view:"review",id:t.id})], {...extra, since:t.reviewRequest!.at, raisedAt:t.reviewRequest!.at});
     } else if ((t.state === "failed" || t.state === "limit") && !t.retriedBy && !t.dismissed && !t.review && !t.resolved) {
-      const target=input.retryTarget(t);
-      add(t.state,t.id,t.goal,target ? `${displayName(t.executor)} ${t.state === "limit" ? "reached its limit" : "failed"}` : "No other executor available",[
-        {label:target ? `Retry on ${displayName(target)}` : "Retry",op:"task.retry",params:{id:t.id,...(target?{executor:target}:{})}},
+      const target=t.work ? null : input.retryTarget(t);
+      add(t.state,t.id,t.goal,t.work || target ? `${displayName(t.executor)} ${t.state === "limit" ? "reached its limit" : "failed"}` : "No other executor available",[
+        {label:target ? `Retry on ${displayName(target)}` : "Retry",op:t.work ? "dispatch.retry" : "task.retry",params:{id:t.id,...(t.work ? {expect_rev:t.rev,requestId:workActionRequestId(t.id,t.rev,"retry")} : target ? {executor:target} : {})}},
         open("See error",{view:"task",id:t.id}),
       ],extra);
     } else if (t.state === "running" && t.progress?.phase === "idle") {

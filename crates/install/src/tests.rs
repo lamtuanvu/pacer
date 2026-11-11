@@ -88,3 +88,102 @@ fn params_follow_the_published_schema() {
     );
     assert!(!agent_detect_stays_forwarded(&ctx, &json!({"host": 1})));
 }
+
+#[derive(Default)]
+struct Effects(Vec<Value>);
+
+impl install_ops::ServiceEffects for Effects {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        self.0.push(request);
+        Box::pin(async { Ok(json!({"installed": true, "running": true})) })
+    }
+}
+
+fn install(env: &[(&str, &str)], params: Value) -> (Result<Value, CoreError>, Vec<Value>) {
+    let home = tempfile::tempdir().unwrap();
+    let env = env
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect();
+    let ctx = Ctx::with(home.path().into(), home.path().into(), env, 1.0);
+    let mut effects = Effects::default();
+    let result = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(install_ops::service_install(&ctx, params, &mut effects));
+    (result, effects.0)
+}
+
+#[test]
+fn service_install_with_consent_requests_one_core_install() {
+    let (result, effects) = install(&[], json!({"consent": true, "extra": 1}));
+    assert_eq!(result.unwrap(), json!({"installed": true, "running": true}));
+    assert_eq!(effects, vec![json!({"kind": "install"})]);
+}
+
+#[test]
+fn service_install_refusals_and_schema_issues_never_reach_core() {
+    let message = |env: &[(&str, &str)], params: Value| {
+        let (result, effects) = install(env, params);
+        assert!(effects.is_empty());
+        let error = result.unwrap_err();
+        (error.code, error.message)
+    };
+    let consent = (
+        Code::InvalidInput,
+        "consent: Invalid input: expected true".to_owned(),
+    );
+    for params in [
+        json!({}),
+        json!(null),
+        json!({"consent": false}),
+        json!({"consent": "true"}),
+    ] {
+        assert_eq!(message(&[], params), consent);
+    }
+    assert_eq!(
+        message(&[], json!([])),
+        (
+            Code::InvalidInput,
+            "params: Invalid input: expected object, received array".to_owned()
+        )
+    );
+    assert_eq!(
+        message(
+            &[("PACER_ROLE", "executor"), ("PACER_ENFORCEMENT_TOKEN", "t")],
+            json!(1)
+        ),
+        (Code::NotAllowed, install_ops::UPGRADE_REFUSAL.to_owned())
+    );
+    assert_eq!(
+        message(
+            &[("PACER_ENFORCEMENT_TOKEN", "t")],
+            json!({"consent": true})
+        ),
+        (
+            Code::NotAllowed,
+            "Enforcement identity only reports a native child denial".to_owned()
+        )
+    );
+}
+
+#[test]
+fn service_install_forwards_work_grants() {
+    let home = tempfile::tempdir().unwrap();
+    let with = |env: &[(&str, &str)]| {
+        let env = env
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        Ctx::with(home.path().into(), home.path().into(), env, 1.0)
+    };
+    assert!(install_ops::stays_forwarded(&with(&[(
+        "PACER_WORK_GRANT",
+        "g"
+    )])));
+    assert!(!install_ops::stays_forwarded(&with(&[(
+        "PACER_WORK_GRANT",
+        ""
+    )])));
+    assert!(!install_ops::stays_forwarded(&with(&[])));
+}

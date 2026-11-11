@@ -3161,6 +3161,385 @@
   ],
   "snapshots": [
     {
+      "id": "managed-actions-navigation",
+      "input": {
+        "seq": 3000000000000,
+        "at": 42,
+        "mode": "normal",
+        "tasks": [
+          {
+            "fullTitle": "preserved",
+            "derived": {}
+          }
+        ],
+        "strategies": [
+          "old",
+          {
+            "name": "inactive",
+            "active": false
+          },
+          {
+            "name": "chosen",
+            "active": true
+          },
+          {
+            "name": "later",
+            "active": true
+          }
+        ],
+        "planner": {
+          "runner": "p",
+          "mode": "normal",
+          "stale": true
+        },
+        "accounts": [
+          {
+            "name": "a",
+            "verdict": "GO",
+            "resetsAt": 60,
+            "window": "week"
+          }
+        ],
+        "policy": {
+          "mode": "normal"
+        },
+        "pause": null,
+        "today": {
+          "since": 0,
+          "done": 0,
+          "accepted": 0,
+          "rejected": 0,
+          "failed": 0,
+          "byRepo": {}
+        },
+        "hosts": [],
+        "repos": [],
+        "executors": [],
+        "machine": {
+          "used": 0,
+          "max": 9007199254740991,
+          "hardCap": null,
+          "unlimited": true
+        },
+        "setup": {
+          "items": []
+        },
+        "attention": [
+          {
+            "id": "question:managed",
+            "kind": "question",
+            "severity": "blocked",
+            "since": 1,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Answer",
+                "op": "dispatch.answer",
+                "params": {
+                  "id": "managed",
+                  "expect_rev": 7,
+                  "requestId": "managed.7.answer"
+                }
+              }
+            ],
+            "taskId": "managed"
+          },
+          {
+            "id": "failed:managed",
+            "kind": "failed",
+            "severity": "problem",
+            "since": 2,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Retry",
+                "op": "dispatch.retry",
+                "params": {
+                  "id": "managed",
+                  "expect_rev": 7,
+                  "requestId": "managed.7.retry"
+                }
+              }
+            ],
+            "taskId": "managed"
+          },
+          {
+            "id": "failed:ordinary",
+            "kind": "failed",
+            "severity": "problem",
+            "since": 3,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Retry on Codex",
+                "op": "task.retry",
+                "params": {
+                  "id": "ordinary",
+                  "executor": "codex"
+                }
+              }
+            ],
+            "taskId": "ordinary"
+          }
+        ],
+        "counts": {
+          "attention": 99,
+          "problems": 99,
+          "setupOpen": 99,
+          "other": 3
+        },
+        "service": {
+          "protocol": "3.0.0",
+          "version": "fixture"
+        },
+        "desktopUpdates": [
+          {
+            "id": "hidden"
+          }
+        ],
+        "extra": {
+          "preserved": true
+        }
+      },
+      "output": {
+        "seq": 0,
+        "at": 42,
+        "mode": "normal",
+        "tasks": [
+          {
+            "fullTitle": "preserved",
+            "derived": {}
+          }
+        ],
+        "strategies": [
+          "old",
+          {
+            "name": "inactive",
+            "active": false
+          },
+          {
+            "name": "chosen",
+            "active": true
+          },
+          {
+            "name": "later",
+            "active": true
+          }
+        ],
+        "planner": {
+          "runner": "p",
+          "mode": "normal",
+          "stale": true
+        },
+        "accounts": [
+          {
+            "name": "a",
+            "verdict": "GO",
+            "resetsAt": 60,
+            "window": "week"
+          }
+        ],
+        "policy": {
+          "mode": "normal"
+        },
+        "pause": null,
+        "today": {
+          "since": 0,
+          "done": 0,
+          "accepted": 0,
+          "rejected": 0,
+          "failed": 0,
+          "byRepo": {}
+        },
+        "hosts": [],
+        "repos": [],
+        "executors": [],
+        "machine": {
+          "used": 0,
+          "max": 1,
+          "hardCap": null,
+          "unlimited": true
+        },
+        "setup": {
+          "complete": false,
+          "open": 4,
+          "items": [
+            {
+              "id": "binary",
+              "title": "Binary",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "strategy",
+              "title": "Strategy",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "service",
+              "title": "Login service",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "link",
+              "title": "Link",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "live",
+              "title": "Live plugin",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:claude-code",
+              "title": "Claude Code",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:codex",
+              "title": "Codex",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:cursor",
+              "title": "Cursor",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:opencode",
+              "title": "OpenCode",
+              "status": "pending",
+              "required": false
+            }
+          ]
+        },
+        "attention": [
+          {
+            "id": "question:managed",
+            "kind": "question",
+            "severity": "blocked",
+            "since": 1,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Answer",
+                "op": "ui.open",
+                "params": {
+                  "view": "task",
+                  "id": "managed",
+                  "tab": "answer"
+                }
+              }
+            ],
+            "taskId": "managed"
+          },
+          {
+            "id": "failed:managed",
+            "kind": "failed",
+            "severity": "problem",
+            "since": 2,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Retry",
+                "op": "ui.open",
+                "params": {
+                  "view": "task",
+                  "id": "managed"
+                }
+              }
+            ],
+            "taskId": "managed"
+          },
+          {
+            "id": "failed:ordinary",
+            "kind": "failed",
+            "severity": "problem",
+            "since": 3,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Retry on Codex",
+                "op": "task.retry",
+                "params": {
+                  "id": "ordinary",
+                  "executor": "codex"
+                }
+              }
+            ],
+            "taskId": "ordinary"
+          }
+        ],
+        "counts": {
+          "attention": 3,
+          "problems": 3,
+          "setupOpen": 4,
+          "other": 3
+        },
+        "service": {
+          "protocol": "2.8.0",
+          "version": "fixture"
+        },
+        "extra": {
+          "preserved": true
+        },
+        "v": 1,
+        "budget": {
+          "generatedAt": 42,
+          "strategy": "chosen",
+          "planner": "p",
+          "mode": "normal",
+          "providers": [],
+          "ranked": []
+        },
+        "alerts": [
+          {
+            "key": "question:managed",
+            "level": "error",
+            "title": "original",
+            "body": "detail",
+            "at": 2
+          },
+          {
+            "key": "failed:managed",
+            "level": "warn",
+            "title": "original",
+            "body": "detail",
+            "at": 2
+          },
+          {
+            "key": "failed:ordinary",
+            "level": "warn",
+            "title": "original",
+            "body": "detail",
+            "at": 2
+          }
+        ],
+        "console": null,
+        "consoles": [],
+        "serviceInstalled": false
+      }
+    },
+    {
       "id": "empty-unlimited",
       "input": {
         "seq": 3000000000000,

@@ -9,6 +9,7 @@ import { emptySnapshot, parseOutboxEvent, reduce } from "../src/link/envelope";
 import * as config from "../src/core/config";
 import * as setup from "../src/core/setup";
 import { fakeCtx } from "./helpers";
+import { closedPort } from "./pinned-port";
 import { setMachineReaders } from "../src/engine/machine";
 
 async function configured() {
@@ -66,7 +67,7 @@ test("agent preview, consent, connect and disconnect use only the temp home", as
 });
 
 test("setup.init creates a strategy without connecting agents and preserves existing files", async () => {
-  const ctx = fakeCtx();
+  const ctx = fakeCtx({ env: { OLLAMA_HOST: `127.0.0.1:${closedPort()}` } });
   expect(await callOp(ctx, "setup.init", { planner: "codex" })).toEqual({ strategy: join(ctx.pacerHome, "strategy.yaml") });
   expect(loadStrategy(ctx).planner.agent).toBe("codex");
   expect(existsSync(join(ctx.home, ".codex"))).toBe(false);
@@ -233,6 +234,8 @@ test("execution.backend maps auto and unset to direct, writes orca or direct and
   expect(warned).toMatchObject({value: "orca", previous: "direct", undo: "pacer config set execution.backend direct", warning: "Orca isn't running; tasks run directly until it is."});
   expect(warned.notes).toBeUndefined();
   expect(loadStrategy(ctx).execution).toMatchObject({backend: "orca"});
+  // config.set stops waiting for readiness after 3 s; under load the probe reaches `orca status` later.
+  for (let i = 0; i < 200 && !calls.length; i++) await Bun.sleep(50);
   expect(calls[0]?.slice(0, 2)).toEqual(["orca", "status"]);
   await callOp(ctx, "config.set", {key: "execution.backend", value: "direct"});
   expect(readFileSync(path, "utf8")).toContain("backend: direct");

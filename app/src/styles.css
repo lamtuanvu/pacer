@@ -435,7 +435,6 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 /* Leave room for the fixed narrow navigation when Tab reveals a code preview. */
 .pc-app--narrow .pc-setup .pc-code-scroll{scroll-margin-bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom))}
 html:has(.pc-app--narrow .pc-setup){scroll-padding-bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom))}
-.sr-only{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .pc-review-files .pc-selectable-row,.pc-review-queue .pc-selectable-row{flex-direction:column;align-items:flex-start;overflow:hidden}
 .pc-panel{position:sticky;top:var(--frame-top);max-height:calc(100vh - var(--frame-top));overflow:auto;align-self:flex-start}
 .pc-app:not(.pc-app--narrow).pc-app--with-status .pc-panel{max-height:calc(100vh - var(--frame-top) - var(--frame-status))}

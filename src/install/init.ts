@@ -20,27 +20,31 @@ export interface Detection {
   lmstudioModel: string | null;
 }
 
+/** The first model the running Ollama server at OLLAMA_HOST lists, or null. */
+export async function ollamaModel(ctx: Ctx): Promise<string | null> {
+  try {
+    // `ollama list` can launch Ollama.app when its server is stopped. Query
+    // the running server directly so discovery never starts an application.
+    const host = ctx.env.OLLAMA_HOST?.trim() || "http://127.0.0.1:11434";
+    const url = new URL(host.includes("://") ? host : `http://${host}`);
+    if (!host.includes("://") && !url.port) url.port = "11434";
+    url.pathname = "/api/tags";
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: "error" });
+    if (response.ok) {
+      const body: unknown = await response.json();
+      if (isObj(body) && Array.isArray(body.models)) {
+        return body.models.find(m => isObj(m) && typeof m.name === "string" && m.name.length > 0)?.name ?? null;
+      }
+    } else await response.body?.cancel();
+  } catch { /* An unavailable local server does not prevent CLI discovery. */ }
+  return null;
+}
+
 export async function detect(ctx: Ctx): Promise<Detection> {
   const clis = Object.fromEntries(BINS.map((bin) => [bin, ctx.which(bin)]));
   clis["cursor-agent"] ??= clis.cursor;
   const d: Detection = { clis, ollamaModel: null, lmstudioModel: null };
-  if (clis.ollama) {
-    try {
-      // `ollama list` can launch Ollama.app when its server is stopped. Query
-      // the running server directly so discovery never starts an application.
-      const host = ctx.env.OLLAMA_HOST?.trim() || "http://127.0.0.1:11434";
-      const url = new URL(host.includes("://") ? host : `http://${host}`);
-      if (!host.includes("://") && !url.port) url.port = "11434";
-      url.pathname = "/api/tags";
-      const response = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: "error" });
-      if (response.ok) {
-        const body: unknown = await response.json();
-        if (isObj(body) && Array.isArray(body.models)) {
-          d.ollamaModel = body.models.find(m => isObj(m) && typeof m.name === "string" && m.name.length > 0)?.name ?? null;
-        }
-      } else await response.body?.cancel();
-    } catch { /* An unavailable local server does not prevent CLI discovery. */ }
-  }
+  if (clis.ollama) d.ollamaModel = await ollamaModel(ctx);
   if (clis.lms) {
     try {
       // lms auto-starts its app when no port is supplied. An explicit port

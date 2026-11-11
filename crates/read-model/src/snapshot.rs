@@ -150,6 +150,23 @@ impl SnapshotResult {
                     return None;
                 }
                 let mut a = a.clone();
+                let actions: Vec<_> = array(&a["actions"])
+                    .iter()
+                    .map(|action| {
+                        let mut action = action.clone();
+                        if action["op"] == "dispatch.retry" || action["op"] == "dispatch.answer" {
+                            let answer = action["op"] == "dispatch.answer";
+                            let mut params = json!({"view":"task","id":action["params"]["id"]});
+                            if answer {
+                                params["tab"] = json!("answer");
+                            }
+                            action["op"] = json!("ui.open");
+                            action["params"] = params;
+                        }
+                        action
+                    })
+                    .collect();
+                a["actions"] = json!(actions);
                 let id = if a["id"] == "setup:planner" {
                     "setup:strategy"
                 } else {

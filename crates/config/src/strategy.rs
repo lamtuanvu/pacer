@@ -55,9 +55,14 @@ pub(crate) fn validate_yaml_strategy(
 
 /// `validateStrategy(Bun.YAML.parse(text), path)` for strategy text not yet written.
 pub fn validate_strategy_text(text: &str, path: &Path) -> Result<Value, StrategyError> {
+    parse_strategy(text, path, "default")
+}
+
+/// `validateStrategy(Bun.YAML.parse(text), path, name)` for text already read.
+pub fn parse_strategy(text: &str, path: &Path, name: &str) -> Result<Value, StrategyError> {
     let raw = parse_yaml_value(text)
         .map_err(|e| invalid(path, vec![format!("YAML syntax error: {e}")]))?;
-    validate_yaml_strategy(&raw, path, "default")
+    validate_yaml_strategy(&raw, path, name)
 }
 
 pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
@@ -82,9 +87,7 @@ pub fn load_strategy(home: &Path) -> Result<Value, StrategyError> {
             e.into()
         }
     })?;
-    let raw = parse_yaml_value(&text)
-        .map_err(|e| invalid(&path, vec![format!("YAML syntax error: {e}")]))?;
-    validate_yaml_strategy(&raw, &path, &name)
+    parse_strategy(&text, &path, &name)
 }
 /// `dispatchConfigSchema.parse({})`: the dispatcher configuration without a strategy override.
 pub fn default_dispatch_config() -> Value {

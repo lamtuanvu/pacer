@@ -60,3 +60,58 @@ test.skipIf(!browserPath)("Needs you filters, opens a trapped Answer panel and s
     for (const link of await page.getByRole("link", { name: "Review", exact: true }).all()) expect(await link.getAttribute("href")).toMatch(/\/review$/);
   } finally { await browser.close(); await server.stop(); }
 }, 30000);
+
+
+test.skipIf(!browserPath)("managed Needs you answer uses dispatch and a stable revision-scoped request ID", async () => {
+ const build = await Bun.build({entrypoints:["test/fixtures/ui/needs-you.tsx"],target:"browser"});
+ const browser = await chromium.launch({executablePath:browserPath!,headless:true});
+ const server = Bun.serve({port:0,fetch:()=>new Response('<div id="fixture"></div>',{headers:{"content-type":"text/html"}})});
+ try {
+  const page=await browser.newPage(); await page.goto(`${server.url}?managed`);
+  await page.addScriptTag({content:await build.outputs[0]!.text(),type:"module"});
+  await page.getByRole("tab",{name:/Questions/}).click();
+  await page.getByRole("link",{name:"Answer",exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"Codex asks"});
+  await dialog.locator("textarea").fill("Blue"); await dialog.getByRole("button",{name:"Send answer"}).click();
+  await dialog.waitFor({state:"detached"});
+  expect(await page.evaluate(()=>(window as any).answerOp)).toBe("dispatch.answer");
+  expect(await page.evaluate(()=>(window as any).answer)).toEqual({id:"question",text:"Blue",expect_rev:7,requestId:"question.7.answer"});
+ } finally {await browser.close(); await server.stop();}
+},30000);
+
+
+test.skipIf(!browserPath)("unsupported managed answer explains the disabled control visibly and accessibly", async () => {
+ const build=await Bun.build({entrypoints:["test/fixtures/ui/needs-you.tsx"],target:"browser"});
+ const browser=await chromium.launch({executablePath:browserPath!,headless:true});
+ const server=Bun.serve({port:0,fetch:()=>new Response('<div id="fixture"></div>',{headers:{"content-type":"text/html"}})});
+ try {
+  const page=await browser.newPage(); await page.goto(`${server.url}?managed&unsupported`);
+  await page.addScriptTag({content:await build.outputs[0]!.text(),type:"module"});
+  await page.getByRole("tab",{name:/Questions/}).click(); await page.getByRole("link",{name:"Answer",exact:true}).click();
+  const dialog=page.getByRole("dialog",{name:"Codex asks"}); await dialog.locator("textarea").fill("Blue");
+  const reason=dialog.getByText("This service does not support this action. Open the task to continue.",{exact:true});
+  expect(await reason.isVisible()).toBe(true);
+  for (const width of [1440,375]) {
+   await page.setViewportSize({width,height:900});
+   const within=await reason.evaluate(element=>{const r=element.getBoundingClientRect(), d=element.closest("dialog")!.getBoundingClientRect(); return r.left>=d.left && r.right<=d.right && r.top>=d.top && r.bottom<=d.bottom;});
+   expect(within).toBe(true);
+  }
+  const send=dialog.getByRole("button",{name:"Send answer"}); expect(await send.isDisabled()).toBe(true);
+  expect(await send.getAttribute("aria-describedby")).toBe(await reason.getAttribute("id"));
+  await page.keyboard.press("Meta+Enter"); expect(await page.evaluate(()=>(window as any).answerOp)).toBeUndefined();
+ } finally {await browser.close();await server.stop();}
+},30000);
+
+
+test.skipIf(!browserPath)("direct answer route restores focus to main after Escape", async () => {
+ const build=await Bun.build({entrypoints:["test/fixtures/ui/needs-you.tsx"],target:"browser"});
+ const browser=await chromium.launch({executablePath:browserPath!,headless:true});
+ const server=Bun.serve({port:0,fetch:()=>new Response('<div id="fixture"></div>',{headers:{"content-type":"text/html"}})});
+ try {
+  const page=await browser.newPage();await page.goto(`${server.url}?managed#/needs-you?answer=question`);
+  await page.addScriptTag({content:await build.outputs[0]!.text(),type:"module"});
+  const dialog=page.getByRole("dialog",{name:"Codex asks"});await dialog.waitFor();await page.keyboard.press("Tab");await page.keyboard.press("Escape");
+  await dialog.waitFor({state:"detached"});await page.waitForFunction(()=>document.activeElement?.id==="main-content");
+  expect(await page.locator("#main-content").evaluate(el=>document.activeElement===el)).toBe(true);
+ }finally{await browser.close();await server.stop();}
+},30000);

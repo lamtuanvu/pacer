@@ -681,3 +681,15 @@ for (const change of [{stale:undefined,capturedAt:undefined}, {stale:undefined,c
     expect(text).not.toContain('\x1b[');
   });
 }
+
+test("attention managed action prompts and retry obey advertised operations", async () => {
+ const {serviceAct}=await import("../src/dashboard/screens/common");
+ const answer={label:"Answer",op:"dispatch.answer",params:{id:"t",expect_rev:7,requestId:"t.7.answer"}};
+ const retry={label:"Retry",op:"dispatch.retry",params:{id:"t",expect_rev:7,requestId:"t.7.retry"}};
+ const unsupported={supports:()=>false} as any, supported={supports:(op:string)=>["dispatch.answer","dispatch.retry"].includes(op)} as any;
+ expect(serviceAct(unsupported,answer)).toBeUndefined(); expect(serviceAct(unsupported,retry)).toBeUndefined();
+ const prompt=serviceAct(supported,answer)!.effect;
+ if(prompt.type!=="prompt") throw Error("Expected answer prompt");
+ expect(prompt.prompt.submit("Blue")).toMatchObject({type:"action",action:{...answer,params:{...answer.params,text:"Blue"}}});
+ expect(serviceAct(supported,retry)?.effect).toEqual({type:"action",action:retry});
+});

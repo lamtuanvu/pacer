@@ -5,6 +5,7 @@ import { execProcess } from "../src/exec/process";
 import type { Ctx, RunFn } from "../src/types";
 import { manifestSchema } from "../src/plugins/protocol";
 import type { RegistryDeps } from "../src/plugins/registry";
+import { DEFAULT_PORT } from "../src/serve/constants";
 
 // One parent folder per test run, removed after the run (see test/setup.ts), so test homes don't pile up in TMPDIR.
 // Set PACER_KEEP_TEST_TMP=1 to keep it for debugging.
@@ -51,6 +52,21 @@ export function gitRepo(): string {
   const repo = tmpDir();
   Bun.spawnSync(["sh", "-c", "git init -q -b main && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init"], { cwd: repo });
   return repo;
+}
+
+/** A loopback port that was free a moment ago and has nothing listening on it now. */
+export function closedPort(): number {
+  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  const port = reservation.port!;
+  reservation.stop(true);
+  return port;
+}
+
+/** Env for a spawned pacer process and every descendant that inherits it. Core falls back to the
+ * real service on DEFAULT_PORT when PACER_PORT is unset, empty or 0, and a disposable home does not stop that. */
+export function pinnedPort<T extends Record<string, string | undefined>>(env: T, port = closedPort()): T & { PACER_PORT: string } {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535 || port === DEFAULT_PORT) throw Error(`spawned test processes need a sandbox port, not ${port}`);
+  return { ...env, PACER_PORT: String(port) };
 }
 
 /** Environment that puts the fake `ssh` (test/fixtures/bin/ssh) first on PATH, with a temp dir as the host's HOME. */

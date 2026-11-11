@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CoreError } from "../../../src/core/errors";
+import { workActionRequestId } from "../../../src/work/action-id";
 const transpiler = new Bun.Transpiler({ loader: "ts" });
 function load(path: string, names: string[], deps: Record<string, any>) {
   const source = transpiler
@@ -53,6 +54,7 @@ const rules = load("src/attention/rules.ts", ["deriveItems", "sortItems"], {
   ...taskFns,
   ...discovery,
   executorName,
+  workActionRequestId,
 });
 const taskAttention = load("src/core/task-attention.ts", ["deriveTaskItems"], {
   ...taskFns,
