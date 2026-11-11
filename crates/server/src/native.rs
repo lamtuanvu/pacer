@@ -87,7 +87,7 @@ pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection
 pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
 pub use machine_identity::set_identity_platform_for_tests;
-pub(crate) use msg_ops::msg_stays_forwarded;
+pub(crate) use msg_ops::{msg_answer_stays_forwarded, msg_stays_forwarded};
 #[doc(hidden)]
 pub use p8_bridge_ops::bridge_params as core_bridge_params;
 pub(crate) use p8_bridge_ops::needs_core_bridge;

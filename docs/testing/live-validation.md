@@ -614,3 +614,10 @@ machine failure cannot run teardown; the existing ownership-aware startup sweep
 handles stale managed roots on a later run. Hard-coded temp paths and surviving
 child processes are not covered by environment redirection. This does not scan
 or delete arbitrary historical temp folders.
+
+For synthetic interactive messaging, `live up --waiting-session-fixture` starts
+five disposable waiting tasks without an executor. Their task and question IDs
+are in `home/waiting-fixtures.json`; each run's `input` file records delivered
+bytes. The `stale` task has a superseded question. The fixture is incompatible
+with seeds, and `live down` stops its process group. This fixture does not replace
+validation with a real executor where CT-11 requires one.
