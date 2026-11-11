@@ -184,6 +184,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || (op.name == "repo.remove" && crate::native::repo_remove_stays_forwarded(&ctx))
             || crate::native::project_messaging_stays_forwarded(&ctx, op.name, &params)
             || crate::native::msg_stays_forwarded(op.name, &ctx)
+            || crate::native::msg_answer_stays_forwarded(op.name, &ctx, &params)
             || crate::native::repo_registry_stays_forwarded(&ctx, op.name, &params)
             || crate::native::discovery_stays_forwarded(&ctx, op.name, &params)
             || crate::native::desktop_reconcile_stays_forwarded(op.name)
@@ -209,6 +210,15 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
             return match crate::native::msg_writes::call(&ctx, op.name, params, &mut bridge).await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error)
+                    if error.message == crate::native::msg_writes::FORWARD_DUPLICATE_ANSWER =>
+                {
+                    let Some(target) = state.core.target().await else {
+                        return proxy::unavailable(false);
+                    };
+                    proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
+                        .await
+                }
                 Err(error) => native_error(error),
             };
         }

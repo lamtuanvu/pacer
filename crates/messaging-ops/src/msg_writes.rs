@@ -338,6 +338,9 @@ fn merged(mut out: Map<String, Value>, delivery: Value) -> Value {
     Value::Object(out)
 }
 
+/// Internal signal: retry the original request in Core before any duplicate side effects.
+pub const FORWARD_DUPLICATE_ANSWER: &str = "forward duplicate answer to Core";
+
 /// `duplicate`: a retried request id returns what it stored before any check can refuse it.
 async fn duplicate(
     ctx: &Ctx,
@@ -354,6 +357,9 @@ async fn duplicate(
             ),
             "msg_request_mismatch",
         ));
+    }
+    if text(&message, "kind") == Some("answer") && text(&message, "replyTo").is_some() {
+        return Err(CoreError::new(Code::Internal, FORWARD_DUPLICATE_ANSWER));
     }
     let mut out = Map::new();
     out.insert("message".into(), message.clone());

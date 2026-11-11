@@ -72,7 +72,7 @@ pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection
 pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
 pub use machine_identity::set_identity_platform_for_tests;
-pub(crate) use msg_ops::msg_stays_forwarded;
+pub(crate) use msg_ops::{msg_answer_stays_forwarded, msg_stays_forwarded};
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub use pacer_account_ops::account_stays_forwarded;
 use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview_ops};

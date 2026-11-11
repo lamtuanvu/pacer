@@ -297,3 +297,22 @@ async fn wait_returns_unread_messages_and_consumes_them() {
         .unwrap();
     assert_eq!(timed_out["timedOut"], true);
 }
+
+#[tokio::test]
+async fn duplicate_answer_race_forwards_without_effects() {
+    let (_dir, ctx) = home();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    let message = json!({"kind":"answer", "replyTo":"q", "status":"pending"});
+    let mut bridge = Fake::default();
+    let error = duplicate(
+        &ctx,
+        &mut store,
+        (message, None),
+        "fingerprint",
+        &mut bridge,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.message, FORWARD_DUPLICATE_ANSWER);
+    assert!(bridge.requests.is_empty());
+}
