@@ -34,6 +34,28 @@ test('inline config.set params pass D3 only under the D8 body rule', () => {
   ]) expect(refusal(args), args.join(' ')).toContain('D3');
 });
 
+test('config set planner is refused because the CLI installs integrations in-process', () => {
+  for (const args of [
+    ['config', 'set', 'planner', 'codex'],
+    ['config', 'set', 'planner', 'codex#team', '--json'],
+    ['config', 'set', '--json', 'planner', 'codex'],
+    ['config', 'set', 'planner=codex'],
+    ['config', 'set', 'Planner', 'codex'],
+    ['config', 'set', ' planner ', 'codex'],
+    ['config', 'set', '--planner', 'codex'],
+    ['config', 'set', '--', 'planner', 'codex'],
+    ['config', '--', 'set', 'planner', 'codex'],
+    ['--', 'config', 'set', 'planner', 'codex'],
+    ['config', 'set', 'planner'],
+  ]) expect(refusal(args), args.join(' ')).toBe('D3: config set planner installs planner integrations in-process, bypassing D8');
+  for (const args of [
+    ['config', 'set', 'pacing.policy', 'even'],
+    ['config', 'set', 'execution.backend', 'direct'],
+    ['config', 'get', 'planner'],
+    ['config', 'get', '--json'],
+  ]) expect(refusal(args), args.join(' ')).toBeUndefined();
+});
+
 test('generic guard identifies operations after flags without reading stdin payloads', () => {
   expect(refusal(['api','call','--params-file','-','--json','service.install'])).toContain('D3');
   expect(refusal(['api','call','--params','{}','account.add','--json'])).toContain('D3');
