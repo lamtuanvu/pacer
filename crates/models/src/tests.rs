@@ -67,10 +67,10 @@ fn cache_path_hashes_the_runner_id() {
 fn opencode_accounts_need_discovery_without_a_fresh_cache() {
     let dir = tempfile::tempdir().unwrap();
     let s = strategy();
-    assert!(matches!(
+    assert_eq!(
         available_models(dir.path(), NOW, &s, "opencode#oc"),
-        Listing::NeedsDiscovery(_)
-    ));
+        Listing::NeedsDiscovery
+    );
     for (text, why) in [
         (
             cache(json!([{"id": "acme/a"}]), NOW - CACHE_TTL_S),
@@ -116,14 +116,14 @@ fn opencode_accounts_need_discovery_without_a_fresh_cache() {
     ] {
         seed(dir.path(), "opencode#oc", &text);
         let got = available_models(dir.path(), NOW, &s, "opencode#oc");
-        assert!(matches!(got, Listing::NeedsDiscovery(_)), "{why}: {text}");
+        assert_eq!(got, Listing::NeedsDiscovery, "{why}: {text}");
     }
     fs::remove_file(cache_file(dir.path(), "opencode#oc")).unwrap();
     fs::create_dir(cache_file(dir.path(), "opencode#oc")).unwrap();
-    assert!(matches!(
+    assert_eq!(
         available_models(dir.path(), NOW, &s, "opencode#oc"),
-        Listing::NeedsDiscovery(_)
-    ));
+        Listing::NeedsDiscovery
+    );
 }
 
 #[test]
@@ -273,7 +273,11 @@ fn closest_models_rank_by_utf16_prefix_then_distance() {
     let list = |ids: &[&str]| AvailableModels {
         runner: "r".into(),
         source: ModelSource::Connection,
-        models: Some(ids.iter().map(|id| AvailableModel::new(*id)).collect()),
+        models: Some(
+            ids.iter()
+                .map(|id| AvailableModel { id: (*id).into() })
+                .collect(),
+        ),
         fetched_at: NOW,
         note: None,
         provider: None,
@@ -299,49 +303,40 @@ fn closest_models_rank_by_utf16_prefix_then_distance() {
     assert_eq!(is_offered(&list(&["same"]), "other"), Some(false));
 }
 
-#[tokio::test]
-async fn validation_follows_the_runner_set_order() {
+#[test]
+fn validation_follows_the_runner_set_order() {
     let dir = tempfile::tempdir().unwrap();
     let s = strategy();
-    let check = |runner: &'static str, model: &'static str| {
-        let (home, s) = (dir.path().to_owned(), s.clone());
-        async move { validate_runner_model(&home, NOW, &s, runner, model).await }
-    };
-    assert_eq!(check("missing", "m").await, Validation::NotReached);
-    assert_eq!(check("claude-code", "m").await, Validation::NotReached);
-    assert_eq!(check("codex", "anything").await, Validation::Accepted(None));
-    // No core process is recorded in unit tests, so discovery stays with TypeScript.
-    assert_eq!(check("opencode#oc", "acme/a").await, Validation::NeedsCore);
-    assert!(model_check_needs_core(dir.path(), NOW, &s, "opencode#oc"));
-    assert!(!model_check_needs_core(dir.path(), NOW, &s, "codex"));
-    assert!(!model_check_needs_core(dir.path(), NOW, &s, "claude-code"));
+    let check =
+        |runner: &str, model: &str| validate_runner_model(dir.path(), NOW, &s, runner, model);
+    assert_eq!(check("missing", "m"), Validation::NotReached);
+    assert_eq!(check("claude-code", "m"), Validation::NotReached);
+    assert_eq!(check("codex", "anything"), Validation::Accepted(None));
+    assert_eq!(check("opencode#oc", "acme/a"), Validation::NeedsCore);
+    assert_eq!(check("fast", "pacer-acct/y"), Validation::Accepted(None));
     assert_eq!(
-        check("fast", "pacer-acct/y").await,
-        Validation::Accepted(None)
-    );
-    assert_eq!(
-        check("fast", "pacer-acct/x😀").await,
+        check("fast", "pacer-acct/x😀"),
         Validation::Refused {
             message: "pacer-acct/x😀 is not offered by acct".into(),
             hint: Some("Available: pacer-acct/x😁, pacer-acct/xa, pacer-acct/xab".into()),
         }
     );
     assert_eq!(
-        check("opencode#named", "nope").await,
+        check("opencode#named", "nope"),
         Validation::Refused {
             message: "nope is not offered by vendor".into(),
             hint: Some("Available: pacer-named/a, pacer-named/b".into()),
         }
     );
     assert_eq!(
-        check("opencode#empty", "pacer-empty/a").await,
+        check("opencode#empty", "pacer-empty/a"),
         Validation::Accepted(Some(
             "pacer-empty/a could not be checked: empty declares no models".into()
         ))
     );
     seed(dir.path(), "opencode#oc", &cache(json!([]), NOW));
     assert_eq!(
-        check("opencode#oc", "acme/a").await,
+        check("opencode#oc", "acme/a"),
         Validation::Refused {
             message: "acme/a is not offered by acme".into(),
             hint: None
@@ -353,110 +348,9 @@ async fn validation_follows_the_runner_set_order() {
         r#"{"runner":"opencode#oc","source":"opencode","models":null,"fetchedAt":1700000000}"#,
     );
     assert_eq!(
-        check("opencode#oc", "acme/a").await,
+        check("opencode#oc", "acme/a"),
         Validation::Accepted(Some("acme/a could not be checked: ".into()))
     );
     seed(dir.path(), "opencode#oc", &cache(json!([null]), NOW));
-    assert_eq!(check("opencode#oc", "acme/a").await, Validation::NeedsCore);
+    assert_eq!(check("opencode#oc", "acme/a"), Validation::NeedsCore);
 }
-
-#[test]
-fn declarations_report_zod_issues_in_schema_order() {
-    let parse = |value: Value| {
-        let mut issues = Vec::new();
-        let out = declarations::model_declarations(Some(&value), "models", &mut issues);
-        (out, issues.join("; "))
-    };
-    assert_eq!(
-        parse(json!([{"id": "", "tier": "huge", "strengths": [""], "tools": 1, "context": -1.5, "x": 1}, 7])).1,
-        "models.0.id: Too small: expected string to have >=1 characters; models.0.tier: Invalid option: expected one of \"small\"|\"medium\"|\"frontier\"|\"unknown\"; models.0.strengths.0: Too small: expected string to have >=1 characters; models.0.tools: Invalid input: expected boolean, received number; models.0.context: Invalid input: expected int, received number; models.0: Unrecognized key: \"x\"; models.1: Invalid input: expected object, received number"
-    );
-    assert_eq!(
-        parse(
-            json!([{"id": "a", "context": 1e300}, {"id": "b", "context": -1e300, "y": 1, "z": 2}])
-        )
-        .1,
-        "models.0.context: Too big: expected int to be <=9007199254740991; models.1.context: Too small: expected int to be >=-9007199254740991; models.1.context: Too small: expected number to be >0; models.1: Unrecognized keys: \"y\", \"z\""
-    );
-    assert_eq!(
-        parse(json!("x")).1,
-        "models: Invalid input: expected array, received string"
-    );
-    let (out, issues) =
-        parse(json!([{"context": 5, "tools": false, "tier": "frontier", "id": "m"}, {"id": "n"}]));
-    assert_eq!(issues, "");
-    assert_eq!(
-        serde_json::to_string(&out).unwrap(),
-        r#"[{"id":"m","tier":"frontier","strengths":[],"tools":false,"context":5},{"id":"n","tier":"unknown","strengths":[]}]"#
-    );
-}
-
-#[test]
-fn runner_models_validation_matches_validate_runner_models() {
-    let listing = |ids: &[&str]| AvailableModels {
-        runner: "r".into(),
-        source: ModelSource::Connection,
-        models: Some(ids.iter().map(|id| AvailableModel::new(*id)).collect()),
-        fetched_at: NOW,
-        note: None,
-        provider: None,
-    };
-    let known = listing(&["a", "b", "ab"]);
-    let declare = |ids: &[(&str, &[&str])]| -> Vec<Value> {
-        ids.iter()
-            .map(|(id, strengths)| json!({"id": id, "tier": "small", "strengths": strengths}))
-            .collect()
-    };
-    let mut warnings = Vec::new();
-    let models = validate_runner_models(
-        "acme",
-        &known,
-        "b",
-        &declare(&[("a", &["x"]), ("b", &[])]),
-        &mut warnings,
-    )
-    .unwrap();
-    assert_eq!(
-        serde_json::to_string(&models).unwrap(),
-        r#"[{"id":"a","tier":"small","strengths":["x"]},{"id":"b","tier":"small"}]"#
-    );
-    let refuse = |default: &str, models: &[(&str, &[&str])]| {
-        validate_runner_models("acme", &known, default, &declare(models), &mut Vec::new())
-            .unwrap_err()
-    };
-    assert_eq!(
-        refuse("a", &[("a", &[]), ("a", &[])]).message,
-        "duplicate models"
-    );
-    assert_eq!(
-        refuse("c", &[("a", &[]), ("b", &[])]).message,
-        "default must be one of models: a, b"
-    );
-    assert_eq!(
-        refuse("a", &[("a", &[]), ("zz", &[])]),
-        Refusal {
-            message: "zz is not offered by acme".into(),
-            hint: Some("Available: a, b, ab".into())
-        }
-    );
-    assert_eq!(refuse("zz", &[]).message, "zz is not offered by acme");
-    let unknown = AvailableModels {
-        models: None,
-        note: Some("no list".into()),
-        ..listing(&[])
-    };
-    let mut warnings = Vec::new();
-    validate_runner_models("acme", &unknown, "q", &[], &mut warnings).unwrap();
-    assert_eq!(warnings, ["q could not be checked: no list"]);
-    assert_eq!(
-        model_declaration_warnings(
-            &json!({"id": "r", "model": "x", "models": [{"id": "a", "tier": "unknown"}]})
-        ),
-        [
-            "runners.r: default model \"x\" is not in models",
-            "runners.r: model \"a\" is unrated (tier unknown)"
-        ]
-    );
-}
-
-mod discovery;
