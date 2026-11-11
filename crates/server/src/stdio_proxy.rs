@@ -247,8 +247,9 @@ async fn forward_input<
             && let Some(request) = request.as_ref()
         {
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
-            // Planner install and backend readiness remain on the TypeScript path.
-            if !(op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
+            // Changed-planner installs and Orca backend readiness remain on the TypeScript path.
+            if !(op.name == "config.set"
+                && crate::native::config_set_stays_forwarded(&ctx.at_now(), &params))
                 && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
                 && !(op.name == "routing.route"
                     && crate::native::routing_route_stays_forwarded(&ctx.at_now(), &params))
