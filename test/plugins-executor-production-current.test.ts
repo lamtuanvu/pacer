@@ -49,6 +49,40 @@ function fixture() {
   return { ctx, task, cfg, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 
+/** A loaded machine can take seconds to boot a session host, start an agent or reap a wrapper. */
+async function waitFor(what: string, done: () => boolean, ms = 10_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!done()) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${what}`);
+    await Bun.sleep(20);
+  }
+}
+
+/** An agent that ignores `signals` and forks one descendant before writing `$1`. Orphan cleanup
+ * refuses to signal group members it never identified, so the agent must not fork after startup. */
+const survivingAgent = (signals: string) => `trap '' ${signals}; /bin/sleep 3600 & : > "$1"; wait`;
+
+/** Start a run whose agent outlives its SIGKILLed wrapper. */
+async function orphanAgent(ctx: ReturnType<typeof fakeCtx>, dir: string, cwd: string,
+  session: "pipe" | "interactive"): Promise<{ wrapper: number; child: number }> {
+  const ready = join(ctx.home, `agent-ready-${session}`);
+  const launched = startRun({ dir, argv: ["/bin/sh", "-c", survivingAgent(session === "pipe" ? "TERM" : "HUP TERM"), "agent", ready],
+    cwd, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session });
+  if ("error" in launched) throw new Error(launched.error);
+  let child: number | undefined;
+  try {
+    chmodSync(dir, 0o700);
+    await waitFor("the agent's child record and signal traps", () => existsSync(join(dir, "child")) && existsSync(ready));
+    child = Number(readFileSync(join(dir, "child"), "utf8"));
+    process.kill(launched.pid, "SIGKILL");
+    await waitFor("the killed wrapper", () => !readRun(dir).alive);
+    return { wrapper: launched.pid, child };
+  } catch (error) {
+    for (const group of [child, launched.pid]) if (group) { try { process.kill(-group, "SIGKILL"); } catch {} }
+    throw error;
+  }
+}
+
 test("bundled direct provider owns a real current checkout wrapper and full outcome", async () => {
   const { ctx, task, cfg, cleanup } = fixture();
   try {
@@ -656,16 +690,8 @@ test("missing-exit pipe stop terminates the surviving agent before settling", as
   let pid: number | undefined;
   try {
     const dir = join(ctx.pacerHome, "runs", task.id, "1");
-    const launched = startRun({ dir, argv: ["/bin/sh", "-c", "trap '' TERM; while :; do sleep 0.1; done"],
-      cwd: task.brief.repo, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session: "pipe" });
-    if ("error" in launched) throw new Error(launched.error);
-    pid = launched.pid;
-    chmodSync(dir, 0o700);
-    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
-    const child = Number(readFileSync(join(dir, "child"), "utf8"));
-    await Bun.sleep(100);
-    process.kill(pid, "SIGKILL");
-    for (let i = 0; i < 100 && readRun(dir).alive; i++) await Bun.sleep(20);
+    const { wrapper, child } = await orphanAgent(ctx, dir, task.brief.repo, "pipe");
+    pid = wrapper;
     expect(process.kill(child, 0)).toBe(true);
     updateTask(ctx, task.id, current => {
       current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
@@ -690,16 +716,7 @@ test("missing-exit interactive stop terminates the surviving agent before settli
   let pid: number | undefined, child: number | undefined;
   try {
     const dir = join(ctx.pacerHome, "runs", task.id, "1");
-    const launched = startRun({ dir, argv: ["/bin/sh", "-c", "trap '' HUP TERM; while :; do sleep 0.1; done"],
-      cwd: task.brief.repo, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session: "interactive" });
-    if ("error" in launched) throw new Error(launched.error);
-    pid = launched.pid;
-    chmodSync(dir, 0o700);
-    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
-    child = Number(readFileSync(join(dir, "child"), "utf8"));
-    await Bun.sleep(100);
-    process.kill(pid, "SIGKILL");
-    for (let i = 0; i < 100 && readRun(dir).alive; i++) await Bun.sleep(20);
+    ({ wrapper: pid, child } = await orphanAgent(ctx, dir, task.brief.repo, "interactive"));
     expect(process.kill(child, 0)).toBe(true);
     updateTask(ctx, task.id, current => {
       current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
@@ -1218,16 +1235,8 @@ test("legacy stop runs orphan cleanup even when requestedAt is hours old", async
   let pid: number | undefined;
   try {
     const dir = join(ctx.pacerHome, "runs", task.id, "1");
-    const launched = startRun({ dir, argv: ["/bin/sh", "-c", "trap '' TERM; while :; do sleep 0.1; done"],
-      cwd: task.brief.repo, env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome }, session: "pipe" });
-    if ("error" in launched) throw new Error(launched.error);
-    pid = launched.pid;
-    chmodSync(dir, 0o700);
-    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
-    const child = Number(readFileSync(join(dir, "child"), "utf8"));
-    await Bun.sleep(100);
-    process.kill(pid, "SIGKILL");
-    for (let i = 0; i < 100 && readRun(dir).alive; i++) await Bun.sleep(20);
+    const { wrapper, child } = await orphanAgent(ctx, dir, task.brief.repo, "pipe");
+    pid = wrapper;
     expect(process.kill(child, 0)).toBe(true);
     updateTask(ctx, task.id, current => {
       current.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now,
