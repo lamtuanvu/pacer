@@ -9,12 +9,15 @@ import { repoFor } from "../src/core/repos";
 import { apiTasks } from "../src/api/read-model/tasks";
 import * as repos from "../src/core/repos";
 import { writeJsonAtomic } from "../src/fsutil";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../src/types";
 import type { TaskRecord } from "../src/tasks/types";
 
 const A = tmpDir(), B = tmpDir();
+// Registration stores canonical roots (macOS temp dirs live under /private/var). A raw /var
+// root matches only until another test file's path probe caches a canonical ancestor.
+const realTmpDir = () => realpathSync(tmpDir());
 
 function mkTask(ctx: Ctx, i: number, o: { state?: TaskState; repoKey?: string; executor?: string; briefRepo?: string; setRepo?: boolean }): TaskRecord {
   const task = createTask({ ...ctx, now: ctx.now + i }, {
@@ -245,7 +248,7 @@ test("states=done pages past newer running tasks", () => {
 
 test("repo filter matches a task delegated from a subdirectory and a linked worktree alias", () => {
   const ctx = fakeCtx();
-  const regRepo = tmpDir(), sub = join(regRepo, "pkg"), worktree = tmpDir();
+  const regRepo = realTmpDir(), sub = join(regRepo, "pkg"), worktree = realTmpDir();
   mkdirSync(sub, { recursive: true });
   mkdirSync(worktree, { recursive: true });
   writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [regRepo]: { path: regRepo, key: "github.com/acme/app", lastUsed: ctx.now } });
@@ -301,7 +304,7 @@ test("list filter selection uses expression indexes rather than scanning record 
 });
 
 test("mixed cached and legacy repo selection seeks both indexes before final filtering", () => {
-  const ctx = fakeCtx(), root = tmpDir();
+  const ctx = fakeCtx(), root = realTmpDir();
   writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [root]: { path: root, key: "selected", lastUsed: ctx.now } });
   seedHistory(ctx, { repoKey: "other", briefRepo: root });
   const cached = mkTask(ctx, -2, { state: "done", repoKey: "selected", briefRepo: root });
@@ -341,7 +344,7 @@ test("mixed cached and legacy repo selection seeks both indexes before final fil
 
 test("indexed filters preserve visible waiting, executor precedence and all filter combinations", () => {
   const ctx = fakeCtx();
-  const root = tmpDir(), alias = tmpDir();
+  const root = realTmpDir(), alias = realTmpDir();
   writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [root]: { path: root, key: "registered", lastUsed: ctx.now } });
   writeJsonAtomic(join(ctx.pacerHome, "state", "repo-paths.json"), { [alias]: root });
   const ids: string[] = [];
@@ -373,7 +376,7 @@ test("indexed filters preserve visible waiting, executor precedence and all filt
 });
 
 test("legacy repo pages remain bounded and null answers and empty executors retain their meaning", () => {
-  const ctx = fakeCtx(), root = tmpDir(), other = tmpDir();
+  const ctx = fakeCtx(), root = realTmpDir(), other = realTmpDir();
   writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), { [root]: { path: root, key: "selected", lastUsed: ctx.now } });
   for (let i = 0; i < 100; i++) mkTask(ctx, i, { briefRepo: other, state: "done" });
   const selected = mkTask(ctx, -1, { briefRepo: join(root, "sub"), state: "running", executor: "assigned" });
