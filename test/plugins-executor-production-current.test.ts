@@ -75,7 +75,12 @@ async function orphanAgent(ctx: ReturnType<typeof fakeCtx>, dir: string, cwd: st
     await waitFor("the agent's child record and signal traps", () => existsSync(join(dir, "child")) && existsSync(ready));
     child = Number(readFileSync(join(dir, "child"), "utf8"));
     process.kill(launched.pid, "SIGKILL");
-    await waitFor("the killed wrapper", () => !readRun(dir).alive);
+    // A wrapper still exiting (state E) has lost its command line but keeps its PID, which
+    // orphan cleanup must treat as a reused PID; wait until it is gone or a zombie.
+    await waitFor("the killed wrapper to exit", () => {
+      const state = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(launched.pid)]).stdout.toString().trim();
+      return !readRun(dir).alive && (state === "" || state.startsWith("Z"));
+    });
     return { wrapper: launched.pid, child };
   } catch (error) {
     for (const group of [child, launched.pid]) if (group) { try { process.kill(-group, "SIGKILL"); } catch {} }
