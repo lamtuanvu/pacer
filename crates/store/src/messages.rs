@@ -9,7 +9,9 @@ use rusqlite::{
 use serde_json::{Map, Value, json};
 
 mod writes;
-pub use writes::{NewMessage, by_request, confirm_held, ensure_schema, fingerprint, get, insert};
+pub use writes::{
+    NewMessage, by_request, confirm_held, ensure_schema, fingerprint, get, insert, prior_is_answer,
+};
 
 type Result<T> = std::result::Result<T, StoreError>;
 

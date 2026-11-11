@@ -240,7 +240,7 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
-                && !crate::native::msg_answer_stays_forwarded(op.name, &params)
+                && !crate::native::msg_answer_stays_forwarded(op.name, ctx, &params)
                 && !crate::native::repo_registry_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::desktop_reconcile_stays_forwarded(op.name)
@@ -293,6 +293,12 @@ async fn forward_input<
                         replies: &mut *sync.2,
                     };
                     let result = msg_writes::call(&request_ctx, op.name, params, &mut bridge).await;
+                    if matches!(&result, Err(error) if error.message == msg_writes::FORWARD_DUPLICATE_ANSWER)
+                    {
+                        core.write_all(&line).await?;
+                        core.flush().await?;
+                        continue;
+                    }
                     if let Some(id) = id {
                         write_line(out, &rpc_line(&id, result)?).await?;
                     }

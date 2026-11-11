@@ -14,7 +14,7 @@ import * as store from "../src/messaging/store";
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 
-async function exercise(forward: boolean, mode: "success" | "retry" | "ambiguous" | "stale" = "success") {
+async function exercise(forward: boolean, mode: "success" | "retry" | "ambiguous" | "stale" | "legacy" | "legacy-read" = "success") {
   const ctx = fakeCtx();
   const task = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: "debug", requestedExecutor: "codex", timeoutS: 600 });
   const dir = tmpDir();
@@ -45,6 +45,10 @@ async function exercise(forward: boolean, mode: "success" | "retry" | "ambiguous
     writeFileSync(join(dir, "session-status.json"), JSON.stringify({ status: "needs-input", summary: "s", at: 1000 }));
     await ask(ctx, task.id, "Which branch?");
     const question = store.thread(ctx, task.id).find(m => m.kind === "question")!;
+    if (mode === "legacy" || mode === "legacy-read") {
+      store.insertMessage(ctx, { taskId: task.id, rootId: `task:${task.id}`, from: "external:local", to: `task:${task.id}`, kind: "answer", body: "main", replyTo: question.id, requestId: "retry-answer" });
+      store.messagesDatabase(ctx).query("UPDATE messages SET fingerprint=NULL, status=? WHERE request_id=?").run(mode === "legacy-read" ? "read" : "pending", "retry-answer");
+    }
     if (mode === "stale") {
       updateTask(ctx, task.id, t => { t.question!.answer = "old"; t.question!.answeredAt = ctx.now; });
       await ask({ ...ctx, now: ctx.now + 1 }, task.id, "Which retry?");
@@ -64,7 +68,7 @@ async function exercise(forward: boolean, mode: "success" | "retry" | "ambiguous
       ...(forward ? { PACER_FORWARD_OPS: "msg.send" } : {}),
     } });
     await child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "hello", params: { protocol: 3 } }) + "\n" +
-      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "msg.send", params: { to: `task:${task.id}`, kind: "answer", reply_to: question.id, body: "main", request_id: "retry-answer" } }) + "\n");
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "msg.send", params: { to: `task:${task.id}`, kind: mode.startsWith("legacy") ? "message" : "answer", ...(mode.startsWith("legacy") ? {} : { reply_to: question.id }), body: "main", request_id: "retry-answer" } }) + "\n");
     await child.stdin.end();
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, stderr).toBe(0);
@@ -111,3 +115,13 @@ for (const mode of ["retry", "ambiguous", "stale"] as const) {
     }
   }, 60000);
 }
+
+for (const mode of ["legacy", "legacy-read"] as const) test.skipIf(!front)(`${mode} duplicate answer redelivery matches Core`, async () => {
+  const native = await exercise(false, mode);
+  const forwarded = await exercise(true, mode);
+  expect(forwarded.first).toEqual({ delivery: "live", error: undefined, duplicate: true });
+  expect(forwarded.answer).toBe("main");
+  expect(forwarded.typed).toBe(1);
+  expect(forwarded.pending).toBe(0);
+  expect(native).toEqual(forwarded);
+}, 30000);

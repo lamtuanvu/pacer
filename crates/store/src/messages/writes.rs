@@ -1,7 +1,7 @@
 //! Message writes shared with `src/messaging/store.ts`: schema, inserts and held releases.
 use super::{COLUMNS, message};
 use crate::{StoreError, TaskStore};
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -83,6 +83,20 @@ pub fn by_request(
     request_id: &str,
 ) -> Result<Option<(Value, Option<String>)>> {
     prior_in(ensure_schema(store)?, from, request_id)
+}
+
+/// Read-only routing probe; errors leave the decision to Core.
+pub fn prior_is_answer(home: &std::path::Path, from: &str, request_id: &str) -> Result<bool> {
+    let path = std::path::Path::new(home).join("state/tasks.db");
+    if !path.exists() {
+        return Ok(false);
+    }
+    let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let answer: Option<i64> = db.query_row(
+        "SELECT 1 FROM messages WHERE sender=? AND request_id=? AND kind='answer' AND reply_to IS NOT NULL",
+        [from, request_id], |row| row.get(0),
+    ).optional()?;
+    Ok(answer.is_some())
 }
 
 pub struct NewMessage<'a> {

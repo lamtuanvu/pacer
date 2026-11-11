@@ -274,22 +274,27 @@ async fn tree_status_lists_the_root_first_and_reads_turn_state() {
 fn answers_with_reply_targets_forward_before_native_effects() {
     assert!(msg_answer_stays_forwarded(
         "msg.send",
+        &ctx(&[]),
         &json!({"kind": "answer", "reply_to": "q"})
     ));
     assert!(msg_answer_stays_forwarded(
         "msg.send",
+        &ctx(&[]),
         &json!({"kind": "answer", "reply_to": ""})
     ));
     assert!(!msg_answer_stays_forwarded(
         "msg.send",
+        &ctx(&[]),
         &json!({"kind": "answer"})
     ));
     assert!(!msg_answer_stays_forwarded(
         "msg.send",
+        &ctx(&[]),
         &json!({"kind": "message", "reply_to": "q"})
     ));
     assert!(!msg_answer_stays_forwarded(
         "msg.read",
+        &ctx(&[]),
         &json!({"kind": "answer", "reply_to": "q"})
     ));
 }
