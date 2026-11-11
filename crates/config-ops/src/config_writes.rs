@@ -21,7 +21,7 @@ pub fn config_set_stays_forwarded(params: &Value) -> bool {
     )
 }
 
-const STRATEGY_HINT: &str =
+pub(crate) const STRATEGY_HINT: &str =
     "Use strategy.list to choose a strategy and strategy.preview to validate a draft.";
 #[allow(clippy::result_large_err)]
 fn error(op: &str, error: StrategyError) -> CoreError {

@@ -25,7 +25,13 @@ pub fn validate_project_strategies(value: &Value) -> Result<Value, AdmissionErro
         return Err(invalid());
     }
     let entries = value["projects"].as_object().ok_or_else(invalid)?;
-    for (key, entry) in entries {
+    // `z.record` neither checks nor keeps an own `__proto__` key.
+    let entries: serde_json::Map<String, Value> = entries
+        .iter()
+        .filter(|(key, _)| *key != "__proto__")
+        .map(|(key, entry)| (key.clone(), entry.clone()))
+        .collect();
+    for (key, entry) in &entries {
         if !project_key(key) {
             return Err(invalid());
         }
@@ -63,7 +69,9 @@ pub fn validate_project_strategies(value: &Value) -> Result<Value, AdmissionErro
             }
         }
     }
-    Ok(js_numbers(value))
+    Ok(js_numbers(
+        &json!({"version": value["version"], "projects": entries}),
+    ))
 }
 fn segment(s: &str) -> bool {
     s.as_bytes()

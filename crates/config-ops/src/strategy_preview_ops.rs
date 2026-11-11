@@ -2,8 +2,10 @@
 //! serializes and validates the draft, then ranks both strategies over the
 //! usage-broker rows TypeScript composed for the active strategy. Those rows are
 //! valid for the draft only while it keeps every input of a provider row, so a
-//! draft that changes one forwards, as does a base strategy Rust cannot read.
+//! draft that changes one forwards, as does a base strategy with a YAML syntax or
+//! I/O error. A missing or schema-invalid base strategy fails natively.
 #![allow(clippy::result_large_err)]
+use crate::config_writes::STRATEGY_HINT;
 use pacer_config::{
     strategy::load_strategy,
     strategy_write::{DraftPreview, preview_draft},
@@ -57,8 +59,9 @@ pub fn strategy_preview_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     let Ok(params) = crate::config_params::parse("strategy.preview", params.clone()) else {
         return false;
     };
-    let Ok(current) = load_strategy(&ctx.pacer_home) else {
-        return true;
+    let current = match load_strategy(&ctx.pacer_home) {
+        Ok(current) => current,
+        Err(error) => return crate::strategy_load::needs_core(&error),
     };
     match preview_draft(&ctx.pacer_home, &params["draft"]) {
         DraftPreview::Unreadable => true,
@@ -93,8 +96,10 @@ pub async fn strategy_preview(
 ) -> Result<Value, CoreError> {
     enforcement(ctx)?;
     let params = crate::config_params::parse("strategy.preview", params)?;
-    let current = load_strategy(&ctx.pacer_home)
-        .map_err(|error| CoreError::new(Code::Unavailable, format!("strategy.preview: {error}")))?;
+    // `strategyAction` turns the plain `loadStrategy` error into `invalid_input` with its hint.
+    let current = load_strategy(&ctx.pacer_home).map_err(|error| {
+        CoreError::new(Code::InvalidInput, error.to_string()).hint(STRATEGY_HINT)
+    })?;
     let preview = preview_draft(&ctx.pacer_home, &params["draft"]);
     let parts = parts.await?;
     let current_ranking = ranked(ctx, &current, &parts);

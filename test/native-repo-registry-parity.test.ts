@@ -1,6 +1,6 @@
 import {expect, test} from "bun:test";
 import {execFileSync} from "node:child_process";
-import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {callOp} from "../src/api/ops";
@@ -123,12 +123,20 @@ test("native repository ops forward Core-only inputs", () => {
   const home = mkdtempSync(join(tmpdir(), "native-rr-"));
   registry(home);
   const run = (op: string, params: unknown) => JSON.parse(execFileSync(driver(), [], {input: JSON.stringify({op, params, home, now: NOW}) + "\n"}).toString());
-  // Absolute checkouts resolve natively; unusual registries and unusable policy files keep TypeScript's reader and errors.
+  // Absolute checkouts and broken policy files resolve natively; unusual registries, special policy
+  // files and strategies whose errors carry runtime text keep TypeScript's reader and errors.
   expect(run("project.strategy.get", {repo: join(home, "app")})).not.toHaveProperty("forwarded");
   expect(run("repo.add", {path: join(home, "app")})).not.toHaveProperty("forwarded");
   expect(run("project.strategy.list", {})).not.toHaveProperty("forwarded");
   writeFileSync(join(home, "project-strategies.json"), "{broken");
+  expect(run("project.strategy.list", {}).error.message).toBe("Invalid project strategies");
+  rmSync(join(home, "project-strategies.json"));
+  execFileSync("mkfifo", [join(home, "project-strategies.json")]);
   expect(run("project.strategy.list", {})).toEqual({forwarded: true});
+  rmSync(join(home, "project-strategies.json"));
+  writeFileSync(join(home, "strategy.yaml"), "planner: [");
+  expect(run("project.strategy.list", {})).toEqual({forwarded: true});
+  writeFileSync(join(home, "strategy.yaml"), STRATEGY);
   writeFileSync(join(home, "state/repos.json"), JSON.stringify({"/x": {key: "k", path: "relative"}}));
   expect(run("repo.list", {})).toEqual({forwarded: true});
   expect(run("repo.add", {path: join(home, "app")})).toEqual({forwarded: true});

@@ -116,35 +116,70 @@ async fn set_get_list_and_remove_with_revisions() {
 }
 
 #[test]
-fn forwards_unusable_files() {
+fn forwards_only_runtime_text() {
     let (dir, ctx) = home();
     let get = "project.strategy.get";
-    assert!(!project_strategy_stays_forwarded(
-        &ctx,
-        get,
-        &json!({"repo": "github.com/a/b"})
-    ));
-    assert!(!project_strategy_stays_forwarded(
-        &ctx,
-        "repo.list",
-        &json!({"repo": "/x"})
-    ));
-    assert!(!project_strategy_stays_forwarded(
-        &ctx,
-        get,
-        &json!({"repo": "/tmp/checkout"})
-    ));
+    let forwarded = |op: &str, params: Value| project_strategy_stays_forwarded(&ctx, op, &params);
+    assert!(!forwarded(get, json!({"repo": "github.com/a/b"})));
+    assert!(!forwarded("repo.list", json!({"repo": "/x"})));
+    assert!(!forwarded(get, json!({"repo": "/tmp/checkout"})));
+    // Unreadable and invalid policy files fail closed with fixed texts.
     fs::write(dir.path().join(FILE), "{").unwrap();
-    assert!(project_strategy_stays_forwarded(
-        &ctx,
-        get,
-        &json!({"repo": "github.com/a/b"})
-    ));
+    assert!(!forwarded(get, json!({"repo": "github.com/a/b"})));
     fs::remove_file(dir.path().join(FILE)).unwrap();
+    fs::create_dir(dir.path().join(FILE)).unwrap();
+    assert!(!forwarded(get, json!({"repo": "github.com/a/b"})));
+    fs::remove_dir(dir.path().join(FILE)).unwrap();
+    let fifo = std::process::Command::new("mkfifo")
+        .arg(dir.path().join(FILE))
+        .status()
+        .unwrap();
+    assert!(fifo.success());
+    assert!(forwarded(get, json!({"repo": "github.com/a/b"})));
+    fs::remove_file(dir.path().join(FILE)).unwrap();
+    // A missing or schema-invalid strategy is native; YAML syntax errors keep Bun's text.
+    fs::write(dir.path().join("strategy.yaml"), "planner: nobody\n").unwrap();
+    assert!(!forwarded("project.strategy.list", json!({})));
     fs::remove_file(dir.path().join("strategy.yaml")).unwrap();
-    assert!(project_strategy_stays_forwarded(
-        &ctx,
-        "project.strategy.list",
-        &json!({})
-    ));
+    assert!(!forwarded("project.strategy.list", json!({})));
+    fs::write(dir.path().join("strategy.yaml"), "planner: [\n").unwrap();
+    assert!(forwarded("project.strategy.list", json!({})));
+}
+
+#[tokio::test]
+async fn unloadable_strategies_are_internal_errors() {
+    let (dir, ctx) = home();
+    fs::remove_file(dir.path().join("strategy.yaml")).unwrap();
+    let error = project_strategy_list(&ctx, json!({})).await.unwrap_err();
+    assert_eq!(error.code, Code::Internal);
+    assert_eq!(
+        error.message,
+        format!(
+            "no strategy found at {}",
+            dir.path().join("strategy.yaml").display()
+        )
+    );
+    assert_eq!(error.hint, None);
+    fs::write(dir.path().join("strategy.yaml"), "[]\n").unwrap();
+    let error = project_strategy_get(&ctx, json!({"repo": "github.com/a/b"}))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.message,
+        "repo must be an absolute path or a registered repo key"
+    );
+    fs::write(
+        dir.path().join(FILE),
+        r#"{"version":1,"projects":{"github.com/a/b":{"rev":1,"executors":null}}}"#,
+    )
+    .unwrap();
+    let error = project_strategy_get(&ctx, json!({"repo": "github.com/a/b"}))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, Code::Internal);
+    assert!(
+        error
+            .message
+            .ends_with(":\n  - top level must be a mapping")
+    );
 }
