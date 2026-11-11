@@ -21,7 +21,7 @@ import { executorRefusal, refusal } from "../scripts/live/guard";
 import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
 import { exerciseNativeStdio, verifyForwardedHello, verifyNativeStdio } from "../scripts/live/native-stdio";
-import { BLOCKED_OPS, CONDITIONAL_OPS, ClientWebSocket, conditionallyAllowed, configSetAllowed, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
+import { BLOCKED_OPS, CONDITIONAL_OPS, ClientWebSocket, conditionallyAllowed, configSetAllowed, inexactOpPath, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
 
 function fixture(): Session {
   const root = join(tmpDir(), "sandbox");
@@ -305,6 +305,15 @@ describe("live service guard (D8)", () => {
       test(`allows v${version} ${op}`, () => expect(refusedOp("POST", `/v${version}/ops/${op}`)).toBeUndefined());
     }
   }
+  test("only exact registered operation paths pass", () => {
+    for (const path of ["/v3/ops/config.set", "/v2/ops/routing.status", "/v3/ops/task.get", "/v3/ops/test.echo", "/v3/ops/_debug.native", "/app/v3/ops/x", "/v1/ops/agent.connect", "/v3/events"]) {
+      expect(inexactOpPath(path), path).toBe(false);
+    }
+    for (const path of ["/v3/ops/config.set/", "/v3/ops/%63onfig.set", "/v3/ops/config%2Eset", "//v3/ops/config.set", "/v3//ops/config.set", "/V3/ops/config.set", "/v3/OPS/config.set",
+      "/%2Fv3/ops/config.set", "/v3/ops/", "/v3/ops", "/v2/ops/nope", "/v3/ops/service.future", "/v3/ops/__proto__", "/v3/ops/config.set%00", "/v3/ops/%E0%A4%A"]) {
+      expect(inexactOpPath(path), path).toBe(true);
+    }
+  });
   test("only op POSTs are filtered", () => {
     expect(refusedOp("GET", "/v3/ops/agent.connect")).toBeUndefined();
     expect(refusedOp("POST", "/app/agent.connect")).toBeUndefined();
@@ -487,10 +496,21 @@ test.skipIf(!canBind)("real proxy forwards sandbox config.set bodies and refuses
         expect(await refused.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: config.set changes the real user environment" } });
       }
     }
+    const install = '{"key":"planner","value":"codex","integrations":"install"}';
+    for (const path of ["/v3/ops/%63onfig.set", "/v3/ops/config.set/", "/v3/ops/nope"]) {
+      const refused = await fetch(origin + path, { method: "POST", body: install });
+      expect(refused.status, path).toBe(403);
+      expect(await refused.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: only exact registered operation paths are forwarded" } });
+    }
+    // Bun's server collapses the leading slashes, so the normalized path meets the config.set body rule.
+    const collapsed = await fetch(`${origin}//v3/ops/config.set`, { method: "POST", body: install });
+    expect(await collapsed.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: config.set changes the real user environment" } });
     expect(seen).toHaveLength(4);
     const notes = readEvidence(session);
-    expect(notes).toHaveLength(6);
-    expect(notes.every(note => note.kind === "note" && note.verdict === "UNVERIFIED" && note.behavior === "D8 blocked config.set")).toBe(true);
+    expect(notes).toHaveLength(10);
+    expect(notes.every(note => note.kind === "note" && note.verdict === "UNVERIFIED")).toBe(true);
+    expect(notes.filter(note => note.behavior === "D8 blocked config.set")).toHaveLength(7);
+    expect(notes.filter(note => note.behavior === "D8 blocked inexact operation path")).toHaveLength(3);
     expect(JSON.stringify(notes)).not.toContain("codex");
   } finally { proxy.stop(true); upstream.stop(true); }
 }, 10000);

@@ -9,6 +9,7 @@ import { authorizeFixtureRequest } from "./ota-request";
 import { FIXTURE_UPDATE_OPS } from "./ota-exercise-record";
 import { createOtaRequestTrace, emitOtaRequestTrace } from "./ota-request-trace";
 import { CONFIG_KEYS } from "../../src/core/config";
+import { OPS } from "../../src/api/ops";
 
 /** D8 policy source of truth; the procedure table is checked against these rows. */
 export const BLOCKED_OPS: Readonly<Record<string, string>> = {
@@ -68,6 +69,22 @@ export async function conditionallyAllowed(op: string, req: Request): Promise<bo
     }
     return allowed(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
   } catch { return false; } finally { await reader.cancel().catch(() => {}); }
+}
+
+/** Rust `--native-test-ops` builds register these beside the TypeScript operations. */
+const NATIVE_TEST_OPS = ["test.echo", "_debug.native"];
+
+/**
+ * BLOCKED_OPS matches exact names, so an operation path in any other spelling (case, percent-encoding,
+ * repeated or trailing slashes) or naming an unregistered operation must not reach the service.
+ */
+export function inexactOpPath(pathname: string): boolean {
+  let decoded = pathname;
+  try { decoded = decodeURIComponent(pathname); } catch {}
+  const opsPath = /^\/+v[23]\/+ops(\/|$)/i;
+  if (!opsPath.test(pathname) && !opsPath.test(decoded)) return false;
+  const name = pathname.match(/^\/v[23]\/ops\/(.+)$/)?.[1];
+  return !name || !(Object.hasOwn(OPS, name) || NATIVE_TEST_OPS.includes(name));
 }
 
 export function refusedOp(method: string, pathname: string): string | undefined {
@@ -144,6 +161,11 @@ export function startProxy(session: Session) {
       }
       const traceOp = FIXTURE_UPDATE_OPS.find(operation => url.pathname === `/v3/ops/${operation}`);
       const trace = traceOp ? createOtaRequestTrace(session, traceOp) : undefined;
+      if (inexactOpPath(url.pathname)) {
+        const message = "Live validation D8: only exact registered operation paths are forwarded";
+        record(session, { kind: "note", behavior: "D8 blocked inexact operation path", surface: "API proxy", verdict: "UNVERIFIED", steps: `${req.method} ${url.pathname}`, text: message });
+        return Response.json({ error: { code: "forbidden", message } }, { status: 403 });
+      }
       const op = refusedOp(req.method, url.pathname);
       const unsafeTerminal = req.method === "POST" && url.pathname === "/v3/ops/terminal.create" && !await safeTerminalCreate(session, req);
       if (unsafeTerminal || (op && !await conditionallyAllowed(op, req) && !await authorizeSeedRepair(session, req) && !await authorizeSeedPluginRemove(session, req) && !await authorizeFixtureRequest(session, req, trace))) {

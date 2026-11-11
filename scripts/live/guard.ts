@@ -4,6 +4,16 @@ import { join } from "node:path";
 import { pacerArgv, sandboxEnv, type Session } from "./core";
 import { runSessionStreamFaultProxy } from "./session-stream-fault";
 
+/**
+ * The CLI's `config set` always passes `integrations: "install"` to config.set in-process, so D8 never sees it.
+ * Any spelling that names the planner after `set` is refused, even ones the CLI would reject itself.
+ */
+function configSetsPlanner(args: string[]): boolean {
+  const words = args.filter(arg => arg !== "--");
+  const set = words.indexOf("set");
+  return words[0] === "config" && set > 0 && words.slice(set + 1).some(arg => /^-*planner\b/i.test(arg.trim()));
+}
+
 /** D3 applies before dispatch, including calls made by the TUI or task runner. */
 export function refusal(args: string[]): string | undefined {
   const [command, action] = args;
@@ -21,6 +31,7 @@ export function refusal(args: string[]): string | undefined {
     const admitted = name && Object.hasOwn(CONDITIONAL_OPS, name) && !file && inline.length === 1 && CONDITIONAL_OPS[name](inline[0]);
     if (!name || (refusedOp("POST", `/v3/ops/${name}`) && !admitted)) return "D3: generic operation changes the real user environment";
   }
+  if (configSetsPlanner(args)) return "D3: config set planner installs planner integrations in-process, bypassing D8";
   if (command === "desktop-update" && action !== "status") return "D3: desktop update requires a verified OTA fixture";
   if (["integrations", "install", "uninstall", "init", "setup", "statusline", "update", "orca"].includes(command)) return `D3: ${command} changes the real user environment`;
   const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["uninstall", "remove"], account: ["add", "rm", "login"], host: ["setup"] };
