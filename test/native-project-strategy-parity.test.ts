@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -20,6 +20,10 @@ runners:
   codex: {}
   cursor: {}
 `;
+/** A schema-invalid strategy outside every test home, for absolute active names. */
+const OUTSIDE = realpathSync(mkdtempSync("/tmp/nps-abs-"));
+writeFileSync(join(OUTSIDE, "work.yaml"), "planner: nobody\n");
+afterAll(() => rmSync(OUTSIDE, { recursive: true, force: true }));
 const POLICY = JSON.stringify({ version: 1, projects: { [APP]: { rev: 2, executors: ["codex#codex@local"] }, [OTHER]: { rev: 1, executors: null } } });
 
 type Content = string | Uint8Array | { dir: true } | { mode: number; text: string } | null;
@@ -59,10 +63,12 @@ function reset(home: string, c: Case) {
   put(join(pacer, "project-strategies.json"), c.policy === undefined ? POLICY : c.policy);
 }
 
-const policyBytes = (home: string) => {
-  const path = join(home, ".pacer", "project-strategies.json");
-  try { return readFileSync(path, "utf8"); } catch (error) { return `<${(error as NodeJS.ErrnoException).code}>`; }
+const fileBytes = (home: string, ...path: string[]) => {
+  try { return readFileSync(join(home, ".pacer", ...path), "utf8").replaceAll(home, "$HOME"); } catch (error) { return `<${(error as NodeJS.ErrnoException).code}>`; }
 };
+const policyBytes = (home: string) => fileBytes(home, "project-strategies.json");
+/** An absolute checkout registers before the strategy loads, in both runtimes. */
+const registryBytes = (home: string) => ["repos.json", "repo-paths.json"].map(file => normalize(home, fileBytes(home, "state", file)));
 const outbox = (home: string) => {
   const path = join(home, ".pacer", "link", "outbox.jsonl");
   return existsSync(path) ? readFileSync(path, "utf8").trim().split("\n").filter(Boolean) : [];
@@ -189,7 +195,8 @@ async function compare(transport: "stdio" | "http", cases: Case[]) {
         const before = homes.map(home => outbox(home).length);
         const replies = await Promise.all([0, 1].map(async i => normalize(homes[i]!, await doors[i]!.call(op, withCheckout(homes[i]!, params)))));
         expect(replies[0], label).toBe(replies[1]!);
-        expect(policyBytes(homes[0]).replaceAll(homes[0], "$HOME"), `${label}: bytes`).toBe(policyBytes(homes[1]).replaceAll(homes[1], "$HOME"));
+        expect(policyBytes(homes[0]), `${label}: bytes`).toBe(policyBytes(homes[1]));
+        expect(registryBytes(homes[0]), `${label}: registry`).toEqual(registryBytes(homes[1]));
         expect(envelopes(homes[0], outbox(homes[0]).slice(before[0])), `${label}: events`).toEqual(envelopes(homes[1], outbox(homes[1]).slice(before[1])));
         if (c.native) expectedMarkers.push(`native ${op}`);
       }
@@ -232,11 +239,56 @@ const strategyCases: Case[] = [
   { name: "invalid terminal template", strategy: `${STRATEGY}terminal: {open: "x {cmd} '"}\n`, steps: [...writes, preview], native: true },
   { name: "active strategy missing", active: "work\n", steps: [...writes, preview], native: true },
   { name: "active name path.join normalizes", active: "x/../work", steps: [...writes, preview], native: false },
+  // Rust's Path::join would replace the home with an absolute name; path.join keeps it inside.
+  { name: "absolute active name, no file", active: "/nonexistent-pacer-test/work", steps: [...writes, preview], native: false },
+  { name: "absolute active name, file outside home", active: join(OUTSIDE, "work"), steps: [...writes, preview], native: false },
   { name: "YAML syntax error", strategy: "planner: [\n", steps: [...writes, preview], native: false },
   { name: "strategy is a directory", strategy: { dir: true }, steps: [...writes, preview], native: false },
   { name: "unreadable strategy", strategy: { mode: 0o000, text: STRATEGY }, steps: [...writes, preview], native: false },
   { name: "strategy is not UTF-8", strategy: new Uint8Array([...Buffer.from("planner: claude-code\n# "), 0xff, 0x0a]), steps: [...writes, preview], native: false },
 ];
+
+/** Strategy YAML shapes: the Rust reader and Bun.YAML agree on the native ones; Bun reads the forwarded ones differently, or may. */
+const yamlCorpus: [string, string, boolean][] = [
+  ["tab indentation", "\tplanner: nobody\n", false],
+  ["tab inside a quoted scalar", "planner: \"no\tbody\"\n", false],
+  ["tab-indented valid strategy", STRATEGY.replace("  claude:", "\tclaude:"), false],
+  ["two documents", "a: 1\n---\nb: 2\n", false],
+  ["valid first document", `${STRATEGY}---\nb: 2\n`, false],
+  ["document end then content", "planner: nobody\n...\nb: 2\n", false],
+  ["document end", "planner: nobody\n...\n", false],
+  ["empty documents first", "---\n---\nplanner: nobody\n", false],
+  ["CR line breaks, two documents", "a: 1\r---\rb: 2\r", false],
+  ["CRLF two documents", "a: 1\r\n---\r\nb: 2\r\n", false],
+  ["%YAML directive", "%YAML 1.2\n---\nplanner: nobody\n", false],
+  ["merge key", "base: &b {planner: nobody}\n<<: *b\n", false],
+  ["quoted merge key", "\"<<\": {planner: nobody}\n", false],
+  ["__proto__ account", STRATEGY.replace("accounts:\n", "accounts:\n  __proto__: {kind: claude}\n"), false],
+  ["block indicator in a flow mapping", "{a: |}\n", false],
+  ["folded indicator in a flow sequence", "planner: [>]\n", false],
+  ["bare tag in a flow mapping", "{a: !}\n", false],
+  ["aliased mapping in a valid strategy", `${STRATEGY.replace("codex: {kind: codex}", "codex: &k {kind: codex}")}x: *k\n`, false],
+  ["comment only", "# nothing\n", false],
+  ["leading document start", "---\nplanner: nobody\n", true],
+  ["document start with a comment", "--- # c\nplanner: nobody\n", true],
+  ["BOM", "\ufeffplanner: nobody\n", true],
+  ["BOM valid strategy", `\ufeff${STRATEGY}`, true],
+  ["CRLF", "planner: nobody\r\naccounts: {}\r\n", true],
+  ["CR line breaks", "planner: nobody\raccounts: 1\r", true],
+  ["CRLF valid strategy", STRATEGY.replaceAll("\n", "\r\n"), true],
+  ["flow top level", "{planner: nobody, accounts: {}}", true],
+  ["flow trailing comma", "{planner: nobody,}\n", true],
+  ["literal block scalar", "planner: |\n  nobody\n", true],
+  ["folded block scalar", "planner: >-\n  no\n  body\n", true],
+  ["!!str tag", "planner: !!str 1\n", true],
+  ["YAML 1.1 scalars", "planner: yes\naccounts: 0o17\nrunners: .inf\nhosts: ~\n", true],
+  ["top-level scalar", "nobody\n", true],
+  ["duplicate keys", "planner: a\nplanner: nobody\n", true],
+  ["non-string keys", "1: a\ntrue: b\naccounts: {0x10: {kind: claude}}\n", true],
+  ["NEL inside a scalar", "planner: no\u0085body\n", true],
+  ["nesting 200 deep", `planner: ${"[".repeat(200)}${"]".repeat(200)}\n`, true],
+];
+const yamlCases: Case[] = yamlCorpus.map(([name, text, native]) => ({ name: `YAML ${name}`, strategy: text, steps: [["project.strategy.list", {}], preview], native }));
 
 const policy = (value: unknown) => JSON.stringify(value);
 const entry = (executors: unknown, rev: unknown = 1) => ({ rev, executors });
@@ -284,6 +336,18 @@ const policyCorpus: [string, Content][] = [
   ["BOM", "\ufeff" + POLICY],
   ["invalid UTF-8 in a string", new Uint8Array([...Buffer.from("{\"version\":1,\"projects\":{\"github.com/acme/"), 0xff, ...Buffer.from("\":{\"rev\":1,\"executors\":null}}}")])],
   ["invalid UTF-8 outside strings", new Uint8Array([...Buffer.from(POLICY), 0xff])],
+  // JSON.parse accepts these where Zod never looks: an own __proto__ project and an overwritten duplicate.
+  ...[["lone surrogate", "\"\\ud800\""], ["nesting 300 deep", `${"[".repeat(300)}${"]".repeat(300)}`], ["1e400", "1e400"]]
+    .flatMap(([what, value]): [string, Content][] => [
+      [`__proto__ project ${what}`, `{"version":1,"projects":{"__proto__":${value},"${APP}":{"rev":1,"executors":null}}}`],
+      [`overwritten version ${what}`, `{"version":${value},"version":1,"projects":{"${APP}":{"rev":1,"executors":null}}}`],
+    ]),
+  ["__proto__ project invalid UTF-8", new Uint8Array([...Buffer.from("{\"version\":1,\"projects\":{\"__proto__\":\"x"), 0xff, 0xe2, 0x82, ...Buffer.from(`","${APP}":{"rev":1,"executors":null}}}`)])],
+  ["overwritten entry invalid UTF-8", new Uint8Array([...Buffer.from(`{"version":1,"projects":{"${APP}":"`), 0xff, ...Buffer.from(`","${APP}":{"rev":1,"executors":null}}}`)])],
+  ["executors 1e400", `{"version":1,"projects":{"${APP}":{"rev":1,"executors":1e400}}}`],
+  ["lone surrogate top-level key", `{"version":1,"projects":{},"\\udc00":1}`],
+  ["lone surrogate entry field", `{"version":1,"projects":{"${APP}":{"rev":1,"executors":null,"\\ud800":1}}}`],
+  ["deep entry field", `{"version":1,"projects":{"${APP}":{"rev":1,"executors":${"[".repeat(300)}${"]".repeat(300)}}}}`],
   ["trailing comma", "{\"version\":1,\"projects\":{},}"],
   ["empty file", ""],
   ["null", "null"],
@@ -294,11 +358,11 @@ const policyCorpus: [string, Content][] = [
 const policyCases: Case[] = policyCorpus.map(([name, content]) => ({ name: `policy ${name}`, policy: content, steps: reads, native: true }));
 
 test.skipIf(!front)("stdio project.strategy.* and strategy.preview with broken strategies match forced forwarding", async () => {
-  await compare("stdio", strategyCases);
+  await compare("stdio", [...strategyCases, ...yamlCases]);
 }, 300000);
 
 test.skipIf(!front)("HTTP project.strategy.* and strategy.preview with broken strategies match forced forwarding", async () => {
-  await compare("http", strategyCases);
+  await compare("http", [...strategyCases, ...yamlCases]);
 }, 300000);
 
 test.skipIf(!front)("stdio project-strategies.json validation corpus matches forced forwarding", async () => {
