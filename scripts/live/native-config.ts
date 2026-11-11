@@ -193,9 +193,11 @@ async function http(session: Session, home: string, forwarded: boolean, log: str
     }
     if(!coreReady) throw Error("Fixture private core did not become ready");
     let endpointReady=false;
-    for(let attempt=0;attempt<3;attempt++) {
+    for(let attempt=0,starting=0;attempt<3;attempt++) {
       const response=await fetch(`http://127.0.0.1:${port}/v3/ops/plugin.doctor`,{method:"POST",headers:{authorization:`Bearer ${token}`,"content-type":"application/json"},body:JSON.stringify({id:"pacer-endpoints"}),signal:AbortSignal.timeout(30000)});
       const warm=await response.json();
+      // The native version.get probe answers before the TypeScript core has started.
+      if(warm.error?.code==="unavailable" && starting++<120){attempt--;await Bun.sleep(1000);continue;}
       if(warm.result?.reports?.[0]?.ok){endpointReady=true;break;}
     }
     if(!endpointReady) throw Error("Fixture endpoint plugin did not become ready");
