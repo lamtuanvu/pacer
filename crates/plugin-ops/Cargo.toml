@@ -11,10 +11,10 @@ icu_collator = { version = "=2.4.0", features = ["unstable"] }
 pacer-plugin-protocol = { path = "../plugin-protocol" }
 pacer-config = { path = "../config" }
 pacer-foundation = { path = "../foundation" }
+pacer-js-json = { path = "../js-json" }
 serde.workspace = true
-serde_json = { workspace = true, features = ["float_roundtrip", "unbounded_depth"] }
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 tokio.workspace = true
-ryu-js = "1"
 uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
 nix = { version = "0.31", features = ["dir", "fs", "user"] }
