@@ -26,7 +26,7 @@ isolated state and controlled time for timing boundaries.
 | Unread report with default Stop policy | First two calls block and include the message; the third allows stopping and records escalation. |
 | Changed or empty pending set | A new set resets the block counter; an empty set clears it. |
 | Acknowledged report | Marking it read removes it from hook context. |
-| Read but unanswered question | It remains in hook context until a linked answer exists. |
+| Read but unanswered question | It remains in hook context until a linked answer exists or its task closes (stopped, reviewed, dismissed or message-closed). A `pacer ask` question also leaves once it is no longer the task's open question: answered live or by retry, retried, or superseded. |
 | Prompt hook | Host-specific output includes pending context and reply instructions; an idle inbox produces no output. |
 | Two planner sessions | Private messages remain session-specific; the documented generic planner-kind inbox is shared. |
 | Disabled hooks or malformed input | Off/inject-only do not block Stop; executor sessions skip; malformed input fails open. Check prompt behavior separately. |
