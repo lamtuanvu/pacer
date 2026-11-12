@@ -174,6 +174,34 @@ async fn a_crash_looping_child_cannot_restart_faster_than_the_floor() {
 }
 
 #[tokio::test]
+async fn three_crashes_hold_the_plugin_until_it_is_enabled_again() {
+    let owner = shared(ProcessOwner::native_for_tests());
+    let crashing = peer("process.exit(3)");
+    let far = || Instant::now() + Duration::from_secs(10);
+    for _ in 0..3 {
+        let lane = start_lane(&owner, "loop", &crashing, None, far(), None)
+            .await
+            .unwrap();
+        lane.wait_settled(Duration::from_secs(5)).await;
+    }
+    // Core marks it failing; the owner refuses outright instead of waiting out a floor.
+    assert_eq!(
+        owner.lock().await.ensure("loop", &crashing),
+        Err(OwnerError::Failing("loop".into()))
+    );
+    let started = Instant::now();
+    let refused = start_lane(&owner, "loop", &crashing, None, far(), None).await;
+    assert_eq!(
+        refused.err().map(|error| error.to_string()).as_deref(),
+        Some("plugin loop is failing: 3 failures within a minute")
+    );
+    assert!(started.elapsed() < Duration::from_millis(500));
+    owner.lock().await.clear_restart_floor("loop");
+    assert_eq!(owner.lock().await.ensure("loop", &peer(ECHO)), Ok(true));
+    owner.lock().await.terminate("loop").await.unwrap();
+}
+
+#[tokio::test]
 async fn a_sealed_next_start_delays_the_first_spawn() {
     let owner = shared(ProcessOwner::native_for_tests());
     let at = epoch_ms() + 800;
@@ -259,6 +287,10 @@ async fn closing_the_owner_refuses_spawns_and_terminates_every_child() {
         owner.lock().await.ensure("c", &peer(ECHO)),
         Err(OwnerError::Closing)
     );
+    assert_eq!(
+        owner.lock().await.spawn("d", &peer(ECHO)),
+        Err(OwnerError::Closing)
+    );
     let refused = start_lane(
         &owner,
         "c",
@@ -304,4 +336,34 @@ async fn a_child_that_closes_its_stdout_is_killed_and_counted_as_a_crash() {
     drop(report);
     lane.wait_settled(Duration::from_secs(5)).await;
     assert!(owner.lock().await.restart_floor("mute").is_some());
+}
+
+#[tokio::test]
+async fn a_cooperative_child_that_closes_its_stdout_stops_on_sigterm() {
+    let owner = ProcessOwner::native_for_tests();
+    let (sink, mut reports) = mpsc::unbounded_channel::<CrashReport>();
+    owner.set_crash_sink(sink);
+    let owner = shared(owner);
+    let started = Instant::now();
+    owner
+        .lock()
+        .await
+        .spawn(
+            "quiet",
+            &peer("require('fs').closeSync(1);setInterval(()=>{},1000);"),
+        )
+        .unwrap();
+    let report = tokio::time::timeout(TERMINATE_GRACE + Duration::from_secs(5), reports.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (report.id.as_str(), report.reason.as_str()),
+        ("quiet", "exited on SIGTERM")
+    );
+    assert!(
+        started.elapsed() < TERMINATE_GRACE,
+        "{:?}",
+        started.elapsed()
+    );
 }

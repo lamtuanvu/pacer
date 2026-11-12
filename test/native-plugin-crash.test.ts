@@ -19,7 +19,7 @@ function crashMain(h: Home, stubborn = false) {
 import {serve,stdinLines} from '@pacer/plugin';
 import {appendFileSync,readFileSync,writeFileSync} from 'node:fs';
 appendFileSync('starts', process.pid + ' ' + Date.now() + '\\n');
-${stubborn ? "process.on('SIGTERM',()=>appendFileSync('sigterm',process.pid+'\\n'));" : ""}
+${stubborn ? "process.on('SIGTERM',()=>appendFileSync('sigterm',process.pid+' '+Date.now()+'\\n'));" : ""}
 const manifest=JSON.parse(readFileSync(new URL('./pacer-plugin.json',import.meta.url),'utf8'));
 await serve({manifest,input:stdinLines(),handlers:{'ui.action':async p=>{
  if(p.action==='hold'){writeFileSync('held',String(process.pid));await new Promise(()=>{});}
@@ -27,10 +27,31 @@ await serve({manifest,input:stdinLines(),handlers:{'ui.action':async p=>{
 }}});`);
 }
 
-/** `[pid, startedAt]` for every start of the fixture child. */
-const startLog = (h: Home): [number, number][] => existsSync(join(h.plugin, "starts"))
-  ? readFileSync(join(h.plugin, "starts"), "utf8").trim().split("\n").map(line => line.split(" ").map(Number) as [number, number])
+/** `[pid, at]` for each line of a fixture log: every start, or every SIGTERM a stubborn child ignored. */
+const timeLog = (h: Home, name: string): [number, number][] => existsSync(join(h.plugin, name))
+  ? readFileSync(join(h.plugin, name), "utf8").trim().split("\n").map(line => line.split(" ").map(Number) as [number, number])
   : [];
+const startLog = (h: Home) => timeLog(h, "starts");
+
+/** Start a `hold` action and wait until the child holds it; returns the child's pid. */
+async function holdAction(h: Home, call: (op: string, params: unknown) => Promise<Reply>) {
+  void call("plugin.ui.action", hold).catch(() => undefined);
+  for (let i = 0; i < 1000 && !existsSync(join(h.plugin, "held")); i++) await Bun.sleep(10);
+  return Number(readFileSync(join(h.plugin, "held"), "utf8"));
+}
+
+/** The door stopped within the grace, SIGTERM reached the child at once, and nothing of the home is left running. */
+async function stoppedPromptly(h: Home, pid: number, stoppingAt: number, exited: Promise<number>, label: string) {
+  await exited;
+  const took = Date.now() - stoppingAt;
+  const [[termed, termedAt]] = timeLog(h, "sigterm");
+  expect(termed, label).toBe(pid);
+  expect(termedAt - stoppingAt, `${label}: SIGTERM delay`).toBeLessThan(1000);
+  expect(took, `${label}: exit`).toBeGreaterThanOrEqual(1900);
+  expect(took, `${label}: exit`).toBeLessThan(5000);
+  expect(alive(pid)).toBe(false);
+  expect(homeProcesses(h)).toEqual([]);
+}
 
 async function gone(pid: number, within = 5000) {
   for (let i = 0; i < within / 10 && alive(pid); i++) await Bun.sleep(10);
@@ -64,15 +85,19 @@ test("Core records a native owner's crash report as its own exit, and only with 
     const off = fakeCtx({ home: h.home, pacerHome: h.state, env });
     const on = fakeCtx({ home: h.home, pacerHome: h.state, env: { ...env, PACER_HOST_SOCKET: join(h.state, "run", "host.sock") } });
     await callOp(off, "plugin.enable", { id: "fx-ui", grant: true });
-    const crashed = (ctx: typeof on, reason: string) => pluginNativeRequest(ctx, { kind: "crashed", id: "fx-ui", reason }) as Promise<any>;
+    const crashed = (ctx: typeof on, reason: string, relay = false) => pluginNativeRequest(ctx, { kind: "crashed", id: "fx-ui", reason }, { relay }) as Promise<any>;
     // Flag-off the registry watches its own children; a report could only be forged.
     expect((await crashed(off, "exited on SIGKILL")).error).toMatchObject({ code: "plugin_unavailable", message: "crash reports require the native process owner" });
+    // A stdio Core attached to the service's `host.sock` does not own the children it would report.
+    expect((await crashed(on, "exited on SIGKILL", true)).error).toMatchObject({ code: "plugin_unavailable", message: "crash reports go to the Core of the door that owns the plugin" });
     for (const reason of ["exited on SIGKILL; 3 failures within a minute", "killed", "exited with code x", ""]) {
       expect((await crashed(on, reason)).error, reason).toMatchObject({ code: "invalid_input" });
     }
     const fx = (reply: any) => reply.entries.find((e: any) => e.id === "fx-ui");
     const before = Date.now();
-    expect(fx(await crashed(on, "exited with code 3"))).toMatchObject({ state: "idle", restarts: 1, error: "exited with code 3" });
+    // An owning stdio connection reports over its own connection socket.
+    const owning = fakeCtx({ home: h.home, pacerHome: h.state, env: { ...env, PACER_HOST_SOCKET: join(h.state, "run", "s0123456789ab.sock") } });
+    expect(fx(await crashed(owning, "exited with code 3", true))).toMatchObject({ state: "idle", restarts: 1, error: "exited with code 3" });
     const spec = (await pluginNativeRequest(on, { kind: "spawn_spec", id: "fx-ui" }) as any).value;
     expect(spec.nextStartAt).toBeGreaterThanOrEqual(before + 1000);
     expect(spec.nextStartAt).toBeLessThanOrEqual(Date.now() + 1000);
@@ -175,6 +200,39 @@ test.skipIf(!front)("an attached stdio connection cannot respawn a crashing chil
   }
 }, 90000);
 
+test.skipIf(!front)("an attached stdio connection cannot restart a plugin the service marked failing", async () => {
+  const h = makeHome();
+  crashMain(h);
+  const service = await serve(h, "", ownerOn);
+  const s = await stdio(h, "", ownerOn);
+  const doctor = async (call: (op: string, params: unknown) => Promise<Reply>) => (await call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0];
+  try {
+    await service.call("plugin.enable", { id: "fx-ui", grant: true });
+    expect((await doctor(service.call)).ok).toBe(true);
+    for (const n of [1, 2]) {
+      await crash(h, service.call);
+      expect(await doctor(service.call)).toMatchObject({ ok: true, restarts: n });
+    }
+    await crash(h, service.call);
+    expect(await doctor(service.call)).toMatchObject({ ok: false, state: "failing", restarts: 3 });
+    // The attached Core never heard of the crashes; past the third floor (4 s) the owner still refuses.
+    let report: any;
+    for (const until = Date.now() + 5000; Date.now() < until; await Bun.sleep(250)) {
+      report = await doctor(s.call);
+      expect(report.ok).toBe(false);
+    }
+    expect(report.error).toContain("plugin fx-ui is failing: 3 failures within a minute");
+    expect(startLog(h)).toHaveLength(3);
+    // Enabling through the service clears the owner's mark, and the attached door is served again.
+    await service.call("plugin.enable", { id: "fx-ui", grant: true });
+    expect((await doctor(s.call)).ok).toBe(true);
+    expect(startLog(h)).toHaveLength(4);
+  } finally {
+    await s.stop();
+    await service.stop(); h.done();
+  }
+}, 90000);
+
 test.skipIf(!front)("serve shutdown escalates to SIGKILL and leaves no plugin child behind", async () => {
   const h = makeHome();
   crashMain(h, true);
@@ -190,7 +248,7 @@ test.skipIf(!front)("serve shutdown escalates to SIGKILL and leaves no plugin ch
     await service.child.exited;
     const took = Date.now() - stoppingAt;
     // The child logged SIGTERM and lived through it until the 2 s grace ran out.
-    expect(readFileSync(join(h.plugin, "sigterm"), "utf8").trim()).toBe(String(pid));
+    expect(timeLog(h, "sigterm").map(([termed]) => termed)).toEqual([pid]);
     expect(took).toBeGreaterThanOrEqual(1900);
     expect(alive(pid)).toBe(false);
     expect(homeProcesses(h)).toEqual([]);
@@ -212,12 +270,42 @@ test.skipIf(!front)("an owning stdio connection stops its children with escalati
       if (end === "eof") s.child.stdin.end(); else s.child.kill("SIGTERM");
       await s.child.exited;
       expect(Date.now() - stoppingAt, end).toBeGreaterThanOrEqual(1900);
-      expect(readFileSync(join(h.plugin, "sigterm"), "utf8").trim()).toBe(String(pid));
+      expect(timeLog(h, "sigterm").map(([termed]) => termed)).toEqual([pid]);
       expect(alive(pid)).toBe(false);
       expect(homeProcesses(h)).toEqual([]);
     } finally { await s.stop().catch(() => ""); if (pid && alive(pid)) process.kill(pid, "SIGKILL"); h.done(); }
   }
 }, 90000);
+
+// A call holds its plugin for up to 30 s; stopping must not wait for it.
+test.skipIf(!front)("serve shutdown with a plugin call in flight stops the child at once and exits within the grace", async () => {
+  const h = makeHome();
+  crashMain(h, true);
+  const service = await serve(h, "", ownerOn);
+  let pid = 0;
+  try {
+    await service.call("plugin.enable", { id: "fx-ui", grant: true });
+    pid = await holdAction(h, service.call);
+    const stoppingAt = Date.now();
+    service.child.kill("SIGTERM");
+    await stoppedPromptly(h, pid, stoppingAt, service.child.exited, "serve");
+    for (const name of ["host.sock", "host.sock.pid"]) expect(existsSync(join(h.state, "run", name))).toBe(false);
+  } finally { await service.stop(); if (pid && alive(pid)) process.kill(pid, "SIGKILL"); h.done(); }
+}, 60000);
+
+test.skipIf(!front)("an owning stdio connection terminated with a plugin call in flight stops the child at once", async () => {
+  const h = makeHome();
+  crashMain(h, true);
+  const s = await stdio(h, "", ownerOn);
+  let pid = 0;
+  try {
+    await s.call("plugin.enable", { id: "fx-ui", grant: true });
+    pid = await holdAction(h, s.call);
+    const stoppingAt = Date.now();
+    s.child.kill("SIGTERM");
+    await stoppedPromptly(h, pid, stoppingAt, s.child.exited, "stdio");
+  } finally { await s.stop().catch(() => ""); if (pid && alive(pid)) process.kill(pid, "SIGKILL"); h.done(); }
+}, 60000);
 
 test.skipIf(!front)("a second serve on a live home exits 3 after a bounded wait, and doctor names the owner", async () => {
   const h = makeHome();
