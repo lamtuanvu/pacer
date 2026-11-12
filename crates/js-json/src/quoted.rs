@@ -110,6 +110,10 @@ fn encode(units: &[u16]) -> String {
     }
     out
 }
+/// The quoted string of JavaScript code units, which may be lone surrogates.
+pub fn from_units(units: &[u16]) -> String {
+    encode(units)
+}
 /// Import values produced by Rust/YAML rather than this decoder. Keep all
 /// in-memory plugin strings in the same quoted representation.
 pub fn from_utf8(value: Value) -> Value {
