@@ -201,7 +201,7 @@ pub fn compose_status(input: &Value) -> Value {
         .get("planner")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .unwrap_or_else(|| string(&strategy["planner"]["agent"]).to_string());
+        .unwrap_or_else(|| planner_runner_id(strategy));
     // TypeScript `computeStatus` key order; `policy` and `warnings` only when supplied.
     let mut status = json!({});
     if let Some(policy) = input.get("policy") {
@@ -368,6 +368,17 @@ pub(crate) mod tests {
             keys(&status["executors"]["excluded"][0]),
             ["id", "account", "reason", "eligibility"]
         );
+    }
+
+    #[test]
+    fn compose_spells_the_planner_account_as_compute_status_does() {
+        let mut strategy = strategy();
+        strategy["accounts"] = json!({
+            "claude": {"name": "claude", "kind": "claude"},
+            "work": {"name": "work", "kind": "claude"},
+        });
+        let status = compose_status(&json!({"now": 100.0, "strategy": strategy, "providers": []}));
+        assert_eq!(status["planner"], "claude-code#claude");
     }
 
     #[test]
