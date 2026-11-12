@@ -24,6 +24,7 @@ use pacer_dispatch_ops::planning_ops;
 use pacer_update::desktop_reconcile_ops;
 pub(crate) mod dispatch_lifecycle_sync;
 use pacer_config_ops::engine_ops;
+use pacer_config_ops::host_check_clean_setup_ops;
 use pacer_config_ops::host_mut_ops;
 use pacer_config_ops::host_read_ops;
 use pacer_config_ops::limits_refresh_ops;
@@ -83,6 +84,7 @@ pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use dispatch_lifecycle_sync::dispatch_lifecycle_stays_forwarded;
 pub(crate) use engine_ops::mode_hold_stays_forwarded;
+pub(crate) use host_check_clean_setup_ops::{host_stays_forwarded, needs_host_effects};
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
@@ -327,6 +329,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "host.account.add",
         call: host_mut_ops::host_account_add,
+    },
+    NativeOp {
+        name: "host.check",
+        call: host_check_clean_setup_ops::host_effects_stub,
+    },
+    NativeOp {
+        name: "host.clean",
+        call: host_check_clean_setup_ops::host_effects_stub,
     },
     NativeOp {
         name: "config.set",
@@ -1014,6 +1024,8 @@ pub async fn call_native(
             )
         })?;
         parts.await?
+    } else if needs_host_effects(op.name) {
+        host_check_clean_setup_ops::call(ctx, op.name, params, core_bridge_sync).await?
     } else {
         (op.call)(ctx, params).await?
     };

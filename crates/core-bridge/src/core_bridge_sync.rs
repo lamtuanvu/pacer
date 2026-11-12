@@ -26,6 +26,7 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("/_internal/setup-doctor"),
         "service.effects" => Ok("/_internal/service-effects"),
         "update.effects" => Ok("/_internal/update-effects"),
+        "host.effects" => Ok("/_internal/host-effects"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -35,16 +36,17 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
         "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("_internal.setup.doctor"),
+        "host.effects" => Ok("_internal.host.effects"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
 
-/// An install or update effect keeps the forwarded request's completion semantics: Core
-/// finishes it whatever the caller does, so a front-door deadline would only report
+/// An install, update or host effect keeps the forwarded request's completion semantics:
+/// Core finishes it whatever the caller does, so a front-door deadline would only report
 /// `unavailable` for an effect still in flight.
 pub fn deadline(op: &str) -> Option<std::time::Duration> {
     match op {
-        "service.effects" | "update.effects" => None,
+        "service.effects" | "update.effects" | "host.effects" => None,
         _ => Some(bridge_deadline()),
     }
 }
@@ -65,7 +67,7 @@ fn bridge_deadline() -> std::time::Duration {
 pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok(params.clone()),
-        "setup.check" | "setup.effects" | "service.effects" | "update.effects" => {
+        "setup.check" | "setup.effects" | "service.effects" | "update.effects" | "host.effects" => {
             Ok(params.clone())
         }
         _ => Err(unavailable("core bridge unavailable")),
@@ -148,9 +150,12 @@ pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core.flush()
         .await
         .map_err(|_| unavailable("core bridge channel closed"))?;
-    tokio::time::timeout(bridge_deadline(), receive(replies, &id))
-        .await
-        .map_err(|_| unavailable("core bridge timed out"))?
+    match deadline(op) {
+        Some(limit) => tokio::time::timeout(limit, receive(replies, &id))
+            .await
+            .map_err(|_| unavailable("core bridge timed out"))?,
+        None => receive(replies, &id).await,
+    }
 }
 
 async fn receive(
