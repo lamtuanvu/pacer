@@ -2,7 +2,7 @@ import type { TaskDetail } from "../../../../src/core/task-detail";
 import type { SessionInfo } from "../../../../src/session/service";
 import { LinkedTerminal, type ReadSessionFile } from "./LinkedTerminal";
 import { ReopenToUpdate } from "./ReopenToUpdate";
-import { sessionActive } from "../../term/activity";
+import { answerRestartsFor, sessionActive } from "../../term/activity";
 import { markAgent } from "../../../../src/view-model/agents";
 
 /** Picks the renderer for a live session. The built-in terminal is the only renderer today. */
@@ -42,7 +42,7 @@ export function SessionView({
         url={session.attach.ws}
         cols={session.cols}
         rows={session.rows}
-        control={active && session.capabilities.control}
+        answerRestarts={active && answerRestartsFor(task.state)} control={active && session.capabilities.control}
         resize={active && session.capabilities.resize}
         live={active && session.live}
         onLive={onSessionLive}

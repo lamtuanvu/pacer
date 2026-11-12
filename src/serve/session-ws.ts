@@ -2,11 +2,11 @@ import { createConnection, type Socket } from 'node:net';
 import type { Server, ServerWebSocket, WebSocketHandler } from 'bun';
 import type { Ctx } from '../types';
 import { FrameType, WireDecoder, wire, MAX_FRAME, type Frame } from '../session/framing';
-import { sessionDirectory, sessionSocket } from '../session/service';
+import { sessionDirectory, sessionAttemptDirectory, sessionSocket } from '../session/service';
 import { agentSessionDirectory } from '../session/agents';
 import { terminalDirectory } from '../terminal/workspace';
 import { readRecording } from '../session/recording';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { admitRemoteViewer } from '../remote/viewer-admission';
 export interface SessionWS { socket?:Socket; decoder:WireDecoder; from?:number; bridged?:boolean; replay?:{frames:Frame[];next:number;started:boolean} }
@@ -86,6 +86,16 @@ export const sessionWebSocket:WebSocketHandler<SessionWS>={
 export async function upgradeSession(req:Request,server:Server<SessionWS>,ctx:Ctx,id:string):Promise<Response|undefined>{
  if(req.method!=='GET')return new Response('method not allowed',{status:405});
  try{
+  // Without attempt, the route serves the task's current run. With it, a recorded earlier attempt replays
+  // read-only offline (checkpoint, output frames and an exit frame); a missing recording answers 409.
+  const raw=new URL(req.url).searchParams.get('attempt');
+  if(raw!==null){
+   const attempt=Number(raw);
+   if(!Number.isSafeInteger(attempt)||attempt<1||raw==='')return new Response('invalid session attempt',{status:400});
+   const dir=sessionAttemptDirectory(ctx,id,attempt);
+   if(!dir)return new Response('Live session unavailable',{status:409});
+   return upgradeDirectory(req,server,dir,true);
+  }
   const dir=sessionDirectory(ctx,id);
   if(!dir)return new Response('Live session unavailable',{status:409});
   return upgradeDirectory(req,server,dir);
@@ -103,7 +113,7 @@ export async function upgradeAgentSession(req:Request,server:Server<SessionWS>,c
   return upgradeDirectory(req,server,agentSessionDirectory(ctx,task,id,value===null?undefined:Number(value)));
  }catch{return new Response('Session not found',{status:404});}
 }
-async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string):Promise<Response|undefined>{
+async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string,recordedOnly=false):Promise<Response|undefined>{
  try{
   const raw=new URL(req.url).searchParams.get('from'),from=raw===null?undefined:Number(raw);
   if(from!==undefined&&(!Number.isSafeInteger(from)||from<0||raw===''))return new Response('invalid from offset',{status:400});
@@ -113,13 +123,17 @@ async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string)
    const replay:Frame[]=[];
    if(checkpoint)replay.push({type:FrameType.snapshot,data:Buffer.from(JSON.stringify({...checkpoint,controller:null,viewers:1}))});
    for(const frame of frames)if(frame.type===1)replay.push({...frame,type:FrameType.output});
-   let code:number|null=null;
+   let code:number|null=null,at:number|undefined;
    try{const text=readFileSync(join(dir,'exit'),'utf8').trim();const n=Number(text);if(text&&Number.isSafeInteger(n))code=n;}catch{/* Host disappeared without an exit receipt. */}
-   replay.push({type:FrameType.exit,data:Buffer.from(JSON.stringify({code}))});
+   // The exit frame carries the session's real end time: session.ended, else the exit file's mtime; absent stays absent.
+   try{const ended=Number(readFileSync(join(dir,'session.ended'),'utf8').trim());if(Number.isFinite(ended)&&ended>0)at=ended;}catch{/* no recorded end */}
+   if(at===undefined&&code!==null)try{at=statSync(join(dir,'exit')).mtimeMs/1000;}catch{/* exit time unknown */}
+   replay.push({type:FrameType.exit,data:Buffer.from(JSON.stringify({code,...(at!==undefined?{at:Math.round(at)}:{})}))});
    if(server.upgrade(req,{data:{decoder:new WireDecoder(),from,replay:{frames:replay,next:0,started:false}}}))return;
    return new Response('WebSocket upgrade required',{status:426});
   };
-  if(existsSync(join(dir,'exit'))||!existsSync(sessionSocket(dir)))return offline();
+  // A recorded attempt always replays read-only, even while that attempt is still the live run.
+  if(recordedOnly||existsSync(join(dir,'exit'))||!existsSync(sessionSocket(dir)))return offline();
   const socket=createConnection(sessionSocket(dir));socket.pause();socket.on('error',()=>{});
   try{await new Promise<void>((resolve,reject)=>{
    const timer=setTimeout(()=>{socket.destroy();reject(Error('session connection timeout'));},2000);

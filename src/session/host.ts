@@ -187,7 +187,8 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
     }
   }, 100) : undefined;
   let code: number;
-  try { code = await proc.exited; atomic("session.ended",String(Date.now()/1000)); }
+  let endedAt:number|undefined;
+  try { code = await proc.exited; endedAt=Date.now()/1000; atomic("session.ended",String(endedAt)); }
   finally { if (reports) clearInterval(reports); if (escalation) clearTimeout(escalation); }
   // Process exit and PTY EOF are separate. Bound the drain if a descendant holds the slave.
   await Promise.race([closed,Bun.sleep(250)]);
@@ -200,7 +201,8 @@ async function sessionHostAdmitted(dir:string):Promise<number> {
   await queue;
   const result=stopping?143:code;atomic("exit",String(result));
   server.close();
-  await Promise.race([hub.end(result),Bun.sleep(250)]);
+  // The exit frame carries the session's real end time so viewers date the exit truthfully.
+  await Promise.race([hub.end(result,endedAt),Bun.sleep(250)]);
   hub.destroy();
   try { await recording.close(); } catch { disableRecording(); }
   if(path) rmSync(path,{force:true});rmSync(join(dir,"session.sock.path"),{force:true});
