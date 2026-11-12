@@ -438,7 +438,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                               const takes = takesFor(row.tier, targets);
                               return (
                                 <div key={row.id} role="row" className={`pc-model-matrix__row ${pendingRow ? "pc-model-matrix__row--pending" : ""}`}>
-                                  <span role="cell"><Switch checked={row.on} aria-label={`Use ${row.id}`} disabled={readOnly} onChange={e => { if (!readOnly) handleToggle(id, row.id, !!e.currentTarget.checked); }} /></span>
+                                  <span role="cell"><Switch checked={row.on} aria-label={`Use ${row.id}`} disabled={readOnly || busy} onChange={e => { if (!readOnly && !busy) handleToggle(id, row.id, !!e.currentTarget.checked); }} /></span>
                                   <div role="cell">
                                     <span className="pc-model-matrix__mono">{row.id}</span>
                                     {draft.default === row.id && <span className="pc-model-matrix__tag">Default</span>}
@@ -452,14 +452,14 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                                       <RadioChip
                                         key={tier}
                                         checked={row.tier === tier}
-                                        disabled={readOnly}
-                                        onSelect={() => { if (!readOnly) handleTier(id, row.id, tier); }}
+                                        disabled={readOnly || busy}
+                                        onSelect={() => { if (!readOnly && !busy) handleTier(id, row.id, tier); }}
                                       >{tier.charAt(0).toUpperCase() + tier.slice(1)}</RadioChip>
                                     ))}
                                     <RadioChip
                                       checked={row.tier === "unknown"}
-                                      disabled={readOnly}
-                                      onSelect={() => { if (!readOnly) handleTier(id, row.id, "unknown"); }}
+                                      disabled={readOnly || busy}
+                                      onSelect={() => { if (!readOnly && !busy) handleTier(id, row.id, "unknown"); }}
                                     >Unrated</RadioChip>
                                   </RadioGroup></span>
                                   <div role="cell">
