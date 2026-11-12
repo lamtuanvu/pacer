@@ -997,7 +997,8 @@ impl CapabilityBroker {
             } else {
                 method
             };
-            let result = native.answer(op, &forwarded)?;
+            let authority = &self.authority;
+            let result = native.answer_owned(op, &forwarded, || Ok(authority.active()?))?;
             self.authority.active()?;
             return Ok(result);
         }
