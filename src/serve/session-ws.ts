@@ -2,7 +2,7 @@ import { createConnection, type Socket } from 'node:net';
 import type { Server, ServerWebSocket, WebSocketHandler } from 'bun';
 import type { Ctx } from '../types';
 import { FrameType, WireDecoder, wire, MAX_FRAME, type Frame } from '../session/framing';
-import { sessionDirectory, sessionSocket } from '../session/service';
+import { sessionDirectory, sessionAttemptDirectory, sessionSocket } from '../session/service';
 import { agentSessionDirectory } from '../session/agents';
 import { terminalDirectory } from '../terminal/workspace';
 import { readRecording } from '../session/recording';
@@ -86,6 +86,16 @@ export const sessionWebSocket:WebSocketHandler<SessionWS>={
 export async function upgradeSession(req:Request,server:Server<SessionWS>,ctx:Ctx,id:string):Promise<Response|undefined>{
  if(req.method!=='GET')return new Response('method not allowed',{status:405});
  try{
+  // Without attempt, the route serves the task's current run. With it, a recorded earlier attempt replays
+  // read-only offline (checkpoint, output frames and an exit frame); a missing recording answers 409.
+  const raw=new URL(req.url).searchParams.get('attempt');
+  if(raw!==null){
+   const attempt=Number(raw);
+   if(!Number.isSafeInteger(attempt)||attempt<1||raw==='')return new Response('invalid session attempt',{status:400});
+   const dir=sessionAttemptDirectory(ctx,id,attempt);
+   if(!dir)return new Response('Live session unavailable',{status:409});
+   return upgradeDirectory(req,server,dir);
+  }
   const dir=sessionDirectory(ctx,id);
   if(!dir)return new Response('Live session unavailable',{status:409});
   return upgradeDirectory(req,server,dir);

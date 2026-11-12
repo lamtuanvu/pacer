@@ -22,6 +22,7 @@ import { executorsFor } from "../engine/rank";
 import { executorName } from "../link/notification";
 import { capacityTaskRecords, listTasks } from "../tasks/store";
 import { TERMINAL_STATES, type Attempt, type Brief, type RoutingNote, type TaskRecord } from "../tasks/types";
+import { attemptRecording } from "../session/service";
 import type { Ctx } from "../types";
 import { diff, get, userStartedRoot, type DiffFile } from "./tasks";
 
@@ -36,7 +37,7 @@ export interface TaskDetail extends ApiTask {
   /** Why a task a person started cannot coordinate sub-agents; copy comes from `managedSkipWords`. */
   managedSkip?: {reason:string};
   brief: Brief;
-  attempts: (Attempt & { log: string })[];
+  attempts: (Attempt & { log: string; recording?: boolean })[];
   /** Token roll-up for this task, with the split per agent. */
   tokens?: TokenRollup;
   routing: RoutingNote | null;
@@ -166,7 +167,9 @@ export async function taskDetailEnrichment(
       return [];
     }),
   ]);
-  const attempts = attemptsWithTokens(ctx, task.id, task.attempts);
+  // Attempt index n is run n+1; the flag mirrors the session route's offline replay check, so the
+  // app can show a recording or its absence without attaching.
+  const attempts = attemptsWithTokens(ctx, task.id, task.attempts).map((attempt, index) => ({ ...attempt, recording: attemptRecording(ctx, task.id, index + 1) }));
   const acceptance = agentChecksPending(ctx, id) ? undefined : task.result?.acceptance;
   const cmd = acceptance?.cmd ?? task.brief.acceptance ?? null;
   return {

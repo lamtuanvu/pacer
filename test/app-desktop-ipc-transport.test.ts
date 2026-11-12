@@ -19,6 +19,19 @@ test('desktop operations use captured IPC and preserve typed errors and client i
   expect((await response.json()).error).toEqual({code:'conflict',message:'Changed',data:{rev:2}});
   expect(calls.at(-1)).toEqual({command:'service_call',args:{op:'task.get',params:{id:'t1'},instance:expect.any(String)}});
 });
+test('desktop terminal attach forwards a recorded attempt query only for task targets', async () => {
+  const {adapter,calls}=bridge();
+  const id='t-20261102-090145-e376';
+  const attach=async(url:string)=>{const socket=adapter.attachTerminal(url);socket.onopen=()=>socket.send(JSON.stringify({type:'hello',cols:80,rows:24}));await Promise.resolve();};
+  await attach(`ws://tauri.localhost/v3/tasks/${id}/session?attempt=2`);
+  expect(calls.find(call=>call.command==='terminal_attach')!.args.target).toEqual({kind:'task',id,attempt:2});
+  await attach(`ws://tauri.localhost/v2/tasks/${id}/session`);
+  expect(calls.filter(call=>call.command==='terminal_attach').at(-1)!.args.target).toEqual({kind:'task',id});
+  // Only a task session addresses a recorded attempt, and only with a positive integer.
+  for (const url of [`ws://tauri.localhost/v3/tasks/${id}/session?attempt=0`, `ws://tauri.localhost/v3/tasks/${id}/session?attempt=abc`, `ws://tauri.localhost/v3/terminals/12345678-1234-1234-1234-123456789abc/session?attempt=2`]) expect(()=>adapter.attachTerminal(url)).toThrow();
+  expect(calls.filter(call=>call.command==='terminal_attach')).toHaveLength(2);
+});
+
 test('desktop refuses arbitrary routes and v2 fallback without forwarding them', async () => {
   const {adapter,calls} = bridge();
   for (const path of ['/v2/hello','https://example.com/v3/hello','/v3/ops/task/get','/private']) await expect(adapter.request(path)).rejects.toThrow();
