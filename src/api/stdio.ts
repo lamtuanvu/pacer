@@ -253,6 +253,16 @@ export async function runStdio(
           result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false);
           break;
         }
+        case "_internal.plugins": {
+          // The front door's plugin channel: the HTTP door's `/_internal/plugins`, sealed by the sync key.
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT || protocol !== 3) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { pluginNativeRequest } = await import("../serve/plugin-native");
+          result = await pluginNativeRequest(getCtx(), (r.params as { request?: unknown }).request, { relay: true });
+          break;
+        }
         case "_internal.setup.doctor": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {

@@ -140,9 +140,20 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("").get("config.get").is_some());
     assert!(registry("config.get").get("config.get").is_none());
     assert!(registry("").get("activity.list").is_some());
-    // Stdio keeps retired install in TypeScript; HTTP registers the refuse.
+    // Plugin ops need a door's Core channel: both doors use the service registry.
     assert!(registry("").get("plugin.install").is_none());
-    assert!(registry("plugin.install").get("plugin.install").is_none());
+    for name in pacer_plugin_ops::public::OPERATIONS
+        .iter()
+        .chain(pacer_plugin_ops::mutations::MUTATION_OPERATIONS)
+    {
+        assert!(super::service_registry("").get(name).is_some(), "{name}");
+        assert!(super::service_registry(name).get(name).is_none(), "{name}");
+    }
+    assert_eq!(
+        pacer_plugin_ops::public::OPERATIONS.len()
+            + pacer_plugin_ops::mutations::MUTATION_OPERATIONS.len(),
+        12
+    );
     assert!(registry("").get("task.log").is_some());
     assert!(registry("").get("task.prune").is_some());
     assert!(registry("").get("task.restore").is_some());

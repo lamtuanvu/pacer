@@ -1,6 +1,7 @@
 //! Client protocol transports and native operation dispatch.
 pub use pacer_mcp as mcp;
 pub mod native;
+mod stdio_plugins;
 mod stdio_proxy;
 pub use pacer_read_model::v2_compat;
 pub use stdio_proxy::{run_stdio, run_stdio_blocking};

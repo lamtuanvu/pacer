@@ -802,11 +802,14 @@ static OPS: &[NativeOp] = &[
     },
 ];
 
+/// Operations a front door answers without a Core plugin channel (examples, parity tools).
 pub fn registry(forward: &str) -> Registry<'static> {
     Registry::new(OPS, forward)
 }
 
-/// The HTTP service has the generation-bound Core process adapter; stdio does not.
+/// What both front doors answer: [`registry`] plus the plugin operations, which
+/// each door composes over its own private Core channel. `PACER_FORWARD_OPS`
+/// (the `forward` list) keeps any of them, plugin ops included, in TypeScript.
 pub fn service_registry(forward: &str) -> Registry<'static> {
     static ALL: std::sync::OnceLock<Vec<NativeOp>> = std::sync::OnceLock::new();
     Registry::new(

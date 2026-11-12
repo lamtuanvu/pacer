@@ -374,9 +374,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             // Flag-on ProcessOwner (when present) starts children; Core supplies specs.
             let state = Arc::clone(&state);
             let name = op.name;
-            match tokio::spawn(
-                async move { state.plugins.call(&ctx, &state.core, name, params).await },
-            )
+            match tokio::spawn(async move {
+                let core = crate::native::plugins::http_link(&state.core);
+                state.plugins.call(&ctx, core, name, params).await
+            })
             .await
             {
                 Ok(result) => result,

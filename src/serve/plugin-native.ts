@@ -20,7 +20,13 @@ const operation = z.enum([
  * stop, changed, publish, log. ProcessOwner owns plugin RPC, so `call` is
  * refused (P4d-5). Flag-off: the same surface plus `call` for diagnostic/UI
  * plugin methods.
+ *
+ * `relay` is the stdio door's `call` while it is attached to the serve owner
+ * (ADR 0027): the registry seals the call to that owner over
+ * `PACER_HOST_SOCKET` and answers the plugin's capability requests itself.
+ * Only the sync-keyed stdio channel may send it.
  */
+const pluginMethod = z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]);
 const callResources = z.object({
   reads: z.array(z.object({ path: z.string(), kind: z.enum(["file", "codex-logs"]) }).strict()).default([]),
   commands: z.array(z.object({
@@ -40,7 +46,8 @@ const callResources = z.object({
 
 const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("prepare"), op: operation, params: z.unknown() }).strict(),
-  z.object({ kind: z.literal("call"), id: z.string(), method: z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]), params: z.unknown() }).strict(),
+  z.object({ kind: z.literal("call"), id: z.string(), method: pluginMethod, params: z.unknown() }).strict(),
+  z.object({ kind: z.literal("relay"), id: z.string(), method: pluginMethod, params: z.unknown() }).strict(),
   z.object({ kind: z.literal("spawn_spec"), id: z.string() }).strict(),
   z.object({
     kind: z.literal("call_authority"),
@@ -63,8 +70,11 @@ const request = z.discriminatedUnion("kind", [
   }).strict(),
 ]);
 
-/** Called only after internal-generation authentication, never on the public API. */
-export async function pluginNativeRequest(ctx: Ctx, raw: unknown) {
+/**
+ * Called only after internal-generation authentication (HTTP) or the stdio sync
+ * key, never on the public API. `relay` is set only by the stdio channel.
+ */
+export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: boolean } = {}) {
   try {
     const parsed = request.safeParse(raw);
     if (!parsed.success) throw new CoreError("invalid_input", "invalid private plugin request");
@@ -88,14 +98,19 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown) {
       case "ready":
         reg.nativeMarkReady(ctx, p.id, p.protocol, p.served);
         break;
-      case "call": {
-        if (nativeOwnsChildren) {
+      case "call":
+      case "relay": {
+        if (p.kind === "call" && nativeOwnsChildren) {
           // P4d-5: private call is retired on the native-owner path; Rust must
           // not send this kind when PACER_HOST_SOCKET is set.
           throw new CoreError(
             "plugin_unavailable",
             "private call is retired when the native process owner is active",
           );
+        }
+        if (p.kind === "relay" && (!o.relay || !nativeOwnsChildren)) {
+          // Without the owner socket the registry would spawn the child itself.
+          throw new CoreError("plugin_unavailable", "owner relay requires an attached stdio connection");
         }
         // Doctor ignores successful ping payloads. Do not send arbitrary plugin
         // output through the native read bridge or execute a diagnostic twice.

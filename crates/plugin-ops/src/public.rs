@@ -247,7 +247,8 @@ impl PublicOperations {
                         e = next;
                     }
                 }
-                reports.push(json!({"id":e.id,"ok":ok,"state":e.state,"served":e.served,"protocol":{"host":pacer_plugin_protocol::VERSION,"plugin":e.protocol},"pid":e.pid,"restarts":e.restarts,"error":error,"needs":e.manifest()["host"]}));
+                // TypeScript's key order: `{...base, ok, state, pid, restarts, error}`.
+                reports.push(json!({"id":e.id,"served":e.served,"protocol":{"host":pacer_plugin_protocol::VERSION,"plugin":e.protocol},"needs":e.manifest()["host"],"ok":ok,"state":e.state,"pid":e.pid,"restarts":e.restarts,"error":error}));
             }
             return Ok(json!({"reports":reports}));
         }
