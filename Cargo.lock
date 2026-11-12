@@ -1810,7 +1810,7 @@ dependencies = [
 name = "pacer-repos"
 version = "0.1.0"
 dependencies = [
- "nix",
+ "libc",
  "pacer-config",
  "pacer-foundation",
  "pacer-js-json",

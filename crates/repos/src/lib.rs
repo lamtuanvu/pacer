@@ -8,7 +8,6 @@ mod branches;
 mod git;
 mod identity;
 mod probe;
-mod read;
 mod remove;
 #[cfg(test)]
 mod tests;

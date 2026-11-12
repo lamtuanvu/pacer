@@ -15,7 +15,7 @@ serde_json.workspace = true
 sha2 = "0.10"
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", features = ["fs"] }
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
