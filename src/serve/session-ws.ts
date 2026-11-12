@@ -6,7 +6,7 @@ import { sessionDirectory, sessionSocket } from '../session/service';
 import { agentSessionDirectory } from '../session/agents';
 import { terminalDirectory } from '../terminal/workspace';
 import { readRecording } from '../session/recording';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { admitRemoteViewer } from '../remote/viewer-admission';
 export interface SessionWS { socket?:Socket; decoder:WireDecoder; from?:number; bridged?:boolean; replay?:{frames:Frame[];next:number;started:boolean} }
@@ -113,9 +113,12 @@ async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string)
    const replay:Frame[]=[];
    if(checkpoint)replay.push({type:FrameType.snapshot,data:Buffer.from(JSON.stringify({...checkpoint,controller:null,viewers:1}))});
    for(const frame of frames)if(frame.type===1)replay.push({...frame,type:FrameType.output});
-   let code:number|null=null;
+   let code:number|null=null,at:number|undefined;
    try{const text=readFileSync(join(dir,'exit'),'utf8').trim();const n=Number(text);if(text&&Number.isSafeInteger(n))code=n;}catch{/* Host disappeared without an exit receipt. */}
-   replay.push({type:FrameType.exit,data:Buffer.from(JSON.stringify({code}))});
+   // The exit frame carries the session's real end time: session.ended, else the exit file's mtime; absent stays absent.
+   try{const ended=Number(readFileSync(join(dir,'session.ended'),'utf8').trim());if(Number.isFinite(ended)&&ended>0)at=ended;}catch{/* no recorded end */}
+   if(at===undefined&&code!==null)try{at=statSync(join(dir,'exit')).mtimeMs/1000;}catch{/* exit time unknown */}
+   replay.push({type:FrameType.exit,data:Buffer.from(JSON.stringify({code,...(at!==undefined?{at:Math.round(at)}:{})}))});
    if(server.upgrade(req,{data:{decoder:new WireDecoder(),from,replay:{frames:replay,next:0,started:false}}}))return;
    return new Response('WebSocket upgrade required',{status:426});
   };

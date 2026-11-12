@@ -42,7 +42,7 @@ export function SessionView({
         url={session.attach.ws}
         cols={session.cols}
         rows={session.rows}
-        control={active && session.capabilities.control}
+        answerRestarts={active && (task.state === 'running' || task.state === 'needs_input')} control={active && session.capabilities.control}
         resize={active && session.capabilities.resize}
         live={active && session.live}
         onLive={onSessionLive}
