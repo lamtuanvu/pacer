@@ -22,7 +22,7 @@ import { shutdownPlugins } from "../src/plugins";
 import { executorRefusal, refusal } from "../scripts/live/guard";
 import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
-import { exerciseNativePluginStdio, exerciseNativeStdio, PLUGIN_STDIO_STEPS, verifyForwardedHello, verifyNativeStdio, verifyPluginStdio } from "../scripts/live/native-stdio";
+import { exerciseNativePluginStdio, exerciseNativeStdio, PLUGIN_STDIO_STEPS, verifyForwardedHello, verifyNativeStdio, verifyOwnerSocket, verifyPluginStdio } from "../scripts/live/native-stdio";
 import { BLOCKED_OPS, CONDITIONAL_OPS, ClientWebSocket, conditionallyAllowed, configSetAllowed, inexactOpPath, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
 
 function fixture(): Session {
@@ -77,7 +77,10 @@ describe("live guard (D3)", () => {
     replies.set(10, { id: 10, result: { reports: [{ ok: true, pid: 12 }] } });
     const traces = PLUGIN_STDIO_STEPS.filter(([id, method]) => id !== 1 && method !== "hello").map(([id, method]) => `native ${method} ${id}`);
     const own = [...traces, "native plugin owner own /h/run/s0123456789ab.sock"].join("\n");
-    expect(() => verifyPluginStdio(replies, own, "own")).not.toThrow();
+    expect(verifyPluginStdio(replies, own, "own")).toBe("/h/run/s0123456789ab.sock");
+    const deep = [...traces, "native plugin owner own /var/u/T/pacer-0123456789abcdef/s0123456789ab.sock"].join("\n");
+    expect(verifyPluginStdio(replies, deep, "own")).toBe("/var/u/T/pacer-0123456789abcdef/s0123456789ab.sock");
+    expect(() => verifyPluginStdio(replies, own.replace("/run/", "/tmp/"), "own")).toThrow("ownership trace");
     expect(() => verifyPluginStdio(replies, own, "attach")).toThrow("ownership trace");
     expect(() => verifyPluginStdio(replies, own, "core")).toThrow("ownership trace");
     expect(() => verifyPluginStdio(replies, traces.join("\n"), "core")).not.toThrow();
@@ -85,6 +88,14 @@ describe("live guard (D3)", () => {
     expect(() => verifyPluginStdio(replies, traces.slice(1).join("\n"), "core")).toThrow("native trace");
     expect(() => verifyPluginStdio(new Map([...replies, [1, { id: 1, result: {} }]]), traces.join("\n"), "core")).toThrow("before hello");
     expect(() => verifyPluginStdio(new Map([...replies, [6, { id: 6, error: { code: -32000 } }]]), traces.join("\n"), "core")).toThrow("step 6");
+  });
+  test("an owning connection's socket is in run/, or in the private directory only for a deep home", () => {
+    expect(verifyOwnerSocket("/h", "/h/run/s0123456789ab.sock")).toBe("run");
+    expect(() => verifyOwnerSocket("/h", "/var/u/T/pacer-0123456789abcdef/s0123456789ab.sock")).toThrow("home's run directory");
+    const deep = `/h/${"d".repeat(90)}`;
+    expect(verifyOwnerSocket(deep, "/var/u/T/pacer-0123456789abcdef/s0123456789ab.sock")).toBe("private");
+    expect(() => verifyOwnerSocket(deep, `${deep}/run/s0123456789ab.sock`)).toThrow("private per-user directory");
+    expect(() => verifyOwnerSocket(deep, "/var/u/T/elsewhere/s0123456789ab.sock")).toThrow("private per-user directory");
   });
   test("fixed forwarded hello control rejects a native trace", () => {
     const output = ["3.0.0", "2.8.0"].map((protocol, index) =>

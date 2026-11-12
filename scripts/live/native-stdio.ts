@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { installFixture } from "../../conformance/install";
 import { down, healthy, pacerArgv, record, sandboxEnv, type Session } from "./core";
 
@@ -105,8 +105,8 @@ export type PluginOwnership = "core" | "own" | "attach";
 
 type PluginReply = Reply & { error?: { code?: number; message?: string; data?: { code?: string; hint?: string } }; result?: any };
 
-/** Checks the replies and native traces of one run of the fixed plugin exchange. */
-export function verifyPluginStdio(replies: Map<number, PluginReply>, stderr: string, ownership: PluginOwnership): void {
+/** Checks the replies and native traces of one run of the fixed plugin exchange; returns the owner socket. */
+export function verifyPluginStdio(replies: Map<number, PluginReply>, stderr: string, ownership: PluginOwnership): string | undefined {
   const reply = (id: number) => {
     const value = replies.get(id);
     if (!value) throw Error(`plugin stdio returned no reply to ${id}`);
@@ -124,10 +124,22 @@ export function verifyPluginStdio(replies: Map<number, PluginReply>, stderr: str
     if (count !== (id === 1 ? 0 : 1)) throw Error(`native trace for ${method} ${id} appeared ${count} times`);
   }
   const owner = lines.filter(line => line.startsWith("native plugin owner "));
-  const expected = ownership === "own" ? /^native plugin owner own .*\/run\/s[0-9a-f]{12}\.sock$/ : /^native plugin owner attach .*\/run\/host\.sock$/;
-  if (ownership === "core" ? owner.length !== 0 : owner.length !== 1 || !expected.test(owner[0])) {
+  // An owning connection binds in run/, or in the private per-user pacer-<hash>/ directory for a deep home.
+  const expected = ownership === "own" ? /^native plugin owner own (\/.*\/(?:run|pacer-[0-9a-f]{16})\/s[0-9a-f]{12}\.sock)$/ : /^native plugin owner attach (\/.*\/run\/host\.sock)$/;
+  const match = owner.length === 1 ? expected.exec(owner[0]) : null;
+  if (ownership === "core" ? owner.length !== 0 : !match) {
     throw Error(`plugin ownership trace differed from ${ownership}: ${owner.join(" | ") || "none"}`);
   }
+  return match?.[1];
+}
+
+/** Where an owning connection must bind: `run/` unless that path exceeds the 103-byte socket limit. */
+export function verifyOwnerSocket(home: string, socket: string): "run" | "private" {
+  const deep = join(home, "run", "s000000000000.sock").length > 103;
+  const inRun = dirname(socket) === join(home, "run");
+  const inPrivate = !socket.startsWith(`${home}/`) && /^pacer-[0-9a-f]{16}$/.test(basename(dirname(socket))) && socket.length <= 103;
+  if (deep ? !inPrivate : !inRun) throw Error(`owner socket ${socket} is not in the ${deep ? "private per-user directory" : "home's run directory"}`);
+  return deep ? "private" : "run";
 }
 
 function alive(pid: number): boolean {
@@ -260,7 +272,8 @@ export async function exerciseNativePluginStdio(session: Session, stopService = 
       }
       const { code, stderr } = await connection.close();
       if (code !== 0) throw Error(`stdio exited ${code}: ${stderr}`);
-      verifyPluginStdio(connection.replies, stderr, ownership);
+      const socket = verifyPluginStdio(connection.replies, stderr, ownership);
+      const placement = ownership === "own" && socket ? verifyOwnerSocket(home, socket) : undefined;
       let teardown = "";
       if (ownership === "attach" && !stopService) {
         if (!alive(second)) throw Error(`the service's plugin process ${second} stopped with the attached connection`);
@@ -268,7 +281,9 @@ export async function exerciseNativePluginStdio(session: Session, stopService = 
       } else if (ownership !== "attach") {
         if (!await gone(second)) throw Error(`plugin process ${second} outlived its stdio connection`);
         if (connectionSockets(home).length) throw Error(`connection sockets remained: ${connectionSockets(home).join(", ")}`);
-        teardown = ` After EOF plugin process ${second} had exited${ownership === "own" ? " and the connection socket was removed" : ""}.`;
+        if (socket && existsSync(socket)) throw Error(`connection socket ${socket} remained`);
+        const place = placement === "private" ? ` ${socket} (the private per-user directory: the home's run/ path exceeds 103 bytes)` : "";
+        teardown = ` After EOF plugin process ${second} had exited${ownership === "own" ? ` and the connection socket${place} was removed` : ""}.`;
       }
       record(session, { kind: "note", behavior, surface: "stdio API", verdict: "PASS",
         steps: `Fixed exchange ${where}: plugin.list before hello, hello(3), list, enable, doctor, ui.render, settings.get, disable, enable, doctor`,
