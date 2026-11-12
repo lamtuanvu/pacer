@@ -100,11 +100,10 @@ export function v2Params(name:string,params:unknown):unknown {
   const {notifier:_,...legacy}=params as Record<string,unknown>;
   return legacy;
  }
- // `q` is a protocol 3 addition; the frozen 2.x surface keeps its legacy behavior.
- if(name==='task.list'&&params&&typeof params==='object'&&!Array.isArray(params)){
-  const {q:_,...legacy}=params as Record<string,unknown>;
-  return legacy;
- }
+ // `q` is a protocol 3 addition; the frozen 2.x surface stays as documented
+ // (additionalProperties: false) and rejects it like any unrecognized key.
+ if(name==='task.list'&&params&&typeof params==='object'&&!Array.isArray(params)&&'q' in params)
+  throw new CoreError('invalid_input','params: Unrecognized key: "q"');
  if(name!=='task.review'||!params||typeof params!=='object'||Array.isArray(params))return params;
  const p=params as Record<string,unknown>;
  if(p.accepted!==undefined&&typeof p.accepted!=='boolean')throw new CoreError('invalid_input','accepted: expected boolean');

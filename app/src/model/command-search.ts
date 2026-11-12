@@ -92,9 +92,9 @@ export function looksLikeTaskId(text: string): boolean {
   return /^t-\d{8}(-\d{6})?(-[0-9a-f]{0,4})?$/i.test(text) || /^[0-9a-f]{4}$/i.test(text);
 }
 
-/** Whether the snapshot and commands already match the text, so a server task search is unnecessary. */
-export function hasLocalMatches(snapshot: ClientSnapshot | null, commands: Command[], text: string): boolean {
-  return rankAndMark([...snapshotItems(snapshot, 0), ...commandItems(commands)], text).length > 0;
+/** Whether the text asks for a server task search (task.list with `q`): anything from 3 characters on; shorter text matches nothing worth a round trip. The palette truncates the text to 200 characters before sending. */
+export function wantsServerTasks(text: string): boolean {
+  return text.length >= 3;
 }
 
 /** Task rows found by the service; tasks the snapshot already shows are left to their own item. */
@@ -244,9 +244,13 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now, files
   const labels = new Map((snapshot?.repos ?? []).map(repo => [repo.key, repo.label]));
   const filesLoading = files.status === "loading";
   const tasksLoading = tasks.status === "loading";
-  const notice = files.status === "ready" ? filesNotice(files.result, key => labels.get(key) ?? shortRepoKey(key))
-    : filesLoading ? "Searching files…" : files.status === "error" ? "Files could not be searched just now."
-    : tasksLoading ? "Searching tasks…" : tasks.status === "error" ? "Tasks could not be searched just now." : undefined;
+  // Both searches can be in flight or have failed at once: the tasks line is
+  // never hidden behind the files one, they are shown together.
+  const notice = [
+    tasksLoading ? "Searching tasks…" : tasks.status === "error" ? "Tasks could not be searched just now." : undefined,
+    files.status === "ready" ? filesNotice(files.result, key => labels.get(key) ?? shortRepoKey(key))
+      : filesLoading ? "Searching files…" : files.status === "error" ? "Files could not be searched just now." : undefined,
+  ].filter(Boolean).join(" ") || undefined;
   // A scope with nothing in it falls back to All, so the tab never hides matches that exist elsewhere (the Files tab stays while files load).
   const only = scope !== "all" && (counts[scope] > 0 || (scope === "files" && filesLoading)) ? scope : "all";
   const shown = only === "all" ? matched : matched.filter(item => item.scope === only);

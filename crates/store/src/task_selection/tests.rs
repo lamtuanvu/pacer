@@ -252,3 +252,211 @@ fn competing_filters_keep_planner_choice() {
         assert!(!query(&filter).0.contains("INDEXED BY"));
     }
 }
+
+/// Unicode rows (Ü, Đ, É) on top of the plain fixture history.
+fn unicode_fixture(count: usize) -> (tempfile::TempDir, TaskStore, Vec<&'static str>) {
+    let (dir, mut store) = fixture(count);
+    let db = store.connection().unwrap();
+    db.execute_batch("BEGIN").unwrap();
+    for (id, title, goal) in [
+        ("t-20261101-093000-aa01", "Überprüfung der Gateways", ""),
+        ("t-20261101-093000-aa02", "", "Đồng bộ cache"),
+        ("t-20261101-093000-aa03", "Élan for the launch", "Đồng nhất"),
+    ] {
+        let record = json!({"id":id,"rev":1,"state":"done","createdAt":1.0,
+            "brief":{"repo":"/fixture","goal":goal},"title":title,"attempts":[]});
+        db.execute(
+            "INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,archived,record) VALUES(?,1,'done',1,1,1,0,?)",
+            params![id, record.to_string()],
+        )
+        .unwrap();
+    }
+    db.execute_batch("COMMIT").unwrap();
+    (
+        dir,
+        store,
+        vec![
+            "t-20261101-093000-aa01",
+            "t-20261101-093000-aa02",
+            "t-20261101-093000-aa03",
+        ],
+    )
+}
+
+#[test]
+fn unicode_words_are_folded_the_same_way_after_decode() {
+    let (_dir, mut store, ids) = unicode_fixture(1_000);
+    let (review, sync, flair) = (ids[0], ids[1], ids[2]);
+    // SQLite's lower() cannot fold these; both runtimes check the decoded
+    // records with per-character Unicode lowercase, in either direction.
+    for (word, expected) in [
+        ("überprüfung", vec![review]),
+        ("Über", vec![review]),
+        ("ÜBER", vec![review]),
+        ("đồng bộ", vec![sync]),
+        ("ĐỒNG", vec![flair, sync]),
+        ("élan", vec![flair]),
+        ("ÉLAN", vec![flair]),
+    ] {
+        let rows = store
+            .list(&TaskFilter {
+                query: Some(word),
+                limit: Some(21),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| r["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            expected,
+            "word {word}"
+        );
+    }
+    // The limit and newest-first order hold while pages are decoded and filtered.
+    let rows = store
+        .list(&TaskFilter {
+            query: Some("đồng"),
+            limit: Some(2),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|r| r["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [ids[2], ids[1]]
+    );
+    // An id-shaped word rides the primary-key range while the Unicode word is
+    // still folded after decoding.
+    let filter = TaskFilter {
+        query: Some("über t-2026"),
+        limit: Some(21),
+        ..Default::default()
+    };
+    let rows = store.list(&filter).unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|r| r["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [review]
+    );
+    let (sql, bind) = query(&filter);
+    let plan = store
+        .connection()
+        .unwrap()
+        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+        .unwrap()
+        .query_map(params_from_iter(&bind), |r| r.get::<_, String>(3))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+        .join("; ");
+    assert!(plan.contains("sqlite_autoindex_tasks_1"), "{plan}");
+}
+
+#[test]
+fn an_id_shaped_query_rides_a_primary_key_range() {
+    let (_dir, mut store, ids) = unicode_fixture(50_000);
+    let full = ids[0];
+    let date = &full[..10.min(full.len())];
+    for (word, expected) in [
+        (full, vec![full]),
+        // The date prefix matches the whole fixture history, so a limit of 3
+        // returns the three unicode rows on top of it, newest first.
+        (date, vec![ids[2], ids[1], ids[0]]),
+        // A partial time prefix stays inside the range seek.
+        (&full[..17], vec![ids[2], ids[1], ids[0]]),
+    ] {
+        let filter = TaskFilter {
+            query: Some(word),
+            limit: Some(3),
+            ..Default::default()
+        };
+        let (rows, plan, steps) = measure(&mut store, &filter);
+        assert_eq!(
+            rows.iter()
+                .map(|r| r["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            expected,
+            "word {word}"
+        );
+        assert!(plan.contains("sqlite_autoindex_tasks_1"), "{plan}");
+        assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+        assert!(steps < 1_000, "{plan}: {steps} VM steps");
+    }
+    // An id-shaped word never matches the goal that quotes it.
+    let db = store.connection().unwrap();
+    let quoted = json!({"id":"t-20261101-093000-aa04","rev":1,"state":"done","createdAt":1.0,
+        "brief":{"repo":"/fixture","goal":format!("see {full} for the plan")},"attempts":[]});
+    db.execute(
+        "INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,archived,record) VALUES('t-20261101-093000-aa04',1,'done',1,1,1,0,?)",
+        params![quoted.to_string()],
+    )
+    .unwrap();
+    let rows = store
+        .list(&TaskFilter {
+            query: Some(full),
+            limit: Some(21),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        rows.iter()
+            .map(|r| r["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [full]
+    );
+}
+
+/// The probe for the reported timings (run with --nocapture).
+#[test]
+fn report_search_timings_over_50k_tasks() {
+    let (_dir, mut store, ids) = unicode_fixture(50_000);
+    for (label, filter) in [
+        (
+            "no-hit word 'zzznope'",
+            TaskFilter {
+                query: Some("zzznope"),
+                limit: Some(21),
+                ..Default::default()
+            },
+        ),
+        (
+            "date prefix 't-20261101'",
+            TaskFilter {
+                query: Some("t-20261101"),
+                limit: Some(21),
+                ..Default::default()
+            },
+        ),
+        (
+            "full id",
+            TaskFilter {
+                query: Some(ids[0]),
+                limit: Some(21),
+                ..Default::default()
+            },
+        ),
+        (
+            "4-hex suffix",
+            TaskFilter {
+                query: Some(&ids[0][ids[0].len() - 4..]),
+                limit: Some(21),
+                ..Default::default()
+            },
+        ),
+        (
+            "unicode word 'über'",
+            TaskFilter {
+                query: Some("über"),
+                limit: Some(21),
+                ..Default::default()
+            },
+        ),
+    ] {
+        let start = std::time::Instant::now();
+        let rows = store.list(&filter).unwrap();
+        eprintln!("{label}: {:?} -> {} rows", start.elapsed(), rows.len());
+    }
+}

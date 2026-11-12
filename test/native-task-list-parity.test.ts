@@ -67,11 +67,26 @@ test.skipIf(!front)("task.list matches forced forwarding with session probe inje
       row.executor = "cursor";
     });
   }
+  // Unicode titles and goals, matched case-insensitively from either direction:
+  // the folding must agree row for row in both runtimes.
+  updateTask(ctx, ids[2]!, row => { row.title = "Überprüfung der Gateways"; });
+  updateTask(ctx, ids[3]!, row => { row.brief.goal = "Đồng bộ Élan cache"; });
   const reference = await callOp(ctx, "task.list", { states: ["done"], limit: 2 });
   // The free-text filter runs in both implementations and must agree row for row.
   const qReference = await callOp(ctx, "task.list", { q: ids[3]!.slice(-4) });
   const request = (id: number, params: unknown) => JSON.stringify({ jsonrpc: "2.0", id, method: "task.list", params });
-  const requests = [request(2, { states: ["done"], limit: 2 }), request(3, { q: ids[3]!.slice(-4) })];
+  const requests = [
+    request(2, { states: ["done"], limit: 2 }),
+    request(3, { q: ids[3]!.slice(-4) }),
+    // Lower-case, upper-case and the exact Unicode word, plus a word SQLite
+    // cannot fold riding an id-shaped word, and an empty query that the frozen
+    // schema of both runtimes rejects.
+    request(4, { q: "überprüfung" }),
+    request(5, { q: "ĐỒNG" }),
+    request(6, { q: "Élan" }),
+    request(7, { q: `cache ${ids[3]}` }),
+    request(8, { q: "" }),
+  ];
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-task-list-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-task-list-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });
@@ -79,10 +94,20 @@ test.skipIf(!front)("task.list matches forced forwarding with session probe inje
   try {
     const native = await exchange(nativeHome, requests, false);
     const forwarded = await exchange(forwardHome, requests, true);
-    expect(normalize(native[0]?.result)).toEqual(normalize(forwarded[0]?.result));
-    expect(normalize(native[0]?.result)).toEqual(normalize(reference));
-    expect(normalize(native[1]?.result)).toEqual(normalize(forwarded[1]?.result));
-    expect(normalize(native[1]?.result)).toEqual(normalize(qReference));
+    const wanted: unknown[] = [reference, qReference];
+    for (const params of [{ q: "überprüfung" }, { q: "ĐỒNG" }, { q: "Élan" }, { q: `cache ${ids[3]}` }]) {
+      wanted.push(await callOp(ctx, "task.list", params));
+    }
+    // The empty query is rejected by both runtimes with the same message.
+    let emptyMessage: string | undefined;
+    try { await callOp(ctx, "task.list", { q: "" }); } catch (error) { emptyMessage = (error as Error).message; }
+    for (const [index, wantedRow] of wanted.entries()) {
+      expect(normalize(native[index]?.result)).toEqual(normalize(forwarded[index]?.result));
+      expect(normalize(native[index]?.result)).toEqual(normalize(wantedRow));
+    }
+    const error = (reply: { error?: { message?: string } } | undefined) => reply?.error?.message;
+    expect(error(native[wanted.length])).toBe(error(forwarded[wanted.length]));
+    expect(error(native[wanted.length])).toBe(emptyMessage);
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });

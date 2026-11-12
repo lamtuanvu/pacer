@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
-import { buildMenu, matchItem, parseQuery, scopesFor, snapshotItems, type MenuItem } from "../app/src/model/command-search";
+import { buildMenu, matchItem, parseQuery, scopesFor, snapshotItems, wantsServerTasks, type MenuItem } from "../app/src/model/command-search";
 import type { Command } from "../app/src/keys/commands";
 
 const snapshot = fixture as any;
@@ -230,6 +230,25 @@ test("task searching is announced, is not 'no results', and explains an error", 
   expect(withTasks("d90f", { status: "off" }).notice).toBeUndefined();
   // A search on a scope without matches falls back to All while it waits, like any scope.
   expect(withTasks("d90f", { status: "loading" }, "tasks").scope).toBe("all");
+});
+
+test("the server task search is worth asking for from three characters on", () => {
+  expect(wantsServerTasks("")).toBe(false);
+  expect(wantsServerTasks("ab")).toBe(false);
+  expect(wantsServerTasks("abc")).toBe(true);
+  expect(wantsServerTasks("d90f")).toBe(true);
+  expect(wantsServerTasks("t-20261010-190000-d90f")).toBe(true);
+});
+
+test("the tasks and files search notices are shown together, tasks first", () => {
+  const both = buildMenu({ query: "xyzzy", scope: "all", snapshot, commands, recent: [], now: NOW, files: { status: "loading" }, tasks: { status: "loading" } });
+  expect(both.notice).toBe("Searching tasks… Searching files…");
+  const failed = buildMenu({ query: "xyzzy", scope: "all", snapshot, commands, recent: [], now: NOW, files: { status: "error" }, tasks: { status: "error" } });
+  expect(failed.notice).toBe("Tasks could not be searched just now. Files could not be searched just now.");
+  // A files notice does not hide the tasks one, and the other way around.
+  const filesReady = buildMenu({ query: "xyzzy", scope: "all", snapshot, commands, recent: [], now: NOW, files: { status: "ready", result: answer({ truncated: true }) }, tasks: { status: "loading" } });
+  expect(filesReady.notice).toContain("Searching tasks…");
+  expect(filesReady.notice).toContain("Showing the first matches");
 });
 
 test("filtered Dispatcher commands retain board order even when title match ranks differ", () => {

@@ -7,7 +7,7 @@ import { Kbd } from "../ds/Kbd";
 import { commands as commandRegistry } from "../keys/instance";
 import { keyCaps, type CommandRegistry } from "../keys/commands";
 import type { FilesSearchResult } from "../../../src/core/files-search";
-import { buildMenu, hasLocalMatches, looksLikeTaskId, scopesFor, ASK_ENABLED, parseQuery, type FilesState, type MenuItem, type MenuScope, type TaskSearchState } from "../model/command-search";
+import { buildMenu, scopesFor, ASK_ENABLED, parseQuery, wantsServerTasks, type FilesState, type MenuItem, type MenuScope, type TaskSearchState } from "../model/command-search";
 import { useTaskContext } from "../screens/task-shared";
 import type { ClientTask } from "../../../src/view-model/snapshot";
 import { useNotifications } from "../data/notification-context";
@@ -85,10 +85,13 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     return () => { live = false; clearTimeout(timer); };
   }, [needle, filesOn, api]);
   const files: FilesState = !filesOn || !needle ? { status: "off" } : answer?.query !== needle ? { status: "loading" } : answer.result === "error" ? { status: "error" } : { status: "ready", result: answer.result };
-  // Old tasks are not in the snapshot, so the menu also asks the service: when the text looks like a task id or suffix, or when the snapshot matches nothing, one debounced task.list with `q` runs and its answers count only for the query they were asked for.
+  // Old tasks are not in the snapshot, so the menu also asks the service for any
+  // text of >= 3 characters (shorter text matches nothing worth a round trip, and
+  // `needle` is already truncated to 200 characters), debounced, with answers that
+  // count only for the query they were asked for.
   const tasksOn = state.features.ops.has("task.list");
   const [taskAnswer, setTaskAnswer] = useState<{ query: string; tasks: ClientTask[] } | { query: string; error: true } | null>(null);
-  const searchTasks = tasksOn && !!needle && (looksLikeTaskId(needle) || !hasLocalMatches(snapshot, commands, needle));
+  const searchTasks = tasksOn && wantsServerTasks(needle);
   useEffect(() => {
     if (!searchTasks) return;
     let live = true;

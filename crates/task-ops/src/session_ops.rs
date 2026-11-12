@@ -155,6 +155,12 @@ fn optional_since(params: &Map<String, Value>) -> Result<Option<f64>, CoreError>
 fn optional_query(params: &Map<String, Value>, name: &str) -> Result<Option<String>, CoreError> {
     match params.get(name) {
         None => Ok(None),
+        // An empty string fails the schema's min(1); other whitespace-only
+        // queries are treated as absent, like TypeScript (a whitespace `q`
+        // passes zod and splits into no words, so nothing is filtered).
+        Some(Value::String(value)) if value.is_empty() => Err(invalid(format!(
+            "{name}: Too small: expected string to have >=1 characters"
+        ))),
         Some(Value::String(value)) if value.trim().is_empty() => Ok(None),
         Some(Value::String(value)) => {
             if value.encode_utf16().count() > 200 {
@@ -500,6 +506,75 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(page["tasks"].as_array().unwrap().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn task_list_rejects_an_empty_query_like_the_frozen_schema() {
+        let (_dir, ctx) = ctx_with_tasks();
+        let error = task_list(&ctx, json!({"q": ""}), probe_parts())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, Code::InvalidInput);
+        assert_eq!(
+            error.message,
+            "q: Too small: expected string to have >=1 characters"
+        );
+    }
+
+    #[tokio::test]
+    async fn task_list_query_folds_unicode_titles_and_goals() {
+        let (_dir, ctx) = ctx_with_tasks();
+        // A row whose title words collide with no other row's id or goal, and a
+        // goal in another script.
+        {
+            let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+            for (id, title, goal) in [
+                ("t-20261106-000003-ffff", "Überprüfung der Gateways", ""),
+                ("t-20261106-000004-ffff", "", "Đồng bộ Élan cache"),
+            ] {
+                store
+                    .insert(
+                        &json!({
+                            "id": id,
+                            "rev": 1,
+                            "title": title,
+                            "brief": {"goal": goal, "repo": ctx.pacer_home.to_string_lossy()},
+                            "state": "done",
+                            "createdAt": 103.0,
+                            "attempts": [],
+                            "timeoutS": 60,
+                            "requestedExecutor": "cursor",
+                            "executor": "cursor",
+                        }),
+                        103.0,
+                    )
+                    .unwrap();
+            }
+        }
+        // Lower-case, upper-case and the exact word all find the same rows,
+        // folded per character on the decoded records in both runtimes.
+        let page = task_list(&ctx, json!({"q": "überprüfung"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000003-ffff");
+        let page = task_list(&ctx, json!({"q": "ÜBER"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000003-ffff");
+        let page = task_list(&ctx, json!({"q": "đồng bộ"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000004-ffff");
+        let page = task_list(&ctx, json!({"q": "ĐỒNG ÉLAN"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000004-ffff");
+        // Every word must appear: the ASCII word rides the SQL filter, the
+        // Unicode word is folded after decoding.
+        let page = task_list(&ctx, json!({"q": "cache t-2026"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000004-ffff");
     }
 
     #[tokio::test]

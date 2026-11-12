@@ -513,7 +513,11 @@ export interface TaskFilter {
   repoKey?: string;
   legacyRepoPaths?: readonly string[];
   /** Free-text search: every space-separated word must appear, case-insensitively,
-   * in the task id (including its short suffix), title or goal. */
+   * in the task id (including its short suffix), title or goal. Folding is ASCII-only
+   * in SQL (SQLite's lower()) and per-character Unicode lowercase on decoded records;
+   * a word shaped like a task-id prefix (for example the full id or a date prefix
+   * `t-2026`) is matched by the id prefix range instead, and is not searched in
+   * titles or goals. */
   query?: string;
 }
 
@@ -526,6 +530,27 @@ export function legacyTaskRepoPaths(ctx: Ctx): string[] {
 }
 
 /** Indexed predicates combined with AND, applied before the newest-first limit. */
+/** ASCII-only lowercase: SQLite's lower() folds ASCII letters and leaves every
+ *  other character (and every non-letter) alone, so a word folded this way is
+ *  matched exactly by `instr(lower(field), …)`. */
+const asciiFold = (word: string): string => word.replace(/[A-Z]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 32));
+/** Task ids are `t-YYYYMMDD-HHMMSS-xxxx`. A word shaped like an id prefix (a date
+ *  prefix such as `t-2026`, a fuller `t-YYYYMMDD-HHMMSS-hex` prefix, or the full id,
+ *  possibly still ending in `-` while being typed) can never appear inside an id:
+ *  no id contains a second `t-`. Such a word is therefore matched with a
+ *  primary-key range instead of a full-table `instr` scan. Titles and goals are
+ *  not searched with an id-shaped word. Returns the `[start, end)` id bounds. */
+function idPrefixRange(word: string): [string, string] | null {
+  if (!/^t(?:-\d{1,8}(?:-\d{1,6}(?:-[0-9a-f]{1,4})?)?)?$/.test(word)) return null;
+  // Successor of the last character; ids extend the prefix with 0-9, a-f or `-`,
+  // all below the successor, so `[prefix, successor)` covers exactly its extensions.
+  return [word, word.slice(0, -1) + String.fromCharCode(word.charCodeAt(word.length - 1) + 1)];
+}
+/** Per-character Unicode lowercase, the same folding both runtimes apply to a
+ *  non-ASCII query word and to the decoded fields (see the Rust counterpart in
+ *  crates/store/src/task_selection.rs). */
+const fold = (text: string): string => [...text].map(ch => ch.toLowerCase()).join("");
+
 export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] {
   if (filter.states?.length === 0 || filter.visibleStates?.length === 0 || filter.limit === 0) return [];
   const recentOnly = filter.updatedSince !== undefined && !filter.all && filter.states === undefined && filter.visibleStates === undefined
@@ -560,37 +585,106 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   }
   if (filter.updatedSince !== undefined) { clauses.push("updated_at >= ?"); bindings.push(filter.updatedSince); }
   if (filter.createdSince !== undefined) { clauses.push("created_at >= ?"); bindings.push(filter.createdSince); }
+  const unicodeWords: string[] = [];
+  let idRange = false;
   if (filter.query) {
     // Every whitespace-separated word must appear somewhere in the id (which
     // covers the short suffix and any date prefix), title or goal. Kept
-    // identical to the native filter in crates/store/src/task_selection.rs.
+    // identical to the native filter in crates/store/src/task_selection.rs:
+    // ASCII words are matched exactly by SQLite (lower() folds ASCII), a word
+    // shaped like an id prefix by the primary-key range, and words SQLite
+    // cannot fold are checked on the decoded records below with the same
+    // per-character Unicode lowercase in both runtimes.
     for (const word of filter.query.trim().split(/\s+/).filter(Boolean)) {
-      const w = word.toLowerCase();
-      clauses.push("(instr(lower(id), ?) > 0 OR instr(lower(json_extract(record, '$.title')), ?) > 0 OR instr(lower(json_extract(record, '$.brief.goal')), ?) > 0)");
-      bindings.push(w, w, w);
+      if (/^[\x00-\x7F]+$/.test(word)) {
+        const w = asciiFold(word);
+        const range = idPrefixRange(w);
+        if (range) {
+          idRange = true;
+          clauses.push("(id >= ? AND id < ?)");
+          bindings.push(range[0], range[1]);
+        } else {
+          clauses.push("(instr(lower(id), ?) > 0 OR instr(lower(json_extract(record, '$.title')), ?) > 0 OR instr(lower(json_extract(record, '$.brief.goal')), ?) > 0)");
+          bindings.push(w, w, w);
+        }
+      } else {
+        unicodeWords.push(fold(word));
+      }
     }
   }
+  /** A decoded record matches the words SQLite cannot fold. Titles and goals
+   *  must be strings, like SQLite's json_extract-based check for text. */
+  const matchesUnicodeWords = (task: TaskRecord): boolean => unicodeWords.every(w =>
+    fold(task.id).includes(w)
+    || (typeof task.title === "string" && fold(task.title).includes(w))
+    || (typeof task.brief?.goal === "string" && fold(task.brief.goal).includes(w)));
   const limit = filter.limit === undefined || filter.limit === Infinity ? -1 : Math.max(0, Math.floor(filter.limit));
+  /** Decode one stored record, defaulting its revision like every list path. */
+  const decode = (record: string): TaskRecord => { const task = JSON.parse(record) as TaskRecord; task.rev ??= 1; return task; };
   // Raw state filters seek active states; repository aliases seek candidate IDs.
-  // Neither should let archived=0 drive a scan over settled history.
+  // Neither should let archived=0 drive a scan over settled history. An id-range
+  // clause is the most selective bound, so it always rides the primary key.
   const index = filter.states ? " INDEXED BY tasks_state"
+    : idRange ? " INDEXED BY sqlite_autoindex_tasks_1"
     : recentOnly ? " INDEXED BY tasks_updated_at"
     : filter.repoKey !== undefined && filter.legacyRepoPaths?.length ? " INDEXED BY sqlite_autoindex_tasks_1" : "";
   const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
   const db = connection(ctx).db;
+  if (!unicodeWords.length) {
+    if (filter.states || recentOnly) {
+      // These indexes do not deliver ID order. Sorting whole records by ID would spill
+      // task JSON into a temp b-tree whose release holds SQLite's process-wide VFS
+      // mutex, so order the candidate IDs here and fetch only the selected records.
+      return db.transaction(() => {
+        const ids = db.query<{ id: string }, SQLQueryBindings[]>(`SELECT id FROM tasks${index} ${where}`).all(...bindings)
+          .map(row => row.id).sort(newestFirst);
+        return recordsByIds(db, limit < 0 ? ids : ids.slice(0, limit));
+      })();
+    }
+    const sql = `SELECT record FROM tasks${index} ${where} ORDER BY id DESC LIMIT ?`;
+    const rows = db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
+    return rows.map(row => decode(row.record));
+  }
+  // Words SQLite cannot fold are checked after decoding, so pages are walked
+  // newest-first with an id cursor until `limit` records match. A record that
+  // fails to decode cannot match a text query and is skipped here (both
+  // runtimes skip; the non-paging paths above still fail loudly).
+  const walk = (rows: { id: string; record: string }[], out: TaskRecord[]): void => {
+    for (const row of rows) {
+      let task: TaskRecord;
+      try { task = decode(row.record); } catch { continue; }
+      if (matchesUnicodeWords(task)) {
+        out.push(task);
+        if (limit >= 0 && out.length >= limit) return;
+      }
+    }
+  };
+  const out: TaskRecord[] = [];
   if (filter.states || recentOnly) {
-    // These indexes do not deliver ID order. Sorting whole records by ID would spill
-    // task JSON into a temp b-tree whose release holds SQLite's process-wide VFS
-    // mutex, so order the candidate IDs here and fetch only the selected records.
+    // Candidate IDs are already ordered newest-first; fetch and filter in pages.
     return db.transaction(() => {
       const ids = db.query<{ id: string }, SQLQueryBindings[]>(`SELECT id FROM tasks${index} ${where}`).all(...bindings)
         .map(row => row.id).sort(newestFirst);
-      return recordsByIds(db, limit < 0 ? ids : ids.slice(0, limit));
+      for (let i = 0; i < ids.length && (limit < 0 || out.length < limit); i += 500) {
+        const part = ids.slice(i, i + 500);
+        walk(db.query<{ id: string; record: string }, string[]>(`SELECT id, record FROM tasks WHERE id IN (${part.map(() => "?").join(",")})`).all(...part), out);
+      }
+      return out;
     })();
   }
-  const sql = `SELECT record FROM tasks${index} ${where} ORDER BY id DESC LIMIT ?`;
-  const rows = db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
-  return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
+  let cursor: string | undefined = filter.before;
+  while (limit < 0 || out.length < limit) {
+    const condition = cursor !== undefined ? (where ? `${where} AND id < ?` : "WHERE id < ?") : where;
+    // The walk always rides the primary key: it delivers id order without a
+    // temp b-tree, and each page continues from the previous one's cursor.
+    const rows = db.query<{ id: string; record: string }, SQLQueryBindings[]>(
+      `SELECT id, record FROM tasks INDEXED BY sqlite_autoindex_tasks_1 ${condition} ORDER BY id DESC LIMIT 500`)
+      .all(...bindings, ...(cursor !== undefined ? [cursor] : []));
+    if (!rows.length) break;
+    cursor = rows.at(-1)!.id;
+    walk(rows, out);
+  }
+  return out;
 }
 
 const newestFirst = (a: string, b: string) => a < b ? 1 : a > b ? -1 : 0;

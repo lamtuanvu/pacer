@@ -195,6 +195,29 @@ fn parse_record(text: &str) -> Result<Value> {
     }
     Ok(value)
 }
+
+/// Whether every word SQLite cannot fold appears in the id, title or goal of a
+/// decoded record. Only string fields are searched, like the SQL `json_extract`
+/// text check, and the folding is per-character Unicode lowercase in both
+/// runtimes (see `task_selection::fold` and TypeScript `fold`).
+fn matches_unicode_words(record: &Value, words: &[String]) -> bool {
+    let id = field_text(record, "id");
+    let title = field_text(record, "title");
+    let goal = record
+        .get("brief")
+        .and_then(|brief| brief.get("goal"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    words.iter().all(|w| {
+        selection::fold(id).contains(w)
+            || selection::fold(title).contains(w)
+            || selection::fold(goal).contains(w)
+    })
+}
+
+fn field_text<'a>(record: &'a Value, name: &str) -> &'a str {
+    record.get(name).and_then(Value::as_str).unwrap_or_default()
+}
 /// A time as the store's mtime in milliseconds, matching stat().mtimeMs.
 fn system_time_ms(time: SystemTime) -> f64 {
     let (duration, sign) = match time.duration_since(UNIX_EPOCH) {
@@ -399,7 +422,11 @@ pub struct TaskFilter<'a> {
     pub before: Option<&'a str>,
     pub limit: Option<usize>,
     /// Free-text search: every space-separated word must appear, case-insensitively,
-    /// in the task id (including its short suffix), title or goal.
+    /// in the task id (including its short suffix), title or goal. Folding is
+    /// ASCII-only in SQL (SQLite's lower()) and per-character Unicode lowercase on
+    /// decoded records; a word shaped like a task-id prefix (for example the full id
+    /// or a date prefix `t-2026`) is matched by the id prefix range instead, and is
+    /// not searched in titles or goals.
     pub query: Option<&'a str>,
 }
 impl TaskStore {
@@ -696,12 +723,51 @@ impl TaskStore {
             return Ok(Vec::new());
         }
         self.refresh()?;
-        let (sql, bind) = selection::query(filter);
-        let mut stmt = self.db.prepare(&sql)?;
-        let records = stmt
-            .query_map(params_from_iter(bind), |r| r.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        records.into_iter().map(|s| parse_record(&s)).collect()
+        // Words SQLite cannot fold are matched on the decoded records; walk
+        // newest-first with an id cursor until `limit` records match.
+        let unicode = selection::unicode_words(filter);
+        if unicode.is_empty() {
+            let (sql, bind) = selection::query(filter);
+            let mut stmt = self.db.prepare(&sql)?;
+            let records = stmt
+                .query_map(params_from_iter(bind), |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            records.into_iter().map(|s| parse_record(&s)).collect()
+        } else {
+            let mut out = Vec::new();
+            let mut cursor = filter.before.map(str::to_owned);
+            let batch = filter.limit.map_or(500, |n| n.min(500));
+            loop {
+                let (sql, bind) = selection::page_query(filter, cursor.as_deref(), batch);
+                let mut stmt = self.db.prepare(&sql)?;
+                let page = stmt
+                    .query_map(params_from_iter(bind), |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                if page.is_empty() {
+                    break;
+                }
+                let exhausted = page.len() < batch;
+                for (id, text) in page {
+                    cursor = Some(id);
+                    // A record that fails to decode cannot match a text query
+                    // (the TypeScript paging loop skips it the same way).
+                    if let Ok(record) = parse_record(&text)
+                        && matches_unicode_words(&record, &unicode)
+                    {
+                        out.push(record);
+                        if filter.limit.is_some_and(|n| out.len() >= n) {
+                            return Ok(out);
+                        }
+                    }
+                }
+                if exhausted {
+                    break;
+                }
+            }
+            Ok(out)
+        }
     }
     /// Resolve legacy identities per distinct checkout, without decoding task history.
     pub fn legacy_repo_paths(&mut self) -> Result<Vec<String>> {
