@@ -1,16 +1,17 @@
-//! Native `host.check` and `host.clean` over Core's whole-operation host effects bridge
-//! (`/_internal/host-effects`, `_internal.host.effects`).
+//! Native `host.check`, `host.clean` and `host.repo.setup` over Core's whole-operation host
+//! effects bridge (`/_internal/host-effects`, `_internal.host.effects`).
 //!
 //! Rust answers what needs no Core effect: the enforcement-identity refusal, the published
-//! params schemas, the unknown-host refusal before any SSH (`configured` in
-//! `src/remote/hosts.ts`), and `host.clean` dry runs, which read the task store, run the local
+//! params schemas (setup's `consent` must be literal `true`), the unknown-host refusal before
+//! any SSH (`configured` in `src/remote/hosts.ts`), setup's canonical-key and repo-not-mapped
+//! refusal (`setupJob`), and `host.clean` dry runs, which read the task store, run the local
 //! transfer gate and `pacer-lifecycle::hosts::clean`, and write nothing. Every other request is
-//! the reference operation's job (`checkJob`, `cleanJob`): the bridge carries
+//! the reference operation's job (`checkJob`, `cleanJob`, `setupJob`): the bridge carries
 //! `{"kind": <op>, "params": <the original params>}`, Core runs that operation, and its result
-//! or error is the reply unchanged. Jobs, SSH probes and clean mutations through the bundled
-//! plugins, one-use grants, `state/host-checks.json` and the remote usage cache stay in Core.
-//! Over stdio those requests are forwarded instead, so the core child keeps answering
-//! pipelined requests while a job runs. `host.repo.setup` stays forwarded.
+//! or error is the reply unchanged. Jobs, the local checkout search, SSH probes, clones,
+//! identity writes and clean mutations through the bundled plugins, one-use grants,
+//! `state/host-checks.json` and the remote usage cache stay in Core. Over stdio those requests
+//! are forwarded instead, so the core child keeps answering pipelined requests while a job runs.
 #![allow(clippy::result_large_err)]
 use pacer_config::strategy::load_strategy;
 use pacer_foundation::{
@@ -47,7 +48,7 @@ pub enum Admission {
 
 /// Ops a front door answers through [`admit`] and, for admitted requests, Core.
 pub fn needs_host_effects(op: &str) -> bool {
-    matches!(op, "host.check" | "host.clean")
+    matches!(op, "host.check" | "host.clean" | "host.repo.setup")
 }
 
 /// Registry entry for ops that run only through [`call`].
@@ -60,41 +61,55 @@ pub fn host_effects_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 
-/// Work-grant callers, whose scope Core checks, and `host.repo.setup`, which has no native
-/// arm yet.
+/// Work-grant callers, whose scope Core checks.
 pub fn host_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
-    match op {
-        "host.check" | "host.clean" => ctx
+    needs_host_effects(op)
+        && ctx
             .env
             .get("PACER_WORK_GRANT")
-            .is_some_and(|grant| !grant.is_empty()),
-        "host.repo.setup" => true,
-        _ => false,
-    }
+            .is_some_and(|grant| !grant.is_empty())
 }
 
 /// `parseOpParams` and the reference operation up to its first Core effect. A strategy or
 /// task store Rust cannot read leaves the request to Core, which reports its own error.
 pub fn admit(ctx: &Ctx, op: &str, params: &Value) -> Result<Admission, CoreError> {
+    use Field::{Bool, Id, NonEmpty, True};
     authorize(ctx)?;
-    let (alias, dry_run) = match op {
-        "host.check" => (parse(params, ("repo", Field::NonEmpty))?, false),
-        "host.clean" => {
-            let alias = parse(params, ("dry_run", Field::Bool))?;
-            (alias, params.get("dry_run") == Some(&Value::Bool(true)))
-        }
+    let schema: &[(&str, Field)] = match op {
+        "host.check" => &[("alias", Id), ("repo", NonEmpty)],
+        "host.clean" => &[("alias", Id), ("dry_run", Bool)],
+        "host.repo.setup" => &[
+            ("alias", Id),
+            ("key", Id),
+            ("clone", Bool),
+            ("identity", Bool),
+            ("consent", True),
+        ],
         _ => return Err(CoreError::new(Code::UnknownOp, "unknown operation")),
     };
+    let params = parse(params, schema)?;
+    let text = |name: &str| params.get(name).and_then(Value::as_str).unwrap_or_default();
+    let alias = text("alias");
     let Ok(strategy) = load_strategy(&ctx.pacer_home) else {
         return Ok(Admission::Core);
     };
-    let Some(host) = strategy["hosts"].get(&alias) else {
+    let Some(host) = strategy["hosts"].get(alias) else {
         return Err(invalid(format!("unknown host {alias}")));
     };
-    if !dry_run {
-        return Ok(Admission::Core);
+    match op {
+        "host.repo.setup" => {
+            let key = text("key").to_lowercase();
+            if !hosts::canonical(&key) || host["repos"].get(&key).is_none() {
+                return Err(invalid(format!("repo not mapped on {alias}"))
+                    .hint("Use a mapped canonical host/owner/repo key."));
+            }
+            Ok(Admission::Core)
+        }
+        "host.clean" if params.get("dry_run") == Some(&Value::Bool(true)) => {
+            Ok(clean_preview(ctx, alias, host).map_or(Admission::Core, Admission::Native))
+        }
+        _ => Ok(Admission::Core),
     }
-    Ok(clean_preview(ctx, &alias, host).map_or(Admission::Core, Admission::Native))
 }
 
 /// Dispatch an admitted request; `core` runs the reference operation through the bridge.
@@ -117,46 +132,47 @@ pub async fn call(
 }
 
 enum Field {
+    /// `id`: `z.string().min(1).max(128)`.
+    Id,
     /// `z.string().min(1).optional()`.
     NonEmpty,
     /// `z.boolean().optional()`.
     Bool,
+    /// `z.literal(true)`.
+    True,
 }
 
-/// `{alias: id, <optional field>}` with Zod's issue text in schema order; returns the alias.
-fn parse(params: &Value, (name, field): (&str, Field)) -> Result<String, CoreError> {
+/// `def.params.safeParse(params ?? {})` with Zod's issue texts in schema order.
+fn parse(params: &Value, schema: &[(&str, Field)]) -> Result<Map<String, Value>, CoreError> {
     let map = params_object(params)?;
-    let mut issues = Vec::new();
-    let alias = match map.get("alias") {
-        Some(Value::String(alias)) => {
-            match alias.encode_utf16().count() {
-                0 => issues.push(too_small("alias")),
-                n if n > 128 => {
-                    issues.push("alias: Too big: expected string to have <=128 characters".into())
-                }
-                _ => {}
-            }
-            alias.clone()
-        }
-        other => {
-            issues.push(expected("alias", "string", other));
-            String::new()
-        }
-    };
-    match (field, map.get(name)) {
-        (_, None) | (Field::Bool, Some(Value::Bool(_))) => {}
-        (Field::NonEmpty, Some(Value::String(text))) => {
-            if text.is_empty() {
-                issues.push(too_small(name));
-            }
-        }
-        (Field::NonEmpty, other) => issues.push(expected(name, "string", other)),
-        (Field::Bool, other) => issues.push(expected(name, "boolean", other)),
-    }
+    let issues: Vec<String> = schema
+        .iter()
+        .filter_map(|(name, field)| issue(name, field, map.get(*name)))
+        .collect();
     if issues.is_empty() {
-        Ok(alias)
+        Ok(map)
     } else {
         Err(invalid(issues.join("; ")))
+    }
+}
+
+fn issue(name: &str, field: &Field, value: Option<&Value>) -> Option<String> {
+    match (field, value) {
+        (Field::True, Some(Value::Bool(true)))
+        | (Field::NonEmpty | Field::Bool, None)
+        | (Field::Bool, Some(Value::Bool(_))) => None,
+        (Field::True, _) => Some(format!("{name}: Invalid input: expected true")),
+        (Field::Id | Field::NonEmpty, Some(Value::String(text))) => {
+            match text.encode_utf16().count() {
+                0 => Some(too_small(name)),
+                n if n > 128 && matches!(field, Field::Id) => Some(format!(
+                    "{name}: Too big: expected string to have <=128 characters"
+                )),
+                _ => None,
+            }
+        }
+        (Field::Id | Field::NonEmpty, other) => Some(expected(name, "string", other)),
+        (Field::Bool, other) => Some(expected(name, "boolean", other)),
     }
 }
 
