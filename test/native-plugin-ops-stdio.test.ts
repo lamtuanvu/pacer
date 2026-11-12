@@ -378,6 +378,35 @@ test.skipIf(!front)("a stdio connection attaches to the live serve owner and sha
   }
 }, 90000);
 
+const fxState = async (call: (op: string, params: unknown) => Promise<Reply>) =>
+  (await call("plugin.list", {})).json.result.plugins.find((p: any) => p.id === "fx-ui").state;
+
+test.skipIf(!front)("serve's Core reports a child it rendered through as ready", async () => {
+  const h = makeHome();
+  const service = await serve(h, "", ownerOn);
+  try {
+    await service.call("plugin.enable", { id: "fx-ui", grant: true });
+    expect((await service.call("plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context })).json.error).toBeUndefined();
+    expect(await fxState(service.call)).toBe("ready");
+  } finally { await service.stop(); h.done(); }
+}, 60000);
+
+/**
+ * Routed (sealed owner bridge): the owner reuses a lane an attached connection's Core sealed, so
+ * serve's Core never sees that child's hello and keeps reporting it idle after its own render.
+ */
+(front ? test.failing : test.skip)("routed: serve's Core reports a child started for an attached connection as ready after its own render", async () => {
+  const h = makeHome();
+  const service = await serve(h, "", ownerOn);
+  const s = await stdio(h, "", ownerOn);
+  try {
+    await s.call("plugin.enable", { id: "fx-ui", grant: true });
+    expect((await s.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
+    expect((await service.call("plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context })).json.error).toBeUndefined();
+    expect(await fxState(service.call)).toBe("ready");
+  } finally { await s.stop(); await service.stop(); h.done(); }
+}, 60000);
+
 test.skipIf(!front)("a serve starts beside a stdio owner, both keep working, and later connections attach", async () => {
   const h = makeHome();
   writeFileSync(join(h.plugin, "main.ts"), recordingMain);
