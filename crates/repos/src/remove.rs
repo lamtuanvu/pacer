@@ -3,6 +3,8 @@
 //! both files with `writeJsonAtomic`. Both files are read as `readJson` does (`JSON.parse` of
 //! the lossy UTF-8 text, `null` on any read or parse failure); the registry also goes through
 //! the object spread of `registry()`, while the aliases are written back without spreading.
+#[cfg(unix)]
+use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError},
@@ -23,19 +25,38 @@ const DEPTH: usize = 128;
 
 /// Inputs whose TypeScript outcome is not reproduced: a lone UTF-16 surrogate, nesting deeper
 /// than `DEPTH`, a registry path that is a directory or another non-regular file (reading a
-/// FIFO blocks), a state directory that is not a usable directory, and the engine `TypeError`s
-/// of a `null` registry entry or a deletion from a string alias file.
+/// FIFO blocks) or whose reads cannot be made blocking, a state directory that is not a usable
+/// directory, and the engine `TypeError`s of a `null` registry entry or a deletion from a
+/// string alias file.
 struct NeedsCore;
 
-fn open(path: &Path) -> std::io::Result<fs::File> {
+/// The regular file at `path`, open for blocking reads. It is opened `O_NONBLOCK` so a FIFO
+/// cannot block the open, and the flag is cleared once `fstat` confirms a regular file, so a
+/// filesystem that honors it cannot fail the read with `EAGAIN` and turn a readable registry
+/// into `null`. `Ok(None)` is an open or `fstat` failure, which `readJson` reads as `null`.
+fn open_regular(path: &Path) -> Result<Option<fs::File>, NeedsCore> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK);
+        options.custom_flags(OFlag::O_NONBLOCK.bits());
     }
-    options.open(path)
+    let Ok(file) = options.open(path) else {
+        return Ok(None);
+    };
+    match file.metadata() {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => return Err(NeedsCore),
+        Err(_) => return Ok(None),
+    }
+    #[cfg(unix)]
+    {
+        let flags = fcntl(&file, FcntlArg::F_GETFL).map_err(|_| NeedsCore)?;
+        let flags = OFlag::from_bits_retain(flags).difference(OFlag::O_NONBLOCK);
+        fcntl(&file, FcntlArg::F_SETFL(flags)).map_err(|_| NeedsCore)?;
+    }
+    Ok(Some(file))
 }
 
 fn plain(value: &Value) -> bool {
@@ -70,17 +91,12 @@ fn read_json(path: &Path) -> Result<Option<Value>, NeedsCore> {
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         _ => return Err(NeedsCore),
     }
+    let Some(mut file) = open_regular(path)? else {
+        return Ok(None);
+    };
     let mut bytes = Vec::new();
-    let regular = open(path).and_then(|mut file| {
-        if !file.metadata()?.is_file() {
-            return Ok(false);
-        }
-        file.read_to_end(&mut bytes).map(|_| true)
-    });
-    match regular {
-        Ok(true) => {}
-        Ok(false) => return Err(NeedsCore),
-        Err(_) => return Ok(None),
+    if file.read_to_end(&mut bytes).is_err() {
+        return Ok(None);
     }
     match quoted::parse_file(&bytes) {
         Ok(value) if plain(&value) => Ok(Some(value)),
@@ -180,4 +196,22 @@ pub fn remove_repo(ctx: &Ctx, key: &str) -> Result<Value, CoreError> {
         Ok(json!({"removed": true}))
     })
     .map_err(internal)?
+}
+
+#[cfg(all(test, unix))]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn regular_files_are_read_with_o_nonblock_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("repos.json");
+        fs::write(&path, "{}").unwrap();
+        let Ok(Some(file)) = open_regular(&path) else {
+            panic!("{path:?} did not open as a regular file");
+        };
+        let flags = OFlag::from_bits_retain(fcntl(&file, FcntlArg::F_GETFL).unwrap());
+        assert!(!flags.contains(OFlag::O_NONBLOCK));
+    }
 }
