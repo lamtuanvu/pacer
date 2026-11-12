@@ -137,8 +137,15 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     const draft = drafts.find(d => d.runner === id);
     const available = availableById[id];
     const loadError = loadErrors[id];
-    return { id, draft, available, loadError };
+    const account = inventory.data?.models.find(m => m.runner === id)?.account;
+    return { id, draft, available, loadError, account };
   });
+
+  /** Show the listing provider only when it adds information: absent or equal to the account name, do not repeat it. */
+  const displayProvider = (r: { available?: AvailableModels; account?: string }): string | null => {
+    const provider = r.available?.provider;
+    return provider && provider !== r.account ? provider : null;
+  };
 
   const updateDraft = (runner: string, updater: (draft: MatrixDraft) => MatrixDraft) => {
     setDrafts(prev => prev.map(d => d.runner === runner ? updater(d) : d));
@@ -275,13 +282,16 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
 
   const filters = [
     { key: "all", label: "All agents" },
-    ...runners.map(r => ({ key: r.id, label: `${executorLabel(r.id)} › ${r.available?.provider ?? r.id}` })),
+    ...runners.map(r => {
+      const provider = displayProvider(r);
+      return { key: r.id, label: provider ? `${executorLabel(r.id)} › ${provider}` : executorLabel(r.id) };
+    }),
   ];
 
   const visibleRunners = filter === "all" ? runners : runners.filter(r => r.id === filter);
 
   return (
-    <Section id="model-matrix" title="Model matrix" detail="Every model each agent can run.">
+    <Section id="models" title="Model matrix" detail="Every model each agent can run.">
       <ResourceState resource={config}>
         {config.data && (
           <ResourceState resource={inventory}>
@@ -315,8 +325,9 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                   ))}
                 </div>
 
-                {visibleRunners.map(({ id, draft, available, loadError }) => {
+                {visibleRunners.map(({ id, draft, available, loadError, account }) => {
                   const planner = isPlanner(id);
+                  const shownProvider = displayProvider({ available, account });
                   const listingModels = available?.models ?? null;
                   const unknownListing = available?.source === "none" || listingModels === null;
                   const noModels = (listingModels?.length ?? 0) === 0 && (draft?.rows.length ?? 0) === 0;
@@ -325,7 +336,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                     <div key={id} className="pc-model-matrix__group">
                       <div className="pc-model-matrix__group-head">
                         <strong>{executorLabel(id)}</strong>
-                        <span className="u3-muted">› {available?.provider ?? id}</span>
+                        {shownProvider && <span className="u3-muted">› {shownProvider}</span>}
                         <span className="mono u3-muted">{id}</span>
                         {draft && <span className="u3-muted">{draft.rows.length} model{draft.rows.length === 1 ? "" : "s"} · {draft.rows.filter(r => r.on).length} on</span>}
                       </div>
@@ -333,7 +344,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       {loadError && <p className="u3-muted">{loadError}</p>}
                       {!readOnly && noModels && <p className="u3-muted">Uses its default and can take any difficulty</p>}
                       {!readOnly && unknownListing && (
-                        <div className="u3-actions">
+                        <div className="pc-model-matrix__add">
                           <Field label="Add model"><TextInput value={addingByRunner[id] ?? ""} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
                           <Button size="sm" onClick={() => handleAdd(id)}>Add</Button>
                         </div>
@@ -399,8 +410,8 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                     return (
                       <div key={diff} className="pc-card">
                         <span>{diff.charAt(0).toUpperCase() + diff.slice(1)} · needs {targets[diff]}</span>
-                        <span>{count} models</span>
-                        <span className="u3-muted">Plus {defaultExecutors} executors that use their default model.</span>
+                        <span>{count} {count === 1 ? "model" : "models"}</span>
+                        <span className="u3-muted">Plus {defaultExecutors} {defaultExecutors === 1 ? "executor" : "executors"} that use their default model.</span>
                       </div>
                     );
                   })}

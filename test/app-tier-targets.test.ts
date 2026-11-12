@@ -3,7 +3,7 @@ import type { ModelRecord, TierTargets } from "../src/dispatch/types";
 import { TIERS } from "../src/dispatch/candidates";
 import {
   adjustTier, applyPreset, matchingPreset, PRESETS, PRESET_LABELS, steeredCount, groupPreview,
-  DIFFICULTIES, RATED_TIERS, type RatedTier,
+  unsteeredCopy, DIFFICULTIES, RATED_TIERS, type RatedTier,
 } from "../app/src/model/tier-targets";
 
 const balanced: TierTargets = { simple: "small", standard: "medium", complex: "frontier" };
@@ -124,4 +124,21 @@ test("adjustTier with a rated tier argument type guards the whole space", () => 
   expect(TIERS[next.simple]).toBeLessThanOrEqual(TIERS.medium);
   expect(TIERS[next.standard]).toBeLessThanOrEqual(TIERS.medium);
   expect(TIERS[next.complex]).toBe(TIERS.medium);
+});
+
+test("unsteeredCopy keeps correct agreement and never prints a zero clause", () => {
+  expect(unsteeredCopy(1, 1))
+    .toBe("1 executor runs a model nobody has rated, and 1 executor picks its own model, so every task gets the same model whatever its difficulty.");
+  expect(unsteeredCopy(2, 1))
+    .toBe("2 executors run models nobody has rated, and 1 executor picks its own model, so every task gets the same model whatever its difficulty.");
+  expect(unsteeredCopy(1, 2))
+    .toBe("1 executor runs a model nobody has rated, and 2 executors pick their own model, so every task gets the same model whatever its difficulty.");
+  // Zero groups are dropped entirely, leaving only the non-empty part.
+  expect(unsteeredCopy(0, 2))
+    .toBe("2 executors pick their own model, so every task gets the same model whatever its difficulty.");
+  expect(unsteeredCopy(2, 0))
+    .toBe("2 executors run models nobody has rated, so every task gets the same model whatever its difficulty.");
+  expect(unsteeredCopy(1, 0))
+    .toBe("1 executor runs a model nobody has rated, so every task gets the same model whatever its difficulty.");
+  expect(unsteeredCopy(0, 0)).toBe("");
 });

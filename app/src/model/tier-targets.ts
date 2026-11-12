@@ -141,5 +141,17 @@ export function groupPreview(records: readonly ModelRecord[], targets: TierTarge
   };
 }
 
+/**
+ * Sentence explaining why difficulty steers nothing, built from the non-empty
+ * unrated/fixed groups only (a zero clause is never printed). Picks correct
+ * agreement for both singular and plural executors.
+ */
+export function unsteeredCopy(unrated: number, fixed: number): string {
+  const parts: string[] = [];
+  if (unrated > 0) parts.push(`${unrated} ${unrated === 1 ? "executor runs a model nobody has rated" : "executors run models nobody has rated"}`);
+  if (fixed > 0) parts.push(`${fixed} ${fixed === 1 ? "executor picks its own model" : "executors pick their own model"}`);
+  return parts.length ? `${parts.join(", and ")}, so every task gets the same model whatever its difficulty.` : "";
+}
+
 /** Readable heading strings used by the preview, mirroring the view-model copy style. */
 export const DIFFICULTY_TITLES = difficultyLabels;

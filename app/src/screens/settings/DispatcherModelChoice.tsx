@@ -15,7 +15,7 @@ import { ResourceState, Section, useResource, useScoped } from "./shared";
 import { difficultyLabels, tierLabels } from "../../model/executor-models";
 import {
   adjustTier, applyPreset, matchingPreset, PRESETS, PRESET_LABELS, groupPreview,
-  RATED_TIERS, DIFFICULTIES, type PresetName, type RatedTier, type Difficulty,
+  unsteeredCopy, RATED_TIERS, DIFFICULTIES, type PresetName, type RatedTier, type Difficulty,
 } from "../../model/tier-targets";
 import { hrefFor, routes, SETTINGS_SECTIONS } from "../../router";
 import type { DispatcherInventory } from "./Dispatcher";
@@ -71,6 +71,13 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   const [targets, setTargets] = useState(initialTargets ?? initialConfig?.config.tierTargets);
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [notice, setNotice] = useState("");
   const pending = useRef(false);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout>>();
+  /** Show a status in the save-bar region, then keep it for a few seconds or until the next edit. */
+  const flashNotice = (text: string) => {
+    setNotice(text);
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(""), 4000);
+  };
   const [dialog, setDialog] = useState(false);
   const [profileName, setProfileName] = useState("");
   const dirty = !!targets && !!base && !same(targets, base.config.tierTargets);
@@ -83,15 +90,15 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
 
   const pickTier = (difficulty: Difficulty, tier: RatedTier) => {
     if (!targets) return;
-    setTargets(adjustTier(targets, difficulty, tier)); setNotice(""); setError(undefined);
+    setTargets(adjustTier(targets, difficulty, tier)); clearTimeout(noticeTimer.current); setNotice(""); setError(undefined);
   };
   const pickPreset = (name: PresetName) => {
     if (!targets) return;
-    setTargets(applyPreset(targets, name)); setNotice(""); setError(undefined);
+    setTargets(applyPreset(targets, name)); clearTimeout(noticeTimer.current); setNotice(""); setError(undefined);
   };
   const discard = () => {
     if (config.data) { setBase(config.data); setTargets(config.data.config.tierTargets); }
-    setError(undefined); setNotice(""); setDialog(false);
+    clearTimeout(noticeTimer.current); setError(undefined); setNotice(""); setDialog(false);
   };
 
   const saveInPlace = async () => {
@@ -101,24 +108,24 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
       const result = await saveTierTargetsInPlace(api.call.bind(api), base, targets);
       if (result.ok) {
         setBase({ ...base, config: { ...base.config, tierTargets: targets } });
-        setNotice("Saved. New tasks use these choices now."); config.reload(); inventory.reload(); onSaved?.();
+        flashNotice("Saved. New tasks use these choices now."); config.reload(); inventory.reload(); onSaved?.();
       } else {
         // Conflict: the setup changed elsewhere since this draft began. Keep the draft so it can be
         // saved as a new setup; do not reload or overwrite the active setup with it.
-        setNotice("The active setup changed elsewhere. Discard to load it, or save as a new setup.");
+        flashNotice("The active setup changed elsewhere. Discard to load it, or save as a new setup.");
       }
     } catch (failure) { setError(failure); }
     finally { pending.current = false; setBusy(false); }
   };
-  const openName = () => { setProfileName(""); setError(undefined); setNotice(""); setDialog(true); };
+  const openName = () => { clearTimeout(noticeTimer.current); setProfileName(""); setError(undefined); setNotice(""); setDialog(true); };
   const saveAsNew = async () => {
     if (!base || !targets || !profileName.trim() || pending.current) return;
-    pending.current = true; setBusy(true); setError(undefined); setNotice("");
+    pending.current = true; setBusy(true); setError(undefined); clearTimeout(noticeTimer.current); setNotice("");
     try {
       await saveTierTargets(api.call.bind(api), base, targets, profileName.trim());
       setDialog(false);
       setBase({ ...base, strategy: profileName.trim(), config: { ...base.config, tierTargets: targets } });
-      setNotice("Saved as a new setup and made it active."); config.reload(); inventory.reload(); onSaved?.();
+      flashNotice("Saved as a new setup and made it active."); config.reload(); inventory.reload(); onSaved?.();
     } catch (failure) { setError(failure); }
     finally { pending.current = false; setBusy(false); }
   };
@@ -137,7 +144,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
     detail = "When executors are added, rate their models in the model matrix so task difficulty steers which model runs.";
   } else if (steered === 0) {
     headline = "Task difficulty does not change any model yet";
-    detail = `${grouping!.unrated.length} ${grouping!.unrated.length === 1 ? "executor runs" : "executors run"} a model nobody has rated, and ${grouping!.fixed.length} ${grouping!.fixed.length === 1 ? "executor picks" : "executors pick"} its own model, so every task gets the same model whatever its difficulty. Rate models in the model matrix to make these choices count.`;
+    detail = `${unsteeredCopy(grouping!.unrated.length, grouping!.fixed.length)} Rate models in the model matrix to make these choices count.`;
   } else {
     headline = `Task difficulty now steers ${steered} of ${count} executors`;
     detail = `Simple work goes to ${tierLabels[targets!.simple].toLowerCase()} models and complex work to ${tierLabels[targets!.complex].toLowerCase()} models.`
@@ -228,20 +235,22 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
           </ResourceState>
         </div>
 
-        {dirty && <div className="u3-save-bar">
-          <div className="pc-model-choice__savecopy">
-            <span role="status" aria-live="polite">{busy ? "Saving…" : `${changeCount} unsaved change${changeCount === 1 ? "" : "s"}`}</span>
-            <span className="u3-muted">Saving updates the active setup {base?.strategy}. New tasks use it at once.</span>
-          </div>
-          <div className="u3-actions">
-            <Button variant="ghost" disabled={busy} onClick={discard}>Discard</Button>
-            <Button variant={directSave ? "secondary" : "primary"} disabled={busy} onClick={openName}>Save as new setup…</Button>
-            {directSave && <Button variant="primary" busy={busy} onClick={() => void saveInPlace()}>Save</Button>}
-          </div>
+        {(dirty || notice) && <div className="pc-model-choice__savedock">
+          {dirty && <div className="u3-save-bar">
+            <div className="pc-model-choice__savecopy">
+              <span role="status" aria-live="polite">{busy ? "Saving…" : `${changeCount} unsaved change${changeCount === 1 ? "" : "s"}`}</span>
+              <span className="u3-muted">Saving updates the active setup “{base?.strategy}”. New tasks use it at once.</span>
+            </div>
+            <div className="u3-actions">
+              <Button variant="ghost" disabled={busy} onClick={discard}>Discard</Button>
+              <Button variant={directSave ? "secondary" : "primary"} disabled={busy} onClick={openName}>Save as new setup…</Button>
+              {directSave && <Button variant="primary" busy={busy} onClick={() => void saveInPlace()}>Save</Button>}
+            </div>
+          </div>}
+          {notice && <div className="pc-model-choice__notice" role="status" aria-live="polite">{notice}</div>}
         </div>}
 
         <ErrorMessage error={error} />
-        {notice && <p role="status">{notice}</p>}
 
         {dialog && <Dialog title="Save as a new setup" close={() => setDialog(false)}>
           <form className="pc-stack pc-stack--normal" onSubmit={event => { event.preventDefault(); void saveAsNew(); }}>
