@@ -197,7 +197,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,row
   {shell&&state.status==='live'&&!state.you&&!shared&&<div className="pc-terminal-connection"><Button size="sm" variant="quiet" onClick={toggleControl}>Take control</Button></div>}
 
   <div className={`pc-terminal-frame${holding?' pc-terminal-frame--control':''}${footer?' pc-terminal-frame--fill':''}`}><div className="pc-terminal-pane" ref={pane} tabIndex={preview?0:shared?-1:undefined} role={preview?'region':'group'} aria-label={preview?'Terminal output':paneName}><div ref={mount} className="pc-terminal-mount"/></div>
-   {!footer&&!shell&&<div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}</strong><span>{hint}</span>{state.message&&<span role="status">{state.message}</span>}<span>{state.cols}×{state.rows}</span>{readerToggle}</div>}
+   {!footer&&!shell&&<div className="pc-terminal-strip"><strong role="status" aria-live="polite">{mode}{state.message&&state.status!=='resyncing'?` · ${state.message}`:''}</strong><span>{hint}</span><span>{state.cols}×{state.rows}</span>{readerToggle}</div>}
   </div>
   {shell?<>{error&&<span role="alert">{error}</span>}</>:footer?createPortal(<div className={`pc-session-control${holding?' pc-session-control--driving':''}`}>
    <strong className="pc-session-control__mode" role="status" aria-live="polite"><span className="pc-session-control__dot" aria-hidden="true"/><span className="pc-session-control__label" title={mode}>{mode}</span></strong>

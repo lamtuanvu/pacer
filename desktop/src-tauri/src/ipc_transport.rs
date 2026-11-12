@@ -224,7 +224,9 @@ fn reserve(pending: &mut usize, size: usize) -> bool {
 /// with terminal_ack; while its 1 MiB budget is full the attachment stops
 /// reading the socket so the server buffers (a replay of an ended session
 /// would otherwise overflow every attach and loop on resync). Returns false
-/// only when the frame can never fit or the page stops acking.
+/// when the frame can never fit, the attachment is cancelled, or the page
+/// sends no ack for 30 seconds. A false return always ends the attachment, so
+/// the cancel receiver is never polled again after it resolves.
 async fn admit(
     pending: &Arc<Mutex<usize>>,
     room: &Arc<tokio::sync::Notify>,
@@ -234,26 +236,19 @@ async fn admit(
     if size > 1024 * 1024 {
         return false;
     }
-    match tokio::time::timeout(std::time::Duration::from_secs(30), async {
-        loop {
-            // Register the wakeup before checking, or an ack landing between
-            // the check and the await would never wake the wait.
-            let notified = room.notified();
-            tokio::pin!(notified);
-            if reserve(&mut pending.lock().unwrap(), size) {
-                return true;
-            }
-            tokio::select! {
-                _ = &mut notified => {}
-                _ = &mut *cancelled => return false,
-            }
+    loop {
+        // Register the wakeup before checking, or an ack landing between
+        // the check and the await would never wake the wait.
+        let notified = room.notified();
+        tokio::pin!(notified);
+        if reserve(&mut pending.lock().unwrap(), size) {
+            return true;
         }
-    })
-    .await
-    {
-        Ok(admitted) => admitted,
-        // No ack progress for 30s: give up as before.
-        Err(_) => false,
+        tokio::select! {
+            _ = &mut notified => {}
+            _ = &mut *cancelled => return false,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => return false,
+        }
     }
 }
 fn cancel_stream(
