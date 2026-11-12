@@ -658,21 +658,17 @@ async fn dispatch_call(
                         "call must carry Core's spawn spec and authority",
                     );
                 }
-                Ok(Some(sealed)) => sealed,
+                Ok(None) => {}
+            }
+            let tracked = owner.lock().await.lane_for_call(plugin_id);
+            let called = match tracked {
+                Ok((lane, session)) => {
+                    lane.call(session, method, call_params, deadline, None)
+                        .await
+                }
+                Err(error) => Err(error),
             };
-            let until = Instant::now() + deadline;
-            match call_sealed(
-                owner,
-                plugin_id,
-                method,
-                call_params,
-                until,
-                cancel,
-                sealed,
-                Some(forward),
-            )
-            .await
-            {
+            match called {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
                 Err((failure, logs)) => {
                     let mut data = json!({"code": failure.code});
