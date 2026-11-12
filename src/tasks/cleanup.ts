@@ -14,7 +14,7 @@ import { removeTaskWorktree, taskWorktreePath, taskWorktreesDir, worktreeDirty }
 import { cleanSettledSessions } from "../session/retention";
 import { cleanHostWorktree, reconcileHostWork } from "../exec/cleanup";
 import { TERMINAL_STATES, type TaskRecord } from "./types";
-import { listTasksWhere, readTask } from "./store";
+import { listTasksWhere, readTask, taskIdsInStates } from "./store";
 import { withLock } from "../core/lock";
 import { cleanTaskRuns } from "./diff";
 import { taskActivity } from "./activity";
@@ -306,11 +306,11 @@ function recordCleanupError(ctx: Ctx, id: string, error: unknown): void {
 export async function clean(ctx: Ctx, o: { dryRun?: boolean; force?: boolean } = {}): Promise<CleanResult> {
   const result: CleanResult = {removed: [], kept: []};
   if (!o.dryRun) await reconcileHostWork(ctx);
-  for (const task of listTasksWhere(ctx, {states: TERMINAL_STATES})) {
+  for (const id of taskIdsInStates(ctx, TERMINAL_STATES)) {
     try {
-      const one = await cleanTask(ctx, task.id, o);
+      const one = await cleanTask(ctx, id, o);
       result.removed.push(...one.removed); result.kept.push(...one.kept);
-    } catch (error) { result.kept.push({id: task.id, reason: String(error)}); }
+    } catch (error) { result.kept.push({id, reason: String(error)}); }
   }
   result.kept.push(...leftoverDeletes(ctx));
   if (!o.dryRun) cleanSettledSessions(ctx);

@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { fakeCtx, gitRepo } from './helpers';
 import { createTask, listTasks, readTask } from '../src/tasks/store';
 import { createAgentSession, listAgentSessions, getAgentSession, changeAgentSession, agentSessionDirectory } from '../src/session/agents';
@@ -47,7 +47,7 @@ test('failed starts remain discoverable and executor contexts cannot create sess
  expect(listTasks(ctx,100)).toHaveLength(1);
 });
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readRun } from '../src/supervisor/run';
 import { startServer } from '../src/serve/http';
@@ -181,6 +181,73 @@ test('native adapter launch isolates Claude identities and hook directories and 
 },15000);
 
 import { taskDatabase } from '../src/tasks/store';
+import * as readonlyStore from '../src/dispatch/readonly';
+test('session snapshots reuse their read-only handle and missing stores remain empty without creation',()=>{
+ const ctx=fakeCtx();mkdirSync(ctx.pacerHome,{recursive:true});
+ const open=spyOn(readonlyStore,'openReadOnlyStore');
+ try{
+  expect(activeAgentSessions(ctx)).toEqual([]);expect(activeAgentSessions(ctx)).toEqual([]);
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(existsSync(join(ctx.pacerHome,'state','tasks.db'))).toBe(false);
+ }finally{open.mockRestore();}
+});
+test('session snapshots reopen their read-only handle when the database file is replaced',async()=>{
+ const {Database}=await import('bun:sqlite');
+ const ctx=fakeCtx(),state=join(ctx.pacerHome,'state'),path=join(state,'tasks.db'),old=`${path}.old`;
+ mkdirSync(state,{recursive:true});
+ const initial=new Database(path);initial.run('CREATE TABLE tasks (id TEXT)');initial.run('CREATE TABLE agent_sessions (id TEXT, task_id TEXT, record TEXT)');initial.run('CREATE TABLE agent_session_revision (id INTEGER, generation INTEGER)');initial.run('INSERT INTO agent_session_revision VALUES (1,0)');initial.close();
+ expect(activeAgentSessions(ctx)).toEqual([]);
+ renameSync(path,old);
+ const replacement=new Database(path);
+ replacement.run('CREATE TABLE tasks (id TEXT)');
+ replacement.run('CREATE TABLE agent_sessions (id TEXT, task_id TEXT, record TEXT)');
+ replacement.run('CREATE TABLE agent_session_revision (id INTEGER, generation INTEGER)');
+ replacement.run('INSERT INTO agent_session_revision VALUES (1,1)');
+ const session={id:'replacement-session',task_id:'replacement-task',ordinal:0,executor:'codex',request:'Review',cwd:ctx.home,createdAt:ctx.now,attempt:1,state:'starting' as const,rev:1,attempts:[]};
+ replacement.query('INSERT INTO agent_sessions VALUES (?,?,?)').run(session.id,session.task_id,JSON.stringify(session));
+ replacement.close();
+ expect(activeAgentSessions(ctx)).toEqual([session]);
+});
+test('a session read never caches the immutable fallback and observes rows written afterwards',async()=>{
+ const {Database}=await import('bun:sqlite');
+ const ctx=fakeCtx(),state=join(ctx.pacerHome,'state'),path=join(state,'tasks.db');
+ mkdirSync(state,{recursive:true});
+ const original=readonlyStore.openReadOnlyStore;
+ const open=spyOn(readonlyStore,'openReadOnlyStore');
+ const writer=new Database(path);
+ try{
+  writer.run('PRAGMA journal_mode=WAL');writer.run('CREATE TABLE tasks (id TEXT)');writer.run('CREATE TABLE agent_sessions (id TEXT, task_id TEXT, record TEXT)');writer.run('CREATE TABLE agent_session_revision (id INTEGER, generation INTEGER)');writer.run('INSERT INTO agent_session_revision VALUES (1,0)');
+  // This SQLite build opens WAL stores read-only even without -wal/-shm, so the file
+  // state of the fallback cannot be produced here; label the first real handle as the
+  // immutable fallback instead. The policy must refuse to retain it so a later WAL is
+  // still observed, reopening on the next call.
+  open.mockImplementation(((c:any,strict?:boolean)=>({...original(c,strict),immutable:true}))as typeof readonlyStore.openReadOnlyStore);
+  expect(activeAgentSessions(ctx)).toEqual([]);
+  const session={id:'after-write-session',task_id:'written-task',ordinal:0,executor:'codex',request:'Review',cwd:ctx.home,createdAt:ctx.now,attempt:1,state:'starting' as const,rev:1,attempts:[]};
+  writer.query('INSERT INTO agent_sessions VALUES (?,?,?)').run(session.id,session.task_id,JSON.stringify(session));
+  writer.query('UPDATE agent_session_revision SET generation=1 WHERE id=1').run();
+  expect(activeAgentSessions(ctx)).toEqual([session]);
+  expect(open).toHaveBeenCalledTimes(2);
+  writer.close();
+ }finally{open.mockRestore();}
+});
+test('a cached session read observes tables created after the handle was opened',async()=>{
+ const {Database}=await import('bun:sqlite');
+ const ctx=fakeCtx(),state=join(ctx.pacerHome,'state'),path=join(state,'tasks.db');
+ mkdirSync(state,{recursive:true});
+ const open=spyOn(readonlyStore,'openReadOnlyStore');
+ const writer=new Database(path);
+ try{
+  writer.run('PRAGMA journal_mode=WAL');writer.run('CREATE TABLE tasks (id TEXT)');
+  expect(activeAgentSessions(ctx)).toEqual([]);
+  writer.run('CREATE TABLE agent_sessions (id TEXT, task_id TEXT, record TEXT)');
+  const session={id:'later-table-session',task_id:'later-table-task',ordinal:0,executor:'codex',request:'Review',cwd:ctx.home,createdAt:ctx.now,attempt:1,state:'starting' as const,rev:1,attempts:[]};
+  writer.query('INSERT INTO agent_sessions VALUES (?,?,?)').run(session.id,session.task_id,JSON.stringify(session));
+  expect(activeAgentSessions(ctx)).toEqual([session]);
+  expect(open).toHaveBeenCalledTimes(1);
+  writer.close();
+ }finally{open.mockRestore();}
+});
 test('unreadable reservation records fail closed instead of releasing checkout ownership',async()=>{
  const {ctx,input,deps}=fixture();await createAgentSession(ctx,input,deps);
  taskDatabase(ctx).query('UPDATE agent_sessions SET record=?').run('{broken');

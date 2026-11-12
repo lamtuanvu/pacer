@@ -525,6 +525,9 @@ export function legacyTaskRepoPaths(ctx: Ctx): string[] {
 /** Indexed predicates combined with AND, applied before the newest-first limit. */
 export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] {
   if (filter.states?.length === 0 || filter.visibleStates?.length === 0 || filter.limit === 0) return [];
+  const recentOnly = filter.updatedSince !== undefined && !filter.all && filter.states === undefined && filter.visibleStates === undefined
+    && filter.executor === undefined && filter.repoKey === undefined && filter.before === undefined
+    && filter.settledBefore === undefined && filter.createdSince === undefined;
   const clauses: string[] = [], bindings: SQLQueryBindings[] = [];
   if (!filter.all) clauses.push("archived = 0");
   if (filter.settledBefore !== undefined) { clauses.push("settled_at < ?"); bindings.push(filter.settledBefore); }
@@ -558,18 +561,53 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   // Raw state filters seek active states; repository aliases seek candidate IDs.
   // Neither should let archived=0 drive a scan over settled history.
   const index = filter.states ? " INDEXED BY tasks_state"
+    : recentOnly ? " INDEXED BY tasks_updated_at"
     : filter.repoKey !== undefined && filter.legacyRepoPaths?.length ? " INDEXED BY sqlite_autoindex_tasks_1" : "";
-  const sql = `SELECT record FROM tasks${index} ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`;
-  const rows = connection(ctx).db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
+  const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
+  const db = connection(ctx).db;
+  if (filter.states || recentOnly) {
+    // These indexes do not deliver ID order. Sorting whole records by ID would spill
+    // task JSON into a temp b-tree whose release holds SQLite's process-wide VFS
+    // mutex, so order the candidate IDs here and fetch only the selected records.
+    return db.transaction(() => {
+      const ids = db.query<{ id: string }, SQLQueryBindings[]>(`SELECT id FROM tasks${index} ${where}`).all(...bindings)
+        .map(row => row.id).sort(newestFirst);
+      return recordsByIds(db, limit < 0 ? ids : ids.slice(0, limit));
+    })();
+  }
+  const sql = `SELECT record FROM tasks${index} ${where} ORDER BY id DESC LIMIT ?`;
+  const rows = db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
   return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
+}
+
+const newestFirst = (a: string, b: string) => a < b ? 1 : a > b ? -1 : 0;
+
+/** Unarchived task IDs in the given raw states, newest first, without decoding records. */
+export function taskIdsInStates(ctx: Ctx, states: readonly string[]): string[] {
+  if (!states.length) return [];
+  return connection(ctx).db.query<{ id: string }, string[]>(
+    `SELECT id FROM tasks INDEXED BY tasks_state WHERE archived = 0 AND state IN (${states.map(() => "?").join(",")})`,
+  ).all(...states).map(row => row.id).sort(newestFirst);
+}
+
+/** Newest first, in batches below SQLite's bound-parameter limit. Callers that need one
+ *  snapshot across batches run it inside a transaction. */
+function recordsByIds(db: Database, ids: string[]): TaskRecord[] {
+  const records: TaskRecord[] = [];
+  for (let i = 0; i < ids.length; i += 500) {
+    const part = ids.slice(i, i + 500);
+    const rows = db.query<{ record: string }, string[]>(`SELECT record FROM tasks WHERE id IN (${part.map(() => "?").join(",")})`).all(...part);
+    for (const row of rows) { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; records.push(task); }
+  }
+  return records.sort((a, b) => newestFirst(a.id, b.id));
 }
 
 /** Reconcile cursors read IDs only; the caller decodes each selected page once. */
 export function taskIdPage(ctx: Ctx, before?: string, limit = 200): string[] {
   const db = connection(ctx).db;
   const rows = before === undefined
-    ? db.query<{ id: string }, [number]>("SELECT id FROM tasks WHERE archived=0 ORDER BY id DESC LIMIT ?").all(limit)
-    : db.query<{ id: string }, [string, number]>("SELECT id FROM tasks WHERE archived=0 AND id<? ORDER BY id DESC LIMIT ?").all(before, limit);
+    ? db.query<{ id: string }, [number]>("SELECT id FROM tasks INDEXED BY tasks_native_unarchived_id WHERE archived=0 ORDER BY id DESC LIMIT ?").all(limit)
+    : db.query<{ id: string }, [string, number]>("SELECT id FROM tasks INDEXED BY tasks_native_unarchived_id WHERE archived=0 AND id<? ORDER BY id DESC LIMIT ?").all(before, limit);
   return rows.map(row => row.id);
 }
 
@@ -599,9 +637,8 @@ export function listTasks(ctx: Ctx, limit = 20): TaskRecord[] {
 export function readTasksByIds(ctx: Ctx, ids: Iterable<string>): TaskRecord[] {
   const list = [...new Set(ids)].filter(isTaskId);
   if (!list.length) return [];
-  const sql = `SELECT record FROM tasks WHERE id IN (${list.map(() => "?").join(",")}) ORDER BY id DESC`;
-  const rows = connection(ctx).db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...list);
-  return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
+  const db = connection(ctx).db;
+  return list.length > 500 ? db.transaction(() => recordsByIds(db, list))() : recordsByIds(db, list);
 }
 
 /** Union of indexed active and recent selections for read-model consumers. */

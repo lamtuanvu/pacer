@@ -2,7 +2,6 @@ import { existsSync, utimesSync, mkdirSync, readFileSync, writeFileSync } from '
 import { join } from 'node:path';
 import { CoreError } from '../core/errors';
 import { withLock } from '../core/lock';
-import { openReadOnlyStore } from '../dispatch/readonly';
 import { readTask, taskDatabase, updateTask } from '../tasks/store';
 import { TERMINAL_STATES } from '../tasks/types';
 import { persistTaskDiff } from '../tasks/diff';
@@ -10,7 +9,7 @@ import { verifyRepo } from '../exec/verify';
 import { withWork } from '../update/desktop/admission';
 import { startRun, readRun, readOutput, stopRun } from '../supervisor/run';
 import type { ExecSpec, ExecResult } from '../exec/process';
-import { activeAgentSessions, workspaceBusy, canonical } from './agents-state';
+import { activeAgentSessions, workspaceBusy, canonical, withSessionStore } from './agents-state';
 import type { Ctx } from '../types';
 
 export interface AgentCheck {task:string;generation:number;verified:number;checking:number;workspace?:string;cancelled?:number}
@@ -26,8 +25,7 @@ function database(ctx:Ctx) {
  return db;
 }
 export function pendingAgentChecks(ctx:Ctx):AgentCheck[] {
- const db=openReadOnlyStore(ctx,true);
- try{return db.has('agent_session_checks')?db.query<AgentCheck>('SELECT * FROM agent_session_checks WHERE generation>verified'):[];}finally{db.close();}
+ return withSessionStore(ctx,db=>db.has('agent_session_checks')?db.query<AgentCheck>('SELECT * FROM agent_session_checks WHERE generation>verified'):[]);
 }
 export function agentChecksPending(ctx:Ctx,task:string):boolean {return pendingAgentChecks(ctx).some(c=>c.task===task);}
 /** Caller owns the registry and task clean locks. Any new attempt invalidates older checks/review. */

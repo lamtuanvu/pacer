@@ -34,8 +34,9 @@ test("active state queries seek the state index instead of walking unarchived hi
   let sql = "";
   try {
     expect(listTasksWhere(ctx, { states: ["queued", "running"] }).map(t => t.id)).toContain(task.id);
-    sql = query.mock.calls.map(args => args[0]).find(sql => sql.startsWith("SELECT record FROM tasks"))!;
+    sql = query.mock.calls.map(args => args[0]).find(sql => sql.startsWith("SELECT id FROM tasks"))!;
   } finally { query.mockRestore(); }
-  const plan = db.query(`EXPLAIN QUERY PLAN ${sql}`).all("queued", "running", -1) as { detail: string }[];
+  const plan = db.query(`EXPLAIN QUERY PLAN ${sql}`).all("queued", "running") as { detail: string }[];
   expect(plan.some(row => /SEARCH tasks USING INDEX tasks_state .*state=/.test(row.detail))).toBe(true);
+  expect(plan.some(row => row.detail.includes("TEMP B-TREE"))).toBe(false);
 });
