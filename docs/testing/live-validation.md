@@ -128,9 +128,25 @@ plugin process must be gone after the connection ends. On a running sandbox the 
 then checks `plugin.list` and `plugin.doctor` over HTTP. Run it again after
 `live down --keep` for a home without a service. `--stop-service` (only with
 `--native-plugin-host`) runs only the attached connection, keeps it open, stops the sandbox as
-`live down --keep` does, and requires `plugin_unavailable` from the next render. A sandbox
-started with `--native-plugin-host` binds `run/host.sock`, whose path must fit in 103 bytes, so
-run attach checks from a checkout with a short path.
+`live down --keep` does, and requires `plugin_unavailable` with a restart hint from the next
+render. A sandbox started with `--native-plugin-host` binds `run/host.sock`, whose path must
+fit in 103 bytes, so run attach checks from a checkout with a short path.
+
+The service's own plugin lifecycle has a fixed fixture, `bun run live native-plugin-owner
+--id <id>`, for a healthy `--front-door rust --native-plugin-host` sandbox. Over the guarded
+proxy it requires one SSE `config` event for the plugins area after each of `plugin.enable`,
+`plugin.disable` and `plugin.enable`. It then kills the service's `fx-ui` process three times:
+the `plugin.list` states must follow the TypeScript registry (`ready`, `idle` with the exit
+reason, `ready`, and `failing` after the third crash), the restarts must wait out the 1 and
+2 second backoff, and `plugin.enable` must restart the plugin at once. A second
+`pacer serve` on the same home and another port must exit 3 after its bounded wait and name
+the owner's pid, and `pacer doctor` must report the live socket with that pid. The restart
+cycle then starts a serve that waits for the owner, stops the service and waits for its whole
+process group to exit, checks that the waiting serve took over `run/host.sock`, stops it, and
+starts the service again on its port. Last, it holds a `plugin.ui.render` past the 30 second
+call deadline and sends SIGTERM to the service pid alone (the plugin child shares its process
+group): the service and its plugin process must exit within the 2 second grace plus 1.5
+seconds, leaving no socket, sidecar or plugin process, and the service starts again.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 

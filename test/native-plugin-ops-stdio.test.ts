@@ -1,166 +1,21 @@
 import { expect, test } from "bun:test";
-import { existsSync, lstatSync, lutimesSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, lutimesSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
-import { installFixture } from "../conformance/install";
+import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { runStdio } from "../src/api/stdio";
 import { pluginNativeRequest } from "../src/serve/plugin-native";
 import { fakeCtx } from "./helpers";
+import { alive, front, makeHome, normalize, ownerOn, recordingMain, semantic, serve, starts, stdio, tsOwner, type Home, type Reply } from "./native-plugin-door";
 
 // The stdio front door answers the twelve plugin operations natively (ADR 0027).
-const front = process.env.PACER_TEST_FRONT_DOOR;
 const context = { route: "overview", theme: "light" };
 const OPS = [
   "plugin.list", "plugin.doctor", "plugin.ui.list", "plugin.settings.get",
   "plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.render",
   "plugin.ui.action", "plugin.ui.visibility", "plugin.settings.set", "plugin.install",
 ];
-const tsOwner = { nativeHost: "0" };
-const ownerOn = { nativeHost: "1" };
-
-type Home = { home: string; state: string; plugin: string; done(): void };
-
-// Owner sockets must fit SUN_LEN (~104), so every home lives directly under /tmp;
-// a deep home's `run/s<12-hex>.sock` cannot, and binds in the private per-user directory.
-function makeHome(deep = false): Home {
-  const home = realpathSync(mkdtempSync("/tmp/pnh-"));
-  const state = join(home, ...(deep ? ["d".repeat(90)] : []), ".pacer");
-  mkdirSync(state, { recursive: true, mode: 0o700 });
-  writeFileSync(join(state, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n# preserve this comment\n", { mode: 0o600 });
-  symlinkSync(join(import.meta.dir, "../node_modules"), join(home, "node_modules"), "dir");
-  const plugin = installFixture("ui", join(state, "plugins"));
-  return { home, state, plugin, done: () => rmSync(home, { recursive: true, force: true }) };
-}
-
-type Options = { nativeHost?: string; hostSocket?: string };
-
-function frontEnv(h: Home, forward: string, options: Options) {
-  return {
-    HOME: h.home, PACER_HOME: h.state, PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
-    PACER_CORE_ARGV: JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]),
-    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-    PACER_DEBUG_NATIVE: "1", PACER_FORWARD_OPS: forward,
-    ...(options.nativeHost !== undefined ? { PACER_NATIVE_PLUGIN_HOST: options.nativeHost } : {}),
-    ...(options.hostSocket !== undefined ? { PACER_HOST_SOCKET: options.hostSocket } : {}),
-    // Linux deep homes bind under $XDG_RUNTIME_DIR; macOS asks confstr instead.
-    ...(process.env.XDG_RUNTIME_DIR !== undefined ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}),
-  };
-}
-
-type Reply = { text: string; line: string; json: any };
-
-/** One `pacer api --stdio` connection, already negotiated to protocol 3. */
-async function stdio(h: Home, forward = "", options: Options = tsOwner, hello = true) {
-  const child = Bun.spawn([front!, "api", "--stdio"], { env: frontEnv(h, forward, options), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  let stderr = "";
-  const logs = (async () => {
-    const decoder = new TextDecoder();
-    for await (const chunk of child.stderr) stderr += decoder.decode(chunk, { stream: true });
-    return stderr;
-  })();
-  const replies = new Map<string, string>();
-  const waiters = new Map<string, { resolve(line: string): void; reject(error: Error): void }>();
-  const order: string[] = [];
-  // Set once stdout closes: why every unanswered request fails now instead of timing out.
-  let closed: string | undefined;
-  const pump = (async () => {
-    const reader = child.stdout.getReader(), decoder = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-      const part = await reader.read();
-      if (part.done) break;
-      buffer += decoder.decode(part.value, { stream: true });
-      for (let i = buffer.indexOf("\n"); i >= 0; i = buffer.indexOf("\n")) {
-        const line = buffer.slice(0, i); buffer = buffer.slice(i + 1);
-        const message = JSON.parse(line);
-        if (!Object.hasOwn(message, "id")) continue;
-        const key = JSON.stringify(message.id);
-        order.push(key);
-        const waiter = waiters.get(key);
-        if (waiter) { waiters.delete(key); waiter.resolve(line); } else replies.set(key, line);
-      }
-    }
-    await Promise.race([Promise.all([child.exited, logs]), Bun.sleep(2000)]);
-    closed = `the door closed stdout (exit ${child.exitCode}); stderr:\n${stderr}`;
-    for (const [key, waiter] of waiters) { waiters.delete(key); waiter.reject(Error(`no reply to ${key}: ${closed}`)); }
-  })();
-  let next = 1;
-  const send = (line: string) => { child.stdin.write(`${line}\n`); child.stdin.flush(); };
-  const reply = (id: unknown, timeout = 30000): Promise<Reply> => {
-    const key = JSON.stringify(id);
-    const settle = (line: string): Reply => {
-      const prefix = `{"jsonrpc":"2.0","id":${key},`;
-      expect(line.startsWith(prefix), line).toBe(true);
-      return { line, text: line.slice(prefix.length, -1), json: JSON.parse(line) };
-    };
-    const ready = replies.get(key);
-    if (ready !== undefined) { replies.delete(key); return Promise.resolve(settle(ready)); }
-    if (closed !== undefined) return Promise.reject(Error(`no reply to ${key}: ${closed}`));
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        waiters.delete(key);
-        reject(Error(`no reply to ${key} in ${timeout} ms; stderr so far:\n${stderr}`));
-      }, timeout);
-      waiters.set(key, {
-        resolve: line => { clearTimeout(timer); resolve(settle(line)); },
-        reject: error => { clearTimeout(timer); reject(error); },
-      });
-    });
-  };
-  const call = (method: string, params: unknown, id: unknown = next++) => {
-    send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
-    return reply(id);
-  };
-  if (hello) expect((await call("hello", { protocol: 3 })).json.result.protocol).toBeDefined();
-  return { child, send, reply, call, order, async stop() {
-    child.stdin.end();
-    const exited = await Promise.race([child.exited, Bun.sleep(20000).then(() => "hung")]);
-    if (exited === "hung") { child.kill("SIGKILL"); await child.exited; }
-    await pump;
-    return await logs;
-  } };
-}
-
-/** A flag-controlled serve on an existing home. */
-async function serve(h: Home, forward = "", options: Options = tsOwner) {
-  const socket = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = socket.port!; socket.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: frontEnv(h, forward, options), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
-  const logs = new Response(child.stderr).text();
-  const base = `http://127.0.0.1:${port}`;
-  let token = "";
-  for (let i = 0; i < 500; i++) {
-    try {
-      token = readFileSync(join(h.state, "token"), "utf8").trim();
-      if ((await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok) break;
-    } catch { /* Wait for this child only. */ }
-    if (child.exitCode !== null) throw Error(await logs);
-    await Bun.sleep(20);
-  }
-  const call = async (op: string, params: unknown): Promise<Reply> => {
-    const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(params), signal: AbortSignal.timeout(30000) });
-    const line = await response.text();
-    return { line, text: line.slice(1, -1), json: JSON.parse(line) };
-  };
-  return { call, async stop() {
-    if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
-    return await logs;
-  } };
-}
-
-const normalize = (h: Home, text: string) => text.replaceAll(h.home, "<HOME>")
-  .replace(/"renderedAt":\d+/g, '"renderedAt":0').replace(/"pid":\d+/g, '"pid":0').replace(/"uptimeS":[\d.]+/g, '"uptimeS":0');
-
-/** The code, message and hint both envelopes carry; JSON-RPC errors omit HTTP's error data. */
-function semantic(reply: Reply) {
-  const error = reply.json.error;
-  if (!error) return reply.json.result;
-  const http = typeof error.code === "string";
-  const hint = http ? error.hint : error.data?.hint;
-  return { code: http ? error.code : error.data?.code, message: error.message, ...(hint ? { hint } : {}) };
-}
 
 async function sequence(h: Home, call: (op: string, params: unknown) => Promise<Reply>) {
   const out: Reply[] = [];
@@ -359,16 +214,6 @@ test.skipIf(!front)("lone UTF-16 units survive the stdio wire, private IPC and s
   } finally { for (const h of homes) h.done(); }
 }, 120000);
 
-// A plugin child records whether it inherited the private key, and every start.
-const recordingMain = `#!/usr/bin/env bun
-import {appendFileSync,writeFileSync} from 'node:fs';
-appendFileSync('starts', process.pid + '\\n');
-writeFileSync('inherited-key', process.env.PACER_NATIVE_CONFIG_SYNC_KEY ?? 'absent');
-// @ts-ignore: installFixture copies the shared plugin.ts beside this entry point.
-await import('./plugin');
-`;
-const starts = (h: Home) => existsSync(join(h.plugin, "starts")) ? readFileSync(join(h.plugin, "starts"), "utf8").trim().split("\n").map(Number) : [];
-const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const save = (rev: number) => ({ plugin: "fx-ui", values: { required: true, items: ["a"] }, expect_rev: rev });
 const heldLocks = (h: Home) => existsSync(join(h.state, "orca")) ? readdirSync(join(h.state, "orca")).filter(name => name.endsWith(".lock")) : [];
 const connectionSockets = (h: Home) => existsSync(join(h.state, "run")) ? readdirSync(join(h.state, "run")).filter(name => /^s[0-9a-f]{12}\.sock$/.test(name)) : [];
@@ -391,15 +236,16 @@ test("the private plugin channel needs the sync key, hello v3 and no work grant"
     wake?.(); await done;
     return out;
   };
-  // [environment, door key, lines before, key sent]: each row breaks exactly one seal.
-  for (const [env, key, before, sent] of [
+  // [environment, door key, lines before, key sent]: each row breaks exactly one seal, for any kind.
+  const crashed = { kind: "crashed", id: "fx-ui", reason: "exited on SIGKILL" };
+  for (const body of [request, crashed]) for (const [env, key, before, sent] of [
     [{}, undefined, [hello(3)], "k"],
     [{}, "k", [hello(3)], "wrong"],
     [{ PACER_WORK_GRANT: "g" }, "k", [hello(3)], "k"],
     [{}, "k", [], "k"],
     [{}, "k", [hello(2)], "k"],
   ] as const) {
-    const out = await session(env, key, [...before], [sealed(1, sent)]);
+    const out = await session(env, key, [...before], [sealed(1, sent, body)]);
     expect(out.find(o => o.id === 1)).toMatchObject({ error: { code: -32601, data: { code: "unknown_op" } } });
   }
   const out = await session({}, "k", [hello(3)], [
@@ -742,7 +588,6 @@ async function deepHomeBinds(h: Home, dir: string) {
   }
 }
 
-// (iv) OD-7 lands in PR 5: a second serve on a home whose host.sock owner is live exits with code 3.
-test.todo("a second serve refuses to start while the home's owner socket is live (OD-7, PR 5)");
+// (iv) OD-7, a second serve on a home whose host.sock owner is live: test/native-plugin-crash.test.ts.
 // (vi) A live socket served by another uid is never attached: `probe_home_owner_as` crate tests
 // (crates/plugin-runtime/tests/owner_attach.rs), since an end-to-end check needs a second user.

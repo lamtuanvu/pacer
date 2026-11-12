@@ -15,10 +15,18 @@
 //! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A `_host.plugin.call`
 //! carrying `spawn` is a Core-sealed call (`crate::bridge_call`): the owner
 //! starts, hellos and authorizes the child before calling it.
+//!
+//! An existing socket path is probed with a non-blocking connect before bind:
+//! a refused connect marks it stale and it is removed, while an accepted or
+//! still-pending connect (full backlog) is [`BridgeError::LiveSocket`]. A bind
+//! that loses a race with another owner reports `LiveSocket` as well, so serve
+//! can wait for the owner and then exit 3 (ADR 0027, OD-7).
 
 use crate::bridge_call::{SealedCall, call_sealed};
 use crate::capability::{CoreForward, CoreRequest};
-use crate::connection_dir::{check_private_dir, connection_socket_dir, sweep_stale_sockets};
+use crate::connection_dir::{
+    Probe, check_private_dir, connection_socket_dir, probe_socket, sweep_stale_sockets,
+};
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
     METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, SOCKET_PATH_MAX,
@@ -32,7 +40,7 @@ use std::{
     fs, io,
     os::unix::{
         fs::{FileTypeExt, MetadataExt},
-        net::{UnixListener as StdUnixListener, UnixStream as StdUnixStream},
+        net::UnixListener as StdUnixListener,
     },
     path::{Path, PathBuf},
     sync::Arc,
@@ -188,7 +196,14 @@ impl ReverseBridge {
         let before = check_private_dir(dir, uid).map_err(BridgeError::UntrustedDir)?;
         let path = dir.join(name);
         remove_stale_socket(&path)?;
-        let listener = StdUnixListener::bind(&path)?;
+        // Another process bound the path since the probe: it owns it now.
+        let listener = StdUnixListener::bind(&path).map_err(|error| {
+            if error.kind() == io::ErrorKind::AddrInUse {
+                BridgeError::LiveSocket(path.clone())
+            } else {
+                error.into()
+            }
+        })?;
         if let Err(error) = seal_socket(dir, &path, &before, uid) {
             let _ = fs::remove_file(&path);
             return Err(error);
@@ -345,9 +360,10 @@ fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
                 )
                 .into());
             }
-            match StdUnixStream::connect(path) {
-                Ok(_) => Err(BridgeError::LiveSocket(path.to_path_buf())),
-                Err(_) => {
+            match probe_socket(path) {
+                Probe::Live => Err(BridgeError::LiveSocket(path.to_path_buf())),
+                Probe::Missing => Ok(()),
+                Probe::Refused | Probe::Other(_) => {
                     fs::remove_file(path)?;
                     Ok(())
                 }
@@ -649,11 +665,15 @@ async fn dispatch_call(
                 }
                 Ok(None) => {}
             }
-            let mut guard = owner.lock().await;
-            match guard
-                .call_plugin(plugin_id, method, call_params, deadline)
-                .await
-            {
+            let tracked = owner.lock().await.lane_for_call(plugin_id);
+            let called = match tracked {
+                Ok((lane, session)) => {
+                    lane.call(session, method, call_params, deadline, None)
+                        .await
+                }
+                Err(error) => Err(error),
+            };
+            match called {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
                 Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
             }

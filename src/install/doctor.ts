@@ -4,6 +4,7 @@ import { recordedAgent } from "./reconcile-target";
 import { claudeHookChecks, claudeHooksApplicable, probeClaudeHandlers, enforcementProbeScheduleCheck } from "./doctor-hooks";
 import { removableVolumeChecks } from "./removable-volume";
 import { executorCliCheck } from "./cli-check";
+import { hostSocketCheck } from "./host-socket-check";
 import { serviceBackend, type ServiceStatus } from "../service";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -175,6 +176,8 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       ...(!good ? { fix: reinstall ? "pacer service install" : "pacer service restart",
         remedy: remedies.service(reinstall ? "Install service" : "Restart service") } : {}) });
   } catch (e) { checks.push({ name: "Service", level: "info", detail: errorText(e) }); }
+  const hostSocket = await hostSocketCheck(ctx);
+  if (hostSocket) checks.push(hostSocket);
 
   // The background periodic worker (spec §5) mirrors its health to
   // state/background-worker.json; surface it so `pacer doctor` reports degradation.

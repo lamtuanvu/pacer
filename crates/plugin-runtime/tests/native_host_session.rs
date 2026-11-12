@@ -7,17 +7,22 @@
 
 use pacer_plugin_runtime::{
     HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN,
-    METHOD_PLUGIN_STOP, NativeHostSession, SpawnSpec, native_plugin_host_enabled,
-    serve_starts_reverse_bridge_by_default,
+    METHOD_PLUGIN_STOP, NativeHostSession, OwnerError, SpawnSpec, StartFailure, TERMINATE_GRACE,
+    native_plugin_host_enabled, serve_starts_reverse_bridge_by_default, start_lane,
 };
 use serde_json::{Value, json};
-use std::{env, fs, os::unix::fs::MetadataExt, path::Path, time::Duration};
+use std::{
+    env, fs,
+    os::unix::fs::MetadataExt,
+    path::Path,
+    time::{Duration, Instant},
+};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
 };
 
-// The bridge narrows the process-wide umask while binding; reset the mode a parallel bind may have stripped.
+// The bridge requires a private home; temp dirs follow the process umask.
 fn temp_home() -> tempfile::TempDir {
     use std::os::unix::fs::PermissionsExt;
     let home = tempfile::tempdir().unwrap();
@@ -45,6 +50,64 @@ async fn dial_json(path: &Path, request: Value) -> Value {
         line.pop();
     }
     serde_json::from_slice(&line).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_stops_children_while_a_caller_holds_the_owner() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let owner = session.owner().clone();
+    let stubborn = peer(
+        r"process.on('SIGTERM',()=>{});const r=Bun.stdin.stream().getReader();let t='';for(;;){const {value,done}=await r.read();if(done)break;t+=new TextDecoder().decode(value);for(let i=t.indexOf('\n');i>=0;i=t.indexOf('\n')){const m=JSON.parse(t.slice(0,i));t=t.slice(i+1);console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{}}));}}",
+    );
+    owner.lock().await.spawn("fx", &stubborn).unwrap();
+    let lane = owner.lock().await.lane("fx").unwrap();
+    // Answering proves the SIGTERM handler is installed.
+    lane.process()
+        .request("probe", json!({}), Duration::from_secs(5), None)
+        .await
+        .unwrap();
+    let socket = session.socket_path().to_path_buf();
+    // A plugin call in flight may hold the owner for its whole deadline.
+    let held = owner.clone().lock_owned().await;
+    let stopping = tokio::spawn(session.shutdown());
+    for _ in 0..50 {
+        if lane.process().is_stopping() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        lane.process().is_stopping(),
+        "no SIGTERM while the owner was held"
+    );
+    drop(held);
+    // The child outlives SIGTERM during the grace, but no call starts on it.
+    assert!(lane.process().is_alive());
+    let refused = start_lane(
+        &owner,
+        "fx",
+        &stubborn,
+        None,
+        Instant::now() + Duration::from_secs(5),
+        None,
+    )
+    .await;
+    assert!(
+        matches!(refused, Err(StartFailure::Owner(OwnerError::Closing))),
+        "{:?}",
+        refused.err()
+    );
+    let stopped = tokio::time::timeout(TERMINATE_GRACE + Duration::from_secs(2), stopping).await;
+    assert!(
+        stopped.is_ok_and(|joined| joined.is_ok()),
+        "shutdown outlived the grace"
+    );
+    assert_eq!(
+        lane.process().exit_reason().as_deref(),
+        Some("exited on SIGKILL")
+    );
+    assert!(!socket.exists());
 }
 
 #[test]

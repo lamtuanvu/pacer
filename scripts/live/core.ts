@@ -346,12 +346,8 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
       if (result.code) throw Error(`Sandbox git setup failed: ${result.stderr}`);
     }
     atomicWrite(join(root, "env.sh"), environmentScript(session));
-    const serviceArgv = [...pacerArgv(session), "serve", "--port", String(session.innerPort)];
-    if (session.localModelPorts && process.platform === "darwin") {
-      session.modelProbeSandbox = true;
-      serviceArgv.unshift("/usr/bin/sandbox-exec", "-p", '(version 1)(allow default)(deny network-outbound (remote tcp "localhost:4317") (remote tcp "localhost:11434") (remote tcp "localhost:1234") (remote tcp "*:4317") (remote tcp "*:11434") (remote tcp "*:1234"))');
-    } else if (session.localModelPorts) session.modelProbeSandbox = false;
-    session.pid = launch(session, serviceArgv, "serve.log");
+    if (session.localModelPorts) session.modelProbeSandbox = process.platform === "darwin";
+    session.pid = launch(session, serviceArgv(session), "serve.log");
     saveSession(session);
     const serviceIdentity = processIdentity(session.pid);
     if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
@@ -414,6 +410,35 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     if (failures.length) throw new AggregateError([error, ...failures], `Sandbox startup failed: ${String(error)}; cleanup incomplete, keeping sandbox`);
     throw error;
   }
+}
+function serviceArgv(session: Session): string[] {
+  const argv = [...pacerArgv(session), "serve", "--port", String(session.innerPort)];
+  if (!session.modelProbeSandbox) return argv;
+  return ["/usr/bin/sandbox-exec", "-p", '(version 1)(allow default)(deny network-outbound (remote tcp "localhost:4317") (remote tcp "localhost:11434") (remote tcp "localhost:1234") (remote tcp "*:4317") (remote tcp "*:11434") (remote tcp "*:1234"))', ...argv];
+}
+/** Stop the sandbox service and wait until every process in its group has exited; the proxy stays up. */
+export async function stopService(session: Session): Promise<void> {
+  if (!session.serviceGroup || !validOwnedProcessGroup(session.serviceGroup, session.pid)) throw Error("Sandbox has no verified service process group; refusing to signal");
+  await stopOwnedProcessGroup(session.serviceGroup);
+  saveSession(session);
+  record(session, { kind: "note", text: `Service ${session.pid} stopped; its process group exited` });
+}
+/** Start the sandbox service again on its inner port, after `stopService`. */
+export async function startService(session: Session): Promise<void> {
+  if (!session.serviceGroup?.stopped) throw Error("The sandbox service must stop before it starts again");
+  session.pid = launch(session, serviceArgv(session), "serve.log");
+  const serviceIdentity = processIdentity(session.pid);
+  if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
+  session.serviceIdentity = serviceIdentity;
+  session.serviceGroup = captureOwnedProcessGroup(session.pid, serviceIdentity);
+  saveSession(session);
+  for (const deadline = Date.now() + 15000; Date.now() < deadline; await Bun.sleep(100)) {
+    if (await healthy(session)) {
+      record(session, { kind: "note", text: `Service ${session.pid} started again on sandbox port ${session.port}` });
+      return;
+    }
+  }
+  throw Error(`Service restart timed out; inspect ${join(session.root, "logs/serve.log")}`);
 }
 export function stopProcess(pid: number): void {
   try { process.kill(pid, "SIGTERM"); }

@@ -86,8 +86,8 @@ export async function exerciseNativeStdio(session: Session): Promise<void> {
   }
 }
 
-const PLUGIN = "fx-ui";
-const RENDER = { plugin: PLUGIN, surface: "activity", id: "checklist", context: { route: "overview", theme: "light" } };
+export const PLUGIN = "fx-ui";
+export const RENDER = { plugin: PLUGIN, surface: "activity", id: "checklist", context: { route: "overview", theme: "light" } };
 /** The fixed plugin exchange: one request before hello, then the plugin lifecycle under protocol 3. */
 export const PLUGIN_STDIO_STEPS: ReadonlyArray<readonly [number, string, Record<string, unknown>]> = [
   [1, "plugin.list", {}],
@@ -142,15 +142,15 @@ export function verifyOwnerSocket(home: string, socket: string): "run" | "privat
   return deep ? "private" : "run";
 }
 
-function alive(pid: number): boolean {
+export function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
-async function gone(pid: number, ms = 5000): Promise<boolean> {
+export async function gone(pid: number, ms = 5000): Promise<boolean> {
   for (const deadline = Date.now() + ms; Date.now() < deadline; await Bun.sleep(50)) if (!alive(pid)) return true;
   return !alive(pid);
 }
 /** Running fixture plugin processes. Native owners report no pid in `plugin.doctor`, so they are found by entry path. */
-function pluginProcesses(home: string): Array<{ pid: number; ppid: number }> {
+export function pluginProcesses(home: string): Array<{ pid: number; ppid: number }> {
   const entry = join(home, "plugins", PLUGIN, "main.ts");
   return Bun.spawnSync(["ps", "-Ao", "pid=,ppid=,command="]).stdout.toString().split("\n").flatMap(line => {
     const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
@@ -205,7 +205,7 @@ function stdioConnection(session: Session, nativeHost: "0" | "1") {
   };
 }
 
-async function httpOp(session: Session, op: string, params: unknown): Promise<PluginReply> {
+export async function httpOp(session: Session, op: string, params: unknown): Promise<PluginReply> {
   const token = readFileSync(join(session.root, "home/token"), "utf8").trim();
   const response = await fetch(`http://127.0.0.1:${session.port}/v3/ops/${op}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(params), signal: AbortSignal.timeout(30000) });
   return await response.json() as PluginReply;
@@ -264,11 +264,11 @@ export async function exerciseNativePluginStdio(session: Session, stopService = 
         await down(session, true);
         const after = await connection.call(11, "plugin.ui.render", RENDER);
         record(session, { kind: "note", text: `plugin.ui.render after the attached service stopped: ${JSON.stringify(after)}` });
-        if (after.error?.data?.code !== "plugin_unavailable") throw Error(`render after the service stopped was not plugin_unavailable: ${JSON.stringify(after)}`);
+        if (after.error?.data?.code !== "plugin_unavailable" || !after.error.data.hint) throw Error(`render after the service stopped was not plugin_unavailable with a restart hint: ${JSON.stringify(after)}`);
         if (!await gone(second)) throw Error(`plugin process ${second} outlived the stopped service`);
         record(session, { kind: "note", behavior: "Attached stdio connection when the service stops", surface: "stdio API", verdict: "PASS",
           steps: "Attached stdio session open across live down --keep, then plugin.ui.render",
-          text: `The render answered plugin_unavailable (${after.error.message}${after.error.data.hint ? `; hint: ${after.error.data.hint}` : ""}); the service's plugin process ${second} stopped with the service.` });
+          text: `The render answered plugin_unavailable (${after.error.message}; hint: ${after.error.data.hint}); the service's plugin process ${second} stopped with the service.` });
       }
       const { code, stderr } = await connection.close();
       if (code !== 0) throw Error(`stdio exited ${code}: ${stderr}`);

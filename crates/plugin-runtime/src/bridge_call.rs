@@ -9,9 +9,11 @@
 use crate::{
     CoreForward, PluginCapabilitySession, ProcessContext,
     bridge_listener::SharedOwner,
-    call_resources_from_value, core_capability, executor_context_from_value,
-    host_snapshots_from_value, observation_bootstrap_from_value, orca_context_from_value,
-    owner::{OwnerError, ProcessOwner},
+    call_resources_from_value, core_capability,
+    crash::{StartFailure, crash_message, start_lane},
+    executor_context_from_value, host_snapshots_from_value, observation_bootstrap_from_value,
+    orca_context_from_value,
+    owner::OwnerError,
     session_for_call_in, worktree_context_from_value,
 };
 use pacer_plugin_host::{ProcessError, ScopeRoots, SpawnSpec};
@@ -26,7 +28,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tokio::sync::{Mutex, MutexGuard, watch};
+use tokio::sync::{Mutex, watch};
 
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
 const DEFAULT_TTL_MS: u64 = 30_000;
@@ -141,14 +143,6 @@ async fn within<T>(
     }
 }
 
-async fn acquire<'a>(
-    owner: &'a SharedOwner,
-    until: Instant,
-    cancel: &watch::Receiver<bool>,
-) -> Result<MutexGuard<'a, ProcessOwner>, CallFailure> {
-    within(until, cancel, owner.lock()).await
-}
-
 /// Unique per call; the child echoes it on the call's capability requests.
 fn call_token() -> String {
     static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -165,6 +159,8 @@ pub(crate) struct SealedCall {
     core_methods: HashSet<String>,
     /// Features the child must have negotiated before Core lets the method run.
     required: Vec<String>,
+    /// Core's restart backoff: the child may not start before this epoch ms.
+    next_start_at: Option<u64>,
 }
 
 impl SealedCall {
@@ -198,6 +194,10 @@ impl SealedCall {
             .filter(|hello| hello.is_object())
             .cloned()
             .ok_or("missing spawn hello")?;
+        let next_start_at = match spawn.get("nextStartAt") {
+            None | Some(Value::Null) => None,
+            Some(at) => Some(at.as_u64().ok_or("invalid spawn nextStartAt")?),
+        };
         let authority = params
             .get("authority")
             .cloned()
@@ -268,6 +268,7 @@ impl SealedCall {
             environment,
             core_methods,
             required,
+            next_start_at,
         }))
     }
 }
@@ -326,13 +327,26 @@ pub(crate) async fn call_sealed(
         return Err(unavailable(REENTRANT_RESOURCES));
     }
 
-    let lane = {
-        let mut guard = acquire(owner, until, cancel).await?;
-        guard.ensure(id, &sealed.spec).map_err(unavailable)?;
-        guard
-            .lane(id)
-            .ok_or_else(|| unavailable(OwnerError::UnknownPlugin(id.into())))?
-    };
+    let lane = start_lane(
+        owner,
+        id,
+        &sealed.spec,
+        sealed.next_start_at,
+        until,
+        Some(cancel),
+    )
+    .await
+    .map_err(|error| match error {
+        StartFailure::Owner(OwnerError::Closing) => CallFailure {
+            hint: Some("Restart the pacer service.".into()),
+            ..unavailable(OwnerError::Closing)
+        },
+        StartFailure::Owner(error) => unavailable(error),
+        StartFailure::Crashed(text) => unavailable(format!("{method}: {text}")),
+        StartFailure::Deadline => expired(),
+        StartFailure::BeforeStartup => failure("plugin_timeout", error),
+        StartFailure::Cancelled => cancelled(),
+    })?;
     let process = ProcessContext {
         account_home: sealed.roots.account_home.clone(),
         environment: sealed.environment,
@@ -412,8 +426,16 @@ pub(crate) async fn call_sealed(
                                 Some(cancel),
                                 answer(session.clone()),
                             )
-                            .await
-                            .map_err(|error| call_failure(error.into(), "plugin_refused"))?;
+                            .await;
+                        let reply = match reply {
+                            Ok(reply) => reply,
+                            Err(error) => {
+                                return Err(match crash_message(&lane, id, "plugin.hello").await {
+                                    Some(message) => unavailable(message),
+                                    None => call_failure(error.into(), "plugin_refused"),
+                                });
+                            }
+                        };
                         let info = ready_info(&reply, &sealed.hello);
                         lane.mark_ready(Some(info.clone()));
                         info
@@ -455,8 +477,16 @@ pub(crate) async fn call_sealed(
                 Some(cancel),
                 answer(session.clone()),
             )
-            .await
-            .map_err(|error| call_failure(error.into(), "plugin_unavailable"))?;
+            .await;
+        let value = match value {
+            Ok(value) => value,
+            Err(error) => {
+                return Err(match crash_message(&lane, id, method).await {
+                    Some(message) => unavailable(message),
+                    None => call_failure(error.into(), "plugin_unavailable"),
+                });
+            }
+        };
         Ok::<_, CallFailure>((value, hello))
     }
     .await;

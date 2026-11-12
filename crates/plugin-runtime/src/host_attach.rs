@@ -1,6 +1,6 @@
 //! Host provider attach for flag-on [`crate::ProcessOwner`] (P4d-9).
 
-use crate::SharedOwner;
+use crate::{OwnerError, SharedOwner};
 use pacer_plugin_capabilities::{HostProvider, NativeHosts};
 use pacer_plugin_host::{BrokerError, ProviderSnapshot};
 use serde_json::Value;
@@ -36,23 +36,31 @@ impl OwnerHostProvider {
         }
     }
 
+    /// Direct JSON-RPC to the provider child for `hostRunner.*` (bypasses its
+    /// capability broker), without holding the owner while it answers.
     async fn invoke_provider(&mut self, method: &str, params: Value) -> Result<Value, BrokerError> {
-        let mut guard = self.owner.lock().await;
-        if let Some(expected) = self.snapshots.values().next() {
-            let current_pid = guard.find_plugin(&self.provider_id);
-            if expected.provider_process != 0 && current_pid != Some(expected.provider_process) {
-                return Err(BrokerError::HostLease("provider changed".into()));
+        let lane = {
+            let guard = self.owner.lock().await;
+            if let Some(expected) = self.snapshots.values().next() {
+                let current_pid = guard.find_plugin(&self.provider_id);
+                if expected.provider_process != 0 && current_pid != Some(expected.provider_process)
+                {
+                    return Err(BrokerError::HostLease("provider changed".into()));
+                }
             }
-        }
-        guard
-            .call_host_runner(
-                &self.provider_id,
-                method,
-                params,
-                std::time::Duration::from_secs(120),
-            )
+            guard.lane_for_call(&self.provider_id).map(|(lane, _)| lane)
+        };
+        let lane = lane.map_err(|error| BrokerError::HostLease(error.to_string()))?;
+        let expires = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+        let _turn = lane
+            .exclusive(expires)
             .await
-            .map_err(|error| BrokerError::HostLease(error.to_string()))
+            .map_err(|error| BrokerError::HostLease(error.to_string()))?;
+        let left = expires.saturating_duration_since(tokio::time::Instant::now());
+        lane.process()
+            .request(method, params, left, None)
+            .await
+            .map_err(|error| BrokerError::HostLease(OwnerError::from(error).to_string()))
     }
 }
 

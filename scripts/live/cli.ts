@@ -14,6 +14,7 @@ import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
 import { exerciseNativePluginStdio, exerciseNativeStdio } from "./native-stdio";
 import { exerciseNativeHostEffects } from "./native-host-effects";
+import { exerciseNativePluginOwner } from "./native-plugin-owner";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
@@ -51,6 +52,8 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   exercise fixed stdio plugin operations with the native host off and on
                                   (Rust front door; also on a sandbox stopped with down --keep);
                                   --stop-service stops an attached sandbox service mid-session
+  native-plugin-owner --id <id>   crash, backoff, second-serve refusal and restart cycle of the
+                                  service's plugin owner (--native-plugin-host sandbox)
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
@@ -212,6 +215,11 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (command === "native-plugin-stdio") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || [...flags].some(flag => flag !== "--stop-service")) throw Error("usage: live native-plugin-stdio --id <id> [--stop-service]");
     await exerciseNativePluginStdio(loadSession(id), flags.has("--stop-service"));
+    return 0;
+  }
+  if (command === "native-plugin-owner") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live native-plugin-owner --id <id>");
+    await exerciseNativePluginOwner(loadSession(id));
     return 0;
   }
   if (command === "updater") {

@@ -1,6 +1,8 @@
 //! Owned plugin child transport. Calls may overlap: a reader task routes
 //! responses by request id and plugin-to-host requests by `_meta.capabilityCall`,
-//! and a writer task keeps every frame whole.
+//! and a writer task keeps every frame whole. A watcher task owns the child:
+//! it alone reaps it, so a signal can never reach a reused pid, and it
+//! publishes the exit reason the TypeScript registry would record.
 
 use pacer_plugin_host::{
     MAX_LINE_BYTES, ProcessError, ProcessFrame, SpawnSpec, frame, parse_frame,
@@ -9,20 +11,24 @@ use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
     future::Future,
-    process::Stdio,
+    io,
+    process::{ExitStatus, Stdio},
     sync::{
         Arc, Mutex as StdMutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, ChildStdout, Command},
-    sync::{Mutex as AsyncMutex, Notify, mpsc, oneshot},
+    sync::{Notify, mpsc, oneshot, watch},
     task::JoinHandle,
     time::{Instant, timeout, timeout_at},
 };
+
+/// SIGTERM-to-SIGKILL grace, as the TypeScript transport's `terminate`.
+pub const TERMINATE_GRACE: Duration = Duration::from_secs(2);
 
 async fn read_line_bounded(
     stream: &mut (impl AsyncRead + Unpin),
@@ -94,10 +100,21 @@ struct Routes {
     closed: Option<String>,
 }
 
-#[derive(Default)]
 struct Shared {
     routes: StdMutex<Routes>,
     idle: Notify,
+    /// Becomes true once the transport closed, whether or not the child exited.
+    closed: watch::Sender<bool>,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            routes: StdMutex::default(),
+            idle: Notify::new(),
+            closed: watch::Sender::new(false),
+        }
+    }
 }
 
 impl Shared {
@@ -114,6 +131,7 @@ impl Shared {
         routes.idle.clear();
         drop(routes);
         self.idle.notify_one();
+        self.closed.send_replace(true);
     }
 
     fn closed(&self) -> ProcessError {
@@ -204,13 +222,16 @@ type Write = (Vec<u8>, Option<oneshot::Sender<Result<(), ProcessError>>>);
 /// One owned child. Calls may overlap: a reader task routes responses by request
 /// id and plugin-to-host requests by `_meta.capabilityCall`, and a writer task
 /// keeps every frame whole, so a call that gives up never cuts another's frame.
+/// Dropping the process aborts the watcher, whose child is `kill_on_drop`.
 pub struct PluginProcess {
-    child: AsyncMutex<Child>,
     pid: Option<u32>,
     writes: mpsc::Sender<Write>,
     shared: Arc<Shared>,
     next_id: AtomicU64,
-    tasks: [JoinHandle<()>; 2],
+    stops: mpsc::UnboundedSender<Stop>,
+    exit: watch::Receiver<Option<String>>,
+    stopping: AtomicBool,
+    tasks: [JoinHandle<()>; 3],
 }
 
 impl Drop for PluginProcess {
@@ -218,6 +239,55 @@ impl Drop for PluginProcess {
         for task in &self.tasks {
             task.abort();
         }
+    }
+}
+
+enum Stop {
+    Term,
+    Kill,
+}
+
+/// Reap the child and publish why it exited. Signals go through this task,
+/// so they reach the child only while its pid is still unreaped.
+async fn watch_child(
+    mut child: Child,
+    mut stops: mpsc::UnboundedReceiver<Stop>,
+    exit: watch::Sender<Option<String>>,
+) {
+    let status = loop {
+        tokio::select! {
+            status = child.wait() => break status,
+            Some(stop) = stops.recv() => match stop {
+                Stop::Term => {
+                    if let Some(pid) = child.id().and_then(|pid| i32::try_from(pid).ok()) {
+                        let _ = nix::sys::signal::kill(
+                            nix::unistd::Pid::from_raw(pid),
+                            nix::sys::signal::Signal::SIGTERM,
+                        );
+                    }
+                }
+                Stop::Kill => {
+                    let _ = child.start_kill();
+                }
+            },
+        }
+    };
+    exit.send_replace(Some(exit_reason(status)));
+}
+
+/// The registry's crash reason: `exited with code N` or `exited on SIGNAME`.
+fn exit_reason(status: io::Result<ExitStatus>) -> String {
+    use std::os::unix::process::ExitStatusExt;
+    let Ok(status) = status else {
+        return "exited".into();
+    };
+    match (status.code(), status.signal()) {
+        (Some(code), _) => format!("exited with code {code}"),
+        (None, Some(signal)) => match nix::sys::signal::Signal::try_from(signal) {
+            Ok(signal) => format!("exited on {}", signal.as_str()),
+            Err(_) => format!("exited on signal {signal}"),
+        },
+        (None, None) => "exited".into(),
     }
 }
 
@@ -308,25 +378,69 @@ impl PluginProcess {
             .ok_or_else(|| ProcessError::Unavailable("stdout unavailable".into()))?;
         let shared = Arc::new(Shared::default());
         let (writes, queued) = mpsc::channel(QUEUED_WRITES);
+        let (stops, stop_rx) = mpsc::unbounded_channel();
+        let (exit_tx, exit) = watch::channel(None);
+        let pid = child.id();
         let tasks = [
             tokio::spawn(write_frames(stdin, queued, shared.clone())),
             tokio::spawn(read_frames(stdout, shared.clone(), writes.clone())),
+            tokio::spawn(watch_child(child, stop_rx, exit_tx)),
         ];
         Ok(Self {
-            pid: child.id(),
-            child: AsyncMutex::new(child),
+            pid,
             writes,
             shared,
             next_id: AtomicU64::new(1),
+            stops,
+            exit,
+            stopping: AtomicBool::new(false),
             tasks,
         })
     }
 
+    /// The child's pid until it has been reaped.
     pub fn pid(&self) -> Option<u32> {
-        match self.child.try_lock() {
-            Ok(child) => child.id(),
-            Err(_) => self.pid,
-        }
+        self.pid.filter(|_| self.exit_reason().is_none())
+    }
+
+    /// Why the child exited (`exited with code N`, `exited on SIGKILL`), once reaped.
+    pub fn exit_reason(&self) -> Option<String> {
+        self.exit.borrow().clone()
+    }
+
+    /// Observe the exit reason as it is published.
+    pub fn exit_watch(&self) -> watch::Receiver<Option<String>> {
+        self.exit.clone()
+    }
+
+    /// True once stdout or stdin closed; no further call can succeed.
+    pub fn transport_closed(&self) -> bool {
+        *self.shared.closed.borrow()
+    }
+
+    /// Observe the transport closing.
+    pub fn closed_watch(&self) -> watch::Receiver<bool> {
+        self.shared.closed.subscribe()
+    }
+
+    /// Neither exited nor cut off from its transport.
+    pub fn is_alive(&self) -> bool {
+        self.exit_reason().is_none() && !self.transport_closed()
+    }
+
+    /// True once [`Self::terminate`] began: the exit that follows is not a crash.
+    pub fn is_stopping(&self) -> bool {
+        self.stopping.load(Ordering::SeqCst)
+    }
+
+    /// SIGTERM without marking a stop, for a child whose transport is gone.
+    pub fn term(&self) {
+        let _ = self.stops.send(Stop::Term);
+    }
+
+    /// SIGKILL without marking a stop, for a child whose transport is gone.
+    pub fn kill(&self) {
+        let _ = self.stops.send(Stop::Kill);
     }
 
     async fn send(&self, bytes: Vec<u8>) -> Result<(), ProcessError> {
@@ -569,37 +683,25 @@ impl PluginProcess {
         guard()
     }
 
+    /// SIGTERM, then SIGKILL after [`TERMINATE_GRACE`]; returns once the child
+    /// has been reaped. The exit is a stop, never reported as a crash.
     pub async fn terminate(&self) -> Result<(), ProcessError> {
-        let mut child = self.child.lock().await;
-        if child
-            .try_wait()
-            .map_err(|error| ProcessError::Unavailable(error.to_string()))?
-            .is_some()
-        {
+        self.stopping.store(true, Ordering::SeqCst);
+        let mut exit = self.exit.clone();
+        if exit.borrow().is_some() {
             return Ok(());
         }
-        // Rust owns this child. The two-second grace mirrors the TypeScript transport.
-        #[cfg(unix)]
+        let _ = self.stops.send(Stop::Term);
+        if timeout(TERMINATE_GRACE, exit.wait_for(Option::is_some))
+            .await
+            .is_err()
         {
-            let pid = child
-                .id()
-                .ok_or_else(|| ProcessError::Unavailable("missing pid".into()))?;
-            let _ = Command::new("kill")
-                .arg("-TERM")
-                .arg(pid.to_string())
-                .status()
-                .await;
+            self.kill();
         }
-        if timeout(Duration::from_secs(2), child.wait()).await.is_err() {
-            child
-                .start_kill()
-                .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
-            child
-                .wait()
-                .await
-                .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
-        }
-        Ok(())
+        exit.wait_for(Option::is_some)
+            .await
+            .map(|_| ())
+            .map_err(|_| ProcessError::Unavailable("plugin process watcher stopped".into()))
     }
 }
 
