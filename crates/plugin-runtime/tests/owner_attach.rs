@@ -30,8 +30,19 @@ fn me() -> u32 {
     nix::unistd::getuid().as_raw()
 }
 
+/// macOS marks a new socket close-on-exec only after creating it, so a child spawned
+/// meanwhile can keep a listener open after the test closes it.
+static SPAWNS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn no_spawns() -> std::sync::MutexGuard<'static, ()> {
+    SPAWNS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[test]
 fn absent_home_and_stale_socket_mean_own() {
+    let _spawns = no_spawns();
     let home = short_home();
     assert_eq!(probe_home_owner(home.path()), HomeOwner::Absent);
     let bridge = ReverseBridge::bind(home.path()).unwrap();
@@ -188,7 +199,12 @@ async fn stop_reaches_the_attached_owner() {
         cwd: home.path().into(),
         env: HashMap::new(),
     };
-    owner.lock().await.ensure("fx", &spec).unwrap();
+    let mut supervisor = owner.lock().await;
+    {
+        let _spawns = no_spawns();
+        supervisor.ensure("fx", &spec).unwrap();
+    }
+    drop(supervisor);
     assert_eq!(
         stop_on_owner(&socket, "fx").await.unwrap(),
         StopOutcome::Stopped
@@ -217,6 +233,7 @@ fn user_private_dir() -> Option<std::path::PathBuf> {
 
 #[test]
 fn a_deep_home_binds_its_connection_socket_in_the_private_user_directory() {
+    let _spawns = no_spawns();
     let root = short_home();
     let deep = root.path().join("d".repeat(SOCKET_PATH_MAX));
     let name = connection_socket_name([7; 6]);
