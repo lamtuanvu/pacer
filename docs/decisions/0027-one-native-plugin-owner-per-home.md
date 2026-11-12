@@ -23,9 +23,7 @@ A pacer home has at most one native plugin owner that other front doors attach t
 `run/host.sock` is that owner's lease.
 
 1. **Only serve binds `run/host.sock`.** A live socket means an owner exists. A socket that
-   refuses connections is stale and the next serve replaces it. The socket always stays in the
-   home, and serve refuses a `host.sock` path longer than 103 bytes before it creates anything,
-   so a home that deep cannot run a flag-on serve.
+   refuses connections is stale and the next serve replaces it.
 2. **A stdio connection decides once, before its Core child starts.** It probes
    `run/host.sock`. The run directory must be a real directory owned by the current user with
    no group or other access, the socket must be owned by the same user, and the process that
@@ -36,87 +34,23 @@ A pacer home has at most one native plugin owner that other front doors attach t
    calls go through a sealed `relay` kind on the private stdio channel: Core runs its existing
    sealed owner call against the serve owner. `plugin.disable` and `plugin.remove` stop a
    running child with one `_host.plugin.stop` frame on the owner socket, after checking the
-   peer's user again and proving serve's credential (item 9).
+   peer's user again.
 4. **No live owner: the connection owns its children.** It starts a `ProcessOwner` and a
-   bridge listener on its own `run/s<12-hex>.sock`, and its Core child gets that socket. Its
-   plugin calls go through the same `relay` kind, to that socket. Only same-user peers that
-   prove the connection's credential (item 9) are served. When the connection ends, or the
-   door receives SIGTERM, the door closes the listener, removes the socket and stops the
-   children it started.
-5. **A deep home's connection socket goes to a private per-user directory.** When
-   `run/s<12-hex>.sock` would be longer than 103 bytes (the `sockaddr_un` limit on macOS; Linux
-   allows 107), the connection binds in `<user dir>/pacer-<hash>/` instead. `<user dir>` is the
-   operating system's private directory for the user: `confstr(_CS_DARWIN_USER_TEMP_DIR)` on
-   macOS (read through `/usr/bin/getconf`, since the workspace forbids unsafe code) and
-   `$XDG_RUNTIME_DIR` on Linux, never a shared `/tmp` name or `$TMPDIR`. `<hash>` is a 64-bit
-   FNV-1a hash of the canonical home, so each home gets its own directory. The door checks
-   `<user dir>` with `lstat`, creates `pacer-<hash>` with mode 0700 and checks it again: each
-   must be a real directory, not a symlink, owned by the current user, with no group or other
-   access. If there is no such directory or a check fails, the connection refuses to start
-   and names `PACER_NATIVE_PLUGIN_HOST=0` and a shorter `PACER_HOME`. Homes whose `run/` path
-   fits keep their socket in `run/`.
-6. **Connection sockets are private and swept.** Every socket is bound in a directory checked
-   as above, then set to 0600 by path; the process umask is never changed. Before binding, the
-   door removes stale connection sockets in that directory: `s<12-hex>.sock` sockets owned by
-   the current user, never symlinks, older than ten seconds (so a socket another connection is
-   binding right now survives), that refuse connections.
-7. **A probe the door cannot trust is not attached.** If another user owns the run directory
+   bridge listener on its own `run/s<12-hex>.sock`, and its Core child gets that socket. The
+   socket is 0600 in the 0700 run directory. Only same-user peers are served, and the path
+   length is checked before anything is created. When the connection ends, the door closes the
+   listener, removes the socket and stops the children it started.
+5. **A probe the door cannot trust is not attached.** If another user owns the run directory
    or socket, or the directory is open to others or is a symlink, the door prints a warning
    and owns its children instead.
-8. **Without the native host flag**, stdio composes plugin operations natively through the
-   TypeScript Core child, which stays the process owner, exactly as HTTP does flag-off. The door
-   removes an inherited `PACER_HOST_SOCKET` from that Core child, so a shell started under a
-   flag-on serve that sets `PACER_NATIVE_PLUGIN_HOST=0` gets TypeScript ownership rather than a
-   socket the door never checked. Scoped work connections (`PACER_WORK_GRANT`) forward every
-   operation and keep their environment.
-9. **Only Core may call an owner (#918).** Same-user peer credentials are not enough: any
-   process the user runs could otherwise start, stop or replace a lane, or call a plugin.
-   - *Issue.* Every owner start draws a fresh 32-byte random key. Serve's owner writes it to
-     `run/host.key` (0600, through a 0600 temporary file and a rename inside the 0700 run
-     directory) once `host.sock` is bound, and removes the file at shutdown if it still holds
-     this start's key. An owning stdio connection keeps its key in memory only.
-   - *Transport.* The owner hands the key to its own Core child as `PACER_HOST_SOCKET_KEY`,
-     beside `PACER_HOST_SOCKET`. An attaching stdio connection reads `run/host.key` after the
-     peer check in item 2: the file must be a regular file opened without following symlinks,
-     owned by the current user with no group or other access, and written no earlier than the
-     socket. It waits up to 2 seconds for a restarting serve to publish it; otherwise it treats
-     the owner as untrusted (item 7). It hands the key to its Core child and uses it for its own
-     `_host.plugin.stop` frames. A door strips an inherited key from every Core child it does
-     not hand one, and serve strips it before deciding whether to start an owner.
-   - *Who holds it.* Core takes the key out of its environment as its first step, before it
-     starts anything, and keeps it in memory. It passes it to its own worker threads (task
-     supervision and background work, which run stop reconciliation and periodic plugin calls)
-     and to nothing else. Plugin children, `_run` runners, executors and hooks never inherit it;
-     executor environments also drop it explicitly. Another same-user process can still read
-     `run/host.key` and Core's initial environment; the consequence on the assistant's endpoint
-     key below states that accepted residual and its follow-ups.
-   - *Verification.* Before its first request, each connection runs a mutual HMAC-SHA256
-     challenge. The caller sends a nonce, and the owner answers with its own nonce and a proof
-     over both. The caller checks that proof in constant time and only then answers with its
-     own proof, under a different label. The key never crosses the socket. A caller sends no
-     request, and answers no forwarded capability request, to an owner that cannot prove the key.
-     The owner refuses any other first frame, a wrong proof, a line over 4 KiB or a handshake
-     slower than 10 seconds with `-32001 unauthorized`, and closes the connection.
-   - *Rotation.* A new owner start means a new key. An attached connection keeps the key it
-     started with. After its serve restarts, the new owner proves its new key first, so the
-     connection's Core and door reject that owner before they send anything else: plugin calls
-     and stops fail with `plugin_unavailable` and a hint naming both causes. Either the service
-     restarted, so reconnect, or the socket is not this connection's plugin owner.
-   - *Narrower bridge.* A live owner refuses an unsealed `_host.plugin.call` (one without
-     Core's spawn spec and call authority) with `-32602`, and no longer serves
-     `_host.plugin.spawn`. `_host.plugin.find` and `_host.plugin.stop` remain for authenticated
-     callers.
+6. **Without the native host flag**, stdio composes plugin operations natively through the
+   TypeScript Core child, which stays the process owner, exactly as HTTP does flag-off.
 
 The private stdio channel is `_internal.plugins`. Core answers it only when the request
 carries the connection's sync key (`PACER_NATIVE_CONFIG_SYNC_KEY`, which Core removes from
 its environment before plugin children start), the session negotiated protocol 3, and no
-work grant is set. It carries the same request kinds as HTTP's `/_internal/plugins`.
-`relay` is every door's own plugin call with the native host on: serve's door sends it over
-`/_internal/plugins`, and an attached or owning stdio connection over `_internal.plugins`.
-Core runs its sealed owner call on its own `PACER_HOST_SOCKET`, which is that door's owner,
-and refuses `relay` when it has no owner socket. Core refuses `crashed` without an owner
-socket and on an attached connection, because serve's owner reports its children's crashes
-to serve's Core.
+work grant is set. It carries the same request kinds as HTTP's `/_internal/plugins`, plus
+`relay`. Core refuses `relay` on HTTP and on a stdio connection that is not attached.
 
 ## Consequences
 
@@ -130,58 +64,17 @@ to serve's Core.
   next connection attaches.
 - An attached connection whose serve exits gets `plugin_unavailable` with the hint "Restart the
   pacer service." until it reconnects.
-- Crash counts, restart counts and a child's lifecycle state stay in each Core's memory. The
-  owner reports each crash of a child it did not stop to the Core of the door that owns it, with
-  the private `crashed` request kind, and Core records it as the TypeScript owner records an
-  exit: `restarts`, `error`, the restart backoff (1 s, doubling to 30 s) and `failing` after
-  three crashes within a minute. Core seals the earliest next start in `spawn_spec`, and the
-  owner waits for it. An attached connection's Core is not told: its `plugin.list` can show a
-  child the service runs as `idle` until it has called it, and its `plugin.doctor` can show
-  different `restarts` than serve's. The owner therefore keeps its own restart floor per plugin
-  with the same ramp and the same `failing` rule: after three crashes within a minute it starts
-  the plugin again only once it is enabled. So no door restarts a crash-looping child faster
-  than the owning door, or a failing one at all. A native `plugin.enable` through the owning
-  door clears the floor. An enable through an attached connection, or forwarded to TypeScript
-  (`PACER_FORWARD_OPS`), clears only that Core's state, so the owner keeps its floor and its
-  failing mark (known limit). A report that reaches the owning door while its Core restarts is
-  dropped, not retried; that crash counts only toward the owner's floor.
-- Serve shutdown and an owning connection's end (EOF or SIGTERM) stop accepting new starts and
-  send each child SIGTERM at once and SIGKILL 2 seconds later, before the socket is removed. A
-  plugin call in flight does not delay this: the owner reaches its children through a lane
-  roster kept outside the owner lock, no call holds that lock while it waits for its plugin,
-  and the call fails with `plugin_unavailable` once its child exits. On EOF the connection
-  first lets its in-flight plugin operations answer, as it does for every request. A child
-  that closes its output while still running gets the same SIGTERM, then SIGKILL.
-- With the native host on, `plugin.doctor` reports `pid: null` for owner-supervised children on
-  both front doors, because Core's snapshot does not know the owner's process IDs.
-- A deep home keeps native stdio ownership, but its connection sockets live outside the home,
-  where `pacer doctor` does not look yet. A temporary-file cleaner that removes a long-lived
-  connection's socket makes that connection's Core plugin calls fail until it reconnects.
-- A deep home cannot run a flag-on serve, because `host.sock` must stay in the home as the
-  owner lease. PR 7 decides how such homes run the service before the flag turns on by
-  default.
+- Crash and restart counts stay in each Core's memory, so an attached connection's
+  `plugin.doctor` can show different `restarts` than serve's. PR 5 adds an owner-side restart
+  floor.
 - Plain CLI commands start their own Core and, flag-on, still start TypeScript children beside
   a live serve owner. This is a known limit for this wave.
-- Detached task runners (`_run`) are the same kind of Core. Core removes `PACER_HOST_SOCKET`
-  from every runner it starts, on serve and on attached and self-owned stdio connections, and
-  no runner inherits the credential (item 9), so a runner owns its plugin children as it does
-  with the flag off. An attempt therefore keeps its
-  executor plugin, and the host-side `executor.run` options the owner bridge does not carry,
-  when the connection that dispatched it ends or the service restarts. While a runner is alive,
-  a plugin can run under two owners on the home: the runner's and the door's. This extends the
-  plain CLI known limit to runners.
 - **OD-7.** The maintainer decided that a second serve on a home whose `run/host.sock` owner is
-  live refuses to start, instead of falling back to TypeScript ownership. A flag-on serve on
-  another port that finds the socket live waits up to 5 seconds (`PACER_SERVE_OWNER_WAIT_MS`),
-  checking every 250 ms, so a restart whose old serve is still stopping goes through (the old
-  serve frees its port before the socket). While the owner still listens on the port, a second
-  serve on that same port fails to bind first and exits 1. If the owner is still
-  live it exits with code 3 and "another pacer owns the plugin host socket at `<path>` (pid N):
-  stop the other pacer (pacer service stop) or wait for it to exit". The owner writes its pid
-  to `run/host.sock.pid` (0600) and removes it at shutdown. `pacer doctor` reports a live socket
-  with that pid and a stale one as replaced at the next start. A hung owner that keeps its
-  socket live keeps a new serve from starting until it is stopped; launchd keeps retrying the
-  service, so a restart converges once the old process exits.
+  live refuses to start, instead of falling back to TypeScript ownership. `ReverseBridge`
+  already refuses to replace a live socket, so serve exits today with "live reverse-bridge
+  socket already present". PR 5 makes this a stable message with exit code 3 and adds a
+  doctor check. A hung owner that keeps its socket live keeps a new serve from starting until
+  it is stopped.
 - `run/host.sock` and the plugin installation owner in [ADR 0021](0021-single-installation-owner.md)
   are different things: ADR 0021 decides which pacer installation runs the service; this
   record decides which process inside it owns plugin children.
@@ -195,73 +88,6 @@ to serve's Core.
   terminal session is open, and two stdio connections would race for the socket.
 - **Every stdio connection always owns its children, beside serve.** Two owners would run the
   same plugins against the same home, which OD-2 rules out.
-- **A deep home refuses flag-on stdio, or falls back to Core ownership.** Refusing loses stdio
-  for every deep home once the flag is on by default. A fallback would choose the trust and
-  supervision model by path length, which a programmatic client cannot see.
-- **A deep home's socket in a shared `/tmp` name or under `$TMPDIR`.** Another user can create
-  a shared name first, and `$TMPDIR` comes from the caller's environment.
 - **Stdio leaves ownership to TypeScript when serve is live.** The stdio Core would start its
   own TypeScript children beside serve's native owner: the two-owner problem this record
   exists to avoid.
-- **Sealing the detached stop and inspection grants for the owner's native process broker.**
-  The grants would cross the socket as new `call_authority` resources, the native broker would
-  need a second one-use implementation with its own refusal texts, and a remote stop would
-  still need Core's host runner, which the bridge refuses.
-
-## Addendum: observation generations under the owner (2026-11-13)
-
-A policy plugin that subscribes to events gets the same events with the owner on as with the
-owner off: the same filtering, payload bytes and order. With the owner on, the plugin's
-subscription belongs to its lane, not to the call that made it, and lives as long as the
-child.
-
-- **Generation.** Core's `call_authority` seals `observation.generation`, the SHA-256 of the
-  plugin's observation fingerprint (manifest, config and grant). The first sealed call that
-  subscribes starts the lane's generation under that name. A later call sealed under another
-  name stops the old child and starts a fresh one, as the registry does for a local child.
-- **Source.** The owning door's Core supplies the events and task reads through the private
-  kinds `observation_events`, `observation_read` and `observation_retired`. A flag-off Core
-  refuses them, and so does a stdio Core attached to the service's `host.sock`. On every
-  request Core checks again that the plugin is enabled, declares and is granted the
-  capability, and still has the fingerprint the generation was sealed with. Core filters events
-  to the subscribed types plus `reset`. `since: null` returns only the current end of the
-  outbox, so a new subscription sees only later events.
-- **Delivery.** The lane asks Core for new events every 100 ms. A separate task writes each
-  `$/event` line within 2 s, in outbox order, with `JSON.stringify` key order and number text.
-  The queue keeps the TypeScript bounds: 128 events and 256 KiB.
-- **Retirement.** The generation retires when:
-  - its child exits or is stopped;
-  - the owner closes (serve stops or the stdio connection ends);
-  - Core refuses it, for example because the plugin was disabled or reconfigured. The owner
-    stops the child and records no failure.
-  - a pump or delivery fails. Core logs `[observation] <reason>` and marks the plugin
-    `failing`, and the owner stops the child.
-
-  A retired generation's read owner is refused.
-- **Between calls.** A request that arrives while no call is pending, or that names a read
-  owner, goes to the lane's idle session. It is never answered by the next call's session.
-  - The idle session answers `capability.log`, which it sends to Core with its level, and
-    `capability.config.get` from the sealed hello.
-  - It answers task reads and subscriptions only under the generation's read owner.
-  - It refuses everything else with code `capability_denied`. Before the idle session exists,
-    and for "capability token has no active pending request" and "read owner cannot authorize
-    this method", the text matches the TypeScript owner. The idle session is no owning call
-    (see **Owning calls** above), so once it exists a declared scoped capability is refused
-    with TypeScript's "scoped capability requires an active owning call" too.
-
-**Differences from the TypeScript owner:**
-
-- While Core is unavailable, the lane keeps its cursor and asks again on the next tick. The
-  TypeScript registry runs inside Core and has no such gap.
-- Requests between calls are answered one at a time.
-- Between calls, `secrets.resolve` and `identity.sign` are refused. The registry answers them
-  outside a call.
-- `config.get` returns the config sealed at the first call's hello, and the idle session is
-  not refreshed. The registry returns the current config for every plugin. An observing child
-  sees the same result because a config change moves its generation and restarts it; a child
-  without a live generation keeps the stale config between calls. Calls get the current
-  config, because each call seals a fresh hello.
-
-**Rejected.** The owner reading the outbox and task store directly. That would duplicate
-Core's protocol 3 event conversion and task projection, and split the authority checks
-between two processes.
