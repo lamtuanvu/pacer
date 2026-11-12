@@ -42,8 +42,8 @@ function hostRefusal(args: string[]): string | undefined {
   for (let i = 1; i < args.length; i++) {
     if (args[i] !== "repo") continue;
     const tail = args.slice(i + 1), [plain, parsed] = repoSubcommands(tail);
-    if (plain === parsed && READ_ONLY_REPO_FORMS.includes(plain ?? "")) continue;
     if (tail.includes("map")) return "D3: host repo map changes the real user environment (D8 refuses host.repo.map)";
+    if (plain === parsed && READ_ONLY_REPO_FORMS.includes(plain ?? "")) continue;
     return `D3: host repo admits only the read-only ${READ_ONLY_REPO_FORMS.join(" and ")} subcommands`;
   }
 }

@@ -90,6 +90,7 @@ test('host repo admits only list and check, found after flags and flag values', 
     ['host', 'repo', '--', 'map', 'box'],
     ['host', '--', 'repo', 'map'],
     ['host', 'repo', '--repo', 'map', 'list'],
+    ['host', 'repo', '--force', '--repo', 'list', 'map', 'box'],
   ]) expect(refusal(args)).toContain('D8 refuses host.repo.map');
   for (const args of [
     ['host', 'repo'],
