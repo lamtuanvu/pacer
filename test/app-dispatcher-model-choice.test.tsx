@@ -91,10 +91,10 @@ test("the in-place Save appears when the set operation exists on a strategy setu
   expect(html).toContain("Save as new setup…");
 });
 
-test("the built-in default setup never offers the in-place Save", () => {
+test("the in-place Save appears for every setup, including built-in default, when the set operation exists", () => {
   const dirty: TierTargets = { simple: "medium", standard: "medium", complex: "frontier" };
   const html = render(dirty, { state: withSet, config: { strategy: "default", source: "built-in", config } });
-  expect(html).not.toContain(">Save</button>");
+  expect(html).toContain(">Save</button>");
   expect(html).toContain("Save as new setup…");
 });
 
@@ -147,4 +147,10 @@ test("in-place save uses the fetched revision and reports conflicts", async () =
   ]);
   const conflict = await saveTierTargetsInPlace((async (op: string) => { if (op === "dispatch.tierTargets.get") return { revision: "r1", targets: config.tierTargets } as never; throw new ApiError("conflict", "changed"); }) as never, view, targets);
   expect(conflict).toEqual({ ok: false, conflict: true });
+  // A draft that diverged from the base the draft started with is reported as a conflict without writing.
+  const divergentCalls: { op: string; params: unknown }[] = [];
+  const changed: TierTargets = { simple: "small", standard: "small", complex: "small" };
+  const divergent = await saveTierTargetsInPlace((async (op: string, params: unknown) => { divergentCalls.push({ op, params }); return { revision: "r1", targets: changed } as never; }) as never, view, targets);
+  expect(divergent).toEqual({ ok: false, conflict: true });
+  expect(divergentCalls).toEqual([{ op: "dispatch.tierTargets.get", params: {} }]);
 });

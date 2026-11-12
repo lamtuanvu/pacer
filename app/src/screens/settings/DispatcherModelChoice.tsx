@@ -43,6 +43,8 @@ export async function saveTierTargets(call: BrowserApi["call"], saved: ConfigVie
 /** In-place save of the active setup through the revision-checked tier-targets operations. */
 export async function saveTierTargetsInPlace(call: BrowserApi["call"], saved: ConfigView, targets: TierTargets): Promise<{ ok: true } | { ok: false; conflict: boolean }> {
   const current = await call<{ revision: string; targets: TierTargets }>("dispatch.tierTargets.get", {});
+  // The draft has diverged from what the setup started with, so the active setup changed elsewhere.
+  if (!same(current.targets, saved.config.tierTargets)) return { ok: false, conflict: true };
   try {
     await call("dispatch.tierTargets.set", { expectedRevision: current.revision, targets });
     return { ok: true };
@@ -77,7 +79,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   }, [config.data]);
   const changeCount = targets && base ? DIFFICULTIES.filter(d => targets[d] !== base.config.tierTargets[d]).length : 0;
   const canSet = state.features?.ops.has("dispatch.tierTargets.set") ?? false;
-  const directSave = canSet && !!base && base.source !== "built-in" && base.strategy !== "default";
+  const directSave = canSet && !!base;
 
   const pickTier = (difficulty: Difficulty, tier: RatedTier) => {
     if (!targets) return;
@@ -101,7 +103,9 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
         setBase({ ...base, config: { ...base.config, tierTargets: targets } });
         setNotice("Saved. New tasks use these choices now."); config.reload(); inventory.reload(); onSaved?.();
       } else {
-        setNotice("Changed elsewhere; reloaded."); config.reload(); inventory.reload();
+        // Conflict: the setup changed elsewhere since this draft began. Keep the draft so it can be
+        // saved as a new setup; do not reload or overwrite the active setup with it.
+        setNotice("The active setup changed elsewhere. Discard to load it, or save as a new setup.");
       }
     } catch (failure) { setError(failure); }
     finally { pending.current = false; setBusy(false); }
