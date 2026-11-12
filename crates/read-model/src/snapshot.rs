@@ -1,7 +1,7 @@
 use crate::{Error, attention, capacity, events::V3_CURSOR_BASE, js::*, read, summary, tasks};
 use pacer_config::strategy::{list_strategy_reads, load_strategy, validate_strategy};
 use pacer_foundation::Ctx;
-use pacer_store::{TaskFilter, TaskStore, read_latest};
+use pacer_store::{TaskFilter, TaskStore, awaits_answer, read_latest};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -284,6 +284,7 @@ impl ReadModel {
             })?;
             for t in store.list(&TaskFilter {
                 states: Some(&["queued", "running"]),
+                awaiting_answer: true,
                 ..Default::default()
             })? {
                 if let Some(old) = selected.iter_mut().find(|r| r["id"] == t["id"]) {
@@ -306,7 +307,12 @@ impl ReadModel {
         let records: Vec<_> = records
             .into_iter()
             .filter(|t| {
+                // needs_input (stored, and running with an open question) always stays;
+                // one that was answered, retried or dismissed is not retained by state.
                 if ["queued", "running"].contains(&text(&t["state"])) {
+                    return true;
+                }
+                if awaits_answer(t) {
                     return true;
                 }
                 let last = array(&t["attempts"])

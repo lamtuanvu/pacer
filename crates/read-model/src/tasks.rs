@@ -4,7 +4,7 @@ mod title_regex;
 use crate::snapshot::ActiveCounts;
 use crate::{Error, js::*, read};
 use pacer_foundation::Ctx;
-use pacer_store::{TaskFilter, TaskStore};
+use pacer_store::{TaskFilter, TaskStore, awaits_answer};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -737,13 +737,20 @@ pub fn snapshot_tasks(
     rows.retain(|t| {
         // Missing map entry reads as 0. A session-holding task stays in the
         // window even if stale (>24h) or dismissed, mirroring `!!t.activeAgentSessions`.
+        // needs_input (stored, and running with an open question) never ages out;
+        // one that was answered, retried or dismissed is not retained by state.
         active.task(text(&t["id"])) > 0
             || ["queued", "running"].contains(&text(&t["state"]))
+            || awaits_answer(t)
             || (!truth(&t["dismissed"]) && num(&t["updatedAt"]) >= ctx.now - 86400.0)
     });
     rows.sort_by(|a, b| num(&b["updatedAt"]).total_cmp(&num(&a["updatedAt"])));
-    rows.truncate(200);
-    Ok(rows)
+    // Tasks that still await an answer must never be dropped by the recent-window
+    // cap: keep them in addition to the newest 200.
+    let mut kept: Vec<Value> = rows.drain(..rows.len().min(200)).collect();
+    kept.extend(rows.into_iter().filter(awaits_answer));
+    kept.sort_by(|a, b| num(&b["updatedAt"]).total_cmp(&num(&a["updatedAt"])));
+    Ok(kept)
 }
 pub fn attention_reason(t: &Value) -> Option<&'static str> {
     if !["done", "partial"].contains(&text(&t["state"]))

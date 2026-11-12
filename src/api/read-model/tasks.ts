@@ -5,6 +5,7 @@ import { repoFor, registeredRepo, listRepos, labelsFor } from "../../core/repos"
 import { taskData } from "../../link/pump";
 import type { TaskData } from "../../link/envelope";
 import type { TaskRecord } from "../../tasks/types";
+import { awaitsAnswer } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import { unreadCounts } from "../../messaging/store";
 import { getLiveness, listLiveness, type LivenessRow } from "../../messaging/liveness-store";
@@ -62,7 +63,17 @@ export function apiTaskPage(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
  const rows=apiTasks(ctx,records.filter(t=>!t.archived));
- return rows.filter(t=>(!!t.activeAgentSessions||["queued","running"].includes(t.state))||(!t.dismissed && t.updatedAt>=ctx.now-86400)).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,200);
+ // `needs_input` (stored, and running with an open question via `visibleTaskState`)
+ // is an active state: tasks requiring the user never age out of the snapshot window.
+ // A needs_input that was answered, retried or dismissed is not retained by its state.
+ const active = rows.filter(t => (!!t.activeAgentSessions || ["queued","running"].includes(t.state) || awaitsAnswer(t))
+   || (!t.dismissed && t.updatedAt>=ctx.now-86400));
+ const sorted = active.sort((a,b)=>b.updatedAt-a.updatedAt);
+ // Tasks that still await an answer must never be dropped by the recent-window cap:
+ // keep them in addition to the newest 200.
+ const kept = new Map(sorted.slice(0,200).map(t=>[t.id,t]));
+ for (const t of sorted) if (awaitsAnswer(t)) kept.set(t.id,t);
+ return [...kept.values()].sort((a,b)=>b.updatedAt-a.updatedAt);
 }
 export type AttentionTask = Pick<TaskData, "state" | "review" | "resolved" | "dismissed" | "retriedBy" | "reviewRequest" | "acceptanceState">;
 export function taskAttentionReason(t: AttentionTask): "checks_failed" | "incomplete" | "review_requested" | null {
