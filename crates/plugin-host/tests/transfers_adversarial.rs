@@ -44,3 +44,46 @@ fn responses_are_sequential_zero_length_reads_do_not_advance_and_revoke_erases_a
     assert_eq!(t.read(K::HttpResponse, &h, 6, 0), Err(E::Denied));
     assert_eq!(t.release(K::HttpResponse, &h), Err(E::Denied));
 }
+
+#[test]
+fn exact_four_mib_preserves_bom_nul_and_split_utf8_without_cross_owner_authority() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let mut bytes = "\u{feff}😀\0界".as_bytes().to_vec();
+    bytes.resize(4194304, b'x');
+    for kind in [K::FileWrite, K::HttpUpload] {
+        let mut t = Transfers::default();
+        let mut other = Transfers::default();
+        let handle = t.begin(kind, bytes.len()).unwrap();
+        for (offset, chunk) in bytes.chunks(262144).enumerate() {
+            let encoded = STANDARD.encode(chunk);
+            assert_eq!(
+                t.append(kind, &handle, offset * 262144, &encoded).unwrap(),
+                (offset * 262144 + chunk.len())
+            );
+            assert!(
+                other
+                    .append(kind, &handle, offset * 262144, &encoded)
+                    .is_err()
+            );
+        }
+        assert_eq!(t.consume_text(kind, &handle).unwrap().as_bytes(), bytes);
+        assert!(t.consume_text(kind, &handle).is_err());
+    }
+}
+
+#[test]
+fn malformed_utf8_http_payload_is_not_consumed_or_reactivated_by_a_successor() {
+    for encoded in ["/w==", "wK8=", "7aCA", "9JCAgA==", "8J+Y"] {
+        let mut t = Transfers::default();
+        let bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded).unwrap();
+        let h = t.begin(K::HttpUpload, bytes.len()).unwrap();
+        t.append(K::HttpUpload, &h, 0, encoded).unwrap();
+        assert_eq!(t.consume_text(K::HttpUpload, &h), Err(E::Invalid));
+        assert_eq!(t.begin(K::HttpUpload, 0), Err(E::Conflict));
+        t.release(K::HttpUpload, &h).unwrap();
+        let successor = t.begin(K::HttpUpload, 0).unwrap();
+        t.release(K::HttpUpload, &h).unwrap();
+        assert!(t.consume_text(K::HttpUpload, &successor).is_ok());
+    }
+}
