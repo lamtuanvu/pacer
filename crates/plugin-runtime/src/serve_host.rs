@@ -9,18 +9,58 @@
 //! and exports [`crate::HOST_SOCKET_ENV`] for the Core child. A stdio
 //! connection with no live serve owner starts the same session on its own
 //! connection socket ([`NativeHostSession::start_connection`]).
+//!
+//! Serve's session also writes `run/host.sock.pid` (0600) beside the socket so
+//! a refused second serve and `pacer doctor` can name the owner. Both
+//! shutdowns refuse new children, terminate every tracked child together
+//! (SIGTERM, then SIGKILL after [`crate::TERMINATE_GRACE`]) and only then
+//! remove the sidecar and unlink the socket, so the lease outlives the
+//! children it supervised. Crashes go to [`NativeHostSession::crash_reports`].
 
 use crate::{
     BridgeError, BridgeHandle, HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME,
     OwnerError, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner, connection_socket_name,
+    crash::{CrashBook, CrashReport},
     dark_bridge_disabled, dark_bridge_enabled, serve_starts_reverse_bridge_by_default,
+    terminate_lanes,
 };
 use std::{
+    fs,
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     sync::Arc,
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
+
+/// The serve owner's pid, beside `host.sock` in `run/`.
+pub const HOST_SOCKET_PID_NAME: &str = "host.sock.pid";
+
+/// The pid `run/host.sock.pid` names, when it holds one.
+pub fn read_owner_pid(pacer_home: &Path) -> Option<u32> {
+    fs::read_to_string(pacer_home.join("run").join(HOST_SOCKET_PID_NAME))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Write `pid` to `path` through a 0600 temporary and a rename.
+fn write_pid_file(path: &Path, pid: u32) -> std::io::Result<()> {
+    let temp = path.with_extension(format!("pid.{pid}.tmp"));
+    let _ = fs::remove_file(&temp);
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temp)?;
+    let written = writeln!(file, "{pid}").and_then(|()| fs::rename(&temp, path));
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    written
+}
 
 /// Enable / escape env for serve-owned native plugin supervision (P4d-1 / P4d-5).
 ///
@@ -70,18 +110,28 @@ pub fn native_plugin_host_enabled_from_env(
 /// Live serve-owned ProcessOwner + reverse-bridge accept loop.
 pub struct NativeHostSession {
     owner: SharedOwner,
+    crashes: Arc<CrashBook>,
     bridge: BridgeHandle,
     socket: PathBuf,
+    /// Serve's `run/host.sock.pid`; connection sessions write none.
+    pid_file: Option<PathBuf>,
 }
 
 impl NativeHostSession {
     /// Claim native supervision, bind `host.sock`, spawn the accept loop with
     /// live owner dispatch, and return Core env pairs (`PACER_HOST_SOCKET`).
-    /// Does not mutate process env.
+    /// A live socket fails with [`BridgeError::LiveSocket`]. Does not mutate
+    /// process env.
     pub fn start(pacer_home: &Path) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
-        Self::start_with(|| {
+        let (mut session, env) = Self::start_with(|| {
             ReverseBridge::bind_at(pacer_home, HOST_SOCKET_NAME, PeerAuth::same_uid())
-        })
+        })?;
+        let pid_file = session.socket.with_file_name(HOST_SOCKET_PID_NAME);
+        // Diagnostics only: the socket, not this file, is the lease.
+        if write_pid_file(&pid_file, std::process::id()).is_ok() {
+            session.pid_file = Some(pid_file);
+        }
+        Ok((session, env))
     }
 
     /// The same owner for one stdio connection, on its own connection socket
@@ -102,6 +152,7 @@ impl NativeHostSession {
     ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
         let owner = ProcessOwner::native_for_serve();
         owner.claim_native_supervision()?;
+        let crashes = owner.crash_book();
         let owner = Arc::new(Mutex::new(owner));
         let bridge = bind()?.with_live_owner(Arc::clone(&owner));
         let socket = bridge.path().to_path_buf();
@@ -110,8 +161,10 @@ impl NativeHostSession {
         Ok((
             Self {
                 owner,
+                crashes,
                 bridge,
                 socket,
+                pid_file: None,
             },
             core_env,
         ))
@@ -125,20 +178,32 @@ impl NativeHostSession {
         &self.socket
     }
 
-    /// Stop the accept loop and unlink the socket. Tracked children (if any)
-    /// are dropped with the owner; later slices terminate them explicitly.
+    /// Crashes this owner detects from now on; the door delivers each to its
+    /// Core as the private `crashed` kind and then drops the report.
+    pub fn crash_reports(&self) -> mpsc::UnboundedReceiver<CrashReport> {
+        let (sink, reports) = mpsc::unbounded_channel();
+        self.crashes.set_sink(Some(sink));
+        reports
+    }
+
+    /// Serve shutdown: refuse new children, terminate the tracked ones, then
+    /// remove the pid sidecar and unlink `host.sock`.
     pub async fn shutdown(self) {
+        self.crashes.set_sink(None);
+        let lanes = self.owner.lock().await.close();
+        terminate_lanes(lanes).await;
+        if let Some(pid_file) = &self.pid_file
+            && fs::read_to_string(pid_file)
+                .is_ok_and(|text| text.trim() == std::process::id().to_string())
+        {
+            let _ = fs::remove_file(pid_file);
+        }
         self.bridge.shutdown().await;
     }
 
-    /// End a stdio connection's ownership: unlink its socket first so no new
-    /// caller arrives, then terminate every child it still tracks.
+    /// End a stdio connection's ownership the same way: no child outlives it.
     pub async fn shutdown_connection(self) {
-        self.bridge.shutdown().await;
-        let mut owner = self.owner.lock().await;
-        for id in owner.tracked_ids() {
-            let _ = owner.terminate(&id).await;
-        }
+        self.shutdown().await;
     }
 }
 

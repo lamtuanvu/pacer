@@ -176,7 +176,7 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
     };
     socket.on("connect", () => socket.write(frame));
     socket.on("error", (error: NodeJS.ErrnoException) => settle(unreachable(socketPath, error.code ?? error.message)));
-    socket.on("close", () => settle(new CoreError("plugin_unavailable", `native process owner socket ${socketPath} closed without a reply`)));
+    socket.on("close", () => settle(new CoreError("plugin_unavailable", `native process owner socket ${socketPath} closed without a reply`, "Restart the pacer service.")));
     socket.on("data", (data: Buffer) => {
       while (!settled) {
         const cut = data.indexOf(0x0a);

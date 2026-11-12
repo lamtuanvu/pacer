@@ -5,8 +5,14 @@
 //! [`PluginProcess`] children in library form without claiming serve supervision
 //! or setting `PACER_HOST_SOCKET`. Flag-on calls answer `capability.*` through an
 //! installed [`crate::PluginCapabilitySession`] (P4d-6).
+//!
+//! A lane whose child exited or lost its transport is dead: lookups skip it,
+//! and [`ProcessOwner::ensure`] replaces it only after its crash monitor
+//! (`crate::crash`) has recorded and reported the crash, and only once the
+//! plugin's restart floor has passed.
 
 use crate::capability::PluginCapabilitySession;
+use crate::crash::{self, CrashBook, CrashReport};
 use crate::orca_attach::SharedOrcaBridge;
 use crate::process::PluginProcess;
 use pacer_plugin_host::{PluginState, ProcessError, Registry, SpawnSpec};
@@ -14,8 +20,9 @@ use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::{
-    sync::{Mutex, RwLock, watch},
-    time::{Instant, timeout_at},
+    sync::{Mutex, RwLock, mpsc, watch},
+    task::JoinSet,
+    time::{Instant, timeout, timeout_at},
 };
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -30,6 +37,14 @@ pub enum OwnerError {
     UnknownPlugin(String),
     #[error("plugin process unavailable: {0}")]
     Process(String),
+    /// The plugin crashed recently; this owner starts it again at `at`.
+    #[error("plugin {id} is waiting to restart after a crash")]
+    Backoff { id: String, at: std::time::Instant },
+    /// The plugin's dead child is still being reported.
+    #[error("plugin {0} is still stopping after a crash")]
+    Retiring(String),
+    #[error("the plugin owner is shutting down")]
+    Closing,
 }
 
 impl From<ProcessError> for OwnerError {
@@ -84,6 +99,8 @@ pub struct PluginLane {
     /// `Some` once the child answered `plugin.hello`, with the summary when the
     /// caller recorded one.
     ready: std::sync::Mutex<Option<Option<Value>>>,
+    /// True once the child exited and its crash, if any, is on record.
+    settled: watch::Sender<bool>,
 }
 
 impl PluginLane {
@@ -93,7 +110,22 @@ impl PluginLane {
             gate: RwLock::new(()),
             hello: Mutex::new(()),
             ready: std::sync::Mutex::new(None),
+            settled: watch::Sender::new(false),
         }
+    }
+
+    pub(crate) fn settle(&self) {
+        self.settled.send_replace(true);
+    }
+
+    pub fn is_settled(&self) -> bool {
+        *self.settled.borrow()
+    }
+
+    /// Wait up to `within` for [`Self::is_settled`].
+    pub async fn wait_settled(&self, within: Duration) {
+        let mut settled = self.settled.subscribe();
+        let _ = timeout(within, settled.wait_for(|settled| *settled)).await;
     }
 
     pub fn process(&self) -> &PluginProcess {
@@ -149,40 +181,63 @@ pub struct ProcessOwner {
     shadow: HashMap<String, PluginState>,
     /// Per-plugin capability broker sessions (P4d-6). Absent → deny caps.
     sessions: HashMap<String, Arc<Mutex<PluginCapabilitySession>>>,
+    crashes: Arc<CrashBook>,
+    /// Set by [`Self::close`]: no child starts after teardown began.
+    closing: bool,
 }
 
 impl ProcessOwner {
-    /// Production serve constructor: TypeScript remains the process owner.
-    pub fn typescript() -> Self {
+    fn with_ownership(ownership: Ownership) -> Self {
         Self {
-            ownership: Ownership::typescript(),
+            ownership,
             orca_bridge: None,
             children: HashMap::new(),
             shadow: HashMap::new(),
             sessions: HashMap::new(),
+            crashes: Arc::default(),
+            closing: false,
         }
+    }
+
+    /// Production serve constructor: TypeScript remains the process owner.
+    pub fn typescript() -> Self {
+        Self::with_ownership(Ownership::typescript())
     }
 
     /// Test harness that pretends native ownership without activating serve.
     pub fn native_for_tests() -> Self {
-        Self {
-            ownership: Ownership::native_for_tests(),
-            orca_bridge: None,
-            children: HashMap::new(),
-            shadow: HashMap::new(),
-            sessions: HashMap::new(),
-        }
+        Self::with_ownership(Ownership::native_for_tests())
     }
 
     /// Flag-on serve path: native ownership with supervision claimable.
     pub fn native_for_serve() -> Self {
-        Self {
-            ownership: Ownership::native_for_serve(),
-            orca_bridge: None,
-            children: HashMap::new(),
-            shadow: HashMap::new(),
-            sessions: HashMap::new(),
-        }
+        Self::with_ownership(Ownership::native_for_serve())
+    }
+
+    pub(crate) fn crash_book(&self) -> Arc<CrashBook> {
+        Arc::clone(&self.crashes)
+    }
+
+    /// Send each crash this owner sees to `sink` (the owning door's Core).
+    pub fn set_crash_sink(&self, sink: mpsc::UnboundedSender<CrashReport>) {
+        self.crashes.set_sink(Some(sink));
+    }
+
+    /// The earliest instant this owner starts `id` again after a crash.
+    pub fn restart_floor(&self, id: &str) -> Option<std::time::Instant> {
+        self.crashes.floor(id)
+    }
+
+    /// Forget `id`'s crashes (enabling the plugin clears its backoff).
+    pub fn clear_restart_floor(&self, id: &str) {
+        self.crashes.clear(id);
+    }
+
+    /// Refuse new children and hand back every lane for termination.
+    pub fn close(&mut self) -> Vec<Arc<PluginLane>> {
+        self.closing = true;
+        self.sessions.clear();
+        self.children.drain().map(|(_, lane)| lane).collect()
     }
 
     pub fn set_orca_bridge(&mut self, bridge: SharedOrcaBridge) {
@@ -271,18 +326,35 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
+        if self.closing {
+            return Err(OwnerError::Closing);
+        }
         let child = PluginProcess::spawn(spec)?;
-        self.sessions.remove(&id);
-        self.children.insert(id, Arc::new(PluginLane::new(child)));
+        self.adopt(id, child);
         Ok(())
     }
 
-    /// Spawn when absent; no-op when already tracked. Refuses TypeScript ownership.
+    /// Spawn when absent or dead; no-op while a live child is tracked. A dead
+    /// lane is replaced once its crash is on record ([`OwnerError::Retiring`]
+    /// until then), and no sooner than the restart floor
+    /// ([`OwnerError::Backoff`]). Refuses TypeScript ownership.
     pub fn ensure(&mut self, id: impl Into<String>, spec: &SpawnSpec) -> Result<bool, OwnerError> {
         let id = id.into();
         self.ensure_native_library()?;
-        if self.children.contains_key(&id) {
-            return Ok(false);
+        if let Some(lane) = self.children.get(&id) {
+            if lane.process().is_alive() {
+                return Ok(false);
+            }
+            if !lane.is_settled() {
+                return Err(OwnerError::Retiring(id));
+            }
+            self.children.remove(&id);
+            self.sessions.remove(&id);
+        }
+        if let Some(at) = self.crashes.floor(&id)
+            && at > std::time::Instant::now()
+        {
+            return Err(OwnerError::Backoff { id, at });
         }
         self.spawn(id, spec)?;
         Ok(true)
@@ -295,9 +367,22 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
-        self.sessions.remove(&id);
-        self.children.insert(id, Arc::new(PluginLane::new(child)));
+        if self.closing {
+            return Err(OwnerError::Closing);
+        }
+        self.adopt(id, child);
         Ok(())
+    }
+
+    fn adopt(&mut self, id: String, child: PluginProcess) {
+        let lane = Arc::new(PluginLane::new(child));
+        tokio::spawn(crash::monitor(
+            self.crashes.clone(),
+            id.clone(),
+            Arc::downgrade(&lane),
+        ));
+        self.sessions.remove(&id);
+        self.children.insert(id, lane);
     }
 
     /// Terminate and drop a tracked child.
@@ -339,9 +424,12 @@ impl ProcessOwner {
         }
     }
 
-    /// Pid of a tracked child, if still alive to the OS.
+    /// Pid of a tracked child that is alive and still reachable.
     pub fn find_plugin(&self, id: &str) -> Option<u32> {
-        self.children.get(id).and_then(|lane| lane.process().pid())
+        self.children
+            .get(id)
+            .filter(|lane| lane.process().is_alive())
+            .and_then(|lane| lane.process().pid())
     }
 
     /// JSON-RPC request against a tracked child (`_host.plugin.call`).
@@ -416,6 +504,17 @@ impl ProcessOwner {
         let left = expires.saturating_duration_since(Instant::now());
         Ok(lane.process().request(method, params, left, None).await?)
     }
+}
+
+/// Terminate `lanes` together: each gets SIGTERM, then SIGKILL after the grace.
+pub async fn terminate_lanes(lanes: Vec<Arc<PluginLane>>) {
+    let mut stopping = JoinSet::new();
+    for lane in lanes {
+        stopping.spawn(async move {
+            let _ = lane.process().terminate().await;
+        });
+    }
+    while stopping.join_next().await.is_some() {}
 }
 
 impl Default for ProcessOwner {

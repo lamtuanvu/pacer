@@ -10,7 +10,10 @@
 //! with no live serve owner, ADR 0027), or the live serve owner a stdio
 //! connection attached to (private `relay`, plus `_host.plugin.stop`). With the
 //! host on, Core keeps the bookkeeping kinds prepare/spawn_spec/call_authority/
-//! ready/stop/changed/publish/log and never spawns a child itself.
+//! ready/stop/changed/publish/log/crashed and never spawns a child itself. A
+//! local owner starts a child no sooner than Core's sealed `nextStartAt` and
+//! its own restart floor, and an in-flight call whose child died answers
+//! `plugin_unavailable` naming the plugin once the crash is on record.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use crate::serve::core_child::CoreChild;
 use axum::{body::Body, http::Request};
@@ -28,9 +31,10 @@ use pacer_plugin_ops::{
     public::{Entry, PublicOperations, Runtime},
 };
 use pacer_plugin_runtime::{
-    SharedOwner, SpawnSpec, StopOutcome, call_resources_from_value, executor_context_from_value,
-    host_snapshots_from_value, observation_bootstrap_from_value, orca_context_from_value,
-    ready_info, session_for_call, session_from_hello, stop_on_owner, worktree_context_from_value,
+    CrashReport, SharedOwner, SpawnSpec, StartFailure, StopOutcome, call_resources_from_value,
+    crash_message, executor_context_from_value, host_snapshots_from_value,
+    observation_bootstrap_from_value, orca_context_from_value, ready_info, session_for_call,
+    session_from_hello, start_lane, stop_on_owner, worktree_context_from_value,
 };
 use serde_json::{Value, json};
 use std::{
@@ -157,6 +161,25 @@ impl CoreIpc for HttpIpc {
             .map(|bytes| bytes.to_vec())
             .map_err(|error| Failure::Body(error.to_string()))
         })
+    }
+}
+
+/// Deliver the owner's crash reports to the owning door's Core as the private
+/// `crashed` kind, so Core records restarts, backoff and `failing` as the
+/// TypeScript registry does. A report Core cannot take (restarting) is dropped.
+pub(crate) async fn deliver_crashes<F, Fut>(
+    mut reports: tokio::sync::mpsc::UnboundedReceiver<CrashReport>,
+    link: F,
+) where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Option<CoreLink>>,
+{
+    while let Some(report) = reports.recv().await {
+        if let Some((ipc, _)) = link().await {
+            let body = json!({"kind":"crashed", "id":report.id, "reason":report.reason});
+            let _ = pacer_plugin_ops::ipc::request(&*ipc, &body, &mut Vec::new()).await;
+        }
+        let _ = report.done.send(());
     }
 }
 
@@ -358,6 +381,9 @@ fn internal(e: impl std::fmt::Display) -> CoreError {
     CoreError::new(Code::Internal, e.to_string())
 }
 
+/// A plugin method's deadline on a local owner, including any restart wait.
+const CALL_DEADLINE: Duration = Duration::from_secs(30);
+
 impl Owner {
     async fn call_native(
         &mut self,
@@ -448,11 +474,26 @@ impl Owner {
             cwd: cwd.into(),
             env,
         };
+        let lane = start_lane(
+            &owner,
+            id,
+            &spec,
+            spec_body["nextStartAt"].as_u64(),
+            std::time::Instant::now() + CALL_DEADLINE,
+            None,
+        )
+        .await
+        .map_err(|error| match error {
+            StartFailure::Owner(error) => {
+                CoreError::new(Code::PluginUnavailable, error.to_string())
+            }
+            StartFailure::Crashed(text) => {
+                CoreError::new(Code::PluginUnavailable, format!("{method}: {text}"))
+            }
+            other => CoreError::new(Code::PluginTimeout, other.to_string()),
+        })?;
         let result = {
             let mut guard = owner.lock().await;
-            guard
-                .ensure(id, &spec)
-                .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
             let mut session = session_for_call(
                 &hello,
                 resources,
@@ -482,10 +523,19 @@ impl Owner {
                 .install_capability_session(id, session)
                 .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
             if !guard.is_ready(id) {
-                let hello_result = guard
+                let hello_result = match guard
                     .call_plugin(id, "plugin.hello", hello.clone(), Duration::from_secs(5))
                     .await
-                    .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+                {
+                    Ok(reply) => reply,
+                    Err(error) => {
+                        drop(guard);
+                        return Err(match crash_message(&lane, id, "plugin.hello").await {
+                            Some(message) => CoreError::new(Code::PluginUnavailable, message),
+                            None => CoreError::new(Code::PluginRefused, error.to_string()),
+                        });
+                    }
+                };
                 // Bridge calls that require a negotiated feature read it from this summary.
                 guard.mark_ready_with(id, ready_info(&hello_result, &hello));
                 let protocol = hello_result["protocol"].as_str().unwrap_or("").to_owned();
@@ -510,7 +560,7 @@ impl Owner {
                 .await?;
                 let mut guard = owner.lock().await;
                 let value = guard
-                    .call_plugin(id, method, params, Duration::from_secs(30))
+                    .call_plugin(id, method, params, CALL_DEADLINE)
                     .await
                     .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
                 // Drop call-scoped natives; keep hello-only between calls.
@@ -520,7 +570,7 @@ impl Owner {
                 value
             } else {
                 let value = guard
-                    .call_plugin(id, method, params, Duration::from_secs(30))
+                    .call_plugin(id, method, params, CALL_DEADLINE)
                     .await
                     .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
                 if let Ok(idle) = session_from_hello(&hello, Duration::from_secs(300)) {
@@ -528,6 +578,13 @@ impl Owner {
                 }
                 value
             }
+        };
+        let result = match result {
+            Err(error) => match crash_message(&lane, id, method).await {
+                Some(message) => Err(CoreError::new(Code::PluginUnavailable, message)),
+                None => Err(error),
+            },
+            ok => ok,
         };
         self.flush_capability_logs(owner, id).await;
         result
@@ -623,6 +680,11 @@ impl MutationRuntime for Owner {
     fn changed<'a>(&'a mut self, _: &'a Ctx, id: &'a str, invalidate: bool) -> OpFuture<'a> {
         let reset = self.resets.remove(id);
         Box::pin(async move {
+            // Enabling clears this door's restart floor with Core's backoff;
+            // an attached door cannot clear the serve owner's floor.
+            if reset && let ProcessRpc::Local(owner) = &self.rpc {
+                owner.lock().await.clear_restart_floor(id);
+            }
             self.request(json!({"kind":"changed", "id":id, "reset":reset, "invalidate":invalidate}))
                 .await
         })
