@@ -98,6 +98,6 @@ test.skipIf(!canBind)("ended terminal stream replays bytes and refuses control o
     expect(frames.find(frame=>frame.type==="snapshot")).toMatchObject({screenAnsi:"prefix",cols:120,rows:40});
     expect(Buffer.concat(frames.filter(frame=>frame.type==="output").map(frame=>frame.data))).toEqual(Buffer.from([0,255,27,65]));
     expect(frames.filter(frame=>frame.type==="control")).toEqual(Array(3).fill({type:"control",controller:null,you:false,reason:"read-only"}));
-    expect(frames.find(frame=>frame.type==="exit")).toEqual({type:"exit",code:7});
+    expect(frames.find(frame=>frame.type==="exit")).toEqual({type:"exit",code:7,at:expect.any(Number)});
   }finally{ws.close();await server.stop();}
 });

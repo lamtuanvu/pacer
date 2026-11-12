@@ -78,7 +78,7 @@ Lifecycle:
 1. `runAttempt` writes `argv` and `stdin` as today, then starts `pacer _session <run-dir>` in place of `/bin/sh run.sh` in `startRun` (`src/supervisor/run.ts`). The process is detached into its own session, and its pid goes in `pid`.
 2. The session host writes `started`. It spawns the agent with `Bun.spawn(argv, { terminal: { cols, rows, name: "xterm-256color", data } })` and writes the child pid to `child`.
 3. Every PTY chunk is appended to `session.log`, fed to the headless xterm, normalized into `stdout`, and sent to every attached viewer.
-4. When `proc.exited` resolves, the host writes `exit` (atomically: `exit.tmp` then rename), flushes, sends an `exit` frame to viewers, closes the socket and exits. `Bun.Terminal`'s own `exit` callback reports the PTY stream closing, not the process exit, so the host relies on `proc.exited` only.
+4. When `proc.exited` resolves, the host writes `session.ended` and then `exit` (atomically: `exit.tmp` then rename), flushes, sends an `exit` frame to viewers carrying the end time, closes the socket and exits. `Bun.Terminal`'s own `exit` callback reports the PTY stream closing, not the process exit, so the host relies on `proc.exited` only.
 5. On SIGTERM, SIGINT or SIGHUP, the host forwards SIGTERM to the child's process group, waits, and records 143, matching the wrapper's `on_term`. `stopRun` and `killTree` stay as they are.
 
 `wrapperAlive` (`src/supervisor/run.ts`) currently matches `run.sh` in the process command line. It must also accept `_session <run-dir>`. The remote `REPORT` and `STOP` scripts keep matching `run.sh` until phase 5.
@@ -314,14 +314,14 @@ Framing: `u8 type, u32 length, bytes`. Binary types carry terminal bytes; JSON t
 | host → client | `resize` (JSON) | `{ cols, rows }` when the controller resizes |
 | host → client | `control` (JSON) | `{ controller: label \| null, you: boolean, reason?: "taken" \| "released" \| "disconnected" }` |
 | host → client | `resync` (JSON) | Sent before a fresh `snapshot` when this client fell behind (section 6) |
-| host → client | `exit` (JSON) | `{ code, signal? }`; the host closes the connection afterwards |
+| host → client | `exit` (JSON) | `{ code, signal?, at? }`; the host closes the connection afterwards. `at` (added after clients showed their own connect time as the exit time) is the session's real end time in Unix seconds, taken from `session.ended` when the host wrote it, else the `exit` file's mtime; the field is omitted when neither exists, and older clients ignore it |
 | client → host | `take` / `release` (JSON) | `{ force?: boolean }` |
 | client → host | `input` (binary) | Keystrokes; dropped unless the sender is the controller |
 | client → host | `size` (JSON) | `{ cols, rows }`; applied to the PTY only from the controller |
 
 A client that sends `from` with an offset the host still has gets the missing bytes instead of a snapshot. This is how the WebSocket bridge resumes after a brief network drop.
 
-Offline sessions (the session host has exited, or the run is remote and not live) are read by the client straight from `session.ckpt` and `session.log*`. The same `snapshot` plus `output` frames are synthesized locally, followed by `exit`.
+Offline sessions (the session host has exited, or the run is remote and not live) are read by the client straight from `session.ckpt` and `session.log*`. The same `snapshot` plus `output` frames are synthesized locally, followed by `exit` with the same recorded end time (`session.ended`, else the `exit` file's mtime; omitted when neither exists).
 
 ### v2 API (`src/api/`)
 

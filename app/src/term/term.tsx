@@ -1,5 +1,4 @@
 import { Checkbox, Field, TextInput } from "../ds/Controls";
-import { clock } from "../../../src/view-model/time";
 import { useDialogs } from "../ds/useDialogs";
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
@@ -11,7 +10,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Button, IconButton } from "../ds/Button";
 import { type SessionState } from "./client";
 import { sessionRuntime, type SessionRuntime } from "./runtime";
-import { lastInputWords } from "./activity";
+import { lastInputWords, exitModeWords } from "./activity";
 import { HAND_BACK_CONFIRM } from "../screens/session/takeover";
 import { agentInfo } from "../../../src/view-model/agents";
 import { filesFromPaste } from "../model/attachments";
@@ -19,9 +18,9 @@ import { terminalDocument } from "./document";
 import { classifyTerminalLink, findWrappedFileLinks, shouldActivateTerminalLink, type TerminalLink } from "./links";
 import { FIND_EVENT } from "../shell/shell-commands";
 export interface TerminalActions { find: () => void; clear: () => void; reader: () => void; release: () => void }
-export interface TerminalViewProps { preview?:boolean; externalControls?:boolean; autoControl?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; /** The pane's connection reached a live session host. */ onLive?: () => void; id:string; attempt?:number|null; attemptStartedAt?:number; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; active?:string|null; driving?:boolean; onHandBack?:()=>unknown; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null; /** Agent id or name; names the terminal region ("Codex terminal, interactive"). */ agent?:string }
+export interface TerminalViewProps { preview?:boolean; externalControls?:boolean; autoControl?:boolean; onActions?: (actions: TerminalActions | null) => void; onInputLocked?: (locked: boolean) => void; onControlChange?: (you: boolean) => void; /** The pane's connection reached a live session host. */ onLive?: () => void; id:string; attempt?:number|null; attemptStartedAt?:number; url?:string; label?:string; cols?:number; rows?:number; control?:boolean; resize?:boolean; live?:boolean; controller?:string|null; active?:string|null; driving?:boolean; onHandBack?:()=>unknown; takeRequested?:boolean; onTakeSent?:()=>void; takeover?:ComponentChildren; conversation?:boolean; shell?:boolean; onFiles?:(files:File[])=>void; onOpenFile?:(reference:string,line?:number,column?:number)=>void; footer?:HTMLElement|null; /** Agent id or name; names the terminal region ("Codex terminal, interactive"). */ agent?:string; /** The task still wants work or an answer, so its ended session means answering starts a new attempt. */ answerRestarts?:boolean }
 /** Loaded only by import(). The shell may disable its shortcuts when data-session-control is true. */
-export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,rows=40,control=false,resize=true,live=true,controller=null,active=null,driving=false,onHandBack,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,onLive,preview=false,externalControls=false,autoControl=true,agent}:TerminalViewProps){
+export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,rows=40,control=false,resize=true,live=true,controller=null,active=null,driving=false,onHandBack,takeRequested=false,onTakeSent,takeover,conversation=false,shell=false,onFiles,onOpenFile,footer,onActions,onInputLocked,onControlChange,onLive,preview=false,externalControls=false,autoControl=true,agent,answerRestarts=false}:TerminalViewProps){
  const dialogs=useDialogs();
  const [acquisition,setAcquisition]=useState(0);
  const [acquired,setRuntime]=useState<SessionRuntime|null>(null);
@@ -30,7 +29,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,row
  useEffect(()=>{runtime?.update({control,live,attempt,attemptStartedAt,cols,rows,label,autoControl});},[runtime,control,live,attempt,attemptStartedAt,cols,rows,label,autoControl]);
  const mount=useRef<HTMLDivElement>(null),pane=useRef<HTMLDivElement>(null),client=useRef<SessionRuntime>();
  const [state,setState]=useState<SessionState>({status:'connecting',you:false,controller,cols,rows,viewers:0});
- const [reader,setReader]=useState(false),[error,setError]=useState(''),[exitAt,setExitAt]=useState('');
+ const [reader,setReader]=useState(false),[error,setError]=useState('');
  const [focused,setFocused]=useState(false),[handingBack,setHandingBack]=useState(false);
  const handBackPending=useRef(false);
  const terminal=useRef<Terminal>(),searchAddon=useRef<SearchAddon>(),taken=useRef(false);
@@ -43,7 +42,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,row
  useEffect(()=>{
   if(!runtime)return;
   if(!mount.current||!pane.current)return;
-  setError('');setExitAt('');
+  setError('');
   const nonce=document.querySelector<HTMLMetaElement>('meta[name="pacer-style-nonce"]')?.content??'';
   // xterm multiplies the measured 14px glyph cell at the 12px code size.
   const owned=runtime.ownTerminal(()=>{
@@ -120,7 +119,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,row
    mount.current.style.transform=factor===1?'':`scale(${factor})`;
   };
   const connection=runtime;
-  const renderer={reset:(cols:number,rows:number)=>{term.reset();term.resize(cols,rows);},write:(bytes:Uint8Array)=>term.write(bytes),state:(s:SessionState)=>{setState(s);if(s.status==='exited')setExitAt(clock(Date.now()/1000,Date.now()/1000));if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}};
+  const renderer={reset:(cols:number,rows:number)=>{term.reset();term.resize(cols,rows);},write:(bytes:Uint8Array)=>term.write(bytes),state:(s:SessionState)=>{setState(s);if(s.you!==lastYou||s.cols!==lastCols||s.rows!==lastRows){lastYou=s.you;lastCols=s.cols;lastRows=s.rows;scale();}}};
   const detach=runtime.attach(renderer,{control,live,autoControl});
   const visibility=()=>{const visible=!!pane.current?.clientWidth&&!!pane.current?.clientHeight;runtime.setVisible(renderer,visible);if(visible&&mount.current&&host.parentElement!==mount.current)mount.current.append(host);};
   client.current=connection;
@@ -165,7 +164,7 @@ export function TerminalView({id,attempt,attemptStartedAt,url,label,cols=120,row
  const shared=state.shared===true,typing=shared&&state.you&&control&&live;
  // Shortcuts and the control frame follow keyboard focus on 1.2, since every pane can type.
  const holding=shared?typing&&focused:state.you;
- const mode=state.status==='exited'?`Exited with code ${state.code ?? 'unknown'}${state.signal?` (${state.signal})`:''}${exitAt?` at ${exitAt}`:''}`:shared&&state.status==='live'?(typing?lastInputWords(state.active ?? active,state.delivered):'Read-only'):state.you?'You have control':state.status==='live'?'Watching · read-only':state.status==='resyncing'?'Refreshing snapshot…':state.status==='error'?'Session error':state.status==='reconnecting'?'Reconnecting…':'Connecting…';
+ const mode=state.status==='exited'?exitModeWords(state,answerRestarts):shared&&state.status==='live'?(typing?lastInputWords(state.active ?? active,state.delivered):'Read-only'):state.you?'You have control':state.status==='live'?'Watching · read-only':state.status==='resyncing'?'Refreshing snapshot…':state.status==='error'?'Session error':state.status==='reconnecting'?'Reconnecting…':'Connecting…';
  const hint=typing?`Keystrokes go to your ${shell?'shell':'agent'}. Ctrl/⌘-click links; Ctrl-] leaves the terminal.`:state.you&&!shared?`Keystrokes go to your ${shell?'shell':'agent'}. Ctrl/⌘-click links; Ctrl-] to release.`:shared?(conversation?'Closing this window leaves your conversation running.':''):shell?'Nothing you type reaches the shell until you take control.':conversation?'Nothing you type reaches the agent. Closing this window leaves your conversation running.':'Nothing you type reaches the agent.';
  const paneName=`${agent&&agent!=='unknown'?agentInfo(agent).name:shell?'Shell':'Agent'} terminal, ${state.you&&control&&live&&state.status==='live'?'interactive':'read-only'}`;
  const readerToggle=<label><Checkbox checked={reader} onChange={e=>setReader(e.currentTarget.checked)}/> Screen reader</label>;

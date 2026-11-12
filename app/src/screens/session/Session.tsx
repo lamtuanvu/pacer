@@ -18,7 +18,7 @@ import { routes } from '../../router';
 import { StatusPill } from '../../ds/StatusPill';
 import { LinkedTerminal } from './LinkedTerminal';
 import { PlainLog } from './PlainLog';
-import { interactiveHost, sessionActive } from '../../term/activity';
+import { interactiveHost, sessionActive, answerRestartsFor } from '../../term/activity';
 import { sessionStatus, phaseWords, taskStatus, taskOutcome } from '../../../../src/view-model/words';
 import type { Resource, SessionData, SessionActions, Action } from './types';
 export type { SessionData, SessionActions, Resource } from './types';
@@ -118,7 +118,7 @@ export function Session({ embedded = false, data, loading, error, initialTab, vi
           <Disclosure className="pc-disclosure" summary="Technical session output"><pre role="log" tabIndex={0} aria-label="Session output" className="pc-session-follow-log">{text}</pre></Disclosure>
         }</ResourceView> : <PlainLog key={data.id} id={data.id}/>}
       </div> : <LinkedTerminal key={data.id} id={data.id} attempt={session.attempt ?? null} readFile={onReadFile} workspace={data.branch ?? data.repo} agent={data.agent} url={session.attach.ws} cols={session.cols} rows={session.rows}
-        control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live} onLive={onSessionLive}
+        answerRestarts={active && answerRestartsFor(data.state)} control={active && session.capabilities.control} resize={active && session.capabilities.resize} live={active && session.live} onLive={onSessionLive}
         controller={session.controller} active={sessionActive(session)} driving={driving} onHandBack={driving ? onHandBack : undefined}
         takeRequested={active && takeRequested} onTakeSent={onTakeSent} takeover={takeover}/>}
   </Stack>;
