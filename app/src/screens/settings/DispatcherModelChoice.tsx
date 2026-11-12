@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { DispatchConfig, TierTargets } from "../../../../src/dispatch/types";
+import type { RunnerModels } from "../../../../src/core/runner-models";
 import { TIERS } from "../../../../src/dispatch/candidates";
 import type { BrowserApi } from "../../data/api";
 import { ApiError } from "../../data/api";
@@ -81,10 +82,32 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   };
   const [dialog, setDialog] = useState(false);
   const [profileName, setProfileName] = useState("");
+  const [defaults, setDefaults] = useState<Record<string, string>>({});
   const dirty = !!targets && !!base && !same(targets, base.config.tierTargets);
   useEffect(() => {
     if (config.data && !dirty) { setBase(config.data); setTargets(config.data.config.tierTargets); }
   }, [config.data]);
+  // A runner's configured default is not part of the dispatch.models inventory,
+  // so read it the same way the matrix does (runner.models.get) and pass it to
+  // the preview. This mirrors plain delegation (src/tasks/runner.ts), which
+  // falls back to the runner's default below the target instead of reporting
+  // "Not used".
+  useEffect(() => {
+    let active = true;
+    const runnerIds = [...new Set((inventory.data?.models ?? []).map(m => m.runner))].sort();
+    if (!runnerIds.length) return;
+    void Promise.all(runnerIds.map(id =>
+      api.call<RunnerModels>("runner.models.get", { id })
+        .then(m => ({ id, default: m.default }))
+        .catch(() => ({ id, default: null })),
+    )).then(rows => {
+      if (!active) return;
+      const next: Record<string, string> = {};
+      for (const row of rows) if (row.default) next[row.id] = row.default;
+      setDefaults(next);
+    });
+    return () => { active = false; };
+  }, [inventory.data, api]);
   const changeCount = targets && base ? DIFFICULTIES.filter(d => targets[d] !== base.config.tierTargets[d]).length : 0;
   const canSet = state.features?.ops.has("dispatch.tierTargets.set") ?? false;
   const directSave = canSet && !!base;
@@ -134,7 +157,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   // The planner's models are not dispatch targets; exclude them so every count on
   // this screen covers only executors Pacer actually delegates to.
   const records = withoutPlanner(inventory.data?.models ?? [], config.data?.planner, config.data?.plannerAccount);
-  const grouping = targets ? groupPreview(records, targets) : null;
+  const grouping = targets ? groupPreview(records, targets, defaults) : null;
   const preset = targets ? matchingPreset(targets) : "custom";
   const hasMatrix = (SETTINGS_SECTIONS as readonly string[]).includes("models");
   const scoped = useScoped();

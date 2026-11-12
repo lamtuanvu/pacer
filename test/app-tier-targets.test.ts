@@ -109,20 +109,23 @@ test("groupPreview follow cells use selectModel exactly as the dispatcher does",
 });
 
 test("a follow executor falls back to its default below the target, like plain delegation", () => {
-  // An executor with a rated model and an executor-default record runs its default
-  // when no rated model reaches a difficulty, instead of reporting "Not used".
+  // A follow runner whose only model is below a target keeps using its default
+  // (the runner's configured model) instead of reporting "Not used", matching
+  // plain delegation (src/tasks/runner.ts) once the preview passes the default.
   const records = [
-    model("opencode", { binding: { kind: "exact", id: "small-model" }, tier: "small" }),
-    model("opencode", { binding: { kind: "executor-default" }, tier: "unknown" }),
+    model("opencode", { binding: { kind: "exact", id: "opencode/fast" }, tier: "small" }),
   ];
-  const grouping = groupPreview(records, balanced);
+  const grouping = groupPreview(records, balanced, { opencode: "opencode/fast" });
   const row = grouping.follow[0]!;
-  expect(row.cells[0]!.chosen).toBe("small-model");
-  // Standard and complex are above the small model; the default fallback shows.
+  expect(row.cells[0]!.chosen).toBe("fast");
+  expect(row.cells[0]!.skipped).toBe(false);
+  // Standard and complex target medium and frontier; the small default is still
+  // chosen below the target rather than skipped.
+  expect(row.cells[1]!.chosen).toBe("fast");
   expect(row.cells[1]!.skipped).toBe(false);
-  expect(row.cells[1]!.chosen).toBe("default model");
+  expect(row.cells[1]!.note).toBe("Smaller than the target");
+  expect(row.cells[2]!.chosen).toBe("fast");
   expect(row.cells[2]!.skipped).toBe(false);
-  expect(row.cells[2]!.chosen).toBe("default model");
 });
 
 test("groupPreview uses an executor's configured default id as the fallback model", () => {

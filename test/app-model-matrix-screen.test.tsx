@@ -36,7 +36,7 @@ const inventory = (models: ModelRecord[]) => ({ models, advertised: [], observed
 type FakeElement = {
   nodeType: number; tagName: string; childNodes: FakeElement[]; parentNode: FakeElement | null;
   data?: string; attrs: Record<string, string>; _listeners: Record<string, (event?: unknown) => void>;
-  onclick?: null; oninput?: null; onchange?: null; onfocus?: null; onblur?: null; onkeydown?: null;
+  onclick?: null; oninput?: null; onchange?: null; onfocus?: null; onblur?: null; onkeydown?: null; onsubmit?: null;
   addEventListener: (type: string, fn: (event?: unknown) => void) => void; removeEventListener: (type: string) => void;
   setAttribute: (name: string, value: unknown) => void; getAttribute: (name: string) => string | null; removeAttribute: (name: string) => void;
   appendChild: (child: FakeElement) => FakeElement; insertBefore: (child: FakeElement, before: FakeElement | null) => FakeElement;
@@ -46,7 +46,7 @@ type FakeElement = {
 const fakeElement = (tag: string): FakeElement => {
   const node: FakeElement = {
     nodeType: 1, tagName: tag, childNodes: [], parentNode: null, attrs: {}, _listeners: {},
-    onclick: null, oninput: null, onchange: null, onfocus: null, onblur: null, onkeydown: null,
+    onclick: null, oninput: null, onchange: null, onfocus: null, onblur: null, onkeydown: null, onsubmit: null,
     addEventListener(type, fn) { node._listeners[type] = fn; },
     removeEventListener(type) { delete node._listeners[type]; },
     setAttribute(name, value) { node.attrs[name] = String(value); },
@@ -103,6 +103,7 @@ function makeApi(opts: {
   setMany?: { throw?: ApiError; warnings?: string[] };
 }): MatrixApi {
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
+  const savedModels: Record<string, RunnerModels> = {};
   let saved = 0;
   return {
     calls,
@@ -113,15 +114,24 @@ function makeApi(opts: {
         calls.push({ op, params });
         switch (op) {
           case "dispatch.config.get": return opts.config as T;
-          case "dispatch.models": return opts.inventory as T;
+          case "dispatch.models":
+            // Return a fresh object each call so an inventory.reload (or a config
+            // invalidation) changes identity and the clean page reloads drafts.
+            return { models: opts.inventory.models, advertised: opts.inventory.advertised, observedAt: opts.inventory.observedAt } as T;
           case "executor.models.available":
             return (opts.available?.[String(params.runner)] ?? { ...unknown, runner: String(params.runner) }) as T;
           case "runner.models.get":
-            return (opts.models?.[String(params.id)] ?? { runner: String(params.id), revision: "r-default", default: null, models: [] }) as T;
+            return (savedModels[String(params.id)] ?? opts.models?.[String(params.id)] ?? { runner: String(params.id), revision: "r-default", default: null, models: [] }) as T;
           case "runner.models.set_many":
             if (opts.setMany?.throw) throw opts.setMany.throw;
             saved += 1;
-            return { revision: `r-saved-${saved}`, runners: params.runners, warnings: opts.setMany?.warnings ?? [] } as T;
+            const revision = `r-saved-${saved}`;
+            const returned = (params.runners as Array<{ id: string; default: string; models: RunnerModels["models"] }>).map(r => {
+              const next: RunnerModels = { runner: r.id, revision, default: r.default, models: r.models };
+              savedModels[r.id] = next;
+              return next;
+            });
+            return { revision, runners: returned, warnings: opts.setMany?.warnings ?? [] } as T;
           default: return {} as T;
         }
       },
@@ -353,13 +363,14 @@ test("rating a row updates its Takes text to match the coverage cards (B1)", asy
 test("adding the first model marks it Default and the add field is a form so Enter works", async () => {
   await withMatrix(async (container) => {
     expect(textOf(container)).toContain("Add model");
-    // The add field is wrapped in a form so pressing Enter submits it (task #8).
+    // The add field is wrapped in a form so pressing Enter submits it; the Add
+    // button is a submit button with no separate onClick (it runs once).
     const form = findNode(container, n => n.tagName === "form");
     expect(form).toBeTruthy();
     const input = findNode(container, n => n.tagName === "input");
     expect(input).toBeTruthy();
     await act(async () => { fire(input!, "input", { currentTarget: { value: "gpt-5.5" } }); await new Promise(r => setTimeout(r, 0)); });
-    await clickText(container, "Add");
+    await act(async () => { fire(form!, "submit", { preventDefault() {} }); await new Promise(r => setTimeout(r, 0)); });
     expect(textOf(container)).toContain("gpt-5.5");
     // The tag mirrors the draft default, not the loaded flag.
     expect(textOf(container)).toContain("Default");
@@ -373,8 +384,11 @@ test("adding the first model marks it Default and the add field is a form so Ent
 
 test("the matrix grid carries table semantics so cells relate to their headers", async () => {
   await withMatrix(async (container) => {
-    expect(findNode(container, n => n.attrs.role === "table")).toBeTruthy();
-    expect(findNode(container, n => n.attrs.role === "rowgroup")).toBeTruthy();
+    const table = findNode(container, n => n.attrs.role === "table");
+    expect(table).toBeTruthy();
+    // Column headers are owned by a row: the header container carries role=row.
+    const headerRow = findNode(table!, n => n.attrs.role === "row" && allNodes(n, c => c.attrs.role === "columnheader").length > 0);
+    expect(headerRow).toBeTruthy();
     expect(allNodes(container, n => n.attrs.role === "columnheader").length).toBeGreaterThan(0);
     expect(allNodes(container, n => n.attrs.role === "row").length).toBeGreaterThan(0);
     expect(allNodes(container, n => n.attrs.role === "cell").length).toBeGreaterThan(0);
@@ -394,7 +408,7 @@ test("the coverage cards exclude the planner executor", async () => {
     const text = textOf(container);
     // go can take Simple (1 model); codex is the only target that uses its default model.
     expect(text).toContain("1 model");
-    expect(text).toContain("Plus 1 executor that use their default model.");
+    expect(text).toContain("Plus 1 executor that uses its default model.");
   }, {
     config: configView("claude-code"),
     inventory: inventory([
@@ -412,5 +426,84 @@ test("the coverage cards exclude the planner executor", async () => {
       "claude-code": { ...unknown, runner: "claude-code" },
       codex: { ...unknown, runner: "codex" },
     },
+  });
+});
+
+test("save, edit, save again: the second set_many sends the revision the first save returned", async () => {
+  await withMatrix(async (container, api) => {
+    await clickText(container, "Suggest");
+    await clickText(container, "Accept all");
+    await clickText(container, "Save matrix");
+    await until(() => api.calls.filter(c => c.op === "runner.models.set_many").length === 1);
+    const first = api.calls.filter(c => c.op === "runner.models.set_many")[0]!;
+    expect(first.params.expectedRevision).toBe("r-go");
+    expect(first.params.runners).toEqual([{ id: "go", default: "zhipu/glm", models: [{ id: "zhipu/glm", tier: "medium" }] }]);
+    // Wait for the reload that follows a successful save to settle (the clean
+    // page refetches the runner models with the returned revision) before editing.
+    await until(() => api.calls.filter(c => c.op === "runner.models.get").length >= 2);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    // Edit again (turn the model off), then save again.
+    const sw = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(sw).toBeTruthy();
+    await act(async () => { fire(sw!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    await clickText(container, "Save matrix");
+    await until(() => api.calls.filter(c => c.op === "runner.models.set_many").length === 2);
+    const second = api.calls.filter(c => c.op === "runner.models.set_many")[1]!;
+    // The second edit carries the revision the first save returned, not the stale one.
+    expect(second.params.expectedRevision).toBe("r-saved-1");
+  }, {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+  });
+});
+
+test("an external change on a clean page reloads the runner models without a conflict", async () => {
+  const options = {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+  };
+  await withMatrix(async (container, api, rerender) => {
+    expect(textOf(container)).toContain("1 model · 1 on");
+    // An external client (CLI, another window) turns go's model off.
+    options.models.go = { runner: "go", revision: "r-ext", default: "zhipu/glm", models: [] };
+    // A dispatch.models refresh then arrives while the page is clean.
+    await rerender({ ...initialState(), connected: true, invalidations: { config: 1 } });
+    // The clean page reloads the runner models instead of flagging a conflict.
+    await until(() => api.calls.filter(c => c.op === "runner.models.get").length >= 2);
+    await until(() => textOf(container).includes("0 on"));
+    expect(textOf(container)).toContain("0 on");
+    expect(textOf(container)).not.toContain("Model settings changed elsewhere. Discard to load them.");
+  }, options);
+});
+
+test("Suggest, Accept all and Save keep the read-only planner out of set_many", async () => {
+  // The planner runner has pricing facts (so it would be suggested if it were
+  // editable), but it stays read-only through the whole flow.
+  const plannerModels: RunnerModels = { runner: "claude-code", revision: "r-planner", default: "default-model", models: [{ id: "default-model", tier: "unknown" }] };
+  const plannerListing: AvailableModels = { runner: "claude-code", source: "opencode", fetchedAt: 1, provider: "Zhipu", models: [ { id: "default-model", context: 128000, tools: true, costOut: 5 } ] };
+  await withMatrix(async (container, api) => {
+    await clickText(container, "Suggest");
+    // Only the editable go row receives an Accept suggestion action; the planner row has none.
+    expect(allNodes(container, n => n.tagName === "button" && (n.attrs["aria-label"] ?? "").startsWith("Accept suggestion")).length).toBe(1);
+    await clickText(container, "Accept all");
+    await clickText(container, "Save matrix");
+    await until(() => api.calls.some(c => c.op === "runner.models.set_many"));
+    const setMany = api.calls.filter(c => c.op === "runner.models.set_many");
+    expect(setMany).toHaveLength(1);
+    const ids = (setMany[0]!.params.runners as Array<{ id: string }>).map(r => r.id);
+    expect(ids).toEqual(["go"]);
+    expect(ids).not.toContain("claude-code");
+  }, {
+    config: configView("claude-code"),
+    inventory: inventory([
+      record("go", "zhipu", "opencode", "zhipu/glm"),
+      record("claude-code", "claude-code", "claude-code", "default-model"),
+    ]),
+    models: { go: declarationsGo, "claude-code": plannerModels },
+    available: { go: servedGo, "claude-code": plannerListing },
   });
 });

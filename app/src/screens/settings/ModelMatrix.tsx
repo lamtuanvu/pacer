@@ -140,10 +140,13 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     }
     void fetchAll(runnerIds).then(loaded => { if (active) applyLoaded(loaded); });
     return () => { active = false; };
-  }, [runnerIds, JSON.stringify(targets)]);
+  }, [runnerIds, JSON.stringify(targets), inventory.data]);
 
   const plannerId = plannerRunner(inventory.data?.models ?? [], config.data?.planner, config.data?.plannerAccount);
   const isPlanner = (runnerId: string) => runnerId === plannerId;
+  // The planner and any runner whose models failed to load are read-only: editing
+  // them is meaningless, and saving them would make runner.models.set_many fail.
+  const isReadOnly = (runnerId: string) => isPlanner(runnerId) || !!loadErrors[runnerId];
 
   const runners = runnerIds.map(id => {
     const draft = drafts.find(d => d.runner === id);
@@ -181,6 +184,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   const handleSuggest = () => {
     setSuggestPhase(true);
     setDrafts(prev => prev.map(d => {
+      if (isReadOnly(d.runner)) return d;
       const available = availableById[d.runner];
       const listingById = new Map((available?.models ?? []).map((m: AvailableModel) => [m.id, { id: m.id, context: m.context, tools: m.tools, costOut: m.costOut }]));
       const suggested = suggestRows(d.rows, listingById);
@@ -189,12 +193,12 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   };
 
   const handleAcceptAll = () => {
-    setDrafts(prev => prev.map(d => ({ ...d, rows: acceptAllSuggestions(d.rows) })));
+    setDrafts(prev => prev.map(d => isReadOnly(d.runner) ? d : ({ ...d, rows: acceptAllSuggestions(d.rows) })));
     setSuggestPhase(false);
   };
 
   const handleDismissAll = () => {
-    setDrafts(prev => prev.map(d => ({ ...d, rows: dismissSuggestions(d.rows) })));
+    setDrafts(prev => prev.map(d => isReadOnly(d.runner) ? d : ({ ...d, rows: dismissSuggestions(d.rows) })));
     setSuggestPhase(false);
   };
 
@@ -256,14 +260,18 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     setNotice("");
     setConflict(false);
     try {
-      const plan = buildSavePlan(drafts.map((d, i) => ({
-        runner: d.runner,
-        revision: d.revision,
-        baseRows: baseDrafts[i]?.rows ?? d.rows,
-        rows: d.rows,
-        default: d.default,
-        baseDefault: baseDrafts[i]?.default ?? null,
-      })), targets, drafts[0]?.revision ?? "");
+      const editable = drafts.filter(d => !isReadOnly(d.runner));
+      const plan = buildSavePlan(editable.map(d => {
+        const base = baseDrafts.find(b => b.runner === d.runner);
+        return {
+          runner: d.runner,
+          revision: d.revision,
+          baseRows: base?.rows ?? d.rows,
+          rows: d.rows,
+          default: d.default,
+          baseDefault: base?.default ?? null,
+        };
+      }), targets, drafts[0]?.revision ?? "");
       if (!plan.changed) {
         setNotice("No changes.");
         return;
@@ -273,10 +281,29 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
         runners: plan.runners,
       });
       const newRevision = result.revision;
-      // Update the base state now so the page is not dirty before the reload lands.
-      const saved = drafts.map(d => ({ ...d, revision: newRevision, rows: d.rows.map(r => ({ ...r })), baseRows: d.rows.map(r => ({ ...r })), addedIds: [] }));
+      const returned = new Map<string, RunnerModels>(result.runners.map(r => [r.runner, r]));
+      // Fold the service's returned revision, defaults and declared models into
+      // each draft so the page is clean, a second save sends the new revision,
+      // and saved strengths/tools/context stay in the draft.
+      const saved = drafts.map(d => {
+        const r = returned.get(d.runner);
+        const declaredById = new Map((r?.models ?? []).map(m => [m.id, m]));
+        const rows = d.rows.map(row => {
+          const declaration = declaredById.get(row.id);
+          return declaration ? { ...row, declared: declaration } : row;
+        });
+        return {
+          runner: d.runner,
+          revision: newRevision,
+          default: r?.default ?? d.default,
+          rows: rows.map(row => ({ ...row })),
+          baseRows: rows.map(row => ({ ...row })),
+          addedIds: [],
+        };
+      });
       setDrafts(saved);
       setBaseDrafts(saved);
+      setLoadedRevision(newRevision);
       inventory.reload();
       const warnings = (result.warnings ?? []).filter(w => !ROUTINE_WARNINGS.test(w));
       setNotice(warnings.length ? `Saved. ${warnings.join(" ")}` : "Saved.");
@@ -359,13 +386,13 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       {!readOnly && unknownListing && (
                         <form className="pc-model-matrix__add" onSubmit={event => { event.preventDefault(); handleAdd(id); }}>
                           <Field label="Add model"><TextInput value={addingByRunner[id] ?? ""} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
-                          <Button size="sm" type="submit" onClick={() => handleAdd(id)}>Add</Button>
+                          <Button size="sm" type="submit">Add</Button>
                         </form>
                       )}
                       {draft && !noModels && (
                         <div className="pc-model-matrix__table-wrap">
                           <div className="pc-model-matrix__table" role="table">
-                            <div className="pc-model-matrix__head" role="rowgroup">
+                            <div className="pc-model-matrix__head" role="row">
                               <span role="columnheader">On</span>
                               <span role="columnheader">Model</span>
                               <span role="columnheader">Context</span>
@@ -406,7 +433,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                                   </RadioGroup></span>
                                   <div role="cell">
                                     <span className="u3-muted">{row.on ? (row.tier === "unknown" ? "Any, unrated" : takes.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(", ") || "—") : "Off"}</span>
-                                    {pendingRow && <Button size="sm" variant="ghost" aria-label={`Accept suggestion for ${row.id}`} onClick={() => handleAccept(id, row.id)}>Accept</Button>}
+                                    {pendingRow && !readOnly && <Button size="sm" variant="ghost" aria-label={`Accept suggestion for ${row.id}`} onClick={() => handleAccept(id, row.id)}>Accept</Button>}
                                   </div>
                                 </div>
                               );
@@ -434,7 +461,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       <div key={diff} className="pc-card">
                         <span>{diff.charAt(0).toUpperCase() + diff.slice(1)} · needs {targets[diff]}</span>
                         <span>{count} {count === 1 ? "model" : "models"}</span>
-                        <span className="u3-muted">Plus {defaultExecutors} {defaultExecutors === 1 ? "executor" : "executors"} that use their default model.</span>
+                        <span className="u3-muted">Plus {defaultExecutors} {defaultExecutors === 1 ? "executor that uses its default model" : "executors that use their default model"}.</span>
                       </div>
                     );
                   })}
