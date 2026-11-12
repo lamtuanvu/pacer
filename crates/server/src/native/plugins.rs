@@ -31,10 +31,11 @@ use pacer_plugin_ops::{
     public::{Entry, PublicOperations, Runtime},
 };
 use pacer_plugin_runtime::{
-    CrashReport, SharedOwner, SpawnSpec, StartFailure, StopOutcome, call_resources_from_value,
-    crash_message, executor_context_from_value, host_snapshots_from_value,
-    observation_bootstrap_from_value, orca_context_from_value, ready_info, session_for_call,
-    session_from_hello, start_lane, stop_on_owner, worktree_context_from_value,
+    CrashReport, OwnerError, ProcessError, SharedOwner, SpawnSpec, StartFailure, StopOutcome,
+    call_resources_from_value, crash_message, executor_context_from_value,
+    host_snapshots_from_value, observation_bootstrap_from_value, orca_context_from_value,
+    ready_info, session_for_call, session_from_hello, start_lane, stop_on_owner,
+    worktree_context_from_value,
 };
 use serde_json::{Value, json};
 use std::{
@@ -44,6 +45,39 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+
+/// A plugin's own JSON-RPC error reply, read as TypeScript `pluginReplyError` reads it: its
+/// code when that is one of pacer's reply codes (otherwise `plugin_unavailable`), its message
+/// and its hint. `None` for every other owner failure.
+fn plugin_reply_error(error: &OwnerError) -> Option<CoreError> {
+    let OwnerError::Process(text) = error else {
+        return None;
+    };
+    let reply = text.strip_prefix(&ProcessError::Unavailable(String::new()).to_string())?;
+    let reply = serde_json::from_str::<Value>(reply)
+        .ok()
+        .filter(Value::is_object)?;
+    let code = match reply["data"]["code"].as_str() {
+        Some("unknown_op") => Code::UnknownOp,
+        Some("unknown_task") => Code::UnknownTask,
+        Some("invalid_input") => Code::InvalidInput,
+        Some("unknown_executor") => Code::UnknownExecutor,
+        Some("conflict") => Code::Conflict,
+        Some("not_allowed") => Code::NotAllowed,
+        Some("plugin_timeout") => Code::PluginTimeout,
+        Some("plugin_refused") => Code::PluginRefused,
+        Some("capability_denied") => Code::CapabilityDenied,
+        Some("unknown_plugin") => Code::UnknownPlugin,
+        Some("not_found") => Code::NotFound,
+        Some("too_large") => Code::TooLarge,
+        _ => Code::PluginUnavailable,
+    };
+    let error = CoreError::new(code, reply["message"].as_str().unwrap_or("plugin error"));
+    Some(match reply["data"]["hint"].as_str() {
+        Some(hint) => error.hint(hint),
+        None => error,
+    })
+}
 
 fn requires_owner(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async {
@@ -576,7 +610,10 @@ impl Owner {
         let result = lane
             .call(session, method, params, CALL_DEADLINE, None)
             .await
-            .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
+            .map_err(|error| {
+                plugin_reply_error(&error)
+                    .unwrap_or_else(|| CoreError::new(Code::PluginUnavailable, error.to_string()))
+            });
         // Drop call-scoped natives; keep hello-only between calls.
         if let Ok(idle) = session_from_hello(&hello, Duration::from_secs(300)) {
             let _ = owner.lock().await.install_capability_session(id, idle);

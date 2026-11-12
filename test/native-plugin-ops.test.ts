@@ -549,6 +549,31 @@ test.skipIf(!front)("flag-on ProcessOwner binds host.sock and serves UI mutation
   }
 }, 90000);
 
+test.skipIf(!front)("flag-on owner keeps a plugin's own error code, message and hint", async () => {
+  const seen: unknown[] = [];
+  for (const nativeHost of ["0", "1"]) {
+    const s = await service("", "absolute", { nativeHost });
+    try {
+      writeFileSync(join(s.plugin, "main.ts"), `#!/usr/bin/env bun
+import {PluginError,serve,stdinLines} from '@pacer/plugin';
+import {readFileSync} from 'node:fs';
+const manifest=JSON.parse(readFileSync('pacer-plugin.json','utf8'));
+await serve({manifest,input:stdinLines(),handlers:{
+  'diagnostic.ping':async()=>{throw new PluginError('conflict','fixture ping refused','retry the fixture');},
+  'ui.render':async()=>{throw new PluginError('not_found','fixture panel is gone');},
+  'ui.action':async()=>{throw new PluginError('fixture_code','fixture action failed');},
+}});`);
+      await s.post("plugin.enable", { id: "fx-ui", grant: true });
+      const doctor = await s.post("plugin.doctor", { id: "fx-ui" });
+      const render = await s.post("plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context });
+      const action = await s.post("plugin.ui.action", { plugin: "fx-ui", surface: "activity", id: "checklist", context, action: "run", requestId: "r1" });
+      seen.push({ doctor: { ok: doctor.result.reports[0].ok, error: doctor.result.reports[0].error }, render: render.error, action: action.error });
+    } finally { await s.stop(); }
+  }
+  expect(seen[0]).toMatchObject({ doctor: { ok: false, error: "conflict: fixture ping refused" } });
+  expect(seen[1]).toEqual(seen[0]);
+}, 90000);
+
 test.skipIf(!front)("PACER_NATIVE_PLUGIN_HOST=0 escape leaves serve without host.sock", async () => {
   const s = await service("", "absolute", { nativeHost: "0" });
   try {
