@@ -14,9 +14,10 @@ import { executorLabel } from "../../../../src/view-model/words";
 import {
   createDraft, suggestRows, acceptSuggestion, acceptAllSuggestions,
   dismissSuggestions, toggleModel, setTier, addModel, isDirty, buildSavePlan,
-  formatPrice, formatContext, formatTools,
+  takesFor, formatPrice, formatContext, formatTools,
   type MatrixRow, type MatrixDraft, type MatrixTier,
 } from "../../model/model-matrix";
+import { plannerRunner } from "../../model/planner";
 
 interface ConfigView { strategy: string; planner: string; plannerAccount: string; source: "built-in" | "strategy"; config: DispatchConfig }
 
@@ -141,14 +142,8 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     return () => { active = false; };
   }, [runnerIds, JSON.stringify(targets)]);
 
-  const isPlanner = (runnerId: string) => {
-    const records = inventory.data?.models?.filter(m => m.runner === runnerId) ?? [];
-    const agentPart = runnerId.split(/[#@]/)[0];
-    const noHost = !runnerId.includes("@");
-    if (agentPart !== config.data?.planner || !noHost) return false;
-    if (records.length > 0) return records.some(m => m.account === config.data?.plannerAccount);
-    return true;
-  };
+  const plannerId = plannerRunner(inventory.data?.models ?? [], config.data?.planner, config.data?.plannerAccount);
+  const isPlanner = (runnerId: string) => runnerId === plannerId;
 
   const runners = runnerIds.map(id => {
     const draft = drafts.find(d => d.runner === id);
@@ -362,38 +357,39 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       {loadError && <p className="u3-muted">{loadError}</p>}
                       {!readOnly && noModels && <p className="u3-muted">Uses its default and can take any difficulty</p>}
                       {!readOnly && unknownListing && (
-                        <div className="pc-model-matrix__add">
+                        <form className="pc-model-matrix__add" onSubmit={event => { event.preventDefault(); handleAdd(id); }}>
                           <Field label="Add model"><TextInput value={addingByRunner[id] ?? ""} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
-                          <Button size="sm" onClick={() => handleAdd(id)}>Add</Button>
-                        </div>
+                          <Button size="sm" type="submit" onClick={() => handleAdd(id)}>Add</Button>
+                        </form>
                       )}
                       {draft && !noModels && (
                         <div className="pc-model-matrix__table-wrap">
-                          <div className="pc-model-matrix__table">
-                            <div className="pc-model-matrix__head">
-                              <span>On</span>
-                              <span>Model</span>
-                              <span>Context</span>
-                              <span>Tools</span>
-                              <span>Price</span>
-                              <span>Size</span>
-                              <span>Takes</span>
+                          <div className="pc-model-matrix__table" role="table">
+                            <div className="pc-model-matrix__head" role="rowgroup">
+                              <span role="columnheader">On</span>
+                              <span role="columnheader">Model</span>
+                              <span role="columnheader">Context</span>
+                              <span role="columnheader">Tools</span>
+                              <span role="columnheader">Price</span>
+                              <span role="columnheader">Size</span>
+                              <span role="columnheader">Takes</span>
                             </div>
                             {draft.rows.map(row => {
                               const pendingRow = suggestPhase && row.pending;
                               const listing = listingModels?.find(m => m.id === row.id);
+                              const takes = takesFor(row.tier, targets);
                               return (
-                                <div key={row.id} className={`pc-model-matrix__row ${pendingRow ? "pc-model-matrix__row--pending" : ""}`}>
-                                  <Switch checked={row.on} aria-label={`Use ${row.id}`} disabled={readOnly} onChange={e => { if (!readOnly) handleToggle(id, row.id, !!e.currentTarget.checked); }} />
-                                  <div>
+                                <div key={row.id} role="row" className={`pc-model-matrix__row ${pendingRow ? "pc-model-matrix__row--pending" : ""}`}>
+                                  <span role="cell"><Switch checked={row.on} aria-label={`Use ${row.id}`} disabled={readOnly} onChange={e => { if (!readOnly) handleToggle(id, row.id, !!e.currentTarget.checked); }} /></span>
+                                  <div role="cell">
                                     <span className="pc-model-matrix__mono">{row.id}</span>
-                                    {row.isDefault && <span className="pc-model-matrix__tag">Default</span>}
+                                    {draft.default === row.id && <span className="pc-model-matrix__tag">Default</span>}
                                     <div className="u3-muted">{pendingRow ? `Suggested: ${row.suggestedOn ? "turn on" : "leave off"}${row.suggestedTier ? ", " + row.suggestedTier : ""}. ${row.suggestionReason ?? ""}` : ""}</div>
                                   </div>
-                                  <span className="pc-model-matrix__mono">{formatContext(row.context)}</span>
-                                  <span>{formatTools(row.tools)}</span>
-                                  <span>{formatPrice(row.costOut)}</span>
-                                  <RadioGroup label={`Size of ${row.id}`}>
+                                  <span role="cell" className="pc-model-matrix__mono">{formatContext(row.context)}</span>
+                                  <span role="cell">{formatTools(row.tools)}</span>
+                                  <span role="cell">{formatPrice(row.costOut)}</span>
+                                  <span role="cell"><RadioGroup label={`Size of ${row.id}`}>
                                     {(["small", "medium", "frontier"] as MatrixTier[]).map(tier => (
                                       <RadioChip
                                         key={tier}
@@ -407,9 +403,9 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                                       disabled={readOnly}
                                       onSelect={() => { if (!readOnly) handleTier(id, row.id, "unknown"); }}
                                     >Unrated</RadioChip>
-                                  </RadioGroup>
-                                  <div>
-                                    <span className="u3-muted">{row.on ? (row.tier === "unknown" ? "Any, unrated" : row.takes.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(", ") || "—") : "Off"}</span>
+                                  </RadioGroup></span>
+                                  <div role="cell">
+                                    <span className="u3-muted">{row.on ? (row.tier === "unknown" ? "Any, unrated" : takes.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(", ") || "—") : "Off"}</span>
                                     {pendingRow && <Button size="sm" variant="ghost" aria-label={`Accept suggestion for ${row.id}`} onClick={() => handleAccept(id, row.id)}>Accept</Button>}
                                   </div>
                                 </div>
@@ -422,11 +418,15 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                   );
                 })}
 
-                {/* Coverage cards */}
+                {/* Coverage cards: count only dispatch targets; the planner is not one. */}
                 <div className="pc-model-matrix__coverage">
                   {(["simple", "standard", "complex"] as const).map(diff => {
-                    const count = drafts.flatMap(d => d.rows).filter(r => r.on && r.tier !== "unknown" && TIERS[r.tier as keyof typeof TIERS] >= TIERS[targets[diff]]).length;
-                    const defaultExecutors = runners.filter(({ draft }) => {
+                    const count = drafts
+                      .filter(d => !isPlanner(d.runner))
+                      .flatMap(d => d.rows)
+                      .filter(r => r.on && r.tier !== "unknown" && TIERS[r.tier as keyof typeof TIERS] >= TIERS[targets[diff]]).length;
+                    const defaultExecutors = runners.filter(({ id, draft }) => {
+                      if (isPlanner(id)) return false;
                       const rated = draft?.rows.filter(r => r.on && r.tier !== "unknown") ?? [];
                       return rated.length === 0;
                     }).length;

@@ -19,8 +19,9 @@ import {
 } from "../../model/tier-targets";
 import { hrefFor, routes, SETTINGS_SECTIONS } from "../../router";
 import type { DispatcherInventory } from "./Dispatcher";
+import { withoutPlanner } from "../../model/planner";
 
-type ConfigView = { strategy: string; source?: "built-in" | "strategy"; config: DispatchConfig };
+type ConfigView = { strategy: string; source?: "built-in" | "strategy"; config: DispatchConfig; planner?: string; plannerAccount?: string };
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const mappingError = (targets: TierTargets) => TIERS[targets.simple] > TIERS[targets.standard] || TIERS[targets.standard] > TIERS[targets.complex]
   ? "dispatch.tierTargets must not decrease from simple to complex" : null;
@@ -130,7 +131,10 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
     finally { pending.current = false; setBusy(false); }
   };
 
-  const grouping = targets ? groupPreview(inventory.data?.models ?? [], targets) : null;
+  // The planner's models are not dispatch targets; exclude them so every count on
+  // this screen covers only executors Pacer actually delegates to.
+  const records = withoutPlanner(inventory.data?.models ?? [], config.data?.planner, config.data?.plannerAccount);
+  const grouping = targets ? groupPreview(records, targets) : null;
   const preset = targets ? matchingPreset(targets) : "custom";
   const hasMatrix = (SETTINGS_SECTIONS as readonly string[]).includes("models");
   const scoped = useScoped();
@@ -165,7 +169,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
           <span className="u3-muted">Presets</span>
           {(Object.keys(PRESETS) as PresetName[]).map(name =>
             <FilterChip key={name} selected={preset === name} disabled={busy} onClick={() => pickPreset(name)}>{PRESET_LABELS[name]}</FilterChip>)}
-          {preset === "custom" && <FilterChip selected>Custom</FilterChip>}
+          {preset === "custom" && <span className="pc-model-choice__preset-note">Custom</span>}
         </div>
 
         <div className="pc-tier-grid">

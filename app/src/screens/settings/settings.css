@@ -375,7 +375,7 @@
 .pc-tier-grid__row>.pc-tier-grid__label{grid-column:1}
 .pc-tier-grid__row .pc-tier-grid__radios{grid-column:2 / -1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-2)}
 .pc-model-choice__preview{display:flex;flex-direction:column;gap:var(--space-2)}
-.pc-model-preview{border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
+.pc-model-preview{border:1px solid var(--line);border-radius:var(--radius-lg);overflow-x:auto}
 .pc-model-preview__head{display:grid;grid-template-columns:minmax(var(--size-180),1.2fr) repeat(3,minmax(var(--size-150),1fr));column-gap:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--surface-card)}
 .pc-model-preview__colhead{display:flex;flex-direction:column;font-weight:var(--type-body-strong-weight)}
 .pc-model-preview__group{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;padding:var(--space-3) var(--space-4) var(--space-1);border-top:1px solid var(--surface-lane)}
@@ -406,7 +406,12 @@
 .pc-model-matrix__head{background:var(--surface-card);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
 .pc-model-matrix__row{border-top:1px solid var(--surface-lane)}
 .pc-model-matrix__row--pending{background:var(--info-bg)}
-.pc-model-matrix__row--pending *{color:var(--ink)}
 .pc-model-matrix__coverage{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-220),1fr));gap:var(--space-3)}
 .pc-model-matrix__suggest{display:flex;flex-direction:column;gap:var(--space-2)}
 .pc-model-matrix__savebar{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3);margin-block:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md);z-index:var(--layer-sticky)}
+
+/* Keep focused controls above the sticky save bars on both dispatcher pages. */
+.pc-main-scroll:has(.pc-model-matrix__savebar),.pc-main-scroll:has(.pc-model-choice__savedock){scroll-padding-bottom:calc(var(--size-120) + var(--space-4))}
+
+/* The "Custom" marker when no preset matches is an informational chip, not a control. */
+.pc-model-choice__preset-note{display:inline-flex;align-items:center;min-height:var(--control-compact);padding:var(--space-1) var(--space-3);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-secondary);font-weight:var(--type-body-weight)}

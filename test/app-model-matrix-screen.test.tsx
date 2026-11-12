@@ -182,6 +182,12 @@ const clickText = async (container: FakeElement, label: string) => {
   await act(async () => { fire(button!, "click"); await new Promise(resolve => setTimeout(resolve, 0)); });
 };
 
+const clickRadioText = async (container: FakeElement, label: string) => {
+  const radio = allNodes(container, n => n.tagName === "button" && n.attrs.role === "radio" && textOf(n).trim() === label);
+  expect(radio.length).toBeGreaterThan(0);
+  await act(async () => { fire(radio[0]!, "click"); await new Promise(resolve => setTimeout(resolve, 0)); });
+};
+
 test("an unknown-listing executor with no models shows the Add model field", async () => {
   await withMatrix(async (container, _api) => {
     expect(textOf(container)).toContain("Add model");
@@ -327,4 +333,84 @@ test("a config event while the page is dirty keeps the draft and asks to Discard
     expect(textOf(container)).toContain("1 model changed");
     expect(textOf(container)).toContain("Save matrix");
   }, options);
+});
+
+test("rating a row updates its Takes text to match the coverage cards (B1)", async () => {
+  await withMatrix(async (container) => {
+    // The model starts unrated: no difficulty it can take.
+    expect(textOf(container)).toContain("Any, unrated");
+    await clickRadioText(container, "Medium");
+    // Medium covers simple and standard for the default small/medium/frontier mapping.
+    expect(textOf(container)).toContain("Simple, Standard");
+  }, {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+  });
+});
+
+test("adding the first model marks it Default and the add field is a form so Enter works", async () => {
+  await withMatrix(async (container) => {
+    expect(textOf(container)).toContain("Add model");
+    // The add field is wrapped in a form so pressing Enter submits it (task #8).
+    const form = findNode(container, n => n.tagName === "form");
+    expect(form).toBeTruthy();
+    const input = findNode(container, n => n.tagName === "input");
+    expect(input).toBeTruthy();
+    await act(async () => { fire(input!, "input", { currentTarget: { value: "gpt-5.5" } }); await new Promise(r => setTimeout(r, 0)); });
+    await clickText(container, "Add");
+    expect(textOf(container)).toContain("gpt-5.5");
+    // The tag mirrors the draft default, not the loaded flag.
+    expect(textOf(container)).toContain("Default");
+  }, {
+    config: configView(),
+    inventory: inventory([record("codex", "work", "codex", "codex-default", { kind: "executor-default" })]),
+    models: { codex: declarationsCodex },
+    available: { codex: { ...unknown, runner: "codex" } },
+  });
+});
+
+test("the matrix grid carries table semantics so cells relate to their headers", async () => {
+  await withMatrix(async (container) => {
+    expect(findNode(container, n => n.attrs.role === "table")).toBeTruthy();
+    expect(findNode(container, n => n.attrs.role === "rowgroup")).toBeTruthy();
+    expect(allNodes(container, n => n.attrs.role === "columnheader").length).toBeGreaterThan(0);
+    expect(allNodes(container, n => n.attrs.role === "row").length).toBeGreaterThan(0);
+    expect(allNodes(container, n => n.attrs.role === "cell").length).toBeGreaterThan(0);
+  }, {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+  });
+});
+
+test("the coverage cards exclude the planner executor", async () => {
+  // go is rated small; claude-code is the planner (executor-default, account team);
+  // codex has no model. Only go and codex are dispatch targets.
+  const goRated: RunnerModels = { runner: "go", revision: "r-go", default: "zhipu/glm", models: [{ id: "zhipu/glm", tier: "small" }] };
+  await withMatrix(async (container) => {
+    const text = textOf(container);
+    // go can take Simple (1 model); codex is the only target that uses its default model.
+    expect(text).toContain("1 model");
+    expect(text).toContain("Plus 1 executor that use their default model.");
+  }, {
+    config: configView("claude-code"),
+    inventory: inventory([
+      record("go", "zhipu", "opencode", "zhipu/glm"),
+      record("claude-code", "team", "claude-code", "default-model", { kind: "executor-default" }),
+      record("codex", "work", "codex", "codex-default", { kind: "executor-default" }),
+    ]),
+    models: {
+      go: goRated,
+      "claude-code": declarationsPlanner,
+      codex: declarationsCodex,
+    },
+    available: {
+      go: servedGo,
+      "claude-code": { ...unknown, runner: "claude-code" },
+      codex: { ...unknown, runner: "codex" },
+    },
+  });
 });

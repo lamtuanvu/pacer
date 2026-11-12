@@ -6,6 +6,7 @@ import { ApiError } from "../app/src/data/api";
 import { DispatcherModelChoice, saveTierTargets, saveTierTargetsInPlace } from "../app/src/screens/settings/DispatcherModelChoice";
 import { tierSummary } from "../app/src/model/executor-models";
 import { dispatchConfigSchema, type ModelRecord, type TierTargets } from "../src/dispatch/types";
+import { plannerRunner, withoutPlanner } from "../app/src/model/planner";
 
 const config = dispatchConfigSchema.parse({});
 const view = { strategy: "custom", source: "strategy" as const, config };
@@ -68,11 +69,16 @@ test("an unsteered inventory explains why and points at the model matrix when th
   expect(html).toContain("Open model matrix");
 });
 
-test("a non-matching mapping shows the Custom preset", () => {
+test("a non-matching mapping shows the Custom preset as a non-interactive marker", () => {
   const custom: TierTargets = { simple: "medium", standard: "medium", complex: "medium" };
   const html = render(custom);
   expect(html).toContain("Custom");
   expect(html).not.toContain('pc-chip pc-chip--selected">Balanced');
+  // The marker is not a button or filter chip with aria-pressed: it has no action.
+  expect(html).toContain('class="pc-model-choice__preset-note">Custom</span>');
+  expect(html).not.toContain(">Custom</button>");
+  const buttonChips = html.match(/<button[^>]*>Custom<\/button>/g) ?? [];
+  expect(buttonChips).toEqual([]);
 });
 
 test("the save bar appears only when dirty and saves as a new setup without the set operation", () => {
@@ -153,4 +159,25 @@ test("in-place save uses the fetched revision and reports conflicts", async () =
   const divergent = await saveTierTargetsInPlace((async (op: string, params: unknown) => { divergentCalls.push({ op, params }); return { revision: "r1", targets: changed } as never; }) as never, view, targets);
   expect(divergent).toEqual({ ok: false, conflict: true });
   expect(divergentCalls).toEqual([{ op: "dispatch.tierTargets.get", params: {} }]);
+});
+
+test("the planner executor is excluded from the model preview counts", () => {
+  // fixed (claude-code on account team) matches the config planner, so it drops out.
+  const withPlanner = { strategy: "custom", source: "strategy", config, planner: "claude-code", plannerAccount: "team" } as ConfigView;
+  const html = render(config.tierTargets, { models: [rated, unrated, fixed], config: withPlanner });
+  expect(html).toContain("Task difficulty now steers 1 of 2 executors");
+  expect(html).not.toContain("Choose their own model");
+  expect(html).not.toContain("claude-code");
+});
+
+test("the planner helper finds the planner record and excludes only its runner", () => {
+  // The planner is the record whose account and executor match the config with no host.
+  expect(plannerRunner([fixed], "claude-code", "team")).toBe("claude-code");
+  expect(plannerRunner([fixed], "claude-code", "work")).toBeNull();
+  expect(plannerRunner([fixed], undefined, undefined)).toBeNull();
+  // A host-based runner (e.g. "claude-code@mac") is not the planner.
+  const hosted: ModelRecord = { ...fixed, runner: "claude-code@mac" };
+  expect(plannerRunner([hosted], "claude-code", "team")).toBeNull();
+  const dropped = withoutPlanner([rated, unrated, fixed], "claude-code", "team");
+  expect(dropped.map(r => r.runner)).toEqual(["opencode-go", "codex"]);
 });
