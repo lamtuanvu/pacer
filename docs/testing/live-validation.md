@@ -121,14 +121,16 @@ native trace, and the flag-on connection must print its owner decision
 ([ADR 0027](../decisions/0027-one-native-plugin-owner-per-home.md)). On a sandbox started
 with `--native-plugin-host` the flag-on connection must attach to the service's
 `run/host.sock`, and the service's `plugin.doctor` must report the same plugin process.
-Otherwise it must own its children on `run/s<12-hex>.sock`, and both the socket and the
+Otherwise it must own its children on `run/s<12-hex>.sock`, or, when the sandbox home is so
+deep that this path exceeds 103 bytes, in the private per-user `pacer-<hash>/` directory
+([ADR 0027](../decisions/0027-one-native-plugin-owner-per-home.md)); both the socket and the
 plugin process must be gone after the connection ends. On a running sandbox the fixture
 then checks `plugin.list` and `plugin.doctor` over HTTP. Run it again after
 `live down --keep` for a home without a service. `--stop-service` (only with
 `--native-plugin-host`) runs only the attached connection, keeps it open, stops the sandbox as
-`live down --keep` does, and requires `plugin_unavailable` from the next render. Socket
-paths must fit in 103 bytes, so run the fixture from a checkout with a short path: under
-a deep checkout, a flag-on connection that has to own its children refuses to start.
+`live down --keep` does, and requires `plugin_unavailable` from the next render. A sandbox
+started with `--native-plugin-host` binds `run/host.sock`, whose path must fit in 103 bytes, so
+run attach checks from a checkout with a short path.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 
