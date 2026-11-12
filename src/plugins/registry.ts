@@ -45,6 +45,7 @@ import { currentVersion } from "../update/version";
 import { controlDir, sshArgv } from "../remote/ssh";
 import { SCRIPTS } from "../remote/scripts";
 import { HOST_RUNNER_METHODS } from "./host-runner-protocol";
+import { ORCA_CAPABILITY_METHODS } from "./executor-orca-protocol";
 import { discardTransferredBundle, prepareBundleStageAuthority, resolveStagedBundle,
   transferStagedBundleOwnership, type ClaimedBundleTicket } from "./bundle-stage";
 import { finalizeClaimedPublication, rollbackClaimedPublication } from "./claimed-bundle";
@@ -108,6 +109,10 @@ const NATIVE_READ_ONLY_PLANNER = ["planner.plan", "planner.preview", "planner.de
 const NATIVE_PLANNER_EFFECTS = ["planner.install", "planner.uninstall"];
 const NATIVE_PLANNER_COMMAND_METHODS = ["capability.planner.run", "capability.process.outputChunk"];
 const NATIVE_PLANNER_PRIOR_METHOD = "capability.planner.readPriorRange";
+/** Issued file writes stay with Core's write broker; oversized chunked writes are not carried. */
+const NATIVE_WRITE_METHODS = ["capability.fs.write", "capability.fs.mkdir", "capability.fs.remove"];
+/** Core holds the Orca attempt session, so every Orca effect of an attempt call is answered by Core. */
+const NATIVE_ORCA_METHODS = Object.keys(ORCA_CAPABILITY_METHODS);
 interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProcess; generation: string;
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
@@ -2326,7 +2331,8 @@ export class PluginRegistry {
     const duration = ownerBoundStream ? 0 : capped ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
     if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
-    if (method === "executor.run" && !options.onProgress) throw new CoreError("invalid_input", "executor run requires a progress owner");
+    // An Orca attempt reports through its capability calls; any progress it sends is refused.
+    if (method === "executor.run" && !options.onProgress && !options.resources?.orcaAttempt) throw new CoreError("invalid_input", "executor run requires a progress owner");
     const parsed = method === "usage.read" || hostRunner || executorAvailable || executorAttempt || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
     if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorAvailable || executorAttempt ? "invalid executor params" : method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
     let input = parsed?.success ? parsed.data : params;
@@ -2342,7 +2348,8 @@ export class PluginRegistry {
       credentialBindings = classifierCredentialBindings(ctx, selected);
     }
     if (ctx.env.PACER_HOST_SOCKET) {
-      if (credentialBindings !== undefined) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
+      // An empty list binds nothing; a credential reference would need its secret to cross the socket.
+      if (credentialBindings?.length) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
       return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint);
     }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
@@ -2484,8 +2491,10 @@ export class PluginRegistry {
     if (hostOnly !== undefined || (lease && !effects && !NATIVE_READ_ONLY_PLANNER.includes(method)))
       throw new CoreError("plugin_unavailable", `${method} needs host-side call options the native process owner bridge does not carry`);
     const issued = options.resources;
-    if (issued?.orcaAttempt || issued?.orcaLive || issued?.hosts?.length)
-      throw new CoreError("plugin_unavailable", `${method} needs orca or hosts resources, which the native process owner bridge does not serve`);
+    if (issued?.hosts?.length)
+      throw new CoreError("plugin_unavailable", `${method} needs hosts resources, which the native process owner bridge does not serve`);
+    const { orcaAttempt, orcaLive } = issued ?? {};
+    const writes = issued?.writes?.length ? issued.writes : undefined;
     const point = method.split(".")[0]!;
     // Mirrors the flag-off admission checks (line ~2349): a grant revocation or planner config
     // change during this call must fail it before Core (in withPlannerInstall) commits writes.
@@ -2501,8 +2510,11 @@ export class PluginRegistry {
         await checkPlannerGeneration();
         const remaining = deadlineAt === Infinity ? undefined : Math.max(1, deadlineAt - Date.now());
         const spawn = this.nativeSpawnSpec(ctx, e.id);
-        const resources = issued && pinnedExecutables(ctx, issued);
+        // Writes are answered by Core (`coreMethods`), so the owner is never issued them.
+        const resources = issued && pinnedExecutables(ctx, writes ? { ...issued, writes: [] } : issued);
         const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
+        // An attempt's Orca effects (the worker wait above all) run as long as the call itself.
+        if (orcaAttempt && remaining !== undefined) authority.ttlMs = remaining;
         // Commands without an issued environment get the flag-off minimal environment of Core.
         const processEnv: Record<string, string> = Object.assign({}, ...authority.resources.commands
           .filter(command => !command.cwd && !command.env && !command.secretEnv)
@@ -2516,8 +2528,10 @@ export class PluginRegistry {
         // same bounds and ordering as flag-off. Sealing it also gives the call a `local`.
         const chunked = method === "usage.read" || effects;
         const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
-          ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : [])];
-        const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [] }, {
+          ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : []),
+          ...(writes ? NATIVE_WRITE_METHODS : []), ...(orcaAttempt || orcaLive ? NATIVE_ORCA_METHODS : [])];
+        const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
+          ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}) }, {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
           grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
         }) : undefined;
@@ -2529,7 +2543,12 @@ export class PluginRegistry {
         const bridgeSignal = local ? AbortSignal.any([signal, local.signal]) : signal;
         // The owner refuses the call unless the child negotiated every requireFeatures entry, so the envelope may claim them.
         const fits = (message: unknown) => Buffer.byteLength(`${JSON.stringify(message)}\n`, "utf8") <= MAX_LINE_BYTES;
-        let transport: CapabilityTransport | undefined;
+        // Plain writes only: Core does not know whether the child negotiated `fileWriteChunks`.
+        let transport: CapabilityTransport | undefined = writes && Object.freeze({
+          features: [],
+          requestFits: (params: unknown) => fits({ jsonrpc: "2.0", id: Number.MAX_SAFE_INTEGER, method: "capability.fs.write", params }),
+          resultFits: (result: unknown) => fits({ jsonrpc: "2.0", id: Number.MAX_SAFE_INTEGER, result }),
+        });
         // Core stages a chunked result for this call with the flag-off bounds and
         // ordering (`ResultStaging`): contiguous offsets, a bounded chunk, a 16 MiB cap.
         let staging: ResultStaging | undefined;
@@ -2580,6 +2599,7 @@ export class PluginRegistry {
             }
           }
           if (logReads) await prepareFilesystemAuthority(local!);
+          if (writes) await prepareWriteAuthority(local!);
           if (issued?.stores.length) await prepareStateAuthority(local!);
           reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal);
           value = reply.value;
@@ -2610,9 +2630,10 @@ export class PluginRegistry {
             reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
         }
         const def = EXTENSION_METHODS[method]!;
-        if (method === "usage.read" || method === "executor.available") {
+        if (method === "usage.read" || method.startsWith("executor.")) {
           const output = def.result.safeParse(value);
-          if (!output.success) throw new CoreError("plugin_refused", method === "usage.read" ? "usage reader returned an invalid reading" : "executor returned an invalid availability result");
+          // Same refusal text as the flag-off path, an executor attempt's included.
+          if (!output.success) throw new CoreError("plugin_refused", method === "executor.available" ? "executor returned an invalid availability result" : "usage reader returned an invalid reading");
           return output.data as T;
         }
         if (method.startsWith("ui.")) {
