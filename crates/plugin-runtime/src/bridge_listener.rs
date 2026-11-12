@@ -16,8 +16,9 @@
 use crate::bridge_call::{SealedCall, call_sealed};
 use crate::capability::{CoreForward, CoreRequest};
 use crate::host_bridge::{
-    HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND,
-    METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, dark_bridge_enabled, prepare_host_run_dir,
+    HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
+    METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, SOCKET_PATH_MAX,
+    dark_bridge_enabled, prepare_run_dir,
 };
 use crate::owner::ProcessOwner;
 use pacer_plugin_host::SpawnSpec;
@@ -71,6 +72,8 @@ pub enum BridgeError {
     DarkWiringDisabled,
     #[error("live reverse-bridge socket already present at {0}")]
     LiveSocket(PathBuf),
+    #[error("reverse-bridge socket path exceeds {SOCKET_PATH_MAX} bytes: {0}")]
+    PathTooLong(PathBuf),
     #[error("peer credentials unavailable")]
     PeerCredUnavailable,
     #[error("untrusted reverse-bridge caller")]
@@ -139,7 +142,18 @@ impl ReverseBridge {
     }
 
     pub fn bind_with_auth(pacer_home: &Path, auth: PeerAuth) -> Result<Self, BridgeError> {
-        let path = prepare_host_run_dir(pacer_home)?;
+        Self::bind_at(pacer_home, HOST_SOCKET_NAME, auth)
+    }
+
+    /// Bind `$PACER_HOME/run/<name>` with the same 0700 directory, 0600 socket
+    /// and stale-socket rules as `host.sock`. Refuses paths longer than
+    /// [`SOCKET_PATH_MAX`] before touching the filesystem.
+    pub fn bind_at(pacer_home: &Path, name: &str, auth: PeerAuth) -> Result<Self, BridgeError> {
+        let path = pacer_home.join("run").join(name);
+        if path.as_os_str().len() > SOCKET_PATH_MAX {
+            return Err(BridgeError::PathTooLong(path));
+        }
+        prepare_run_dir(pacer_home)?;
         remove_stale_socket(&path)?;
         let listener = bind_private(&path)?;
         Ok(Self {
@@ -249,7 +263,7 @@ impl BridgeHandle {
     }
 }
 
-fn current_uid() -> u32 {
+pub(crate) fn current_uid() -> u32 {
     nix::unistd::getuid().as_raw()
 }
 
@@ -278,7 +292,7 @@ fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
             if !meta.file_type().is_socket() {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
-                    "host.sock path exists and is not a socket",
+                    "reverse-bridge socket path exists and is not a socket",
                 )
                 .into());
             }
@@ -293,7 +307,7 @@ fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
     }
 }
 
-fn peer_uid(stream: &UnixStream) -> Result<u32, BridgeError> {
+pub(crate) fn peer_uid(stream: &impl std::os::fd::AsFd) -> Result<u32, BridgeError> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
