@@ -21,7 +21,7 @@ concurrency:
 jobs:
   changes:
     name: Select affected checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       bun: ${{ steps.changes.outputs.bun }}
       full: ${{ steps.changes.outputs.full }}
@@ -42,7 +42,7 @@ jobs:
 
   release-readiness:
     name: Release readiness
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     permissions:
       contents: read
@@ -78,7 +78,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.ui == 'true' && github.event_name == 'pull_request' }}
     name: UI review readiness
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,7 +112,8 @@ jobs:
     if: ${{ always() }}
     # Keep required names, but do not allocate macOS for a docs-only gate or a PR;
     # PRs run logic tests on Linux and OS-specific checks run on main/schedule/dispatch.
-    runs-on: ${{ needs.changes.outputs.bun == 'true' && (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') && matrix.os || 'ubuntu-latest' }}
+    # Required check names keep the ubuntu-latest label; runners are pinned to 24.04 until Playwright and the self-repair test support 26.04.
+    runs-on: ${{ needs.changes.outputs.bun == 'true' && (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') && (matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os) || 'ubuntu-24.04' }}
     env:
       RUN_CHECKS: ${{ needs.changes.outputs.bun == 'true' && (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') }}
     strategy:
@@ -193,7 +194,11 @@ jobs:
       # browser tests, so install it whenever that suite runs, not only when the change selects e2e.
       - name: Install locked Chromium test browser
         if: ${{ env.RUN_CHECKS == 'true' && (needs.changes.outputs.e2e == 'true' || needs.changes.outputs.full == 'true') }}
+        # Drop the Azure apt mirror only when it does not resolve; a no-op (and no sudo) when it resolves or on macOS.
         run: |
+          if [ -f /etc/apt/apt-mirrors.txt ] && ! getent hosts azure.archive.ubuntu.com >/dev/null; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Test (full suite, sharded)
@@ -278,7 +283,7 @@ jobs:
     name: Test (${{ matrix.os }})
     needs: test
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -291,7 +296,7 @@ jobs:
     needs: changes
     # OS-specific validation runs on main pushes, schedule and dispatch, not PRs.
     if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' && github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
@@ -327,7 +332,7 @@ jobs:
 
   secrets:
     name: Scan for secrets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -352,7 +357,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' }}
     name: Rust (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
     strategy:
       fail-fast: false
       matrix:

@@ -208,7 +208,7 @@ test("workflow selection retains full-history detection and full scheduled CodeQ
   expect(codeql.on.schedule.length).toBeGreaterThan(0);
   expect(codeql.jobs.analyze.if).toContain("needs.changes.result != 'success'");
   const ci = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
-  expect(ci.jobs.test["runs-on"]).toContain("|| 'ubuntu-latest'");
+  expect(ci.jobs.test["runs-on"]).toContain("|| 'ubuntu-24.04'");
   // PRs run only Linux logic tests; required Test names stay, macOS work moves to main/schedule/dispatch.
   const prLinuxOnly = "github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'";
   expect(ci.jobs.test.strategy.matrix.os).toEqual(["ubuntu-latest", "macos-latest"]);
