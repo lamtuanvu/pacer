@@ -314,8 +314,12 @@ pub(crate) async fn call_sealed(
     let orca_context = orca_context_from_value(authority).map_err(refused)?;
     let worktree_context = worktree_context_from_value(authority).map_err(refused)?;
     let executor_context = executor_context_from_value(authority).map_err(refused)?;
-    if resources.orca_attempt.is_some()
-        || resources.orca_live.is_some()
+    // Core holds the Orca attempt session and live grant, so it must answer their effects.
+    let core_orca = sealed
+        .core_methods
+        .iter()
+        .any(|method| core_capability(method) == Some("orca"));
+    if ((resources.orca_attempt.is_some() || resources.orca_live.is_some()) && !core_orca)
         || !resources.hosts.is_empty()
         || !host_attach.is_empty()
     {
@@ -359,9 +363,11 @@ pub(crate) async fn call_sealed(
     session
         .bind_process_owner_hosts(owner.clone())
         .map_err(refused)?;
-    session
-        .bind_process_owner_orca(owner.clone())
-        .map_err(refused)?;
+    if !core_orca {
+        session
+            .bind_process_owner_orca(owner.clone())
+            .map_err(refused)?;
+    }
     session
         .bind_process_owner_worktree()
         .await

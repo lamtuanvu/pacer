@@ -7,7 +7,11 @@ import {validateStrategy} from "../src/config/strategy";
 import {selectBackend} from "../src/exec/backend";
 import {makeOrcaBackend as makeRoute, type OrcaRouteDeps as OrcaBackendDeps} from "../src/plugins/executor-orca";
 import {inProcessOrca, sourcePluginRegistry} from "./fixtures/orca/in-process";
-import {shutdownPlugins} from "../src/plugins";
+import {pluginRegistry, shutdownPlugins} from "../src/plugins";
+import type {CoreError} from "../src/core/errors";
+import {orcaLiveSessionState, type OrcaExecutorCaller} from "../src/plugins/executor-orca";
+import {ORCA_CAPABILITY_METHODS} from "../src/plugins/executor-orca-protocol";
+import {relayOwner, type Relay} from "./fixtures/native-owner-relay";
 import type {Ctx} from "../src/types";
 import type {HostClient} from "@pacer/plugin";
 /** The production Orca route with the bundled provider served in this process, so the test clock reaches its lookups. */
@@ -41,7 +45,11 @@ const listing = (state: {agent: boolean; shell: boolean}) => (a: string[]) => {
 };
 
 const homes: Ctx[] = [];
-afterEach(async () => { for (const ctx of homes.splice(0)) await shutdownPlugins(ctx); });
+const relays: Relay[] = [];
+afterEach(async () => {
+  for (const ctx of homes.splice(0)) await shutdownPlugins(ctx);
+  for (const relay of relays.splice(0)) await relay.close();
+});
 
 function setup(over: Route[] = [], execution: Partial<ExecutionCfg> = {}, deps: Partial<OrcaBackendDeps> = {}, fallthrough: Route[] = [],
   provider: Parameters<typeof inProcessOrca>[0] = {}) {
@@ -93,6 +101,125 @@ function setup(over: Route[] = [], execution: Partial<ExecutionCfg> = {}, deps: 
   const root = `/work/pacer-${task.id}-codex`;
   return {f, ctx, task, backend, routeDeps, state, cfg: strategy.providers.codex, root, wt: `repo-1::${root}`, directLog, get direct() {return direct;}};
 }
+
+/** The Orca route through the production registry: a real provider child, flag-off or behind a relay owner on host.sock (flag-on). */
+async function registryRoute(x: ReturnType<typeof setup>, flag: boolean, deadlineMs?: number) {
+  let relay: Relay | undefined;
+  if (flag) {
+    mkdirSync(join(x.ctx.pacerHome, "run"), {recursive: true, mode: 0o700});
+    const path = join(x.ctx.pacerHome, "run", "host.sock");
+    x.ctx.env = {...x.ctx.env, PACER_HOST_SOCKET: path};
+    relay = await relayOwner(path);
+    relays.push(relay);
+  }
+  const registry = pluginRegistry(x.ctx);
+  const caller: OrcaExecutorCaller = {call: (ctx, id, method, params, options) =>
+    registry.call(ctx, id, method, params, deadlineMs === undefined ? options : {...options, deadlineMs})};
+  return {relay, caller, backend: makeRoute(x.routeDeps, caller)};
+}
+
+/** An attempt's observable result with this home's task id, homes and clock taken out. */
+function observed(x: ReturnType<typeof setup>, out: {attempt: {log: string}}) {
+  const text = (value: unknown) => JSON.stringify(value).replaceAll(x.task.id, "TASK").replaceAll(x.ctx.pacerHome, "PACER_HOME")
+    .replaceAll(x.ctx.home, "HOME").replace(/"(startedAt|endedAt)":[\d.]+/g, "\"$1\":0").replace(/start intent [0-9a-f]{32}/g, "start intent INTENT");
+  return {out: text(out), log: text(readFileSync(out.attempt.log, "utf8")), orca: text(x.f.calls), task: text(readTask(x.ctx, x.task.id))};
+}
+
+const ATTEMPT_EFFECTS = ["liveAnswer", "prepare", "place", "terminal", "start", "wait", "settle", "finish"].map(name => `capability.orca.${name}`);
+
+test("an Orca attempt through the native owner seals its orcaAttempt, Core answers every effect, and the outcome matches flag-off", async () => {
+  const runs = [];
+  for (const flag of [false, true]) {
+    const x = setup();
+    const {relay, backend} = await registryRoute(x, flag);
+    runs.push({x, relay, seen: observed(x, await backend.runAttempt(x.ctx, x.cfg, x.task))});
+  }
+  const [off, on] = runs;
+  expect(on!.seen).toEqual(off!.seen);
+  expect(JSON.parse(on!.seen.out)).toMatchObject({exec: {code: 0, stdout: "done\n\nok"}, backend: "orca"});
+  const [call] = on!.relay!.calls;
+  expect(call.method).toBe("executor.run");
+  expect(call.params).toMatchObject({task: {id: on!.x.task.id}, attempt: 1});
+  expect(call.authority.resources.orcaAttempt).toEqual({taskId: on!.x.task.id, attempt: 1, providerId: "pacer-exec-orca", executor: "codex",
+    session: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)});
+  expect(call.authority.orcaContext.home).toBe(on!.x.ctx.home);
+  expect(call.coreMethods).toEqual(Object.keys(ORCA_CAPABILITY_METHODS));
+  // The worker wait is bounded by the call, not by the 600 s cap on other sealed authorities.
+  expect(call.authority.ttlMs).toBe(call.deadlineMs);
+  expect(call.deadlineMs).toBeGreaterThan(600_000);
+  expect(on!.relay!.forwarded).toEqual(ATTEMPT_EFFECTS);
+  expect([on!.relay!.refused, on!.relay!.dropped]).toEqual([[], []]);
+});
+
+test("an Orca attempt call past its deadline fails without publishing the provider's outcome, as flag-off", async () => {
+  const runs = [];
+  for (const flag of [false, true]) {
+    // The worker never reports, so the provider is still waiting when the owning call expires.
+    const x = setup([[O("orchestration", "check"), envelope({messages: []})], [O("orchestration", "worker-show"), envelope({worker: {state: "running"}})]],
+      {}, {sleep: () => Bun.sleep(20)});
+    x.task.timeoutS = 8;
+    updateTask(x.ctx, x.task.id, task => { task.timeoutS = 8; });
+    const {relay, backend} = await registryRoute(x, flag, 1_500);
+    // A real wait slice, so the call's deadline timer is not starved by the fake.
+    const run = x.ctx.run;
+    x.ctx.run = async (argv, timeoutMs) => { if (argv.includes("--wait")) await Bun.sleep(50); return run(argv, timeoutMs); };
+    const failure = await backend.runAttempt(x.ctx, x.cfg, x.task).then(() => undefined, (error: CoreError) => ({code: error.code, message: error.message}));
+    const text = JSON.stringify(x.f.calls).replaceAll(x.task.id, "TASK");
+    runs.push({failure, relay, settled: JSON.parse(text).slice(-2), task: readTask(x.ctx, x.task.id), direct: x.direct});
+  }
+  const [off, on] = runs;
+  expect(on!.failure).toEqual({code: "plugin_timeout", message: "plugin call passed its absolute deadline"});
+  expect(on!.failure).toEqual(off!.failure);
+  // The host stops the worker and closes its terminal; no outcome, live record or direct run is published.
+  expect(on!.settled).toEqual(off!.settled);
+  expect(on!.settled.map((argv: string[]) => argv.slice(1, 3))).toEqual([["orchestration", "worker-stop"], ["terminal", "close"]]);
+  for (const run of [off!, on!]) expect([run.task?.attempts, run.task?.live, run.direct]).toEqual([[], undefined, 0]);
+  expect(on!.relay!.calls[0].deadlineMs).toBeLessThanOrEqual(1_500);
+  expect(on!.relay!.forwarded).toEqual(ATTEMPT_EFFECTS.slice(0, 6));
+});
+
+test("a flag-on attempt whose sealed orcaAttempt names another task or provider places nothing and falls back", async () => {
+  for (const [tamper, dialed] of [[{taskId: "t-other"}, true], [{providerId: "pacer-exec-other"}, false]] as const) {
+    const x = setup();
+    const {relay, caller} = await registryRoute(x, true);
+    const tampered: OrcaExecutorCaller = {call: (ctx, id, method, params, options) =>
+      caller.call(ctx, id, method, params, {...options, resources: {...options.resources, orcaAttempt: {...options.resources.orcaAttempt!, ...tamper}}})};
+    const out = await makeRoute(x.routeDeps, tampered).runAttempt(x.ctx, x.cfg, x.task);
+    expect(out.backend).toBe("direct");
+    expect(x.f.calls.some(a => a[1] === "worktree" && a[2] === "create")).toBe(false);
+    expect(readFileSync(x.directLog, "utf8")).toContain(dialed ? "Orca attempt is not issued for this call" : "orcaAttempt provider identity");
+    expect(relay!.calls.length).toBe(dialed ? 1 : 0);
+    expect(relay!.forwarded).toEqual(dialed ? ["capability.orca.liveAnswer"] : []);
+  }
+});
+
+test("Orca live control through the native owner: inspect and stop seal orcaLive, the provider serves both, and Orca sees what flag-off does", async () => {
+  const runs = [];
+  for (const flag of [false, true]) {
+    const x = setup([[O("orchestration", "worker-show"), envelope({worker: {state: "ready"}})], agentInForeground]);
+    const asked = askedLane(x);
+    const {relay, caller, backend} = await registryRoute(x, flag);
+    const state = await orcaLiveSessionState(x.ctx, readTask(x.ctx, asked.id)!, caller);
+    await backend.live!.release(x.ctx, readTask(x.ctx, asked.id)!, "the task was stopped");
+    runs.push({state, relay, asked, orca: JSON.stringify(x.f.calls).replaceAll(asked.id, "TASK"), live: readTask(x.ctx, asked.id)?.live});
+  }
+  const [off, on] = runs;
+  expect(on!.state).toEqual({state: "running", host: "orca", handle: terminal});
+  expect(on!.state).toEqual(off!.state);
+  expect(on!.orca).toBe(off!.orca);
+  expect(JSON.parse(on!.orca)).toContainEqual(["orca", "orchestration", "worker-stop", "--dispatch", "ctx_live", "--json"]);
+  expect([on!.live, off!.live]).toEqual([undefined, undefined]);
+  const relay = on!.relay!;
+  const grant = {taskId: on!.asked.id, attempt: 1, providerId: "pacer-exec-orca", worker: "ctx_live", terminal, incarnation: "inc"};
+  expect(relay.calls.map(call => [call.method, call.authority.resources.orcaLive])).toEqual([
+    ["executor.sessionState", {...grant, action: "inspect"}],
+    ["executor.stop", {...grant, action: "stop", why: "the task was stopped"}],
+  ]);
+  expect(relay.calls.every(call => JSON.stringify(call.coreMethods) === JSON.stringify(Object.keys(ORCA_CAPABILITY_METHODS)))).toBe(true);
+  expect(relay.forwarded).toEqual(["capability.orca.sessionState", "capability.orca.stop"]);
+  // The provider's own stop result, so this was not the host-closure fallback.
+  expect(relay.replies[1]).toMatchObject({code: expect.any(Number), killed: expect.any(Boolean)});
+});
 
 test("new child worktree is created before agent terminal and worker attaches after idle", async () => {
   expect(typeof selectBackend).toBe("function");

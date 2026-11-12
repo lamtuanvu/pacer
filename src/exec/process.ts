@@ -26,6 +26,7 @@ export function executorEnv(base: Record<string, string | undefined>, account: R
   delete env.PACER_TRANSCRIPT_REPORT;
   delete env.PACER_AUTH_TOKEN;
   delete env.PACER_INTERNAL_TOKEN;
+  delete env.PACER_HOST_SOCKET;
   if (env.PACER_API === "inprocess") delete env.PACER_API;
   return {...env, ...account, PACER_ROLE: "executor", PACER_TASK_ID: taskId};
 }

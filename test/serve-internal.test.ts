@@ -65,6 +65,12 @@ test("executors never inherit the internal credential", () => {
   expect(executorEnv({ PACER_INTERNAL_TOKEN: "i".repeat(64), PATH: "/bin" }, {}).PACER_INTERNAL_TOKEN).toBeUndefined();
 });
 
+test("executors never inherit the native process owner socket", () => {
+  const env = executorEnv({ PACER_HOST_SOCKET: "/tmp/pacer/run/host.sock", PATH: "/bin" }, {}, "t-1");
+  expect(env).not.toHaveProperty("PACER_HOST_SOCKET");
+  expect(env.PATH).toBe("/bin");
+});
+
 test("internal core exits when its supervising stdin pipe closes", async () => {
   const ctx = fakeCtx();
   const pluginDir = join(ctx.pacerHome, "plugins", "fx-stubborn");

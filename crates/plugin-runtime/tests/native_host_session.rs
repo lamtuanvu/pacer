@@ -685,6 +685,197 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
     session.shutdown().await;
 }
 
+/// Orca provider child: `executor.run` asks for `capability.orca.prepare` then a
+/// plain file write; `executor.stop` asks for `capability.orca.stop`. Each call
+/// returns what it was answered.
+const ORCA_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',call,out={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const ids={taskId:'t-1',attempt:1};for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:'pacer-exec-orca',version:'1.0.0',contributes:['executor']}});else if(m.method==='executor.run'){call=m.id;out={};send({id:'prepare',method:'capability.orca.prepare',params:ids});}else if(m.id==='prepare'){out.prepare=m.result??m.error;send({id:'write',method:'capability.fs.write',params:{path:'/fixture/out.txt',text:'x'}});}else if(m.id==='write'){out.write=m.result??m.error;send({id:call,result:out});}else if(m.method==='executor.stop'){call=m.id;send({id:'stop',method:'capability.orca.stop',params:ids});}else if(m.id==='stop'){send({id:call,result:{stop:m.result??m.error}});}}}"#;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_orca_attempt_live_and_writes_are_answered_by_core() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = session.socket_path().to_path_buf();
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("plugin.js");
+    fs::write(&script, ORCA_CHILD).unwrap();
+    let orca_methods = json!([
+        "capability.orca.status",
+        "capability.orca.liveAnswer",
+        "capability.orca.prepare",
+        "capability.orca.place",
+        "capability.orca.terminal",
+        "capability.orca.abandon",
+        "capability.orca.start",
+        "capability.orca.lookup",
+        "capability.orca.adopt",
+        "capability.orca.unstarted",
+        "capability.orca.wait",
+        "capability.orca.settle",
+        "capability.orca.finish",
+        "capability.orca.stop",
+        "capability.orca.sessionState"
+    ]);
+    let attempt = json!({"taskId":"t-1","attempt":1,"providerId":"pacer-exec-orca","executor":"codex","session":"host-only-session"});
+    let live = json!({"taskId":"t-1","attempt":1,"providerId":"pacer-exec-orca","worker":"ctx_1","terminal":"term_1","action":"stop"});
+    let request = |rpc: u64, method: &str, orca: Value, grants: Value, core_methods: Value| {
+        let mut resources = json!({"reads":[],"writes":[],"hosts":[],"commands":[]});
+        for (key, value) in orca.as_object().unwrap() {
+            resources[key] = value.clone();
+        }
+        json!({
+            "jsonrpc":"2.0",
+            "id":rpc,
+            "method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":"pacer-exec-orca",
+                "method":method,
+                "params":{},
+                "deadlineMs":10000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap()],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":{
+                        "protocol":"1.10.0","pacer":"0.2.0",
+                        "manifest":{
+                            "id":"pacer-exec-orca","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                            "capabilities":[{"name":"orca","scopes":["task-owned"]},{"name":"fs.write","scopes":["/fixture/**"]}],
+                            "contributes":{"executor":{"backends":["orca"]}},"reentrant":true
+                        },
+                        "config":{},"grants":["orca","fs.write"],"features":[]
+                    },
+                },
+                "authority":{
+                    "resources":resources,
+                    "grants":grants,
+                    "ttlMs":10000,
+                    "orcaContext":{"home":home.path().display().to_string()}
+                },
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
+                "coreMethods":core_methods
+            }
+        })
+    };
+    let mut sealed = orca_methods.as_array().unwrap().clone();
+    sealed.extend([
+        json!("capability.fs.write"),
+        json!("capability.fs.mkdir"),
+        json!("capability.fs.remove"),
+    ]);
+    let sealed = Value::Array(sealed);
+    tokio::task::yield_now().await;
+
+    // Core holds the attempt session: every Orca effect and the issued write go back to it.
+    let (reply, forwarded) = dial_with_core(
+        &path,
+        request(
+            60,
+            "executor.run",
+            json!({"orcaAttempt":attempt}),
+            json!(["orca", "fs.write"]),
+            sealed.clone(),
+        ),
+        |frame| json!({"result":{"answered":frame["method"]}}),
+    )
+    .await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert_eq!(
+        reply["result"]["value"],
+        json!({"prepare":{"answered":"capability.orca.prepare"},"write":{"answered":"capability.fs.write"}})
+    );
+    let methods: Vec<_> = forwarded
+        .iter()
+        .map(|frame| frame["method"].clone())
+        .collect();
+    assert_eq!(
+        methods,
+        [
+            json!("capability.orca.prepare"),
+            json!("capability.fs.write")
+        ]
+    );
+    assert_eq!(forwarded[0]["params"], json!({"taskId":"t-1","attempt":1}));
+
+    // Live control is answered by Core the same way.
+    let (stopped, forwarded) = dial_with_core(
+        &path,
+        request(
+            61,
+            "executor.stop",
+            json!({"orcaLive":live}),
+            json!(["orca", "fs.write"]),
+            orca_methods.clone(),
+        ),
+        |_| json!({"result":{"code":0,"killed":true}}),
+    )
+    .await;
+    assert_eq!(
+        stopped["result"]["value"],
+        json!({"stop":{"code":0,"killed":true}}),
+        "{stopped}"
+    );
+    assert_eq!(forwarded.len(), 1);
+
+    // Unless Core seals the Orca methods, an Orca grant re-enters the owner and is refused before the child runs.
+    for (rpc, orca) in [
+        (62, json!({"orcaAttempt":attempt})),
+        (63, json!({"orcaLive":live})),
+    ] {
+        let (refused, forwarded) = dial_with_core(
+            &path,
+            request(
+                rpc,
+                "executor.run",
+                orca,
+                json!(["orca", "fs.write"]),
+                json!(["capability.fs.write"]),
+            ),
+            |_| json!({"result":{}}),
+        )
+        .await;
+        assert!(forwarded.is_empty(), "{forwarded:?}");
+        assert_eq!(
+            refused["error"]["data"]["code"], "plugin_unavailable",
+            "{refused}"
+        );
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("re-enter the process owner"),
+            "{refused}"
+        );
+    }
+
+    // A forwarded write or Orca effect still needs the call's grant.
+    let (ungranted, forwarded) = dial_with_core(
+        &path,
+        request(
+            64,
+            "executor.run",
+            json!({"orcaAttempt":attempt}),
+            json!(["orca"]),
+            sealed.clone(),
+        ),
+        |_| json!({"result":{}}),
+    )
+    .await;
+    assert_eq!(forwarded.len(), 1, "{forwarded:?}");
+    assert_eq!(
+        ungranted["result"]["value"]["write"]["data"]["code"], "capability_denied",
+        "{ungranted}"
+    );
+
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("pacer-exec-orca")
+        .await
+        .unwrap();
+    session.shutdown().await;
+}
+
 /// Planner child: `planner.install` asks Core to run a pinned command, read its
 /// output and the prior record, then returns what Core answered (or fails after
 /// the command when `params.fail`); `planner.uninstall` reads the prior only.

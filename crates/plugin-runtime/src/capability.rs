@@ -43,11 +43,14 @@ use tokio::sync::{mpsc, oneshot};
 /// connection: usage state Core keeps, file reads under a Core planner borrow
 /// or a Codex log directory, which the native read broker does not serve, and
 /// the planner transaction's pinned commands and prior record, whose
-/// compensation Core keeps. `$/resultChunk` is the chunked result transport
-/// (negotiated like a feature), which Core answers so it can stage a large
-/// result with the same bounds and ordering as flag-off.
+/// compensation Core keeps. Core also answers issued plain file writes and
+/// the Orca effects of an attempt, whose session it holds. `$/resultChunk` is
+/// the chunked result transport (negotiated like a feature), which Core answers
+/// so it can stage a large result with the same bounds and ordering as flag-off.
 pub fn core_capability(method: &str) -> Option<&'static str> {
     match method {
+        "capability.fs.write" | "capability.fs.mkdir" | "capability.fs.remove" => Some("fs.write"),
+        _ if method.starts_with("capability.orca.") => Some("orca"),
         "capability.usage.state.begin"
         | "capability.usage.state.readChunk"
         | "capability.usage.state.stageChunk"
