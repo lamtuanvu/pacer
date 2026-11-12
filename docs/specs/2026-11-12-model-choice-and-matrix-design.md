@@ -15,7 +15,7 @@ The current Model choice section asks for a tier per difficulty through three fu
    - *Unrated, tier ignored*: one line per executor, its model "for every difficulty".
    - *Choose their own model*: one row of chips for executors with only an `executor-default` record.
    - Column headers give the target tier and how many executors can take that difficulty.
-4. **Save bar** appears only with unsaved changes: Discard, *Save as new setup…* (existing `strategy.save` + `strategy.use`, name asked in a dialog), and *Save*, which updates the active setup in place through `dispatch.tierTargets.set`. When the active setup is the built-in default, Save is replaced by Save as new setup. The name field and the "up to date" line are removed.
+4. **Save bar** appears only with unsaved changes: Discard, *Save as new setup…* (existing `strategy.save` + `strategy.use`, name asked in a dialog), and *Save*, which updates the active setup in place through `dispatch.tierTargets.set`. Save works for every setup, including the default one, as executor model edits already do. The name field and the "up to date" line are removed.
 
 ## Model matrix (Settings › Dispatcher › Model matrix)
 
@@ -32,7 +32,7 @@ Route `#/settings/models`, highlighted under Dispatcher in the settings menu.
 
 | Op | Params → result |
 | --- | --- |
-| `dispatch.tierTargets.set` | `{expectedRevision, targets: TierTargets}` → `{revision, targets}`. Edits `dispatch.tierTargets` in the active strategy file under the `executor-settings` lock, with the same `strategyRevision` check as `runner.models.set`. Refuses a decreasing mapping (`invalid_input`) and the built-in default (`not_allowed`, hint: save as a new setup). |
+| `dispatch.tierTargets.set` | `{expectedRevision, targets: TierTargets}` → `{revision, targets}`. Edits `dispatch.tierTargets` in the active strategy file under the `executor-settings` lock, with the same `strategyRevision` check as `runner.models.set`. Refuses a decreasing mapping (`invalid_input`). A setup without a `dispatch` block gains `dispatch.tierTargets` only. |
 | `runner.models.set_many` | `{expectedRevision, runners: [{id, default, models}]}` (1–64 runners) → `{revision, runners: RunnerModels[], warnings[]}`. Validates every runner as `runner.models.set` does, then commits all in one edit; any failure writes nothing. |
 
 The current revision for both comes from `runner.models.get` (any runner) or a new `dispatch.tierTargets.get` → `{revision, targets}`. Both are TypeScript operations; the native server forwards them. Both are v3-only.
