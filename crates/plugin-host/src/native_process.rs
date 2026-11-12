@@ -403,8 +403,7 @@ impl NativeProcess {
         }
         if let Some(paths) = &pin.command.capture {
             let capture = self.capture.as_mut().ok_or_else(denied)?;
-            capture.write_bytes(&paths.stdout, &out)?;
-            capture.write_bytes(&paths.stderr, &err)?;
+            publish_capture(capture, paths, [&out, &err], deadline)?;
         }
         let inline = json!({"code":code,"stdout":String::from_utf8_lossy(&out),"stderr":String::from_utf8_lossy(&err),"timedOut":timed_out});
         if serde_json::to_vec(&inline)
@@ -444,6 +443,24 @@ fn drain_ready(stream: &impl std::os::fd::AsFd, bytes: &mut Vec<u8>) -> Result<b
             Err(_) => return Err(BrokerError::Effect("provider output failed".into())),
         }
     }
+}
+/// Capture publishes only while the owning call is live, as TypeScript `writeOwnerBytes` does.
+fn publish_capture(
+    capture: &mut crate::NativeWrite,
+    paths: &crate::SpawnCapture,
+    [out, err]: [&[u8]; 2],
+    deadline: Instant,
+) -> Result<(), BrokerError> {
+    let live = || {
+        if Instant::now() >= deadline {
+            Err(AuthorityError::Expired.into())
+        } else {
+            Ok(())
+        }
+    };
+    capture.write_bytes_owned(&paths.stdout, out, live)?;
+    capture.write_bytes_owned(&paths.stderr, err, live)?;
+    Ok(())
 }
 pub(crate) async fn terminate(child: &mut Child) -> Result<(), BrokerError> {
     terminate_with_grace(child, Duration::from_millis(100)).await
@@ -537,3 +554,5 @@ pub fn minimal_environment(
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
 }
+#[cfg(test)]
+mod tests;
