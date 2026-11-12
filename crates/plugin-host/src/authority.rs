@@ -144,6 +144,9 @@ pub struct CallAuthority {
     worktree_used: bool,
     orca_live_used: bool,
     executor_claim_used: bool,
+    /// Test seam: reports expiry whenever the predicate holds.
+    #[cfg(test)]
+    pub(crate) expire_when: Option<Box<dyn Fn() -> bool + Send + Sync>>,
 }
 
 impl CallAuthority {
@@ -161,12 +164,18 @@ impl CallAuthority {
             worktree_used: false,
             orca_live_used: false,
             executor_claim_used: false,
+            #[cfg(test)]
+            expire_when: None,
         }
     }
     pub fn revoke(&mut self) {
         self.revoked = true;
     }
     pub fn active(&self) -> Result<(), AuthorityError> {
+        #[cfg(test)]
+        if self.expire_when.as_ref().is_some_and(|expired| expired()) {
+            return Err(AuthorityError::Expired);
+        }
         if self.revoked || Instant::now() >= self.expires {
             Err(AuthorityError::Expired)
         } else {
