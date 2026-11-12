@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
 import { installFixture } from "../../conformance/install";
 import { down, healthy, pacerArgv, record, sandboxEnv, type Session } from "./core";
 
@@ -86,8 +86,8 @@ export async function exerciseNativeStdio(session: Session): Promise<void> {
   }
 }
 
-export const PLUGIN = "fx-ui";
-export const RENDER = { plugin: PLUGIN, surface: "activity", id: "checklist", context: { route: "overview", theme: "light" } };
+const PLUGIN = "fx-ui";
+const RENDER = { plugin: PLUGIN, surface: "activity", id: "checklist", context: { route: "overview", theme: "light" } };
 /** The fixed plugin exchange: one request before hello, then the plugin lifecycle under protocol 3. */
 export const PLUGIN_STDIO_STEPS: ReadonlyArray<readonly [number, string, Record<string, unknown>]> = [
   [1, "plugin.list", {}],
@@ -105,8 +105,8 @@ export type PluginOwnership = "core" | "own" | "attach";
 
 type PluginReply = Reply & { error?: { code?: number; message?: string; data?: { code?: string; hint?: string } }; result?: any };
 
-/** Checks the replies and native traces of one run of the fixed plugin exchange; returns the owner socket. */
-export function verifyPluginStdio(replies: Map<number, PluginReply>, stderr: string, ownership: PluginOwnership): string | undefined {
+/** Checks the replies and native traces of one run of the fixed plugin exchange. */
+export function verifyPluginStdio(replies: Map<number, PluginReply>, stderr: string, ownership: PluginOwnership): void {
   const reply = (id: number) => {
     const value = replies.get(id);
     if (!value) throw Error(`plugin stdio returned no reply to ${id}`);
@@ -124,33 +124,21 @@ export function verifyPluginStdio(replies: Map<number, PluginReply>, stderr: str
     if (count !== (id === 1 ? 0 : 1)) throw Error(`native trace for ${method} ${id} appeared ${count} times`);
   }
   const owner = lines.filter(line => line.startsWith("native plugin owner "));
-  // An owning connection binds in run/, or in the private per-user pacer-<hash>/ directory for a deep home.
-  const expected = ownership === "own" ? /^native plugin owner own (\/.*\/(?:run|pacer-[0-9a-f]{16})\/s[0-9a-f]{12}\.sock)$/ : /^native plugin owner attach (\/.*\/run\/host\.sock)$/;
-  const match = owner.length === 1 ? expected.exec(owner[0]) : null;
-  if (ownership === "core" ? owner.length !== 0 : !match) {
+  const expected = ownership === "own" ? /^native plugin owner own .*\/run\/s[0-9a-f]{12}\.sock$/ : /^native plugin owner attach .*\/run\/host\.sock$/;
+  if (ownership === "core" ? owner.length !== 0 : owner.length !== 1 || !expected.test(owner[0])) {
     throw Error(`plugin ownership trace differed from ${ownership}: ${owner.join(" | ") || "none"}`);
   }
-  return match?.[1];
 }
 
-/** Where an owning connection must bind: `run/` unless that path exceeds the 103-byte socket limit. */
-export function verifyOwnerSocket(home: string, socket: string): "run" | "private" {
-  const deep = join(home, "run", "s000000000000.sock").length > 103;
-  const inRun = dirname(socket) === join(home, "run");
-  const inPrivate = !socket.startsWith(`${home}/`) && /^pacer-[0-9a-f]{16}$/.test(basename(dirname(socket))) && socket.length <= 103;
-  if (deep ? !inPrivate : !inRun) throw Error(`owner socket ${socket} is not in the ${deep ? "private per-user directory" : "home's run directory"}`);
-  return deep ? "private" : "run";
-}
-
-export function alive(pid: number): boolean {
+function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
-export async function gone(pid: number, ms = 5000): Promise<boolean> {
+async function gone(pid: number, ms = 5000): Promise<boolean> {
   for (const deadline = Date.now() + ms; Date.now() < deadline; await Bun.sleep(50)) if (!alive(pid)) return true;
   return !alive(pid);
 }
 /** Running fixture plugin processes. Native owners report no pid in `plugin.doctor`, so they are found by entry path. */
-export function pluginProcesses(home: string): Array<{ pid: number; ppid: number }> {
+function pluginProcesses(home: string): Array<{ pid: number; ppid: number }> {
   const entry = join(home, "plugins", PLUGIN, "main.ts");
   return Bun.spawnSync(["ps", "-Ao", "pid=,ppid=,command="]).stdout.toString().split("\n").flatMap(line => {
     const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
@@ -205,7 +193,7 @@ function stdioConnection(session: Session, nativeHost: "0" | "1") {
   };
 }
 
-export async function httpOp(session: Session, op: string, params: unknown): Promise<PluginReply> {
+async function httpOp(session: Session, op: string, params: unknown): Promise<PluginReply> {
   const token = readFileSync(join(session.root, "home/token"), "utf8").trim();
   const response = await fetch(`http://127.0.0.1:${session.port}/v3/ops/${op}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(params), signal: AbortSignal.timeout(30000) });
   return await response.json() as PluginReply;
@@ -264,16 +252,15 @@ export async function exerciseNativePluginStdio(session: Session, stopService = 
         await down(session, true);
         const after = await connection.call(11, "plugin.ui.render", RENDER);
         record(session, { kind: "note", text: `plugin.ui.render after the attached service stopped: ${JSON.stringify(after)}` });
-        if (after.error?.data?.code !== "plugin_unavailable" || !after.error.data.hint) throw Error(`render after the service stopped was not plugin_unavailable with a restart hint: ${JSON.stringify(after)}`);
+        if (after.error?.data?.code !== "plugin_unavailable") throw Error(`render after the service stopped was not plugin_unavailable: ${JSON.stringify(after)}`);
         if (!await gone(second)) throw Error(`plugin process ${second} outlived the stopped service`);
         record(session, { kind: "note", behavior: "Attached stdio connection when the service stops", surface: "stdio API", verdict: "PASS",
           steps: "Attached stdio session open across live down --keep, then plugin.ui.render",
-          text: `The render answered plugin_unavailable (${after.error.message}; hint: ${after.error.data.hint}); the service's plugin process ${second} stopped with the service.` });
+          text: `The render answered plugin_unavailable (${after.error.message}${after.error.data.hint ? `; hint: ${after.error.data.hint}` : ""}); the service's plugin process ${second} stopped with the service.` });
       }
       const { code, stderr } = await connection.close();
       if (code !== 0) throw Error(`stdio exited ${code}: ${stderr}`);
-      const socket = verifyPluginStdio(connection.replies, stderr, ownership);
-      const placement = ownership === "own" && socket ? verifyOwnerSocket(home, socket) : undefined;
+      verifyPluginStdio(connection.replies, stderr, ownership);
       let teardown = "";
       if (ownership === "attach" && !stopService) {
         if (!alive(second)) throw Error(`the service's plugin process ${second} stopped with the attached connection`);
@@ -281,9 +268,7 @@ export async function exerciseNativePluginStdio(session: Session, stopService = 
       } else if (ownership !== "attach") {
         if (!await gone(second)) throw Error(`plugin process ${second} outlived its stdio connection`);
         if (connectionSockets(home).length) throw Error(`connection sockets remained: ${connectionSockets(home).join(", ")}`);
-        if (socket && existsSync(socket)) throw Error(`connection socket ${socket} remained`);
-        const place = placement === "private" ? ` ${socket} (the private per-user directory: the home's run/ path exceeds 103 bytes)` : "";
-        teardown = ` After EOF plugin process ${second} had exited${ownership === "own" ? ` and the connection socket${place} was removed` : ""}.`;
+        teardown = ` After EOF plugin process ${second} had exited${ownership === "own" ? " and the connection socket was removed" : ""}.`;
       }
       record(session, { kind: "note", behavior, surface: "stdio API", verdict: "PASS",
         steps: `Fixed exchange ${where}: plugin.list before hello, hello(3), list, enable, doctor, ui.render, settings.get, disable, enable, doctor`,

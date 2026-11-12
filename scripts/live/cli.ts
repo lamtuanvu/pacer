@@ -47,6 +47,10 @@ const usage = `usage: bun run live <command> [--id <id>]
   native-host-effects --id <id> --forward-id <id>
                                   exercise fixed host.check jobs against the sandbox fake ssh host, comparing
                                   a native test-ops sandbox with a --native-forward-ops host.check sandbox
+  native-plugin-stdio --id <id> [--stop-service]
+                                  exercise fixed stdio plugin operations with the native host off and on
+                                  (Rust front door; also on a sandbox stopped with down --keep);
+                                  --stop-service stops an attached sandbox service mid-session
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
@@ -208,11 +212,6 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (command === "native-plugin-stdio") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || [...flags].some(flag => flag !== "--stop-service")) throw Error("usage: live native-plugin-stdio --id <id> [--stop-service]");
     await exerciseNativePluginStdio(loadSession(id), flags.has("--stop-service"));
-    return 0;
-  }
-  if (command === "native-plugin-owner") {
-    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live native-plugin-owner --id <id>");
-    await exerciseNativePluginOwner(loadSession(id));
     return 0;
   }
   if (command === "updater") {
