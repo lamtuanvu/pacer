@@ -94,10 +94,20 @@ work grant is set. It carries the same request kinds as HTTP's `/_internal/plugi
   owner waits for it. An attached connection's Core is not told: its `plugin.list` can show a
   child the service runs as `idle` until it has called it, and its `plugin.doctor` can show
   different `restarts` than serve's. The owner therefore keeps its own restart floor per plugin
-  with the same ramp, so no door restarts a crash-looping child faster than that; enabling the
-  plugin through the owning door clears it.
-- Serve shutdown and an owning connection's end (EOF or SIGTERM) send each child SIGTERM and
-  SIGKILL 2 seconds later, and stop accepting new starts, before the socket is removed.
+  with the same ramp and the same `failing` rule: after three crashes within a minute it starts
+  the plugin again only once it is enabled. So no door restarts a crash-looping child faster
+  than the owning door, or a failing one at all. A native `plugin.enable` through the owning
+  door clears the floor. An enable through an attached connection, or forwarded to TypeScript
+  (`PACER_FORWARD_OPS`), clears only that Core's state, so the owner keeps its floor and its
+  failing mark (known limit). A report that reaches the owning door while its Core restarts is
+  dropped, not retried; that crash counts only toward the owner's floor.
+- Serve shutdown and an owning connection's end (EOF or SIGTERM) stop accepting new starts and
+  send each child SIGTERM at once and SIGKILL 2 seconds later, before the socket is removed. A
+  plugin call in flight does not delay this: the owner reaches its children through a lane
+  roster kept outside the owner lock, no call holds that lock while it waits for its plugin,
+  and the call fails with `plugin_unavailable` once its child exits. On EOF the connection
+  first lets its in-flight plugin operations answer, as it does for every request. A child
+  that closes its output while still running gets the same SIGTERM, then SIGKILL.
 - With the native host on, `plugin.doctor` reports `pid: null` for owner-supervised children on
   both front doors, because Core's snapshot does not know the owner's process IDs.
 - A deep home keeps native stdio ownership, but its connection sockets live outside the home,
@@ -109,9 +119,11 @@ work grant is set. It carries the same request kinds as HTTP's `/_internal/plugi
 - Plain CLI commands start their own Core and, flag-on, still start TypeScript children beside
   a live serve owner. This is a known limit for this wave.
 - **OD-7.** The maintainer decided that a second serve on a home whose `run/host.sock` owner is
-  live refuses to start, instead of falling back to TypeScript ownership. A flag-on serve that
-  finds the socket live waits up to 5 seconds (`PACER_SERVE_OWNER_WAIT_MS`), checking every
-  250 ms, so a restart whose old serve is still stopping goes through. If the owner is still
+  live refuses to start, instead of falling back to TypeScript ownership. A flag-on serve on
+  another port that finds the socket live waits up to 5 seconds (`PACER_SERVE_OWNER_WAIT_MS`),
+  checking every 250 ms, so a restart whose old serve is still stopping goes through (the old
+  serve frees its port before the socket). While the owner still listens on the port, a second
+  serve on that same port fails to bind first and exits 1. If the owner is still
   live it exits with code 3 and "another pacer owns the plugin host socket at `<path>` (pid N):
   stop the other pacer (pacer service stop) or wait for it to exit". The owner writes its pid
   to `run/host.sock.pid` (0600) and removes it at shutdown. `pacer doctor` reports a live socket
