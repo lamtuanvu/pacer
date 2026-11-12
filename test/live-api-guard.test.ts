@@ -81,6 +81,35 @@ test('host forms are found after flags and flag values the CLI parses anywhere',
   expect(refusal(['host', '--repo', '/abs', 'clean', 'box'])).toContain('D8 refuses host.clean');
   expect(refusal(['host', '--json', 'account', 'add', 'box', 'team'])).toContain('D8 refuses host.account.add');
 });
+test('host repo admits only list and check, found after flags and flag values', () => {
+  for (const args of [
+    ['host', 'repo', '--repo', '/abs', 'map', 'box', 'github.com/o/r', '/abs/repo'],
+    ['host', 'repo', 'x', 'map'],
+    ['host', '--json', 'repo', 'map', 'box'],
+    ['host', 'repo', 'map', 'box', '--json'],
+    ['host', 'repo', '--', 'map', 'box'],
+    ['host', '--', 'repo', 'map'],
+    ['host', 'repo', '--repo', 'map', 'list'],
+  ]) expect(refusal(args)).toContain('D8 refuses host.repo.map');
+  for (const args of [
+    ['host', 'repo'],
+    ['host', 'repo', 'unmap', 'box'],
+    ['host', 'repo', 'remove', '--json'],
+    ['host', 'repo', '--repo', 'list', 'unmap'],
+    ['host', 'repo', '--force', 'unmap', 'list'],
+    ['host', 'repo', '--json=1', 'list'],
+    ['host', 'repo', '-x', 'list'],
+    ['host', 'repo', '--', 'list'],
+    ['host', 'check', 'box', '--repo', 'repo'],
+  ]) expect(refusal(args)).toMatch(/^D3: host /);
+  for (const args of [
+    ['host', 'repo', 'list'],
+    ['host', 'repo', 'list', '--json'],
+    ['host', 'repo', '--json', 'check', 'box'],
+    ['host', 'repo', 'check', 'box', '--repo', '~/repo', '--json'],
+    ['host', '--json', 'repo', 'list'],
+  ]) expect(refusal(args)).toBeUndefined();
+});
 test('read-only host forms stay allowed', () => {
   for (const args of [['host', 'list'], ['host', 'list', '--json'], ['host', 'check', 'fakehost', '--json'], ['host', 'check', 'box', '--repo', '~/repo'], ['host']]) {
     expect(refusal(args)).toBeUndefined();
