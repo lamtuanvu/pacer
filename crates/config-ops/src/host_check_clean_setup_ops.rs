@@ -251,7 +251,7 @@ fn transferred(task: &Value) -> bool {
 /// Stdout of `ctx.run(["git", "-C", task.brief.repo, ...args], 10000)` when it exits 0.
 fn git(task: &Value, args: &[&str]) -> Option<String> {
     let repo = task["brief"]["repo"].as_str()?;
-    match pacer_repos::git_read_within(repo, args, GIT_TIMEOUT)? {
+    match pacer_repos::git_read_unmarked(repo, args, GIT_TIMEOUT)? {
         (0, stdout) => Some(stdout),
         _ => None,
     }
