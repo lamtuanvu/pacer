@@ -9,6 +9,40 @@ fn task() -> Value {
 }
 
 #[test]
+fn query_filter_matches_id_suffix_title_and_goal_case_insensitively() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    let keepalive = json!({"id":"t-20261110-093000-d90f","rev":1,"state":"done","createdAt":1000.0,"title":"Add SSH keepalive","brief":{"repo":"/tmp/repo","goal":"keep long sessions alive"},"attempts":[]});
+    let webhook = json!({"id":"t-20261110-093005-e11f","rev":1,"state":"done","createdAt":1005.0,"title":"Payments webhook retry","brief":{"repo":"/tmp/repo","goal":"stop failed webhooks"},"attempts":[]});
+    store.insert(&keepalive, 1000.0).unwrap();
+    store.insert(&webhook, 1005.0).unwrap();
+    let mut ids = |query: &str| -> Vec<String> {
+        let mut rows = store
+            .list(&TaskFilter {
+                query: Some(query),
+                ..Default::default()
+            })
+            .unwrap()
+            .iter()
+            .map(|record| record["id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    // The whole id, the short suffix users copy, and case-insensitive multi-word titles and goals.
+    assert_eq!(
+        ids("t-20261110-093000-D90F"),
+        vec!["t-20261110-093000-d90f"]
+    );
+    assert_eq!(ids("ssh KEEP"), vec!["t-20261110-093000-d90f"]);
+    assert_eq!(ids("WEBHOOK"), vec!["t-20261110-093005-e11f"]);
+    // Every word must appear somewhere in the id, title or goal.
+    assert_eq!(ids("keepalive alive"), vec!["t-20261110-093000-d90f"]);
+    assert_eq!(ids("webhook ssh"), Vec::<String>::new());
+    assert_eq!(ids("zzznope"), Vec::<String>::new());
+}
+
+#[test]
 fn schema_write_read_filters_and_cas() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = TaskStore::open(dir.path()).unwrap();

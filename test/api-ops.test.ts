@@ -152,6 +152,19 @@ test('strategy.build op uses the selected planner and returns terminal result',a
  }})).toEqual({opened:true,target:'terminal',command:'safe command'});
 });
 
+test("task.list q finds tasks by id suffix and goal words and keeps the page only",async()=>{
+ const ctx=await ctxWithStrategy(),goal="Fix the payments webhook timeout";
+ const r=await callOp(ctx,"task.delegate",{goal,repo:ctx.home},{spawnRunner:()=>1}) as {task_id:string};
+ expect(await callOp(ctx,"task.list",{q:r.task_id})).toMatchObject({tasks:[{id:r.task_id}]});
+ expect(await callOp(ctx,"task.list",{q:r.task_id.slice(-4)})).toMatchObject({tasks:[{id:r.task_id}]});
+ expect(await callOp(ctx,"task.list",{q:"payments webhook"})).toMatchObject({tasks:[{id:r.task_id}]});
+ expect(await callOp(ctx,"task.list",{q:"notaword"})).toMatchObject({tasks:[],next:null});
+ // `q` is a cursor/filter parameter, so the page drops the 2.x legacy summaries like states or since do.
+ const page=await callOp(ctx,"task.list",{q:r.task_id.slice(-4)}) as Record<symbol,unknown>;
+ expect(Object.getOwnPropertySymbols(page)).toEqual([]);
+ for(const bad of ["x".repeat(201),"",5])expect(await codeOf(callOp(ctx,"task.list",{q:bad}))).toBe("invalid_input");
+});
+
 test("short titles are additive across delegate, get and both list forms",async()=>{
  const ctx=await ctxWithStrategy(),goal="Fix queue. Then verify every runner";
  const r=await callOp(ctx,"task.delegate",{goal,repo:ctx.home,title:"  Queue fix  "},{spawnRunner:()=>1}) as {task_id:string};

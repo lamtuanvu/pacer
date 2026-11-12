@@ -56,6 +56,12 @@ test('v2 validates accepted and retains the limit-only bare summary array',async
  expect(callV2Op(ctx,'task.review',{id:taskId(2),accepted:'yes'})).rejects.toMatchObject({code:'invalid_input'});
 });
 
+test('the frozen 2.x surface rejects the protocol 3 q param on task.list',async()=>{
+ const {callV2Op}=await import('../src/api/v2-compat');
+ const {fakeCtx}=await import('./helpers');
+ await expect(callV2Op(fakeCtx(),'task.list',{q:'webhook'})).rejects.toMatchObject({code:'invalid_input',message:'params: Unrecognized key: "q"'});
+});
+
 test('operations added after 2.8.0 stay out of the frozen 2.x surface',async()=>{
  const {v2Hello,callV2Op,v2OpJsonSchemas}=await import('../src/api/v2-compat');
  const {helloBody}=await import('../src/api/protocol');
