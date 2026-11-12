@@ -1,10 +1,11 @@
 #![allow(clippy::unwrap_used)]
-//! Stdio owner probe and attach (ADR 0027): who owns a home's plugin children.
-//! Kept out of the library's unit tests: binding sockets narrows the process umask.
+//! Stdio owner probe and attach (ADR 0027): who owns a home's plugin children,
+//! and where a connection binds its own socket.
 
 use pacer_plugin_runtime::{
-    BridgeError, HomeOwner, PeerAuth, ProcessOwner, ReverseBridge, SOCKET_PATH_MAX, SpawnSpec,
-    StopOutcome, connection_socket_name, probe_home_owner, probe_home_owner_as, stop_on_owner,
+    AttachError, BridgeError, HomeOwner, OwnerTrust, PeerAuth, ProcessOwner, ReverseBridge,
+    SOCKET_PATH_MAX, SpawnSpec, StopOutcome, connection_socket_name, probe_home_owner,
+    probe_home_owner_as, stop_on_owner, stop_on_owner_as,
 };
 use std::{
     collections::HashMap,
@@ -19,13 +20,14 @@ use tokio::{
 };
 
 fn short_home() -> tempfile::TempDir {
-    let home = tempfile::Builder::new()
+    tempfile::Builder::new()
         .prefix("pnh-")
         .tempdir_in("/tmp")
-        .unwrap();
-    // A concurrent bind holds the process umask at 0177 while it creates the socket.
-    fs::set_permissions(home.path(), fs::Permissions::from_mode(0o700)).unwrap();
-    home
+        .unwrap()
+}
+
+fn me() -> u32 {
+    nix::unistd::getuid().as_raw()
 }
 
 #[test]
@@ -56,9 +58,49 @@ fn another_uid_is_never_attached() {
     let _bridge = ReverseBridge::bind(home.path()).unwrap();
     let other = fs::metadata(home.path()).unwrap().uid().wrapping_add(1);
     assert!(matches!(
-        probe_home_owner_as(home.path(), other),
+        probe_home_owner_as(home.path(), OwnerTrust::user(other)),
         HomeOwner::Untrusted(_)
     ));
+}
+
+#[test]
+fn each_trust_layer_refuses_a_foreign_uid_on_its_own() {
+    let home = short_home();
+    let bridge = ReverseBridge::bind(home.path()).unwrap();
+    let other = me().wrapping_add(1);
+    let mine = OwnerTrust::user(me());
+    assert_eq!(
+        probe_home_owner(home.path()),
+        HomeOwner::Live(bridge.path().to_path_buf())
+    );
+    for (trust, reason) in [
+        (
+            OwnerTrust {
+                run_dir: other,
+                ..mine
+            },
+            "run directory is not private to this user",
+        ),
+        (
+            OwnerTrust {
+                socket: other,
+                ..mine
+            },
+            "host.sock belongs to another user",
+        ),
+        (
+            OwnerTrust {
+                peer: other,
+                ..mine
+            },
+            "host.sock is served by another user",
+        ),
+    ] {
+        assert_eq!(
+            probe_home_owner_as(home.path(), trust),
+            HomeOwner::Untrusted(reason)
+        );
+    }
 }
 
 #[test]
@@ -89,6 +131,11 @@ fn connection_socket_binds_beside_host_sock_and_guards_length() {
     assert_eq!(bridge.socket_mode().unwrap(), 0o600);
     // A connection socket is not the owner lease.
     assert_eq!(probe_home_owner(home.path()), HomeOwner::Absent);
+    let other = connection_socket_name([0xcd; 6]);
+    let connection =
+        ReverseBridge::bind_connection(home.path(), &other, PeerAuth::same_uid()).unwrap();
+    assert_eq!(connection.path(), home.path().join("run").join(&other));
+    assert_eq!(connection.socket_mode().unwrap(), 0o600);
 
     let deep = home.path().join("x".repeat(SOCKET_PATH_MAX));
     assert!(matches!(
@@ -131,6 +178,11 @@ async fn stop_reaches_the_attached_owner() {
         stop_on_owner(&socket, "fx").await.unwrap(),
         StopOutcome::NotRunning
     );
+    // A peer that is not the expected user never receives the stop frame.
+    assert!(matches!(
+        stop_on_owner_as(&socket, "fx", me().wrapping_add(1)).await,
+        Err(AttachError::Untrusted)
+    ));
     let spec = SpawnSpec {
         argv: vec!["/bin/sleep".into(), "30".into()],
         cwd: home.path().into(),
@@ -147,4 +199,60 @@ async fn stop_reaches_the_attached_owner() {
         stop_on_owner(&socket, "fx").await.unwrap(),
         StopOutcome::OwnerGone
     );
+}
+
+/// The OS per-user private directory, as the door finds it.
+fn user_private_dir() -> Option<std::path::PathBuf> {
+    if cfg!(target_os = "macos") {
+        let out = std::process::Command::new("/usr/bin/getconf")
+            .arg("DARWIN_USER_TEMP_DIR")
+            .output()
+            .ok()?;
+        let text = String::from_utf8(out.stdout).ok()?;
+        Some(text.trim_end_matches('\n').trim_end_matches('/').into())
+    } else {
+        std::env::var_os("XDG_RUNTIME_DIR").map(Into::into)
+    }
+}
+
+#[test]
+fn a_deep_home_binds_its_connection_socket_in_the_private_user_directory() {
+    let root = short_home();
+    let deep = root.path().join("d".repeat(SOCKET_PATH_MAX));
+    let name = connection_socket_name([7; 6]);
+    let bound = ReverseBridge::bind_connection(&deep, &name, PeerAuth::same_uid());
+    let Some(base) = user_private_dir() else {
+        // No per-user directory (for example Linux without XDG_RUNTIME_DIR): refuse, never /tmp.
+        let message = bound.err().unwrap().to_string();
+        assert!(message.contains("PACER_NATIVE_PLUGIN_HOST=0"), "{message}");
+        return;
+    };
+    let bridge = bound.unwrap();
+    let dir = bridge.path().parent().unwrap().to_path_buf();
+    assert_eq!(dir.parent().unwrap(), base);
+    assert!(
+        dir.file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("pacer-")
+    );
+    assert!(bridge.path().as_os_str().len() <= SOCKET_PATH_MAX);
+    assert_eq!(fs::metadata(&dir).unwrap().mode() & 0o777, 0o700);
+    assert_eq!(bridge.socket_mode().unwrap(), 0o600);
+    assert!(
+        !deep.exists(),
+        "the deep home's run directory is never created"
+    );
+    let again = ReverseBridge::bind_connection(
+        &deep,
+        &connection_socket_name([8; 6]),
+        PeerAuth::same_uid(),
+    )
+    .unwrap();
+    assert_eq!(again.path().parent().unwrap(), dir);
+    for socket in [bridge.path(), again.path()] {
+        fs::remove_file(socket).unwrap();
+    }
+    fs::remove_dir(&dir).unwrap();
 }

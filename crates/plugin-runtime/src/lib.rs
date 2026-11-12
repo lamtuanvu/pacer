@@ -24,7 +24,6 @@ mod bridge_call;
 mod bridge_listener;
 mod capability;
 mod connection_dir;
-pub mod crash;
 mod executor_attach;
 mod host_attach;
 mod host_bridge;
@@ -65,7 +64,8 @@ pub use observation::{DoorRefusal, DoorRequest, PUMP_EVERY};
 pub use orca_attach::{FixtureOrcaSession, OrcaBridge, SharedOrcaBridge};
 pub use owner::{OwnerError, Ownership, PluginLane, ProcessOwner};
 pub use owner_attach::{
-    AttachError, HomeOwner, StopOutcome, probe_home_owner, probe_home_owner_as, stop_on_owner,
+    AttachError, HomeOwner, OwnerTrust, StopOutcome, probe_home_owner, probe_home_owner_as,
+    stop_on_owner, stop_on_owner_as,
 };
 pub use pacer_plugin_capabilities::{CapabilityBroker, NativeHttp, NativeProcess, NativeRead};
 pub use pacer_plugin_host::{

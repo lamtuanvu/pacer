@@ -1,11 +1,8 @@
 //! Reverse-bridge Unix listener (X1c / P4d-1 / P4d-2).
 //!
 //! Binds `$PACER_HOME/run/host.sock` (dir 0700, socket 0600), accepts line
-//! JSON-RPC for `_host.plugin.call` / `_host.plugin.find` / `_host.plugin.stop`,
-//! and authorizes peers by Unix credentials and then by the owner's
-//! per-start credential ([`crate::bridge_auth`], #918): a same-user process
-//! that cannot prove the key is refused before its first request.
-//! Sockets are bound in a verified private directory and
+//! JSON-RPC for `_host.plugin.call` / `_host.plugin.find`, and authorizes peers
+//! by Unix credentials. Sockets are bound in a verified private directory and
 //! narrowed to 0600 by path; the process umask is never changed. A stdio
 //! connection's socket may live outside the home (`connection_dir`).
 //! Default serve must not call [`ReverseBridge::bind`] or
@@ -28,9 +25,7 @@
 use crate::bridge_auth::{AUTH_DEADLINE, OwnerKey, accept};
 use crate::bridge_call::{SealedCall, call_sealed};
 use crate::capability::{CoreForward, CoreRequest};
-use crate::connection_dir::{
-    Probe, check_private_dir, connection_socket_dir, probe_socket, sweep_stale_sockets,
-};
+use crate::connection_dir::{check_private_dir, connection_socket_dir, sweep_stale_sockets};
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
     METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, SOCKET_PATH_MAX,
@@ -88,6 +83,14 @@ pub enum BridgeError {
     LiveSocket(PathBuf),
     #[error("reverse-bridge socket path exceeds {SOCKET_PATH_MAX} bytes: {0}")]
     PathTooLong(PathBuf),
+    #[error(
+        "reverse-bridge socket path exceeds {SOCKET_PATH_MAX} bytes: {path}, and the private \
+         per-user directory is unusable: {reason}. Set PACER_NATIVE_PLUGIN_HOST=0 or use a \
+         shorter PACER_HOME"
+    )]
+    NoPrivateDir { path: PathBuf, reason: String },
+    #[error("reverse-bridge socket directory is not private: {0}")]
+    UntrustedDir(String),
     #[error("peer credentials unavailable")]
     PeerCredUnavailable,
     #[error("untrusted reverse-bridge caller")]
@@ -167,16 +170,30 @@ impl ReverseBridge {
         if path.as_os_str().len() > SOCKET_PATH_MAX {
             return Err(BridgeError::PathTooLong(path));
         }
-        prepare_run_dir(pacer_home)?;
+        let run = prepare_run_dir(pacer_home)?;
+        Self::bind_in(&run, name, auth)
+    }
+
+    /// Bind a stdio connection's socket `name`: in `run/` when the path fits,
+    /// otherwise in the private per-user directory of `connection_dir`.
+    /// Stale connection sockets in that directory are swept first.
+    pub fn bind_connection(
+        pacer_home: &Path,
+        name: &str,
+        auth: PeerAuth,
+    ) -> Result<Self, BridgeError> {
+        let uid = current_uid();
+        let dir = connection_socket_dir(pacer_home, name, uid)?;
+        sweep_stale_sockets(&dir, uid);
+        Self::bind_in(&dir, name, auth)
+    }
+
+    fn bind_in(dir: &Path, name: &str, auth: PeerAuth) -> Result<Self, BridgeError> {
+        let uid = current_uid();
+        let before = check_private_dir(dir, uid).map_err(BridgeError::UntrustedDir)?;
+        let path = dir.join(name);
         remove_stale_socket(&path)?;
-        // Another process bound the path since the probe: it owns it now.
-        let listener = StdUnixListener::bind(&path).map_err(|error| {
-            if error.kind() == io::ErrorKind::AddrInUse {
-                BridgeError::LiveSocket(path.clone())
-            } else {
-                error.into()
-            }
-        })?;
+        let listener = StdUnixListener::bind(&path)?;
         if let Err(error) = seal_socket(dir, &path, &before, uid) {
             let _ = fs::remove_file(&path);
             return Err(error);

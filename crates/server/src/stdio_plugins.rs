@@ -10,8 +10,10 @@
 //!
 //! Who runs plugin processes is decided once, before the core child starts:
 //! Core (native host off), the live serve owner at `run/host.sock` (attach),
-//! or an owner of this connection's own on `run/s<12-hex>.sock` (own), torn
-//! down when the connection ends.
+//! or an owner of this connection's own on `run/s<12-hex>.sock` (own; a private
+//! per-user directory when that path is too long), torn down when the
+//! connection ends or the door receives SIGTERM. Flag-off, Core owns the
+//! children and never sees an inherited `PACER_HOST_SOCKET`.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use crate::native::plugins::{ProcessRpc, Service, is_read};
 use pacer_foundation::{
@@ -38,6 +40,7 @@ use std::{
     },
 };
 use tokio::{
+    process::Command,
     sync::{mpsc, oneshot},
     task::JoinSet,
 };
@@ -149,6 +152,25 @@ impl CoreIpc for PluginLink {
     }
 }
 
+/// The core child's `PACER_HOST_SOCKET`, which tells Core who runs plugin processes.
+pub(crate) enum HostSocket {
+    /// Scoped work forwards everything and keeps what it inherited.
+    Inherit,
+    /// Core owns the children; an inherited socket was never probed by this door.
+    Unset,
+    Set(String),
+}
+
+impl HostSocket {
+    pub(crate) fn apply<'a>(&self, command: &'a mut Command) -> &'a mut Command {
+        match self {
+            Self::Inherit => command,
+            Self::Unset => command.env_remove(HOST_SOCKET_ENV),
+            Self::Set(socket) => command.env(HOST_SOCKET_ENV, socket),
+        }
+    }
+}
+
 /// Who owns this connection's plugin processes, and its plugin service.
 pub(crate) struct Ownership {
     pub(crate) service: Arc<Service>,
@@ -156,19 +178,24 @@ pub(crate) struct Ownership {
 }
 
 impl Ownership {
-    /// Decide before the core child spawns; returns env the core child needs.
+    /// Decide before the core child spawns; returns the core child's owner socket.
     pub(crate) fn start(
         env: &HashMap<String, String>,
         pacer_home: &Path,
         scoped_work: bool,
-    ) -> io::Result<(Self, Vec<(String, String)>)> {
+    ) -> io::Result<(Self, HostSocket)> {
         if scoped_work || !native_plugin_host_enabled_from_env(env) {
+            let socket = if scoped_work {
+                HostSocket::Inherit
+            } else {
+                HostSocket::Unset
+            };
             return Ok((
                 Self {
                     service: Arc::new(Service::default()),
                     session: None,
                 },
-                vec![],
+                socket,
             ));
         }
         let debug = std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1");
@@ -177,40 +204,44 @@ impl Ownership {
                 if debug {
                     eprintln!("native plugin owner attach {}", socket.display());
                 }
-                let core_env = vec![(HOST_SOCKET_ENV.to_owned(), socket.display().to_string())];
+                let core_socket = HostSocket::Set(socket.display().to_string());
                 let service = Service::with_process_rpc(ProcessRpc::Attached(socket));
                 Ok((
                     Self {
                         service: Arc::new(service),
                         session: None,
                     },
-                    core_env,
+                    core_socket,
                 ))
             }
             found => {
                 if let HomeOwner::Untrusted(reason) = found {
                     eprintln!("pacer: not attaching to the plugin owner: {reason}");
                 }
-                let (session, core_env) =
-                    NativeHostSession::start_connection(pacer_home, rand::random()).map_err(
-                        |error| io::Error::other(format!("native plugin host: {error}")),
-                    )?;
+                let (session, _) = NativeHostSession::start_connection(pacer_home, rand::random())
+                    .map_err(|error| io::Error::other(format!("native plugin host: {error}")))?;
                 if debug {
                     eprintln!(
                         "native plugin owner own {}",
                         session.socket_path().display()
                     );
                 }
+                let core_socket = HostSocket::Set(session.socket_path().display().to_string());
                 let service = Service::with_native_owner(Arc::clone(session.owner()));
                 Ok((
                     Self {
                         service: Arc::new(service),
                         session: Some(session),
                     },
-                    core_env,
+                    core_socket,
                 ))
             }
         }
+    }
+
+    /// True when this connection runs its own plugin children and socket.
+    pub(crate) fn owns_children(&self) -> bool {
+        self.session.is_some()
     }
 
     /// Unlink this connection's socket and terminate the children it owns.

@@ -4,7 +4,8 @@
 //! lease. A stdio connection probes it once, before its Core child starts:
 //! [`HomeOwner::Live`] means the connection attaches (its Core dials that socket
 //! and the door owns no children); anything else means the connection owns its
-//! children on its own `run/s<12-hex>.sock`. An attached door only stops lanes
+//! children on its own connection socket ([`crate::ReverseBridge::bind_connection`]).
+//! An attached door only stops lanes
 //! on the owner, through the one-frame `_host.plugin.stop` primitive.
 
 use crate::bridge_listener::{BRIDGE_MAX_LINE_BYTES, current_uid, peer_uid};
@@ -39,14 +40,36 @@ pub enum HomeOwner {
     Untrusted(&'static str),
 }
 
-/// Probe `run/host.sock` as the current user.
-pub fn probe_home_owner(pacer_home: &Path) -> HomeOwner {
-    probe_home_owner_as(pacer_home, current_uid())
+/// The uid a probe requires of each layer it checks. In production all three
+/// are the current user; tests vary one at a time to prove each check.
+#[derive(Clone, Copy, Debug)]
+pub struct OwnerTrust {
+    /// Owner of the `run/` directory.
+    pub run_dir: u32,
+    /// Owner of the `host.sock` file.
+    pub socket: u32,
+    /// Peer credentials of the process accepting the connection.
+    pub peer: u32,
 }
 
-/// Probe `run/host.sock`, trusting only `uid` for the directory, the socket
-/// file and the peer that accepts the connection.
-pub fn probe_home_owner_as(pacer_home: &Path, uid: u32) -> HomeOwner {
+impl OwnerTrust {
+    pub fn user(uid: u32) -> Self {
+        Self {
+            run_dir: uid,
+            socket: uid,
+            peer: uid,
+        }
+    }
+}
+
+/// Probe `run/host.sock` as the current user.
+pub fn probe_home_owner(pacer_home: &Path) -> HomeOwner {
+    probe_home_owner_as(pacer_home, OwnerTrust::user(current_uid()))
+}
+
+/// Probe `run/host.sock`, trusting only the given uids for the directory, the
+/// socket file and the peer that accepts the connection.
+pub fn probe_home_owner_as(pacer_home: &Path, trust: OwnerTrust) -> HomeOwner {
     let run = pacer_home.join("run");
     let meta = match fs::symlink_metadata(&run) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return HomeOwner::Absent,
@@ -56,7 +79,7 @@ pub fn probe_home_owner_as(pacer_home: &Path, uid: u32) -> HomeOwner {
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return HomeOwner::Untrusted("run is not a real directory");
     }
-    if meta.uid() != uid || meta.mode() & 0o077 != 0 {
+    if meta.uid() != trust.run_dir || meta.mode() & 0o077 != 0 {
         return HomeOwner::Untrusted("run directory is not private to this user");
     }
     let socket = run.join(HOST_SOCKET_NAME);
@@ -68,14 +91,14 @@ pub fn probe_home_owner_as(pacer_home: &Path, uid: u32) -> HomeOwner {
     if !meta.file_type().is_socket() {
         return HomeOwner::Untrusted("host.sock is not a socket");
     }
-    if meta.uid() != uid {
+    if meta.uid() != trust.socket {
         return HomeOwner::Untrusted("host.sock belongs to another user");
     }
     let Ok(stream) = StdUnixStream::connect(&socket) else {
         return HomeOwner::Absent;
     };
     match peer_uid(&stream) {
-        Ok(peer) if peer == uid => HomeOwner::Live(socket),
+        Ok(peer) if peer == trust.peer => HomeOwner::Live(socket),
         _ => HomeOwner::Untrusted("host.sock is served by another user"),
     }
 }
@@ -106,10 +129,19 @@ pub enum AttachError {
 /// The peer uid is checked on every dial: the socket path may have been
 /// replaced since the connection probed it.
 pub async fn stop_on_owner(socket: &Path, id: &str) -> Result<StopOutcome, AttachError> {
+    stop_on_owner_as(socket, id, current_uid()).await
+}
+
+/// [`stop_on_owner`], trusting only a peer running as `uid`.
+pub async fn stop_on_owner_as(
+    socket: &Path,
+    id: &str,
+    uid: u32,
+) -> Result<StopOutcome, AttachError> {
     let Ok(stream) = UnixStream::connect(socket).await else {
         return Ok(StopOutcome::OwnerGone);
     };
-    if peer_uid(&stream).ok() != Some(current_uid()) {
+    if peer_uid(&stream).ok() != Some(uid) {
         return Err(AttachError::Untrusted);
     }
     let exchange = async {
