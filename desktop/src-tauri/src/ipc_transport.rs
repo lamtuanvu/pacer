@@ -28,6 +28,7 @@ struct Terminal {
     owner: String,
     tx: mpsc::Sender<Message>,
     pending: Arc<Mutex<usize>>,
+    room: Arc<tokio::sync::Notify>,
     _cancel: tokio::sync::oneshot::Sender<()>,
 }
 #[derive(Serialize)]
@@ -218,6 +219,37 @@ fn reserve(pending: &mut usize, size: usize) -> bool {
     }
     *pending += size;
     true
+}
+/// Admission of a terminal frame into the renderer's queue. The page drains
+/// with terminal_ack; while its 1 MiB budget is full the attachment stops
+/// reading the socket so the server buffers (a replay of an ended session
+/// would otherwise overflow every attach and loop on resync). Returns false
+/// when the frame can never fit, the attachment is cancelled, or the page
+/// sends no ack for 30 seconds. A false return always ends the attachment, so
+/// the cancel receiver is never polled again after it resolves.
+async fn admit(
+    pending: &Arc<Mutex<usize>>,
+    room: &Arc<tokio::sync::Notify>,
+    cancelled: &mut tokio::sync::oneshot::Receiver<()>,
+    size: usize,
+) -> bool {
+    if size > 1024 * 1024 {
+        return false;
+    }
+    loop {
+        // Register the wakeup before checking, or an ack landing between
+        // the check and the await would never wake the wait.
+        let notified = room.notified();
+        tokio::pin!(notified);
+        if reserve(&mut pending.lock().unwrap(), size) {
+            return true;
+        }
+        tokio::select! {
+            _ = &mut notified => {}
+            _ = &mut *cancelled => return false,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => return false,
+        }
+    }
 }
 fn cancel_stream(
     streams: &mut HashMap<String, (String, tokio::task::JoinHandle<()>)>,
@@ -776,6 +808,7 @@ pub async fn terminal_attach(
     let (tx, mut rx) = mpsc::channel(64);
     let (cancel, mut cancelled) = tokio::sync::oneshot::channel();
     let pending = Arc::new(Mutex::new(0usize));
+    let room = Arc::new(tokio::sync::Notify::new());
     {
         let bridge = app.state::<Bridge>();
         let mut terminals = bridge.terminals.lock().unwrap();
@@ -788,6 +821,7 @@ pub async fn terminal_attach(
                 owner: window.label().into(),
                 tx,
                 pending: pending.clone(),
+                room: room.clone(),
                 _cancel: cancel,
             },
         );
@@ -801,10 +835,16 @@ pub async fn terminal_attach(
                     let Some(Ok(frame))=frame else {break;};
                     let value=match frame {Message::Text(text)=>json!({"type":"text","data":text.as_str()}),Message::Binary(bytes)=>json!({"type":"binary","bytes":bytes.to_vec()}),Message::Close(_)=>break,_=>continue};
                     let size=value.to_string().len();
-                    let overflow=!reserve(&mut pending.lock().unwrap(),size);
-                    // A renderer may queue at most 1 MiB. Drop the attachment; resync clears its
-                    // offset so the shared session client requests a fresh snapshot on reconnect.
-                    if overflow {let _=channel.send(json!({"type":"text","data":"{\"type\":\"resync\"}"})); break;}
+                    // Backpressure, not dropping: wait for the page's acks so
+                    // the server buffers a long replay instead of the bridge.
+                    if !admit(&pending,&room,&mut cancelled,size).await {
+                        // A single frame larger than the whole budget, or no
+                        // ack progress for 30s. Resync clears the page's offset
+                        // so the shared session client requests a fresh snapshot
+                        // on reconnect.
+                        let _=channel.send(json!({"type":"text","data":"{\"type\":\"resync\"}"}));
+                        break;
+                    }
                     if channel.send(json!({"type":"terminal","frame":value,"size":size})).is_err(){break;}
                 }
             }
@@ -896,6 +936,8 @@ pub fn terminal_ack(
         .ok_or("Unknown terminal attachment")?;
     let mut count = terminal.pending.lock().unwrap();
     *count = count.saturating_sub(size);
+    // Free room wakes an attachment waiting to admit its next frame.
+    terminal.room.notify_one();
     Ok(())
 }
 #[tauri::command]
@@ -1204,6 +1246,7 @@ mod recovery_tests {
                 owner: "main".into(),
                 tx,
                 pending: Default::default(),
+                room: Default::default(),
                 _cancel: tokio::sync::oneshot::channel().0,
             },
         );
@@ -1231,6 +1274,60 @@ mod recovery_tests {
         assert!(!reserve(&mut pending, 1));
         pending = pending.saturating_sub(1024 * 1024);
         assert!(reserve(&mut pending, 1));
+    }
+    #[tokio::test]
+    async fn a_frame_that_does_not_fit_waits_and_is_admitted_after_an_ack() {
+        let pending = Arc::new(Mutex::new(0usize));
+        let room = Arc::new(tokio::sync::Notify::new());
+        let (cancel, cancelled) = tokio::sync::oneshot::channel();
+        reserve(&mut pending.lock().unwrap(), 1024 * 1024);
+        let waiter = {
+            let pending = pending.clone();
+            let room = room.clone();
+            tokio::spawn(async move {
+                let mut cancelled = cancelled;
+                admit(&pending, &room, &mut cancelled, 512).await
+            })
+        };
+        // The budget is full: the wait holds instead of dropping the frame.
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert!(!waiter.is_finished());
+        assert_eq!(*pending.lock().unwrap(), 1024 * 1024);
+        // An ack frees room and the frame is admitted.
+        *pending.lock().unwrap() -= 512;
+        room.notify_one();
+        assert!(waiter.await.unwrap());
+        assert_eq!(*pending.lock().unwrap(), 1024 * 1024);
+        drop(cancel);
+    }
+    #[tokio::test]
+    async fn a_frame_larger_than_the_budget_is_rejected() {
+        let pending = Arc::new(Mutex::new(0usize));
+        let room = Arc::new(tokio::sync::Notify::new());
+        let (_, mut cancelled) = tokio::sync::oneshot::channel();
+        assert!(!admit(&pending, &room, &mut cancelled, 1024 * 1024 + 1).await);
+        assert_eq!(*pending.lock().unwrap(), 0);
+    }
+    #[tokio::test]
+    async fn cancellation_ends_the_wait() {
+        let pending = Arc::new(Mutex::new(0usize));
+        let room = Arc::new(tokio::sync::Notify::new());
+        let (cancel, cancelled) = tokio::sync::oneshot::channel();
+        reserve(&mut pending.lock().unwrap(), 1024 * 1024);
+        let waiter = {
+            let pending = pending.clone();
+            let room = room.clone();
+            tokio::spawn(async move {
+                let mut cancelled = cancelled;
+                admit(&pending, &room, &mut cancelled, 512).await
+            })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert!(!waiter.is_finished());
+        // Detaching the terminal drops the cancel sender and ends the wait.
+        drop(cancel);
+        assert!(!waiter.await.unwrap());
+        assert_eq!(*pending.lock().unwrap(), 1024 * 1024);
     }
 }
 
