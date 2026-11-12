@@ -18,6 +18,16 @@ pub(crate) fn git_read(dir: &str, args: &[&str]) -> Option<(i32, String)> {
 
 /// `git_read` with another deadline.
 pub fn git_read_within(dir: &str, args: &[&str], timeout: Duration) -> Option<(i32, String)> {
+    let read = git_read_unmarked(dir, args, timeout);
+    if read.is_none() {
+        mark_unreachable(dir);
+    }
+    read
+}
+
+/// `git_read_within` that leaves `dir`'s path probe alone on a timeout, for reads whose
+/// reference (`ctx.run` with a timeout) has no such side effect.
+pub fn git_read_unmarked(dir: &str, args: &[&str], timeout: Duration) -> Option<(i32, String)> {
     let Ok(mut child) = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -32,7 +42,6 @@ pub fn git_read_within(dir: &str, args: &[&str], timeout: Duration) -> Option<(i
     let timed_out = |mut child: std::process::Child| {
         let _ = child.kill();
         let _ = child.wait();
-        mark_unreachable(dir);
         None
     };
     let Some(mut stdout) = child.stdout.take() else {
