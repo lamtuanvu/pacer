@@ -2,10 +2,13 @@
 //! serializes and validates the draft, then ranks both strategies over the
 //! usage-broker rows TypeScript composed for the active strategy. Those rows are
 //! valid for the draft only while it keeps every input of a provider row, so a
-//! draft that changes one forwards, as does a base strategy Rust cannot read.
+//! draft that changes one forwards, as does a base strategy `strategy_load` leaves
+//! to TypeScript and a draft source whose YAML Bun may read differently. A missing
+//! or schema-invalid base strategy fails natively.
 #![allow(clippy::result_large_err)]
+use crate::config_writes::STRATEGY_HINT;
 use pacer_config::{
-    strategy::load_strategy,
+    strategy::{list_strategies, load_strategy},
     strategy_write::{DraftPreview, preview_draft},
 };
 use pacer_engine::usage_broker;
@@ -57,9 +60,25 @@ pub fn strategy_preview_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     let Ok(params) = crate::config_params::parse("strategy.preview", params.clone()) else {
         return false;
     };
-    let Ok(current) = load_strategy(&ctx.pacer_home) else {
-        return true;
+    let current = match crate::strategy_load::native_load(&ctx.pacer_home) {
+        None => return true,
+        Some(Err(_)) => return false,
+        Some(Ok(current)) => current,
     };
+    // Only a listed strategy is read; any other source fails as unknown before reading.
+    let source = params["draft"]["from"].as_str().unwrap_or("default");
+    let listed =
+        list_strategies(&ctx.pacer_home).is_ok_and(|names| names.iter().any(|n| n == source));
+    let path = if source == "default" {
+        ctx.pacer_home.join("strategy.yaml")
+    } else {
+        ctx.pacer_home
+            .join("strategies")
+            .join(format!("{source}.yaml"))
+    };
+    if listed && crate::strategy_load::text_may_differ(&path) {
+        return true;
+    }
     match preview_draft(&ctx.pacer_home, &params["draft"]) {
         DraftPreview::Unreadable => true,
         DraftPreview::Invalid { .. } => false,
@@ -93,8 +112,10 @@ pub async fn strategy_preview(
 ) -> Result<Value, CoreError> {
     enforcement(ctx)?;
     let params = crate::config_params::parse("strategy.preview", params)?;
-    let current = load_strategy(&ctx.pacer_home)
-        .map_err(|error| CoreError::new(Code::Unavailable, format!("strategy.preview: {error}")))?;
+    // `strategyAction` turns the plain `loadStrategy` error into `invalid_input` with its hint.
+    let current = load_strategy(&ctx.pacer_home).map_err(|error| {
+        CoreError::new(Code::InvalidInput, error.to_string()).hint(STRATEGY_HINT)
+    })?;
     let preview = preview_draft(&ctx.pacer_home, &params["draft"]);
     let parts = parts.await?;
     let current_ranking = ranked(ctx, &current, &parts);

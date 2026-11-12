@@ -1,9 +1,14 @@
 //! Native repository executor overrides (`src/core/project-strategies.ts`,
 //! `src/config/project-strategies.ts`). Absolute checkout paths resolve and register through
-//! `pacer-repos` git identity. An unusual registry, an unloadable strategy or an unusable
-//! policy file keep TypeScript's reading and error text. Those inputs stay forwarded.
+//! `pacer-repos` git identity. An unusual registry, a strategy that `strategy_load` leaves to
+//! TypeScript (YAML syntax or I/O error, a YAML shape Bun reads differently, or an active name
+//! `path.join` resolves elsewhere), and a policy file that is neither a regular file nor a
+//! directory keep TypeScript's reading and error text. Those inputs stay forwarded.
 #![allow(clippy::result_large_err)]
-use crate::repo_registry_ops::{params_object, received};
+use crate::{
+    repo_registry_ops::{params_object, received},
+    strategy_load,
+};
 use pacer_config::{project_messaging::project_key, strategy::load_strategy};
 use pacer_foundation::{
     Ctx,
@@ -26,8 +31,13 @@ pub fn project_strategy_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) ->
         return false;
     }
     repo_registry::registry_needs_core(&ctx.pacer_home)
-        || load_strategy(&ctx.pacer_home).is_err()
-        || read_project_strategies(&ctx.pacer_home).is_err()
+        || strategy_load::native_load(&ctx.pacer_home).is_none()
+        || policy_file_needs_core(&ctx.pacer_home)
+}
+
+/// A FIFO or device would block or read differently; regular files and directories read alike.
+fn policy_file_needs_core(home: &Path) -> bool {
+    std::fs::metadata(home.join(FILE)).is_ok_and(|meta| !meta.is_file() && !meta.is_dir())
 }
 
 struct Params {
@@ -156,8 +166,10 @@ fn policies(ctx: &Ctx) -> Result<Value, CoreError> {
     })
 }
 
+/// `loadStrategy` throws a plain `Error`, which `toApiError` reports as `internal`.
 fn strategy(ctx: &Ctx) -> Result<Value, CoreError> {
-    load_strategy(&ctx.pacer_home).map_err(|error| invalid(error.to_string()))
+    load_strategy(&ctx.pacer_home)
+        .map_err(|error| CoreError::new(Code::Internal, error.to_string()))
 }
 
 /// `String(value)` for the scalars a runner holds.
