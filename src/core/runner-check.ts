@@ -4,7 +4,8 @@ import { loadStrategy } from "../config/strategy";
 import { runTestTask } from "../endpoints/test-task";
 import { redactEndpointError } from "../endpoints/state";
 import { readJson, writeJsonAtomic } from "../fsutil";
-import { detectAgents } from "../install/detection";
+import { detectAgents, AGENT_BINS } from "../install/detection";
+import type { AgentId } from "../install/detection";
 import { startJob, type Job } from "../jobs/registry";
 import type { Ctx } from "../types";
 import { accountSignIn } from "../usage/signin";
@@ -50,7 +51,8 @@ export async function checkRunner(ctx: Ctx, id: string, deps: RunnerCheckDeps = 
     try {
       const names = {agy: "Antigravity", codex: "Codex", "claude-code": "Claude Code", cursor: "Cursor", opencode: "OpenCode"};
       await perform("CLI found", `${names[runner.agent]} on ${runner.host ?? "this Mac"}`, async () => {
-        const found = (await (deps.detectAgents ?? detectAgents)(ctx, {host: runner.host ?? undefined})).find(a => a.agent === runner.agent);
+        const agent = runner.agent in AGENT_BINS ? runner.agent as AgentId : undefined;
+        const found = (await (deps.detectAgents ?? detectAgents)(ctx, {host: runner.host ?? undefined, agent})).find(a => a.agent === runner.agent);
         if (!found?.found) throw Error(found?.install_hint ?? "Agent CLI not found");
       });
       // Reactive and unmetered accounts have no usage reader to authenticate.
