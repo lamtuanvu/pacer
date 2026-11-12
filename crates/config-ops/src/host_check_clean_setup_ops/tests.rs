@@ -152,18 +152,114 @@ fn admitted_effects_go_to_core_unchanged() {
 }
 
 #[test]
-fn work_grants_and_repo_setup_stay_forwarded() {
+fn work_grants_stay_forwarded() {
     let dir = tempfile::tempdir().unwrap();
     let plain = ctx(dir.path(), &[]);
     let granted = ctx(dir.path(), &[("PACER_WORK_GRANT", "pwg_x")]);
     let params = json!({"alias": "dev"});
-    assert!(!host_stays_forwarded(&plain, "host.check", &params));
-    assert!(!host_stays_forwarded(&plain, "host.clean", &params));
-    assert!(host_stays_forwarded(&plain, "host.repo.setup", &params));
-    assert!(host_stays_forwarded(&granted, "host.check", &params));
-    assert!(host_stays_forwarded(&granted, "host.clean", &params));
-    assert!(needs_host_effects("host.check") && needs_host_effects("host.clean"));
-    assert!(!needs_host_effects("host.repo.setup"));
+    for op in ["host.check", "host.clean", "host.repo.setup"] {
+        assert!(needs_host_effects(op), "{op}");
+        assert!(!host_stays_forwarded(&plain, op, &params), "{op}");
+        assert!(host_stays_forwarded(&granted, op, &params), "{op}");
+    }
+    assert!(!needs_host_effects("host.terminal"));
+    assert!(!host_stays_forwarded(&granted, "host.list", &params));
+}
+
+#[test]
+fn repo_setup_needs_consent_and_a_mapped_key_before_core() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(dir.path(), &[]);
+    let setup = |params: Value| admit(&ctx, "host.repo.setup", &params);
+    let message = |params: Value| setup(params).unwrap_err().message;
+    let consent = "consent: Invalid input: expected true";
+    for value in [
+        None,
+        Some(json!(false)),
+        Some(json!("true")),
+        Some(json!(1)),
+        Some(json!(null)),
+    ] {
+        let mut params = json!({"alias": "dev", "key": "github.com/acme/app"});
+        if let Some(value) = value {
+            params["consent"] = value;
+        }
+        assert_eq!(message(params), consent);
+    }
+    // The schema refuses before the unknown host, as parseOpParams runs before setupJob.
+    assert_eq!(
+        message(json!({"alias": "nope", "key": "github.com/acme/app"})),
+        consent
+    );
+    assert_eq!(
+        message(json!({})),
+        "alias: Invalid input: expected string, received undefined; key: Invalid input: expected string, received undefined; consent: Invalid input: expected true"
+    );
+    assert_eq!(
+        message(json!({"alias": 1, "key": "", "clone": "x", "identity": null, "consent": false})),
+        "alias: Invalid input: expected string, received number; key: Too small: expected string to have >=1 characters; clone: Invalid input: expected boolean, received string; identity: Invalid input: expected boolean, received null; consent: Invalid input: expected true"
+    );
+    assert_eq!(
+        message(json!({"alias": "a".repeat(129), "key": "😀".repeat(65), "consent": true})),
+        "alias: Too big: expected string to have <=128 characters; key: Too big: expected string to have <=128 characters"
+    );
+    assert_eq!(
+        message(json!([])),
+        "params: Invalid input: expected object, received array"
+    );
+    assert_eq!(
+        message(json!({"alias": "nope", "key": "github.com/acme/app", "consent": true})),
+        "unknown host nope"
+    );
+    for key in [
+        "github.com/acme/other",
+        "not-canonical",
+        "github.com/acme/app.git",
+        "github.com/acme/app/extra",
+    ] {
+        let error = setup(json!({"alias": "dev", "key": key, "consent": true})).unwrap_err();
+        assert_eq!(error.code, Code::InvalidInput, "{key}");
+        assert_eq!(error.message, "repo not mapped on dev", "{key}");
+        assert_eq!(
+            error.hint.as_deref(),
+            Some("Use a mapped canonical host/owner/repo key."),
+            "{key}"
+        );
+    }
+    for params in [
+        json!({"alias": "dev", "key": "github.com/acme/app", "consent": true}),
+        json!({"alias": "dev", "key": "GitHub.com/ACME/App", "consent": true, "clone": false}),
+        json!({"alias": "dev", "key": "github.com/acme/app", "consent": true, "identity": false, "extra": 1}),
+    ] {
+        assert_eq!(setup(params.clone()).unwrap(), Admission::Core, "{params}");
+        let denied: OpFuture<'_> = Box::pin(async {
+            Err(CoreError::new(
+                Code::CapabilityDenied,
+                "configured clone changed after consent",
+            ))
+        });
+        let error = run(&ctx, "host.repo.setup", params, Some(denied)).unwrap_err();
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (
+                Code::CapabilityDenied,
+                "configured clone changed after consent"
+            )
+        );
+    }
+    let enforced = Ctx::with(
+        dir.path().into(),
+        dir.path().into(),
+        [("PACER_ENFORCEMENT_TOKEN".into(), "x".into())].into(),
+        1.0,
+    );
+    let refused = admit(&enforced, "host.repo.setup", &json!({})).unwrap_err();
+    assert_eq!(refused.code, Code::NotAllowed);
+    fs::write(dir.path().join("strategy.yaml"), "hosts: [").unwrap();
+    assert_eq!(
+        setup(json!({"alias": "nope", "key": "x", "consent": true})).unwrap(),
+        Admission::Core
+    );
 }
 
 #[test]
