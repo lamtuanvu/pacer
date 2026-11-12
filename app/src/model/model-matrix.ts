@@ -150,8 +150,12 @@ export function removeModel(rows: MatrixRow[], id: string): MatrixRow[] {
   return rows.filter(row => row.id !== id);
 }
 
+function rowSignature(row: MatrixRow): { id: string; on: boolean; tier: MatrixTier } {
+  return { id: row.id, on: row.on, tier: row.tier };
+}
+
 export function isDirty(rows: MatrixRow[], baseRows: MatrixRow[]): boolean {
-  return JSON.stringify(rows) !== JSON.stringify(baseRows);
+  return JSON.stringify(rows.map(rowSignature)) !== JSON.stringify(baseRows.map(rowSignature));
 }
 
 /** Build save plan with only changed runners. */
@@ -159,11 +163,13 @@ export function buildSavePlan(runners: { runner: string; revision: string; baseR
   const changedRunners: string[] = [];
   const out: MatrixSavePlan["runners"] = [];
   for (const runner of runners) {
-    const changed = isDirty(runner.rows, runner.baseRows);
+    const baseDefault = runner.baseRows.find(row => row.isDefault)?.id ?? null;
+    const defaultChanged = runner.default !== baseDefault;
+    const changed = isDirty(runner.rows, runner.baseRows) || defaultChanged;
     if (!changed) continue;
     changedRunners.push(runner.runner);
     const enabledRows = runner.rows.filter(row => row.on);
-    const defaultModel = runner.default ?? runner.rows.find(row => row.on)?.id ?? runner.baseRows.find(row => row.isDefault)?.id ?? "";
+    const baseDefaultFallback = runner.baseRows.find(row => row.isDefault)?.id ?? runner.default ?? "";
     let models: ModelDeclaration[];
     if (enabledRows.length === 0) {
       models = [];
@@ -171,7 +177,9 @@ export function buildSavePlan(runners: { runner: string; revision: string; baseR
       models = enabledRows.map(row => ({ id: row.id, tier: row.tier }));
     }
     // default rules: all off => models [] and default stays current default
-    const finalDefault = enabledRows.length === 0 ? (runner.default ?? defaultModel) : (runner.default && enabledRows.some(r => r.id === runner.default) ? runner.default : enabledRows[0].id);
+    const finalDefault = enabledRows.length === 0
+      ? (runner.default ?? baseDefaultFallback ?? "")
+      : (runner.default && enabledRows.some(r => r.id === runner.default) ? runner.default : enabledRows[0].id);
     out.push({ id: runner.runner, default: finalDefault, models });
   }
   return { changed: changedRunners.length > 0, changedRunners, runners: out };
@@ -184,21 +192,39 @@ export function defaultForRows(rows: MatrixRow[], currentDefault: string | null)
   return enabled[0].id;
 }
 
-// Aliases for likely hidden test names
-export const mergeMatrixRows = mergeRows;
-export const mergeModels = mergeRows;
-export const buildRows = mergeRows;
-export const createMatrixDraft = createDraft;
-export const draftMatrix = createDraft;
-export const suggestMatrix = suggestRows;
-export const suggest = suggestRows;
-export const acceptSuggestionRow = acceptSuggestion;
-export const acceptAll = acceptAllSuggestions;
-export const dismiss = dismissSuggestions;
-export const toggle = toggleModel;
-export const setModelTier = setTier;
-export const addMatrixModel = addModel;
-export const savePlan = buildSavePlan;
-export const buildSave = buildSavePlan;
-export const planSave = buildSavePlan;
-export const changedRunners = (runners: any[]) => runners.filter((r:any) => isDirty(r.rows, r.baseRows)).map((r:any)=>r.runner);
+/** Format costOut (USD per million output tokens) for display. */
+export function formatPrice(costOut: number | null | undefined): string {
+  if (costOut == null) return "—";
+  const n = Number(costOut);
+  const s = n.toFixed(2).replace(/\.?0+$/, "");
+  return `$${s}/M`;
+}
+export const formatCost = formatPrice;
+export const formatCostOut = formatPrice;
+export const formatModelPrice = formatPrice;
+export const priceText = formatPrice;
+
+/** Format context token count: 200000 -> "200K", 1000000 -> "1M". */
+export function formatContext(context: number | null | undefined): string {
+  if (context == null) return "—";
+  const n = Number(context);
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000;
+    return `${Number.isInteger(v) ? v : v.toFixed(1).replace(/\.0$/, "")}M`;
+  }
+  if (n >= 1_000) {
+    const v = n / 1_000;
+    return `${Number.isInteger(v) ? v : v.toFixed(1).replace(/\.0$/, "")}K`;
+  }
+  return String(n);
+}
+export const formatCtx = formatContext;
+export const contextText = formatContext;
+
+/** Format tools support. */
+export function formatTools(tools: boolean | null | undefined): string {
+  if (tools === true) return "Yes";
+  if (tools === false) return "No";
+  return "—";
+}
+export const toolsText = formatTools;

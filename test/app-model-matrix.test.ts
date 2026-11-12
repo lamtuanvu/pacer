@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mergeRows, takesFor, toggleModel, buildSavePlan, isDirty } from "../app/src/model/model-matrix";
+import { mergeRows, takesFor, toggleModel, buildSavePlan, isDirty, formatPrice, formatContext, formatTools, defaultForRows } from "../app/src/model/model-matrix";
 
 test("mergeRows unions listing and declared models", () => {
   const rows = mergeRows([{ id: "a", context: 10, tools: true, costOut: 1 }], [{ id: "a", tier: "small" }, { id: "b", tier: "medium" }]);
@@ -32,4 +32,52 @@ test("buildSavePlan only includes changed runners", () => {
   const plan2 = buildSavePlan([{ runner: "r", revision: "v1", baseRows: rows, rows: changedRows, default: "a" }], { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
   expect(plan2.changed).toBe(true);
   expect(plan2.changedRunners).toEqual(["r"]);
+});
+
+test("isDirty ignores suggestion fields", () => {
+  const base = [{ id: "a", on: true, tier: "small", isDefault: true, takes: [], suggestedOn: undefined, suggestedTier: undefined, pending: false }] as any;
+  const withSuggestion = [{ ...base[0], suggestedOn: false, suggestedTier: "medium", pending: true, suggestionReason: "x" }] as any;
+  expect(isDirty(withSuggestion, base)).toBe(false);
+});
+
+test("toggleModel default rules", () => {
+  const rows = [{ id: "a", on: true, tier: "small", isDefault: true, takes: [] }, { id: "b", on: true, tier: "medium", isDefault: false, takes: [] }] as any;
+  // turn default off moves default to first enabled
+  const r1 = toggleModel(rows, "a", false, "a");
+  expect(r1.default).toBe("b");
+  // all off => default unchanged
+  const rows2 = [{ id: "a", on: true, tier: "small", isDefault: true, takes: [] }] as any;
+  const r2 = toggleModel(rows2, "a", false, "a");
+  expect(r2.default).toBe("a");
+  // no default and every off stays null-ish
+  const rows3 = [{ id: "a", on: true, tier: "small", isDefault: false, takes: [] }] as any;
+  const r3 = toggleModel(rows3, "a", false, null);
+  expect(r3.default).toBeNull();
+});
+
+test("defaultForRows handles missing default", () => {
+  const rows = [{ id: "a", on: false, tier: "small", isDefault: false, takes: [] }] as any;
+  expect(defaultForRows(rows, null)).toBeNull();
+  const rows2 = [{ id: "a", on: true, tier: "small", isDefault: false, takes: [] }] as any;
+  expect(defaultForRows(rows2, null)).toBe("a");
+});
+
+test("formatPrice formats costOut", () => {
+  expect(formatPrice(1.234)).toBe("$1.23/M");
+  expect(formatPrice(5)).toBe("$5/M");
+  expect(formatPrice(null)).toBe("—");
+  expect(formatPrice(undefined)).toBe("—");
+});
+
+test("formatContext formats counts", () => {
+  expect(formatContext(200000)).toBe("200K");
+  expect(formatContext(1000000)).toBe("1M");
+  expect(formatContext(undefined)).toBe("—");
+});
+
+test("formatTools formats support", () => {
+  expect(formatTools(true)).toBe("Yes");
+  expect(formatTools(false)).toBe("No");
+  expect(formatTools(null)).toBe("—");
+  expect(formatTools(undefined)).toBe("—");
 });
