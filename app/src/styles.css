@@ -732,14 +732,15 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .ny-item:hover{background:var(--surface-card)}
 .ny-glyph{font-weight:var(--type-match-strong-weight);text-align:center;line-height:var(--type-body-line);align-self:start}
 .ny-glyph--warn{color:var(--warn-fg)}.ny-glyph--bad{color:var(--bad-fg)}.ny-glyph--info{color:var(--info-fg)}
-.ny-content.pc-text-action{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-items:center;gap:var(--space-half) var(--space-2);min-width:0;text-decoration:none;color:var(--ink);font-weight:var(--type-body-weight)}
+.ny-content.pc-text-action{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--space-half) var(--space-2);min-width:0;text-decoration:none;color:var(--ink);font-weight:var(--type-body-weight)}
 .ny-title-line{display:flex;align-items:center;gap:var(--space-2);min-width:0}
 /* Two lines: title and pill, then the reason and its facts side by side; the reason gives way first. */
 .ny-content>.ny-title-line{grid-column:1/-1}
 .ny-reason+.ny-meta::before{content:"·";margin-right:var(--space-1)}
 .ny-title{font-size:var(--type-body-size);line-height:var(--type-body-line);font-weight:var(--type-body-strong-weight);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ny-reason{color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ny-meta{display:flex;align-items:center;gap:var(--space-1\.5)}
+.ny-reason{color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ny-meta{display:flex;align-items:center;gap:var(--space-1\.5);min-width:0}
+.ny-meta .ny-mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:var(--size-240)}
 .ny-actions{display:flex;gap:var(--space-1\.5);align-items:center}
 .ny-warning{display:flex;align-items:center;gap:var(--space-2\.5)}
 .ny-warning>.ny-glyph{width:var(--size-14);flex-shrink:0;line-height:inherit}
@@ -753,7 +754,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .ny-options{display:flex;flex-direction:column;gap:var(--space-1\.5);align-items:flex-start}
 .ny-resume{flex-grow:1;white-space:nowrap}
 .ny-heading>.ny-cap>.pc-text-action{color:var(--link)}
-@media(max-width:767px){.pc-needs-board{padding:var(--space-4)}.ny-item{grid-template-columns:var(--size-20) minmax(0,1fr)}.ny-actions{grid-column:2;flex-wrap:wrap}.ny-title-line{flex-wrap:wrap}.ny-warning{flex-wrap:wrap}.ny-reason{white-space:normal}.ny-content.pc-text-action{grid-template-columns:minmax(0,1fr)}.ny-reason+.ny-meta::before{content:none}}
+@media(max-width:767px){.pc-needs-board{padding:var(--space-4)}.ny-item{grid-template-columns:var(--size-20) minmax(0,1fr)}.ny-actions{grid-column:2;flex-wrap:wrap}.ny-title-line{flex-wrap:wrap}.ny-warning{flex-wrap:wrap}.ny-meta{flex-wrap:wrap}.ny-reason{white-space:normal}.ny-content.pc-text-action{grid-template-columns:minmax(0,1fr)}.ny-reason+.ny-meta::before{content:none}}
 
 /* Lost-service state follows the top bar while cached page content stays visible. */
 .connection-bar{display:flex;align-items:center;gap:var(--space-2\.5);padding:var(--space-2\.5) var(--space-4);background:var(--warn-tint);color:var(--ink);border-bottom:1px solid var(--warn-line)}
