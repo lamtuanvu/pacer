@@ -358,6 +358,7 @@ jobs:
     if: ${{ needs.changes.outputs.rust == 'true' }}
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -377,6 +378,12 @@ jobs:
           components: rustfmt, clippy
       - name: Cache Rust
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Cache both the root workspace and the desktop crate (excluded from
+          # the root workspace) so the desktop test below stays fast.
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
       # Integration tests run the TypeScript core behind the Rust front door.
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
