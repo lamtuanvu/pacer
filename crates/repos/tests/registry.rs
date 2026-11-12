@@ -253,3 +253,64 @@ fn registration_rewrites_spread_registries_like_json_stringify() {
         assert_eq!(read("repo-paths.json"), want_aliases);
     }
 }
+
+/// A registry that turns into a forwarded shape while `repo.add` waits for the `repos` lock
+/// is left untouched for the caller to retry, as `repo.remove` does.
+#[test]
+fn registration_refuses_a_registry_that_changed_under_the_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let (_, wt) = checkout(root.path());
+    let reg = r#"{"/usr":{"key":"github.com/a/u","path":"/usr","lastUsed":1}}"#;
+    let deep = format!(
+        r#"{{"/usr":{{"key":"k","path":"/usr","lastUsed":1,"d":{}{}}}}}"#,
+        "[".repeat(128),
+        "]".repeat(128)
+    );
+    let cases = [
+        (
+            r#"{"/usr\ud800":{"key":"github.com/a/u","path":"/usr","lastUsed":1}}"#,
+            None,
+        ),
+        (deep.as_str(), None),
+        (reg, Some(r#"{"/w":"\udc00"}"#)),
+        (
+            r#"{"/usr":{"key":"github.com/a/u","path":"/usr","lastUsed":1},"/bin":null}"#,
+            None,
+        ),
+    ];
+    for (repos, aliases) in cases {
+        let dir = home(Some(reg.as_bytes()), None);
+        let ctx = Ctx::with(
+            dir.path().into(),
+            dir.path().into(),
+            Default::default(),
+            1_700_000_000.5,
+        );
+        let state = dir.path().join("state");
+        let lock = dir.path().join("orca/repos.lock");
+        fs::create_dir_all(lock.parent().unwrap()).unwrap();
+        fs::write(&lock, "").unwrap();
+        std::thread::scope(|scope| {
+            let add = scope.spawn(|| add_repo(&ctx, &wt).map_err(|error| error.message));
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            assert!(!add.is_finished());
+            fs::write(state.join("repos.json"), repos).unwrap();
+            if let Some(aliases) = aliases {
+                fs::write(state.join("repo-paths.json"), aliases).unwrap();
+            }
+            fs::remove_file(&lock).unwrap();
+            assert_eq!(
+                add.join().unwrap().unwrap_err(),
+                "repository registry changed during registration",
+                "{repos}"
+            );
+        });
+        assert_eq!(fs::read_to_string(state.join("repos.json")).unwrap(), repos);
+        assert_eq!(
+            fs::read_to_string(state.join("repo-paths.json"))
+                .ok()
+                .as_deref(),
+            aliases
+        );
+    }
+}

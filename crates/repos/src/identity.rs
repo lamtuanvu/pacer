@@ -121,6 +121,7 @@ fn identify(path: &str) -> Result<Identity, CoreError> {
 /// `registerRepo(ctx, path, strict)`: identity, then the registry entry (and a linked
 /// checkout's alias) stamped `ctx.now`, returning `repoFor` of the shared checkout. Without
 /// identity a strict caller fails and others get `repoFor(path)` marked `identityUnverified`.
+/// A registry that needs the core by the time it is re-read here is a `conflict`.
 pub fn register_repo(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreError> {
     let unresolved = || {
         if strict {
@@ -145,8 +146,14 @@ pub fn register_repo(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreE
     let Registry {
         mut reg,
         mut aliases,
-        ..
+        needs_core,
     } = Registry::read(&ctx.pacer_home, true);
+    if needs_core {
+        return Err(CoreError::new(
+            Code::Conflict,
+            "repository registry changed during registration",
+        ));
+    }
     let key = key
         .or_else(|| reg.get(&quote(&main))?.get("key")?.as_str().map(text))
         .unwrap_or_else(|| local_key(&main));
