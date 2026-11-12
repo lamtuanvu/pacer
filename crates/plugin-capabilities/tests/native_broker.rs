@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
+use pacer_plugin_capabilities::{CapabilityBroker, CapabilityEffect, NativeHttp};
 use pacer_plugin_host::{
-    BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-    CredentialBindings, NativeHttp, parse_manifest,
+    BrokerError, CallAuthority, CallResources, CredentialBindings, parse_manifest,
 };
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};

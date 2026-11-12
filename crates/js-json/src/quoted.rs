@@ -21,6 +21,47 @@ pub fn nonfinite(value: &Value) -> bool {
     number(value).is_some_and(|n| !n.is_finite())
 }
 
+/// `String(value)` of a parsed value, quoted. `None` is the `TypeError` of an object whose
+/// own `toString` property is not callable, also inside an array, which `join` converts.
+pub fn js_string(value: &Value) -> Option<String> {
+    Some(match value {
+        Value::Null => "null".into(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(_) | Value::String(_) => match number(value) {
+            Some(n) if !n.is_finite() => if n > 0.0 { "Infinity" } else { "-Infinity" }.into(),
+            Some(n) => crate::number_string(n),
+            None => value.as_str().unwrap_or_default().to_owned(),
+        },
+        Value::Array(items) => {
+            let parts: Option<Vec<String>> = items
+                .iter()
+                .map(|item| match item {
+                    Value::Null => Some(String::new()),
+                    item => js_string(item),
+                })
+                .collect();
+            parts?.join(",")
+        }
+        Value::Object(fields) if fields.contains_key("toString") => return None,
+        Value::Object(_) => "[object Object]".into(),
+    })
+}
+
+/// `Number(value)` of a parsed value; `None` where `js_string` throws.
+pub fn js_number(value: &Value) -> Option<f64> {
+    match value {
+        Value::Null => Some(0.0),
+        Value::Bool(b) => Some(f64::from(u8::from(*b))),
+        Value::Number(n) => Some(n.as_f64().unwrap_or(f64::NAN)),
+        _ => match number(value) {
+            Some(n) => Some(n),
+            None => js_string(value).map(|text| {
+                crate::js_semantics::string_to_number(&String::from_utf16_lossy(&utf16(&text)))
+            }),
+        },
+    }
+}
+
 /// Node's UTF-8 file reader replaces malformed sequences, preserving a BOM.
 pub fn parse_file(bytes: &[u8]) -> Result<Value, String> {
     parse(String::from_utf8_lossy(bytes).as_bytes())

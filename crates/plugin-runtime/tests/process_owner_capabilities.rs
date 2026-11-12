@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-//! ProcessOwner answers capability.* through the plugin-host broker (P4d-6/7).
+//! ProcessOwner answers capability.* through the plugin-capabilities broker (P4d-6/7).
 
 use pacer_plugin_host::OrcaAttemptResource;
 use pacer_plugin_runtime::{

@@ -1,7 +1,7 @@
 //! Capability broker sessions for a native [`crate::ProcessOwner`].
 //!
-//! Reuses `pacer-plugin-host::{CapabilityBroker, NativeRead, NativeWrite,
-//! NativeProcess, NativeHttp}`. Unscoped methods (`capability.log`,
+//! Reuses `pacer-plugin-capabilities::{CapabilityBroker, NativeRead, NativeProcess,
+//! NativeHttp}` and `pacer-plugin-host::NativeWrite`. Unscoped methods (`capability.log`,
 //! `capability.config.get`) are answered locally from the sealed hello. Scoped
 //! native modules answer when Core issues call-scoped [`CallResources`] (P4d-7).
 //! P4d-8 wires observation bootstrap (`tasks.read` / `events.subscribe`) when
@@ -17,14 +17,15 @@ use crate::orca_attach::{
     orca_sidecar_call,
 };
 use crate::worktree_attach::{WorktreeAttachPlan, WorktreeCallContext, issue_worktree};
+use pacer_plugin_capabilities::{
+    CapabilityBroker, CapabilityEffect, HostProvider, NativeHosts, NativeHttp, NativeProcess,
+    NativeRun,
+};
 use pacer_plugin_host::{
-    AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-    CredentialBindings, HostProvider, NativeHosts, NativeHttp, NativeProcess, NativeRun,
+    AuthorityError, BrokerError, CallAuthority, CallResources, CredentialBindings, ORCA_PROVIDER,
     ObservationCall, ObservationGeneration, OrcaAttemptResource, ParsedManifest, ProviderSnapshot,
     ReadContext, TaskProjection, parse_manifest,
 };
-
-const ORCA_PROVIDER: &str = "pacer-exec-orca";
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -42,11 +43,14 @@ use tokio::sync::{mpsc, oneshot};
 /// connection: usage state Core keeps, file reads under a Core planner borrow
 /// or a Codex log directory, which the native read broker does not serve, and
 /// the planner transaction's pinned commands and prior record, whose
-/// compensation Core keeps. `$/resultChunk` is the chunked result transport
-/// (negotiated like a feature), which Core answers so it can stage a large
-/// result with the same bounds and ordering as flag-off.
+/// compensation Core keeps. Core also answers issued plain file writes and
+/// the Orca effects of an attempt, whose session it holds. `$/resultChunk` is
+/// the chunked result transport (negotiated like a feature), which Core answers
+/// so it can stage a large result with the same bounds and ordering as flag-off.
 pub fn core_capability(method: &str) -> Option<&'static str> {
     match method {
+        "capability.fs.write" | "capability.fs.mkdir" | "capability.fs.remove" => Some("fs.write"),
+        _ if method.starts_with("capability.orca.") => Some("orca"),
         "capability.usage.state.begin"
         | "capability.usage.state.readChunk"
         | "capability.usage.state.stageChunk"

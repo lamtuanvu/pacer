@@ -1,10 +1,11 @@
 //! Orca capability attach for flag-on [`crate::ProcessOwner`] (P4d-10).
 
 use crate::SharedOwner;
-use pacer_plugin_host::{
-    BrokerError, CapabilityEffect, NativeOrca, NativeOrcaLive, NativeOrcaStatus,
-    OrcaAttemptResource, OrcaLiveControl, OrcaLiveResource, OrcaSessionOwner,
+use pacer_plugin_capabilities::{
+    CapabilityEffect, NativeOrca, NativeOrcaLive, NativeOrcaStatus, OrcaLiveControl,
+    OrcaSessionOwner,
 };
+use pacer_plugin_host::{BrokerError, OrcaAttemptResource, OrcaLiveResource};
 use serde_json::Value;
 use std::{future::Future, path::Path, pin::Pin, sync::Arc, time::Instant};
 
