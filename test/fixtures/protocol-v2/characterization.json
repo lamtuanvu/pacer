@@ -16845,6 +16845,8 @@
         "dispatch.review",
         "dispatch.stop",
         "dispatch.submit",
+        "dispatch.tierTargets.get",
+        "dispatch.tierTargets.set",
         "dispatch.tree",
         "dispatch.wait",
         "doctor.fix.delegate",
@@ -16924,6 +16926,7 @@
         "runner.list",
         "runner.models.get",
         "runner.models.set",
+        "runner.models.set_many",
         "runner.remove",
         "runner.reorder",
         "runner.set",
@@ -19355,6 +19358,19 @@
               "minLength": 1,
               "maxLength": 128
             },
+            "difficulty": {
+              "type": "string",
+              "enum": [
+                "simple",
+                "standard",
+                "complex"
+              ]
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
             "requestId": {
               "type": "string",
               "minLength": 1,
@@ -20368,6 +20384,71 @@
           "required": [
             "goal",
             "repo"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "dispatch.tierTargets.get": {
+        "description": "Read the active tier targets against the strategy revision; built-in defaults when the setup saves none.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "dispatch.tierTargets.set": {
+        "description": "Save tier targets in the active setup against the expected revision; refuses a decreasing mapping and the built-in default.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "expectedRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "targets": {
+              "type": "object",
+              "properties": {
+                "simple": {
+                  "default": "small",
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier"
+                  ]
+                },
+                "standard": {
+                  "default": "medium",
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier"
+                  ]
+                },
+                "complex": {
+                  "default": "frontier",
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier"
+                  ]
+                }
+              },
+              "required": [
+                "simple",
+                "standard",
+                "complex"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "expectedRevision",
+            "targets"
           ],
           "additionalProperties": false
         }
@@ -22423,6 +22504,97 @@
           "additionalProperties": false
         }
       },
+      "runner.models.set_many": {
+        "description": "Validate every executor like runner.models.set, then commit all defaults and tiered models in one revision-checked edit; a failed runner writes nothing.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "expectedRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "runners": {
+              "minItems": 1,
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "default": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "models": {
+                    "maxItems": 256,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "tier": {
+                          "default": "unknown",
+                          "type": "string",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "frontier",
+                            "unknown"
+                          ]
+                        },
+                        "strengths": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "tools": {
+                          "type": "boolean"
+                        },
+                        "context": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "tier",
+                        "strengths"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "default",
+                  "models"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "expectedRevision",
+            "runners"
+          ],
+          "additionalProperties": false
+        }
+      },
       "runner.remove": {
         "description": "Remove a runner and its routing and pacing order references.",
         "params": {
@@ -23439,6 +23611,19 @@
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
           "properties": {
+            "difficulty": {
+              "type": "string",
+              "enum": [
+                "simple",
+                "standard",
+                "complex"
+              ]
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
             "dispatch": {},
             "title": {
               "type": "string",
@@ -27122,6 +27307,7 @@
     "runner.settings.save",
     "runner.models.get",
     "runner.models.set",
+    "runner.models.set_many",
     "desktop.capture.register",
     "desktop.capture.targets",
     "desktop.capture.request",
@@ -27167,6 +27353,8 @@
     "desktop.reconcile.request",
     "desktop.reconcile.cancel",
     "dispatch.config.get",
+    "dispatch.tierTargets.get",
+    "dispatch.tierTargets.set",
     "dispatch.preview",
     "dispatch.explain",
     "dispatch.submit",

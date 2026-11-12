@@ -19,7 +19,7 @@ export const requirementsSchema = z.object({
 export const preferencesSchema = z.object({ models: z.array(name).max(256).default([]), strengths: z.array(name).max(64).default([]) }).strict();
 const rankSchema = z.enum(["task-fit", "spare-capacity", "burn-before-reset", "cheapest-first", "preference"]);
 const targetTierSchema = z.enum(["small", "medium", "frontier"]);
-const tierTargetsSchema = z.object({
+export const tierTargetsSchema = z.object({
   simple: targetTierSchema.default("small"),
   standard: targetTierSchema.default("medium"),
   complex: targetTierSchema.default("frontier"),
