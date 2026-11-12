@@ -43,6 +43,16 @@ test('exit flushes queued output before its exit frame',async()=>{
  hub.broadcast(wire(3,Buffer.from('first')));hub.broadcast(wire(3,Buffer.from('last')));
  const ending=hub.end(0);p.blocked=false;p.emit('drain');await ending;expect(types(p).slice(-3)).toEqual([3,3,7]);
 });
+test('end dates the exit frame with the recorded end time and omits the field when the host did not record one',async()=>{
+ const hub=setup(),p=new Peer();hub.add(p as any);p.emit('data',wire(1,{v:1}));
+ await hub.end(143,1762876932.4);
+ const exit=new WireDecoder().push(Buffer.concat(p.frames)).at(-1)!;
+ expect(JSON.parse(exit.data.toString())).toEqual({code:143,at:1762876932});
+ const unknown=setup(),q=new Peer();unknown.add(q as any);q.emit('data',wire(1,{v:1}));
+ await unknown.end(143);
+ const bare=new WireDecoder().push(Buffer.concat(q.frames)).at(-1)!;
+ expect(JSON.parse(bare.data.toString())).toEqual({code:143});
+});
 test('rejected viewers have an error handler before refusal is written',()=>{
  const hub=setup();for(let i=0;i<16;i++){const p=new Peer();hub.add(p as any);p.emit('data',wire(FrameType.hello,{v:1}));}
  class Reset extends Peer{end(b:Buffer){this.emit('error',Error('reset'));super.end(b);}}

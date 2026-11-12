@@ -48,6 +48,15 @@ test('control can be requested explicitly, force requires confirmation, release 
  f.client.release();s.frame({type:'snapshot',outputOffset:0,cols:120,rows:40,scrollbackAnsi:'',screenAnsi:'',controller:null,viewers:1});
  expect(f.client.input('no')).toBe(false);expect(s.json().at(-1)).toEqual({type:'release'});
  s.frame({type:'exit',code:0});s.onclose?.();expect(f.timers).toHaveLength(0);expect(f.states.at(-1)).toBe('exited');f.client.dispose();});
+test('an exit frame keeps the recorded end time and drops a non-numeric one',()=>{
+ const f=fixture(false),s=f.sockets[0]!;
+ s.frame({type:'exit',code:143,at:1762876932});expect(f.client.state).toMatchObject({status:'exited',code:143,at:1762876932});
+ const other=fixture(false),o=other.sockets[0]!;
+ o.frame({type:'exit',code:143});expect(other.client.state).toMatchObject({status:'exited',code:143});
+ expect(other.client.state.at).toBeUndefined();
+ const stale=fixture(false),t=stale.sockets[0]!;
+ t.frame({type:'exit',code:0,at:'yesterday'});expect(stale.client.state.at).toBeUndefined();
+});
 test('capabilities.control false refuses take and input even if server grants control',async()=>{const s=new FakeSocket();const c=new SessionClient({url:'ws://localhost',cols:80,rows:24,label:'viewer',control:false,socket:()=>s});c.connect();s.onopen?.();s.frame({type:'control',you:true,controller:'viewer'});await c.take();expect(c.input('x')).toBe(false);expect(s.json()).toHaveLength(1);c.dispose();});
 test('empty resume becomes live on control frame; subsequent output preserves offset',()=>{const f=fixture(false),s=f.sockets[0]!;s.frame({type:'snapshot',outputOffset:12,cols:80,rows:24,scrollbackAnsi:'',screenAnsi:'',controller:null,viewers:1});s.onclose?.();f.timers[0]!();const resumed=f.sockets[1]!;resumed.onopen?.();resumed.frame({type:'control',you:false,controller:null});expect(f.client.state.status).toBe('live');resumed.output('next');expect(f.writes.at(-1)).toBe('next');resumed.onclose?.();f.timers[1]!();f.sockets[2]!.onopen?.();expect(f.sockets[2]!.json()[0].from).toBe(16);f.client.dispose();});
 test('losing control and a network drop immediately disable input',()=>{const f=fixture(false),s=f.sockets[0]!;s.frame({type:'control',you:true,controller:'app'});expect(f.client.input('a')).toBe(true);s.frame({type:'control',you:false,controller:'cli',reason:'taken'});expect(f.client.input('b')).toBe(false);expect(f.client.state.message).toContain('taken');s.frame({type:'control',you:true,controller:'app'});s.onclose?.();expect(f.client.input('c')).toBe(false);f.client.dispose();});
