@@ -20,10 +20,6 @@ use tokio::{
     net::UnixStream,
 };
 
-fn key() -> OwnerKey {
-    OwnerKey::generate().unwrap()
-}
-
 // The bridge requires a private home; temp dirs follow the process umask.
 fn temp_home() -> tempfile::TempDir {
     use std::os::unix::fs::PermissionsExt;
