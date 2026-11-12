@@ -6,7 +6,6 @@
 mod branches;
 mod git;
 mod identity;
-mod json;
 mod probe;
 #[cfg(test)]
 mod tests;
@@ -16,13 +15,13 @@ pub use git::git_read_within;
 pub use identity::{add_repo, canonical, register_repo};
 pub use probe::{Probe, cached_canonical, cached_path, mark_unreachable, schedule_refresh};
 
-use json::stringify;
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError},
     fsutil::write_private,
     lock::{LockOptions, with_lock},
 };
+use pacer_js_json::{js_semantics::truthy, stringify};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -282,9 +281,7 @@ fn recent_keys(ctx: &Ctx) -> Result<HashSet<String>, CoreError> {
         });
         let active = matches!(task["state"].as_str(), Some("queued" | "running"));
         if !active
-            && (json::truthy(&task["dismissed"])
-                || updated < ctx.now - RECENT_S
-                || updated.is_nan())
+            && (truthy(&task["dismissed"]) || updated < ctx.now - RECENT_S || updated.is_nan())
         {
             continue;
         }
@@ -371,8 +368,7 @@ fn prune(ctx: &Ctx, stale: &[String]) -> Result<(), CoreError> {
         }
         let mut map = read_object(&file);
         map.retain(|path, _| !stale.contains(path));
-        let text = stringify(&Value::Object(map)).map_err(internal)?;
-        write_private(&file, text.as_bytes()).map_err(internal)
+        write_private(&file, stringify(&Value::Object(map)).as_bytes()).map_err(internal)
     })
     .map_err(internal)?
 }

@@ -4,10 +4,7 @@
 use super::{
     basename, git::git_read, local_key, mark_unreachable, read_object, repo_for, state_file,
 };
-use crate::{
-    json::stringify,
-    probe::{absent, dirname, remember, resolve},
-};
+use crate::probe::{absent, dirname, remember, resolve};
 use pacer_config::host::repo_key;
 use pacer_foundation::{
     Ctx,
@@ -15,7 +12,7 @@ use pacer_foundation::{
     fsutil::write_private,
     lock::{LockOptions, with_lock},
 };
-use pacer_js_json::js_semantics::trim;
+use pacer_js_json::{js_semantics::trim, stringify};
 use serde_json::{Value, json};
 use std::{path::Path, sync::mpsc, thread, time::Duration};
 
@@ -165,8 +162,7 @@ pub fn register_repo(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreE
 }
 
 fn write_json(file: &Path, value: &Value) -> Result<(), CoreError> {
-    let text = stringify(value).map_err(internal)?;
-    write_private(file, text.as_bytes()).map_err(internal)
+    write_private(file, stringify(value).as_bytes()).map_err(internal)
 }
 
 /// `addRepo`: an absolute path inside a git work tree, registered under the `repos` lock.

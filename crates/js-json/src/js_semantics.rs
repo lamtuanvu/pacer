@@ -102,6 +102,16 @@ pub fn number_text(text: &str) -> Option<f64> {
     value.is_finite().then_some(value)
 }
 
+/// JavaScript truthiness of a parsed JSON value.
+pub fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
 pub fn json_option_equal(left: Option<&Value>, right: Option<&Value>) -> bool {
     match (left, right) {
         (None, None) => true,

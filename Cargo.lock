@@ -1498,6 +1498,7 @@ dependencies = [
 name = "pacer-js-json"
 version = "0.1.0"
 dependencies = [
+ "ryu-js",
  "serde",
  "serde_json",
  "thiserror",
@@ -1682,8 +1683,8 @@ dependencies = [
  "nix",
  "pacer-config",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-plugin-protocol",
- "ryu-js",
  "serde",
  "serde_json",
  "tempfile",
@@ -1761,7 +1762,6 @@ dependencies = [
  "pacer-foundation",
  "pacer-js-json",
  "pacer-store",
- "ryu-js",
  "serde_json",
  "sha2",
  "tempfile",

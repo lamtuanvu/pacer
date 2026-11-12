@@ -4,12 +4,15 @@ mod compare;
 mod edit;
 pub mod js_semantics;
 mod parse;
+pub mod quoted;
 mod render;
+mod stringify;
 use ast::{Kind, Node};
 pub use edit::EditError;
 use serde::{Serialize, Serializer};
 use serde_json::{Number, Value, value::RawValue};
 use std::fmt;
+pub use stringify::{number_string, stringify};
 
 /// A JavaScript string is a sequence of UTF-16 code units. In particular, slice
 /// may retain one half of a surrogate pair; converting through Rust str loses it.

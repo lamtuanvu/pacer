@@ -1,10 +1,9 @@
 //! JSON.parse string compatibility on the serde Value ABI. UTF-8 cannot hold lone
 //! UTF-16 units. Internally quote them with a noncharacter prefix; quote that
 //! prefix itself too, so every real Unicode string remains distinct. Only this
-//! module and settings::js_json cross the wire; the quoting never escapes there.
+//! module's parsers and stringifiers cross the wire; the quoting never escapes there.
 use serde::Deserialize;
 use serde_json::Value;
-use std::fmt::Write;
 const ESC: char = '\u{fdd0}';
 
 // User strings quote ESC twice, so these internal values cannot collide with
@@ -113,7 +112,7 @@ fn encode(units: &[u16]) -> String {
 }
 /// Import values produced by Rust/YAML rather than this decoder. Keep all
 /// in-memory plugin strings in the same quoted representation.
-pub(crate) fn from_utf8(value: Value) -> Value {
+pub fn from_utf8(value: Value) -> Value {
     match value {
         Value::String(s) => Value::String(encode(&s.encode_utf16().collect::<Vec<_>>())),
         Value::Array(items) => Value::Array(items.into_iter().map(from_utf8).collect()),
@@ -127,26 +126,34 @@ pub(crate) fn from_utf8(value: Value) -> Value {
     }
 }
 pub fn string(s: &str) -> String {
-    let mut out = String::from("\"");
-    for c in char::decode_utf16(utf16(s)) {
-        match c {
-            Ok('"') => out.push_str("\\\""),
-            Ok('\\') => out.push_str("\\\\"),
-            Ok('\n') => out.push_str("\\n"),
-            Ok('\r') => out.push_str("\\r"),
-            Ok('\t') => out.push_str("\\t"),
-            Ok('\u{8}') => out.push_str("\\b"),
-            Ok('\u{c}') => out.push_str("\\f"),
-            Ok(c) if c < '\u{20}' => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            Ok(c) => out.push(c),
-            Err(e) => {
-                let _ = write!(out, "\\u{:04x}", e.unpaired_surrogate());
-            }
-        }
-    }
-    out.push('"');
+    let mut out = String::new();
+    crate::stringify::quote(utf16(s), &mut out);
+    out
+}
+/// Unicode code points of a quoted string; a lone surrogate counts once.
+pub fn codepoint_len(value: &str) -> usize {
+    char::decode_utf16(utf16(value)).count()
+}
+/// JSON.stringify of a quoted value: signed Infinity is written as null.
+pub fn stringify(value: &Value) -> String {
+    stringify_with(value, false)
+}
+/// Private IPC must let JSON.parse recover Infinity before Zod validates it.
+pub fn stringify_ipc(value: &Value) -> String {
+    stringify_with(value, true)
+}
+fn stringify_with(value: &Value, ipc: bool) -> String {
+    let special = |value: &Value| {
+        number(value)
+            .filter(|n| !n.is_finite())
+            .map(|n| match (ipc, n.is_sign_negative()) {
+                (false, _) => "null",
+                (true, true) => "-1e400",
+                (true, false) => "1e400",
+            })
+    };
+    let mut out = String::new();
+    crate::stringify::write(value, &mut out, &utf16, &special);
     out
 }
 /// Signals an unsupported native envelope, never malformed JSON. The HTTP

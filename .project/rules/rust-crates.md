@@ -54,6 +54,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 0 | `pacer-plugin-exec-protocol` (`crates/plugin-exec-protocol`) | Generated plugin `executor.*` and `capability.process.*` method types from the plugin schema; CRATE-3 area split; re-exported through `pacer_plugin::types` | ≤ 10,000 generated | none |
 | 0 | `pacer-plugin-policy-protocol` (`crates/plugin-policy-protocol`) | Generated plugin `policy.*` and read-only observation capability (`capability.tasks.*`, `capability.events.*`) types from the plugin schema; CRATE-3 area split; standalone, unpublished | ≤ 10,000 generated | none |
 | 1 | `pacer-foundation` (`crates/foundation`) | Ctx, file rules, lock, `CoreError`, op registry types | 1,000–1,500 | none |
+| 1 | `pacer-js-json` (`crates/js-json`) | JavaScript JSON semantics: `JSON.parse` acceptance (exact `WireReply` documents and the quoted serde Value form with lone surrogates and signed Infinity), `JSON.stringify` bytes, ECMAScript number text and JS value helpers | ≤ 2,000 | none |
 | 2 | `pacer-store` (`crates/store`) | Task store, activity log, outbox and events | 2,000–2,500 | none |
 | 3 | `pacer-config` (`crates/config`) | Strategy, YAML editor, config areas (publishes config changes through `pacer-store`) | 3,000–3,800 | none |
 | 2 | `pacer-discovery-ops` (`crates/discovery-ops`) | Native LAN discovery write operation handlers (`discovery.set`, `discovery.respond`) | ≤ 800 | none |
@@ -62,7 +63,7 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, processes, capabilities | 3,000–4,000 | `reqwest` |
 | 4 | `pacer-repos` (`crates/repos`) | Repository registry: `repos.json` and linked-checkout aliases, the per-process path probe, branch reads, git identity and registration of absolute checkout paths | ≤ 1,500 | none |
 | 4 | `pacer-messaging-ops` (`crates/messaging-ops`) | Native project messaging operation handlers (`msg.inbox`, `msg.log`, `msg.read`, `msg.policy`, `tree.status`, and the writes `msg.send`, `msg.confirm`, `msg.close`, `msg.wait` with their Core effects bridge) over the message store, strategy and project messaging documents | ≤ 2,000 | none |
-| 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations, settings reads and JSON compatibility | ≤ 5,000 | none |
+| 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations and settings reads over the `pacer-js-json` quoted codec | ≤ 5,000 | none |
 | 5 | `pacer-engine` (`crates/engine`) | Pacing, usage broker, status | 1,500–2,000 | none |
 | 5 | `pacer-install` (`crates/install`) | Setup, onboarding, agent integrations, accounts, Orca panel installer, executor guard (native today: the `agent.detect` cache read) | 3,500–4,500 | none |
 | 5 | `pacer-wasm-host` (`crates/wasm-host`) | Wasm component transport (feature `wasm`) | 800–1,200 | `wasmtime` |
