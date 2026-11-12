@@ -40,7 +40,7 @@ export async function runCase(c: ConformanceCase, hostArgv: string[], root: stri
   symlinkSync(resolve(import.meta.dir, "../packages/plugin-sdk"), join(scope, "plugin"), "dir");
   const bin = sandboxKeychain(home);
   const sessions: HostClient[] = [];
-  const env = { PATH: `${bin}:${dirname(process.execPath)}:${process.env.PATH ?? ""}`, HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh", ...(process.env.PACER_PORT ? { PACER_PORT: process.env.PACER_PORT } : {}), ...(process.env.PACER_CORE_ARGV ? { PACER_CORE_ARGV: process.env.PACER_CORE_ARGV } : {}), ...door.env };
+  const env = { PATH: `${bin}:${dirname(process.execPath)}:${process.env.PATH ?? ""}`, HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh", ...(process.env.PACER_CORE_ARGV ? { PACER_CORE_ARGV: process.env.PACER_CORE_ARGV } : {}), ...door.env };
   const open = door.session ?? ((argv, env) => new HostSession(argv, env));
   try {
     await c.run({
