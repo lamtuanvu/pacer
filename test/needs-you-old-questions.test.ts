@@ -23,9 +23,12 @@ test("an unanswered needs_input older than 24h stays in the active set, the snap
   const dismissedId = need(ctx, old, { dismissed: true });
   const retriedId = need(ctx, old, { retriedBy: "t-other" });
 
-  // Root cause: the active selection must keep needs_input at any age.
+  // Root cause: the active selection keeps only the unanswered needs_input at any
+  // age; one answered (via the retry path or directly), retried or dismissed
+  // must not reappear as a live question.
   const activeIds = new Set(listActiveAndRecentTasks(ctx).map(t => t.id));
-  for (const id of [openId, answeredId, dismissedId, retriedId]) expect(activeIds.has(id), id).toBe(true);
+  expect(activeIds.has(openId), openId).toBe(true);
+  for (const id of [answeredId, dismissedId, retriedId]) expect(activeIds.has(id), id).toBe(false);
 
   // The unanswered task appears in the snapshot tasks surface.
   const snap = snapshotTasks(ctx, listActiveAndRecentTasks(ctx));
@@ -38,6 +41,20 @@ test("an unanswered needs_input older than 24h stays in the active set, the snap
   expect(raised).not.toContain(answeredId);
   expect(raised).not.toContain(dismissedId);
   expect(raised).not.toContain(retriedId);
+});
+
+test("an old open question is kept even when 205 newer tasks fill the snapshot cap", () => {
+  const ctx = fakeCtx();
+  const old = ctx.now - 3 * 86400;
+  const openId = need(ctx, old, {});
+  for (let i = 0; i < 205; i++) {
+    const t = createTask(ctx, { brief: { goal: `newer ${i}`, repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    updateTask(ctx, t.id, row => { row.state = "done"; });
+  }
+  const snap = snapshotTasks(ctx, listActiveAndRecentTasks(ctx));
+  // The old open question must survive the 200-row recent-window cap.
+  expect(snap.map(t => t.id)).toContain(openId);
+  expect(snap.length).toBeGreaterThan(200);
 });
 
 test("a recently updated (non-aged) needs_input keeps its existing behavior", () => {

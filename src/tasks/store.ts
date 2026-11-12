@@ -50,6 +50,14 @@ const visibleStateSql = `CASE WHEN state = 'running'
   AND json_extract(record, '$.question') IS NOT NULL
   AND json_type(record, '$.question.answer') IS NULL
   THEN 'needs_input' ELSE state END`;
+// A stored needs_input still needs the user only while its question is unanswered
+// (answer null), it was not superseded by a retry, and it is not dismissed.
+// Matches `awaitsAnswer` (types.ts) and the Rust `awaits_answer`. The leading
+// `state = 'needs_input'` lets a caller keep this indexed via tasks_state.
+const awaitsAnswerSql = `state = 'needs_input'
+  AND json_type(record, '$.question.answer') IS NULL
+  AND json_extract(record, '$.retriedBy') IS NULL
+  AND NOT COALESCE(json_extract(record, '$.dismissed'), 0)`;
 const executorSql = `COALESCE(json_extract(record, '$.result.executor'),
   json_extract(record, '$.executor'), json_extract(record, '$.attempts[#-1].executor'),
   json_extract(record, '$.requestedExecutor'))`;
@@ -508,6 +516,9 @@ export function capacityTaskRecords(ctx: Ctx): TaskRecord[] {
 export interface TaskFilter {
   states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number;
   createdSince?: number;
+  /** Also select stored needs_input tasks the user still must answer (never aged out),
+   *  via `awaitsAnswerSql`. Keeps `tasks_state` as the driver index. */
+  awaitingAnswer?: boolean;
   visibleStates?: readonly TaskState[];
   executor?: string;
   repoKey?: string;
@@ -532,9 +543,14 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   if (!filter.all) clauses.push("archived = 0");
   if (filter.settledBefore !== undefined) { clauses.push("settled_at < ?"); bindings.push(filter.settledBefore); }
   if (filter.before !== undefined) { clauses.push("id < ?"); bindings.push(filter.before); }
-  if (filter.states) {
-    clauses.push(`state IN (${filter.states.map(() => "?").join(",")})`);
-    bindings.push(...filter.states);
+  if (filter.states || filter.awaitingAnswer) {
+    const stateBranches: string[] = [];
+    if (filter.states) {
+      stateBranches.push(`state IN (${filter.states.map(() => "?").join(",")})`);
+      bindings.push(...filter.states);
+    }
+    if (filter.awaitingAnswer) stateBranches.push(`(${awaitsAnswerSql})`);
+    clauses.push(`(${stateBranches.join(" OR ")})`);
   }
   if (filter.visibleStates) {
     clauses.push(`(${visibleStateSql}) IN (${filter.visibleStates.map(() => "?").join(",")})`);
@@ -560,12 +576,12 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   const limit = filter.limit === undefined || filter.limit === Infinity ? -1 : Math.max(0, Math.floor(filter.limit));
   // Raw state filters seek active states; repository aliases seek candidate IDs.
   // Neither should let archived=0 drive a scan over settled history.
-  const index = filter.states ? " INDEXED BY tasks_state"
+  const index = filter.states || filter.awaitingAnswer ? " INDEXED BY tasks_state"
     : recentOnly ? " INDEXED BY tasks_updated_at"
     : filter.repoKey !== undefined && filter.legacyRepoPaths?.length ? " INDEXED BY sqlite_autoindex_tasks_1" : "";
   const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
   const db = connection(ctx).db;
-  if (filter.states || recentOnly) {
+  if (filter.states || filter.awaitingAnswer || recentOnly) {
     // These indexes do not deliver ID order. Sorting whole records by ID would spill
     // task JSON into a temp b-tree whose release holds SQLite's process-wide VFS
     // mutex, so order the candidate IDs here and fetch only the selected records.
@@ -642,12 +658,14 @@ export function readTasksByIds(ctx: Ctx, ids: Iterable<string>): TaskRecord[] {
 }
 
 /** Union of indexed active and recent selections for read-model consumers. Tasks
- *  that still require the user must never age out: `needs_input` (stored state,
- *  and running tasks with an open unanswered question via the running branch of
- *  `visibleStateSql`) stays in the active set at any age. The states query uses
- *  `tasks_state`, so the extra state adds a bounded indexed seek even at 50k rows. */
+ *  that still require the user must never age out: a stored `needs_input` that
+ *  still awaits an answer (and running tasks with an open unanswered question via
+ *  the running branch of `visibleStateSql`) stays in the active set at any age.
+ *  Answered, retried or dismissed needs_input tasks do not. The selection uses
+ *  `tasks_state`, so the extra awaiting-answer branch adds a bounded indexed
+ *  seek even at 50k rows. */
 export function listActiveAndRecentTasks(ctx: Ctx, updatedSince = ctx.now - 86400): TaskRecord[] {
   const selected = new Map(listTasksWhere(ctx, { updatedSince }).map(t => [t.id, t]));
-  for (const task of listTasksWhere(ctx, { states: ["queued", "running", "needs_input"] })) selected.set(task.id, task);
+  for (const task of listTasksWhere(ctx, { states: ["queued", "running"], awaitingAnswer: true })) selected.set(task.id, task);
   return [...selected.values()].sort((a, b) => b.id.localeCompare(a.id));
 }
