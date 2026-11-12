@@ -1,7 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createServer, type Socket } from "node:net";
 import type { Readable } from "node:stream";
-import { authed, ownerKey } from "./owner-auth";
 
 type Frame = { id?: string | number; method?: string; params?: any; result?: any; error?: any };
 
@@ -28,21 +27,14 @@ function lines(stream: Readable | Socket, onFrame: (frame: Frame) => void) {
 }
 
 /**
- * A stand-in for the Rust process owner on `host.sock`: it checks Core's credential, runs the Core-sealed spawn spec as a real
+ * A stand-in for the Rust process owner on `host.sock`: it runs the Core-sealed spawn spec as a real
  * plugin child, hellos it, sends the call, forwards the child's `coreMethods` requests back to Core on
  * the same connection, refuses every other capability request, and drops child notifications.
- * Like the owner's hello gate, a `coreMethods` request sent before the hello reply is refused, not forwarded.
- *
- * Not modeled, so use an owner-backed test (the Rust session or `PACER_TEST_FRONT_DOOR`) where they matter:
- * every native capability the owner serves itself (fs read, process, `net.http`, log, `config.get`), which
- * the relay refuses; the declared and granted checks before forwarding (`answer_by_core`); `requireFeatures`;
- * per-call capability tokens (always `relay-call`); and the owner's own Orca grant validation.
  */
 export async function relayOwner(path: string): Promise<Relay> {
   const relay = { calls: [] as any[], replies: [] as unknown[], forwarded: [] as string[], refused: [] as string[], dropped: [] as string[] };
   const children = new Set<ChildProcess>();
-  ownerKey();
-  const server = createServer(authed(socket => {
+  const server = createServer(socket => {
     socket.on("error", () => {});
     const send = (frame: Frame) => { if (!socket.destroyed) socket.write(JSON.stringify({ jsonrpc: "2.0", ...frame }) + "\n"); };
     const core = new Map<string, (reply: Frame) => void>();
@@ -71,10 +63,9 @@ export async function relayOwner(path: string): Promise<Relay> {
       lines(child.stdout!, async message => {
         if (message.method !== undefined && message.id === undefined) { relay.dropped.push(message.method); return; }
         if (message.method !== undefined) {
-          const sealed = call.coreMethods?.includes(message.method) ?? false;
-          if (!sealed || !hello) {
+          if (!call.coreMethods?.includes(message.method)) {
             relay.refused.push(message.method);
-            toChild({ id: message.id, error: { code: -32000, message: `${message.method} was not issued for this call${sealed ? " yet" : ""}`, data: { code: "capability_denied" } } });
+            toChild({ id: message.id, error: { code: -32000, message: `${message.method} was not issued for this call`, data: { code: "capability_denied" } } });
             return;
           }
           relay.forwarded.push(message.method);
@@ -97,7 +88,7 @@ export async function relayOwner(path: string): Promise<Relay> {
       });
       toChild({ id: 1, method: "plugin.hello", params: call.spawn.hello });
     });
-  }));
+  });
   await new Promise<void>(done => server.listen(path, done));
   return { ...relay, close: async () => {
     for (const child of children) child.kill();

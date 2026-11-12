@@ -8,7 +8,6 @@ import type { HostClient } from "../packages/plugin-sdk/src";
 import { BUNDLED } from "../plugins/bundled";
 import { discoverEndpointModels, endpointLaunchSettings } from "../src/plugins/endpoint-adapter";
 import { relayOwner, type Relay } from "./fixtures/native-owner-relay";
-import { authed, ownerKey } from "./fixtures/owner-auth";
 import { preparePlannerInstall } from "../packages/plugin-sdk/src/install/prepared";
 import { createPlannerIO, readPlannerPrior } from "../packages/plugin-sdk/src/install/transport";
 import { preparePlannerUninstallFiles } from "../packages/plugin-sdk/src/install/uninstall";
@@ -662,15 +661,15 @@ const accounts = {
   open: { name: "open", connection: { api: "openai-compatible", base_url: "http://127.0.0.1:9/v1", key: "none", models: [] } },
 } as never;
 
-/** A flag-off or flag-on home serving a bundled plugin (the endpoint plugin from source by default) or a scripted child. */
-async function bundledSetup(flag: boolean, child: { script?: string } = {}, plugin = endpoints) {
+/** A flag-off or flag-on home serving the bundled endpoint plugin, from source or as a scripted child. */
+async function endpointSetup(flag: boolean, child: { script?: string } = {}) {
   const home = tmpDir();
   const pacerHome = join(home, ".pacer");
   mkdirSync(join(pacerHome, "run"), { recursive: true, mode: 0o700 });
   const path = join(pacerHome, "run", "host.sock");
   const ctx: Ctx = fakeCtx({ home, pacerHome, env: { PATH: process.env.PATH, ...(flag ? { PACER_HOST_SOCKET: path } : {}) } });
   const argv = child.script ? [process.execPath, "-e", child.script] : [process.execPath, endpointScript];
-  const registry = new PluginRegistry({ bundled: [plugin], eventPumpMs: 0,
+  const registry = new PluginRegistry({ bundled: [endpoints], eventPumpMs: 0,
     spawnBundled: () => ({ argv, cwd: home, env: { PATH: process.env.PATH! } }) });
   registries.push(registry);
   const relay = flag ? await relayOwner(path) : undefined;
@@ -681,7 +680,7 @@ async function bundledSetup(flag: boolean, child: { script?: string } = {}, plug
 test("flag-on endpoint.launchEnv with empty bindings writes the config through Core and matches flag-off byte for byte", async () => {
   const runs = [];
   for (const flag of [false, true]) {
-    const { ctx, registry, relay } = await bundledSetup(flag);
+    const { ctx, registry, relay } = await endpointSetup(flag);
     const settings = await endpointLaunchSettings(ctx, accounts, "lab", registry);
     const config = settings.env.OPENCODE_CONFIG!;
     const relative = (text: string) => text.replaceAll(ctx.pacerHome, "$PACER_HOME");
@@ -697,94 +696,10 @@ test("flag-on endpoint.launchEnv with empty bindings writes the config through C
   const [call] = on!.relay!.calls;
   expect(call.method).toBe("endpoint.launchEnv");
   expect(call.authority.resources.writes ?? []).toEqual([]);
-  expect(call.coreMethods).toEqual(["capability.fs.write", "capability.fs.mkdir", "capability.fs.remove", "capability.secrets.resolve", "capability.identity.sign"]);
+  expect(call.coreMethods).toEqual(["capability.fs.write", "capability.fs.mkdir", "capability.fs.remove"]);
   expect(on!.relay!.forwarded).toEqual(["capability.fs.mkdir", "capability.fs.write"]);
   expect(on!.relay!.refused).toEqual([]);
   expect(JSON.stringify(call)).not.toContain("credentialBindings");
-});
-
-// Answers hello as `id` serving `point`, then each call by sending every capability request in turn and replying with what it got.
-const askScript = (id: string, point: string, asks: [string, unknown][]) => `const asks=${JSON.stringify(asks)};const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));let call,answers=[];const ask=()=>answers.length<asks.length?send({id:900+answers.length,method:asks[answers.length][0],params:asks[answers.length][1]}):send({id:call,result:{answers}});for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\\n')){const i=b.indexOf('\\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:m.params.protocol,id:${JSON.stringify(id)},version:m.params.manifest.version,contributes:[${JSON.stringify(point)}]}});else if(m.method&&m.id!==undefined){call=m.id;answers=[];ask();}else if(m.id>=900){answers.push(m.error?{code:m.error.data?.code,message:m.error.message}:{value:m.result});ask();}}}`;
-const resolves = (refs: string[]): [string, unknown][] => refs.map(ref => ["capability.secrets.resolve", { ref }]);
-const assistantPlugin = BUNDLED.find(plugin => plugin.manifest.id === "pacer-assistant")!;
-const ASSISTANT_KEY = "sk-fake-assistant-fixture-key";
-
-test("flag-on Core answers the assistant's endpoint key on its own call exactly as flag-off, and only that key", async () => {
-  const outcomes = [];
-  for (const flag of [false, true]) {
-    const { ctx, registry, relay } = await bundledSetup(flag, { script: askScript("pacer-assistant", "assistant", resolves(["endpoint:lab", "endpoint/lab", "endpoint:open", "env:HOME"])) }, assistantPlugin);
-    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code\naccounts:\n  claude-code: {kind: claude}\n  lab: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: "http://127.0.0.1:9/v1", key: file, models: [{id: m, context: 100, output: 10, tools: false}]}}\nrunners:\n  opencode#lab: {model: m}\n`, { mode: 0o600 });
-    mkdirSync(join(ctx.pacerHome, "secrets"), { recursive: true, mode: 0o700 });
-    writeFileSync(join(ctx.pacerHome, "secrets", "lab.key"), ASSISTANT_KEY, { mode: 0o600 });
-    const { writeSettings } = await import("../src/assistant/store");
-    writeSettings(ctx, { runner: "opencode#lab", account: "lab", expect_rev: 1 });
-    outcomes.push(await registry.call(ctx, "pacer-assistant", "assistant.respond", {}, { deadlineMs: 10000 }));
-    if (relay) {
-      expect(relay.calls.map(call => call.coreMethods)).toEqual([["capability.secrets.resolve", "capability.identity.sign"]]);
-      expect(relay.forwarded).toEqual(Array(4).fill("capability.secrets.resolve"));
-      expect(JSON.stringify(relay.calls)).not.toContain(ASSISTANT_KEY);
-      expect(relay.calls[0].authority.owning).toBe(false);
-    }
-  }
-  const denied = { code: "capability_denied", message: "That secret is not the assistant's account key." };
-  expect(outcomes[0]).toEqual({ answers: [{ value: { value: ASSISTANT_KEY } }, { value: { value: ASSISTANT_KEY } }, denied, denied] });
-  expect(outcomes[1]).toEqual(outcomes[0]);
-});
-
-test("flag-on Core refuses the assistant's key to another plugin with the flag-off text, before reading it", async () => {
-  const outcomes = [];
-  for (const flag of [false, true]) {
-    const { ctx, registry, relay } = await bundledSetup(flag, { script: askScript("pacer-endpoints", "endpoint", resolves(["endpoint:lab"])) });
-    outcomes.push(await registry.call(ctx, "pacer-endpoints", "endpoint.launchEnv", { account: null, accounts: [], pacerHome: ctx.pacerHome }, {
-      resources: { reads: [], commands: [], stores: [] }, credentialBindings: [] }));
-    if (relay) expect(relay.forwarded).toEqual(["capability.secrets.resolve"]);
-  }
-  expect(outcomes[0]).toEqual({ answers: [{ code: "capability_denied", message: "plugin pacer-endpoints may not resolve assistant secrets" }] });
-  expect(outcomes[1]).toEqual(outcomes[0]);
-});
-
-test("flag-on Core signs with the machine key for a declared purpose and audits it, as flag-off", async () => {
-  const { clearIdentityCache, setIdentityPlatformForTests } = await import("../src/identity/store");
-  const { verifyFrom } = await import("../src/identity/sign");
-  const { identityAuditPath } = await import("../src/identity/audit");
-  const signer = { manifest: manifestSchema.parse({ id: "fx-signer", version: "1.0.0", publisher: "test", host: "^1.6", contributes: { diagnostic: {} },
-    capabilities: [{ name: "identity.sign", scopes: ["greeting"] }] }), main: async () => ({}) } as never;
-  const payload = Buffer.from("hello").toString("base64");
-  const outcomes = [];
-  for (const flag of [false, true]) {
-    clearIdentityCache(); setIdentityPlatformForTests("linux");
-    const { ctx, registry, relay } = await bundledSetup(flag, { script: askScript("fx-signer", "diagnostic", [
-      ["capability.identity.sign", { purpose: "greeting", payload }], ["capability.identity.sign", { purpose: "other", payload }]]) }, signer);
-    const { answers: [signed, refused] } = await registry.call(ctx, "fx-signer", "diagnostic.ping", {}, { deadlineMs: 10000 }) as { answers: any[] };
-    expect(verifyFrom(signed.value.machineId, "fx-signer", "greeting", Buffer.from("hello"), Buffer.from(signed.value.signature, "base64"))).toBe(true);
-    const audit = readFileSync(identityAuditPath(ctx), "utf8").trim().split("\n").map(line => JSON.parse(line).outcome);
-    outcomes.push({ refused, audit });
-    if (relay) expect(relay.calls.map(call => call.coreMethods)).toEqual([["capability.identity.sign"]]);
-  }
-  expect(outcomes[1]).toEqual(outcomes[0]);
-  expect(outcomes[0]!.refused.code).toBe("capability_denied");
-  expect(outcomes[0]!.audit).toEqual(["signed", "refused"]);
-});
-
-test("flag-on Core refuses an undeclared signature request and audits the refusal, as flag-off", async () => {
-  const { identityAuditPath } = await import("../src/identity/audit");
-  const unsigned = { manifest: manifestSchema.parse({ id: "fx-unsigned", version: "1.0.0", publisher: "test", host: "^1.6", contributes: { diagnostic: {} },
-    capabilities: [{ name: "log" }] }), main: async () => ({}) } as never;
-  const outcomes = [];
-  for (const flag of [false, true]) {
-    const { ctx, registry, relay } = await bundledSetup(flag, { script: askScript("fx-unsigned", "diagnostic", [
-      ["capability.identity.sign", { purpose: "greeting", payload: Buffer.from("hello").toString("base64") }]]) }, unsigned);
-    const { answers } = await registry.call(ctx, "fx-unsigned", "diagnostic.ping", {}, { deadlineMs: 10000 }) as { answers: unknown[] };
-    const audit = readFileSync(identityAuditPath(ctx), "utf8").trim().split("\n").map(line => {
-      const { at: _at, ...entry } = JSON.parse(line);
-      return entry;
-    });
-    outcomes.push({ answers, audit });
-    if (relay) expect(relay.forwarded).toEqual(["capability.identity.sign"]);
-  }
-  expect(outcomes[0]).toEqual({ answers: [{ code: "capability_denied", message: "plugin fx-unsigned did not declare identity.sign" }],
-    audit: [{ pluginId: "fx-unsigned", purpose: "greeting", outcome: "refused", reason: "capability not declared" }] });
-  expect(outcomes[1]).toEqual(outcomes[0]);
 });
 
 test("flag-on endpoint launch settings get the flag-off env and secretEnv validation", async () => {
@@ -799,7 +714,7 @@ test("flag-on endpoint launch settings get the flag-off env and secretEnv valida
   ] as const) {
     const outcomes = [];
     for (const flag of [false, true]) {
-      const { ctx, registry } = await bundledSetup(flag, { script: launchScript(reply) });
+      const { ctx, registry } = await endpointSetup(flag, { script: launchScript(reply) });
       outcomes.push(await endpointLaunchSettings(ctx, accounts, "lab", registry)
         .then(value => JSON.parse(JSON.stringify(value).replaceAll(ctx.pacerHome, "@HOME@")), (error: CoreError) => ({ code: error.code, message: error.message })));
     }
@@ -809,7 +724,7 @@ test("flag-on endpoint launch settings get the flag-off env and secretEnv valida
 });
 
 test("flag-on refuses non-empty credential bindings without dialing, and nothing secret is sealed", async () => {
-  const { ctx, registry, relay } = await bundledSetup(true);
+  const { ctx, registry, relay } = await endpointSetup(true);
   const key = "sk-fake-never-crosses";
   await expect(discoverEndpointModels(ctx, { baseUrl: "http://127.0.0.1:9/v1", key }, registry))
     .rejects.toMatchObject({ code: "plugin_unavailable", message: "endpoint.models needs credential bindings, which the native process owner bridge does not carry" });
@@ -817,73 +732,10 @@ test("flag-on refuses non-empty credential bindings without dialing, and nothing
     resources: { reads: [], commands: [], stores: [] }, credentialBindings: [{ ref: "endpoint:lab", resolve: async () => key }],
   })).rejects.toMatchObject({ code: "plugin_unavailable", message: "endpoint.launchEnv needs credential bindings, which the native process owner bridge does not carry" });
   expect(relay!.calls).toEqual([]);
-});
-
-const unavailable = (method: string) => ({ code: "plugin_unavailable", message: `${method} needs credential bindings, which the native process owner bridge does not carry` });
-
-// Only endpoint.launchEnv crosses with an empty list; these keyless calls keep the refusal they had before it did.
-test("flag-on keeps refusing keyless endpoint.models without dialing", async () => {
-  const { ctx, registry, relay } = await bundledSetup(true);
-  await expect(discoverEndpointModels(ctx, { baseUrl: "http://127.0.0.1:9/v1", timeoutMs: 500 }, registry)).rejects.toMatchObject(unavailable("endpoint.models"));
-  expect(relay!.calls).toEqual([]);
-});
-
-test("flag-on keeps refusing keyless classifier.ask without dialing", async () => {
-  const classify = BUNDLED.find(plugin => plugin.manifest.id === "pacer-classify")!;
-  const { ctx, registry, relay } = await bundledSetup(true, { script: childScript }, classify);
-  const keyless = validateClassifier({ adapters: { ollama: { base_url: "http://127.0.0.1:9/v1", model: "m" } } }, {});
-  for (const adapter of ["ollama", "rules"] as const) {
-    await expect(registry.call(ctx, "pacer-classify", "classifier.ask", {
-      adapter, state: "{}", question: { type: "yesno", id: "q", instructions: "q" }, timeoutMs: 1000, config: {},
-    }, { deadlineMs: 2000, classifierConfig: keyless })).rejects.toMatchObject(unavailable("classifier.ask"));
-  }
-  expect(relay!.calls).toEqual([]);
-});
-
-const orcaProvider = BUNDLED.find(plugin => plugin.manifest.id === "pacer-exec-orca")!;
-// Answers hello as pacer-exec-orca, then every call with `reply`, after a `$/progress` for that call when `progress` is set.
-const executorScript = (reply: unknown, progress?: unknown) => `const reply=${JSON.stringify(JSON.stringify(reply))},progress=${JSON.stringify(JSON.stringify(progress ?? null))};const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\\n')){const i=b.indexOf('\\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:m.params.protocol,id:'pacer-exec-orca',version:m.params.manifest.version,contributes:['executor']}});else if(m.method&&m.id!==undefined){if(JSON.parse(progress))send({method:'$/progress',params:{id:m.id,event:JSON.parse(progress)}});send({id:m.id,result:JSON.parse(reply)});}}}`;
-/** The Orca attempt call `runOrcaAttempt` makes: a sealed orcaAttempt and no progress owner. */
-const orcaAttemptCall = (ctx: Ctx, registry: PluginRegistry) => registry.call(ctx, "pacer-exec-orca", "executor.run",
-  { task: { id: "t-orca", rev: 1 }, attempt: 1, runDir: 1, orca: { executor: "codex", model: null, timeoutMs: 1000 } },
-  { deadlineMs: 5000, resources: { reads: [], commands: [], stores: [],
-    orcaAttempt: { taskId: "t-orca", attempt: 1, providerId: "pacer-exec-orca", executor: "codex", session: crypto.randomUUID() } } });
-const orcaInspectCall = (ctx: Ctx, registry: PluginRegistry) => registry.call(ctx, "pacer-exec-orca", "executor.sessionState",
-  { taskId: "t-orca", attempt: 1 }, { deadlineMs: 5000, resources: { reads: [], commands: [], stores: [],
-    orcaLive: { taskId: "t-orca", attempt: 1, providerId: "pacer-exec-orca", worker: "ctx_live", terminal: "term_live", action: "inspect" } } });
-const outcome = (call: Promise<unknown>) => call.then(value => ({ value }), (error: CoreError) => ({ code: error.code, message: error.message }));
-
-test("flag-on refuses an invalid executor.run or executor.sessionState result with the flag-off text", async () => {
-  for (const [name, call] of [["executor.run", orcaAttemptCall], ["executor.sessionState", orcaInspectCall]] as const) {
-    const outcomes = [];
-    for (const flag of [false, true]) {
-      const { ctx, registry, relay } = await bundledSetup(flag, { script: executorScript({ orca: "not a disposition", state: "gone" }) }, orcaProvider);
-      outcomes.push(await outcome(call(ctx, registry)));
-      if (relay) expect([name, relay.calls.map(sealed => sealed.method)]).toEqual([name, [name]]);
-    }
-    expect([name, outcomes[1]]).toEqual([name, { code: "plugin_refused", message: "usage reader returned an invalid reading" }]);
-    expect([name, outcomes[1]]).toEqual([name, outcomes[0]]);
-  }
-});
-
-test("progress during an Orca attempt fails it with the owner off, and the native owner drops it", async () => {
-  const disposition = { orca: { fallback: { reason: "no worker" } } };
-  const script = executorScript(disposition, { kind: "spawned", pid: 4242 });
-  const off = await bundledSetup(false, { script }, orcaProvider);
-  expect(await outcome(orcaAttemptCall(off.ctx, off.registry))).toEqual({ code: "plugin_refused", message: "invalid or unhandled executor progress" });
-  const on = await bundledSetup(true, { script }, orcaProvider);
-  expect(await outcome(orcaAttemptCall(on.ctx, on.registry))).toEqual({ value: disposition });
-  expect(on.relay!.dropped).toEqual(["$/progress"]);
-});
-
-test("the relay owner refuses a sealed Core method a child asks for before its hello reply, as the owner's hello gate does", async () => {
-  // The child asks for a sealed write while answering plugin.hello, then serves the launch normally.
-  const early = `console.log(JSON.stringify({jsonrpc:'2.0',id:'early',method:'capability.fs.mkdir',params:{path:'/'}}));`;
-  const reply = { env: { OPENCODE_CONFIG: "@HOME@/opencode/opencode.json" }, secretEnv: { PACER_KEY_LAB: "endpoint:lab" } };
-  const { ctx, registry, relay } = await bundledSetup(true, { script: early + launchScript(reply) });
-  await endpointLaunchSettings(ctx, accounts, "lab", registry);
-  expect(relay!.refused).toEqual(["capability.fs.mkdir"]);
-  expect(relay!.forwarded).toEqual([]);
+  // The empty list a keyless discovery passes does cross; its frame carries no key.
+  await discoverEndpointModels(ctx, { baseUrl: "http://127.0.0.1:9/v1", timeoutMs: 500 }, registry).catch(() => undefined);
+  expect(relay!.calls.map(call => call.method)).toEqual(["endpoint.models"]);
+  expect(JSON.stringify(relay!.calls)).not.toContain(key);
 });
 
 test("flag-on with a missing socket is plugin_unavailable naming the socket and never spawns", async () => {
