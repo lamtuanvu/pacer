@@ -217,7 +217,7 @@ export const ROWS: Row[] = [
   { name: "NaN literal and truncated aliases", seed: { repos: obj(["$H/r/a", E("a", "NaN")]), aliases: '{"$H/r/a-wt":"' }, list: true, add: true },
   { name: "invalid UTF-8 reads lossily", seed: { repos: invalidUtf8, aliases: ALIASES }, list: true, add: true },
   { name: "infinite lastUsed", seed: { repos: obj(["$H/r/a", E("a", "1e400")], ["$H/r/b", E("b", "-1e400")], ["$H/r/c", E("c", "7")]) }, list: true, add: true },
-  { name: "integer index keys enumerate first", seed: { repos: obj(["$H/r/b", E("b")], ["10", E("a")], ["2", E("c")], ["4294967295", E("d")]), aliases: obj(["$H/r/b-wt", '"$H/r/b"'], ["5", '"2"']) }, list: true, add: true },
+  { name: "integer index keys enumerate first", seed: { repos: obj(["07", '{"key":"github.com/acme/seven","path":"$H/r/a","lastUsed":1}'], ["$H/r/b", E("b")], ["10", E("a")], ["1e1", '{"key":"github.com/acme/e1","path":"$H/r/c","lastUsed":1}'], ["2", E("c")], ["4294967295", E("d")]), aliases: obj(["$H/r/b-wt", '"$H/r/b"'], ["5", '"2"']) }, list: true, add: true },
   { name: "__proto__ is an own key", seed: { repos: obj(["__proto__", E("a", "2")], ["$H/r/b", E("b")]), aliases: obj(["__proto__", '"x"'], ["$H/added", '"$H/r/b"']) }, list: true, add: true },
   { name: "alias values convert like property keys", seed: { repos: obj(["1", E("a")], ["1,2", E("b")], ["[object Object]", E("c")], ["Infinity", E("d")]), aliases: obj(["$H/added", "[1,2]"], ["$H/x", "null"], ["$H/y", "true"], ["$H/z", '{"a":1}'], ["$H/v", "1.0"], ["$H/t", "1e400"]) }, list: true, add: true },
   { name: "a null alias falls back to the root", seed: { repos: REG, aliases: obj(["$H/added", "null"]) }, list: true, add: true },
