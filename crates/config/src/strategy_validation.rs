@@ -913,12 +913,12 @@ pub(crate) fn validate_strategy(
     .split(['#', '@'])
     .next()
     .unwrap_or("");
-    if legacy && !["claude-code", "codex", "cursor", "opencode"].contains(&planner_agent) {
-        let raw_planner = raw
-            .get("planner")
-            .filter(|value| !value.is_null())
-            .map(string)
-            .unwrap_or_default();
+    let raw_planner = raw
+        .get("planner")
+        .filter(|value| !value.is_null())
+        .map(string)
+        .unwrap_or_default();
+    if legacy && !["claude-code", "codex", "cursor", "opencode"].contains(&raw_planner.as_str()) {
         p.push(format!(
             "planner must be one of claude-code, codex, cursor, opencode (got \"{raw_planner}\")"
         ));

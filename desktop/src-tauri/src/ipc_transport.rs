@@ -756,10 +756,27 @@ pub async fn attachment_delete(
     )
     .await
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct Target {
     kind: String,
     id: String,
+    attempt: Option<u64>,
+}
+/// The service session URL a renderer target may attach to. Only a task target may address a recorded
+/// attempt, and only with a positive integer value; everything else is rejected before connecting.
+fn terminal_url(origin: &str, target: &Target) -> Result<String, String> {
+    let family = match target.kind.as_str() {
+        "task" if task_id(&target.id) => "tasks",
+        "terminal" if uuid(&target.id) => "terminals",
+        _ => return Err("Invalid terminal target".into()),
+    };
+    match target.attempt {
+        Some(attempt) if attempt >= 1 && family == "tasks" => {
+            Ok(format!("{origin}/v3/{family}/{}/session?attempt={attempt}", target.id))
+        }
+        Some(_) => Err("Invalid terminal attempt".into()),
+        None => Ok(format!("{origin}/v3/{family}/{}/session", target.id)),
+    }
 }
 #[tauri::command]
 pub async fn terminal_attach(
@@ -775,12 +792,7 @@ pub async fn terminal_attach(
     use reqwest::cookie::CookieStore;
     let session = session(&window, &app, &instance, true)?;
     require_id(uuid(&attachment))?;
-    let family = match target.kind.as_str() {
-        "task" if task_id(&target.id) => "tasks",
-        "terminal" if uuid(&target.id) => "terminals",
-        _ => return Err("Invalid terminal target".into()),
-    };
-    let url = format!("{}/v3/{family}/{}/session", session.origin, target.id);
+    let url = terminal_url(&session.origin, &target)?;
     let mut upgrade = url
         .replacen("http:", "ws:", 1)
         .into_client_request()
@@ -1120,9 +1132,39 @@ mod tests {
         );
         assert_eq!(remaining, 0);
     }
+    fn target(kind: &str, id: &str, attempt: Option<u64>) -> Target {
+        Target { kind: kind.into(), id: id.into(), attempt }
+    }
     #[test]
-    fn identifiers_cannot_escape_fixed_routes() {
-        assert!(uuid("12345678-1234-1234-1234-123456789abc"));
+    fn terminal_targets_address_recorded_task_attempts() {
+        let origin = "http://127.0.0.1:1234";
+        let id = "t-20261102-090145-e376";
+        assert_eq!(
+            terminal_url(origin, &target("task", id, None)).unwrap(),
+            format!("{origin}/v3/tasks/{id}/session")
+        );
+        // A recorded attempt stays a positive integer query on the fixed task session route.
+        assert_eq!(
+            terminal_url(origin, &target("task", id, Some(2))).unwrap(),
+            format!("{origin}/v3/tasks/{id}/session?attempt=2")
+        );
+        assert_eq!(
+            terminal_url(origin, &target("terminal", "12345678-1234-1234-1234-123456789abc", None)).unwrap(),
+            format!("{origin}/v3/terminals/12345678-1234-1234-1234-123456789abc/session")
+        );
+        for bad in [
+            target("task", id, Some(0)),
+            target("terminal", "12345678-1234-1234-1234-123456789abc", Some(1)),
+            target("task", "../hello", None),
+            target("task", "t-20261102-090145-e376/x", None),
+            target("terminal", "not-a-uuid", None),
+            target("other", id, None),
+        ] {
+            assert!(terminal_url(origin, &bad).is_err(), "{bad:?}");
+        }
+    }
+    #[test]
+    fn identifiers_cannot_escape_fixed_routes() {        assert!(uuid("12345678-1234-1234-1234-123456789abc"));
         assert!(task_id("t-20261102-090145-e376"));
         assert!(turn_id("turn-12345678-abc"));
         assert!(!turn_id("../turn-1234"));

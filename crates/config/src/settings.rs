@@ -134,7 +134,6 @@ fn number(value: &str) -> Value {
 }
 
 /// Input-only validation. Whole-strategy validation happens before any write.
-/// Planner and backend operations remain forwarded; neither is performed here.
 fn parse_setting(
     key: &str,
     input: &Value,
@@ -206,6 +205,9 @@ fn parse_setting(
         }
         "terminal.app" if !["Terminal", "iTerm", "Ghostty"].contains(&s) => {
             fail("terminal.app must be Terminal, iTerm or Ghostty")
+        }
+        "planner" if crate::config_writes::parse_runner_ref(s).is_none() => {
+            fail("planner requires a runner id")
         }
         "pacing.order" => parse_pacing_order(s).map(|a| json!(a)).ok_or_else(|| {
             SettingsError::invalid("pacing.order requires comma-separated runner ids")
@@ -439,17 +441,35 @@ fn diff(path: &Path, before: &str, after: &str) -> String {
     lines.join("\n")
 }
 
+/// The `config.set` options of TypeScript `set` that a native caller resolves.
+#[derive(Clone, Copy, Default)]
+pub struct SetOptions<'a> {
+    pub terminal_presets_only: bool,
+    /// `integrations` from the request: `install`, `skip` or absent.
+    pub integrations: Option<&'a str>,
+    /// TypeScript `isExecutorSession` for the caller.
+    pub executor_session: bool,
+    /// `PACER_BACKEND`, if set.
+    pub backend_env: Option<&'a str>,
+}
+
+/// The refusal for a planner change that would install integrations; the
+/// native front door forwards those requests before reaching this helper.
+pub const PLANNER_INSTALL_FORWARDED: &str = "planner requires the forwarded config.set operation";
+const BACKEND_OVERRIDE_HINT: &str = "PACER_BACKEND overrides the saved task backend setting.";
+
 /// Pure settings file effect, without event publication or host integrations.
 /// The caller must serialize shared writers and publish once after success.
-/// Planner (including install/uninstall) and backend readiness remain forwarded.
+/// A changed planner with `integrations: "install"` and Orca readiness are not
+/// performed here.
 pub fn set_setting(
     path: &Path,
     name: &str,
     key: &str,
     input: &Value,
-    terminal_presets_only: bool,
+    options: SetOptions,
 ) -> Result<Value, SettingsError> {
-    set(path, name, key, input, terminal_presets_only, false)
+    set(path, name, key, input, options)
 }
 
 /// `config.set planner` with `integrations: "skip"`: the strategy edit alone.
@@ -458,7 +478,11 @@ pub fn set_planner_without_integrations(
     name: &str,
     planner: &Value,
 ) -> Result<Value, SettingsError> {
-    set(path, name, "planner", planner, false, true)
+    let options = SetOptions {
+        integrations: Some("skip"),
+        ..SetOptions::default()
+    };
+    set(path, name, "planner", planner, options)
 }
 
 fn set(
@@ -466,8 +490,7 @@ fn set(
     name: &str,
     key: &str,
     input: &Value,
-    terminal_presets_only: bool,
-    planner: bool,
+    options: SetOptions,
 ) -> Result<Value, SettingsError> {
     let before = fs::read_to_string(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
@@ -487,14 +510,17 @@ fn set(
         .get(key)
         .cloned()
         .unwrap_or(Value::Null);
-    if (key == "planner" && !planner) || key == "execution.backend" {
+    if key == "planner" && !matches!(options.integrations, Some("install" | "skip")) {
         return Err(SettingsError {
-            code: "unavailable",
-            message: format!("{key} requires the forwarded config.set operation"),
-            hint: None,
+            code: "invalid_input",
+            message: "planner requires an integration choice".into(),
+            hint: Some("integrations: \"install\" or \"skip\""),
         });
     }
-    let value = parse_setting(key, input, terminal_presets_only)?;
+    if key == "planner" && options.executor_session {
+        return Err(SettingsError { code: "not_allowed", message: "PACER_ROLE=executor: changing the planner with config.set connects real agent folders; run it outside a delegated task.".into(), hint: None });
+    }
+    let value = parse_setting(key, input, options.terminal_presets_only)?;
     let mut doc = StrategyDoc::new(&before);
     let keys: Vec<_> = key.split('.').map(|s| json!(s)).collect();
     if key == "terminal.open" && doc.get_in(&keys)?.is_some() {
@@ -523,8 +549,30 @@ fn set(
         path,
         name,
     )?;
-    let after = doc.as_str();
-    if fs::read_to_string(path)? != before {
+    // Without "skip", an unchanged planner writes nothing; a changed one installs.
+    let installs = key == "planner" && options.integrations != Some("skip");
+    if installs {
+        let account = next["planner"]["account"].as_str().unwrap_or_default();
+        if strategy["accounts"].get(account).is_none() {
+            return Err(SettingsError::invalid("planner account not found"));
+        }
+        if ["agent", "account"]
+            .iter()
+            .any(|field| next["planner"][field] != strategy["planner"][field])
+        {
+            return Err(SettingsError {
+                code: "unavailable",
+                message: PLANNER_INSTALL_FORWARDED.into(),
+                hint: None,
+            });
+        }
+    }
+    let after = if installs {
+        before.as_str()
+    } else {
+        doc.as_str()
+    };
+    if !installs && fs::read_to_string(path)? != before {
         return Err(SettingsError {
             code: "conflict",
             message: "Strategy changed during edit".into(),
@@ -534,7 +582,10 @@ fn set(
     if before != after {
         atomic_strategy_write(path, after)?;
     }
-    Ok(
-        json!({"key":key, "value":effective(&next,&next_raw)[key], "previous":previous, "diff":diff(path,&before,after), "undo":format!("pacer config set {key} {}",undo_value(&previous, ["update_check", "terminal.app"].contains(&key))), "notes":[]}),
-    )
+    let mut result = json!({"key":key, "value":effective(&next,&next_raw)[key], "previous":previous, "diff":diff(path,&before,after), "undo":format!("pacer config set {key} {}",undo_value(&previous, ["update_check", "terminal.app"].contains(&key))), "notes":[]});
+    if key == "execution.backend" && options.backend_env.is_some_and(|env| !env.is_empty()) {
+        result["notes"] = json!([BACKEND_OVERRIDE_HINT]);
+        result["hint"] = json!(BACKEND_OVERRIDE_HINT);
+    }
+    Ok(result)
 }

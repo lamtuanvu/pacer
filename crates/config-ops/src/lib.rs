@@ -1,6 +1,7 @@
 //! Native config and host operation handlers that `pacer-server` assembles into its registry.
 pub mod config_get_ops;
 pub mod config_params;
+pub mod config_set_ops;
 pub mod config_writes;
 pub mod doctor_ops;
 pub mod executor_candidates_ops;
