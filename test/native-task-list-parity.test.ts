@@ -58,16 +58,20 @@ function normalize(value: unknown): unknown {
 test.skipIf(!front)("task.list matches forced forwarding with session probe injection", async () => {
   const ctx = fakeCtx();
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
+  const ids: string[] = [];
   for (let i = 0; i < 5; i++) {
     const task = createTask({ ...ctx, now: ctx.now + i }, { brief: { goal: String(i), repo: realpathSync(ctx.home) }, kind: null, requestedExecutor: "cursor", timeoutS: 60 });
+    ids.push(task.id);
     updateTask(ctx, task.id, row => {
       row.state = i === 0 ? "failed" : "done";
       row.executor = "cursor";
     });
   }
   const reference = await callOp(ctx, "task.list", { states: ["done"], limit: 2 });
+  // The free-text filter runs in both implementations and must agree row for row.
+  const qReference = await callOp(ctx, "task.list", { q: ids[3]!.slice(-4) });
   const request = (id: number, params: unknown) => JSON.stringify({ jsonrpc: "2.0", id, method: "task.list", params });
-  const requests = [request(2, { states: ["done"], limit: 2 })];
+  const requests = [request(2, { states: ["done"], limit: 2 }), request(3, { q: ids[3]!.slice(-4) })];
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-task-list-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-task-list-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });
@@ -77,6 +81,8 @@ test.skipIf(!front)("task.list matches forced forwarding with session probe inje
     const forwarded = await exchange(forwardHome, requests, true);
     expect(normalize(native[0]?.result)).toEqual(normalize(forwarded[0]?.result));
     expect(normalize(native[0]?.result)).toEqual(normalize(reference));
+    expect(normalize(native[1]?.result)).toEqual(normalize(forwarded[1]?.result));
+    expect(normalize(native[1]?.result)).toEqual(normalize(qReference));
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });

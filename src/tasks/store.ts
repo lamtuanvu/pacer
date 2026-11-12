@@ -512,6 +512,9 @@ export interface TaskFilter {
   executor?: string;
   repoKey?: string;
   legacyRepoPaths?: readonly string[];
+  /** Free-text search: every space-separated word must appear, case-insensitively,
+   * in the task id (including its short suffix), title or goal. */
+  query?: string;
 }
 
 /** Distinct legacy paths from a covering partial index, without decoding task JSON.
@@ -527,7 +530,7 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   if (filter.states?.length === 0 || filter.visibleStates?.length === 0 || filter.limit === 0) return [];
   const recentOnly = filter.updatedSince !== undefined && !filter.all && filter.states === undefined && filter.visibleStates === undefined
     && filter.executor === undefined && filter.repoKey === undefined && filter.before === undefined
-    && filter.settledBefore === undefined && filter.createdSince === undefined;
+    && filter.settledBefore === undefined && filter.createdSince === undefined && filter.query === undefined;
   const clauses: string[] = [], bindings: SQLQueryBindings[] = [];
   if (!filter.all) clauses.push("archived = 0");
   if (filter.settledBefore !== undefined) { clauses.push("settled_at < ?"); bindings.push(filter.settledBefore); }
@@ -557,6 +560,16 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
   }
   if (filter.updatedSince !== undefined) { clauses.push("updated_at >= ?"); bindings.push(filter.updatedSince); }
   if (filter.createdSince !== undefined) { clauses.push("created_at >= ?"); bindings.push(filter.createdSince); }
+  if (filter.query) {
+    // Every whitespace-separated word must appear somewhere in the id (which
+    // covers the short suffix and any date prefix), title or goal. Kept
+    // identical to the native filter in crates/store/src/task_selection.rs.
+    for (const word of filter.query.trim().split(/\s+/).filter(Boolean)) {
+      const w = word.toLowerCase();
+      clauses.push("(instr(lower(id), ?) > 0 OR instr(lower(json_extract(record, '$.title')), ?) > 0 OR instr(lower(json_extract(record, '$.brief.goal')), ?) > 0)");
+      bindings.push(w, w, w);
+    }
+  }
   const limit = filter.limit === undefined || filter.limit === Infinity ? -1 : Math.max(0, Math.floor(filter.limit));
   // Raw state filters seek active states; repository aliases seek candidate IDs.
   // Neither should let archived=0 drive a scan over settled history.

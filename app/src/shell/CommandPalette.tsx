@@ -7,8 +7,9 @@ import { Kbd } from "../ds/Kbd";
 import { commands as commandRegistry } from "../keys/instance";
 import { keyCaps, type CommandRegistry } from "../keys/commands";
 import type { FilesSearchResult } from "../../../src/core/files-search";
-import { buildMenu, scopesFor, ASK_ENABLED, parseQuery, type FilesState, type MenuItem, type MenuScope } from "../model/command-search";
+import { buildMenu, hasLocalMatches, looksLikeTaskId, scopesFor, ASK_ENABLED, parseQuery, type FilesState, type MenuItem, type MenuScope, type TaskSearchState } from "../model/command-search";
 import { useTaskContext } from "../screens/task-shared";
+import type { ClientTask } from "../../../src/view-model/snapshot";
 import { useNotifications } from "../data/notification-context";
 import { useNavigation } from "../navigation";
 import { draftStorage } from "../model/draft";
@@ -16,6 +17,8 @@ import { blankNewTask, NEW_TASK_DRAFT_KEY } from "../model/new-task";
 
 /** Typing waits this long before a files search starts; the service also caches a repeated read for a few seconds. */
 export const FILES_DEBOUNCE_MS = 200;
+/** Typing waits this long before a server task search (task.list with `q`) starts, for the same reason. */
+export const TASK_SEARCH_DEBOUNCE_MS = 200;
 
 const RECENT_KEY = "pacer.command.recent";
 export function loadRecent(): string[] {
@@ -82,9 +85,27 @@ export function CommandPalette({ snapshot, registry = commandRegistry, now: fixe
     return () => { live = false; clearTimeout(timer); };
   }, [needle, filesOn, api]);
   const files: FilesState = !filesOn || !needle ? { status: "off" } : answer?.query !== needle ? { status: "loading" } : answer.result === "error" ? { status: "error" } : { status: "ready", result: answer.result };
+  // Old tasks are not in the snapshot, so the menu also asks the service: when the text looks like a task id or suffix, or when the snapshot matches nothing, one debounced task.list with `q` runs and its answers count only for the query they were asked for.
+  const tasksOn = state.features.ops.has("task.list");
+  const [taskAnswer, setTaskAnswer] = useState<{ query: string; tasks: ClientTask[] } | { query: string; error: true } | null>(null);
+  const searchTasks = tasksOn && !!needle && (looksLikeTaskId(needle) || !hasLocalMatches(snapshot, commands, needle));
+  useEffect(() => {
+    if (!searchTasks) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      api.call<{ tasks: ClientTask[]; next: string | null }>("task.list", { q: needle, all: true, limit: 20 }).then(
+        result => { if (live) setTaskAnswer({ query: needle, tasks: result.tasks }); },
+        () => { if (live) setTaskAnswer({ query: needle, error: true }); });
+    }, TASK_SEARCH_DEBOUNCE_MS);
+    return () => { live = false; clearTimeout(timer); };
+  }, [searchTasks, needle, tasksOn, api]);
+  const tasks: TaskSearchState = !tasksOn || !needle ? { status: "off" }
+    : searchTasks && taskAnswer?.query !== needle ? { status: "loading" }
+    : searchTasks ? ("error" in taskAnswer! ? { status: "error" } : { status: "ready", tasks: taskAnswer!.tasks })
+    : { status: "off" };
   const menu = useMemo(() => {
-    return buildMenu({ query, scope, snapshot, commands, recent, now, files, askEnabled });
-  }, [query, scope, snapshot, commands, recent, now, askEnabled, files.status, (files as { result?: unknown }).result]);
+    return buildMenu({ query, scope, snapshot, commands, recent, now, files, tasks, askEnabled });
+  }, [query, scope, snapshot, commands, recent, now, askEnabled, files.status, (files as { result?: unknown }).result, tasks.status, (tasks as { tasks?: unknown }).tasks]);
   const visibleGroups = menu.mode === "recent" && scope !== "all"
     ? menu.groups.map(group => ({ ...group, items: group.items.filter(item => item.scope === scope) })).filter(group => group.items.length)
     : [...menu.groups];

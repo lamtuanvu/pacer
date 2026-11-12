@@ -188,6 +188,50 @@ test('services with the assistant expose question mode without interpreting it a
  expect(buildMenu({query:'? explain routing',scope:'all',snapshot:null,commands:[],recent:[],now:1,askEnabled:true}).mode).toBe('ask');
 });
 
+const found = (extra: Partial<any> = {}): any => ({ id: "t-20261110-093000-d90f", goal: "Fix the payments webhook timeout", state: "done", executor: "codex#team@devbox", updatedAt: 1799999900, repo: { key: "github.com/acme/api", label: "acme/api", path: "/tmp/fixture/api" }, ...extra });
+const withTasks = (query: string, tasks: any, scope: any = "all") => buildMenu({ query, scope, snapshot, commands, recent: [], now: NOW, tasks });
+const readyTasks = (...tasks: any[]) => ({ status: "ready" as const, tasks });
+
+test("server task results become Tasks rows that open the task page", () => {
+  const result = withTasks("d90f", readyTasks(found()));
+  const group = result.groups.find(entry => entry.title === "Tasks")!;
+  expect(group.items.map(item => item.id)).toEqual(["search:t-20261110-093000-d90f"]);
+  expect(group.items[0]).toMatchObject({
+    title: found().goal, target: { name: "sessions", id: "t-20261110-093000-d90f" },
+    sub: "acme/api · Codex · team on devbox · 1m ago", pill: { label: "Completed", tone: "good" },
+  });
+  // A match inside the id alone has no title highlight; a goal word marks the title.
+  expect(group.items[0]!.ranges).toEqual([]);
+  const byTitle = withTasks("webhook", readyTasks(found()));
+  expect(byTitle.groups.find(entry => entry.title === "Tasks")!.items[0]!.ranges).toEqual([[17, 24]]);
+  expect(result.counts.tasks).toBe(1);
+  expect(result.counts.all).toBe(result.counts.tasks + result.counts.agents + result.counts.commands);
+  expect(result.empty).toBe(false);
+});
+
+test("server task rows skip tasks the snapshot already shows and coexist with local matches", () => {
+  const dupes = readyTasks(found({ id: "t-0420", goal: "Add SSH keepalive to remote runs" }), found({ id: "t-20261110-093000-e11f", goal: "Different work entirely" }));
+  const result = withTasks("e11f", dupes);
+  expect(result.groups.find(entry => entry.title === "Tasks")!.items.map(item => item.id))
+    .toEqual(["search:t-20261110-093000-e11f"]);
+  const both = withTasks("fix", readyTasks(found({ id: "t-20261110-093000-e11f", goal: "Fix the queue" })));
+  // Local snapshot matches keep their own items; the server row follows them.
+  expect(both.groups.find(entry => entry.title === "Tasks")!.items.map(item => item.id))
+    .toEqual([expect.stringMatching(/^task:/), "search:t-20261110-093000-e11f"]);
+});
+
+test("task searching is announced, is not 'no results', and explains an error", () => {
+  expect(withTasks("d90f", { status: "loading" }).empty).toBe(false);
+  expect(withTasks("d90f", { status: "loading" }).notice).toBe("Searching tasks…");
+  expect(withTasks("d90f", { status: "error" }).notice).toBe("Tasks could not be searched just now.");
+  // Nothing came back and nothing matched locally: the usual Instead suggestions return.
+  expect(withTasks("xyzzy", readyTasks()).empty).toBe(true);
+  // With the search off (text did not ask for one) there is no notice and no extra rows.
+  expect(withTasks("d90f", { status: "off" }).notice).toBeUndefined();
+  // A search on a scope without matches falls back to All while it waits, like any scope.
+  expect(withTasks("d90f", { status: "loading" }, "tasks").scope).toBe("all");
+});
+
 test("filtered Dispatcher commands retain board order even when title match ranks differ", () => {
   const commands = [
     command("dispatch.pause", "Pause dispatch", "Dispatcher"),

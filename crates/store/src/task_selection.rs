@@ -20,6 +20,7 @@ fn index_hint(filter: &TaskFilter<'_>) -> &'static str {
         || filter.executor.is_some()
         || filter.visible_states.is_some()
         || filter.settled_before.is_some()
+        || filter.query.is_some()
     {
         return "";
     }
@@ -79,6 +80,21 @@ pub(super) fn query(filter: &TaskFilter<'_>) -> (String, Vec<SqlValue>) {
     if let Some(states) = filter.visible_states {
         clauses.push(format!("(CASE WHEN state='running' AND json_type(record, '$.question')='object' AND json_type(record, '$.question.answer') IS NULL THEN 'needs_input' ELSE state END) IN ({})",vec!["?"; states.len()].join(",")));
         bind.extend(states.iter().map(|s| SqlValue::Text((*s).into())));
+    }
+    if let Some(q) = filter.query {
+        // Every whitespace-separated word must appear somewhere in the id
+        // (which covers the short suffix and any date prefix), title or goal.
+        // Kept identical to TypeScript `listTasksWhere` (src/tasks/store.ts).
+        for word in q.split_whitespace().filter(|w| !w.is_empty()) {
+            let w = word.to_lowercase();
+            clauses.push(
+                "(instr(lower(id), ?)>0 OR instr(lower(json_extract(record, '$.title')), ?)>0 OR instr(lower(json_extract(record, '$.brief.goal')), ?)>0)"
+                    .to_owned(),
+            );
+            bind.push(SqlValue::Text(w.clone()));
+            bind.push(SqlValue::Text(w.clone()));
+            bind.push(SqlValue::Text(w.clone()));
+        }
     }
     let sql = format!(
         "SELECT record FROM tasks{} {} ORDER BY id DESC LIMIT ?",

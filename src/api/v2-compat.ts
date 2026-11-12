@@ -100,6 +100,11 @@ export function v2Params(name:string,params:unknown):unknown {
   const {notifier:_,...legacy}=params as Record<string,unknown>;
   return legacy;
  }
+ // `q` is a protocol 3 addition; the frozen 2.x surface keeps its legacy behavior.
+ if(name==='task.list'&&params&&typeof params==='object'&&!Array.isArray(params)){
+  const {q:_,...legacy}=params as Record<string,unknown>;
+  return legacy;
+ }
  if(name!=='task.review'||!params||typeof params!=='object'||Array.isArray(params))return params;
  const p=params as Record<string,unknown>;
  if(p.accepted!==undefined&&typeof p.accepted!=='boolean')throw new CoreError('invalid_input','accepted: expected boolean');
@@ -136,6 +141,8 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  delete (schemas['client.register'].params as {properties:Record<string,unknown>}).properties.capture;
  for(const op of V3_ONLY_OPS)delete schemas[op];
  schemas['task.list'].description="Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.";
+ // `q` is a protocol 3 addition; 2.x stays on its frozen task.list surface.
+ delete (schemas['task.list'].params as {properties:Record<string,unknown>}).properties.q;
  const registration=schemas['client.register'].params as {properties:Record<string,unknown>};
  delete registration.properties.capture;
  schemas['client.register'].description="Register a client with an optional notifier lease; heartbeat every 30 seconds.";

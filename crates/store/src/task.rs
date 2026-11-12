@@ -398,6 +398,9 @@ pub struct TaskFilter<'a> {
     pub all: bool,
     pub before: Option<&'a str>,
     pub limit: Option<usize>,
+    /// Free-text search: every space-separated word must appear, case-insensitively,
+    /// in the task id (including its short suffix), title or goal.
+    pub query: Option<&'a str>,
 }
 impl TaskStore {
     pub fn open(home: impl AsRef<Path>) -> Result<Self> {

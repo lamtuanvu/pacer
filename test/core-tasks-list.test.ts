@@ -219,6 +219,28 @@ test("task.list filters by repo, states, executor and before exactly as before",
   }
 });
 
+test("task.list q finds tasks by full id, short suffix and title words, case-insensitively", () => {
+  const ctx = fakeCtx();
+  const keyed = mkTask(ctx, 0, { state: "done", repoKey: "local:A" });
+  updateTask(ctx, keyed.id, t => { t.brief.goal = "Add SSH keepalive to remote runs"; });
+  const titled = mkTask(ctx, 1, { state: "done", repoKey: "local:B" });
+  updateTask(ctx, titled.id, t => { t.title = "Payments webhook retry"; });
+  // The short suffix (last four hex) is the part users copy from a mention.
+  const suffix = keyed.id.slice(-4);
+  expect(listTasksWhere(ctx, { query: keyed.id }).map(t => t.id)).toEqual([keyed.id]);
+  expect(listTasksWhere(ctx, { query: suffix }).map(t => t.id)).toEqual([keyed.id]);
+  expect(listTasksWhere(ctx, { query: "SSH KEEP" }).map(t => t.id)).toEqual([keyed.id]);
+  expect(listTasksWhere(ctx, { query: "keepalive remote" }).map(t => t.id)).toEqual([keyed.id]);
+  // A goal word finds the other task; every word must appear, so a missing one matches nothing.
+  expect(listTasksWhere(ctx, { query: "webhook" }).map(t => t.id)).toEqual([titled.id]);
+  expect(listTasksWhere(ctx, { query: "webhook payments" }).map(t => t.id)).toEqual([titled.id]);
+  expect(listTasksWhere(ctx, { query: "webhook ssh" }).map(t => t.id)).toEqual([]);
+  expect(listTasksWhere(ctx, { query: "zzznope" }).map(t => t.id)).toEqual([]);
+  // core.tasks.list passes the query through with the other filters.
+  expect(taskList(ctx, { query: "webhook", states: ["done"] }).map(t => t.id)).toEqual([titled.id]);
+  expect(taskList(ctx, { query: "webhook", states: ["running"] }).map(t => t.id)).toEqual([]);
+});
+
 test("apiTasks reads the repo registry once per call", () => {
   const ctx = fakeCtx();
   for (let i = 0; i < 8; i++) mkTask(ctx, i, { state: "done", repoKey: i % 2 ? "local:B" : "local:A", executor: "alice", briefRepo: i % 2 ? B : A });

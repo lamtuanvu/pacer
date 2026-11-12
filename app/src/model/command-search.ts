@@ -1,5 +1,5 @@
 import type { FilesSearchResult, RepoScanState } from "../../../src/core/files-search";
-import type { ClientSnapshot } from "../../../src/view-model/snapshot";
+import type { ClientSnapshot, ClientTask } from "../../../src/view-model/snapshot";
 import { agentInfo } from "../../../src/view-model/agents";
 import { ago, elapsed } from "../../../src/view-model/time";
 import { displayTitle } from "../../../src/view-model/titles";
@@ -83,6 +83,35 @@ export function snapshotItems(snapshot: ClientSnapshot | null, now: number): Men
 
 /** The state of the files.search read for the current query. `off` means the service has no such operation. */
 export type FilesState = { status: "off" } | { status: "loading" } | { status: "error" } | { status: "ready"; result: FilesSearchResult };
+
+/** The state of the server task search (task.list with `q`) for the current query. `off` means the text did not ask for one. */
+export type TaskSearchState = { status: "off" } | { status: "loading" } | { status: "error" } | { status: "ready"; tasks: ClientTask[] };
+
+/** A full task id, its date prefix while typing one, or the short suffix users copy. */
+export function looksLikeTaskId(text: string): boolean {
+  return /^t-\d{8}(-\d{6})?(-[0-9a-f]{0,4})?$/i.test(text) || /^[0-9a-f]{4}$/i.test(text);
+}
+
+/** Whether the snapshot and commands already match the text, so a server task search is unnecessary. */
+export function hasLocalMatches(snapshot: ClientSnapshot | null, commands: Command[], text: string): boolean {
+  return rankAndMark([...snapshotItems(snapshot, 0), ...commandItems(commands)], text).length > 0;
+}
+
+/** Task rows found by the service; tasks the snapshot already shows are left to their own item. */
+export function taskSearchItems(tasks: ClientTask[], snapshot: ClientSnapshot | null, now: number, text: string): MenuItem[] {
+  const known = new Set((snapshot?.tasks ?? []).map(task => task.id));
+  return tasks.filter(task => !known.has(task.id)).map(task => {
+    const hit = matchItem({ id: "", scope: "tasks", title: displayTitle(task), icon: "stack", hidden: `${task.goal} ${task.id}` }, text);
+    const executor = task.executor ? executorLabel(task.executor, snapshot?.accounts) : null;
+    const status = taskStatus(task);
+    return {
+      id: `search:${task.id}`, scope: "tasks", title: displayTitle(task), icon: "stack",
+      pill: { label: status.label, tone: status.tone },
+      sub: [task.repo?.label, executor, ago(task.updatedAt, now)].filter(Boolean).join(" · "),
+      hidden: `${task.goal} ${task.id}`, ranges: hit?.ranges, target: routes.task(task.id),
+    };
+  });
+}
 
 const REPO_STATE_WORDS: Record<Exclude<RepoScanState, "ok">, string> = {
   too_large: "has too many files to search", timeout: "took too long to read", error: "could not be read", skipped: "was skipped (the search covers a limited number of repositories)",
@@ -180,9 +209,9 @@ export interface MenuResult {
   /** The ⌘↵ action is announced but not built yet. */
   modEnterSoon?: boolean;
 }
-export interface MenuInput { query: string; scope: MenuScope; snapshot: ClientSnapshot | null; commands: Command[]; recent: string[]; now: number; files?: FilesState; askEnabled?: boolean }
+export interface MenuInput { query: string; scope: MenuScope; snapshot: ClientSnapshot | null; commands: Command[]; recent: string[]; now: number; files?: FilesState; tasks?: TaskSearchState; askEnabled?: boolean }
 
-export function buildMenu({ query, scope, snapshot, commands, recent, now, files = { status: "off" }, askEnabled = ASK_ENABLED }: MenuInput): MenuResult {
+export function buildMenu({ query, scope, snapshot, commands, recent, now, files = { status: "off" }, tasks = { status: "off" }, askEnabled = ASK_ENABLED }: MenuInput): MenuResult {
   const { mode, text } = parseQuery(query, askEnabled);
   const everything = [...snapshotItems(snapshot, now), ...commandItems(commands)];
   const zero = { all: 0, tasks: 0, agents: 0, files: 0, commands: 0 };
@@ -205,21 +234,27 @@ export function buildMenu({ query, scope, snapshot, commands, recent, now, files
     const groups: MenuGroup[] = [...(recentItems.length ? [{ title: "Recent", items: recentItems }] : []), ...groupBy(offered, item => item.group ?? item.command!.group).sort(orderOf(RECENT_COMMAND_GROUPS))];
     return { mode, groups, counts: zero, empty: false, scope: "all", enterHint: "open" };
   }
-  const matched = [...rankAndMark(everything, text), ...(files.status === "ready" ? fileItems(files.result) : [])];
+  const matched = [
+    ...rankAndMark(everything, text),
+    ...(tasks.status === "ready" ? taskSearchItems(tasks.tasks, snapshot, now, text) : []),
+    ...(files.status === "ready" ? fileItems(files.result) : []),
+  ];
   const counts = { ...zero, all: matched.length };
   for (const item of matched) counts[item.scope]++;
   const labels = new Map((snapshot?.repos ?? []).map(repo => [repo.key, repo.label]));
   const filesLoading = files.status === "loading";
+  const tasksLoading = tasks.status === "loading";
   const notice = files.status === "ready" ? filesNotice(files.result, key => labels.get(key) ?? shortRepoKey(key))
-    : filesLoading ? "Searching files…" : files.status === "error" ? "Files could not be searched just now." : undefined;
+    : filesLoading ? "Searching files…" : files.status === "error" ? "Files could not be searched just now."
+    : tasksLoading ? "Searching tasks…" : tasks.status === "error" ? "Tasks could not be searched just now." : undefined;
   // A scope with nothing in it falls back to All, so the tab never hides matches that exist elsewhere (the Files tab stays while files load).
   const only = scope !== "all" && (counts[scope] > 0 || (scope === "files" && filesLoading)) ? scope : "all";
   const shown = only === "all" ? matched : matched.filter(item => item.scope === only);
   // Each group is capped while browsing All; a single scope lists everything it matched.
   const groups = groupBy(shown, item => item.group ?? GROUP_TITLES[item.scope], only === "all" ? PER_GROUP : shown.length).sort(orderOf(SEARCH_GROUP_ORDER));
   if (shown.length) return { mode, groups, counts, empty: false, scope: only, notice, enterHint: "open" };
-  // Nothing yet but files are still being searched: not "no results" until they answer.
-  if (filesLoading) return { mode, groups: [], counts, empty: false, scope: only, notice, enterHint: "open" };
+  // Nothing yet but files or tasks are still being searched: not "no results" until they answer.
+  if (filesLoading || tasksLoading) return { mode, groups: [], counts, empty: false, scope: only, notice, enterHint: "open" };
   const start = commands.find(command => command.id === "task.new");
   const instead: MenuItem[] = [
     ...(start ? [{ ...commandItems([start])[0]!, title: "New task", sub: `Describe “${text}” and pacer routes it` }] : []),
