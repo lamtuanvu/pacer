@@ -81,15 +81,30 @@ export function hostCheckDispatch(trace: string, checks: number, forced: boolean
   return "native";
 }
 
+function strategy(session: Session) {
+  let text: string;
+  try { text = readFileSync(join(session.root, "home/strategy.yaml"), "utf8"); }
+  catch { throw Error(`The sandbox strategy is missing (${session.id}); start a fresh sandbox`); }
+  const doc = parseDocument(text);
+  if (doc.errors.length || doc.has("hosts")) throw Error(`The sandbox strategy is invalid or already declares hosts (${session.id}); start a fresh sandbox`);
+  return doc;
+}
+
+/** Refuses a used fake host, fixture output or host declaration. Reads only, so both sandboxes are checked before either is used. */
+export function requireFresh(session: Session): void {
+  const root = session.root;
+  if ([join(root, FIXTURE), fakeSshLog(root), join(fakeHostHome(root), ".bash_profile"), join(root, "fake-host/bin")].some(path => existsSync(path))) {
+    throw Error(`The sandbox fake host or fixture output was already used (${session.id}); start a fresh sandbox`);
+  }
+  strategy(session);
+}
+
 /**
  * Fake host login profile: `setsid` and util-linux `script` stand-ins so the prerequisites can pass on any OS,
  * and the declared account home. The fake ssh keeps an existing profile.
  */
 function prepareFakeHost(root: string): void {
   const home = fakeHostHome(root), bin = join(root, "fake-host/bin");
-  if (existsSync(fakeSshLog(root)) || existsSync(join(home, ".bash_profile")) || existsSync(bin)) {
-    throw Error("The sandbox fake host was already used; start a fresh sandbox");
-  }
   mkdirSync(bin, { mode: 0o700 });
   atomicWrite(join(bin, "setsid"), '#!/bin/sh\nexec "$@"\n', 0o700);
   atomicWrite(join(bin, "script"), "#!/bin/sh\n[ \"$1\" = --version ] || exit 1\necho 'script from util-linux 2.39.3'\n", 0o700);
@@ -97,12 +112,11 @@ function prepareFakeHost(root: string): void {
   atomicWrite(join(home, ".bash_profile"), `PATH=${shellQuote(bin)}:"$PACER_FAKE_HOST_PATH"; export PATH\n`);
 }
 
+/** The fixture owns this host declaration; the guarded CLI refuses the host forms that would write one. */
 function configureHosts(session: Session): void {
-  const file = join(session.root, "home/strategy.yaml");
-  const doc = parseDocument(readFileSync(file, "utf8"));
-  if (doc.errors.length || doc.has("hosts")) throw Error("The sandbox strategy is invalid or already declares hosts; start a fresh sandbox");
+  const doc = strategy(session);
   doc.set("hosts", HOSTS);
-  atomicWrite(file, doc.toString());
+  atomicWrite(join(session.root, "home/strategy.yaml"), doc.toString());
 }
 
 async function call(api: Api, op: string, params: unknown): Promise<{ status: number; body: any }> {
@@ -276,6 +290,7 @@ export async function exerciseNativeHostEffects(native: Session, forward: Sessio
   requireSession(forward, true);
   // Fail closed before any request: a host check must never reach a real ssh or host.
   for (const session of [native, forward]) verifyFakeSsh(session);
+  for (const session of [native, forward]) requireFresh(session);
   for (const session of [native, forward]) if (!await healthy(session)) throw Error(`native-host-effects requires a healthy sandbox (${session.id})`);
   for (const session of [native, forward]) mkdirSync(join(session.root, FIXTURE), { mode: 0o700 });
   const results: Record<string, unknown> = {};
