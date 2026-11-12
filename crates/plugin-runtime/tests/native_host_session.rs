@@ -17,7 +17,7 @@ use tokio::{
     net::UnixStream,
 };
 
-// The bridge narrows the process-wide umask while binding; reset the mode a parallel bind may have stripped.
+// The bridge requires a private home; temp dirs follow the process umask.
 fn temp_home() -> tempfile::TempDir {
     use std::os::unix::fs::PermissionsExt;
     let home = tempfile::tempdir().unwrap();
