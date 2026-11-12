@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readTierTargets, saveTierTargets } from "../src/core/tier-targets";
 import { loadStrategy } from "../src/config/strategy";
@@ -73,18 +73,47 @@ test("set refuses a decreasing mapping as invalid_input and writes nothing", asy
   expect(readFileSync(path, "utf8")).toBe(before);
 });
 
-test("set refuses the built-in default with the save-as-new hint and writes nothing", async () => {
+test("set succeeds on the default strategy without a dispatch block, writing only dispatch.tierTargets", async () => {
   const ctx = plainCtx();
-  const path = join(ctx.pacerHome, "strategy.yaml"), before = readFileSync(path, "utf8");
-  await expect(saveTierTargets(ctx, {expectedRevision: readTierTargets(ctx).revision, targets: {...MEDIUM}}))
-    .rejects.toMatchObject({code: "not_allowed", hint: "Save as a new setup instead."});
-  expect(readFileSync(path, "utf8")).toBe(before);
+  const path = join(ctx.pacerHome, "strategy.yaml");
+  const base = readTierTargets(ctx);
+  const result = await saveTierTargets(ctx, {expectedRevision: base.revision, targets: {...MEDIUM}});
+  expect(result.targets).toEqual({...MEDIUM});
+  const text = readFileSync(path, "utf8");
+  expect(text).toContain("dispatch:");
+  expect(text).toContain("tierTargets:");
+  expect(text).not.toContain("engine:");
+  expect(text).not.toContain("steps:");
+  expect(loadStrategy(ctx).dispatch!.tierTargets).toEqual({...MEDIUM});
+  const got = await callOp(ctx, "dispatch.config.get", {});
+  expect((got as {config: {tierTargets: unknown}}).config.tierTargets).toEqual({...MEDIUM});
 });
 
-test("set refuses when the strategy file is missing", async () => {
+test("set edits a named active strategy in place", async () => {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, {recursive: true});
-  await expect(saveTierTargets(ctx, {expectedRevision: "x", targets: {...MEDIUM}})).rejects.toMatchObject({code: "not_allowed", hint: "Save as a new setup instead."});
+  mkdirSync(join(ctx.pacerHome, "strategies"), {recursive: true});
+  writeFileSync(join(ctx.pacerHome, "strategies", "work.yaml"), `# keep
+planner: claude-code
+accounts:
+  claude: {kind: claude}
+runners:
+  claude-code: {}
+dispatch:
+  engine: ladder
+  tierTargets: {simple: small, standard: small, complex: medium}
+`);
+  writeFileSync(join(ctx.pacerHome, "active"), "work\n");
+  const base = readTierTargets(ctx);
+  const path = join(ctx.pacerHome, "strategies", "work.yaml");
+  const beforeDefault = existsSync(join(ctx.pacerHome, "strategy.yaml")) ? readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8") : null;
+  const result = await saveTierTargets(ctx, {expectedRevision: base.revision, targets: {...MEDIUM}});
+  expect(result.targets).toEqual({...MEDIUM});
+  const text = readFileSync(path, "utf8");
+  expect(text).toContain("# keep");
+  expect(text).toContain("engine: ladder");
+  expect(loadStrategy(ctx).dispatch!.engine).toBe("ladder");
+  if (beforeDefault !== null) expect(readFileSync(join(ctx.pacerHome, "strategy.yaml"), "utf8")).toBe(beforeDefault);
 });
 
 test("the ops are registered and validate through the registry", async () => {

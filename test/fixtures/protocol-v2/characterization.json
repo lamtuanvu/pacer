@@ -20398,7 +20398,7 @@
         }
       },
       "dispatch.tierTargets.set": {
-        "description": "Save tier targets in the active setup against the expected revision; refuses a decreasing mapping and the built-in default.",
+        "description": "Save tier targets in the active setup against the expected revision; refuses a decreasing mapping.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",

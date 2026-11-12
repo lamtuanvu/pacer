@@ -7,11 +7,6 @@ import { CoreError } from "./errors";
 import { strategyRevision } from "./executor-settings";
 import type { Ctx } from "../types";
 
-/** The active setup is the built-in default: nothing on disk to update in place. */
-function builtinDefault(): never {
-  throw new CoreError("not_allowed", "The active setup is the built-in default.", "Save as a new setup instead.");
-}
-
 /** Read the active tier targets with the strategy revision; built-in defaults when the setup saves none. */
 export function readTierTargets(ctx: Ctx): { revision: string; targets: TierTargets } {
   const path = strategyPath(ctx), text = readFileSync(path, "utf8"), s = loadStrategy(ctx);
@@ -24,16 +19,9 @@ export async function saveTierTargets(ctx: Ctx, input: { expectedRevision: strin
   const parsed = tierTargetsSchema.safeParse(input.targets);
   if (!parsed.success) throw new CoreError("invalid_input", parsed.error.issues[0]?.message ?? "dispatch.tierTargets must not decrease from simple to complex.");
   const path = strategyPath(ctx);
-  let text: string;
-  try { text = readFileSync(path, "utf8"); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") builtinDefault();
-    throw error;
-  }
   return await withLock(ctx, "executor-settings", async () => {
-    text = readFileSync(path, "utf8");
+    const text = readFileSync(path, "utf8");
     if (input.expectedRevision !== strategyRevision(text)) throw new CoreError("conflict", "Executor settings changed elsewhere.", "Reload saved settings, then reapply your changes.");
-    if (!loadStrategy(ctx).dispatch) builtinDefault();
     // Migration preserves old values and creates its established backup. Draft
     // validation precedes it; the targets commit in one edit like runner models.
     const prepared = ensureAccounts(ctx), source = readFileSync(path, "utf8");

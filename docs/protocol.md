@@ -3983,7 +3983,7 @@ Params JSON Schema:
 
 ### `dispatch.tierTargets.set`
 
-Save tier targets in the active setup against the expected revision; refuses a decreasing mapping and the built-in default.
+Save tier targets in the active setup against the expected revision; refuses a decreasing mapping.
 
 Params JSON Schema:
 
