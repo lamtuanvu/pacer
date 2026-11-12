@@ -112,7 +112,9 @@ jobs:
     if: ${{ always() }}
     # Keep required names, but do not allocate macOS for a docs-only gate or a PR;
     # PRs run logic tests on Linux and OS-specific checks run on main/schedule/dispatch.
-    runs-on: ${{ needs.changes.outputs.bun == 'true' && (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') && matrix.os || 'ubuntu-latest' }}
+    # The matrix label stays ubuntu-latest for the required check names; the runner is pinned
+    # to 24.04 because Playwright's locked Chromium does not install on ubuntu-26.04.
+    runs-on: ${{ needs.changes.outputs.bun == 'true' && (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') && (matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os) || 'ubuntu-24.04' }}
     env:
       RUN_CHECKS: ${{ needs.changes.outputs.bun == 'true' && (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') }}
     strategy:
@@ -291,7 +293,7 @@ jobs:
     needs: changes
     # OS-specific validation runs on main pushes, schedule and dispatch, not PRs.
     if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' && github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
@@ -352,7 +354,8 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' }}
     name: Rust (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    # The copied-front version test fails on ubuntu-26.04; keep the label for check names.
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
