@@ -94,7 +94,7 @@ export async function upgradeSession(req:Request,server:Server<SessionWS>,ctx:Ct
    if(!Number.isSafeInteger(attempt)||attempt<1||raw==='')return new Response('invalid session attempt',{status:400});
    const dir=sessionAttemptDirectory(ctx,id,attempt);
    if(!dir)return new Response('Live session unavailable',{status:409});
-   return upgradeDirectory(req,server,dir);
+   return upgradeDirectory(req,server,dir,true);
   }
   const dir=sessionDirectory(ctx,id);
   if(!dir)return new Response('Live session unavailable',{status:409});
@@ -113,7 +113,7 @@ export async function upgradeAgentSession(req:Request,server:Server<SessionWS>,c
   return upgradeDirectory(req,server,agentSessionDirectory(ctx,task,id,value===null?undefined:Number(value)));
  }catch{return new Response('Session not found',{status:404});}
 }
-async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string):Promise<Response|undefined>{
+async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string,recordedOnly=false):Promise<Response|undefined>{
  try{
   const raw=new URL(req.url).searchParams.get('from'),from=raw===null?undefined:Number(raw);
   if(from!==undefined&&(!Number.isSafeInteger(from)||from<0||raw===''))return new Response('invalid from offset',{status:400});
@@ -129,7 +129,8 @@ async function upgradeDirectory(req:Request,server:Server<SessionWS>,dir:string)
    if(server.upgrade(req,{data:{decoder:new WireDecoder(),from,replay:{frames:replay,next:0,started:false}}}))return;
    return new Response('WebSocket upgrade required',{status:426});
   };
-  if(existsSync(join(dir,'exit'))||!existsSync(sessionSocket(dir)))return offline();
+  // A recorded attempt always replays read-only, even while that attempt is still the live run.
+  if(recordedOnly||existsSync(join(dir,'exit'))||!existsSync(sessionSocket(dir)))return offline();
   const socket=createConnection(sessionSocket(dir));socket.pause();socket.on('error',()=>{});
   try{await new Promise<void>((resolve,reject)=>{
    const timer=setTimeout(()=>{socket.destroy();reject(Error('session connection timeout'));},2000);
