@@ -55,7 +55,7 @@ fn valid_params(action: &str, params: &Value) -> bool {
     }
     let bounded = |key: &str, max: usize, required: bool, min: usize| match object.get(key) {
         None => !required,
-        Some(Value::String(s)) => (min..=max).contains(&crate::js_semantics::utf16_len(s)),
+        Some(Value::String(s)) => (min..=max).contains(&crate::js_semantics::codepoint_len(s)),
         _ => false,
     };
     match action {
