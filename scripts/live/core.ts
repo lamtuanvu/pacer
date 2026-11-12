@@ -10,6 +10,7 @@ import { sourceFingerprint, type SourceFingerprint } from "./control/fingerprint
 import { seedPluginRemove, seedUi, validateSeed } from "./seed";
 import { deleteSandboxKeychainItems, prepareKeychain } from "./keychain";
 import { processIdentity, signalSameProcess, type ProcessIdentity } from "../../src/update/desktop/process-identity";
+import { controlDirPath } from "../../src/remote/ssh";
 
 export const checkout = resolve(import.meta.dir, "../..");
 export const liveRoot = join(checkout, ".work/live");
@@ -178,19 +179,20 @@ export const FAKE_SSH_ALIAS = "pacer-live-fake.invalid";
 export const FAKE_SSH_DOWN_ALIAS = "pacer-live-down.invalid";
 export const fakeHostHome = (root: string) => join(root, "fake-host/home");
 export const fakeSshLog = (root: string) => join(root, "fake-host/ssh.log");
+export const FAKE_SSH_FIXTURE = join(checkout, "test/fixtures/bin/ssh");
 /**
  * The sandbox `ssh`: test/fixtures/bin/ssh, which runs the remote program locally with HOME set to the
  * fake host home. Plugin children get a minimal environment, so the fixture variables are fixed here.
  */
-export function fakeSshScript(root: string): string {
-  return `#!/bin/sh\nPACER_FAKE_HOST_HOME=${shellQuote(fakeHostHome(root))}\nPACER_FAKE_SSH_LOG=${shellQuote(fakeSshLog(root))}\nPACER_FAKE_SSH_DOWN=${shellQuote(FAKE_SSH_DOWN_ALIAS)}\nexport PACER_FAKE_HOST_HOME PACER_FAKE_SSH_LOG PACER_FAKE_SSH_DOWN\nexec /bin/sh ${shellQuote(join(checkout, "test/fixtures/bin/ssh"))} "$@"\n`;
+export function fakeSshScript(root: string, fixture = FAKE_SSH_FIXTURE): string {
+  return `#!/bin/sh\nPACER_FAKE_HOST_HOME=${shellQuote(fakeHostHome(root))}\nPACER_FAKE_SSH_LOG=${shellQuote(fakeSshLog(root))}\nPACER_FAKE_SSH_DOWN=${shellQuote(FAKE_SSH_DOWN_ALIAS)}\nexport PACER_FAKE_HOST_HOME PACER_FAKE_SSH_LOG PACER_FAKE_SSH_DOWN\nexec /bin/sh ${shellQuote(fixture)} "$@"\n`;
 }
-export function installFakeSsh(root: string): void {
+export function installFakeSsh(root: string, fixture = FAKE_SSH_FIXTURE): void {
   mkdirSync(fakeHostHome(root), { recursive: true, mode: 0o700 });
-  atomicWrite(join(root, "bin/ssh"), fakeSshScript(root), 0o700);
+  atomicWrite(join(root, "bin/ssh"), fakeSshScript(root, fixture), 0o700);
 }
 /** Throws unless `ssh` on the sandbox PATH is exactly the sandbox fake, so no host check can reach a real host. */
-export function verifyFakeSsh(session: Session, which: (bin: string, options: { PATH: string }) => string | null = Bun.which): string {
+export function verifyFakeSsh(session: Session, which: (bin: string, options: { PATH: string }) => string | null = Bun.which, fixture = FAKE_SSH_FIXTURE): string {
   const path = join(session.root, "bin/ssh");
   const refuse = (reason: string): never => { throw Error(`Fake ssh check failed: ${reason}; refusing to run host checks`); };
   const resolved = which("ssh", { PATH: sandboxEnv(session).PATH ?? "" });
@@ -198,9 +200,21 @@ export function verifyFakeSsh(session: Session, which: (bin: string, options: { 
   let stat;
   try { stat = lstatSync(path); } catch { return refuse(`${path} is missing`); }
   if (!stat.isFile() || stat.isSymbolicLink() || (process.getuid && stat.uid !== process.getuid()) || (stat.mode & 0o022) !== 0) refuse(`${path} is not a private regular file`);
-  if (readFileSync(path, "utf8") !== fakeSshScript(session.root)) refuse(`${path} is not the sandbox fake`);
-  if (!existsSync(join(checkout, "test/fixtures/bin/ssh"))) refuse("test/fixtures/bin/ssh is missing");
+  if (readFileSync(path, "utf8") !== fakeSshScript(session.root, fixture)) refuse(`${path} is not the sandbox fake`);
+  if (!existsSync(fixture)) refuse(`${fixture} is missing`);
   return path;
+}
+/**
+ * A sandbox's PACER_HOME is too long for socket paths, so pacer keeps its ssh control sockets in a `/tmp`
+ * directory derived from that home. Remove only that exact directory, and only when it is ours.
+ */
+export function removeSshControlDir(root: string): void {
+  const { dir, short } = controlDirPath(join(root, "home"));
+  if (!short) return;
+  let entry;
+  try { entry = lstatSync(dir); } catch { return; }
+  if (!entry.isDirectory() || entry.isSymbolicLink() || (process.getuid && entry.uid !== process.getuid())) return;
+  rmSync(dir, { recursive: true });
 }
 export async function freePort(reserve = reservePort): Promise<number> {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -440,6 +454,7 @@ export async function down(session: Session, keep = false): Promise<void> {
     const deleted = await deleteSandboxKeychainItems(session.root);
     record(session, { kind: "note", text: `Deleted ${deleted.length} sandbox Keychain item(s): ${deleted.join(", ") || "none"}` });
   }
+  removeSshControlDir(session.root);
   session.stopped = true;
   saveSession(session);
   record(session, { kind: "note", text: "Sandbox stopped" });

@@ -78,7 +78,7 @@ bun run live up --id my-change --real-keychain
 
 ### SSH and the fake host
 
-Every sandbox also puts a fake `ssh` first on its `PATH` (`bin/ssh`). It wraps `test/fixtures/bin/ssh`, which runs the remote program locally with `HOME` set to the sandbox's `fake-host/home/` and logs each call to `fake-host/ssh.log`. The SSH alias `pacer-live-down.invalid` is refused as an unreachable host would be. Every `ssh` call made by the sandbox service, guarded CLI and plugin children reaches this fake. There is no option to use the real SSH client: live tests against a real remote still need separate maintainer approval under SEC-6 and are outside this harness. Use `.invalid` aliases (`pacer-live-fake.invalid`) for sandbox hosts, so a real client could not resolve them either. Because the fake runs pacer's fixed remote scripts on this machine, keep every repository and account path in a sandbox host declaration under `~/`, which the fake resolves inside `fake-host/home/`; an absolute path would be used as a local path.
+Every sandbox also puts a fake `ssh` first on its `PATH` (`bin/ssh`). It wraps `test/fixtures/bin/ssh`, which runs the remote program locally with `HOME` set to the sandbox's `fake-host/home/` and logs each call to `fake-host/ssh.log`. The SSH alias `pacer-live-down.invalid` is refused as an unreachable host would be. In sandboxes started by `live up`, every `ssh` call made by the service, the guarded CLI (`live pacer`) and their plugin children reaches this fake. The upgrade and OTA fixtures start their own services without it; they declare no hosts, so they make no `ssh` calls. There is no option to use the real SSH client: live tests against a real remote still need separate maintainer approval under SEC-6 and are outside this harness. Use `.invalid` aliases (`pacer-live-fake.invalid`) for sandbox hosts, so a real client could not resolve them either. Because the fake runs pacer's fixed remote scripts on this machine, keep every repository and account path in a sandbox host declaration under `~/`, which the fake resolves inside `fake-host/home/`; an absolute path would be used as a local path. For the same reason, D3 refuses the CLI forms of the host operations D8 refuses (`host add`, `host account add`, `host repo map`, `host repo setup`, `host setup`, `host clean` and `host terminal`), and fixtures write their fixed host declarations into the sandbox `home/strategy.yaml` themselves. Because the sandbox `PACER_HOME` is long, pacer keeps its ssh control sockets in `/tmp/pacer-ssh-<uid>-<hash>`; `live down` removes only that sandbox's directory, derived exactly as pacer derives it.
 
 ### M1 runtime and artifact layout
 
@@ -136,7 +136,7 @@ eval "$(bun run live env --id my-change)"
 
 Use those exports in a dedicated shell so later work does not inherit the sandbox. The guarded `pacer` stays first on `PATH`, and `PACER_BIN` points at it. Each guarded call reapplies sandbox env, including calls made by child tools. Do not bypass the wrapper or override the sandbox coordinates.
 
-The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin uninstall|remove`, `account add|rm|login`, `host setup`, `orca`, `open` without `--print`, and `config set planner` in any spelling (`planner=…`, a different case, flags or `--` separators): the CLI calls `config.set` in-process with `integrations: "install"`, so D8 never sees it, and an unseeded sandbox does not redirect `HOME`, `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
+The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin uninstall|remove`, `account add|rm|login`, `host add|setup|clean|terminal`, `host account add`, `host repo map|setup` (found after flags too), `orca`, `open` without `--print`, and `config set planner` in any spelling (`planner=…`, a different case, flags or `--` separators): the CLI calls `config.set` in-process with `integrations: "install"`, so D8 never sees it, and an unseeded sandbox does not redirect `HOME`, `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
 
 ## D8: service operation guard
 
@@ -220,7 +220,10 @@ Combine rows for changes spanning areas. Remote live tests still require separat
 ### Sandbox SSH stream faults
 
 For a disposable full-session SSH task, the harness can arm one live-only
-`pacer-ssh` stream transport fault before opening its viewer:
+`pacer-ssh` stream transport fault before opening its viewer. In a sandbox,
+that task reaches only the fake host (see [SSH and the fake host](#ssh-and-the-fake-host)).
+Full sessions need the host prerequisites, such as glibc 2.17 or later, so run
+this on a Linux machine; elsewhere, report the stream-fault surface UNVERIFIED.
 
 ```sh
 bun run live stream-fault arm --id my-change --mode lost-input-ack
@@ -611,7 +614,7 @@ bun run live up --id host-forward --front-door rust --native-test-ops --native-f
 bun run live native-host-effects --id host-native --forward-id host-forward
 ```
 
-Before any request, the fixture checks that `ssh` on each sandbox's `PATH` is exactly the sandbox fake (`bin/ssh`, a private regular file with the expected bytes) and refuses otherwise. It then declares two fixed hosts in each sandbox's `home/strategy.yaml`: `fakehost`, which reaches the fake host, and `downhost`, which the fake refuses. The fake host gets `setsid` and util-linux `script` stand-ins and the declared account home, so its prerequisites can pass on any OS. Through the guarded public proxy it runs `host.check` for each host and checks:
+Before any request or write, the fixture checks both sandboxes: `ssh` on each sandbox's `PATH` must be exactly the sandbox fake (`bin/ssh`, a private regular file with the expected bytes), and neither sandbox may have used its fake host, hold fixture output or declare hosts. If either check fails, it refuses without touching either sandbox. It then declares two fixed hosts in each sandbox's `home/strategy.yaml`: `fakehost`, which reaches the fake host, and `downhost`, which the fake refuses. The fake host gets `setsid` and util-linux `script` stand-ins and the declared account home, so its prerequisites can pass on any OS. Through the guarded public proxy it runs `host.check` for each host and checks:
 
 - the reply is `{job}` and the job settles (`passed` for `fakehost`, `failed` with an unreachable `ssh` step for `downhost`) through `job.get`;
 - the private `state/jobs/<id>.json` file equals `job.get`, and `state/host-checks.json` holds the same checks;

@@ -1,11 +1,12 @@
 import {exerciseNativeConfig} from "../scripts/live/native-config";
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, FAKE_SSH_ALIAS, FAKE_SSH_DOWN_ALIAS, fakeHostHome, fakeSshLog, freePort, healthy, installFakeSsh, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, validateNativeFixtures, verifyFakeSsh, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, FAKE_SSH_ALIAS, FAKE_SSH_DOWN_ALIAS, FAKE_SSH_FIXTURE, fakeHostHome, fakeSshLog, freePort, healthy, installFakeSsh, loadSession, readEvidence, record, removeSshControlDir, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, validateNativeFixtures, verifyFakeSsh, type Session } from "../scripts/live/core";
+import { controlDir, controlDirPath } from "../src/remote/ssh";
 import { exerciseNativeHostEffects, fakeSshCalls, hostCheckDispatch, jobEvents, normalizeJob } from "../scripts/live/native-host-effects";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
@@ -75,6 +76,9 @@ describe("live guard (D3)", () => {
     const child = Bun.spawnSync([process.execPath, "scripts/live/guard.ts", "missing-session", "install"], { cwd: join(import.meta.dir, "..") });
     expect(child.exitCode).toBe(3);
     expect(child.stderr.toString()).toContain("D3");
+    const host = Bun.spawnSync([process.execPath, "scripts/live/guard.ts", "missing-session", "host", "--json", "clean", "box"], { cwd: join(import.meta.dir, "..") });
+    expect(host.exitCode).toBe(3);
+    expect(host.stderr.toString()).toContain("Live validation guard refused: D3: host clean changes the real user environment (D8 refuses host.clean)");
   });
 });
 
@@ -133,10 +137,73 @@ describe("live fake ssh host", () => {
       expect(existsSync(join(session.root, "home/strategy.yaml"))).toBe(false);
     }
     installFakeSsh(forward.root);
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("strategy is missing (native)");
+    for (const session of [native, forward]) atomicWrite(join(session.root, "home/strategy.yaml"), "planner: claude-code\n");
     await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("requires a healthy sandbox");
     await expect(main(["native-host-effects", "--id", "missing"])).rejects.toThrow("usage: live native-host-effects");
     await expect(main(["native-host-effects", "--id", "a", "--forward-id", "b", "--", "host", "clean"])).rejects.toThrow("usage: live native-host-effects");
     await expect(main(["status", "--forward-id", "b"])).rejects.toThrow("only valid for native-host-effects");
+  });
+  test("a used or host-declaring forward sandbox refuses before the native sandbox is touched", async () => {
+    const native: Session = { ...fixture(), id: "native", frontDoor: "rust", nativeTestOps: true };
+    const forward: Session = { ...fixture(), id: "forward", frontDoor: "rust", nativeTestOps: true, nativeForwardOps: "host.check" };
+    const strategy = "planner: claude-code\n";
+    for (const session of [native, forward]) {
+      installFakeSsh(session.root);
+      atomicWrite(join(session.root, "home/strategy.yaml"), strategy);
+    }
+    const untouched = () => {
+      expect(readFileSync(join(native.root, "home/strategy.yaml"), "utf8")).toBe(strategy);
+      for (const path of ["native-host-effects", "fake-host/bin", "fake-host/ssh.log", "fake-host/home/.bash_profile", "fake-host/home/.codex-team"]) {
+        expect(existsSync(join(native.root, path))).toBe(false);
+      }
+    };
+    atomicWrite(join(forward.root, "home/strategy.yaml"), "hosts:\n  other: {ssh: other.invalid}\n");
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("already declares hosts (forward)");
+    untouched();
+    atomicWrite(join(forward.root, "home/strategy.yaml"), strategy);
+    atomicWrite(fakeSshLog(forward.root), "");
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("already used (forward)");
+    untouched();
+    rmSync(fakeSshLog(forward.root));
+    mkdirSync(join(forward.root, "native-host-effects"));
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("already used (forward)");
+    untouched();
+  });
+  test("host checks refuse when the checkout's ssh fixture is missing", () => {
+    const session = fixture(), copy = join(session.root, "fixture-ssh");
+    atomicWrite(copy, readFileSync(FAKE_SSH_FIXTURE, "utf8"), 0o700);
+    installFakeSsh(session.root, copy);
+    expect(verifyFakeSsh(session, Bun.which, copy)).toBe(join(session.root, "bin/ssh"));
+    expect(() => verifyFakeSsh(session)).toThrow("is not the sandbox fake");
+    rmSync(copy);
+    expect(() => verifyFakeSsh(session, Bun.which, copy)).toThrow(`Fake ssh check failed: ${copy} is missing`);
+  });
+  test("down removes only the sandbox's own /tmp ssh control directory", async () => {
+    const sandbox = (name: string): Session => {
+      const root = join(tmpDir(), `${name}-${"long-".repeat(12)}`);
+      for (const path of ["home", "bin", "repo", "evidence", "logs"]) mkdirSync(join(root, path), { recursive: true });
+      return { id: name, root, pid: 0, port: 49672, createdAt: "2026-10-18T00:00:00Z" };
+    };
+    const session = sandbox("own"), other = sandbox("other");
+    const own = controlDirPath(join(session.root, "home")), kept = controlDirPath(join(other.root, "home"));
+    expect(own.short && kept.short).toBe(true);
+    try {
+      expect(controlDir({ pacerHome: join(session.root, "home") } as never)).toBe(own.dir);
+      mkdirSync(kept.dir, { mode: 0o700 });
+      atomicWrite(join(own.dir, "cm-socket-stand-in"), "");
+      await down(session, true);
+      expect(existsSync(own.dir)).toBe(false);
+      expect(existsSync(kept.dir)).toBe(true);
+      // A symlink at the derived path is not ours to follow or remove.
+      symlinkSync(kept.dir, own.dir);
+      removeSshControlDir(session.root);
+      expect(lstatSync(own.dir).isSymbolicLink()).toBe(true);
+      expect(existsSync(kept.dir)).toBe(true);
+    } finally {
+      rmSync(own.dir, { recursive: !lstatSync(own.dir, { throwIfNoEntry: false })?.isSymbolicLink(), force: true });
+      rmSync(kept.dir, { recursive: true, force: true });
+    }
   });
   test("host-effects evidence: SSE job events, ssh calls, normalized jobs and native dispatch traces", () => {
     const job = (id: string, state: string) => ({ id, kind: "host.check", target: "fakehost", state, steps: [], startedAt: 1, pid: 2, cancellable: false });
