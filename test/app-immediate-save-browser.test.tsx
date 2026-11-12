@@ -3,6 +3,12 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { saveError } from '../app/src/ds/ImmediateSave';
 const executable = process.env.PACER_TEST_BROWSER ?? (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : chromium.executablePath());
+/** On a loaded macOS runner Chrome can take seconds to quit, and a helper it orphans holds Playwright's
+ * graceful close open until its 30 s kill. Tests kill the throwaway browser instead. */
+async function launchBrowser() {
+  const owner = await chromium.launchServer({headless:true,executablePath:executable});
+  return {browser: await chromium.connect(owner.wsEndpoint()), kill: () => owner.kill()};
+}
 test('save error reasons hide internal diagnostics', () => {
   expect(saveError({code:'forbidden',message:'Live validation D8: config.set changes the real user environment'}).message).toBe("Couldn't save: This change is blocked in the validation sandbox.");
   expect(saveError({code:'conflict',message:'revision mismatch'}).message).toContain('changed elsewhere');
@@ -19,7 +25,7 @@ test.skipIf(!existsSync(executable))('immediate saves lock, announce success for
     writes.push(await request.json()); await new Promise<void>(resolve => {release=resolve;});
     return fail ? Response.json({code:'forbidden',message:'Live validation D8: config.set changes the real user environment'},{status:403}) : Response.json({});
   }});
-  const browser = await chromium.launch({headless:true,executablePath:executable});
+  const {browser, kill} = await launchBrowser();
   try {
     const page = await browser.newPage(); await page.goto(String(server.url));
     const policy = page.locator('.pc-immediate-save').first();
@@ -52,7 +58,7 @@ test.skipIf(!existsSync(executable))('immediate saves lock, announce success for
     await page.locator('.pc-immediate-save').nth(2).getByText('Saved',{exact:false}).waitFor();
     expect(writes).toHaveLength(3);
     await slider.blur(); expect(writes).toHaveLength(3);
-  } finally { release?.(); await browser.close(); server.stop(true); }
+  } finally { release?.(); await kill(); server.stop(true); }
 },15000);
 
 test.skipIf(!existsSync(executable))('cancelled immediate saves wait for enabled controls and respect focus moved elsewhere', async () => {
@@ -67,7 +73,7 @@ test.skipIf(!existsSync(executable))('cancelled immediate saves wait for enabled
     await new Promise<void>(resolve => { release = resolve; });
     return Response.json({});
   }});
-  const browser = await chromium.launch({headless:true,executablePath:executable});
+  const {browser, kill} = await launchBrowser();
   try {
     const page = await browser.newPage();
     await page.goto(String(server.url));
@@ -96,5 +102,5 @@ test.skipIf(!existsSync(executable))('cancelled immediate saves wait for enabled
     expect(await elsewhere.evaluate(node => document.activeElement === node)).toBe(true);
     expect(await control.isChecked()).toBe(false);
     expect(writes).toBe(2);
-  } finally { release?.(); await browser.close(); server.stop(true); }
+  } finally { release?.(); await kill(); server.stop(true); }
 },15000);
