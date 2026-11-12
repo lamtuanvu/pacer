@@ -252,18 +252,18 @@ fn service_handover_and_work_are_not_registered_native_ops() {
 }
 
 #[test]
-fn host_check_and_clean_are_registered_and_repo_setup_is_not() {
-    // host.check and host.clean answer refusals and dry runs natively and run their jobs
-    // through Core's whole-operation host effects bridge; host.repo.setup stays on
-    // TypeScript until it gets a native arm.
-    for name in ["host.check", "host.clean"] {
+fn host_check_clean_and_repo_setup_are_registered() {
+    // host.check, host.clean and host.repo.setup answer refusals (and clean dry runs)
+    // natively and run their jobs through Core's whole-operation host effects bridge;
+    // host.terminal stays on TypeScript.
+    for name in ["host.check", "host.clean", "host.repo.setup"] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
         assert!(super::needs_host_effects(name), "{name}");
     }
-    assert!(registry("").get("host.repo.setup").is_none());
-    assert!(super::service_registry("").get("host.repo.setup").is_none());
+    assert!(registry("").get("host.terminal").is_none());
+    assert!(super::service_registry("").get("host.terminal").is_none());
 }
 
 #[test]
