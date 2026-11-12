@@ -151,34 +151,25 @@ async fn cancelled_close_retains_exact_session_for_owned_retirement() {
     native.revoke().await.unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
-// R5: failed-open settlement, owned retirement sweep and first sticky cause.
+// R5: retirement on failure, owned close sweep, and TypeScript `host-lease.ts` parity:
+// a failed open or a failed close retires only its own lease and never blocks the others.
 // Scripted provider state is the provider-owned fact; handles are exact strings.
-use std::{
-    collections::{HashMap, VecDeque},
-    future::Future,
-    task::{Context, Poll, Waker},
-};
+use std::collections::{HashMap, VecDeque};
 enum Open {
     Handle,
     Reply(Value),
     Fail(&'static str),
 }
-enum Settle {
-    Fail(&'static str),
-    Pend,
-}
 #[derive(Default)]
 struct Script {
     opens: usize,
-    settles: usize,
     open: VecDeque<Open>,
-    settle: VecDeque<Settle>,
     close_fail: HashMap<String, &'static str>,
-    close_pend: usize,
     close_attempts: Vec<String>,
     closed: Vec<String>,
     drift_on_open: bool,
     run_fail: Option<&'static str>,
+    fetch_fail: Option<&'static str>,
     snapshot: Option<ProviderSnapshot>,
 }
 type Shared = Arc<Mutex<Script>>;
@@ -206,59 +197,38 @@ impl HostProvider for Scripted {
                 .unwrap_or_else(snapshot),
         )
     }
-    async fn invoke(&mut self, m: &str, p: Value) -> Result<Value, BrokerError> {
-        // `None` pends forever; the guard is released before any await.
-        let reply = {
-            let mut s = self.0.lock().unwrap();
-            match m {
-                "hostRunner.open" => {
-                    s.opens += 1;
-                    if s.drift_on_open {
-                        let mut drifted = snapshot();
-                        drifted.provider_generation = "changed".into();
-                        s.snapshot = Some(drifted);
-                    }
-                    match s.open.pop_front().unwrap_or(Open::Handle) {
-                        Open::Handle => Some(Ok(
-                            json!({"session":format!("provider-handle-{:04}",s.opens)}),
-                        )),
-                        Open::Reply(reply) => Some(Ok(reply)),
-                        Open::Fail(message) => Some(Err(effect(message))),
-                    }
-                }
-                "hostRunner.close" => {
-                    let handle = p["session"].as_str().unwrap().to_owned();
-                    s.close_attempts.push(handle.clone());
-                    if s.close_pend > 0 {
-                        s.close_pend -= 1;
-                        None
-                    } else if let Some(message) = s.close_fail.get(&handle) {
-                        Some(Err(effect(message)))
-                    } else {
-                        s.closed.push(handle);
-                        Some(Ok(json!({"ok":true})))
-                    }
-                }
-                _ => Some(s.run_fail.map(|m| Err(effect(m))).unwrap_or_else(|| {
-                    Ok(json!({"code":0,"stdout":"ok","stderr":"","timedOut":false}))
-                })),
-            }
-        };
-        match reply {
-            Some(reply) => reply,
-            None => std::future::pending().await,
-        }
+    async fn fetch(&mut self, _: Value) -> Result<pacer_plugin_host::BundleTicket, BrokerError> {
+        Err(effect(self.0.lock().unwrap().fetch_fail.unwrap()))
     }
-    async fn retire_pending(&mut self) -> Result<(), BrokerError> {
-        let next = {
-            let mut s = self.0.lock().unwrap();
-            s.settles += 1;
-            s.settle.pop_front()
-        };
-        match next {
-            None => Ok(()),
-            Some(Settle::Fail(message)) => Err(effect(message)),
-            Some(Settle::Pend) => std::future::pending().await,
+    async fn invoke(&mut self, m: &str, p: Value) -> Result<Value, BrokerError> {
+        let mut s = self.0.lock().unwrap();
+        match m {
+            "hostRunner.open" => {
+                s.opens += 1;
+                if s.drift_on_open {
+                    let mut drifted = snapshot();
+                    drifted.provider_generation = "changed".into();
+                    s.snapshot = Some(drifted);
+                }
+                match s.open.pop_front().unwrap_or(Open::Handle) {
+                    Open::Handle => Ok(json!({"session":h(s.opens)})),
+                    Open::Reply(reply) => Ok(reply),
+                    Open::Fail(message) => Err(effect(message)),
+                }
+            }
+            "hostRunner.close" => {
+                let handle = p["session"].as_str().unwrap().to_owned();
+                s.close_attempts.push(handle.clone());
+                if let Some(message) = s.close_fail.get(&handle) {
+                    Err(effect(message))
+                } else {
+                    s.closed.push(handle);
+                    Ok(json!({"ok":true}))
+                }
+            }
+            _ => s.run_fail.map(|m| Err(effect(m))).unwrap_or_else(|| {
+                Ok(json!({"code":0,"stdout":"ok","stderr":"","timedOut":false}))
+            }),
         }
     }
 }
@@ -270,13 +240,6 @@ fn scripted(edit: impl FnOnce(&mut Script)) -> (NativeHosts<Scripted>, Shared) {
         NativeHosts::new(Scripted(shared.clone()), [snapshot()]),
         shared,
     )
-}
-/// One deterministic poll with a no-op waker; the future is dropped on return.
-fn poll_once<F: Future>(future: F) -> Poll<F::Output> {
-    let mut future = std::pin::pin!(future);
-    future
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
 }
 fn open_params(session: &str) -> Value {
     json!({"alias":"box","session":session})
@@ -293,6 +256,13 @@ async fn open<P: HostProvider>(
 async fn run<P: HostProvider>(n: &mut NativeHosts<P>, session: &str) -> Result<Value, BrokerError> {
     n.call("capability.hosts.run", run_params(session)).await
 }
+async fn close<P: HostProvider>(
+    n: &mut NativeHosts<P>,
+    session: &str,
+) -> Result<Value, BrokerError> {
+    n.call("capability.hosts.close", json!({"session":session}))
+        .await
+}
 fn sorted(mut handles: Vec<String>) -> Vec<String> {
     handles.sort();
     handles
@@ -301,19 +271,19 @@ fn h(n: usize) -> String {
     format!("provider-handle-{n:04}")
 }
 #[tokio::test]
-async fn settled_open_error_is_settled_then_retry_succeeds() {
+async fn failed_open_retires_cleanly_then_retry_succeeds() {
     let (mut n, s) = scripted(|s| s.open.push_back(Open::Fail("boom")));
     assert!(is_effect(open(&mut n, "s1").await, "boom"));
-    assert_eq!(s.lock().unwrap().settles, 1);
-    assert!(s.lock().unwrap().close_attempts.is_empty());
+    assert!(is_denied(run(&mut n, "s1").await));
     open(&mut n, "s2").await.unwrap();
     assert_eq!(run(&mut n, "s2").await.unwrap()["stdout"], "ok");
+    n.revoke().await.unwrap();
     let s = s.lock().unwrap();
-    assert_eq!((s.opens, s.settles), (2, 1));
-    assert!(s.close_attempts.is_empty());
+    assert_eq!(s.opens, 2);
+    assert_eq!(s.close_attempts, [h(2)]);
 }
 #[tokio::test]
-async fn settled_invalid_open_results_are_settled_never_closed_as_guesses() {
+async fn invalid_open_results_are_never_closed_as_guesses() {
     // The extra-field case is excluded: native checks only `session` (D1).
     for reply in [
         json!({}),
@@ -328,69 +298,46 @@ async fn settled_invalid_open_results_are_settled_never_closed_as_guesses() {
     ] {
         let (mut n, s) = scripted(|s| s.open.push_back(Open::Reply(reply.clone())));
         assert!(is_denied(open(&mut n, "s1").await), "{reply}");
-        assert_eq!(s.lock().unwrap().settles, 1);
         assert!(is_denied(run(&mut n, "s1").await));
         open(&mut n, "s2").await.unwrap();
         let s = s.lock().unwrap();
-        assert_eq!((s.opens, s.settles), (2, 1));
+        assert_eq!(s.opens, 2);
         assert!(s.close_attempts.is_empty(), "{reply}");
     }
 }
 #[tokio::test]
-async fn default_provider_cannot_certify_settled_open_failure() {
-    struct Legacy(Arc<AtomicUsize>);
-    impl HostProvider for Legacy {
-        fn snapshot(&self, _: &str) -> Option<ProviderSnapshot> {
-            Some(snapshot())
-        }
-        async fn invoke(&mut self, _: &str, _: Value) -> Result<Value, BrokerError> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            Err(effect("boom"))
-        }
+async fn failed_or_invalid_open_leaves_other_sessions_closable() {
+    for failed in [Open::Fail("boom"), Open::Reply(json!({}))] {
+        let (mut n, s) = scripted(|s| s.open.extend([Open::Handle, failed]));
+        open(&mut n, "a").await.unwrap();
+        assert!(open(&mut n, "b").await.is_err());
+        assert_eq!(close(&mut n, "a").await.unwrap(), json!({"ok":true}));
+        assert!(is_denied(close(&mut n, "b").await));
+        let s = s.lock().unwrap();
+        assert_eq!(s.close_attempts, [h(1)]);
+        assert_eq!(s.closed, [h(1)]);
     }
-    let opens = Arc::new(AtomicUsize::new(0));
-    let mut n = NativeHosts::new(Legacy(opens.clone()), [snapshot()]);
-    let unverified = "pending host open cleanup unverified";
-    assert!(is_effect(open(&mut n, "s1").await, "boom"));
-    assert!(is_effect(open(&mut n, "s2").await, unverified));
-    assert!(is_effect(run(&mut n, "s1").await, unverified));
-    assert_eq!(opens.load(Ordering::SeqCst), 1);
-    assert!(is_effect(n.revoke().await, unverified));
-    assert!(is_effect(n.revoke().await, unverified));
 }
 #[tokio::test]
-async fn failed_settlement_keeps_operation_cause_and_sticky_uncertainty() {
+async fn failed_close_retires_that_session_and_others_stay_closable() {
     let (mut n, s) = scripted(|s| {
-        s.open.push_back(Open::Fail("boom"));
-        s.settle.push_back(Settle::Fail("settle failed"));
+        s.close_fail.insert(h(1), "close A");
     });
-    assert!(is_effect(open(&mut n, "s1").await, "boom"));
-    assert!(is_effect(open(&mut n, "s2").await, "settle failed"));
-    assert!(is_effect(run(&mut n, "s1").await, "settle failed"));
-    let close = n.call("capability.hosts.close", json!({"session":"s1"}));
-    assert!(is_effect(close.await, "settle failed"));
-    assert!(is_effect(n.revoke().await, "settle failed"));
-    assert!(is_effect(n.revoke().await, "settle failed"));
-    let s = s.lock().unwrap();
-    assert_eq!((s.opens, s.settles), (1, 1));
-    assert!(s.close_attempts.is_empty());
-}
-#[tokio::test]
-async fn cancel_during_open_settlement_retains_pending_marker() {
-    let (mut n, s) = scripted(|s| {
-        s.open.push_back(Open::Fail("boom"));
-        s.settle.push_back(Settle::Pend);
-    });
-    assert!(poll_once(open(&mut n, "s1")).is_pending());
-    assert_eq!(s.lock().unwrap().settles, 1);
-    assert!(is_denied(open(&mut n, "s2").await));
-    assert_eq!(s.lock().unwrap().opens, 1);
-    assert_eq!(s.lock().unwrap().settles, 1);
+    open(&mut n, "a").await.unwrap();
+    open(&mut n, "c").await.unwrap();
+    assert!(is_effect(close(&mut n, "a").await, "close A"));
+    assert!(is_denied(run(&mut n, "a").await));
+    assert!(is_denied(close(&mut n, "a").await));
+    assert_eq!(run(&mut n, "c").await.unwrap()["stdout"], "ok");
+    assert_eq!(close(&mut n, "c").await.unwrap(), json!({"ok":true}));
+    open(&mut n, "d").await.unwrap();
     n.revoke().await.unwrap();
-    assert_eq!(s.lock().unwrap().settles, 2);
+    let s = s.lock().unwrap();
+    assert_eq!(s.close_attempts, [h(1), h(2), h(3)]);
+    assert_eq!(s.closed, [h(2), h(3)]);
 }
 #[tokio::test]
-async fn settled_failure_recovery_requires_exact_unchanged_snapshot() {
+async fn open_recovery_requires_exact_unchanged_snapshot() {
     for key in 0..5 {
         let (mut n, s) = scripted(|s| s.open.push_back(Open::Fail("boom")));
         assert!(is_effect(open(&mut n, "s1").await, "boom"));
@@ -413,42 +360,21 @@ async fn settled_failure_recovery_requires_exact_unchanged_snapshot() {
     assert!(is_denied(open(&mut n, "s1").await));
     assert_eq!(s.lock().unwrap().close_attempts, [h(1)]);
     assert_eq!(s.lock().unwrap().closed, [h(1)]);
+    // A failed cleanup close still retires the drifted open and blocks nothing later.
     let (mut n, s) = scripted(|s| {
         s.drift_on_open = true;
         s.close_fail.insert(h(1), "close failed");
     });
-    assert!(is_effect(open(&mut n, "s1").await, "close failed"));
+    assert!(is_denied(open(&mut n, "s1").await));
+    assert!(is_denied(run(&mut n, "s1").await));
+    s.lock().unwrap().drift_on_open = false;
     s.lock().unwrap().snapshot = None;
-    assert!(is_effect(open(&mut n, "s2").await, "close failed"));
-    assert_eq!(s.lock().unwrap().close_attempts, [h(1)]);
+    open(&mut n, "s2").await.unwrap();
+    n.revoke().await.unwrap();
+    assert_eq!(s.lock().unwrap().close_attempts, [h(1), h(2)]);
 }
 #[tokio::test]
-async fn revoke_attempts_every_session_and_keeps_first_cause() {
-    // (a) A pre-existing sticky cause wins over a later close failure.
-    let (mut n, s) = scripted(|s| {
-        s.open
-            .extend([Open::Handle, Open::Handle, Open::Fail("boom")]);
-        s.settle.push_back(Settle::Fail("settle failed"));
-        s.close_fail.insert(h(1), "close A");
-    });
-    open(&mut n, "a").await.unwrap();
-    open(&mut n, "b").await.unwrap();
-    assert!(is_effect(open(&mut n, "c").await, "boom"));
-    assert_eq!(s.lock().unwrap().settles, 1);
-    assert!(is_effect(n.revoke().await, "settle failed"));
-    assert_eq!(
-        sorted(s.lock().unwrap().close_attempts.clone()),
-        [h(1), h(2)]
-    );
-    assert_eq!(s.lock().unwrap().closed, [h(2)]);
-    assert!(is_effect(n.revoke().await, "settle failed"));
-    assert_eq!(
-        sorted(s.lock().unwrap().close_attempts.clone()),
-        [h(1), h(1), h(2)]
-    );
-    assert_eq!(s.lock().unwrap().closed, [h(2)]);
-    assert_eq!(s.lock().unwrap().settles, 1);
-    // (b) Without a prior cause, the first observed close failure wins.
+async fn revoke_attempts_every_session_and_returns_first_close_failure() {
     let (mut n, s) = scripted(|s| {
         s.close_fail.insert(h(1), "close A");
         s.close_fail.insert(h(2), "close B");
@@ -464,8 +390,9 @@ async fn revoke_attempts_every_session_and_keeps_first_cause() {
         "close B"
     };
     assert!(is_effect(revoked, first));
-    assert!(is_effect(run(&mut n, "a").await, first));
-    assert!(is_effect(n.revoke().await, first));
+    assert!(is_denied(run(&mut n, "a").await));
+    n.revoke().await.unwrap();
+    assert_eq!(s.lock().unwrap().close_attempts.len(), 2);
     assert!(s.lock().unwrap().closed.is_empty());
 }
 #[tokio::test]
@@ -481,4 +408,32 @@ async fn run_error_retires_the_exact_session_and_keeps_others() {
     assert_eq!(run(&mut n, "b").await.unwrap()["stdout"], "ok");
     n.revoke().await.unwrap();
     assert_eq!(s.lock().unwrap().closed, [h(1), h(2)]);
+}
+#[tokio::test]
+async fn fetch_error_retires_the_exact_session_and_keeps_others() {
+    let (mut n, s) = scripted(|s| s.fetch_fail = Some("fetch failed"));
+    open(&mut n, "a").await.unwrap();
+    open(&mut n, "b").await.unwrap();
+    let fetch =
+        json!({"session":"a","script":"BUNDLE_OUT","args":[],"timeoutMs":1000,"maxBytes":1024});
+    let fetched = n.call("capability.hosts.fetch", fetch).await;
+    assert!(is_effect(fetched, "fetch failed"));
+    assert_eq!(s.lock().unwrap().closed, [h(1)]);
+    assert!(is_denied(run(&mut n, "a").await));
+    assert_eq!(run(&mut n, "b").await.unwrap()["stdout"], "ok");
+}
+#[tokio::test]
+async fn snapshot_change_before_run_retires_with_one_provider_close() {
+    let (mut n, s) = scripted(|_| {});
+    open(&mut n, "a").await.unwrap();
+    let mut changed = snapshot();
+    changed.provider_generation = "changed".into();
+    s.lock().unwrap().snapshot = Some(changed);
+    assert!(is_denied(run(&mut n, "a").await));
+    assert_eq!(s.lock().unwrap().close_attempts, [h(1)]);
+    s.lock().unwrap().snapshot = None;
+    assert!(is_denied(run(&mut n, "a").await));
+    n.revoke().await.unwrap();
+    assert_eq!(s.lock().unwrap().close_attempts, [h(1)]);
+    assert_eq!(s.lock().unwrap().closed, [h(1)]);
 }

@@ -7,7 +7,7 @@ use std::{
 };
 use thiserror::Error;
 
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum AuthorityError {
     #[error("owning plugin call expired or was revoked")]
     Expired,
