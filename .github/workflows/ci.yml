@@ -358,6 +358,7 @@ jobs:
     if: ${{ needs.changes.outputs.rust == 'true' }}
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -377,6 +378,12 @@ jobs:
           components: rustfmt, clippy
       - name: Cache Rust
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Cache both the root workspace and the desktop crate (excluded from
+          # the root workspace) so the desktop test below stays fast.
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
       # Integration tests run the TypeScript core behind the Rust front door.
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -405,6 +412,26 @@ jobs:
         run: cargo xtask deps
       - name: Test
         run: cargo test --workspace --locked
+      # The desktop crate is excluded from the root workspace, so the step
+      # above never builds it. Run its tests here so desktop-only
+      # terminal-bridge bugs (e.g. #838, #915) fail CI instead of only in
+      # the manual desktop.yml workflow. Bounds match the desktop build job.
+      - name: Install desktop build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Test desktop crate
+        # Tauri's build script requires the bundled CLI sidecars to exist; tests never run
+        # them, so stage two stub executables instead of building the full CLI.
+        run: |
+          stub="$RUNNER_TEMP/pacer-sidecar-stub"
+          mkdir -p "$stub"
+          printf '#!/bin/sh\nexit 0\n' > "$stub/pacer"
+          cp "$stub/pacer" "$stub/pacer-core"
+          chmod 0755 "$stub/pacer" "$stub/pacer-core"
+          desktop/scripts/stage-cli.sh "$stub/pacer" "$stub/pacer-core"
+          cargo test --locked --bin pacer --manifest-path desktop/src-tauri/Cargo.toml
       - name: Test Rust plugin SDK harness feature
         run: cargo test -p pacer-plugin --features testing --locked
       - name: Plugin conformance through the Rust front door

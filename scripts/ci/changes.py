@@ -43,8 +43,9 @@ def select(paths):
         elif path.startswith(("plugins/", "packages/")):
             result["bun"] = result["rust"] = result["codeql"] = result["e2e"] = True
         elif path.startswith("desktop/"):
-            # Native presentation and bundle parity also have Bun tests.
-            result["bun"] = result["ui"] = result["codeql"] = True
+            # Native presentation and bundle parity also have Bun tests. Desktop
+            # terminal-bridge tests run in the Rust job (cargo test --bin pacer).
+            result["bun"] = result["ui"] = result["codeql"] = result["rust"] = True
         else:
             # Shared configuration, workflows, scripts and unknown new areas:
             # err on the side of coverage until their dependencies are mapped.
