@@ -53,11 +53,25 @@ pub fn json_equal(left: &Value, right: &Value) -> bool {
 
 /// The finite Number(text) contract used by fixed wrapper/SSH fact readers.
 pub fn number_text(text: &str) -> Option<f64> {
-    let text = trim(text);
-    if text.is_empty() {
+    if trim(text).is_empty() {
         return None;
     }
-    let value = if let Some((radix, digits)) = text
+    Some(string_to_number(text)).filter(|value| value.is_finite())
+}
+
+/// `Number(text)`: blank text is 0, `Infinity` and decimal overflow are infinite, and text
+/// that is not a numeric literal is NaN.
+pub fn string_to_number(text: &str) -> f64 {
+    let text = trim(text);
+    if text.is_empty() {
+        return 0.0;
+    }
+    match text {
+        "Infinity" | "+Infinity" => return f64::INFINITY,
+        "-Infinity" => return f64::NEG_INFINITY,
+        _ => {}
+    }
+    if let Some((radix, digits)) = text
         .strip_prefix("0x")
         .or_else(|| text.strip_prefix("0X"))
         .map(|s| (16, s))
@@ -70,36 +84,38 @@ pub fn number_text(text: &str) -> Option<f64> {
             text.strip_prefix("0o")
                 .or_else(|| text.strip_prefix("0O"))
                 .map(|s| (8, s))
-        }) {
-        if digits.is_empty() {
-            return None;
-        }
+        })
+    {
         // Bun's JavaScriptCore Number parser accumulates overflowing radix
         // literals from the least significant digit. Preserve its intermediate
         // IEEE-754 rounding rather than rounding an arbitrary-precision integer
         // once: the two differ for adversarial literals beyond 53 bits.
         let digits: Option<Vec<_>> = digits.chars().map(|c| c.to_digit(radix)).collect();
-        let digits = digits?;
+        let Some(digits) = digits.filter(|digits| !digits.is_empty()) else {
+            return f64::NAN;
+        };
         let mut value = 0.0;
         let mut place = 1.0_f64;
         for digit in digits.into_iter().rev() {
             if place.is_infinite() {
                 if digit != 0 {
-                    return None;
+                    return f64::INFINITY;
                 }
             } else {
                 value += f64::from(digit) * place;
             }
             place *= f64::from(radix);
         }
-        value
-    } else {
-        match text.parse::<f64>() {
-            Ok(n) => n,
-            Err(_) => return None,
-        }
-    };
-    value.is_finite().then_some(value)
+        return value;
+    }
+    // Rust's float grammar also reads `inf` and `nan`, which are not JavaScript literals.
+    if !text
+        .bytes()
+        .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'e' | b'E' | b'+' | b'-'))
+    {
+        return f64::NAN;
+    }
+    text.parse::<f64>().unwrap_or(f64::NAN)
 }
 
 /// JavaScript truthiness of a parsed JSON value.

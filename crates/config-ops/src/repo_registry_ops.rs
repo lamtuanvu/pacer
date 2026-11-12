@@ -10,7 +10,8 @@ use pacer_repos as repo_registry;
 use serde_json::{Map, Value, json};
 
 pub fn repo_list_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
-    matches!(op, "repo.list" | "repo.add") && repo_registry::registry_needs_core(&ctx.pacer_home)
+    matches!(op, "repo.list" | "repo.add")
+        && repo_registry::registry_needs_core(&ctx.pacer_home, op == "repo.add")
 }
 
 pub(crate) fn received(value: Option<&Value>) -> &'static str {
