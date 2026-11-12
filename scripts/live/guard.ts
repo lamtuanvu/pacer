@@ -14,6 +14,40 @@ function configSetsPlanner(args: string[]): boolean {
   return words[0] === "config" && set > 0 && words.slice(set + 1).some(arg => /^-*planner\b/i.test(arg.trim()));
 }
 
+/** CLI forms of the host operations D8 refuses over the API. The sandbox ssh runs remote programs locally. */
+const HOST_FORMS: Readonly<Record<string, string>> = {
+  "add": "host.add", "account add": "host.account.add", "setup": "host.repo.setup", "clean": "host.clean", "terminal": "host.terminal",
+};
+/** `host repo` admits only these read-only subcommands; every other one is refused. */
+const READ_ONLY_REPO_FORMS = ["list", "check"];
+/**
+ * The first positional after `repo`, read two ways: skipping every dash word, and as the CLI's `parseFlags`
+ * reads it (`--x` takes the next word unless it is the boolean `--json`). Both readings must agree.
+ */
+function repoSubcommands(tail: string[]): [string | undefined, string | undefined] {
+  let parsed: string | undefined;
+  for (let i = 0; i < tail.length; i++) {
+    if (!tail[i].startsWith("--")) { parsed = tail[i]; break; }
+    if (tail[i] !== "--json") i++;
+  }
+  return [tail.find(arg => !arg.startsWith("-")), parsed];
+}
+function hostRefusal(args: string[]): string | undefined {
+  // The CLI accepts flags before the action and flag values look like words, so every word is a candidate.
+  const words = args.slice(1).filter(arg => !arg.startsWith("-"));
+  for (let i = 0; i < words.length; i++) {
+    const form = [`${words[i]} ${words[i + 1]}`, words[i]].find(candidate => Object.hasOwn(HOST_FORMS, candidate));
+    if (form) return `D3: host ${form} changes the real user environment (D8 refuses ${HOST_FORMS[form]})`;
+  }
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] !== "repo") continue;
+    const tail = args.slice(i + 1), [plain, parsed] = repoSubcommands(tail);
+    if (tail.includes("map")) return "D3: host repo map changes the real user environment (D8 refuses host.repo.map)";
+    if (plain === parsed && READ_ONLY_REPO_FORMS.includes(plain ?? "")) continue;
+    return `D3: host repo admits only the read-only ${READ_ONLY_REPO_FORMS.join(" and ")} subcommands`;
+  }
+}
+
 /** D3 applies before dispatch, including calls made by the TUI or task runner. */
 export function refusal(args: string[]): string | undefined {
   const [command, action] = args;
@@ -34,8 +68,9 @@ export function refusal(args: string[]): string | undefined {
   if (configSetsPlanner(args)) return "D3: config set planner installs planner integrations in-process, bypassing D8";
   if (command === "desktop-update" && action !== "status") return "D3: desktop update requires a verified OTA fixture";
   if (["integrations", "install", "uninstall", "init", "setup", "statusline", "update", "orca"].includes(command)) return `D3: ${command} changes the real user environment`;
-  const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["uninstall", "remove"], account: ["add", "rm", "login"], host: ["setup"] };
+  const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["uninstall", "remove"], account: ["add", "rm", "login"] };
   if (blocked[command]?.includes(action)) return `D3: ${command} ${action} changes the real user environment`;
+  if (command === "host") return hostRefusal(args);
   if (command === "open" && !args.includes("--print")) return "D3: open requires --print; use the agent's browser tools";
   return undefined;
 }
