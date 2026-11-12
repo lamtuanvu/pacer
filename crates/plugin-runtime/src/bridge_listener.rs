@@ -2,7 +2,10 @@
 //!
 //! Binds `$PACER_HOME/run/host.sock` (dir 0700, socket 0600), accepts line
 //! JSON-RPC for `_host.plugin.call` / `_host.plugin.find`, and authorizes peers
-//! by Unix credentials. Default serve must not call [`ReverseBridge::bind`] or
+//! by Unix credentials. Sockets are bound in a verified private directory and
+//! narrowed to 0600 by path; the process umask is never changed. A stdio
+//! connection's socket may live outside the home (`connection_dir`).
+//! Default serve must not call [`ReverseBridge::bind`] or
 //! export [`crate::HOST_SOCKET_ENV`] unless flag wiring is explicitly enabled
 //! (`PACER_NATIVE_PLUGIN_HOST` and/or [`crate::HOST_BRIDGE_ENABLE_ENV`]). This
 //! module never binds TCP.
@@ -12,12 +15,22 @@
 //! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A `_host.plugin.call`
 //! carrying `spawn` is a Core-sealed call (`crate::bridge_call`): the owner
 //! starts, hellos and authorizes the child before calling it.
+//!
+//! An existing socket path is probed with a non-blocking connect before bind:
+//! a refused connect marks it stale and it is removed, while an accepted or
+//! still-pending connect (full backlog) is [`BridgeError::LiveSocket`]. A bind
+//! that loses a race with another owner reports `LiveSocket` as well, so serve
+//! can wait for the owner and then exit 3 (ADR 0027, OD-7).
 
 use crate::bridge_call::{SealedCall, call_sealed};
 use crate::capability::{CoreForward, CoreRequest};
+use crate::connection_dir::{
+    Probe, check_private_dir, connection_socket_dir, probe_socket, sweep_stale_sockets,
+};
 use crate::host_bridge::{
-    HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND,
-    METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, dark_bridge_enabled, prepare_host_run_dir,
+    HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
+    METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, SOCKET_PATH_MAX,
+    dark_bridge_enabled, prepare_run_dir,
 };
 use crate::owner::ProcessOwner;
 use pacer_plugin_host::SpawnSpec;
@@ -27,7 +40,7 @@ use std::{
     fs, io,
     os::unix::{
         fs::{FileTypeExt, MetadataExt},
-        net::{UnixListener as StdUnixListener, UnixStream as StdUnixStream},
+        net::UnixListener as StdUnixListener,
     },
     path::{Path, PathBuf},
     sync::Arc,
@@ -71,6 +84,16 @@ pub enum BridgeError {
     DarkWiringDisabled,
     #[error("live reverse-bridge socket already present at {0}")]
     LiveSocket(PathBuf),
+    #[error("reverse-bridge socket path exceeds {SOCKET_PATH_MAX} bytes: {0}")]
+    PathTooLong(PathBuf),
+    #[error(
+        "reverse-bridge socket path exceeds {SOCKET_PATH_MAX} bytes: {path}, and the private \
+         per-user directory is unusable: {reason}. Set PACER_NATIVE_PLUGIN_HOST=0 or use a \
+         shorter PACER_HOME"
+    )]
+    NoPrivateDir { path: PathBuf, reason: String },
+    #[error("reverse-bridge socket directory is not private: {0}")]
+    UntrustedDir(String),
     #[error("peer credentials unavailable")]
     PeerCredUnavailable,
     #[error("untrusted reverse-bridge caller")]
@@ -139,9 +162,52 @@ impl ReverseBridge {
     }
 
     pub fn bind_with_auth(pacer_home: &Path, auth: PeerAuth) -> Result<Self, BridgeError> {
-        let path = prepare_host_run_dir(pacer_home)?;
+        Self::bind_at(pacer_home, HOST_SOCKET_NAME, auth)
+    }
+
+    /// Bind `$PACER_HOME/run/<name>` with the same 0700 directory, 0600 socket
+    /// and stale-socket rules as `host.sock`. Refuses paths longer than
+    /// [`SOCKET_PATH_MAX`] before touching the filesystem.
+    pub fn bind_at(pacer_home: &Path, name: &str, auth: PeerAuth) -> Result<Self, BridgeError> {
+        let path = pacer_home.join("run").join(name);
+        if path.as_os_str().len() > SOCKET_PATH_MAX {
+            return Err(BridgeError::PathTooLong(path));
+        }
+        let run = prepare_run_dir(pacer_home)?;
+        Self::bind_in(&run, name, auth)
+    }
+
+    /// Bind a stdio connection's socket `name`: in `run/` when the path fits,
+    /// otherwise in the private per-user directory of `connection_dir`.
+    /// Stale connection sockets in that directory are swept first.
+    pub fn bind_connection(
+        pacer_home: &Path,
+        name: &str,
+        auth: PeerAuth,
+    ) -> Result<Self, BridgeError> {
+        let uid = current_uid();
+        let dir = connection_socket_dir(pacer_home, name, uid)?;
+        sweep_stale_sockets(&dir, uid);
+        Self::bind_in(&dir, name, auth)
+    }
+
+    fn bind_in(dir: &Path, name: &str, auth: PeerAuth) -> Result<Self, BridgeError> {
+        let uid = current_uid();
+        let before = check_private_dir(dir, uid).map_err(BridgeError::UntrustedDir)?;
+        let path = dir.join(name);
         remove_stale_socket(&path)?;
-        let listener = bind_private(&path)?;
+        // Another process bound the path since the probe: it owns it now.
+        let listener = StdUnixListener::bind(&path).map_err(|error| {
+            if error.kind() == io::ErrorKind::AddrInUse {
+                BridgeError::LiveSocket(path.clone())
+            } else {
+                error.into()
+            }
+        })?;
+        if let Err(error) = seal_socket(dir, &path, &before, uid) {
+            let _ = fs::remove_file(&path);
+            return Err(error);
+        }
         Ok(Self {
             listener,
             path,
@@ -249,25 +315,37 @@ impl BridgeHandle {
     }
 }
 
-fn current_uid() -> u32 {
+pub(crate) fn current_uid() -> u32 {
     nix::unistd::getuid().as_raw()
 }
 
-fn bind_private(path: &Path) -> io::Result<StdUnixListener> {
-    use nix::sys::stat::{Mode, umask};
-    static BIND: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = BIND
-        .lock()
-        .map_err(|_| io::Error::other("reverse-bridge bind lock poisoned"))?;
-    struct Restore(Mode);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            umask(self.0);
-        }
+/// Narrow a just-bound socket to 0600 by path. Only `uid` can create or
+/// replace entries in the verified private `dir`, so the path cannot have been
+/// redirected; the directory's identity and the socket's owner are rechecked.
+/// The process umask stays untouched, so concurrent threads are unaffected.
+fn seal_socket(
+    dir: &Path,
+    path: &Path,
+    before: &fs::Metadata,
+    uid: u32,
+) -> Result<(), BridgeError> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    let socket = fs::symlink_metadata(path)?;
+    let after = check_private_dir(dir, uid).map_err(BridgeError::UntrustedDir)?;
+    if (after.dev(), after.ino()) != (before.dev(), before.ino()) {
+        return Err(BridgeError::UntrustedDir(format!(
+            "{} was replaced while binding",
+            dir.display()
+        )));
     }
-    // Restrict at creation; never chmod a pathname that could have been redirected.
-    let _mask = Restore(umask(Mode::from_bits_truncate(0o177)));
-    StdUnixListener::bind(path)
+    if !socket.file_type().is_socket() || socket.uid() != uid || socket.mode() & 0o777 != 0o600 {
+        return Err(BridgeError::UntrustedDir(format!(
+            "{} is not a private socket",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
@@ -278,13 +356,14 @@ fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
             if !meta.file_type().is_socket() {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
-                    "host.sock path exists and is not a socket",
+                    "reverse-bridge socket path exists and is not a socket",
                 )
                 .into());
             }
-            match StdUnixStream::connect(path) {
-                Ok(_) => Err(BridgeError::LiveSocket(path.to_path_buf())),
-                Err(_) => {
+            match probe_socket(path) {
+                Probe::Live => Err(BridgeError::LiveSocket(path.to_path_buf())),
+                Probe::Missing => Ok(()),
+                Probe::Refused | Probe::Other(_) => {
                     fs::remove_file(path)?;
                     Ok(())
                 }
@@ -293,7 +372,7 @@ fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
     }
 }
 
-fn peer_uid(stream: &UnixStream) -> Result<u32, BridgeError> {
+pub(crate) fn peer_uid(stream: &impl std::os::fd::AsFd) -> Result<u32, BridgeError> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
@@ -586,11 +665,15 @@ async fn dispatch_call(
                 }
                 Ok(None) => {}
             }
-            let mut guard = owner.lock().await;
-            match guard
-                .call_plugin(plugin_id, method, call_params, deadline)
-                .await
-            {
+            let tracked = owner.lock().await.lane_for_call(plugin_id);
+            let called = match tracked {
+                Ok((lane, session)) => {
+                    lane.call(session, method, call_params, deadline, None)
+                        .await
+                }
+                Err(error) => Err(error),
+            };
+            match called {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
                 Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
             }

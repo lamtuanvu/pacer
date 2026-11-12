@@ -38,6 +38,8 @@ export interface Session {
   /** The disposable Rust front door includes test-only native operations. */
   nativeTestOps?: true;
   nativeForwardEcho?: true;
+  /** The service runs with `PACER_NATIVE_PLUGIN_HOST=1`, so it owns plugin processes on `run/host.sock`. */
+  nativePluginHost?: true;
   /** Test-ops fixtures: local model server ports (`<ollama>,<lmstudio>`), a `test/fixtures` Core entry and forwarded ops. */
   localModelPorts?: string;
   localModelFixture?: string;
@@ -136,6 +138,7 @@ export function sandboxEnv(session: Session, inherited = process.env): NodeJS.Pr
     ...(session.nativeTestOps ? { PACER_DEBUG_NATIVE: "1" } : {}),
     ...(session.nativeForwardEcho ? { PACER_FORWARD_OPS: "test.echo" } : {}),
     ...(session.nativeForwardOps ? { PACER_FORWARD_OPS: session.nativeForwardOps } : {}),
+    ...(session.nativePluginHost ? { PACER_NATIVE_PLUGIN_HOST: "1" } : {}),
     ...(session.localModelPorts ? { PACER_TEST_LOCAL_SERVER_PORTS: session.localModelPorts } : {}),
     PATH: `${join(session.root, "bin")}:${inherited.PATH ?? ""}`,
     PACER_BIN: join(session.root, "bin/pacer"),
@@ -160,7 +163,7 @@ export function shellQuote(value: string): string {
 export function environmentScript(session: Session): string {
   const env = sandboxEnv(session);
   return ["PATH", "PACER_BIN", "PACER_HOME", "PACER_PORT", "PACER_BACKEND", "PACER_NO_UPDATE_CHECK", "PACER_ORCA_USER_DATA", ...(session.frontDoor === "rust" ? ["PACER_CORE_ARGV"] : []),
-    ...(session.nativeForwardOps ? ["PACER_FORWARD_OPS"] : []), ...(session.localModelPorts ? ["PACER_TEST_LOCAL_SERVER_PORTS"] : []), ...(session.seed ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
+    ...(session.nativeForwardOps ? ["PACER_FORWARD_OPS"] : []), ...(session.nativePluginHost ? ["PACER_NATIVE_PLUGIN_HOST"] : []), ...(session.localModelPorts ? ["PACER_TEST_LOCAL_SERVER_PORTS"] : []), ...(session.seed ? ["HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME"] : [])]
     .map(key => `export ${key}=${shellQuote(env[key]!)}`).join("\n") + "\n";
 }
 async function reservePort(): Promise<number> {
@@ -290,11 +293,12 @@ export function validateNativeFixtures(fixtures: NativeFixtures, nativeTestOps: 
   if (coreFixture !== undefined && !(/^[a-z0-9][a-z0-9-]*\.ts$/.test(coreFixture) && existsSync(join(checkout, "test/fixtures", coreFixture)))) throw Error("--core-fixture must name a .ts file in test/fixtures");
   if (nativeForwardOps !== undefined && (nativeForwardEcho || !/^[a-z0-9.*_-]+(,[a-z0-9.*_-]+)*$/i.test(nativeForwardOps))) throw Error("--native-forward-ops must be a comma-separated op list and cannot be combined with --native-forward-echo");
 }
-export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string, realKeychain = false, nativeTestOps = false, nativeForwardEcho = false, fixtures: NativeFixtures = {}, waitingFixture = false): Promise<Session> {
+export async function up(id = `live-${Date.now()}`, template?: string, base = liveRoot, seed?: string, frontDoor?: string, realKeychain = false, nativeTestOps = false, nativeForwardEcho = false, fixtures: NativeFixtures = {}, waitingFixture = false, nativePluginHost = false): Promise<Session> {
   validateSeed(seed);
   validateFrontDoor(frontDoor);
   if (nativeTestOps && frontDoor !== "rust") throw Error("--native-test-ops requires --front-door rust");
   if (nativeForwardEcho && !nativeTestOps) throw Error("--native-forward-echo requires --native-test-ops");
+  if (nativePluginHost && frontDoor !== "rust") throw Error("--native-plugin-host requires --front-door rust");
   validateNativeFixtures(fixtures, nativeTestOps, nativeForwardEcho);
   if (frontDoor === "rust") {
     const build = Bun.spawnSync(["cargo", "build", "-q", "--locked", "-p", "pacer", ...(nativeTestOps ? ["--features", "test-ops"] : [])], { cwd: checkout, stdout: "pipe", stderr: "pipe" });
@@ -306,7 +310,7 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
   while (innerPort === port) innerPort = await freePort();
   mkdirSync(base, { recursive: true, mode: 0o700 });
   mkdirSync(root, { mode: 0o700 }); // Refuse existing sessions, including stopped ones.
-  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(waitingFixture ? { waitingFixture: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...Object.fromEntries(Object.entries(fixtures).filter(([, value]) => value !== undefined)), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
+  const session: Session = { serviceSource: sourceFingerprint(checkout), id, root, port, innerPort, seed, ...(frontDoor === "rust" ? { frontDoor } : {}), ...(nativeTestOps ? { nativeTestOps: true as const } : {}), ...(waitingFixture ? { waitingFixture: true as const } : {}), ...(nativeForwardEcho ? { nativeForwardEcho: true as const } : {}), ...(nativePluginHost ? { nativePluginHost: true as const } : {}), ...Object.fromEntries(Object.entries(fixtures).filter(([, value]) => value !== undefined)), ...(realKeychain ? { realKeychain: true as const } : {}), pid: 1, createdAt: new Date().toISOString() };
   try {
     for (const dir of ["home", "bin", "repo", "logs", "evidence", "orca-profile"]) mkdirSync(join(root, dir), { mode: 0o700 });
     if (nativeTestOps) cpSync(join(process.env.CARGO_TARGET_DIR ?? join(checkout, "target"), "debug/pacer"), join(root, "bin/native-pacer"));
@@ -342,12 +346,8 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
       if (result.code) throw Error(`Sandbox git setup failed: ${result.stderr}`);
     }
     atomicWrite(join(root, "env.sh"), environmentScript(session));
-    const serviceArgv = [...pacerArgv(session), "serve", "--port", String(session.innerPort)];
-    if (session.localModelPorts && process.platform === "darwin") {
-      session.modelProbeSandbox = true;
-      serviceArgv.unshift("/usr/bin/sandbox-exec", "-p", '(version 1)(allow default)(deny network-outbound (remote tcp "localhost:4317") (remote tcp "localhost:11434") (remote tcp "localhost:1234") (remote tcp "*:4317") (remote tcp "*:11434") (remote tcp "*:1234"))');
-    } else if (session.localModelPorts) session.modelProbeSandbox = false;
-    session.pid = launch(session, serviceArgv, "serve.log");
+    if (session.localModelPorts) session.modelProbeSandbox = process.platform === "darwin";
+    session.pid = launch(session, serviceArgv(session), "serve.log");
     saveSession(session);
     const serviceIdentity = processIdentity(session.pid);
     if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
@@ -410,6 +410,35 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     if (failures.length) throw new AggregateError([error, ...failures], `Sandbox startup failed: ${String(error)}; cleanup incomplete, keeping sandbox`);
     throw error;
   }
+}
+function serviceArgv(session: Session): string[] {
+  const argv = [...pacerArgv(session), "serve", "--port", String(session.innerPort)];
+  if (!session.modelProbeSandbox) return argv;
+  return ["/usr/bin/sandbox-exec", "-p", '(version 1)(allow default)(deny network-outbound (remote tcp "localhost:4317") (remote tcp "localhost:11434") (remote tcp "localhost:1234") (remote tcp "*:4317") (remote tcp "*:11434") (remote tcp "*:1234"))', ...argv];
+}
+/** Stop the sandbox service and wait until every process in its group has exited; the proxy stays up. */
+export async function stopService(session: Session): Promise<void> {
+  if (!session.serviceGroup || !validOwnedProcessGroup(session.serviceGroup, session.pid)) throw Error("Sandbox has no verified service process group; refusing to signal");
+  await stopOwnedProcessGroup(session.serviceGroup);
+  saveSession(session);
+  record(session, { kind: "note", text: `Service ${session.pid} stopped; its process group exited` });
+}
+/** Start the sandbox service again on its inner port, after `stopService`. */
+export async function startService(session: Session): Promise<void> {
+  if (!session.serviceGroup?.stopped) throw Error("The sandbox service must stop before it starts again");
+  session.pid = launch(session, serviceArgv(session), "serve.log");
+  const serviceIdentity = processIdentity(session.pid);
+  if (!serviceIdentity) throw Error("Could not prove launched sandbox process incarnation");
+  session.serviceIdentity = serviceIdentity;
+  session.serviceGroup = captureOwnedProcessGroup(session.pid, serviceIdentity);
+  saveSession(session);
+  for (const deadline = Date.now() + 15000; Date.now() < deadline; await Bun.sleep(100)) {
+    if (await healthy(session)) {
+      record(session, { kind: "note", text: `Service ${session.pid} started again on sandbox port ${session.port}` });
+      return;
+    }
+  }
+  throw Error(`Service restart timed out; inspect ${join(session.root, "logs/serve.log")}`);
 }
 export function stopProcess(pid: number): void {
   try { process.kill(pid, "SIGTERM"); }

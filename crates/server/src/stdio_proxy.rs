@@ -1,4 +1,5 @@
-use crate::native::{call_native, registry};
+use crate::native::{call_native, service_registry};
+use crate::stdio_plugins::{self, Done, Line, Ownership, PluginLink};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
@@ -8,6 +9,7 @@ use std::{collections::HashMap, io, process::Stdio};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     process::Command,
+    signal::unix::{SignalKind, signal},
     sync::Mutex,
 };
 
@@ -142,6 +144,32 @@ async fn wait_done<O: AsyncWrite + Unpin>(
     Ok(())
 }
 
+/// The plugin operations of one connection: their service, Core channel and running tasks.
+struct Plugins {
+    service: std::sync::Arc<crate::native::plugins::Service>,
+    link: std::sync::Arc<PluginLink>,
+    frames: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    tasks: tokio::task::JoinSet<Done>,
+    ids: HashMap<tokio::task::Id, Value>,
+}
+
+/// Act on a finished plugin operation: answer the client or replay the line to Core.
+async fn plugin_done<W: AsyncWrite + Unpin, O: AsyncWrite + Unpin>(
+    core: &mut W,
+    out: &Mutex<O>,
+    done: Done,
+) -> io::Result<()> {
+    match done {
+        Done::Reply(bytes) => write_line(out, &bytes).await,
+        Done::Replay(line) => {
+            core.write_all(&line).await?;
+            core.flush().await
+        }
+        Done::Nothing => Ok(()),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn forward_input<
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin + Send,
@@ -154,6 +182,7 @@ async fn forward_input<
     registry: &Registry<'_>,
     sync: (&str, &str, &mut tokio::sync::mpsc::UnboundedReceiver<Value>),
     core_build: &CoreBuild<'_>,
+    plugins: &mut Plugins,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -169,11 +198,33 @@ async fn forward_input<
                 Some(done) = waits.join_next_with_id(), if !waits.is_empty() => {
                     wait_done(out, &mut wait_ids, done).await?;
                 }
+                Some(frame) = plugins.frames.recv() => {
+                    core.write_all(&frame).await?;
+                    core.flush().await?;
+                }
+                Some(done) = plugins.tasks.join_next_with_id(), if !plugins.tasks.is_empty() => {
+                    let done = stdio_plugins::finished(&mut plugins.ids, done);
+                    plugin_done(&mut core, out, done).await?;
+                }
             }
         };
         if read == 0 && line.is_empty() {
-            while let Some(done) = waits.join_next_with_id().await {
-                wait_done(out, &mut wait_ids, done).await?;
+            // Plugin operations still need their Core channel until they finish.
+            loop {
+                tokio::select! {
+                    Some(done) = waits.join_next_with_id(), if !waits.is_empty() => {
+                        wait_done(out, &mut wait_ids, done).await?;
+                    }
+                    Some(frame) = plugins.frames.recv(), if !plugins.tasks.is_empty() => {
+                        core.write_all(&frame).await?;
+                        core.flush().await?;
+                    }
+                    Some(done) = plugins.tasks.join_next_with_id(), if !plugins.tasks.is_empty() => {
+                        let done = stdio_plugins::finished(&mut plugins.ids, done);
+                        plugin_done(&mut core, out, done).await?;
+                    }
+                    else => break,
+                }
             }
             return core.shutdown().await;
         }
@@ -236,6 +287,29 @@ async fn forward_input<
                         bytes.push(b'\n');
                         write_line(out, &bytes).await?;
                     }
+                }
+            }
+            continue;
+        }
+        // Plugin ops decode with the JavaScript-compatible codec, which also
+        // reads lines serde refuses (lone surrogates, nesting past 128).
+        if protocol == 3
+            && let Some(plugin) =
+                stdio_plugins::classify(&line, request.as_ref(), registry, natively_answered_id)
+        {
+            match plugin {
+                Line::Answer { op, id, params } => stdio_plugins::spawn(
+                    &mut plugins.tasks,
+                    &mut plugins.ids,
+                    &plugins.service,
+                    &plugins.link,
+                    ctx.at_now(),
+                    (op, id, params),
+                    line.clone(),
+                ),
+                Line::Forward => {
+                    core.write_all(&line).await?;
+                    core.flush().await?;
                 }
             }
             continue;
@@ -964,12 +1038,17 @@ async fn forward_output<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
     out: &Mutex<W>,
     sync_id: &str,
     sync: tokio::sync::mpsc::UnboundedSender<Value>,
+    plugins: &PluginLink,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     loop {
         line.clear();
         if core.read_until(b'\n', &mut line).await? == 0 {
             return Ok(());
+        }
+        // Before serde: plugin envelopes may hold lone surrogates or deep nesting.
+        if plugins.route(&line) {
+            continue;
         }
         if let Ok(value) = serde_json::from_slice::<Value>(&line)
             && value
@@ -1023,7 +1102,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     if !forward.is_empty() {
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
-    let registry = registry(if scoped_work { "*" } else { forward });
+    let registry = service_registry(if scoped_work { "*" } else { forward });
     let forward_hello = scoped_work
         || forward
             .split(',')
@@ -1042,59 +1121,95 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         env: &env,
         value: tokio::sync::OnceCell::new(),
     };
-    let mut child = Command::new(program)
-        .args(prefix)
-        .args(["api", "--stdio"])
-        .envs(&env)
-        .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()?;
-    let input = child
-        .stdin
-        .take()
-        .ok_or_else(|| io::Error::other("missing core stdin"))?;
-    let output = child
-        .stdout
-        .take()
-        .ok_or_else(|| io::Error::other("missing core stdout"))?;
-    let out = Mutex::new(tokio::io::stdout());
     let mut ctx = Ctx::from_env();
     // Only the HTTP front door may assert how a message caller authenticated.
     ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
-    let incoming = forward_input(
-        BufReader::new(tokio::io::stdin()),
-        input,
-        &out,
-        &ctx,
-        &registry,
-        (&sync_id, &sync_key, &mut sync_rx),
-        &core_build,
-    );
-    let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx);
-    tokio::pin!(incoming, outgoing);
-    let mut input_done = false;
-    let mut output_done = false;
-    loop {
-        tokio::select! {
-            result = &mut incoming, if !input_done => {
-                result?;
-                input_done = true;
-            }
-            result = &mut outgoing, if !output_done => {
-                result?;
-                output_done = true;
-            }
-            status = child.wait() => {
-                if !output_done {
-                    outgoing.await?;
+    // The core child's env fixes who owns plugin processes for this connection.
+    let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work).await?;
+    let (link, frames) = PluginLink::new(&sync_id, &sync_key);
+    if let Some(reports) = ownership.crash_reports() {
+        let ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> = link.clone();
+        tokio::spawn(crate::native::plugins::deliver_crashes(
+            reports,
+            move || {
+                let ipc = ipc.clone();
+                async move { Some((ipc, String::new())) }
+            },
+        ));
+    }
+    let mut plugins = Plugins {
+        service: std::sync::Arc::clone(&ownership.service),
+        link,
+        frames,
+        tasks: tokio::task::JoinSet::new(),
+        ids: HashMap::new(),
+    };
+    let session = async {
+        let mut command = Command::new(program);
+        let mut child = host_socket
+            .apply(command.args(prefix).args(["api", "--stdio"]).envs(&env))
+            .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true)
+            .spawn()?;
+        let input = child
+            .stdin
+            .take()
+            .ok_or_else(|| io::Error::other("missing core stdin"))?;
+        let output = child
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("missing core stdout"))?;
+        let out = Mutex::new(tokio::io::stdout());
+        let link = std::sync::Arc::clone(&plugins.link);
+        let incoming = forward_input(
+            BufReader::new(tokio::io::stdin()),
+            input,
+            &out,
+            &ctx,
+            &registry,
+            (&sync_id, &sync_key, &mut sync_rx),
+            &core_build,
+            &mut plugins,
+        );
+        let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx, &link);
+        tokio::pin!(incoming, outgoing);
+        let mut input_done = false;
+        let mut output_done = false;
+        loop {
+            tokio::select! {
+                result = &mut incoming, if !input_done => {
+                    result?;
+                    input_done = true;
                 }
-                return Ok(status?.code().unwrap_or(1));
+                result = &mut outgoing, if !output_done => {
+                    result?;
+                    output_done = true;
+                }
+                status = child.wait() => {
+                    if !output_done {
+                        outgoing.await?;
+                    }
+                    return Ok(status?.code().unwrap_or(1));
+                }
             }
         }
-    }
+    };
+    // A terminated owning connection still removes its socket and children;
+    // dropping the session kills the core child.
+    let code = if ownership.owns_children() {
+        let mut terminate = signal(SignalKind::terminate())?;
+        tokio::select! {
+            code = session => code,
+            _ = terminate.recv() => Ok(128 + 15),
+        }
+    } else {
+        session.await
+    };
+    ownership.finish().await;
+    code
 }
 
 #[cfg(test)]

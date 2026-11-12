@@ -19,7 +19,7 @@ export const viewerLabel=(h:{client?:unknown;label?:unknown})=>`${h.client==='ap
 export const viewerName=(label:string)=>label.replace(/^(?:app|cli):/,'')||'another viewer';
 interface Viewer {
  socket:Socket; joined:boolean; blocked:boolean; pending:Buffer[]; bytes:number; resync:boolean; label:string;
- snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; done?:()=>void; negotiate?:boolean;
+ snapshot?:{bytes:Buffer;offset:number}; exitCode?:number; exitAt?:number; done?:()=>void; negotiate?:boolean;
  /** Negotiated protocol minor, 1 without a hello range. */
  minor:number; readOnly:boolean; took:boolean; size?:{cols:number;rows:number};
  /** Its window expired unused: its input is dropped until it sends a new deliver request or a cancel. */
@@ -106,7 +106,7 @@ export class ViewerHub {
    }else if(v.pending.length){
     const bytes=v.pending.shift()!;v.bytes-=bytes.length;v.blocked=!v.socket.write(bytes);
    }else{
-    if(v.exitCode!==undefined){v.socket.end(wire(FrameType.exit,{code:v.exitCode}),v.done);v.exitCode=undefined;}
+    if(v.exitCode!==undefined){v.socket.end(wire(FrameType.exit,{code:v.exitCode,...(v.exitAt!==undefined?{at:Math.round(v.exitAt)}:{})}),v.done);v.exitCode=undefined;v.exitAt=undefined;}
     return;
    }
   }
@@ -295,7 +295,8 @@ export class ViewerHub {
   clearTimeout(this.deliveryTimer);if(this.window){clearTimeout(this.window.timer);clearTimeout(this.window.cap);}
   this.window=null;this.requests=[];this.held=[];
  }
- async end(code:number){
+ /** Ends every viewer with the exit code and, when the host recorded it, the real end time (Unix seconds). */
+ async end(code:number,at?:number){
   this.closing=true;
   this.dropDeliveries();
   this.setController(null,'ended');
@@ -303,7 +304,7 @@ export class ViewerHub {
   this.changed(this.size,null,null);
   for(const v of this.pending)v.socket.destroy();
   await Promise.all([...this.viewers].map(v=>new Promise<void>(resolve=>{
-   v.done=resolve;v.exitCode=code;
+   v.done=resolve;v.exitCode=code;v.exitAt=at;
    if(v.socket.destroyed){resolve();return;}
    this.flush(v);
   })));

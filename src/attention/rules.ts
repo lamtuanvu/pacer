@@ -1,5 +1,6 @@
 import type { AccountSummary, ApiTask, ExecutorRow, HostSummary, PlannerMeter, SetupSummary } from "../api/read-model/types";
 import { taskAttentionReason } from "../api/read-model/tasks";
+import { awaitsAnswer } from "../tasks/types";
 import { parseRunnerId } from "../config/runner-id";
 import { executorName } from "../link/notification";
 import { workActionRequestId } from "../work/action-id";
@@ -30,11 +31,12 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
   for (const t of input.tasks) {
     const extra = { repo: t.repo, taskId: t.id, ...(t.executor ? {executor:t.executor}:{}), ...(t.host ? {host:t.host}:{}), since:t.updatedAt, raisedAt:t.updatedAt };
     const reason = taskAttentionReason(t);
-    if (t.state === "needs_input" && t.question && t.question.answer === undefined && !t.retriedBy && !t.dismissed) {
-      add("question",t.id,t.goal,t.question.text.slice(0,200),[
+    if (awaitsAnswer(t)) {
+      const q = t.question!;
+      add("question",t.id,t.goal,q.text.slice(0,200),[
         {label:"Answer",op:t.work ? "dispatch.answer" : "task.answer",params:{id:t.id,...(t.work ? {expect_rev:t.rev,requestId:workActionRequestId(t.id,t.rev,"answer")} : {})}},
         {label:"Stop",op:"task.stop",params:{id:t.id},style:"danger"},
-      ],{...extra,severity:"blocked",since:t.question.at,raisedAt:t.question.at});
+      ],{...extra,severity:"blocked",since:q.at,raisedAt:q.at});
     } else if (reason === "checks_failed" || reason === "incomplete") {
       const label = reason === "checks_failed" ? "Inspect failures" : "Inspect incomplete work";
       add("failed", t.id, t.goal, reason === "checks_failed" ? "Acceptance checks failed" : "Execution is incomplete",

@@ -374,9 +374,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             // Flag-on ProcessOwner (when present) starts children; Core supplies specs.
             let state = Arc::clone(&state);
             let name = op.name;
-            match tokio::spawn(
-                async move { state.plugins.call(&ctx, &state.core, name, params).await },
-            )
+            match tokio::spawn(async move {
+                let core = crate::native::plugins::http_link(&state.core);
+                state.plugins.call(&ctx, core, name, params).await
+            })
             .await
             {
                 Ok(result) => result,
@@ -761,7 +762,7 @@ pub async fn run_serve(
     // Flag-on P4d-1/P4d-4 path: claim ProcessOwner + reverse bridge before Core
     // spawn so the child inherits PACER_HOST_SOCKET and HTTP plugin RPC can use
     // the same owner. Default (flags unset) is a no-op.
-    let native_host = native_host::maybe_start(&ctx.pacer_home, &mut env)?;
+    let native_host = native_host::maybe_start(&ctx.pacer_home, &mut env).await?;
     let plugins = match &native_host {
         Some(host) => crate::native::plugins::Service::with_native_owner(host.owner()),
         None => crate::native::plugins::Service::default(),
@@ -783,6 +784,16 @@ pub async fn run_serve(
     });
     #[cfg(not(target_os = "macos"))]
     let core = Arc::new(core_child::CoreChild::spawn(core, env));
+    if let Some(host) = &native_host {
+        let core = core.clone();
+        tokio::spawn(crate::native::plugins::deliver_crashes(
+            host.crash_reports(),
+            move || {
+                let core = core.clone();
+                async move { crate::native::plugins::http_link(&core).await }
+            },
+        ));
+    }
     let beats = Arc::new(heartbeat::Heartbeat::new());
     let probe = tokio::spawn(heartbeat::run(core.clone(), beats.clone()));
     let radio = discovery::Radio::spawn(
@@ -853,7 +864,7 @@ pub fn run_serve_blocking(
         Ok(()) => 0,
         Err(error) => {
             eprintln!("pacer: serve: {error}");
-            1
+            native_host::exit_code(&error)
         }
     }
 }

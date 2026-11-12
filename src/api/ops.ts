@@ -433,10 +433,11 @@ export const OPS: Record<string, OpDef> = {
   "task.list": op({ description: "Recent tasks, newest first, always returned as a cursor page.", params: z.object({
     all:z.boolean().optional(), limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
     states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
+    q:z.string().min(1).max(200).optional(),
   }), handler: (ctx,p) => {
-    const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});
+    const limit=p.limit??20, {q,...rest}=p, rows=core.tasks.list(ctx,{...rest,query:q,limit:limit+1});
     const page={tasks:apiTaskPage(ctx,rows.slice(0,limit)),next:rows.length>limit?rows[limit-1].id:null};
-    if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
+    if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
     return page;
   } }),
   "task.delegate": op({

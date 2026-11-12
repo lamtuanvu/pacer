@@ -43,21 +43,21 @@ export type SetupHealthLoadResult =
   | { kind: "stage"; report: SetupHealthReport; autoEnterMs?: number }
   | { kind: "fail"; report: SetupHealthReport };
 
-/** Pure load path for the gate: skip, show stage, or hard-fail — never silent ready. */
+/** Pure load path for the gate: skip, show stage, or hard-fail — never silent ready. Only an all-passed stage enters by itself. */
 export async function loadSetupHealthGate(
   call: BrowserApi["call"],
 ): Promise<SetupHealthLoadResult> {
   try {
     const next = await call<SetupHealthReport & { skipFullWindow?: boolean }>("setup.health", { trigger: "startup" });
     if (next.skipFullWindow) return { kind: "skip", summary: summaryOf(next) };
-    if (next.outcome === "hard_fail") return { kind: "stage", report: next };
-    return { kind: "stage", report: next, autoEnterMs: next.outcome === "ok" ? 600 : 1200 };
+    if (next.outcome !== "ok") return { kind: "stage", report: next };
+    return { kind: "stage", report: next, autoEnterMs: 600 };
   } catch {
     return { kind: "fail", report: setupHealthFailureReport("startup") };
   }
 }
 
-/** Map a load result to the gate commit — fail and stage never auto-enter ready. */
+/** Map a load result to the gate commit — fail, warnings and hard-fail stages never auto-enter ready. */
 export function commitSetupHealthLoad(
   result: SetupHealthLoadResult,
 ):
