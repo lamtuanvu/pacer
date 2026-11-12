@@ -164,8 +164,8 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect((build as any).strategy["fail-fast"]).toBe(false);
   expect((build as any)["continue-on-error"]).toBeUndefined();
   expect(build.strategy?.matrix.include).toEqual([
-    { runner: "macos-latest", targets: "darwin-arm64,darwin-x64" },
-    { runner: "ubuntu-latest", targets: "linux-x64,linux-arm64" },
+    { runner: "macos-latest", image: "macos-latest", targets: "darwin-arm64,darwin-x64" },
+    { runner: "ubuntu-latest", image: "ubuntu-24.04", targets: "linux-x64,linux-arm64" },
   ]);
   const gate = build.steps.find(s => s.name === "Full M1 gate against built host release artifacts")!;
   expect(gate.if).toBeUndefined();
