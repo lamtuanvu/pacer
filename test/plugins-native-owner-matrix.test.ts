@@ -267,6 +267,9 @@ async function poll<T>(read: () => Promise<T>, done: (value: T) => boolean, ms =
   }
 }
 
+/** Distinct provider argv: serve's background usage refresh can join or skip an explicit refresh, so the call count is timing. */
+const distinctArgv = (log: string) => [...new Set(log.split("\n").filter(Boolean))].sort().join("\n");
+
 const USAGE_STORES = ["cache/arkcli-usage-plan.json", "state/codex-cursors.json", "plugin-settings.json"];
 
 const usage: Scenario = async (door, h, observe) => {
@@ -274,7 +277,7 @@ const usage: Scenario = async (door, h, observe) => {
   observe("limits.refresh plan", replyText(h, await door.call("limits.refresh", { account: "plan" })));
   observe("limits.refresh codex", replyText(h, await door.call("limits.refresh", { account: "codex" })));
   observe("limits.refresh all", replyText(h, await door.call("limits.refresh", {})));
-  observe("arkcli argv", fileText(h, "arkcli.log").slice(before.length));
+  observe("arkcli argv", distinctArgv(fileText(h, "arkcli.log").slice(before.length)));
   const check = await door.call("account.usage.check", { account: "codex" });
   observe("account.usage.check", replyText(h, check));
   const job = check.json.result?.id ?? check.json.result?.job?.id;
