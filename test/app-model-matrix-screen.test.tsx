@@ -262,7 +262,7 @@ test("the planner executor renders switches disabled with the planner note", asy
 test("clicking Suggest highlights rows but shows no Unsaved changes region", async () => {
   await withMatrix(async (container, _api) => {
     await clickText(container, "Suggest");
-    expect(textOf(container)).toContain("Suggestions applied");
+    expect(textOf(container)).toContain("Suggested 1 change");
     expect(textOf(container)).toContain("Suggested:");
     expect(textOf(container)).not.toContain("Unsaved changes");
     expect(textOf(container)).not.toContain("Save matrix");
@@ -747,6 +747,71 @@ test("the Add model form is a no-op while a save is in flight (H1 handleAdd guar
     models: { go: declarationsGo, codex: declarationsCodex },
     available: { go: servedGo, codex: { ...unknown, runner: "codex" } },
     setMany: { gate },
+  });
+});
+
+test("Suggest with no listing facts says 'No suggestions' and hides Accept all (N3)", async () => {
+  await withMatrix(async (container) => {
+    await clickText(container, "Suggest");
+    const text = textOf(container);
+    expect(text).toContain("No suggestions");
+    expect(text).toContain("the providers list no price or tool facts for these models.");
+    // With nothing to accept there is no Accept all, only Dismiss.
+    expect(allNodes(container, n => n.tagName === "button" && textOf(n) === "Accept all")).toHaveLength(0);
+    expect(allNodes(container, n => n.tagName === "button" && textOf(n) === "Dismiss")).toHaveLength(1);
+  }, {
+    config: configView(),
+    inventory: inventory([record("codex", "work", "codex", "codex-default", { kind: "executor-default" })]),
+    models: { codex: declarationsCodex },
+    available: { codex: { ...unknown, runner: "codex" } },
+  });
+});
+
+test("coverage omits the zero default-executor sentence (N5)", async () => {
+  const goRated: RunnerModels = { runner: "go", revision: "r-go", default: "zhipu/glm", models: [{ id: "zhipu/glm", tier: "medium" }] };
+  await withMatrix(async (container) => {
+    const text = textOf(container);
+    expect(text).not.toContain("Plus 0 executor");
+  }, {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: goRated },
+    available: { go: servedGo },
+  });
+});
+
+test("the matrix change-count is a polite live region (N6)", async () => {
+  await withMatrix(async (container) => {
+    const sw = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(sw).toBeTruthy();
+    await act(async () => { fire(sw!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(textOf(container)).toContain("1 model changed");
+    const status = allNodes(container, n => n.attrs.role === "status" && (n.attrs["aria-live"] ?? "") === "polite" && textOf(n).includes("model changed"));
+    expect(status.length).toBeGreaterThan(0);
+  }, {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+  });
+});
+
+test("agent filter chips are grouped and the Add-model control names its runner (N7)", async () => {
+  await withMatrix(async (container) => {
+    const group = findNode(container, n => n.attrs.role === "group" && (n.attrs["aria-label"] ?? "") === "Filter by agent");
+    expect(group).toBeTruthy();
+    // The field label and the Add button both name the runner they add to.
+    expect(textOf(container)).toContain("Add model to ");
+    const addButton = findNode(container, n => n.tagName === "button" && textOf(n) === "Add");
+    expect(addButton).toBeTruthy();
+    const name = addButton!.attrs["aria-label"] ?? "";
+    expect(name).toStartWith("Add model to ");
+    expect(name).not.toBe("Add");
+  }, {
+    config: configView(),
+    inventory: inventory([record("codex", "work", "codex", "codex-default", { kind: "executor-default" })]),
+    models: { codex: declarationsCodex },
+    available: { codex: { ...unknown, runner: "codex" } },
   });
 });
 

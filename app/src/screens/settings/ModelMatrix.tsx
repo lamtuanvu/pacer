@@ -53,6 +53,11 @@ function isConflict(error: unknown): boolean {
   return record.code === "conflict" || /changed elsewhere/i.test(String(record.message ?? ""));
 }
 
+/** Accessible name for an Add-model field or button, scoped to its runner (UI-2, N7). */
+function modelAddLabel(id: string, account?: string): string {
+  return `Add model to ${executorLabel(id)}${account ? ` · ${account}` : ""}`;
+}
+
 /** Stable signature of the runner-model decisions a load would apply: each runner's
  * default and each model's on state, tier and declared strengths/tools/context.
  * Used to tell a genuinely different load ("settings changed elsewhere") from an
@@ -282,6 +287,9 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     setAddingByRunner(prev => ({ ...prev, [runner]: "" }));
   };
 
+  /** Suggestions still awaiting acceptance across the editable drafts (N3). */
+  const pendingCount = drafts.reduce((n, d) => n + d.rows.filter(r => r.pending).length, 0);
+
   const changedModelCount = drafts.reduce((total, d, i) => {
     const baseRows = baseDrafts[i]?.rows ?? [];
     const ids = new Set([...d.rows.map(r => r.id), ...baseRows.map(r => r.id)]);
@@ -416,9 +424,17 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                         <Button size="sm" variant="secondary" disabled={busy} onClick={handleSuggest}>Suggest</Button>
                       </div>
                     </>
+                  ) : pendingCount === 0 ? (
+                    <>
+                      <strong>No suggestions</strong>
+                      <span className="u3-muted">the providers list no price or tool facts for these models.</span>
+                      <div className="u3-actions">
+                        <Button size="sm" variant="ghost" disabled={busy} onClick={handleDismissAll}>Dismiss</Button>
+                      </div>
+                    </>
                   ) : (
                     <>
-                      <strong>Suggestions applied</strong>
+                      <strong>Suggested {pendingCount} {pendingCount === 1 ? "change" : "changes"}</strong>
                       <span className="u3-muted">Highlighted rows. Accept them one by one, or all at once.</span>
                       <div className="u3-actions">
                         <Button size="sm" variant="ghost" disabled={busy} onClick={handleDismissAll}>Dismiss</Button>
@@ -428,7 +444,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                   )}
                 </Card>
 
-                <div className="pc-model-matrix__filters">
+                <div className="pc-model-matrix__filters" role="group" aria-label="Filter by agent">
                   {filters.map(f => (
                     <FilterChip key={f.key} selected={filter === f.key} onClick={() => setFilter(f.key)}>{f.label}</FilterChip>
                   ))}
@@ -454,8 +470,8 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       {!readOnly && noModels && <p className="u3-muted">Uses its default and can take any difficulty</p>}
                       {!readOnly && unknownListing && (
                         <form className="pc-model-matrix__add" onSubmit={event => { event.preventDefault(); handleAdd(id); }}>
-                          <Field label="Add model"><TextInput value={addingByRunner[id] ?? ""} disabled={busy} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
-                          <Button size="sm" type="submit" disabled={busy}>Add</Button>
+                          <Field label={modelAddLabel(id, account)}><TextInput value={addingByRunner[id] ?? ""} disabled={busy} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
+                          <Button size="sm" type="submit" aria-label={modelAddLabel(id, account)} disabled={busy}>Add</Button>
                         </form>
                       )}
                       {draft && !noModels && (
@@ -478,14 +494,16 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                                 <div key={row.id} role="row" className={`pc-model-matrix__row ${pendingRow ? "pc-model-matrix__row--pending" : ""}`}>
                                   <span role="cell"><Switch checked={row.on} aria-label={`Use ${row.id}`} disabled={readOnly || busy} onChange={e => { if (!readOnly && !busy) handleToggle(id, row.id, !!e.currentTarget.checked); }} /></span>
                                   <div role="cell">
-                                    <span className="pc-model-matrix__mono">{row.id}</span>
-                                    {draft.default === row.id && <span className="pc-model-matrix__tag">Default</span>}
+                                    <div className="pc-model-matrix__name">
+                                      <span className="pc-model-matrix__mono">{row.id}</span>
+                                      {draft.default === row.id && <span className="pc-model-matrix__tag">Default</span>}
+                                    </div>
                                     <div className="u3-muted">{pendingRow ? `Suggested: ${row.suggestedOn ? "turn on" : "leave off"}${row.suggestedTier ? ", " + row.suggestedTier : ""}. ${row.suggestionReason ?? ""}` : ""}</div>
                                   </div>
                                   <span role="cell" className="pc-model-matrix__mono">{formatContext(row.context)}</span>
                                   <span role="cell">{formatTools(row.tools)}</span>
                                   <span role="cell">{formatPrice(row.costOut)}</span>
-                                  <span role="cell"><RadioGroup label={`Size of ${row.id}`}>
+                                  <span role="cell"><RadioGroup label={`Size of ${row.id}`} className="pc-model-matrix__size">
                                     {(["small", "medium", "frontier"] as MatrixTier[]).map(tier => (
                                       <RadioChip
                                         key={tier}
@@ -530,7 +548,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       <div key={diff} className="pc-card">
                         <span>{diff.charAt(0).toUpperCase() + diff.slice(1)} · needs {targets[diff]}</span>
                         <span>{count} {count === 1 ? "model" : "models"}</span>
-                        <span className="u3-muted">Plus {defaultExecutors} {defaultExecutors === 1 ? "executor that uses its default model" : "executors that use their default model"}.</span>
+                        {defaultExecutors > 0 && <span className="u3-muted">Plus {defaultExecutors} {defaultExecutors === 1 ? "executor that uses its default model" : "executors that use their default model"}.</span>}
                       </div>
                     );
                   })}
@@ -545,7 +563,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
 
                 {dirty && (
                   <div className="pc-model-matrix__savebar" role="region" aria-label="Unsaved changes">
-                    <span>{changedModelCount === 1 ? "1 model changed" : `${changedModelCount} models changed`}</span>
+                    <span role="status" aria-live="polite">{changedModelCount === 1 ? "1 model changed" : `${changedModelCount} models changed`}</span>
                     <div className="u3-actions">
                       <Button variant="ghost" disabled={busy} onClick={handleDiscard}>Discard</Button>
                       <Button variant="primary" busy={busy} disabled={blockedGroups.length > 0} onClick={() => void handleSave()}>Save matrix</Button>

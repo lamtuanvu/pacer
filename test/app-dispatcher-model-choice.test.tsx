@@ -52,6 +52,21 @@ test("Model choice renders the tier grid as three arrow-key radio groups with pr
   expect(html).toContain('pc-radio-group');
 });
 
+test("the tier grid stacks each difficulty label above its radio group, one column-header row", () => {
+  // The narrow layout (settings.css @media ≤560px) hides the column-header
+  // row and restacks each row; the markup it relies on is one head row plus a
+  // label-first row per difficulty, so sighted narrow users keep row context.
+  const html = render(config.tierTargets);
+  expect((html.match(/pc-tier-grid__head/g) ?? []).length).toBe(1);
+  expect((html.match(/pc-tier-grid__row/g) ?? []).length).toBe(3);
+  for (const d of ["Simple", "Standard", "Complex"]) {
+    const label = html.indexOf(`class="pc-tier-grid__label">${d}`);
+    const group = html.indexOf(`role="radiogroup" aria-label="${d} tasks"`);
+    expect(label).toBeGreaterThan(-1);
+    expect(group).toBeGreaterThan(label);
+  }
+});
+
 test("the answer card reports steered executors and the preview groups by behavior", () => {
   const html = render(config.tierTargets);
   expect(html).toContain("Task difficulty now steers 1 of 3 executors");
