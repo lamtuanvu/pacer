@@ -60,7 +60,7 @@ Full-window stage once the service is ready (or immediately after update before 
 | Result | Behavior |
 | --- | --- |
 | All required steps passed | Enter app; quiet chrome: **Setup OK · checked just now** (status strip or Overview) |
-| Warnings only | Enter app; persistent **Setup** attention chip with count (“2 fixes recommended”) linking to Setup/Diagnostics |
+| Warnings only | Stay on the gate with the primary fix, **Continue to pacer** and **Open Diagnostics**; never auto-enter. After the user continues, show a persistent **Setup** attention chip with count (“2 fixes recommended”) whose Review reopens the gate |
 | Hard fail (no service identity, no planner wiring when a planner is selected, etc.) | Stay on the gate with **Fix**, **Open Diagnostics**, **Continue anyway** |
 
 ## Suggest and handle
