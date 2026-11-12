@@ -3,7 +3,7 @@ pub fn read_config(
     ctx: &pacer_foundation::Ctx,
 ) -> Result<serde_json::Value, pacer_foundation::api::CoreError> {
     match pacer_config::strategy::load_strategy(&ctx.pacer_home) {
-        Ok(s) => Ok(crate::json::from_utf8(s["plugins"].clone())),
+        Ok(s) => Ok(pacer_js_json::quoted::from_utf8(s["plugins"].clone())),
         Err(pacer_config::strategy::StrategyError::Missing(_)) => Ok(
             serde_json::json!({"policy":{"mode":"open"},"disabled":[],"installed":{},"config":{}}),
         ),

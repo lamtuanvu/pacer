@@ -49,53 +49,6 @@ fn invalid_utf8_store_is_replaced_without_quarantine_and_bom_is_rejected() {
     assert_eq!(settings::read(&ctx, "fx-ui").unwrap()["rev"], 0);
     assert!(!file.exists());
 }
-#[test]
-fn javascript_strings_are_lossless_and_collision_free() {
-    for wire in [
-        r#""a\ud800b""#,
-        r#""\udfff""#,
-        r#""\ud800\udfff""#,
-        r#""\ufdd0\ue000\ufdd0""#,
-        r#"{"\ud800":"\udfff","real":"﷐"}"#,
-    ] {
-        let value = json::parse(wire.as_bytes()).unwrap();
-        let output = settings::js_json(&value);
-        assert_eq!(json::parse(output.as_bytes()).unwrap(), value, "{wire}");
-        let script = "const [a,b]=Bun.argv.slice(-2).map(JSON.parse); console.log(JSON.stringify(a)===JSON.stringify(b))";
-        let result = std::process::Command::new("bun")
-            .args(["-e", script, wire, &output])
-            .output()
-            .unwrap();
-        assert_eq!(
-            String::from_utf8(result.stdout).unwrap().trim(),
-            "true",
-            "{output}"
-        );
-    }
-    let s = json::parse(br#""a\ud800b""#).unwrap();
-    assert_eq!(json::utf16(s.as_str().unwrap()).len(), 3);
-}
-#[test]
-fn malformed_json_is_still_rejected_and_every_lone_unit_roundtrips() {
-    for raw in [
-        r#""\u123""#,
-        r#""\x20""#,
-        "\"\n\"",
-        "[1,]",
-        "{}{}",
-        "01",
-        "{\"x\":1,}",
-        "{\"x\" 1}",
-    ] {
-        assert!(json::parse(raw.as_bytes()).is_err(), "{raw}");
-    }
-    for unit in 0xd800..=0xdfff {
-        let wire = format!(r#""\u{unit:04x}""#);
-        let parsed = json::parse(wire.as_bytes()).unwrap();
-        assert_eq!(json::utf16(parsed.as_str().unwrap()).len(), 1);
-        assert_eq!(settings::js_json(&parsed), wire);
-    }
-}
 
 #[test]
 fn deep_settings_require_typescript_without_quarantine() {

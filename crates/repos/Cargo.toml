@@ -11,7 +11,6 @@ pacer-config = { path = "../config" }
 pacer-foundation = { path = "../foundation" }
 pacer-js-json = { path = "../js-json" }
 pacer-store = { path = "../store" }
-ryu-js = "1"
 serde_json.workspace = true
 sha2 = "0.10"
 
