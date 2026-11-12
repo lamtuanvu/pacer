@@ -818,6 +818,9 @@ impl CapabilityBroker {
                 hosts
                     .finish(session)
                     .map_err(|e| BrokerError::HostLease(e.to_string()))?;
+                if result.is_err() && effect.native_host_sessions() {
+                    hosts.close(session).ok();
+                }
                 self.authority.active()?;
                 if effect.provider_snapshot(&snap.alias).as_ref() != Some(&snap) {
                     hosts.close(session).ok();
@@ -868,6 +871,9 @@ impl CapabilityBroker {
                 hosts
                     .finish(session)
                     .map_err(|e| BrokerError::HostLease(e.to_string()))?;
+                if matches!(result, Ok(Err(_))) && effect.native_host_sessions() {
+                    hosts.close(session).ok();
+                }
                 self.authority.active()?;
                 return result.map_err(|_| BrokerError::Timeout)?;
             }
@@ -877,8 +883,13 @@ impl CapabilityBroker {
                     .ok_or(BrokerError::Invalid("no host provider"))?
                     .snapshot(field("session")?)
                     .map_err(|e| BrokerError::HostLease(e.to_string()))?;
-                if effect.native_host_sessions() {
-                    effect.call(method, forwarded.clone()).await?;
+                if effect.native_host_sessions()
+                    && let Err(error) = effect.call(method, forwarded.clone()).await
+                {
+                    if let Some(hosts) = &mut self.hosts {
+                        hosts.close(field("session")?).ok();
+                    }
+                    return Err(error);
                 }
                 self.hosts
                     .as_mut()
@@ -997,7 +1008,8 @@ impl CapabilityBroker {
             } else {
                 method
             };
-            let result = native.answer(op, &forwarded)?;
+            let authority = &self.authority;
+            let result = native.answer_owned(op, &forwarded, || Ok(authority.active()?))?;
             self.authority.active()?;
             return Ok(result);
         }
