@@ -401,4 +401,12 @@ function FilePanel({panel:p,detail,close,refresh,openFile}:{panel:Panel;detail?:
  </>;
 }
 function DiffPanel({panel:p}:{panel:Panel}) {const diff=useQuery<{patch:string;truncated:boolean}>('task.diff',{id:p.task,path:p.reference});return <><FrameSlot name="title"><div className="pc-workspace-panel-details"><b>{p.reference} · Changes</b></div></FrameSlot><ErrorMessage error={diff.error}/>{diff.data?<Diff path={p.reference!} patch={diff.data.patch} truncated={diff.data.truncated}/>:<Skeleton layout="rows" label="Loading diff"/>}</>;}
-function AttemptPanel({panel:p,task}:{panel:Panel;task?:TaskDetail}) {return <><FrameSlot name="title"><div className="pc-workspace-panel-details"><b>{p.title} · Ended</b></div></FrameSlot><pre className="pc-code-scroll">{task?.attempts[p.attempt??0] ? 'No saved output is available for this earlier attempt.' : 'No attempt recorded.'}</pre></>;}
+/** An earlier attempt's saved recording, replayed read-only from the task's session endpoint with ?attempt=<n>.
+ *  The offline replay sends a checkpoint, the output frames and an exit frame, so the terminal strip shows the
+ *  exit state; there is no control to take and nothing typed reaches it. `recording` comes from task.get, which
+ *  checks the same run-directory files the session route replays, so the placeholder appears without attaching. */
+export function AttemptPanel({panel:p,task:cachedTask}:{panel:Panel;task?:TaskDetail}) {
+  const ownDetail=useQuery<TaskDetail>('task.get',{id:p.task},'',false,!cachedTask);
+  const task=cachedTask??ownDetail.data,at=p.attempt??0,attempt=task?.attempts?.[at];
+  return <><FrameSlot name="title"><div className="pc-workspace-panel-details"><div><b title={`${p.title} · Ended`}>{p.title} · Ended</b><span title="Read-only · recorded session">Read-only · recorded session</span></div></div></FrameSlot><ErrorMessage error={ownDetail.error}/>{!task?<Skeleton layout="rows" label="Loading attempt"/>:!attempt?<pre className="pc-code-scroll">No attempt recorded.</pre>:!attempt.recording?<pre className="pc-code-scroll">No recording was saved for this attempt.</pre>:<LazyTerminal id={`${p.task}:${at}`} url={`/v3/tasks/${p.task}/session?attempt=${at+1}`} agent={markAgent(attempt.executor)} live={false} control={false} resize={false} autoControl={false} externalControls/>}</>;
+}

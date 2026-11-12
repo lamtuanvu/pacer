@@ -98,6 +98,24 @@ export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTar
  if(terminalSetting(ctx))info.targets.push('terminal');if(ctx.env.TMUX&&ctx.which('tmux'))info.targets.push('tmux');
  return info;
 }
+/** A task attempt's run directory, or null when this machine cannot replay it (a remote run never mirrored here).
+ *  Historical attempts live in runs/<task>/<n>; only the current run may alias its recorded run.dir. */
+export function sessionAttemptDirectory(ctx:Ctx,id:string,attempt:number):string|null{
+  validateTaskId(id);
+  const task=readTask(ctx,id);
+  if(!task)throw new CoreError('unknown_task',`unknown task ${id}`);
+  if(!Number.isSafeInteger(attempt)||attempt<1)throw new CoreError('invalid_input','invalid session attempt');
+  const run=task.run;
+  const dir=run?.dir&&attempt===run.attempt?run.dir:join(ctx.pacerHome,'runs',id,String(attempt));
+  return run?.dir&&attempt===run.attempt&&run.host&&!existsSync(join(dir,'session.remote-full'))?null:dir;
+}
+/** True when the attempt's run directory holds a PTY recording (the same files the session route replays offline). */
+export function attemptRecording(ctx:Ctx,id:string,attempt:number):boolean{
+  try{
+    const dir=sessionAttemptDirectory(ctx,id,attempt);
+    return !!dir&&['session.ckpt','session.log','session.log.1'].some(name=>existsSync(join(dir,name)));
+  }catch{return false;}
+}
 export function terminalSetting(ctx:Ctx,platform:NodeJS.Platform=process.platform):string|null{
  if(!hasDesktop(ctx,platform))return null;
  try{
