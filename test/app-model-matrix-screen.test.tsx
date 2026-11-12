@@ -734,7 +734,7 @@ test("the Add model form is a no-op while a save is in flight (H1 handleAdd guar
     await act(async () => { fire(codexInput!, "input", { currentTarget: { value: "m2" } }); await new Promise(r => setTimeout(r, 0)); });
     await act(async () => { fire(codexForm!, "submit", { preventDefault() {} }); await new Promise(r => setTimeout(r, 0)); });
     // The Add was a no-op during the save: no m2 row was added to codex.
-    expect(textOf(container)).not.toContain(">m2<");
+    expect(findNode(container, n => (n.attrs["aria-label"] ?? "") === "Use m2")).toBeFalsy();
     release();
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
     expect(textOf(container)).toContain("Saved.");

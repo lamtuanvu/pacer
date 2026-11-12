@@ -97,7 +97,7 @@ function followCell(list: Records, difficulty: Difficulty, targets: TierTargets,
   // directly (plain delegation, src/tasks/runner.ts, fixedExecutor), so say
   // that rather than "Not used" or "Uses its provider's default".
   if (!canDispatchHere(list, target)) {
-    return { difficulty, target, chosen: "Skipped by automatic dispatch", note: "runs its default if picked directly", skipped: true };
+    return { difficulty, target, chosen: "Skipped by automatic dispatch", note: "Runs its default if picked directly", skipped: true };
   }
   const chosen = selectModel(list, { difficulty, targets });
   const record = chosen.record;

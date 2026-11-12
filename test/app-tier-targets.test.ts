@@ -85,7 +85,7 @@ test("groupPreview buckets executors by behavior and reports eligible counts per
   expect(opencode.cells.map(c => c.skipped)).toEqual([false, true, true]);
   expect(opencode.cells[0]!.note).toBe("Matches the target");
   expect(opencode.cells[1]!.chosen).toBe("Skipped by automatic dispatch");
-  expect(opencode.cells[1]!.note).toBe("runs its default if picked directly");
+  expect(opencode.cells[1]!.note).toBe("Runs its default if picked directly");
   // cursor (medium): upward fallback for simple, match for standard, and below
   // complex (frontier) automatic dispatch skips it (no unrated model).
   const cursor = grouping.follow[1]!;
@@ -93,7 +93,7 @@ test("groupPreview buckets executors by behavior and reports eligible counts per
   expect(cursor.cells[0]!.note).toBe("Larger than needed, used when nothing smaller is free");
   expect(cursor.cells[1]!.note).toBe("Matches the target");
   expect(cursor.cells[2]!.chosen).toBe("Skipped by automatic dispatch");
-  expect(cursor.cells[2]!.note).toBe("runs its default if picked directly");
+  expect(cursor.cells[2]!.note).toBe("Runs its default if picked directly");
   expect(cursor.cells[2]!.skipped).toBe(true);
   // eligible: automatic dispatch can route simple to all four (each has a rated
   // model at/above small or an unrated model); standard needs at least medium
@@ -132,7 +132,7 @@ test("a follow executor with only below-target models is skipped by automatic di
   // Standard and complex target medium and frontier; the small-only runner is
   // skipped by automatic dispatch there and runs its default if picked directly.
   expect(row.cells[1]!.chosen).toBe("Skipped by automatic dispatch");
-  expect(row.cells[1]!.note).toBe("runs its default if picked directly");
+  expect(row.cells[1]!.note).toBe("Runs its default if picked directly");
   expect(row.cells[1]!.skipped).toBe(true);
   expect(row.cells[2]!.chosen).toBe("Skipped by automatic dispatch");
   expect(row.cells[2]!.skipped).toBe(true);
@@ -160,7 +160,7 @@ test("a follow runner with all models below the target is skipped, not 'Not used
   expect(row.cells.map(c => c.skipped)).toEqual([false, true, true]);
   expect(row.cells[1]!.chosen).toBe("Skipped by automatic dispatch");
   expect(row.cells[2]!.chosen).toBe("Skipped by automatic dispatch");
-  expect(row.cells[2]!.note).toBe("runs its default if picked directly");
+  expect(row.cells[2]!.note).toBe("Runs its default if picked directly");
 });
 
 test("unrated group previews its single model for every difficulty", () => {
