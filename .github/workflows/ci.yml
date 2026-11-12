@@ -405,6 +405,17 @@ jobs:
         run: cargo xtask deps
       - name: Test
         run: cargo test --workspace --locked
+      # The desktop crate is excluded from the root workspace, so the step
+      # above never builds it. Run its tests here so desktop-only
+      # terminal-bridge bugs (e.g. #838, #915) fail CI instead of only in
+      # the manual desktop.yml workflow. Bounds match the desktop build job.
+      - name: Install desktop build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Test desktop crate
+        run: cargo test --locked --bin pacer --manifest-path desktop/src-tauri/Cargo.toml
       - name: Test Rust plugin SDK harness feature
         run: cargo test -p pacer-plugin --features testing --locked
       - name: Plugin conformance through the Rust front door
