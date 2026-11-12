@@ -1,35 +1,65 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AvailableModel, AvailableModels } from "../../../../src/models/available";
-import type { ModelDeclaration, RunnerModels } from "../../../../src/core/runner-models";
+import type { RunnerModels } from "../../../../src/core/runner-models";
 import type { DispatchConfig, TierTargets } from "../../../../src/dispatch/types";
 import type { DispatcherInventory } from "./Dispatcher";
 import { TIERS } from "../../../../src/dispatch/candidates";
-import { Button, ButtonLink, TextAction } from "../../ds/Button";
+import { Button } from "../../ds/Button";
 import { Field, TextInput, Switch } from "../../ds/Controls";
 import { Card, FilterChip } from "../../ds/Patterns";
 import { RadioGroup, RadioChip } from "../../ds/Composer";
 import { Section, useResource, ResourceState } from "./shared";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { executorLabel } from "../../../../src/view-model/words";
-import { suggestTier } from "../../model/executor-models";
 import {
-  createDraft, mergeRows, applyTakes, suggestRows, acceptSuggestion, acceptAllSuggestions,
-  dismissSuggestions, toggleModel, setTier, addModel, isDirty, buildSavePlan, takesFor,
+  createDraft, suggestRows, acceptSuggestion, acceptAllSuggestions,
+  dismissSuggestions, toggleModel, setTier, addModel, isDirty, buildSavePlan,
   formatPrice, formatContext, formatTools,
   type MatrixRow, type MatrixDraft, type MatrixTier,
 } from "../../model/model-matrix";
 
 interface ConfigView { strategy: string; planner: string; plannerAccount: string; source: "built-in" | "strategy"; config: DispatchConfig }
 
+type DeclaredResult = { ok: true; value: RunnerModels } | { ok: false; error: unknown };
+
+interface LoadedRow {
+  id: string;
+  available: AvailableModels;
+  declared: DeclaredResult;
+}
+
+interface LoadResult {
+  avail: Record<string, AvailableModels>;
+  drafts: MatrixDraft[];
+  errors: Record<string, string>;
+}
+
+/** Routine warnings the matrix already reflects; the interesting ones stay on screen. */
+const ROUTINE_WARNINGS = /^runners\..+: (?:model ".*" is unrated \(tier unknown\)|default model ".*" is not in models)$/;
+
+function messageOf(error: unknown): string {
+  if (error && typeof error === "object") {
+    const record = error as { message?: unknown; code?: unknown };
+    if (typeof record.message === "string" && record.message) return record.message;
+    if (typeof record.code === "string" && record.code) return record.code;
+  }
+  return "Could not load this runner's models.";
+}
+
+function isConflict(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  return record.code === "conflict" || /changed elsewhere/i.test(String(record.message ?? ""));
+}
+
 export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig?: ConfigView; initialInventory?: DispatcherInventory }) {
-  const { api, state } = useTaskContext();
+  const { api } = useTaskContext();
   const config = useResource<ConfigView>("dispatch.config.get", {}, initialConfig);
   const inventory = useResource<DispatcherInventory>("dispatch.models", {}, initialInventory);
   const targets: TierTargets = config.data?.config?.tierTargets ?? { simple: "small", standard: "medium", complex: "frontier" };
 
   const [runnerIds, setRunnerIds] = useState<string[]>([]);
   const [availableById, setAvailableById] = useState<Record<string, AvailableModels>>({});
-  const [declaredById, setDeclaredById] = useState<Record<string, RunnerModels>>({});
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
   const [drafts, setDrafts] = useState<MatrixDraft[]>([]);
   const [baseDrafts, setBaseDrafts] = useState<MatrixDraft[]>([]);
@@ -51,42 +81,46 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     setRunnerIds(ids);
   }, [inventory.data]);
 
+  const fetchAll = async (ids: string[]): Promise<LoadResult> => {
+    const t = targetsRef.current;
+    const rows: LoadedRow[] = await Promise.all(ids.map(async (id): Promise<LoadedRow> => {
+      const available = await api.call<AvailableModels>("executor.models.available", { runner: id })
+        .catch(() => ({ runner: id, source: "none", models: null, fetchedAt: Date.now() } as AvailableModels));
+      const declared = await api.call<RunnerModels>("runner.models.get", { id })
+        .then((value): DeclaredResult => ({ ok: true, value }))
+        .catch((source: unknown): DeclaredResult => ({ ok: false, error: source }));
+      return { id, available, declared };
+    }));
+    const avail: Record<string, AvailableModels> = {};
+    const errors: Record<string, string> = {};
+    const nextDrafts: MatrixDraft[] = [];
+    for (const row of rows) {
+      avail[row.id] = row.available;
+      if (row.declared.ok) {
+        const declared = row.declared.value;
+        const listing = row.available.models
+          ? row.available.models.map((m: AvailableModel) => ({ id: m.id, context: m.context, tools: m.tools, costOut: m.costOut }))
+          : null;
+        nextDrafts.push(createDraft(row.id, declared.revision, declared.default, declared.models, listing, t));
+      } else {
+        errors[row.id] = messageOf(row.declared.error);
+      }
+    }
+    return { avail, drafts: nextDrafts, errors };
+  };
+
+  const applyLoaded = (loaded: LoadResult) => {
+    setAvailableById(loaded.avail);
+    setLoadErrors(loaded.errors);
+    setDrafts(loaded.drafts);
+    setBaseDrafts(loaded.drafts.map(d => ({ ...d, rows: d.rows.map(r => ({ ...r })), baseRows: d.baseRows.map(r => ({ ...r })) })));
+    setLoadedRevision(loaded.drafts[0]?.revision ?? "");
+  };
+
   useEffect(() => {
     if (!runnerIds.length) return;
     let active = true;
-    void Promise.all(runnerIds.map(async id => {
-      const [available, declaredResult] = await Promise.all([
-        api.call<AvailableModels>("executor.models.available", { runner: id }).catch(() => ({ runner: id, source: "none", models: null, fetchedAt: Date.now() } as AvailableModels)),
-        api.call<RunnerModels>("runner.models.get", { id }).then(r => ({ ok: true as const, value: r })).catch((e: any) => ({ ok: false as const, error: e })),
-      ]);
-      return { id, available, declaredResult };
-    })).then(results => {
-      if (!active) return;
-      const avail: Record<string, AvailableModels> = {};
-      const decl: Record<string, RunnerModels> = {};
-      const errs: Record<string, string> = {};
-      const nextDrafts: MatrixDraft[] = [];
-      const t = targetsRef.current;
-      for (const result of results as any[]) {
-        avail[result.id] = result.available;
-        if (result.declaredResult.ok) {
-          const declared = result.declaredResult.value;
-          decl[result.id] = declared;
-          const listing = result.available.models ? result.available.models.map((m: AvailableModel) => ({ id: m.id, context: m.context, tools: m.tools, costOut: m.costOut })) : null;
-          const draft = createDraft(result.id, declared.revision, declared.default, declared.models, listing, t);
-          nextDrafts.push(draft);
-        } else {
-          const e = result.declaredResult.error;
-          errs[result.id] = (e && (e.message || e.code)) ? String(e.message || e.code) : "Could not load this runner's models.";
-        }
-      }
-      setAvailableById(avail);
-      setDeclaredById(decl);
-      setLoadErrors(errs);
-      setDrafts(nextDrafts);
-      setBaseDrafts(nextDrafts.map(d => ({ ...d, rows: d.rows.map(r => ({ ...r })), baseRows: d.baseRows.map(r => ({ ...r })) })));
-      setLoadedRevision(nextDrafts[0]?.revision ?? "");
-    });
+    void fetchAll(runnerIds).then(loaded => { if (active) applyLoaded(loaded); });
     return () => { active = false; };
   }, [runnerIds, JSON.stringify(targets)]);
 
@@ -102,9 +136,8 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   const runners = runnerIds.map(id => {
     const draft = drafts.find(d => d.runner === id);
     const available = availableById[id];
-    const declared = declaredById[id];
     const loadError = loadErrors[id];
-    return { id, draft, available, declared, loadError };
+    return { id, draft, available, loadError };
   });
 
   const updateDraft = (runner: string, updater: (draft: MatrixDraft) => MatrixDraft) => {
@@ -136,7 +169,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     }));
   };
 
-  const handleAcceptAllAll = () => {
+  const handleAcceptAll = () => {
     setDrafts(prev => prev.map(d => ({ ...d, rows: acceptAllSuggestions(d.rows) })));
     setSuggestPhase(false);
   };
@@ -147,8 +180,14 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   };
 
   const handleAdd = (runner: string) => {
-    const value = addingByRunner[runner] ?? "";
-    updateDraft(runner, d => ({ ...d, rows: addModel(d.rows, value) }));
+    const value = (addingByRunner[runner] ?? "").trim();
+    if (!value) return;
+    updateDraft(runner, d => {
+      if (d.rows.some(row => row.id === value)) return d;
+      const rows = addModel(d.rows, value);
+      const nextDefault = d.default ?? (rows.length === 1 ? value : null);
+      return { ...d, rows, default: nextDefault };
+    });
     setAddingByRunner(prev => ({ ...prev, [runner]: "" }));
   };
 
@@ -172,12 +211,10 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     if (isPlanner(id)) return false;
     const noDefault = draft.default == null;
     const allOff = draft.rows.length > 0 && draft.rows.every(r => !r.on);
-    // also all off with no rows? if no rows, default unchanged maybe not blocked
     return noDefault && allOff;
   });
 
   const handleDiscard = () => {
-    // reload from service
     void (async () => {
       setBusy(true);
       setError(undefined);
@@ -185,37 +222,9 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
       setConflict(false);
       setSuggestPhase(false);
       try {
-        const ids = runnerIds;
-        const results = await Promise.all(ids.map(async id => {
-          const [available, declared] = await Promise.all([
-            api.call<AvailableModels>("executor.models.available", { runner: id }).catch(() => ({ runner: id, source: "none", models: null, fetchedAt: Date.now() } as AvailableModels)),
-            api.call<RunnerModels>("runner.models.get", { id }).catch(() => null),
-          ]);
-          return { id, available, declared };
-        }));
-        const avail: Record<string, AvailableModels> = {};
-        const decl: Record<string, RunnerModels> = {};
-        const errs: Record<string, string> = {};
-        const nextDrafts: MatrixDraft[] = [];
-        for (const result of results as any[]) {
-          avail[result.id] = result.available;
-          if (result.declared) {
-            decl[result.id] = result.declared;
-            const listing = result.available.models ? result.available.models.map((m: AvailableModel) => ({ id: m.id, context: m.context, tools: m.tools, costOut: m.costOut })) : null;
-            const draft = createDraft(result.id, result.declared.revision, result.declared.default, result.declared.models, listing, targets);
-            nextDrafts.push(draft);
-          } else {
-            errs[result.id] = loadErrors[result.id] ?? "Could not load this runner's models.";
-          }
-        }
-        setAvailableById(avail);
-        setDeclaredById(decl);
-        setLoadErrors(errs);
-        setDrafts(nextDrafts);
-        setBaseDrafts(nextDrafts.map(d => ({ ...d, rows: d.rows.map(r => ({ ...r })), baseRows: d.baseRows.map(r => ({ ...r })) })));
-        setLoadedRevision(nextDrafts[0]?.revision ?? "");
-      } catch (e) {
-        setError(e);
+        applyLoaded(await fetchAll(runnerIds));
+      } catch (loadError) {
+        setError(loadError);
       } finally {
         setBusy(false);
       }
@@ -245,15 +254,14 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
         expectedRevision: loadedRevision || drafts[0]?.revision || "",
         runners: plan.runners,
       });
-      // use loaded revision? plan uses d.revision already; expectedRevision should be loaded revision common.
       const newRevision = result.revision;
       setDrafts(prev => prev.map(d => ({ ...d, revision: newRevision, baseRows: d.rows.map(r => ({ ...r })) })));
       setBaseDrafts(prev => prev.map(d => ({ ...d, rows: d.rows.map(r => ({ ...r })), baseRows: d.baseRows.map(r => ({ ...r })) })));
-      const warnings = result.warnings ?? [];
-      if (warnings.length) setNotice(warnings.join(" "));
-      else setNotice("Saved.");
-    } catch (e: any) {
-      if (e && (e.code === "conflict" || /changed elsewhere/i.test(String(e.message)))) {
+      inventory.reload();
+      const warnings = (result.warnings ?? []).filter(w => !ROUTINE_WARNINGS.test(w));
+      setNotice(warnings.length ? `Saved. ${warnings.join(" ")}` : "Saved.");
+    } catch (e) {
+      if (isConflict(e)) {
         setConflict(true);
         setNotice("Model settings changed elsewhere. Discard to load them.");
       } else {
@@ -265,18 +273,12 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     }
   };
 
-  // Conflict safety: Save must send revision drafts were LOADED with (all runner.models.get at load return same strategy revision; keep one loadedRevision)
-  // We store loaded revision per draft; but expectedRevision should be the common loaded revision. Use drafts[0].revision (loaded).
-  // However handleSave currently uses drafts[0]?.revision. Good. But we fetch no fresh revision. Good.
-
   const filters = [
     { key: "all", label: "All agents" },
     ...runners.map(r => ({ key: r.id, label: `${executorLabel(r.id)} › ${r.available?.provider ?? r.id}` })),
   ];
 
   const visibleRunners = filter === "all" ? runners : runners.filter(r => r.id === filter);
-
-  // Keep one loadedRevision? drafts all share revision from load. Fine.
 
   return (
     <Section id="model-matrix" title="Model matrix" detail="Every model each agent can run.">
@@ -292,7 +294,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       <strong>Suggest from listings</strong>
                       <span className="u3-muted">Proposes which models to turn on and what size each is, from each provider's price and tool support. Nothing changes until you save.</span>
                       <div className="u3-actions">
-                        <Button size="sm" variant="primary" onClick={handleSuggest}>Suggest</Button>
+                        <Button size="sm" variant="secondary" onClick={handleSuggest}>Suggest</Button>
                       </div>
                     </>
                   ) : (
@@ -301,7 +303,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       <span className="u3-muted">Highlighted rows. Accept them one by one, or all at once.</span>
                       <div className="u3-actions">
                         <Button size="sm" variant="ghost" onClick={handleDismissAll}>Dismiss</Button>
-                        <Button size="sm" variant="primary" onClick={handleAcceptAllAll}>Accept all</Button>
+                        <Button size="sm" variant={dirty ? "secondary" : "primary"} onClick={handleAcceptAll}>Accept all</Button>
                       </div>
                     </>
                   )}
@@ -330,7 +332,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       {planner && <p className="u3-muted">Planner. Pacer does not dispatch tasks to it, so its models are not edited here.</p>}
                       {loadError && <p className="u3-muted">{loadError}</p>}
                       {!readOnly && noModels && <p className="u3-muted">Uses its default and can take any difficulty</p>}
-                      {!readOnly && !noModels && unknownListing && (
+                      {!readOnly && unknownListing && (
                         <div className="u3-actions">
                           <Field label="Add model"><TextInput value={addingByRunner[id] ?? ""} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
                           <Button size="sm" onClick={() => handleAdd(id)}>Add</Button>
@@ -353,7 +355,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                               const listing = listingModels?.find(m => m.id === row.id);
                               return (
                                 <div key={row.id} className={`pc-model-matrix__row ${pendingRow ? "pc-model-matrix__row--pending" : ""}`}>
-                                  <Switch checked={row.on} aria-label={`Use ${row.id}`} disabled={readOnly} onChange={(e: any) => { if (!readOnly) handleToggle(id, row.id, !!e.currentTarget.checked); }} />
+                                  <Switch checked={row.on} aria-label={`Use ${row.id}`} disabled={readOnly} onChange={e => { if (!readOnly) handleToggle(id, row.id, !!e.currentTarget.checked); }} />
                                   <div>
                                     <span className="pc-model-matrix__mono">{row.id}</span>
                                     {row.isDefault && <span className="pc-model-matrix__tag">Default</span>}
@@ -382,7 +384,6 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                           </div>
                         </div>
                       )}
-                      {readOnly && !loadError && planner && null}
                     </div>
                   );
                 })}
@@ -409,8 +410,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                   <p className="u3-muted">Some runners have no default model and all models off; turn a model on or set a default before saving.</p>
                 )}
 
-                {conflict && <p role="status">{notice}</p>}
-                {!conflict && notice && <p role="status">{notice}</p>}
+                {notice && <p role="status">{notice}</p>}
                 <ErrorMessage error={error} />
 
                 {dirty && (
