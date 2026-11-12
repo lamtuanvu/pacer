@@ -9,6 +9,7 @@ use std::{collections::HashMap, io, process::Stdio};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     process::Command,
+    signal::unix::{SignalKind, signal},
     sync::Mutex,
 };
 
@@ -1124,7 +1125,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     // Only the HTTP front door may assert how a message caller authenticated.
     ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
     // The core child's env fixes who owns plugin processes for this connection.
-    let (ownership, owner_env) = Ownership::start(&env, &ctx.pacer_home, scoped_work)?;
+    let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work)?;
     let (link, frames) = PluginLink::new(&sync_id, &sync_key);
     let mut plugins = Plugins {
         service: std::sync::Arc::clone(&ownership.service),
@@ -1134,11 +1135,9 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         ids: HashMap::new(),
     };
     let session = async {
-        let mut child = Command::new(program)
-            .args(prefix)
-            .args(["api", "--stdio"])
-            .envs(&env)
-            .envs(owner_env)
+        let mut command = Command::new(program);
+        let mut child = host_socket
+            .apply(command.args(prefix).args(["api", "--stdio"]).envs(&env))
             .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -1188,7 +1187,17 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
             }
         }
     };
-    let code = session.await;
+    // A terminated owning connection still removes its socket and children;
+    // dropping the session kills the core child.
+    let code = if ownership.owns_children() {
+        let mut terminate = signal(SignalKind::terminate())?;
+        tokio::select! {
+            code = session => code,
+            _ = terminate.recv() => Ok(128 + 15),
+        }
+    } else {
+        session.await
+    };
     ownership.finish().await;
     code
 }

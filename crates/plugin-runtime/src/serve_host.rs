@@ -8,7 +8,7 @@
 //! [`ProcessOwner`], binds the reverse bridge with live call/find/spawn/stop,
 //! and exports [`crate::HOST_SOCKET_ENV`] for the Core child. A stdio
 //! connection with no live serve owner starts the same session on its own
-//! `run/s<12-hex>.sock` ([`NativeHostSession::start_connection`]).
+//! connection socket ([`NativeHostSession::start_connection`]).
 
 use crate::{
     BridgeError, BridgeHandle, HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME,
@@ -79,28 +79,31 @@ impl NativeHostSession {
     /// live owner dispatch, and return Core env pairs (`PACER_HOST_SOCKET`).
     /// Does not mutate process env.
     pub fn start(pacer_home: &Path) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
-        Self::start_at(pacer_home, HOST_SOCKET_NAME)
+        Self::start_with(|| {
+            ReverseBridge::bind_at(pacer_home, HOST_SOCKET_NAME, PeerAuth::same_uid())
+        })
     }
 
-    /// The same owner for one stdio connection, on `run/<connection socket>`
+    /// The same owner for one stdio connection, on its own connection socket
     /// rather than `host.sock`: the connection never claims the home's lease
-    /// (ADR 0027). End it with [`Self::shutdown_connection`].
+    /// (ADR 0027). The socket is `run/s<12-hex>.sock`, or the private per-user
+    /// directory when that path is too long ([`ReverseBridge::bind_connection`]).
+    /// End it with [`Self::shutdown_connection`].
     pub fn start_connection(
         pacer_home: &Path,
         tag: [u8; 6],
     ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
-        Self::start_at(pacer_home, &connection_socket_name(tag))
+        let name = connection_socket_name(tag);
+        Self::start_with(|| ReverseBridge::bind_connection(pacer_home, &name, PeerAuth::same_uid()))
     }
 
-    fn start_at(
-        pacer_home: &Path,
-        name: &str,
+    fn start_with(
+        bind: impl FnOnce() -> Result<ReverseBridge, BridgeError>,
     ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
         let owner = ProcessOwner::native_for_serve();
         owner.claim_native_supervision()?;
         let owner = Arc::new(Mutex::new(owner));
-        let bridge = ReverseBridge::bind_at(pacer_home, name, PeerAuth::same_uid())?
-            .with_live_owner(Arc::clone(&owner));
+        let bridge = bind()?.with_live_owner(Arc::clone(&owner));
         let socket = bridge.path().to_path_buf();
         let core_env = vec![(HOST_SOCKET_ENV.to_string(), socket.display().to_string())];
         let bridge = bridge.spawn();
