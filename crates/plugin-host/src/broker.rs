@@ -14,7 +14,7 @@ use std::{
 use thiserror::Error;
 use tokio::time::timeout_at;
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum BrokerError {
     #[error("Policy hash key cannot be accessed safely")]
     PolicyKey,
