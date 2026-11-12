@@ -11,7 +11,7 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { insightsInputSchema, insightsSummary } from "../insights/summary";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
-import { dispatchConfigSchema, modelDeclarationSchema, previewInputSchema } from "../dispatch/types";
+import { dispatchConfigSchema, modelDeclarationSchema, previewInputSchema, tierTargetsSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
 import { filesSearchInputSchema, searchFiles } from "../core/files-search";
@@ -67,6 +67,7 @@ import { availableModels } from "../models/available";
 import { redactEndpointMessage } from "../endpoints/state";
 import * as executorSettings from "../core/executor-settings";
 import * as runnerModels from "../core/runner-models";
+import * as tierTargets from "../core/tier-targets";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
 import { AGENTS } from "../config/accounts";
@@ -351,6 +352,7 @@ export const OPS: Record<string, OpDef> = {
   "runner.settings.save": op({description:"Atomically save executor order, enabled states and parallel limits against the expected revision.",params:z.object({expectedRevision:z.string().min(1),order:z.array(id),runners:z.array(z.object({id,enabled:z.boolean(),maxTasks:z.number().int().min(1).max(16)}))}),handler:(ctx,p)=>mutation(ctx,"runners",()=>executorSettings.saveExecutorSettings(ctx,p))}),
   "runner.models.get": op({description:"Read an executor's default and allowed models with tiers, against the strategy revision.",params:z.object({id}),handler:(ctx,p)=>runnerModels.readRunnerModels(ctx,p.id)}),
   "runner.models.set": op({description:"Atomically save an executor's default and allowed tiered models against the expected revision; every id is checked against the live listing when one is known.",params:z.object({id,expectedRevision:z.string().min(1),default:z.string().min(1),models:modelDeclarationSchema.array().max(256)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnerModels.saveRunnerModels(ctx,p))}),
+  "runner.models.set_many": op({description:"Validate every executor like runner.models.set, then commit all defaults and tiered models in one revision-checked edit; a failed runner writes nothing.",params:z.object({expectedRevision:z.string().min(1),runners:z.array(z.object({id,default:z.string().min(1),models:modelDeclarationSchema.array().max(256)})).min(1).max(64)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnerModels.saveRunnerModelsMany(ctx,p))}),
   "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
   "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
   "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", async () => { const {migrated} = await runnersConfig.remove(ctx, p.id); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
@@ -570,6 +572,8 @@ export const OPS: Record<string, OpDef> = {
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
   "dispatch.config.get": op({description:"Read the active planner and effective dispatcher configuration, including built-in defaults.",params:z.object({}),handler:ctx=>{const current=loadStrategy(ctx);return {strategy:current.name,planner:current.planner.agent,plannerAccount:current.planner.account,source:current.dispatch?"strategy":"built-in",config:current.dispatch??dispatchConfigSchema.parse({})};}}),
+  "dispatch.tierTargets.get": op({description:"Read the active tier targets against the strategy revision; built-in defaults when the setup saves none.",params:z.object({}),handler:ctx=>tierTargets.readTierTargets(ctx)}),
+  "dispatch.tierTargets.set": op({description:"Save tier targets in the active setup against the expected revision; refuses a decreasing mapping.",params:z.object({expectedRevision:z.string().min(1),targets:tierTargetsSchema}),handler:(ctx,p)=>mutation(ctx,"strategy",()=>tierTargets.saveTierTargets(ctx,p))}),
   "dispatch.enforcement": op({description:"Read native subagent control certification and exclusion reasons for a repository.",params:z.object({repo:z.string().min(1).max(4096)}),handler:async(ctx,p)=>{const repo=await resolvePolicyRepoInput(ctx,p.repo);return enforcementDiagnostics(ctx,loadStrategy(ctx),repo.path);}}),
   "dispatch.enforcement.probe": op({description:"Start a quota-using native subagent control canary for one local executor and repository.",params:z.object({repo:z.string().min(1).max(4096),runner:id}),handler:async(ctx,p)=>{const repo=await resolvePolicyRepoInput(ctx,p.repo);const chosen=loadStrategy(ctx);const job=await startJob(ctx,"enforcement.probe",`${p.runner}:${repo.path}`,["Probe native child control"],async step=>{step.start("Probe native child control");const result=await probeNativeControl({...ctx,now:Date.now()/1000},chosen,p.runner,repo.path);if(result.state!=="certified")throw new CoreError("not_allowed",result.reason??"Native child blocking was not observed");step.pass("Probe native child control","Native child blocking verified");});return{job};}}),
   "dispatch.enforcement.consent": op({description:"Grant or decline consent for scheduled certification probes on an account. Probes spend the account's own quota to certify its enforcement guard.",params:z.object({account:id,granted:z.boolean()}),handler:async(ctx,p)=>({account:p.account,consent:await recordConsent(ctx,p.account,p.granted)})}),
