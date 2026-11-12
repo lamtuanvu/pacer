@@ -13,6 +13,7 @@ import { exerciseStrictGuard } from "./strict-guard";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
 import { exerciseNativeStdio } from "./native-stdio";
+import { exerciseNativeHostEffects } from "./native-host-effects";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
@@ -42,6 +43,9 @@ const usage = `usage: bun run live <command> [--id <id>]
   repair --id <id>                exercise fixed disposable core self-repair fixtures (ui-seeded sandbox)
   native-config --id <id>         exercise fixed native/forwarded config writes over stdio and HTTP
   native-stdio --id <id>          exercise fixed protocol-3 stdio exchange in a native test-ops sandbox
+  native-host-effects --id <id> --forward-id <id>
+                                  exercise fixed host.check jobs against the sandbox fake ssh host, comparing
+                                  a native test-ops sandbox with a --native-forward-ops host.check sandbox
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
@@ -70,7 +74,7 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   const options = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: string[] = [];
-  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal", "--mode", "--local-model-ports", "--local-model-fixture", "--core-fixture", "--native-forward-ops"]);
+  const valueOptions = new Set(["--id", "--front-door", "--from-app", "--to-app", "--scenario", "--seed", "--repo-template", "--screen", "--out", "--app", "--behavior", "--surface", "--verdict", "--steps", "--signer", "--initial-layout", "--baseline-process-type", "--cargo-target-dir", "--from", "--task", "--terminal", "--mode", "--local-model-ports", "--local-model-fixture", "--core-fixture", "--native-forward-ops", "--forward-id"]);
   for (let i = 0; i < before.length; i++) {
     const arg = before[i];
     if (valueOptions.has(arg)) {
@@ -92,6 +96,7 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   for (const key of ["--local-model-ports", "--local-model-fixture", "--core-fixture", "--native-forward-ops"]) if (options.has(key) && command !== "up") throw Error(`${key} is only valid for up`);
   if (flags.has("--waiting-session-fixture") && command !== "up") throw Error("--waiting-session-fixture is only valid for up");
   if (flags.has("--waiting-session-fixture") && options.has("--seed")) throw Error("--waiting-session-fixture cannot be combined with --seed");
+  if (options.has("--forward-id") && command !== "native-host-effects") throw Error("--forward-id is only valid for native-host-effects");
   if (command === "up") {
     const fixtures = { localModelPorts: options.get("--local-model-ports"), localModelFixture: options.get("--local-model-fixture"), coreFixture: options.get("--core-fixture"), nativeForwardOps: options.get("--native-forward-ops") };
     console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain"), flags.has("--native-test-ops"), flags.has("--native-forward-echo"), fixtures, flags.has("--waiting-session-fixture")), null, 2));
@@ -184,6 +189,12 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (command === "native-config") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live native-config --id <id>");
     await exerciseNativeConfig(loadSession(id));
+    return 0;
+  }
+  if (command === "native-host-effects") {
+    const forward = options.get("--forward-id");
+    if (!id || !forward || options.size !== 2 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live native-host-effects --id <id> --forward-id <id>");
+    await exerciseNativeHostEffects(loadSession(id), loadSession(forward));
     return 0;
   }
   if (command === "native-stdio") {

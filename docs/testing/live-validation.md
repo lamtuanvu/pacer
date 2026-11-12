@@ -76,6 +76,10 @@ bun run live up --id my-change --real-keychain
 
 `session.json` then records `realKeychain: true`. `down`, with or without `--keep`, deletes the `machine-identity/<homeTag>`, `machine-identity-staging/<homeTag>` and `machine-install-salt/<homeTag>` items of the sandbox `home/` and of every copied home directly under the sandbox root that has `identity/machine.json` (for example a `home-copy/` made to test copied homes). It refuses before deleting anything if a home has the tag of your real `~/.pacer`, and it records the deleted accounts in the evidence log. Remove Keychain items of homes created elsewhere yourself. `--real-keychain` is valid only for `up`.
 
+### SSH and the fake host
+
+Every sandbox also puts a fake `ssh` first on its `PATH` (`bin/ssh`). It wraps `test/fixtures/bin/ssh`, which runs the remote program locally with `HOME` set to the sandbox's `fake-host/home/` and logs each call to `fake-host/ssh.log`. The SSH alias `pacer-live-down.invalid` is refused as an unreachable host would be. Every `ssh` call made by the sandbox service, guarded CLI and plugin children reaches this fake. There is no option to use the real SSH client: live tests against a real remote still need separate maintainer approval under SEC-6 and are outside this harness. Use `.invalid` aliases (`pacer-live-fake.invalid`) for sandbox hosts, so a real client could not resolve them either. Because the fake runs pacer's fixed remote scripts on this machine, keep every repository and account path in a sandbox host declaration under `~/`, which the fake resolves inside `fake-host/home/`; an absolute path would be used as a local path.
+
 ### M1 runtime and artifact layout
 
 To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority. Bundled plugin children retain the configured front-door or wrapper route; the source host supplies a fixed selector for its own Bun runtime and CLI module. Installed plugins do not receive that selector.
@@ -596,6 +600,27 @@ settings actions. For operations without a direct UI control (for example TUI
 strategy save/remove), verify the resulting list or detail after a guarded CLI
 write and state that distinction in the evidence. API fixture success alone does
 not verify client rendering.
+
+## Fixed native host-effects fixture
+
+Start two fresh Rust test-ops sandboxes, then run the fixture against both:
+
+```sh
+bun run live up --id host-native --front-door rust --native-test-ops
+bun run live up --id host-forward --front-door rust --native-test-ops --native-forward-ops host.check
+bun run live native-host-effects --id host-native --forward-id host-forward
+```
+
+Before any request, the fixture checks that `ssh` on each sandbox's `PATH` is exactly the sandbox fake (`bin/ssh`, a private regular file with the expected bytes) and refuses otherwise. It then declares two fixed hosts in each sandbox's `home/strategy.yaml`: `fakehost`, which reaches the fake host, and `downhost`, which the fake refuses. The fake host gets `setsid` and util-linux `script` stand-ins and the declared account home, so its prerequisites can pass on any OS. Through the guarded public proxy it runs `host.check` for each host and checks:
+
+- the reply is `{job}` and the job settles (`passed` for `fakehost`, `failed` with an unreachable `ssh` step for `downhost`) through `job.get`;
+- the private `state/jobs/<id>.json` file equals `job.get`, and `state/host-checks.json` holds the same checks;
+- public `/v3/events` delivers `job` events from `running` to the settled state;
+- the fake ssh log shows calls for exactly the two fixture hosts.
+
+In the native sandbox, it then runs the guarded CLI `host check fakehost --json`, which must write the same `host-checks.json` checks and facts. It sends `host.clean` and `host.repo.setup` through the proxy and `host setup` through the guarded CLI. D8 and D3 must refuse them; the fixture records their op-level behavior as UNVERIFIED, because the end-to-end differential tests are that evidence. Finally, it compares both sandboxes' replies, settled jobs, `host-checks.json` entries and SSE job event sequences, ignoring IDs, PIDs, timestamps and sandbox paths, and writes `native-host-effects/results.json` in the native sandbox (or `difference.json` on a mismatch).
+
+Native dispatch evidence comes from the `PACER_DEBUG_NATIVE` trace in `logs/serve.log`. A `native job.get` line must be present in both sandboxes. The forced-forward sandbox must have no `native host.check` line. In the native sandbox, one `native host.check` line per check records native dispatch as PASS. No line records it as UNVERIFIED, meaning that revision still forwards `host.check` to the TypeScript core, and the parity verdict then covers only the forwarded path. Any other count fails. The fixture accepts only the two sandbox IDs and refuses reused fake hosts, strategies that already declare hosts, core fixtures, other forwarded operations and real Keychain mode. Run `live report` and `live down --keep` for both sandboxes.
 
 ## Fixed settings save fixture
 

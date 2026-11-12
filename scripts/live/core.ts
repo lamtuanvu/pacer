@@ -1,4 +1,4 @@
-import { appendFileSync, cpSync, existsSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, realpathSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { join, resolve, basename, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
@@ -173,6 +173,35 @@ async function reservePort(): Promise<number> {
   await new Promise<void>((ok, fail) => server.close(error => error ? fail(error) : ok()));
   return port;
 }
+/** SSH aliases the sandbox fake answers for; `.invalid` never resolves (RFC 2606) should a real ssh ever run. */
+export const FAKE_SSH_ALIAS = "pacer-live-fake.invalid";
+export const FAKE_SSH_DOWN_ALIAS = "pacer-live-down.invalid";
+export const fakeHostHome = (root: string) => join(root, "fake-host/home");
+export const fakeSshLog = (root: string) => join(root, "fake-host/ssh.log");
+/**
+ * The sandbox `ssh`: test/fixtures/bin/ssh, which runs the remote program locally with HOME set to the
+ * fake host home. Plugin children get a minimal environment, so the fixture variables are fixed here.
+ */
+export function fakeSshScript(root: string): string {
+  return `#!/bin/sh\nPACER_FAKE_HOST_HOME=${shellQuote(fakeHostHome(root))}\nPACER_FAKE_SSH_LOG=${shellQuote(fakeSshLog(root))}\nPACER_FAKE_SSH_DOWN=${shellQuote(FAKE_SSH_DOWN_ALIAS)}\nexport PACER_FAKE_HOST_HOME PACER_FAKE_SSH_LOG PACER_FAKE_SSH_DOWN\nexec /bin/sh ${shellQuote(join(checkout, "test/fixtures/bin/ssh"))} "$@"\n`;
+}
+export function installFakeSsh(root: string): void {
+  mkdirSync(fakeHostHome(root), { recursive: true, mode: 0o700 });
+  atomicWrite(join(root, "bin/ssh"), fakeSshScript(root), 0o700);
+}
+/** Throws unless `ssh` on the sandbox PATH is exactly the sandbox fake, so no host check can reach a real host. */
+export function verifyFakeSsh(session: Session, which: (bin: string, options: { PATH: string }) => string | null = Bun.which): string {
+  const path = join(session.root, "bin/ssh");
+  const refuse = (reason: string): never => { throw Error(`Fake ssh check failed: ${reason}; refusing to run host checks`); };
+  const resolved = which("ssh", { PATH: sandboxEnv(session).PATH ?? "" });
+  if (resolved !== path) refuse(`sandbox PATH resolves ssh to ${resolved ?? "nothing"}, not ${path}`);
+  let stat;
+  try { stat = lstatSync(path); } catch { return refuse(`${path} is missing`); }
+  if (!stat.isFile() || stat.isSymbolicLink() || (process.getuid && stat.uid !== process.getuid()) || (stat.mode & 0o022) !== 0) refuse(`${path} is not a private regular file`);
+  if (readFileSync(path, "utf8") !== fakeSshScript(session.root)) refuse(`${path} is not the sandbox fake`);
+  if (!existsSync(join(checkout, "test/fixtures/bin/ssh"))) refuse("test/fixtures/bin/ssh is missing");
+  return path;
+}
 export async function freePort(reserve = reservePort): Promise<number> {
   for (let attempt = 0; attempt < 100; attempt++) {
     const port = await reserve();
@@ -276,6 +305,8 @@ export async function up(id = `live-${Date.now()}`, template?: string, base = li
     for (const manager of ["launchctl", "systemctl"]) atomicWrite(join(root, "bin", manager), "#!/bin/sh\necho 'Live validation D3: service manager refused' >&2\nexit 3\n", 0o700);
     // The machine identity lives in the login Keychain on macOS; sandboxes use a stub unless --real-keychain.
     prepareKeychain(session);
+    // Remote host checks reach only a fake host home inside the sandbox; there is no real-ssh option.
+    installFakeSsh(root);
     // Only sandbox-owned config is created; never copy the user's strategy or credentials.
     atomicWrite(join(root, "home/strategy.yaml"), "planner: claude-code\nproviders:\n  codex: {usage: quota}\nrouting:\n  - default: [codex]\n");
     if (waitingFixture) atomicWrite(join(root, "home/strategy.yaml"), JSON.stringify({ planner: "codex#fixture", accounts: { fixture: { kind: "codex", home: join(root, "home/accounts/fixture"), usage: "quota" } }, runners: { "codex#fixture": {} }, routing: [{ default: ["codex#fixture"] }], messaging: { rules: [{ effect: "allow", relation: "any" }] } }));

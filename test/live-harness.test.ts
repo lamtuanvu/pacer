@@ -1,11 +1,12 @@
 import {exerciseNativeConfig} from "../scripts/live/native-config";
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, validateNativeFixtures, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, FAKE_SSH_ALIAS, FAKE_SSH_DOWN_ALIAS, fakeHostHome, fakeSshLog, freePort, healthy, installFakeSsh, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, validateNativeFixtures, verifyFakeSsh, type Session } from "../scripts/live/core";
+import { exerciseNativeHostEffects, fakeSshCalls, hostCheckDispatch, jobEvents, normalizeJob } from "../scripts/live/native-host-effects";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
@@ -74,6 +75,87 @@ describe("live guard (D3)", () => {
     const child = Bun.spawnSync([process.execPath, "scripts/live/guard.ts", "missing-session", "install"], { cwd: join(import.meta.dir, "..") });
     expect(child.exitCode).toBe(3);
     expect(child.stderr.toString()).toContain("D3");
+  });
+});
+
+describe("live fake ssh host", () => {
+  test("the sandbox ssh is the fake host and never falls through to another ssh", () => {
+    const session = fixture();
+    expect(() => verifyFakeSsh(session)).toThrow("Fake ssh check failed: sandbox PATH resolves ssh to");
+    installFakeSsh(session.root);
+    const path = join(session.root, "bin/ssh");
+    expect(verifyFakeSsh(session)).toBe(path);
+    expect(statSync(path).mode & 0o777).toBe(0o700);
+    const env = { PATH: sandboxEnv(session, { PATH: process.env.PATH }).PATH };
+    const reached = Bun.spawnSync([path, "-o", "BatchMode=yes", "--", FAKE_SSH_ALIAS, 'printf %s "$HOME"'], { env });
+    expect(reached.exitCode).toBe(0);
+    expect(reached.stdout.toString()).toBe(fakeHostHome(session.root));
+    const refused = Bun.spawnSync([path, "-o", "BatchMode=yes", "--", FAKE_SSH_DOWN_ALIAS, "true"], { env });
+    expect(refused.exitCode).toBe(255);
+    expect(refused.stderr.toString()).toContain("Connection refused");
+    expect(fakeSshCalls(readFileSync(fakeSshLog(session.root), "utf8"))).toEqual({ [FAKE_SSH_ALIAS]: 1, [FAKE_SSH_DOWN_ALIAS]: 1 });
+    expect(() => verifyFakeSsh(session, () => null)).toThrow("resolves ssh to nothing");
+  });
+  test("host checks fail closed when the fake is changed, replaced or shadowed", () => {
+    const session = fixture();
+    installFakeSsh(session.root);
+    const path = join(session.root, "bin/ssh"), original = readFileSync(path, "utf8");
+    atomicWrite(path, original.replace(FAKE_SSH_DOWN_ALIAS, "other.invalid"), 0o700);
+    expect(() => verifyFakeSsh(session)).toThrow("is not the sandbox fake");
+    atomicWrite(path, original, 0o700);
+    chmodSync(path, 0o720);
+    expect(() => verifyFakeSsh(session)).toThrow("is not a private regular file");
+    rmSync(path);
+    atomicWrite(join(session.root, "real-looking-ssh"), original, 0o700);
+    symlinkSync(join(session.root, "real-looking-ssh"), path);
+    expect(() => verifyFakeSsh(session)).toThrow("is not a private regular file");
+    rmSync(path);
+    installFakeSsh(session.root);
+    // A seeded sandbox puts home/bin first; an ssh there would win and must be refused.
+    mkdirSync(join(session.root, "home/bin"));
+    atomicWrite(join(session.root, "home/bin/ssh"), "#!/bin/sh\nexit 0\n", 0o700);
+    expect(() => verifyFakeSsh({ ...session, seed: "ui" })).toThrow(`resolves ssh to ${join(session.root, "home/bin/ssh")}`);
+    expect(verifyFakeSsh(session)).toBe(path);
+  });
+  test("the fixed host-effects fixture refuses before any request unless both sandboxes resolve the fake", async () => {
+    const native: Session = { ...fixture(), id: "native", frontDoor: "rust", nativeTestOps: true };
+    const forward: Session = { ...fixture(), id: "forward", frontDoor: "rust", nativeTestOps: true, nativeForwardOps: "host.check" };
+    await expect(exerciseNativeHostEffects(native, native)).rejects.toThrow("two different sandboxes");
+    await expect(exerciseNativeHostEffects(forward, forward)).rejects.toThrow("two different sandboxes");
+    await expect(exerciseNativeHostEffects({ ...native, nativeForwardOps: "host.check" }, forward)).rejects.toThrow("--id requires");
+    await expect(exerciseNativeHostEffects(native, { ...forward, nativeForwardOps: "*" })).rejects.toThrow("--native-forward-ops host.check");
+    await expect(exerciseNativeHostEffects({ ...native, realKeychain: true }, forward)).rejects.toThrow("--id requires");
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("Fake ssh check failed");
+    installFakeSsh(native.root);
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("Fake ssh check failed");
+    for (const session of [native, forward]) {
+      expect(existsSync(join(session.root, "native-host-effects"))).toBe(false);
+      expect(existsSync(join(session.root, "home/strategy.yaml"))).toBe(false);
+    }
+    installFakeSsh(forward.root);
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("requires a healthy sandbox");
+    await expect(main(["native-host-effects", "--id", "missing"])).rejects.toThrow("usage: live native-host-effects");
+    await expect(main(["native-host-effects", "--id", "a", "--forward-id", "b", "--", "host", "clean"])).rejects.toThrow("usage: live native-host-effects");
+    await expect(main(["status", "--forward-id", "b"])).rejects.toThrow("only valid for native-host-effects");
+  });
+  test("host-effects evidence: SSE job events, ssh calls, normalized jobs and native dispatch traces", () => {
+    const job = (id: string, state: string) => ({ id, kind: "host.check", target: "fakehost", state, steps: [], startedAt: 1, pid: 2, cancellable: false });
+    const transcript = [": connected", `id: 1\nevent: job\ndata: ${JSON.stringify(job("a", "running"))}`, `id: 2\nevent: plugin\ndata: {"id":"a"}`,
+      `id: 3\nevent: job\ndata: ${JSON.stringify(job("b", "running"))}`, `id: 4\nevent: job\ndata: ${JSON.stringify({ ...job("a", "passed"), endedAt: 3 })}`, "event: job\ndata: {"].join("\n\n");
+    const events = jobEvents(transcript, ["a"]);
+    expect(Object.keys(events)).toEqual(["a"]);
+    expect(events.a.map(value => value.state)).toEqual(["running", "passed"]);
+    expect(normalizeJob({ ...job("a", "passed"), endedAt: 3 })).toEqual({ kind: "host.check", target: "fakehost", state: "passed", steps: [], cancellable: false });
+    expect(fakeSshCalls(`${FAKE_SSH_ALIAS} -o BatchMode=yes -o X -- h 'printf\nos=%s\n'\nother.example -o BatchMode=yes -- x\nprintf -o BatchMode=yes\n`))
+      .toEqual({ [FAKE_SSH_ALIAS]: 1, "other.example": 1 });
+    const trace = "pacer: PACER_FORWARD_OPS=host.check\nnative job.get\n";
+    expect(hostCheckDispatch(trace, 2, true)).toBe("forwarded");
+    expect(hostCheckDispatch(trace, 2, false)).toBe("forwarded");
+    expect(hostCheckDispatch(`${trace}native host.check\nnative host.check\n`, 2, false)).toBe("native");
+    expect(() => hostCheckDispatch(`${trace}native host.check\n`, 2, false)).toThrow("traced 1 times for 2 checks");
+    expect(() => hostCheckDispatch(`${trace}native host.check\n`, 2, true)).toThrow("forced-forward session executed host.check natively");
+    expect(() => hostCheckDispatch("native host.check\nnative host.check\n", 2, false)).toThrow("no native job.get line");
+    expect(hostCheckDispatch(`${trace}native host.checks\n`, 2, false)).toBe("forwarded");
   });
 });
 
@@ -263,6 +345,8 @@ test.skipIf(!canBind)("up/status/down uses a free port and leaves no service", a
     expect(login.stdout).toContain(`http://127.0.0.1:${session.port}/app/auth?code=`);
     const blocked = await run([join(session.root, "bin/pacer"), "install"], session);
     expect(blocked.code).toBe(3);
+    expect(verifyFakeSsh(session)).toBe(join(session.root, "bin/ssh"));
+    expect(existsSync(fakeHostHome(session.root))).toBe(true);
     expect(readFileSync(join(session.root, "env.sh"), "utf8")).toContain(session.root);
   } finally { await down(session); }
   expect(existsSync(session.root)).toBe(false);
