@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { z } from "zod";
 import { parseOpParams } from "../api/ops";
 import { toApiError } from "../api/errors";
@@ -146,6 +147,10 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: b
       case "crashed":
         // Only the owner this Core's door runs supervises children it could see die.
         if (!nativeOwnsChildren) throw new CoreError("plugin_unavailable", "crash reports require the native process owner");
+        // A stdio Core on the home's `host.sock` is attached: the service's owner reports to the service's Core.
+        if (o.relay && basename(ctx.env.PACER_HOST_SOCKET!) === "host.sock") {
+          throw new CoreError("plugin_unavailable", "crash reports go to the Core of the door that owns the plugin");
+        }
         reg.nativeCrash(ctx, p.id, p.reason);
         break;
       case "orca_bridge":
