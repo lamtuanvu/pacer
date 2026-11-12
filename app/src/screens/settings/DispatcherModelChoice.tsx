@@ -216,7 +216,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
           <SectionHeading>What each executor would run</SectionHeading>
           <p className="u3-muted">From the model inventory read a moment ago. Pacer checks availability again when it dispatches.</p>
           <ResourceState resource={inventory}>
-            {grouping && <div className="pc-model-preview">
+            {grouping && <div className="pc-model-preview" role="region" aria-label="What each executor would run" tabIndex={0}>
               <div className="pc-model-preview__head">
                 <span className="u3-muted">Executor</span>
                 {grouping.cols.map(col => (

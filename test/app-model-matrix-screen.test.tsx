@@ -755,7 +755,7 @@ test("Suggest with no listing facts says 'No suggestions' and hides Accept all (
     await clickText(container, "Suggest");
     const text = textOf(container);
     expect(text).toContain("No suggestions");
-    expect(text).toContain("the providers list no price or tool facts for these models.");
+    expect(text).toContain("Providers list no price or tool facts for these models.");
     // With nothing to accept there is no Accept all, only Dismiss.
     expect(allNodes(container, n => n.tagName === "button" && textOf(n) === "Accept all")).toHaveLength(0);
     expect(allNodes(container, n => n.tagName === "button" && textOf(n) === "Dismiss")).toHaveLength(1);
@@ -796,22 +796,21 @@ test("the matrix change-count is a polite live region (N6)", async () => {
   });
 });
 
-test("agent filter chips are grouped and the Add-model control names its runner (N7)", async () => {
+test("agent filter chips are grouped and the Add-model control names its runner without repeating the account (N7, F2)", async () => {
   await withMatrix(async (container) => {
     const group = findNode(container, n => n.attrs.role === "group" && (n.attrs["aria-label"] ?? "") === "Filter by agent");
     expect(group).toBeTruthy();
-    // The field label and the Add button both name the runner they add to.
-    expect(textOf(container)).toContain("Add model to ");
+    // executorLabel(id) already carries the account ("Codex · personal"), so the
+    // Add-model control must name the runner once and never repeat the account.
+    expect(textOf(container)).toContain("Add model to Codex · personal");
     const addButton = findNode(container, n => n.tagName === "button" && textOf(n) === "Add");
     expect(addButton).toBeTruthy();
-    const name = addButton!.attrs["aria-label"] ?? "";
-    expect(name).toStartWith("Add model to ");
-    expect(name).not.toBe("Add");
+    expect(addButton!.attrs["aria-label"] ?? "").toBe("Add model to Codex · personal");
   }, {
     config: configView(),
-    inventory: inventory([record("codex", "work", "codex", "codex-default", { kind: "executor-default" })]),
-    models: { codex: declarationsCodex },
-    available: { codex: { ...unknown, runner: "codex" } },
+    inventory: inventory([record("codex#personal", "personal", "codex", "codex-default", { kind: "executor-default" })]),
+    models: { "codex#personal": declarationsCodex },
+    available: { "codex#personal": { ...unknown, runner: "codex#personal" } },
   });
 });
 

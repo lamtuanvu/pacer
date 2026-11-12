@@ -53,9 +53,11 @@ function isConflict(error: unknown): boolean {
   return record.code === "conflict" || /changed elsewhere/i.test(String(record.message ?? ""));
 }
 
-/** Accessible name for an Add-model field or button, scoped to its runner (UI-2, N7). */
-function modelAddLabel(id: string, account?: string): string {
-  return `Add model to ${executorLabel(id)}${account ? ` · ${account}` : ""}`;
+/** Accessible name for an Add-model field or button, scoped to its runner (UI-2, N7).
+ * executorLabel(id) already carries the account, so it must not be repeated
+ * (review F2). */
+function modelAddLabel(id: string): string {
+  return `Add model to ${executorLabel(id)}`;
 }
 
 /** Stable signature of the runner-model decisions a load would apply: each runner's
@@ -290,6 +292,12 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   /** Suggestions still awaiting acceptance across the editable drafts (N3). */
   const pendingCount = drafts.reduce((n, d) => n + d.rows.filter(r => r.pending).length, 0);
 
+  /** Whether any editable row carries listing facts, so the empty-suggestion
+   * card can explain accurately when nothing differs from the listings (F4). */
+  const anyListingFacts = drafts
+    .filter(d => !isReadOnly(d.runner))
+    .some(d => d.rows.some(r => r.costOut != null));
+
   const changedModelCount = drafts.reduce((total, d, i) => {
     const baseRows = baseDrafts[i]?.rows ?? [];
     const ids = new Set([...d.rows.map(r => r.id), ...baseRows.map(r => r.id)]);
@@ -427,7 +435,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                   ) : pendingCount === 0 ? (
                     <>
                       <strong>No suggestions</strong>
-                      <span className="u3-muted">the providers list no price or tool facts for these models.</span>
+                      <span className="u3-muted">{anyListingFacts ? "Every model already matches its listing." : "Providers list no price or tool facts for these models."}</span>
                       <div className="u3-actions">
                         <Button size="sm" variant="ghost" disabled={busy} onClick={handleDismissAll}>Dismiss</Button>
                       </div>
@@ -470,8 +478,8 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       {!readOnly && noModels && <p className="u3-muted">Uses its default and can take any difficulty</p>}
                       {!readOnly && unknownListing && (
                         <form className="pc-model-matrix__add" onSubmit={event => { event.preventDefault(); handleAdd(id); }}>
-                          <Field label={modelAddLabel(id, account)}><TextInput value={addingByRunner[id] ?? ""} disabled={busy} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
-                          <Button size="sm" type="submit" aria-label={modelAddLabel(id, account)} disabled={busy}>Add</Button>
+                          <Field label={modelAddLabel(id)}><TextInput value={addingByRunner[id] ?? ""} disabled={busy} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
+                          <Button size="sm" type="submit" aria-label={modelAddLabel(id)} disabled={busy}>Add</Button>
                         </form>
                       )}
                       {draft && !noModels && (
