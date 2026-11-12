@@ -100,12 +100,11 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
 }
 
 #[tokio::test]
-async fn host_check_clean_and_setup_forward_to_core_over_http() {
-    // Until Core has a real host effects bridge, host.check, host.clean and
-    // host.repo.setup stay on TypeScript: none of them is a registered native
-    // op, so the HTTP front door forwards the request to Core instead of
-    // answering it from a registry stub.
-    let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){const path=new URL(req.url).pathname;return new Response(JSON.stringify({forwarded:path}))}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
+async fn host_effects_bridge_to_core_over_http() {
+    // Admitted host.check, host.clean and host.repo.setup requests reach Core's
+    // whole-operation host effects bridge; refusals and dry runs never reach Core;
+    // host.terminal is forwarded.
+    let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){const path=new URL(req.url).pathname;const body=await req.text();return Response.json({result:{path,body:body?JSON.parse(body):null}})}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
     let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
         .map(|dir| dir.join("bun"))
         .find(|path| path.is_file())
@@ -136,6 +135,12 @@ async fn host_check_clean_and_setup_forward_to_core_over_http() {
         .await
         .unwrap();
     let port = socket.local_addr().unwrap().port();
+    std::fs::create_dir_all(ctx.pacer_home.clone()).unwrap();
+    std::fs::write(
+        ctx.pacer_home.join("strategy.yaml"),
+        "planner: claude-code\naccounts:\n  claude: {kind: claude}\nrunners:\n  claude-code: {}\nhosts:\n  dev:\n    ssh: dev.example.invalid\n    repos:\n      github.com/acme/app: ~/app\n",
+    )
+    .unwrap();
     let state = Arc::new(Listener {
         core: core.clone(),
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
@@ -156,23 +161,51 @@ async fn host_check_clean_and_setup_forward_to_core_over_http() {
         .await
         .unwrap();
     });
-    let body = r#"{"alias":"nosuchhost"}"#;
-    for op in ["host.check", "host.clean", "host.repo.setup"] {
+    let post = |op: &str, body: &str| {
+        let headers = format!(
+            "Authorization: Bearer token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
         let path = format!("/v3/ops/{op}");
-        let response = request(
-            port,
-            "POST",
-            &path,
-            &format!(
-                "Authorization: Bearer token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
-                body.len()
-            ),
-        )
-        .await;
-        assert!(response.starts_with("HTTP/1.1 200"), "{op}: {response}");
-        let marker = format!("\"forwarded\":\"{path}\"");
-        assert!(response.contains(&marker), "{op}: {response}");
+        async move { request(port, "POST", &path, &headers).await }
+    };
+    let terminal = post("host.terminal", r#"{"alias":"dev"}"#).await;
+    assert!(
+        terminal.contains(r#""path":"/v3/ops/host.terminal""#),
+        "{terminal}"
+    );
+    let setup = r#"{"alias":"dev","key":"github.com/acme/app","consent":true}"#;
+    let response = post("host.repo.setup", setup).await;
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    let bridged = format!(
+        r#"{{"path":"/_internal/host-effects","body":{{"request":{{"kind":"host.repo.setup","params":{setup}}}}}}}"#
+    );
+    assert!(response.contains(&bridged), "{response}");
+    for refused in [
+        r#"{"alias":"dev","key":"github.com/acme/app"}"#,
+        r#"{"alias":"nosuchhost","key":"github.com/acme/app","consent":true}"#,
+        r#"{"alias":"dev","key":"github.com/acme/other","consent":true}"#,
+    ] {
+        let response = post("host.repo.setup", refused).await;
+        assert!(response.starts_with("HTTP/1.1 400"), "{response}");
+        assert!(!response.contains("\"path\""), "{response}");
     }
+    for op in ["host.check", "host.clean"] {
+        let response = post(op, r#"{"alias":"dev"}"#).await;
+        assert!(response.starts_with("HTTP/1.1 200"), "{op}: {response}");
+        let bridged = format!(
+            r#"{{"path":"/_internal/host-effects","body":{{"request":{{"kind":"{op}","params":{{"alias":"dev"}}}}}}}}"#
+        );
+        assert!(response.contains(&bridged), "{op}: {response}");
+        let refused = post(op, r#"{"alias":"nosuchhost"}"#).await;
+        assert!(
+            refused.contains("unknown host nosuchhost"),
+            "{op}: {refused}"
+        );
+        assert!(!refused.contains("\"path\""), "{op}: {refused}");
+    }
+    let dry = post("host.clean", r#"{"alias":"dev","dry_run":true}"#).await;
+    assert!(dry.contains(r#"{"result":{"worktrees":[]}}"#), "{dry}");
     core.shutdown().await;
     server.abort();
 }

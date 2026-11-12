@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
-use std::fs;
+use std::{fs, time::Duration};
 
 fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
     list.iter()
@@ -184,6 +184,17 @@ fn branches_put_the_current_branch_first() {
     let empty = tempfile::tempdir().unwrap();
     let missing = empty.path().join("none").to_string_lossy().into_owned();
     assert!(read_branches(home.path(), &missing).unwrap().is_empty());
+}
+
+#[test]
+fn only_the_marking_git_read_marks_a_timed_out_path_unreachable() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_string_lossy().into_owned();
+    let args = ["rev-parse", "--git-dir"];
+    assert_eq!(git_read_unmarked(&path, &args, Duration::ZERO), None);
+    assert!(!cached_path(&path).unreachable);
+    assert_eq!(git_read_within(&path, &args, Duration::ZERO), None);
+    assert!(cached_path(&path).unreachable);
 }
 
 fn git_in(dir: &Path, args: &[&str]) {

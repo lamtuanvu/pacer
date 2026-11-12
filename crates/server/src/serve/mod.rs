@@ -182,9 +182,9 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             }
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
-        // Planner install and backend readiness remain on the TypeScript path.
+        // Changed-planner installs and Orca backend readiness remain on the TypeScript path.
         // mode.hold without until needs computeStatus for the planner reset window.
-        if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
+        if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&ctx, &params))
             || (op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
             || (op.name == "routing.route"
                 && crate::native::routing_route_stays_forwarded(&ctx, &params))
@@ -207,6 +207,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::runner_attention_stays_forwarded(&ctx, op.name, &params)
             || crate::native::service_agent_stays_forwarded(&ctx, op.name, &params)
             || crate::native::account_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::host_stays_forwarded(&ctx, op.name, &params)
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);
@@ -501,6 +502,14 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     Box::pin(crate::native::account_list_sync::http(Some(target)))
                         as pacer_foundation::api::OpFuture<'_>
                 })
+            } else if crate::native::needs_host_effects(op.name) {
+                let request =
+                    serde_json::json!({"request": {"kind": op.name, "params": params.clone()}});
+                Some(Box::pin(crate::native::core_bridge_sync::http(
+                    state.core.target().await,
+                    "host.effects",
+                    request,
+                )) as pacer_foundation::api::OpFuture<'_>)
             } else {
                 None
             };

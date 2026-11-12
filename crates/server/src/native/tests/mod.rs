@@ -218,7 +218,7 @@ fn service_install_and_update_apply_are_native_with_a_core_effects_bridge() {
 #[tokio::test]
 async fn install_apply_bridge_names_reach_core_endpoints() {
     // Without a Core target the bridge reports a restarting core, not an unknown bridge.
-    for bridge in ["service.effects", "update.effects"] {
+    for bridge in ["service.effects", "update.effects", "host.effects"] {
         let body = serde_json::json!({"request": {}});
         let result = crate::native::core_bridge_sync::http(None, bridge, body).await;
         assert!(
@@ -233,6 +233,7 @@ fn install_apply_bridges_wait_like_the_forwarded_path() {
     use crate::native::core_bridge_sync::deadline;
     assert_eq!(deadline("service.effects"), None);
     assert_eq!(deadline("update.effects"), None);
+    assert_eq!(deadline("host.effects"), None);
     assert_eq!(
         deadline("setup.effects"),
         Some(std::time::Duration::from_secs(120))
@@ -251,14 +252,18 @@ fn service_handover_and_work_are_not_registered_native_ops() {
 }
 
 #[test]
-fn host_check_clean_and_setup_are_not_registered_native_ops() {
-    // host.check, host.clean and host.repo.setup stay on TypeScript until Core
-    // serves a real host effects bridge; unregistering them makes forwarding
-    // structural on every transport instead of a per-front-door predicate.
+fn host_check_clean_and_repo_setup_are_registered() {
+    // host.check, host.clean and host.repo.setup answer refusals (and clean dry runs)
+    // natively and run their jobs through Core's whole-operation host effects bridge;
+    // host.terminal stays on TypeScript.
     for name in ["host.check", "host.clean", "host.repo.setup"] {
-        assert!(registry("").get(name).is_none(), "{name}");
-        assert!(super::service_registry("").get(name).is_none(), "{name}");
+        assert!(registry("").get(name).is_some(), "{name}");
+        assert!(super::service_registry("").get(name).is_some(), "{name}");
+        assert!(registry(name).get(name).is_none(), "{name}");
+        assert!(super::needs_host_effects(name), "{name}");
     }
+    assert!(registry("").get("host.terminal").is_none());
+    assert!(super::service_registry("").get("host.terminal").is_none());
 }
 
 #[test]
