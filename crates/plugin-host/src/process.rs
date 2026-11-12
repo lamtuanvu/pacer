@@ -50,10 +50,9 @@ pub enum ProcessFrame {
     },
 }
 
+/// `JSON.stringify(message)` bytes, as the TypeScript host frames them.
 pub fn frame(value: Value) -> Result<Vec<u8>, ProcessError> {
-    let mut bytes = crate::js_canonical_json(&value)
-        .map_err(|_| ProcessError::Malformed)?
-        .into_bytes();
+    let mut bytes = pacer_js_json::stringify(&value).into_bytes();
     bytes.push(b'\n');
     if bytes.len() > MAX_LINE_BYTES {
         return Err(ProcessError::TooLarge);
