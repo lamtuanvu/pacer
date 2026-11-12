@@ -24,7 +24,10 @@ use pacer_plugin_host::{PluginState, ProcessError, Registry, SpawnSpec};
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    sync::{Arc, Weak},
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use thiserror::Error;
@@ -57,6 +60,9 @@ pub enum OwnerError {
     Failing(String),
     #[error("the plugin owner is shutting down")]
     Closing,
+    /// The child was asked to stop: no new request reaches it.
+    #[error("the plugin is stopping")]
+    Stopping,
 }
 
 impl From<ProcessError> for OwnerError {
@@ -114,6 +120,8 @@ pub struct PluginLane {
     /// `Some` once the child answered `plugin.hello`, with the summary when the
     /// caller recorded one.
     ready: std::sync::Mutex<Option<Option<Value>>>,
+    /// True once a door-local call sent `plugin.hello`; that call reports `ready` to its Core.
+    door_hello: AtomicBool,
     /// True once the child exited and its crash, if any, is on record.
     settled: watch::Sender<bool>,
 }
@@ -125,8 +133,26 @@ impl PluginLane {
             gate: RwLock::new(()),
             hello: Mutex::new(()),
             ready: std::sync::Mutex::new(None),
+            door_hello: AtomicBool::new(false),
             settled: watch::Sender::new(false),
         }
+    }
+
+    pub(crate) fn note_door_hello(&self) {
+        self.door_hello.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn door_helloed(&self) -> bool {
+        self.door_hello.load(Ordering::SeqCst)
+    }
+
+    /// Refuse a request once [`PluginProcess::terminate`] began, so a call
+    /// queued behind a stop never writes to the child.
+    pub(crate) fn admit(&self) -> Result<(), OwnerError> {
+        if self.process.is_stopping() {
+            return Err(OwnerError::Stopping);
+        }
+        Ok(())
     }
 
     pub(crate) fn settle(&self) {
@@ -197,6 +223,7 @@ impl PluginLane {
     ) -> Result<Value, OwnerError> {
         let expires = Instant::now() + deadline;
         let _turn = self.exclusive(expires).await?;
+        self.admit()?;
         let left = expires.saturating_duration_since(Instant::now());
         self.request_in_turn(session, method, params, left, cancel)
             .await
@@ -595,6 +622,9 @@ impl ProcessOwner {
         id: &str,
     ) -> Result<(Arc<PluginLane>, Option<SharedSession>), OwnerError> {
         self.ensure_native_library()?;
+        if self.roster.is_closing() {
+            return Err(OwnerError::Closing);
+        }
         let lane = self
             .lane(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;

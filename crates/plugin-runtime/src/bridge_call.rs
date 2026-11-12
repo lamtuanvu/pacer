@@ -13,7 +13,7 @@ use crate::{
     crash::{StartFailure, crash_message, start_lane},
     executor_context_from_value, host_snapshots_from_value, observation_bootstrap_from_value,
     orca_context_from_value,
-    owner::OwnerError,
+    owner::{OwnerError, PluginLane},
     session_for_call_in, worktree_context_from_value,
 };
 use pacer_plugin_host::{ProcessError, ScopeRoots, SpawnSpec};
@@ -38,7 +38,8 @@ const REENTRANT_RESOURCES: &str =
     "orca and hosts resources re-enter the process owner and are not served over the bridge";
 
 /// A failed sealed call with the `CoreError` code Core should raise.
-pub(crate) struct CallFailure {
+#[derive(Debug)]
+pub struct CallFailure {
     pub code: String,
     pub message: String,
     pub hint: Option<String>,
@@ -102,14 +103,17 @@ fn call_failure(error: OwnerError, fallback: &str) -> CallFailure {
         if let Some(Ok(reply)) = text
             .strip_prefix(&prefix)
             .map(serde_json::from_str::<Value>)
-            && let Some(message) = reply["message"].as_str()
+            && reply.is_object()
         {
             return CallFailure {
                 code: reply["data"]["code"]
                     .as_str()
                     .unwrap_or(fallback)
                     .to_owned(),
-                message: message.to_owned(),
+                message: reply["message"]
+                    .as_str()
+                    .unwrap_or("plugin error")
+                    .to_owned(),
                 hint: reply["data"]["hint"].as_str().map(str::to_owned),
                 from_plugin: true,
             };
@@ -273,14 +277,59 @@ impl SealedCall {
     }
 }
 
+/// How a sealed call found its child ready.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HelloSource {
+    /// This call sent `plugin.hello`.
+    Ran,
+    /// A concurrent call sent it while this one waited for the hello turn.
+    Waited,
+    /// The child was ready before this call reached it.
+    Known,
+}
+
+/// What a sealed call produced, whether or not the method succeeded.
+struct Sealed {
+    value: Result<Value, CallFailure>,
+    /// The ready summary (`Value::Null` when readied without one), once known.
+    hello: Option<(Value, HelloSource)>,
+    lane: Option<Arc<PluginLane>>,
+    /// The call's `capability.log` lines: `(level, message)`.
+    logs: Vec<(String, String)>,
+}
+
+impl Sealed {
+    fn failed(failure: CallFailure) -> Self {
+        Self {
+            value: Err(failure),
+            hello: None,
+            lane: None,
+            logs: Vec::new(),
+        }
+    }
+}
+
+/// A `capability.log` message cut to the private `log` line limit on a character boundary.
+fn log_line(mut message: String) -> String {
+    if message.len() > LOG_MAX_BYTES {
+        let mut cut = LOG_MAX_BYTES;
+        while !message.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        message.truncate(cut);
+    }
+    message
+}
+
 /// Start (when absent), hello (once) and call a plugin under the shared owner.
 ///
 /// Returns `{value, hello, logs}`: `hello` carries the `{protocol, served}`
 /// recorded when this child answered `plugin.hello`, so Core can restore
-/// readiness even when it gave up on the call that ran the hello. `until` is
-/// the caller's absolute deadline and covers the owner and lane waits and the
-/// hello. The owner lock is held only to start the child and find its lane.
-/// `core` carries the Core-sealed `coreMethods` back to the calling Core.
+/// readiness even when it gave up on the call that ran the hello; each log is
+/// `{level, message}`. `until` is the caller's absolute deadline and covers the
+/// owner and lane waits and the hello. The owner lock is held only to start the
+/// child and find its lane. `core` carries the Core-sealed `coreMethods` back to
+/// the calling Core.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn call_sealed(
     owner: &SharedOwner,
@@ -292,6 +341,118 @@ pub(crate) async fn call_sealed(
     sealed: SealedCall,
     core: Option<CoreForward>,
 ) -> Result<Value, CallFailure> {
+    let outcome = run_sealed(
+        owner, id, method, params, until, cancel, sealed, core, false,
+    )
+    .await;
+    let value = outcome.value?;
+    let hello = outcome.hello.map_or(Value::Null, |(hello, _)| hello);
+    let logs = outcome
+        .logs
+        .into_iter()
+        .map(|(level, message)| json!({"level": level, "message": log_line(message)}))
+        .collect::<Vec<_>>();
+    Ok(json!({"value": value, "hello": hello, "logs": logs}))
+}
+
+/// The serve or stdio door's own plugin call on its local owner.
+pub struct DoorCall {
+    pub value: Result<Value, CallFailure>,
+    /// The hello summary to report to the door's Core as `ready`: set when this
+    /// call sent the hello, or when Core does not list the child as ready and no
+    /// concurrent door call that sent the hello will report it.
+    pub ready: Option<Value>,
+    /// The call's `capability.log` lines: `(level, message)`, each message cut
+    /// to the private `log` line limit.
+    pub logs: Vec<(String, String)>,
+}
+
+/// A door-local sealed call: Core's `spawn_spec` and `call_authority` replies
+/// run through the same start, hello, admission and call-scoped session as a
+/// bridge call, with no Core-answered methods. `core_ready` is whether Core's
+/// `spawn_spec` reported the plugin `ready`. `Err` names a malformed Core seal.
+#[allow(clippy::too_many_arguments)]
+pub async fn call_door(
+    owner: &SharedOwner,
+    id: &str,
+    method: &str,
+    params: Value,
+    spawn: &Value,
+    authority: Value,
+    until: Instant,
+    core_ready: bool,
+) -> Result<DoorCall, &'static str> {
+    let sealed = SealedCall::from_params(&json!({"spawn": spawn, "authority": authority}))?
+        .ok_or("missing spawn")?;
+    let (_cancel, cancel) = watch::channel(false);
+    let outcome = run_sealed(
+        owner, id, method, params, until, &cancel, sealed, None, true,
+    )
+    .await;
+    // A child another door call helloed is that call's to report, so concurrent
+    // first calls send one `ready`.
+    let ready = outcome.hello.and_then(|(hello, source)| {
+        let report = source == HelloSource::Ran
+            || (!core_ready
+                && !outcome
+                    .lane
+                    .as_ref()
+                    .is_some_and(|lane| lane.door_helloed()));
+        (report && hello.is_object()).then_some(hello)
+    });
+    let logs = outcome
+        .logs
+        .into_iter()
+        .map(|(level, message)| (level, log_line(message)))
+        .collect();
+    Ok(DoorCall {
+        value: outcome.value,
+        ready,
+        logs,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_sealed(
+    owner: &SharedOwner,
+    id: &str,
+    method: &str,
+    params: Value,
+    until: Instant,
+    cancel: &watch::Receiver<bool>,
+    sealed: SealedCall,
+    core: Option<CoreForward>,
+    door: bool,
+) -> Sealed {
+    match prepare_sealed(owner, id, method, until, cancel, sealed, core).await {
+        Ok(prepared) => prepared.run(id, method, params, until, cancel, door).await,
+        Err(failure) => Sealed::failed(failure),
+    }
+}
+
+/// A started lane and the call-scoped session built for one sealed call.
+struct Prepared {
+    lane: Arc<PluginLane>,
+    session: Arc<Mutex<PluginCapabilitySession>>,
+    hello: Value,
+    reentrant: bool,
+    /// `_meta.capabilityCall` for the method: the sealed observation token, else
+    /// a fresh token for a reentrant plugin's overlapping calls.
+    token: Option<String>,
+    required: Vec<String>,
+    core_methods: HashSet<String>,
+    core_forward: Option<CoreForward>,
+}
+
+async fn prepare_sealed(
+    owner: &SharedOwner,
+    id: &str,
+    method: &str,
+    until: Instant,
+    cancel: &watch::Receiver<bool>,
+    sealed: SealedCall,
+    core: Option<CoreForward>,
+) -> Result<Prepared, CallFailure> {
     let authority = &sealed.authority;
     let resources = call_resources_from_value(authority.get("resources").unwrap_or(&json!({})))
         .map_err(refused)?;
@@ -341,6 +502,10 @@ pub(crate) async fn call_sealed(
             hint: Some("Restart the pacer service.".into()),
             ..unavailable(OwnerError::Closing)
         },
+        StartFailure::Owner(error @ OwnerError::Failing(_)) => CallFailure {
+            hint: Some("Enable the plugin through the pacer service.".into()),
+            ..unavailable(error)
+        },
         StartFailure::Owner(error) => unavailable(error),
         StartFailure::Crashed(text) => unavailable(format!("{method}: {text}")),
         StartFailure::Deadline => expired(),
@@ -351,6 +516,11 @@ pub(crate) async fn call_sealed(
         account_home: sealed.roots.account_home.clone(),
         environment: sealed.environment,
     };
+    let reentrant = sealed.hello["manifest"]["reentrant"] == true;
+    let token = observation
+        .as_ref()
+        .map(|bootstrap| bootstrap.call_token.clone())
+        .or_else(|| reentrant.then(call_token));
     let mut session = session_for_call_in(
         &sealed.hello,
         resources,
@@ -387,64 +557,128 @@ pub(crate) async fn call_sealed(
         .await
         .map_err(refused)?;
     session.bind_process_owner_executor().map_err(refused)?;
-    let session = Arc::new(Mutex::new(session));
-    let answer = |session: Arc<Mutex<PluginCapabilitySession>>| {
-        move |capability: String, body: Value, meta: Option<Value>| {
-            let session = session.clone();
-            async move { session.lock().await.answer(&capability, body, meta).await }
-        }
-    };
+    Ok(Prepared {
+        lane,
+        session: Arc::new(Mutex::new(session)),
+        hello: sealed.hello,
+        reentrant,
+        token,
+        required: sealed.required,
+        core_methods: sealed.core_methods,
+        core_forward,
+    })
+}
 
-    // A reentrant plugin's calls share the child and each carries its own
-    // capability token; any other plugin answers one call at a time.
-    let reentrant = sealed.hello["manifest"]["reentrant"] == true;
-    let (_shared, _exclusive) = if reentrant {
-        (Some(within(until, cancel, lane.gate().read()).await?), None)
-    } else {
-        (
-            None,
-            Some(within(until, cancel, lane.gate().write()).await?),
-        )
-    };
-    let outcome = async {
-        let hello = match lane.ready_hello() {
-            Some(info) => info,
-            None if lane.is_ready() => Value::Null,
+/// A call admitted behind a stop must not write to the stopping child.
+fn admitted(lane: &PluginLane) -> Result<(), CallFailure> {
+    lane.admit().map_err(unavailable)
+}
+
+impl Prepared {
+    async fn run(
+        self,
+        id: &str,
+        method: &str,
+        params: Value,
+        until: Instant,
+        cancel: &watch::Receiver<bool>,
+        door: bool,
+    ) -> Sealed {
+        let mut hello = None;
+        let value = self
+            .call(id, method, params, until, cancel, door, &mut hello)
+            .await;
+        let logs = self.session.lock().await.take_logs();
+        Sealed {
+            value,
+            hello,
+            lane: Some(self.lane),
+            logs,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn call(
+        &self,
+        id: &str,
+        method: &str,
+        params: Value,
+        until: Instant,
+        cancel: &watch::Receiver<bool>,
+        door: bool,
+        ready: &mut Option<(Value, HelloSource)>,
+    ) -> Result<Value, CallFailure> {
+        let lane = &self.lane;
+        let session = &self.session;
+        let answer = || {
+            let session = session.clone();
+            move |capability: String, body: Value, meta: Option<Value>| {
+                let session = session.clone();
+                async move { session.lock().await.answer(&capability, body, meta).await }
+            }
+        };
+        // A reentrant plugin's calls share the child and each carries its own
+        // capability token; any other plugin answers one call at a time.
+        let (_shared, _exclusive) = if self.reentrant {
+            (Some(within(until, cancel, lane.gate().read()).await?), None)
+        } else {
+            (
+                None,
+                Some(within(until, cancel, lane.gate().write()).await?),
+            )
+        };
+        admitted(lane)?;
+        let known = |lane: &PluginLane| {
+            lane.ready_hello()
+                .or_else(|| lane.is_ready().then_some(Value::Null))
+        };
+        let hello = match known(lane) {
+            Some(info) => {
+                *ready = Some((info.clone(), HelloSource::Known));
+                info
+            }
             None => {
                 let _hello = within(until, cancel, lane.hello_turn().lock()).await?;
-                match lane.ready_hello() {
-                    Some(info) => info,
-                    None if lane.is_ready() => Value::Null,
+                match known(lane) {
+                    Some(info) => {
+                        *ready = Some((info.clone(), HelloSource::Waited));
+                        info
+                    }
                     None => {
+                        admitted(lane)?;
                         let wait = remaining(until)?.min(HELLO_DEADLINE);
                         let reply = lane
                             .process()
                             .request_with_handler(
                                 "plugin.hello",
-                                sealed.hello.clone(),
+                                self.hello.clone(),
                                 wait,
                                 Some(cancel),
-                                answer(session.clone()),
+                                answer(),
                             )
                             .await;
                         let reply = match reply {
                             Ok(reply) => reply,
                             Err(error) => {
-                                return Err(match crash_message(&lane, id, "plugin.hello").await {
+                                return Err(match crash_message(lane, id, "plugin.hello").await {
                                     Some(message) => unavailable(message),
                                     None => call_failure(error.into(), "plugin_refused"),
                                 });
                             }
                         };
-                        let info = ready_info(&reply, &sealed.hello);
+                        let info = ready_info(&reply, &self.hello);
+                        if door {
+                            lane.note_door_hello();
+                        }
                         lane.mark_ready(Some(info.clone()));
+                        *ready = Some((info.clone(), HelloSource::Ran));
                         info
                     }
                 }
             }
         };
         // A child readied without a recorded summary has no known features.
-        if let Some(feature) = sealed.required.iter().find(|feature| {
+        if let Some(feature) = self.required.iter().find(|feature| {
             !hello["features"]
                 .as_array()
                 .is_some_and(|items| items.iter().any(|item| item == feature.as_str()))
@@ -455,7 +689,7 @@ pub(crate) async fn call_sealed(
             ));
         }
         // The gate passed: only now may this call's capability requests reach Core.
-        if let Some(core) = core_forward {
+        if let Some(core) = self.core_forward.clone() {
             // Pass whether the child negotiated `chunkedResults` so Core only
             // assembles chunks the child was admitted to send.
             let chunked = hello["features"]
@@ -464,9 +698,13 @@ pub(crate) async fn call_sealed(
             session
                 .lock()
                 .await
-                .bind_core(core, sealed.core_methods.clone(), chunked);
+                .bind_core(core, self.core_methods.clone(), chunked);
         }
-        let metadata = reentrant.then(|| json!({"capabilityCall": call_token()}));
+        admitted(lane)?;
+        let metadata = self
+            .token
+            .as_ref()
+            .map(|token| json!({"capabilityCall": token}));
         let value = lane
             .process()
             .request_with_metadata(
@@ -475,42 +713,17 @@ pub(crate) async fn call_sealed(
                 metadata,
                 remaining(until)?,
                 Some(cancel),
-                answer(session.clone()),
+                answer(),
             )
             .await;
-        let value = match value {
-            Ok(value) => value,
-            Err(error) => {
-                return Err(match crash_message(&lane, id, method).await {
-                    Some(message) => unavailable(message),
-                    None => call_failure(error.into(), "plugin_unavailable"),
-                });
-            }
-        };
-        Ok::<_, CallFailure>((value, hello))
+        match value {
+            Ok(value) => Ok(value),
+            Err(error) => Err(match crash_message(lane, id, method).await {
+                Some(message) => unavailable(message),
+                None => call_failure(error.into(), "plugin_unavailable"),
+            }),
+        }
     }
-    .await;
-    let logs = session.lock().await.take_logs();
-    let (value, hello) = outcome?;
-    let logs = logs
-        .into_iter()
-        .map(|(level, message)| {
-            let mut text = if level == "info" {
-                message
-            } else {
-                format!("[{level}] {message}")
-            };
-            if text.len() > LOG_MAX_BYTES {
-                let mut cut = LOG_MAX_BYTES;
-                while !text.is_char_boundary(cut) {
-                    cut -= 1;
-                }
-                text.truncate(cut);
-            }
-            Value::String(text)
-        })
-        .collect::<Vec<_>>();
-    Ok(json!({"value": value, "hello": hello, "logs": logs}))
 }
 
 /// The protocol minor that introduced each host feature (`registry.ts` hello).
