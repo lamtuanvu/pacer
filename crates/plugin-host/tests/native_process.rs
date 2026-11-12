@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{CommandResource, NativeProcess};
+use pacer_plugin_host::{BrokerError, CommandResource, NativeProcess};
 use serde_json::json;
 use std::{
     collections::HashMap,
@@ -129,15 +129,18 @@ async fn stdout_and_stderr_each_enforce_the_incremental_one_mib_limit() {
             &HashMap::new(),
         )
         .unwrap();
+        let overflow = process
+            .spawn(
+                &json!({"argv":command.argv,"timeoutMs":1000}),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .await;
         assert!(
-            process
-                .spawn(
-                    &json!({"argv":command.argv,"timeoutMs":1000}),
-                    Instant::now() + Duration::from_secs(5)
-                )
-                .await
-                .is_err(),
-            "{stream} overflow was accepted"
+            matches!(
+                overflow,
+                Err(BrokerError::Invalid("provider output exceeds limit"))
+            ),
+            "{stream} overflow: {overflow:?}"
         );
     }
 }

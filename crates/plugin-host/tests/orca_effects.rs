@@ -152,10 +152,18 @@ async fn native_orca_parameter_boundaries_match_actual_zod_codepoints() {
         io::Write,
         process::{Command, Stdio},
     };
-    let root = std::env::temp_dir().join(format!("pacer-orca-bounds-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir(&root).unwrap();
+    struct Root(std::path::PathBuf);
+    impl Drop for Root {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let root =
+        Root(std::env::temp_dir().join(format!("pacer-orca-bounds-{}", uuid::Uuid::new_v4())));
+    std::fs::create_dir(&root.0).unwrap();
+    let root = &root.0;
     let id = "t-20261102-125719-c5fb";
-    TaskStore::open(&root).unwrap().insert(&json!({"id":id,"rev":1,"createdAt":1,"state":"running","attempts":[],"brief":{"repo":"/synthetic"}}),1.0).unwrap();
+    TaskStore::open(root).unwrap().insert(&json!({"id":id,"rev":1,"createdAt":1,"state":"running","attempts":[],"brief":{"repo":"/synthetic"}}),1.0).unwrap();
     let grant = OrcaAttemptResource {
         task_id: id.into(),
         attempt: 1,
@@ -163,8 +171,7 @@ async fn native_orca_parameter_boundaries_match_actual_zod_codepoints() {
         executor: "fx-executor".into(),
         session: "host-only-session".into(),
     };
-    let mut native =
-        NativeOrca::new(&root, "pacer-exec-orca", grant, Session { calls: 0 }).unwrap();
+    let mut native = NativeOrca::new(root, "pacer-exec-orca", grant, Session { calls: 0 }).unwrap();
     let mut cases = Vec::new();
     for (action, key, max) in [
         ("abandon", "reason", 4096),
@@ -248,5 +255,4 @@ async fn native_orca_parameter_boundaries_match_actual_zod_codepoints() {
         serde_json::from_slice::<Value>(&out.stdout).unwrap(),
         json!([true, true])
     );
-    std::fs::remove_dir_all(root).unwrap();
 }
