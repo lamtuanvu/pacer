@@ -409,8 +409,10 @@ fn an_id_shaped_query_rides_a_primary_key_range() {
     );
 }
 
-/// The probe for the reported timings (run with --nocapture).
+/// The probe for the reported timings: `cargo test -p pacer-store --lib -- --ignored --nocapture report_search_timings`.
+/// It asserts nothing and takes seconds, so it stays out of the default run.
 #[test]
+#[ignore = "timing probe; run on demand"]
 fn report_search_timings_over_50k_tasks() {
     let (_dir, mut store, ids) = unicode_fixture(50_000);
     for (label, filter) in [
