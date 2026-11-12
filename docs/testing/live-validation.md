@@ -139,11 +139,14 @@ proxy it requires one SSE `config` event for the plugins area after each of `plu
 the `plugin.list` states must follow the TypeScript registry (`ready`, `idle` with the exit
 reason, `ready`, and `failing` after the third crash), the restarts must wait out the 1 and
 2 second backoff, and `plugin.enable` must restart the plugin at once. A second
-`pacer serve` on the same home must exit 3 after its bounded wait and name the owner's pid,
-and `pacer doctor` must report the live socket with that pid. Last, the restart cycle starts
-a serve that waits for the owner, stops the service and waits for its whole process group to
-exit, checks that the waiting serve took over `run/host.sock`, stops it, and starts the
-service again on its port.
+`pacer serve` on the same home and another port must exit 3 after its bounded wait and name
+the owner's pid, and `pacer doctor` must report the live socket with that pid. The restart
+cycle then starts a serve that waits for the owner, stops the service and waits for its whole
+process group to exit, checks that the waiting serve took over `run/host.sock`, stops it, and
+starts the service again on its port. Last, it holds a `plugin.ui.render` past the 30 second
+call deadline and sends SIGTERM to the service pid alone (the plugin child shares its process
+group): the service and its plugin process must exit within the 2 second grace plus 1.5
+seconds, leaving no socket, sidecar or plugin process, and the service starts again.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 
