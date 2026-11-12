@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, lutimesSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
+import { basename, dirname, join } from "node:path";
 import { installFixture } from "../conformance/install";
+import { callOp } from "../src/api/ops";
 import { runStdio } from "../src/api/stdio";
 import { pluginNativeRequest } from "../src/serve/plugin-native";
 import { fakeCtx } from "./helpers";
@@ -19,31 +21,35 @@ const ownerOn = { nativeHost: "1" };
 
 type Home = { home: string; state: string; plugin: string; done(): void };
 
-// Owner sockets must fit SUN_LEN (~104), so every home lives directly under /tmp.
-function makeHome(): Home {
+// Owner sockets must fit SUN_LEN (~104), so every home lives directly under /tmp;
+// a deep home's `run/s<12-hex>.sock` cannot, and binds in the private per-user directory.
+function makeHome(deep = false): Home {
   const home = realpathSync(mkdtempSync("/tmp/pnh-"));
-  const state = join(home, ".pacer");
-  mkdirSync(state, { mode: 0o700 });
+  const state = join(home, ...(deep ? ["d".repeat(90)] : []), ".pacer");
+  mkdirSync(state, { recursive: true, mode: 0o700 });
   writeFileSync(join(state, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n# preserve this comment\n", { mode: 0o600 });
   symlinkSync(join(import.meta.dir, "../node_modules"), join(home, "node_modules"), "dir");
   const plugin = installFixture("ui", join(state, "plugins"));
   return { home, state, plugin, done: () => rmSync(home, { recursive: true, force: true }) };
 }
 
-function frontEnv(h: Home, forward: string, options: { nativeHost?: string }) {
+type Options = { nativeHost?: string; hostSocket?: string };
+
+function frontEnv(h: Home, forward: string, options: Options) {
   return {
     HOME: h.home, PACER_HOME: h.state, PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
     PACER_CORE_ARGV: JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]),
     PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
     PACER_DEBUG_NATIVE: "1", PACER_FORWARD_OPS: forward,
     ...(options.nativeHost !== undefined ? { PACER_NATIVE_PLUGIN_HOST: options.nativeHost } : {}),
+    ...(options.hostSocket !== undefined ? { PACER_HOST_SOCKET: options.hostSocket } : {}),
   };
 }
 
 type Reply = { text: string; line: string; json: any };
 
 /** One `pacer api --stdio` connection, already negotiated to protocol 3. */
-async function stdio(h: Home, forward = "", options: { nativeHost?: string } = tsOwner, hello = true) {
+async function stdio(h: Home, forward = "", options: Options = tsOwner, hello = true) {
   const child = Bun.spawn([front!, "api", "--stdio"], { env: frontEnv(h, forward, options), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   const logs = new Response(child.stderr).text();
   const replies = new Map<string, string>(), waiters = new Map<string, (line: string) => void>();
@@ -97,7 +103,7 @@ async function stdio(h: Home, forward = "", options: { nativeHost?: string } = t
 }
 
 /** A flag-controlled serve on an existing home. */
-async function serve(h: Home, forward = "", options: { nativeHost?: string } = tsOwner) {
+async function serve(h: Home, forward = "", options: Options = tsOwner) {
   const socket = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
   const port = socket.port!; socket.stop(true);
   const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: frontEnv(h, forward, options), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
@@ -343,6 +349,7 @@ await import('./plugin');
 const starts = (h: Home) => existsSync(join(h.plugin, "starts")) ? readFileSync(join(h.plugin, "starts"), "utf8").trim().split("\n").map(Number) : [];
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const save = (rev: number) => ({ plugin: "fx-ui", values: { required: true, items: ["a"] }, expect_rev: rev });
+const heldLocks = (h: Home) => existsSync(join(h.state, "orca")) ? readdirSync(join(h.state, "orca")).filter(name => name.endsWith(".lock")) : [];
 const connectionSockets = (h: Home) => existsSync(join(h.state, "run")) ? readdirSync(join(h.state, "run")).filter(name => /^s[0-9a-f]{12}\.sock$/.test(name)) : [];
 
 test("the private plugin channel needs the sync key, hello v3 and no work grant", async () => {
@@ -381,9 +388,14 @@ test("the private plugin channel needs the sync key, hello v3 and no work grant"
   expect(out.find(o => o.id === 1).result.entries).toBeArray();
   // Without the owner socket a relay would let Core spawn the child itself.
   expect(out.find(o => o.id === 2).result.error).toMatchObject({ code: "plugin_unavailable", message: "owner relay requires an attached stdio connection" });
-  // The HTTP door never relays, even with the owner socket set.
-  const http = await pluginNativeRequest(fakeCtx({ env: { PACER_HOST_SOCKET: "/tmp/none.sock" } }), { kind: "relay", id: "fx-ui", method: "diagnostic.ping", params: {} });
-  expect((http as any).error).toMatchObject({ code: "plugin_unavailable" });
+  // The HTTP door never relays, even with the owner socket set and the plugin enabled.
+  const h = makeHome();
+  try {
+    await callOp(fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH! } }), "plugin.enable", { id: "fx-ui", grant: true });
+    const ctx = fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH!, PACER_HOST_SOCKET: join(h.state, "run", "host.sock") } });
+    const http = await pluginNativeRequest(ctx, { kind: "relay", id: "fx-ui", method: "diagnostic.ping", params: {} });
+    expect((http as any).error).toMatchObject({ code: "plugin_unavailable", message: "owner relay requires an attached stdio connection" });
+  } finally { h.done(); }
 });
 
 test.skipIf(!front)("a client cannot reach the private channel and plugin children never inherit the key", async () => {
@@ -440,6 +452,9 @@ test.skipIf(!front)("two serve-less stdio connections each own a lane (the accep
     expect(semantic(await b.call("plugin.settings.set", save(0)))).toMatchObject({ code: "conflict" });
     expect((await b.call("plugin.settings.set", save(1))).json.error).toBeUndefined();
     expect((await a.call("plugin.settings.get", { plugin: "fx-ui" })).json.result.rev).toBe(2);
+    // Every lock either owner took is released, and the store holds the last write.
+    expect(heldLocks(h)).toEqual([]);
+    expect(JSON.parse(readFileSync(join(h.state, "plugin-settings.json"), "utf8"))["fx-ui"]).toMatchObject({ rev: 2, values: save(1).values });
   } finally { await a.stop(); await b.stop(); expect(connectionSockets(h)).toHaveLength(0); h.done(); }
 }, 60000);
 
@@ -496,24 +511,184 @@ test.skipIf(!front)("a stdio connection attaches to the live serve owner and sha
   }
 }, 90000);
 
-test.skipIf(!front)("a serve starts beside a stdio owner, and later connections attach to it", async () => {
+test.skipIf(!front)("a serve starts beside a stdio owner, both keep working, and later connections attach", async () => {
   const h = makeHome();
+  writeFileSync(join(h.plugin, "main.ts"), recordingMain);
   const owner = await stdio(h, "", ownerOn);
   let service: Awaited<ReturnType<typeof serve>> | undefined;
   try {
     expect(connectionSockets(h)).toHaveLength(1);
+    await owner.call("plugin.enable", { id: "fx-ui", grant: true });
+    expect((await owner.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
     service = await serve(h, "", ownerOn);
     expect(existsSync(join(h.state, "run", "host.sock"))).toBe(true);
     expect(connectionSockets(h)).toHaveLength(1);
+    // The owning connection decided before serve started: it keeps its own child and answers.
+    const params = { plugin: "fx-ui", surface: "activity", id: "checklist", context };
+    expect((await owner.call("plugin.ui.render", params)).json.error).toBeUndefined();
+    expect((await owner.call("plugin.settings.set", save(0))).json.error).toBeUndefined();
+    expect((await service.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
+    expect((await service.call("plugin.settings.get", { plugin: "fx-ui" })).json.result.rev).toBe(1);
+    expect(starts(h)).toHaveLength(2);
     const later = await stdio(h, "", ownerOn);
     const log = await later.stop();
     expect(log).toMatch(/^native plugin owner attach /m);
+    expect((await owner.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
   } finally {
     await owner.stop();
     if (service) expect(await service.stop()).toContain("native plugin host enabled");
     h.done();
   }
 }, 90000);
+
+const params = { plugin: "fx-ui", surface: "activity", id: "checklist", context };
+
+test.skipIf(!front)("flag-on stdio replies match flag-on HTTP, owning and attached", async () => {
+  const flow = async (call: (op: string, params: unknown) => Promise<Reply>) => [
+    await call("plugin.enable", { id: "fx-ui", grant: true }),
+    await call("plugin.list", {}),
+    await call("plugin.ui.render", params),
+    await call("plugin.doctor", { id: "fx-ui" }),
+    await call("plugin.settings.set", save(0)),
+    await call("plugin.settings.set", save(0)),
+    await call("plugin.settings.get", { plugin: "fx-ui" }),
+  ];
+  // An attached connection's Core learns the shared child's state on its first call (ADR 0027).
+  const reads = async (call: (op: string, params: unknown) => Promise<Reply>) => [
+    await call("plugin.doctor", { id: "fx-ui" }), await call("plugin.list", {}), await call("plugin.settings.get", { plugin: "fx-ui" }),
+  ];
+  // Serve's background usage refresh starts the bundled usage plugin; stdio has no such loop.
+  const bytes = (h: Home, reply: Reply) => reply.json.result?.plugins
+    ? normalize(h, JSON.stringify(reply.json.result.plugins.filter((p: any) => !p.bundled)))
+    : reply.json.result !== undefined ? normalize(h, reply.text) : semantic(reply);
+  const own = makeHome(), shared = makeHome();
+  try {
+    const s = await stdio(own, "", ownerOn);
+    let owning: Reply[] = [];
+    try { owning = await flow(s.call); } finally { await s.stop(); }
+    const service = await serve(shared, "", ownerOn);
+    let http: Reply[] = [], attached: Reply[] = [], again: Reply[] = [];
+    try {
+      http = await flow(service.call);
+      const a = await stdio(shared, "", ownerOn);
+      try { attached = await reads(a.call); } finally { expect(await a.stop()).toMatch(/^native plugin owner attach /m); }
+      again = await reads(service.call);
+    } finally { await service.stop(); }
+    expect(owning.map(r => bytes(own, r))).toEqual(http.map(r => bytes(shared, r)));
+    expect(attached.map(r => bytes(shared, r))).toEqual(again.map(r => bytes(shared, r)));
+    // Core's snapshot does not know an owner-supervised child's pid, on either door.
+    for (const doctor of [owning[3], http[3], attached[0]]) expect(doctor.json.result.reports[0].pid).toBeNull();
+    expect(semantic(owning[5])).toMatchObject({ code: "conflict" });
+  } finally { own.done(); shared.done(); }
+}, 120000);
+
+test.skipIf(!front)("a flag-off stdio connection ignores the owner socket a flag-on serve exported", async () => {
+  const h = makeHome();
+  writeFileSync(join(h.plugin, "main.ts"), recordingMain);
+  const service = await serve(h, "", ownerOn);
+  // What a shell started under a flag-on serve inherits when it uses the escape hatch.
+  const s = await stdio(h, "", { nativeHost: "0", hostSocket: join(h.state, "run", "host.sock") });
+  try {
+    await s.call("plugin.enable", { id: "fx-ui", grant: true });
+    expect((await s.call("plugin.ui.render", params)).json.result.document).toBeDefined();
+    expect((await s.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].pid).toBe(starts(h)[0]);
+    // The stdio core started its own TypeScript child; the service's owner started none.
+    expect(starts(h)).toHaveLength(1);
+  } finally {
+    expect(await s.stop()).not.toMatch(/native plugin owner/);
+    await service.stop(); h.done();
+  }
+}, 90000);
+
+test.skipIf(!front)("an owning connection cleans up on SIGTERM, and a killed one's socket is swept later", async () => {
+  const h = makeHome();
+  writeFileSync(join(h.plugin, "main.ts"), recordingMain);
+  try {
+    const a = await stdio(h, "", ownerOn);
+    await a.call("plugin.enable", { id: "fx-ui", grant: true });
+    expect((await a.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
+    const [pid] = starts(h);
+    expect(connectionSockets(h)).toHaveLength(1);
+    a.child.kill("SIGTERM");
+    expect(await a.child.exited).toBe(143);
+    await a.stop().catch(() => "");
+    expect(connectionSockets(h)).toHaveLength(0);
+    for (let i = 0; i < 300 && alive(pid); i++) await Bun.sleep(10);
+    expect(alive(pid)).toBe(false);
+
+    // SIGKILL leaves the socket behind. Once it is old enough to be nobody's bind
+    // in progress, the next owning connection removes it before binding its own.
+    const b = await stdio(h, "", ownerOn);
+    const [stale] = connectionSockets(h);
+    b.child.kill("SIGKILL"); await b.child.exited;
+    await b.stop().catch(() => "");
+    expect(connectionSockets(h)).toEqual([stale]);
+    const fresh = await stdio(h, "", ownerOn);
+    try { expect(connectionSockets(h)).toContain(stale); } finally { await fresh.stop(); }
+    lutimesSync(join(h.state, "run", stale), 1_000_000_000, 1_000_000_000);
+    const c = await stdio(h, "", ownerOn);
+    try {
+      expect(connectionSockets(h)).not.toContain(stale);
+      expect(connectionSockets(h)).toHaveLength(1);
+    } finally { await c.stop(); }
+    expect(connectionSockets(h)).toHaveLength(0);
+  } finally { h.done(); }
+}, 90000);
+
+/** The OS per-user private directory the door uses for deep homes. */
+function privateBase(): string | undefined {
+  if (process.platform !== "darwin") return process.env.XDG_RUNTIME_DIR;
+  return Bun.spawnSync(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"]).stdout.toString().trim().replace(/\/+$/, "") || undefined;
+}
+
+/** `pacer-<64-bit FNV-1a of the canonical home>`, as the door names it. */
+function privateDir(h: Home): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of Buffer.from(realpathSync(h.state))) hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  return join(privateBase()!, `pacer-${hash.toString(16).padStart(16, "0")}`);
+}
+
+/** One line to a Unix socket, one line back. */
+function ask(socket: string, message: unknown): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const connection = createConnection(socket, () => connection.write(`${JSON.stringify(message)}\n`));
+    let text = "";
+    connection.on("data", data => {
+      text += data.toString("utf8");
+      if (text.includes("\n")) { connection.end(); resolve(JSON.parse(text.slice(0, text.indexOf("\n")))); }
+    });
+    connection.on("error", reject);
+  });
+}
+
+test.skipIf(!front || !privateBase())("a deep home's owning connection binds in the private per-user directory", async () => {
+  const h = makeHome(true);
+  writeFileSync(join(h.plugin, "main.ts"), recordingMain);
+  const dir = privateDir(h);
+  const s = await stdio(h, "", ownerOn);
+  let socket = "";
+  try {
+    expect(join(h.state, "run", "s000000000000.sock").length).toBeGreaterThan(103);
+    const sockets = readdirSync(dir).filter(name => /^s[0-9a-f]{12}\.sock$/.test(name));
+    expect(sockets).toHaveLength(1);
+    socket = join(dir, sockets[0]);
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    expect(statSync(socket).mode & 0o777).toBe(0o600);
+    await s.call("plugin.enable", { id: "fx-ui", grant: true });
+    expect((await s.call("plugin.ui.render", params)).json.error).toBeUndefined();
+    expect((await s.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
+    // The socket Core was given serves this connection's owner and its child.
+    const found = await ask(socket, { jsonrpc: "2.0", id: 1, method: "_host.plugin.find", params: { id: "fx-ui" } });
+    expect(found.result).toEqual({ found: true, id: "fx-ui", pid: starts(h)[0] });
+  } finally {
+    const log = await s.stop();
+    expect(log).toContain(`native plugin owner own ${socket}`);
+    expect(existsSync(socket)).toBe(false);
+    expect(connectionSockets(h)).toHaveLength(0);
+    rmdirSync(dir);
+    h.done();
+  }
+}, 60000);
 
 // (iv) OD-7 lands in PR 5: a second serve on a home whose host.sock owner is live exits with code 3.
 test.todo("a second serve refuses to start while the home's owner socket is live (OD-7, PR 5)");
