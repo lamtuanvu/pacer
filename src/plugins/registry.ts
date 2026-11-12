@@ -1768,6 +1768,8 @@ export class PluginRegistry {
       argv: spec.argv,
       cwd: spec.cwd,
       env,
+      // The crash backoff `start()` would sleep through; the owner waits for it instead.
+      nextStartAt: e.nextStartAt,
       hello: {
         protocol: PLUGIN_PROTOCOL_VERSION,
         features: ["chunkedResults", "httpBodyChunks", "fileWriteChunks", "plannerInstallTransactions", POLICY_OBSERVATIONS_FEATURE, POLICY_REDACTION_METADATA_FEATURE],
@@ -1904,6 +1906,12 @@ export class PluginRegistry {
   }
 
   async nativeStop(ctx: Ctx, id: string): Promise<void> { await this.stop(this.findEntry(ctx, id)); }
+
+  /** An owner-supervised child exited unasked: the bookkeeping `onExit` does for a local child. */
+  nativeCrash(ctx: Ctx, id: string, reason: string): void {
+    const e = this.findEntry(ctx, id);
+    if (ENABLED.has(e.state)) this.recordCrash(ctx, e, reason);
+  }
 
   nativeReset(ctx: Ctx, id: string): void {
     const e = this.findEntry(ctx, id);

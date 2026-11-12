@@ -1,4 +1,4 @@
-use super::{Result, TaskFilter};
+use super::{AWAITS_ANSWER_SQL, Result, TaskFilter};
 use rusqlite::{Connection, types::Value as SqlValue};
 
 /// ASCII-only lowercase: SQLite's lower() folds ASCII letters and leaves every
@@ -128,7 +128,7 @@ fn index_hint(filter: &TaskFilter<'_>) -> &'static str {
         return "";
     }
     match (
-        filter.states.is_some(),
+        filter.states.is_some() || filter.awaiting_answer,
         filter.updated_since.is_some(),
         filter.created_since.is_some(),
     ) {
@@ -197,8 +197,14 @@ fn build_clauses(filter: &TaskFilter<'_>, clauses: &mut Vec<String>, bind: &mut 
         bind.push(SqlValue::Text(v.into()));
     }
     if let Some(states) = filter.states {
-        clauses.push(format!("state IN ({})", vec!["?"; states.len()].join(",")));
+        let mut branches = vec![format!("state IN ({})", vec!["?"; states.len()].join(","))];
         bind.extend(states.iter().map(|s| SqlValue::Text((*s).into())));
+        if filter.awaiting_answer {
+            branches.push(AWAITS_ANSWER_SQL.to_owned());
+        }
+        clauses.push(format!("({})", branches.join(" OR ")));
+    } else if filter.awaiting_answer {
+        clauses.push(format!("({AWAITS_ANSWER_SQL})"));
     }
     if let Some(v) = filter.updated_since {
         clauses.push("updated_at>=?".into());

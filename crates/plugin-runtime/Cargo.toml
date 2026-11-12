@@ -9,7 +9,7 @@ rust-version.workspace = true
 [dependencies]
 pacer-plugin-capabilities = { path = "../plugin-capabilities" }
 pacer-plugin-host = { path = "../plugin-host" }
-nix = { version = "0.31", features = ["fs", "user", "socket"] }
+nix = { version = "0.31", features = ["fs", "user", "socket", "signal"] }
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 tokio = { workspace = true }

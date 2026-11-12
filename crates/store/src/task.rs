@@ -57,6 +57,15 @@ const TERMINAL: &[&str] = &[
     "needs_input",
 ];
 
+/// A stored needs_input still needs the user only while its question is unanswered
+/// (answer null), it was not superseded by a retry, and it is not dismissed.
+/// Matches `awaits_answer` and the TypeScript `awaitsAnswer`. The leading
+/// `state = 'needs_input'` lets callers keep this indexed via `tasks_state`.
+pub(super) const AWAITS_ANSWER_SQL: &str = "state='needs_input' \
+AND json_type(record, '$.question.answer') IS NULL \
+AND json_extract(record, '$.retriedBy') IS NULL \
+AND NOT COALESCE(json_extract(record, '$.dismissed'),0)";
+
 pub fn is_task_id(id: &str) -> bool {
     let b = id.as_bytes();
     b.len() == 22
@@ -104,6 +113,18 @@ pub(crate) fn truthy(value: Option<&Value>) -> bool {
         Some(Value::String(value)) => !value.is_empty(),
         Some(Value::Bool(true) | Value::Array(_) | Value::Object(_)) => true,
     }
+}
+/// A stored needs_input task still needs the user only while its question is
+/// unanswered (no answer yet), it was not superseded by a retry, and it is not
+/// dismissed. This is the attention rule's predicate, factored so every
+/// selection (active set, snapshot window, live events) shares it; it mirrors the
+/// TypeScript `awaitsAnswer` and the SQL `AWAITS_ANSWER_SQL`.
+pub fn awaits_answer(task: &Value) -> bool {
+    task["state"] == "needs_input"
+        && task["question"].is_object()
+        && task["question"].get("answer").is_none()
+        && !truthy(task.get("retriedBy"))
+        && !truthy(task.get("dismissed"))
 }
 fn valid(task: &Value, id: &str) -> bool {
     field(task, "id") == Some(id)
@@ -410,6 +431,9 @@ pub struct TaskStore {
 #[derive(Default)]
 pub struct TaskFilter<'a> {
     pub states: Option<&'a [&'a str]>,
+    /// Also select stored needs_input tasks the user still must answer (never aged
+    /// out), via `AWAITS_ANSWER_SQL`. Keeps `tasks_state` as the driver index.
+    pub awaiting_answer: bool,
     pub updated_since: Option<f64>,
     pub created_since: Option<f64>,
     /// Repository identity; legacy records may match a resolved brief path.
@@ -787,7 +811,9 @@ impl TaskStore {
     }
     pub fn list_active_and_recent(&mut self, updated_since: f64) -> Result<Vec<Value>> {
         self.refresh()?;
-        let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running')) ORDER BY id DESC")?;
+        // A stored `needs_input` never ages out while it still awaits an answer; one
+        // that was answered, retried or dismissed is not retained by its state.
+        let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running') OR (state='needs_input' AND json_type(record, '$.question.answer') IS NULL AND json_extract(record, '$.retriedBy') IS NULL AND NOT COALESCE(json_extract(record, '$.dismissed'),0))) ORDER BY id DESC")?;
         let records = stmt
             .query_map([updated_since], |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;

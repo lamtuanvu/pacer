@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { z } from "zod";
 import { parseOpParams } from "../api/ops";
 import { toApiError } from "../api/errors";
@@ -17,9 +18,11 @@ const operation = z.enum([
  * Private `/_internal/plugins` kinds.
  *
  * Flag-on (`PACER_HOST_SOCKET` set): prepare, spawn_spec, call_authority, ready,
- * stop, changed, publish, log. ProcessOwner owns plugin RPC, so `call` is
- * refused (P4d-5). Flag-off: the same surface plus `call` for diagnostic/UI
- * plugin methods.
+ * stop, changed, publish, log, crashed. ProcessOwner owns plugin RPC, so `call`
+ * is refused (P4d-5), and reports each child exit it did not ask for as
+ * `crashed`, which the registry records as its own `onExit` would. Flag-off:
+ * the same surface plus `call` for diagnostic/UI plugin methods; `crashed` is
+ * refused.
  *
  * `relay` is the stdio door's `call` while it is attached to the serve owner
  * (ADR 0027): the registry seals the call to that owner over
@@ -27,6 +30,8 @@ const operation = z.enum([
  * Only the sync-keyed stdio channel may send it.
  */
 const pluginMethod = z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]);
+/** The exit reasons the native owner reports, as the registry's own `onExit` words them. */
+const CRASH_REASON = /^exited(?: with code -?\d{1,10}| on SIG[A-Z0-9]{1,12}| on signal \d{1,3})?$/;
 const callResources = z.object({
   reads: z.array(z.object({ path: z.string(), kind: z.enum(["file", "codex-logs"]) }).strict()).default([]),
   commands: z.array(z.object({
@@ -61,6 +66,7 @@ const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("changed"), id: z.string(), reset: z.boolean(), invalidate: z.boolean() }).strict(),
   z.object({ kind: z.literal("publish"), op: operation }).strict(),
   z.object({ kind: z.literal("log"), id: z.string(), message: z.string().max(1000) }).strict(),
+  z.object({ kind: z.literal("crashed"), id: z.string(), reason: z.string().regex(CRASH_REASON) }).strict(),
   z.object({
     kind: z.literal("orca_bridge"),
     token: z.string().min(1).max(128),
@@ -138,6 +144,15 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: b
         if (["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.visibility", "plugin.settings.set"].includes(p.op)) await publishConfigChange(ctx, "plugins");
         break;
       case "log": appendPluginLog(ctx, p.id, "stderr", p.message); break;
+      case "crashed":
+        // Only the owner this Core's door runs supervises children it could see die.
+        if (!nativeOwnsChildren) throw new CoreError("plugin_unavailable", "crash reports require the native process owner");
+        // A stdio Core on the home's `host.sock` is attached: the service's owner reports to the service's Core.
+        if (o.relay && basename(ctx.env.PACER_HOST_SOCKET!) === "host.sock") {
+          throw new CoreError("plugin_unavailable", "crash reports go to the Core of the door that owns the plugin");
+        }
+        reg.nativeCrash(ctx, p.id, p.reason);
+        break;
       case "orca_bridge":
         value = await reg.nativeAnswerOrcaBridge(p.token, p.pluginId, p.method, p.params);
         break;
