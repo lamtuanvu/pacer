@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { existsSync, lutimesSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, lutimesSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { installFixture } from "../conformance/install";
 import { callOp } from "../src/api/ops";
@@ -43,6 +44,8 @@ function frontEnv(h: Home, forward: string, options: Options) {
     PACER_DEBUG_NATIVE: "1", PACER_FORWARD_OPS: forward,
     ...(options.nativeHost !== undefined ? { PACER_NATIVE_PLUGIN_HOST: options.nativeHost } : {}),
     ...(options.hostSocket !== undefined ? { PACER_HOST_SOCKET: options.hostSocket } : {}),
+    // Linux deep homes bind under $XDG_RUNTIME_DIR; macOS asks confstr instead.
+    ...(process.env.XDG_RUNTIME_DIR !== undefined ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}),
   };
 }
 
@@ -51,9 +54,17 @@ type Reply = { text: string; line: string; json: any };
 /** One `pacer api --stdio` connection, already negotiated to protocol 3. */
 async function stdio(h: Home, forward = "", options: Options = tsOwner, hello = true) {
   const child = Bun.spawn([front!, "api", "--stdio"], { env: frontEnv(h, forward, options), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  const logs = new Response(child.stderr).text();
-  const replies = new Map<string, string>(), waiters = new Map<string, (line: string) => void>();
+  let stderr = "";
+  const logs = (async () => {
+    const decoder = new TextDecoder();
+    for await (const chunk of child.stderr) stderr += decoder.decode(chunk, { stream: true });
+    return stderr;
+  })();
+  const replies = new Map<string, string>();
+  const waiters = new Map<string, { resolve(line: string): void; reject(error: Error): void }>();
   const order: string[] = [];
+  // Set once stdout closes: why every unanswered request fails now instead of timing out.
+  let closed: string | undefined;
   const pump = (async () => {
     const reader = child.stdout.getReader(), decoder = new TextDecoder();
     let buffer = "";
@@ -68,9 +79,12 @@ async function stdio(h: Home, forward = "", options: Options = tsOwner, hello = 
         const key = JSON.stringify(message.id);
         order.push(key);
         const waiter = waiters.get(key);
-        if (waiter) { waiters.delete(key); waiter(line); } else replies.set(key, line);
+        if (waiter) { waiters.delete(key); waiter.resolve(line); } else replies.set(key, line);
       }
     }
+    await Promise.race([Promise.all([child.exited, logs]), Bun.sleep(2000)]);
+    closed = `the door closed stdout (exit ${child.exitCode}); stderr:\n${stderr}`;
+    for (const [key, waiter] of waiters) { waiters.delete(key); waiter.reject(Error(`no reply to ${key}: ${closed}`)); }
   })();
   let next = 1;
   const send = (line: string) => { child.stdin.write(`${line}\n`); child.stdin.flush(); };
@@ -83,9 +97,16 @@ async function stdio(h: Home, forward = "", options: Options = tsOwner, hello = 
     };
     const ready = replies.get(key);
     if (ready !== undefined) { replies.delete(key); return Promise.resolve(settle(ready)); }
+    if (closed !== undefined) return Promise.reject(Error(`no reply to ${key}: ${closed}`));
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(Error(`no reply to ${key}`)), timeout);
-      waiters.set(key, line => { clearTimeout(timer); resolve(settle(line)); });
+      const timer = setTimeout(() => {
+        waiters.delete(key);
+        reject(Error(`no reply to ${key} in ${timeout} ms; stderr so far:\n${stderr}`));
+      }, timeout);
+      waiters.set(key, {
+        resolve: line => { clearTimeout(timer); resolve(settle(line)); },
+        reject: error => { clearTimeout(timer); reject(error); },
+      });
     });
   };
   const call = (method: string, params: unknown, id: unknown = next++) => {
@@ -641,11 +662,20 @@ function privateBase(): string | undefined {
   return Bun.spawnSync(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"]).stdout.toString().trim().replace(/\/+$/, "") || undefined;
 }
 
+/** The door's own check: a real directory, owned by this uid, with no group or other access. */
+function usableBase(base: string | undefined): base is string {
+  if (!base) return false;
+  try {
+    const meta = lstatSync(base);
+    return meta.isDirectory() && meta.uid === process.getuid!() && (meta.mode & 0o077) === 0;
+  } catch { return false; }
+}
+
 /** `pacer-<64-bit FNV-1a of the canonical home>`, as the door names it. */
-function privateDir(h: Home): string {
+function privateName(h: Home): string {
   let hash = 0xcbf29ce484222325n;
   for (const byte of Buffer.from(realpathSync(h.state))) hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn;
-  return join(privateBase()!, `pacer-${hash.toString(16).padStart(16, "0")}`);
+  return `pacer-${hash.toString(16).padStart(16, "0")}`;
 }
 
 /** One line to a Unix socket, one line back. */
@@ -661,14 +691,37 @@ function ask(socket: string, message: unknown): Promise<any> {
   });
 }
 
-test.skipIf(!front || !privateBase())("a deep home's owning connection binds in the private per-user directory", async () => {
+test.skipIf(!front)("a deep home's owning connection binds in the private per-user directory, or refuses without one", async () => {
   const h = makeHome(true);
+  try {
+    expect(join(h.state, "run", "s000000000000.sock").length).toBeGreaterThan(103);
+    const base = privateBase();
+    if (usableBase(base)) await deepHomeBinds(h, join(base, privateName(h)));
+    else await deepHomeRefuses(h, base);
+  } finally { h.done(); }
+}, 60000);
+
+async function deepHomeRefuses(h: Home, base: string | undefined) {
+  const listing = (dir: string) => { try { return readdirSync(dir).sort(); } catch { return []; } };
+  const before = base ? listing(base) : [];
+  const s = await stdio(h, "", ownerOn, false);
+  const exited = await Promise.race([s.child.exited, Bun.sleep(10000).then(() => "hung")]);
+  if (exited === "hung") s.child.kill("SIGKILL");
+  const log = await s.stop();
+  expect(exited, log).toBe(1);
+  expect(log).toContain("the private per-user directory is unusable");
+  expect(log).toContain("Set PACER_NATIVE_PLUGIN_HOST=0 or use a shorter PACER_HOME");
+  // Never a shared /tmp name or $TMPDIR in place of the per-user directory.
+  for (const dir of ["/tmp", tmpdir(), ...(base ? [base] : [])]) expect(existsSync(join(dir, privateName(h)))).toBe(false);
+  if (base) expect(listing(base)).toEqual(before);
+  expect(connectionSockets(h)).toHaveLength(0);
+}
+
+async function deepHomeBinds(h: Home, dir: string) {
   writeFileSync(join(h.plugin, "main.ts"), recordingMain);
-  const dir = privateDir(h);
   const s = await stdio(h, "", ownerOn);
   let socket = "";
   try {
-    expect(join(h.state, "run", "s000000000000.sock").length).toBeGreaterThan(103);
     const sockets = readdirSync(dir).filter(name => /^s[0-9a-f]{12}\.sock$/.test(name));
     expect(sockets).toHaveLength(1);
     socket = join(dir, sockets[0]);
@@ -686,9 +739,8 @@ test.skipIf(!front || !privateBase())("a deep home's owning connection binds in 
     expect(existsSync(socket)).toBe(false);
     expect(connectionSockets(h)).toHaveLength(0);
     rmdirSync(dir);
-    h.done();
   }
-}, 60000);
+}
 
 // (iv) OD-7 lands in PR 5: a second serve on a home whose host.sock owner is live exits with code 3.
 test.todo("a second serve refuses to start while the home's owner socket is live (OD-7, PR 5)");
