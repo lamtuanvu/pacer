@@ -10,6 +10,11 @@
 //! and [`ProcessOwner::ensure`] replaces it only after its crash monitor
 //! (`crate::crash`) has recorded and reported the crash, and only once the
 //! plugin's restart floor has passed.
+//!
+//! The owner lock covers lookup, start and replacement, never a plugin's
+//! reply: calls run on their lane ([`PluginLane::call`]). Every lane is also
+//! enrolled in a [`LaneRoster`] outside the lock, so teardown terminates the
+//! children at once even while a caller holds the owner.
 
 use crate::capability::PluginCapabilitySession;
 use crate::crash::{self, CrashBook, CrashReport};
@@ -48,6 +53,9 @@ pub enum OwnerError {
     /// The plugin's dead child is still being reported.
     #[error("plugin {0} is still stopping after a crash")]
     Retiring(String),
+    /// Three crashes within the window: no restart until the plugin is enabled again.
+    #[error("plugin {0} is failing: {limit} failures within a minute", limit = crash::CRASH_LIMIT)]
+    Failing(String),
     #[error("the plugin owner is shutting down")]
     Closing,
 }
@@ -287,10 +295,10 @@ pub struct ProcessOwner {
     /// Optional mirror of [`Registry`] state ids without owning children.
     shadow: HashMap<String, PluginState>,
     /// Per-plugin capability broker sessions (P4d-6). Absent → deny caps.
-    sessions: HashMap<String, Arc<Mutex<PluginCapabilitySession>>>,
+    sessions: HashMap<String, SharedSession>,
     crashes: Arc<CrashBook>,
-    /// Set by [`Self::close`]: no child starts after teardown began.
-    closing: bool,
+    /// No child starts once teardown began ([`Self::close`]).
+    roster: Arc<LaneRoster>,
 }
 
 impl ProcessOwner {
@@ -302,7 +310,7 @@ impl ProcessOwner {
             shadow: HashMap::new(),
             sessions: HashMap::new(),
             crashes: Arc::default(),
-            closing: false,
+            roster: Arc::default(),
         }
     }
 
@@ -325,6 +333,15 @@ impl ProcessOwner {
         Arc::clone(&self.crashes)
     }
 
+    pub(crate) fn roster(&self) -> Arc<LaneRoster> {
+        Arc::clone(&self.roster)
+    }
+
+    /// True once teardown began: no child starts again.
+    pub fn is_closing(&self) -> bool {
+        self.roster.is_closing()
+    }
+
     /// Send each crash this owner sees to `sink` (the owning door's Core).
     pub fn set_crash_sink(&self, sink: mpsc::UnboundedSender<CrashReport>) {
         self.crashes.set_sink(Some(sink));
@@ -342,9 +359,11 @@ impl ProcessOwner {
 
     /// Refuse new children and hand back every lane for termination.
     pub fn close(&mut self) -> Vec<Arc<PluginLane>> {
-        self.closing = true;
+        // Take the lanes before dropping ours: a dropped lane is killed at once.
+        let lanes = self.roster.close();
         self.sessions.clear();
-        self.children.drain().map(|(_, lane)| lane).collect()
+        self.children.clear();
+        lanes
     }
 
     pub fn set_orca_bridge(&mut self, bridge: SharedOrcaBridge) {
@@ -433,21 +452,23 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
-        if self.closing {
-            return Err(OwnerError::Closing);
-        }
-        let child = PluginProcess::spawn(spec)?;
-        self.adopt(id, child);
+        let lane = self.roster.admit(|| Ok(PluginProcess::spawn(spec)?))?;
+        self.adopt(id, lane);
         Ok(())
     }
 
     /// Spawn when absent or dead; no-op while a live child is tracked. A dead
     /// lane is replaced once its crash is on record ([`OwnerError::Retiring`]
     /// until then), and no sooner than the restart floor
-    /// ([`OwnerError::Backoff`]). Refuses TypeScript ownership.
+    /// ([`OwnerError::Backoff`]); a plugin that crashed three times within the
+    /// window is not started until enabled again ([`OwnerError::Failing`]).
+    /// Refuses TypeScript ownership and teardown ([`OwnerError::Closing`]).
     pub fn ensure(&mut self, id: impl Into<String>, spec: &SpawnSpec) -> Result<bool, OwnerError> {
         let id = id.into();
         self.ensure_native_library()?;
+        if self.roster.is_closing() {
+            return Err(OwnerError::Closing);
+        }
         if let Some(lane) = self.children.get(&id) {
             if lane.process().is_alive() {
                 return Ok(false);
@@ -457,6 +478,9 @@ impl ProcessOwner {
             }
             self.children.remove(&id);
             self.sessions.remove(&id);
+        }
+        if self.crashes.is_failing(&id) {
+            return Err(OwnerError::Failing(id));
         }
         if let Some(at) = self.crashes.floor(&id)
             && at > std::time::Instant::now()
@@ -474,15 +498,12 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
-        if self.closing {
-            return Err(OwnerError::Closing);
-        }
-        self.adopt(id, child);
+        let lane = self.roster.admit(|| Ok(child))?;
+        self.adopt(id, lane);
         Ok(())
     }
 
-    fn adopt(&mut self, id: String, child: PluginProcess) {
-        let lane = Arc::new(PluginLane::new(child));
+    fn adopt(&mut self, id: String, lane: Arc<PluginLane>) {
         tokio::spawn(crash::monitor(
             self.crashes.clone(),
             id.clone(),
@@ -588,17 +609,6 @@ impl ProcessOwner {
             Ownership::Native { .. } => Ok(()),
         }
     }
-}
-
-/// Terminate `lanes` together: each gets SIGTERM, then SIGKILL after the grace.
-pub async fn terminate_lanes(lanes: Vec<Arc<PluginLane>>) {
-    let mut stopping = JoinSet::new();
-    for lane in lanes {
-        stopping.spawn(async move {
-            let _ = lane.process().terminate().await;
-        });
-    }
-    while stopping.join_next().await.is_some() {}
 }
 
 /// Terminate `lanes` together: each gets SIGTERM, then SIGKILL after the grace.
