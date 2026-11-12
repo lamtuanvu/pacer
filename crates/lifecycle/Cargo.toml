@@ -10,6 +10,7 @@ publish = false
 pacer-store = { path = "../store" }
 pacer-foundation = { path = "../foundation" }
 pacer-repos = { path = "../repos" }
+pacer-js-json = { path = "../js-json" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 ryu-js = "1"
 serde.workspace = true

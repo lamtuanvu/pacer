@@ -1509,6 +1509,7 @@ version = "0.1.0"
 dependencies = [
  "icu_collator",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-repos",
  "pacer-store",
  "regex",

@@ -410,6 +410,18 @@ fn project_policy_reads_fail_closed_and_references_keep_exact_identity() {
         .unwrap();
         assert!(read_project_strategies(dir.path()).is_err());
     }
+    // Zod's record skips an own `__proto__` key; strict objects still refuse it.
+    let proto = json!({"projects":{"__proto__":5,"local:abcdef123456":{"rev":1,"executors":null}},"version":1.0});
+    assert_eq!(
+        validate_project_strategies(&proto).unwrap(),
+        json!({"version":1,"projects":{"local:abcdef123456":{"rev":1,"executors":null}}})
+    );
+    for value in [
+        json!({"version":1,"projects":{},"__proto__":{}}),
+        json!({"version":1,"projects":{"local:abcdef123456":{"rev":1,"executors":null,"__proto__":{}}}}),
+    ] {
+        assert!(validate_project_strategies(&value).is_err());
+    }
     let projects = json!({"version":1,"projects":{"local:abcdef123456":{"rev":1,"executors":["codex#old@local"]}}});
     assert!(validate_project_strategies(&projects).is_ok());
     let strategy =
