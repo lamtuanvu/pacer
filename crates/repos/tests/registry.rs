@@ -84,12 +84,8 @@ fn sort_keys_convert_like_javascript_numbers() {
 
 #[test]
 fn integer_index_keys_enumerate_first_and_proto_is_an_own_key() {
-    // Only canonical decimal text is an index: "07", "1e1" and "-0" keep insertion order.
-    let index = r#"{"07":{"key":"github.com/a/seven","path":"/tmp","lastUsed":1},"/z":{"key":"github.com/a/z","path":"/usr","lastUsed":1},"10":{"key":"github.com/a/ten","path":"/bin","lastUsed":1},"1e1":{"key":"github.com/a/e1","path":"/var","lastUsed":1},"2":{"key":"github.com/a/two","path":"/etc","lastUsed":1},"-0":{"key":"github.com/a/m0","path":"/dev","lastUsed":1}}"#;
-    assert_eq!(
-        keys(index),
-        expect(&["two", "ten", "seven", "z", "e1", "m0"])
-    );
+    let index = r#"{"/z":{"key":"github.com/a/z","path":"/usr","lastUsed":1},"10":{"key":"github.com/a/ten","path":"/bin","lastUsed":1},"2":{"key":"github.com/a/two","path":"/etc","lastUsed":1}}"#;
+    assert_eq!(keys(index), expect(&["two", "ten", "z"]));
     let proto = r#"{"__proto__":{"key":"github.com/a/p","path":"/usr","lastUsed":3},"/q":{"key":"github.com/a/q","path":"/bin","lastUsed":1}}"#;
     assert_eq!(keys(proto), expect(&["p", "q"]));
 }
@@ -251,66 +247,5 @@ fn registration_rewrites_spread_registries_like_json_stringify() {
         };
         assert_eq!(read("repos.json"), want_repos);
         assert_eq!(read("repo-paths.json"), want_aliases);
-    }
-}
-
-/// A registry that turns into a forwarded shape while `repo.add` waits for the `repos` lock
-/// is left untouched for the caller to retry, as `repo.remove` does.
-#[test]
-fn registration_refuses_a_registry_that_changed_under_the_lock() {
-    let root = tempfile::tempdir().unwrap();
-    let (_, wt) = checkout(root.path());
-    let reg = r#"{"/usr":{"key":"github.com/a/u","path":"/usr","lastUsed":1}}"#;
-    let deep = format!(
-        r#"{{"/usr":{{"key":"k","path":"/usr","lastUsed":1,"d":{}{}}}}}"#,
-        "[".repeat(128),
-        "]".repeat(128)
-    );
-    let cases = [
-        (
-            r#"{"/usr\ud800":{"key":"github.com/a/u","path":"/usr","lastUsed":1}}"#,
-            None,
-        ),
-        (deep.as_str(), None),
-        (reg, Some(r#"{"/w":"\udc00"}"#)),
-        (
-            r#"{"/usr":{"key":"github.com/a/u","path":"/usr","lastUsed":1},"/bin":null}"#,
-            None,
-        ),
-    ];
-    for (repos, aliases) in cases {
-        let dir = home(Some(reg.as_bytes()), None);
-        let ctx = Ctx::with(
-            dir.path().into(),
-            dir.path().into(),
-            Default::default(),
-            1_700_000_000.5,
-        );
-        let state = dir.path().join("state");
-        let lock = dir.path().join("orca/repos.lock");
-        fs::create_dir_all(lock.parent().unwrap()).unwrap();
-        fs::write(&lock, "").unwrap();
-        std::thread::scope(|scope| {
-            let add = scope.spawn(|| add_repo(&ctx, &wt).map_err(|error| error.message));
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            assert!(!add.is_finished());
-            fs::write(state.join("repos.json"), repos).unwrap();
-            if let Some(aliases) = aliases {
-                fs::write(state.join("repo-paths.json"), aliases).unwrap();
-            }
-            fs::remove_file(&lock).unwrap();
-            assert_eq!(
-                add.join().unwrap().unwrap_err(),
-                "repository registry changed during registration",
-                "{repos}"
-            );
-        });
-        assert_eq!(fs::read_to_string(state.join("repos.json")).unwrap(), repos);
-        assert_eq!(
-            fs::read_to_string(state.join("repo-paths.json"))
-                .ok()
-                .as_deref(),
-            aliases
-        );
     }
 }

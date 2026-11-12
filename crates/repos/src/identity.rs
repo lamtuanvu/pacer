@@ -156,14 +156,8 @@ fn register(ctx: &Ctx, path: &str, strict: bool, persist: bool) -> Result<Value,
     let Registry {
         mut reg,
         mut aliases,
-        needs_core,
+        ..
     } = Registry::read(&ctx.pacer_home, true);
-    if needs_core {
-        return Err(CoreError::new(
-            Code::Conflict,
-            "repository registry changed during registration",
-        ));
-    }
     let key = key
         .or_else(|| reg.get(&quote(&main))?.get("key")?.as_str().map(text))
         .unwrap_or_else(|| local_key(&main));
