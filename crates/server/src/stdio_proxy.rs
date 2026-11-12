@@ -247,8 +247,9 @@ async fn forward_input<
             && let Some(request) = request.as_ref()
         {
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
-            // Planner install and backend readiness remain on the TypeScript path.
-            if !(op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
+            // Changed-planner installs and Orca backend readiness remain on the TypeScript path.
+            if !(op.name == "config.set"
+                && crate::native::config_set_stays_forwarded(&ctx.at_now(), &params))
                 && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
                 && !(op.name == "routing.route"
                     && crate::native::routing_route_stays_forwarded(&ctx.at_now(), &params))
@@ -283,6 +284,7 @@ async fn forward_input<
                 && !crate::native::runner_attention_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::service_agent_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::account_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::host_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
                 if crate::native::msg_writes::uses_bridge(op.name) {
@@ -386,6 +388,23 @@ async fn forward_input<
                                 write_line(out, &rpc_line(id, Err(error))?).await?;
                             }
                         }
+                    }
+                    continue;
+                }
+                if crate::native::needs_host_effects(op.name) {
+                    use pacer_config_ops::host_check_clean_setup_ops::{Admission, admit};
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let result = match admit(&request_ctx, op.name, &params) {
+                        Ok(Admission::Core) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                            continue;
+                        }
+                        Ok(Admission::Native(reply)) => Ok(reply),
+                        Err(error) => Err(error),
+                    };
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
                     }
                     continue;
                 }

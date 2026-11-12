@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{
-    BrokerError, CapabilityEffect, NativeOrca, OrcaAttemptResource, OrcaSessionOwner,
-};
+use pacer_plugin_capabilities::{CapabilityEffect, NativeOrca, OrcaSessionOwner};
+use pacer_plugin_host::{BrokerError, OrcaAttemptResource};
 use pacer_store::TaskStore;
 use serde_json::{Value, json};
 struct Session {
@@ -124,7 +123,7 @@ async fn native_status_filters_inherited_attestations_and_parses_keepalives() {
     let child = root.join("orca");
     fs::write(&child,"#!/usr/bin/env python3\nimport os,json\nassert 'ORCA_AGENT_SESSION_ID' not in os.environ\nassert 'NAMED_SESSION' not in os.environ\nassert 'ORCA_SESSION_TEST' not in os.environ\nprint(' {\"_keepalive\":1}')\nprint(json.dumps({'ok':True,'result':{'runtime':{'state':'ready','reachable':True}}}))\n").unwrap();
     fs::set_permissions(&child, fs::Permissions::from_mode(0o700)).unwrap();
-    let mut status = pacer_plugin_host::NativeOrcaStatus::prepare(
+    let mut status = pacer_plugin_capabilities::NativeOrcaStatus::prepare(
         child.to_str().unwrap(),
         HashMap::from([
             ("PATH".into(), std::env::var("PATH").unwrap()),

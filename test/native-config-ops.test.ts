@@ -23,13 +23,13 @@ function home() {
   return path;
 }
 const normalize = (value: unknown, path: string) => JSON.parse(JSON.stringify(value).replaceAll(path, "$HOME"));
-async function compare(op: string, params: unknown, setup?: (home: string) => void, rawParams?: string) {
+async function compare(op: string, params: unknown, setup?: (home: string) => void, rawParams?: string, env: Record<string, string> = {}) {
   const rs = home(), ts = home();
   setup?.(rs); setup?.(ts);
-  const ctx = fakeCtx({pacerHome: ts, home: ts, now: 1_700_000_000, env: {PACER_ORCA_USER_DATA:join(ts,"orca-user-data"),PACER_AGENT:"fixture"}});
+  const ctx = fakeCtx({pacerHome: ts, home: ts, now: 1_700_000_000, env: {PACER_ORCA_USER_DATA:join(ts,"orca-user-data"),PACER_AGENT:"fixture",...env}});
   let expected: unknown;
   try {expected = {result: await callOp(ctx, op, params)};} catch (error) {expected = {error:toApiError(error)};}
-  const input = `{"op":${JSON.stringify(op)},"params":${rawParams ?? JSON.stringify(params)},"home":${JSON.stringify(rs)},"now":${ctx.now},"agent":"fixture"}\n`;
+  const input = `{"op":${JSON.stringify(op)},"params":${rawParams ?? JSON.stringify(params)},"home":${JSON.stringify(rs)},"now":${ctx.now},"agent":"fixture","env":${JSON.stringify(env)}}\n`;
   const actual = JSON.parse(execFileSync(driver(), [], {input}).toString());
   expect(normalize(actual,rs), `${op} ${JSON.stringify(params)} actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`).toEqual(normalize(expected,ts));
   for (const file of ["strategy.yaml", "active", "strategies/review.yaml", "settings.json"]) {
@@ -87,6 +87,48 @@ test("native registry matches every TS config operation result, bytes and public
   ];
   for (const [op,params,setup] of cases) await compare(op,params,setup);
 }, 60_000);
+
+test("planner and backend config.set run natively when no integration install or Orca probe is needed", async () => {
+  const executor = {PACER_ROLE: "executor"};
+  const cases: [unknown, Record<string, string>?][] = [
+    [{key:"planner",value:"codex",integrations:"skip"}],
+    [{key:"planner",value:"cursor",integrations:"skip"}],
+    [{key:"planner",value:"claude-code",integrations:"skip"}],
+    [{key:"planner",value:"claude-code",integrations:"install"}],
+    [{key:"planner",value:"codex"}],
+    [{key:"planner",value:"codex",integrations:"skip"}, executor],
+    [{key:"planner",value:"codex",integrations:"install"}, executor],
+    [{key:"planner",value:"Not A Runner",integrations:"install"}],
+    [{key:"planner",value:"Not A Runner",integrations:"skip"}],
+    [{key:"planner",value:"codex#missing",integrations:"install"}],
+    [{key:"planner",value:"codex#missing",integrations:"skip"}],
+    [{key:"planner",value:["codex"],integrations:"skip"}],
+    [{key:"planner",value:"codex",integrations:"maybe"}],
+    [{key:"execution.backend",value:"direct"}],
+    [{key:"execution.backend",value:"elsewhere"}],
+    [{key:"execution.backend",value:true}],
+    [{key:"execution.backend",value:"direct"}, {PACER_BACKEND:"orca"}],
+    [{key:"execution.backend",value:"orca"}, {PACER_BACKEND:"direct"}],
+    [{key:"execution.backend",value:"orca"}, {PACER_BACKEND:"orca"}],
+    [{key:"execution.backend",value:"elsewhere"}, {PACER_BACKEND:"orca"}],
+  ];
+  for (const [params, env] of cases) await compare("config.set", params, undefined, undefined, env);
+}, 60_000);
+
+test("changed planner installs and Orca backend without PACER_BACKEND stay forwarded", () => {
+  for (const [params, env] of [
+    [{key:"planner",value:"codex",integrations:"install"}, {}],
+    [{key:"planner",value:"cursor",integrations:"install"}, {}],
+    [{key:"execution.backend",value:"orca"}, {}],
+    [{key:"execution.backend",value:"orca"}, {PACER_BACKEND:""}],
+  ] as const) {
+    const rs = home(), before = readFileSync(join(rs, "strategy.yaml"));
+    const input = JSON.stringify({op:"config.set",params,home:rs,now:1_700_000_000,agent:"fixture",env}) + "\n";
+    expect(JSON.parse(execFileSync(driver(), [], {input}).toString()), JSON.stringify(params)).toEqual({forwarded: true});
+    expect(readFileSync(join(rs, "strategy.yaml"))).toEqual(before);
+    expect(existsSync(join(rs, "link/outbox.jsonl"))).toBe(false);
+  }
+});
 
 test("native schemas match TS Unicode lengths, JS safe integers, nulls and issue order", async () => {
   const cases: [string,unknown][] = [

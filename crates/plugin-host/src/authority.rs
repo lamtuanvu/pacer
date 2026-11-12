@@ -1,5 +1,5 @@
 //! Host-issued, call-local authority. Plugin parameters never create resources.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::{Component, Path},
@@ -133,6 +133,28 @@ pub struct WorktreeResource {
     pub attempt: u64,
     pub base_sha: String,
 }
+pub const ORCA_PROVIDER: &str = "pacer-exec-orca";
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcaAttemptResource {
+    pub task_id: String,
+    pub attempt: u64,
+    pub provider_id: String,
+    pub executor: String,
+    pub session: String,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrcaLiveResource {
+    pub task_id: String,
+    pub attempt: u64,
+    pub provider_id: String,
+    pub worker: String,
+    pub terminal: String,
+    pub incarnation: Option<String>,
+    pub action: String,
+    pub why: Option<String>,
+}
 
 /// A single call owns this value. Effects consume one-use grants before execution.
 pub struct CallAuthority {
@@ -145,8 +167,8 @@ pub struct CallAuthority {
     orca_live_used: bool,
     executor_claim_used: bool,
     /// Test seam: reports expiry whenever the predicate holds.
-    #[cfg(test)]
-    pub(crate) expire_when: Option<Box<dyn Fn() -> bool + Send + Sync>>,
+    #[cfg(feature = "testing")]
+    pub expire_when: Option<Box<dyn Fn() -> bool + Send + Sync>>,
 }
 
 impl CallAuthority {
@@ -164,7 +186,7 @@ impl CallAuthority {
             worktree_used: false,
             orca_live_used: false,
             executor_claim_used: false,
-            #[cfg(test)]
+            #[cfg(feature = "testing")]
             expire_when: None,
         }
     }
@@ -172,7 +194,7 @@ impl CallAuthority {
         self.revoked = true;
     }
     pub fn active(&self) -> Result<(), AuthorityError> {
-        #[cfg(test)]
+        #[cfg(feature = "testing")]
         if self.expire_when.as_ref().is_some_and(|expired| expired()) {
             return Err(AuthorityError::Expired);
         }
@@ -201,7 +223,7 @@ impl CallAuthority {
         action: Option<&str>,
     ) -> Result<(), AuthorityError> {
         self.granted("orca")?;
-        if plugin_id != crate::native_orca::ORCA_PROVIDER {
+        if plugin_id != ORCA_PROVIDER {
             return Err(AuthorityError::Denied("Orca provider identity".into()));
         }
         if let Some(action) = action {
@@ -543,7 +565,7 @@ impl ScopeRoots {
             let Some(value) = self.expand(scope)? else {
                 continue;
             };
-            if crate::native_read::matches_bun_scope(&value, path)
+            if crate::bun_glob::matches_bun_scope(&value, path)
                 .map_err(|_| AuthorityError::Denied("invalid declared scope".into()))?
             {
                 return Ok(true);
