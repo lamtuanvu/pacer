@@ -1415,3 +1415,59 @@ async fn worktree_attempts_match_typescript_effects_with_issued_grants() {
         );
     }
 }
+
+struct TempRoot(std::path::PathBuf);
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[tokio::test]
+async fn native_write_through_the_broker_rechecks_authority_before_commit() {
+    let root = std::env::temp_dir().join(format!("pacer-broker-write-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&root).unwrap();
+    let root = TempRoot(std::fs::canonicalize(&root).unwrap());
+    let file = root.0.join("file").to_string_lossy().into_owned();
+    let manifest = parse_manifest(
+        json!({"id":"fx-write","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+        "capabilities":[{"name":"fs.write","scopes":[file]}]}),
+    )
+    .unwrap();
+    let write = crate::WriteResource {
+        path: file.clone(),
+        kind: "file".into(),
+        operations: vec!["write".into()],
+    };
+    let resources = CallResources {
+        writes: vec![write.clone()],
+        ..Default::default()
+    };
+    let mut authority = CallAuthority::new(
+        resources,
+        ["fs.write".into()],
+        Instant::now() + Duration::from_secs(10),
+    );
+    // The call expires once a stage exists: after every entry check, before the commit.
+    let staged = root.0.clone();
+    authority.expire_when = Some(Box::new(move || {
+        std::fs::read_dir(&staged).is_ok_and(|mut entries| entries.next().is_some())
+    }));
+    let mut b = CapabilityBroker::new(manifest, authority, vec![])
+        .with_native_write(&root.0, &[write])
+        .unwrap();
+    let mut e = Echo { calls: 0 };
+    let refused = b
+        .handle(
+            "capability.fs.write",
+            json!({"path":file,"text":"late"}),
+            &mut e,
+        )
+        .await;
+    assert!(matches!(
+        refused,
+        Err(BrokerError::Authority(AuthorityError::Expired))
+    ));
+    assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
+    assert_eq!(e.calls, 0);
+}
