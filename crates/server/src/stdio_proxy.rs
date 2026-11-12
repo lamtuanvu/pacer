@@ -255,7 +255,7 @@ async fn forward_input<
                 && !(op.name == "task.retry_options"
                     && crate::native::task_retry_options_stays_forwarded(&ctx.at_now()))
                 && !(op.name == "repo.remove"
-                    && crate::native::repo_remove_stays_forwarded(&ctx.at_now()))
+                    && crate::native::repo_remove_stays_forwarded(&ctx.at_now(), &params))
                 && !crate::native::project_messaging_stays_forwarded(
                     &ctx.at_now(),
                     op.name,

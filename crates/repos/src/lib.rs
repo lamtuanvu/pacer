@@ -1,12 +1,14 @@
 //! The repository registry from `src/core/repos.ts`. `listRepos`: the registry file, keys of
 //! active and recent tasks, stale filtering and throttled pruning, over the per-process path
 //! probe in `probe`. `branches` adds the local branch reads of `repo.list`; `identity` owns
-//! git identity and registration of absolute checkout paths (`registerRepo`, `addRepo`).
+//! git identity and registration of absolute checkout paths (`registerRepo`, `addRepo`);
+//! `remove` owns `removeRepo`.
 #![allow(clippy::result_large_err)]
 mod branches;
 mod git;
 mod identity;
 mod probe;
+mod remove;
 #[cfg(test)]
 mod tests;
 
@@ -14,6 +16,7 @@ pub use branches::read_branches;
 pub use git::git_read_within;
 pub use identity::{add_repo, canonical, register_repo};
 pub use probe::{Probe, cached_canonical, cached_path, mark_unreachable, schedule_refresh};
+pub use remove::{remove_needs_core, remove_repo};
 
 use pacer_foundation::{
     Ctx,

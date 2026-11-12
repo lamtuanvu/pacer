@@ -1770,6 +1770,7 @@ dependencies = [
 name = "pacer-repos"
 version = "0.1.0"
 dependencies = [
+ "nix",
  "pacer-config",
  "pacer-foundation",
  "pacer-js-json",
