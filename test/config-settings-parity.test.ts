@@ -10,14 +10,14 @@ test("all pure config settings match shared Rust parity corpus", async () => {
   const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
   const cases = fixture.cases;
   for (const c of cases) {
-    const ctx = fakeCtx();
+    const ctx = fakeCtx({ env: c.env ?? {} });
     mkdirSync(ctx.pacerHome, { recursive: true });
     const path = join(ctx.pacerHome, "strategy.yaml");
     writeFileSync(path, c.before ?? fixture.base);
     const normalize = (v: unknown) => JSON.parse(JSON.stringify(v).replaceAll(path, "strategy.yaml"));
     let actual: Record<string, unknown>;
     try {
-      const result = await config.set(ctx, c.key, c.input, { terminalPresetsOnly: c.presetsOnly });
+      const result = await config.set(ctx, c.key, c.input, { terminalPresetsOnly: c.presetsOnly, integrations: c.integrations });
       actual = { result: normalize(result) };
     } catch (e) { actual = { error: normalize(toApiError(e)) }; }
     const after = readFileSync(path, "utf8");

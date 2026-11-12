@@ -1,4 +1,4 @@
-/** Fixed file-only config handler validation; D8 config.set remains refused. */
+/** Fixed file-only config handler validation; network config.set passes D8 only under CONDITIONAL_OPS. */
 import {existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {callOp} from '../../src/api/ops';

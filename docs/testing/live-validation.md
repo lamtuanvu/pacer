@@ -132,7 +132,7 @@ eval "$(bun run live env --id my-change)"
 
 Use those exports in a dedicated shell so later work does not inherit the sandbox. The guarded `pacer` stays first on `PATH`, and `PACER_BIN` points at it. Each guarded call reapplies sandbox env, including calls made by child tools. Do not bypass the wrapper or override the sandbox coordinates.
 
-The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin uninstall|remove`, `account add|rm|login`, `host setup`, `orca`, and `open` without `--print`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
+The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin uninstall|remove`, `account add|rm|login`, `host setup`, `orca`, `open` without `--print`, and `config set planner` in any spelling (`planner=…`, a different case, flags or `--` separators): the CLI calls `config.set` in-process with `integrations: "install"`, so D8 never sees it, and an unseeded sandbox does not redirect `HOME`, `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
 
 ## D8: service operation guard
 
@@ -163,7 +163,7 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | `host.terminal` | hosts.terminal opens a real SSH terminal |
 | `update.apply` | applyUpdate may replace the installed binary and refresh integrations |
 | `strategy.build` | buildStrategy opens a planning terminal in Orca, tmux or the OS |
-| `config.set` | config.set can install and uninstall planner integrations (whole op refused conservatively) |
+| `config.set` | config.set can install and uninstall planner integrations; only a known key other than planner, or planner with integrations "skip", passes (CONDITIONAL_OPS) |
 | `runner.add` | interactiveTerminal opens a real terminal (whole op refused conservatively) |
 | `task.attach` | openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively) |
 | `host.clean` | hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively) |
@@ -171,6 +171,10 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | `plugin.remove` | plugins.remove deletes a plugin folder under the home (whole op refused conservatively) |
 | `service.*` | all service operations except service.status can change the real login service |
 <!-- /D8 policy -->
+
+A row can pass conditionally only through `CONDITIONAL_OPS` in the same file, which inspects the request body. `config.set` is the only conditional row: the proxy reads at most 256 KiB of UTF-8 JSON and forwards the request only when `key` is exactly one of the `CONFIG_KEYS` and is not `planner`, or is `planner` with `integrations` exactly `"skip"`. Duplicate JSON fields resolve as in the service (the last one wins). A planner change with `integrations: "install"` or without `integrations`, an unknown or differently spelled key, and a malformed, oversized or non-UTF-8 body are refused with the same 403 response and evidence note. The command bar's `config-set` always sends `install`, so a planner change from the command bar stays refused. D3 applies the same body rule to a single inline `pacer api call config.set --params '<json>'`; `--params-file` and repeated `--params` stay refused because the guard cannot inspect them. Other `pacer config set` keys run in-process against the sandbox `strategy.yaml`; `pacer config set planner` is refused by D3 (see above).
+
+`BLOCKED_OPS` matches exact operation names, so the proxy forwards a `/v2/ops/` or `/v3/ops/` request only when its path is exactly `/v2/ops/<name>` or `/v3/ops/<name>` and `<name>` is a registered operation (`OPS` in `src/api/ops.ts`, plus `test.echo` and `_debug.native` from `--native-test-ops` builds). A trailing slash, percent-encoding, a different case or an unknown name gets the same 403 shape with the message `Live validation D8: only exact registered operation paths are forwarded` and an evidence note. Bun already collapses repeated leading slashes before the proxy sees the path and forwards the normalized path, so `//v3/ops/<name>` is checked as `/v3/ops/<name>`.
 
 `setup.init` is **allowed**: `setup.init` in `src/core/setup.ts` creates only `PACER_HOME/strategy.yaml`, or calls `config.set` with `integrations: "skip"`. Detection reads installed tools; it does not install integrations. Endpoint provider config regeneration itself is under `PACER_HOME/opencode`; account edit/adopt remain refused because their key paths can use the real Keychain. `host.add`, account mapping and repo mapping are conservatively refused even though their immediate config edits are sandbox-local: they enable later work on real hosts. Read-only operations and sandbox state changes remain available. Legacy delegation remains cooperative; new managed work requires strict native child control. Use only the disposable repository and do not register outside repos or add remote runners. This filter is not isolation for arbitrary executor code.
 
@@ -604,10 +608,12 @@ policy and config bytes. It refuses existing fixture directories, redirected
 paths and unsafe evidence files. No subprocesses, real accounts or integrations
 are used. Fixture files remain with the sandbox for inspection.
 
-D8 continues to refuse **every network `config.set` request**. This fixture
-validates handler persistence and validation, not the browser's saving indicator,
-rollback rendering, concurrency, planner integration side effects or other
-settings. Those surfaces remain UNVERIFIED until safely exercised separately.
+D8 now forwards network `config.set` requests for every known key except a
+planner change that would connect integrations (see the D8 section), so Settings
+saves through the public proxy can be exercised directly. This fixture still
+validates only handler persistence and validation, not the browser's saving
+indicator, rollback rendering, concurrency, planner integration side effects or
+other settings. Record those surfaces separately or mark them UNVERIFIED.
 
 ## Test temporary files
 
