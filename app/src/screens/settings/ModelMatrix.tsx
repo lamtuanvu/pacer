@@ -53,6 +53,23 @@ function isConflict(error: unknown): boolean {
   return record.code === "conflict" || /changed elsewhere/i.test(String(record.message ?? ""));
 }
 
+/** Stable signature of the runner-model decisions a load would apply: each runner's
+ * default and each model's on/tier. Used to tell a genuinely different load
+ * ("settings changed elsewhere") from an unrelated refresh with identical models. */
+function modelSignature(drafts: MatrixDraft[]): string {
+  return JSON.stringify(
+    [...drafts]
+      .sort((a, b) => (a.runner < b.runner ? -1 : a.runner > b.runner ? 1 : 0))
+      .map(d => ({
+        runner: d.runner,
+        default: d.default,
+        rows: [...d.rows]
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+          .map(r => ({ id: r.id, on: r.on, tier: r.tier })),
+      })),
+  );
+}
+
 export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig?: ConfigView; initialInventory?: DispatcherInventory }) {
   const { api } = useTaskContext();
   const config = useResource<ConfigView>("dispatch.config.get", {}, initialConfig);
@@ -80,6 +97,10 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   const dirty = drafts.some((d, i) => isDirty(d.rows, baseDrafts[i]?.rows ?? d.rows) || d.default !== (baseDrafts[i]?.default ?? null));
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  // The base the current unsaved edits build on, read fresh when a load resolves
+  // so we can tell a real external change from an unrelated refresh.
+  const baseDraftsRef = useRef(baseDrafts);
+  baseDraftsRef.current = baseDrafts;
 
   useEffect(() => {
     if (!inventory.data) return;
@@ -128,17 +149,27 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
 
   useEffect(() => {
     if (!runnerIds.length) return;
-    const wasDirty = dirtyRef.current;
     let active = true;
-    // Never silently discard unsaved edits: while the page is dirty a config or
-    // inventory event keeps the drafts and flags that the settings changed
-    // elsewhere, so the user can Discard to load them.
-    if (wasDirty) {
-      setConflict(true);
-      setNotice("Model settings changed elsewhere. Discard to load them.");
-      return;
-    }
-    void fetchAll(runnerIds).then(loaded => { if (active) applyLoaded(loaded); });
+    // Never silently discard unsaved edits: a load that finishes after the user
+    // edited keeps their drafts. It surfaces the "settings changed elsewhere"
+    // prompt only when the freshly loaded runner models (default + per-model
+    // on/tier) genuinely differ from what the drafts build on; an unrelated
+    // refresh with identical models stays silent.
+    void fetchAll(runnerIds).then(loaded => {
+      if (!active) return;
+      if (dirtyRef.current) {
+        if (modelSignature(loaded.drafts) !== modelSignature(baseDraftsRef.current)) {
+          // Real external change: keep the drafts, fold in the loaded revision
+          // baseline so a later save runs against the newest revision, and ask
+          // the user to Discard if they want the loaded models.
+          setLoadedRevision(loaded.drafts[0]?.revision ?? "");
+          setConflict(true);
+          setNotice("Model settings changed elsewhere. Discard to load them.");
+        }
+        return;
+      }
+      applyLoaded(loaded);
+    });
     return () => { active = false; };
   }, [runnerIds, JSON.stringify(targets), inventory.data]);
 

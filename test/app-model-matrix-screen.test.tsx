@@ -101,6 +101,7 @@ function makeApi(opts: {
   config: ReturnType<typeof configView>;
   inventory: ReturnType<typeof inventory>;
   setMany?: { throw?: ApiError; warnings?: string[] };
+  runnerModelsGet?: (id: string, saved: number) => RunnerModels | Promise<RunnerModels>;
 }): MatrixApi {
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
   const savedModels: Record<string, RunnerModels> = {};
@@ -121,6 +122,7 @@ function makeApi(opts: {
           case "executor.models.available":
             return (opts.available?.[String(params.runner)] ?? { ...unknown, runner: String(params.runner) }) as T;
           case "runner.models.get":
+            if (opts.runnerModelsGet) return opts.runnerModelsGet(String(params.id), saved) as T;
             return (savedModels[String(params.id)] ?? opts.models?.[String(params.id)] ?? { runner: String(params.id), revision: "r-default", default: null, models: [] }) as T;
           case "runner.models.set_many":
             if (opts.setMany?.throw) throw opts.setMany.throw;
@@ -145,6 +147,7 @@ async function withMatrix(run: (container: FakeElement, api: MatrixApi, rerender
   models?: Record<string, RunnerModels>;
   available?: Record<string, AvailableModels>;
   setMany?: { throw?: ApiError; warnings?: string[] };
+  runnerModelsGet?: (id: string, saved: number) => RunnerModels | Promise<RunnerModels>;
 }) {
   const previous = { document: globalThis.document, CSSStyleSheet: globalThis.CSSStyleSheet, window: globalThis.window, getComputedStyle: globalThis.getComputedStyle, requestAnimationFrame: globalThis.requestAnimationFrame };
   globalThis.document = {
@@ -321,28 +324,98 @@ test("save warnings are shown in plain words and the routine ones are hidden", a
   });
 });
 
-test("a config event while the page is dirty keeps the draft and asks to Discard", async () => {
+test("an unrelated settings refresh while the page is dirty stays silent and keeps the draft (F2)", async () => {
   const options = {
     config: configView(),
     inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
     models: { go: declarationsGo },
     available: { go: servedGo },
   };
-  await withMatrix(async (container, _api, rerender) => {
+  await withMatrix(async (container, api, rerender) => {
     // Make the page dirty by turning the only model off.
     const sw = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
     expect(sw).toBeTruthy();
     await act(async () => { fire(sw!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
     expect(textOf(container)).toContain("1 model changed");
-    // A config change elsewhere (new tier targets) is then observed while dirty.
+    // A refresh with identical runner models (new tier targets elsewhere) then
+    // arrives while the page is dirty.
     options.config = { ...options.config, config: { ...options.config.config, tierTargets: { simple: "medium", standard: "medium", complex: "frontier" } } };
     await rerender({ ...initialState(), connected: true, invalidations: { config: 1 } });
-    // The draft is kept and the conflict is surfaced instead of silently discarded.
+    await until(() => api.calls.filter(c => c.op === "runner.models.get").length >= 2);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
+    // The draft is kept and no false "changed elsewhere" notice is shown.
+    expect(textOf(container)).toContain("1 model changed");
+    expect(textOf(container)).toContain("Save matrix");
+    expect(textOf(container)).not.toContain("Model settings changed elsewhere. Discard to load them.");
+  }, options);
+});
+
+test("a genuine external model change while the page is dirty shows the Discard prompt and keeps the draft", async () => {
+  const options = {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+  };
+  await withMatrix(async (container, api, rerender) => {
+    // Make the page dirty by turning the only model off.
+    const sw = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(sw).toBeTruthy();
+    await act(async () => { fire(sw!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(textOf(container)).toContain("1 model changed");
+    // An external client changes go's declared models (now a different tier and
+    // an extra model), which genuinely differs from what the draft builds on.
+    options.models.go = { runner: "go", revision: "r-ext", default: "zhipu/glm", models: [{ id: "zhipu/glm", tier: "small" }, { id: "zhipu/other", tier: "frontier" }] };
+    await rerender({ ...initialState(), connected: true, invalidations: { config: 1 } });
+    await until(() => api.calls.filter(c => c.op === "runner.models.get").length >= 2);
     await until(() => textOf(container).includes("Model settings changed elsewhere. Discard to load them."));
     expect(textOf(container)).toContain("Model settings changed elsewhere. Discard to load them.");
+    // The draft is kept: the dirtied save bar and its actions remain.
     expect(textOf(container)).toContain("1 model changed");
     expect(textOf(container)).toContain("Save matrix");
   }, options);
+});
+
+test("an edit made while the post-save reload is in flight survives it (F1)", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let reloadStarted = false;
+  // Loads before any save (the initial load and the follow-up refresh) resolve
+  // immediately so the matrix renders. Only the reload that follows a save is
+  // held, letting the test edit while it is still in flight.
+  const runnerModelsGet = (id: string, saved: number): Promise<RunnerModels> => {
+    if (saved === 0) return Promise.resolve({ ...declarationsGo, runner: id });
+    reloadStarted = true;
+    return gate.then(() => ({ runner: id, revision: "r-go-loaded", default: "zhipu/glm", models: [{ id: "zhipu/glm", tier: "medium" }] }));
+  };
+  await withMatrix(async (container, api) => {
+    await clickText(container, "Suggest");
+    await clickText(container, "Accept all");
+    await clickText(container, "Save matrix");
+    await until(() => api.calls.filter(c => c.op === "runner.models.set_many").length === 1);
+    // The post-save clean reload has started fetching runner.models.get again; hold it.
+    await until(() => reloadStarted);
+    // Edit while the reload is pending: turn the only model off.
+    const sw = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(sw).toBeTruthy();
+    await act(async () => { fire(sw!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(textOf(container)).toContain("0 on");
+    expect(textOf(container)).toContain("Save matrix");
+    // Let the reload land. The loaded models equal what the drafts build on
+    // (the save's own result), so this is an unrelated refresh: the edit must
+    // survive with no false "changed elsewhere" notice.
+    release();
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(textOf(container)).toContain("0 on");
+    expect(textOf(container)).toContain("Save matrix");
+    expect(textOf(container)).not.toContain("Model settings changed elsewhere. Discard to load them.");
+  }, {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+    runnerModelsGet,
+  });
 });
 
 test("rating a row updates its Takes text to match the coverage cards (B1)", async () => {

@@ -1,12 +1,15 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
+import { h, render as preactRender } from "preact";
+import { act } from "preact/test-utils";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { initialState, type StoreState } from "../app/src/data/store";
-import { ApiError } from "../app/src/data/api";
+import { ApiError, type BrowserApi } from "../app/src/data/api";
 import { DispatcherModelChoice, saveTierTargets, saveTierTargetsInPlace } from "../app/src/screens/settings/DispatcherModelChoice";
 import { tierSummary } from "../app/src/model/executor-models";
 import { dispatchConfigSchema, type ModelRecord, type TierTargets } from "../src/dispatch/types";
 import { plannerRunner, withoutPlanner } from "../app/src/model/planner";
+import type { RunnerModels } from "../src/core/runner-models";
 
 const config = dispatchConfigSchema.parse({});
 const view = { strategy: "custom", source: "strategy" as const, config };
@@ -57,8 +60,12 @@ test("the answer card reports steered executors and the preview groups by behavi
   expect(html).toContain("opencode-go"); expect(html).toContain("codex"); expect(html).toContain("claude-code");
   expect(html).toContain("gpt-5"); expect(html).toContain("for every difficulty");
   expect(html).toContain("can take it");
-  // The rated executor shows its chosen model for the simple target and "Not used" below it.
-  expect(html).toContain("small-model"); expect(html).toContain("Not used");
+  // The rated executor shows its chosen model for the simple target and, below
+  // it with no configured default, that it falls back to its provider's default
+  // (mirroring plain delegation) instead of "Not used".
+  expect(html).toContain("small-model");
+  expect(html).toContain("Uses its provider's default");
+  expect(html).not.toContain("Not used");
 });
 
 test("an unsteered inventory explains why and points at the model matrix when that route exists", () => {
@@ -180,4 +187,131 @@ test("the planner helper finds the planner record and excludes only its runner",
   expect(plannerRunner([hosted], "claude-code", "team")).toBeNull();
   const dropped = withoutPlanner([rated, unrated, fixed], "claude-code", "team");
   expect(dropped.map(r => r.runner)).toEqual(["opencode-go", "codex"]);
+});
+
+// ---------------------------------------------------------------------------
+// Stateful render so effects (reading runner.models.get defaults for the preview)
+// run; mirrors app-model-matrix-screen.test.tsx. This is how the production
+// wiring that pulls each runner's configured default into the preview is tested.
+// ---------------------------------------------------------------------------
+type SelElement = {
+  nodeType: number; tagName: string; childNodes: SelElement[]; parentNode: SelElement | null;
+  data?: string; attrs: Record<string, string>; _listeners: Record<string, (event?: unknown) => void>;
+  onclick?: null; oninput?: null; onchange?: null; onfocus?: null; onblur?: null; onkeydown?: null; onsubmit?: null;
+  addEventListener: (type: string, fn: (event?: unknown) => void) => void; removeEventListener: (type: string) => void;
+  setAttribute: (name: string, value: unknown) => void; getAttribute: (name: string) => string | null; removeAttribute: (name: string) => void;
+  appendChild: (child: SelElement) => SelElement; insertBefore: (child: SelElement, before: SelElement | null) => SelElement;
+  removeChild: (child: SelElement) => SelElement; focus: () => void; querySelector: () => null; querySelectorAll: () => SelElement[];
+};
+const selElement = (tag: string): SelElement => {
+  const node: SelElement = {
+    nodeType: 1, tagName: tag, childNodes: [], parentNode: null, attrs: {}, _listeners: {},
+    onclick: null, oninput: null, onchange: null, onfocus: null, onblur: null, onkeydown: null, onsubmit: null,
+    addEventListener(type, fn) { node._listeners[type] = fn; },
+    removeEventListener(type) { delete node._listeners[type]; },
+    setAttribute(name, value) { node.attrs[name] = String(value); },
+    getAttribute(name) { return name in node.attrs ? node.attrs[name] : null; },
+    removeAttribute(name) { delete node.attrs[name]; },
+    appendChild(child) { insertSel(node, child, null); return child; },
+    insertBefore(child, before) { insertSel(node, child, before); return child; },
+    removeChild(child) { node.childNodes = node.childNodes.filter(c => c !== child); child.parentNode = null; return child; },
+    focus() { (document as unknown as { activeElement: SelElement }).activeElement = node; }, querySelector() { return null; }, querySelectorAll() { return []; },
+  };
+  return node;
+};
+const insertSel = (parent: SelElement, child: SelElement, before: SelElement | null) => {
+  if (child.parentNode) child.parentNode.childNodes = child.parentNode.childNodes.filter(c => c !== child);
+  const at = before ? parent.childNodes.indexOf(before) : -1;
+  if (at < 0) parent.childNodes.push(child); else parent.childNodes.splice(at, 0, child);
+  child.parentNode = parent;
+};
+const selText = (node: SelElement): string => node.nodeType === 3 ? node.data ?? "" : node.childNodes.map(selText).join("");
+const untilSel = async (predicate: () => boolean) => {
+  for (let i = 0; i < 400 && !predicate(); i++) await new Promise(r => setTimeout(r, 5));
+};
+
+async function withChoice(run: (getHtml: () => string, calls: Array<{ op: string }>) => Promise<void>, opts: {
+  runnerModels?: Record<string, RunnerModels>;
+  inventoryModels: ModelRecord[];
+}) {
+  const previous = { document: globalThis.document, CSSStyleSheet: globalThis.CSSStyleSheet, window: globalThis.window, getComputedStyle: globalThis.getComputedStyle, requestAnimationFrame: globalThis.requestAnimationFrame };
+  globalThis.document = {
+    adoptedStyleSheets: [], createElement: (t: string) => selElement(t), createElementNS: (_n: string, t: string) => selElement(t),
+    createTextNode: (t: string) => { const n = selElement("#text"); n.nodeType = 3; n.data = t; return n; },
+    dispatchEvent() {}, addEventListener() {}, removeEventListener() {}, getElementById: () => null, querySelector: () => null, contains: () => false, activeElement: null,
+  } as never;
+  globalThis.CSSStyleSheet = class { replaceSync() {} } as never;
+  globalThis.window = { addEventListener() {}, removeEventListener() {}, innerHeight: 800, innerWidth: 1200, matchMedia: () => ({ matches: false }) } as never;
+  globalThis.getComputedStyle = (() => ({ getPropertyValue: () => "0px" })) as never;
+  globalThis.requestAnimationFrame = (() => 0) as never;
+  const container = selElement("div");
+  const calls: Array<{ op: string }> = [];
+  const api = {
+    hello: async () => ({} as never),
+    snapshot: async () => ({} as never),
+    async call<T = unknown>(op: string, params: Record<string, unknown> = {}): Promise<T> {
+      calls.push({ op });
+      switch (op) {
+        case "dispatch.config.get": return view as T;
+        case "dispatch.models": return { models: opts.inventoryModels, advertised: [], observedAt: null } as T;
+        case "runner.models.get": return (opts.runnerModels?.[String(params.id)] ?? { runner: String(params.id), default: null, models: [] }) as T;
+        default: return {} as T;
+      }
+    },
+  } as BrowserApi;
+  const holder = { state: { ...initialState(), connected: true }, api };
+  const node = () => <TaskContext.Provider value={{ state: holder.state as never, api }}>
+    <DispatcherModelChoice initialConfig={view as never} initialInventory={{ models: opts.inventoryModels, advertised: [], observedAt: null }} initialTargets={config.tierTargets} />
+  </TaskContext.Provider>;
+  try {
+    await act(async () => { preactRender(node(), container as never); });
+    // Wait for the defaults-loading effect (runner.models.get per runner) to run.
+    const runnerCount = opts.inventoryModels.length;
+    if (runnerCount) {
+      await untilSel(() => calls.filter(c => c.op === "runner.models.get").length >= runnerCount);
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    await run(() => selText(container), calls);
+  } finally {
+    await act(async () => { preactRender(null as never, container as never); });
+    globalThis.document = previous.document; globalThis.CSSStyleSheet = previous.CSSStyleSheet;
+    globalThis.window = previous.window; globalThis.getComputedStyle = previous.getComputedStyle;
+    globalThis.requestAnimationFrame = previous.requestAnimationFrame;
+  }
+}
+
+test("the preview falls back to a runner's configured default below the target, read from runner.models.get (F3)", async () => {
+  // A follow runner whose only model (provider/fast) is rated below the target
+  // still shows its configured default ("fast", "Smaller than the target")
+  // rather than "Not used", once the wiring passes the default from
+  // runner.models.get into the preview exactly as plain delegation does.
+  const inventoryModels: ModelRecord[] = [
+    { runner: "opencode", account: "go", executor: "opencode", binding: { kind: "exact", id: "provider/fast" }, actualModel: null, tier: "small", strengths: [], provenance: "declared" } as ModelRecord,
+  ];
+  await withChoice(async (getHtml, calls) => {
+    // The production wiring read the runner's configured default.
+    expect(calls.filter(c => c.op === "runner.models.get").length).toBeGreaterThan(0);
+    const html = getHtml();
+    expect(html).toContain("Follow the tier");
+    expect(html).toContain("fast");
+    expect(html).toContain("Smaller than the target");
+    expect(html).not.toContain("Not used");
+  }, {
+    runnerModels: { opencode: { runner: "opencode", revision: "r1", default: "provider/fast", models: [{ id: "provider/fast", tier: "small" }] } },
+    inventoryModels,
+  });
+});
+
+test("the preview shows a no-default follow runner running its provider's default, not 'Not used' (F4 wiring)", async () => {
+  const inventoryModels: ModelRecord[] = [
+    { runner: "opencode", account: "go", executor: "opencode", binding: { kind: "exact", id: "provider/small" }, actualModel: null, tier: "small", strengths: [], provenance: "declared" } as ModelRecord,
+  ];
+  await withChoice(async (getHtml) => {
+    const html = getHtml();
+    expect(html).toContain("Uses its provider's default");
+    expect(html).not.toContain("Not used");
+  }, {
+    runnerModels: { opencode: { runner: "opencode", revision: "r1", default: null, models: [] } },
+    inventoryModels,
+  });
 });

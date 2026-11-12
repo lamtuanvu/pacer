@@ -112,15 +112,15 @@ models with listing facts, and **Accept all** never turns off an enabled model
 without such facts. Coverage cards show how many rated models can take each
 difficulty. **Save matrix** writes only the executors whose models or default
 actually changed, in one revision-checked **`runner.models.set_many`** edit, and
-preserves each declared model's strengths, tools and context. On a clean page
-the matrix reloads whenever the dispatcher settings or the model inventory
-refresh, so edits made elsewhere (a CLI or another window) appear without
-discarding anything. If settings change elsewhere while the page is dirty, it
-keeps your edits and asks you to Discard to load them rather than silently
-overwriting them; a change that does not refresh the dispatcher settings or
-inventory (for example an external edit to just one executor's models) surfaces
-as a save conflict instead. Coverage follows `dispatch.tierTargets` and updates
-when the tier choices change.
+preserves each declared model's strengths, tools and context. On a clean page the matrix reloads whenever the dispatcher settings or the model
+inventory refresh, so edits made through pacer (a CLI or another window) appear
+without discarding anything. If settings change while the page is dirty, it keeps
+your edits and asks you to Discard to load them only when the loaded runner
+models actually differ from what your edits build on; an unrelated refresh with
+identical models stays silent. A hand edit of `strategy.yaml` that changes the
+strategy revision while you have unsaved edits is not visible until you save, and
+surfaces as a save conflict instead. Coverage follows `dispatch.tierTargets` and
+updates when the tier choices change.
 
 ## Configure the choice ladder
 

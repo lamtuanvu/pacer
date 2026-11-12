@@ -100,6 +100,13 @@ function followCell(list: Records, difficulty: Difficulty, targets: TierTargets,
   if (record && record.binding.kind === "executor-default") {
     return { difficulty, target, chosen: "default model", note: "Runs its default model below the target", skipped: false };
   }
+  // No exact model rated at/above the target and no configured default. Plain
+  // delegation still runs the executor's provider-configured model when it is
+  // chosen, so show that instead of "Not used"; "Not used" remains only for an
+  // executor that truly has nothing in the inventory it can run.
+  if (list.length > 0) {
+    return { difficulty, target, chosen: "Uses its provider's default", note: "no rated model at the target", skipped: false };
+  }
   return { difficulty, target, chosen: null, note: "Model is smaller than the target", skipped: true };
 }
 

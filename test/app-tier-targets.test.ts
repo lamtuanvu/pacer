@@ -79,17 +79,21 @@ test("groupPreview buckets executors by behavior and reports eligible counts per
   expect(grouping.unrated.map(row => row.runner)).toEqual(["codex"]);
   expect(grouping.unrated[0]!.model).toBe("gpt-5");
   expect(grouping.fixed.map(row => row.runner)).toEqual(["claude-code"]);
-  // opencode (small): used for simple, not used for standard or complex
+  // opencode (small): matches simple; below standard and complex with no
+  // configured default it runs its provider's default rather than nothing.
   const opencode = grouping.follow[0]!;
-  expect(opencode.cells.map(c => c.skipped)).toEqual([false, true, true]);
+  expect(opencode.cells.map(c => c.skipped)).toEqual([false, false, false]);
   expect(opencode.cells[0]!.note).toBe("Matches the target");
-  expect(opencode.cells[1]!.note).toBe("Model is smaller than the target");
-  // cursor (medium): upward fallback for simple, match for standard, not used for complex
+  expect(opencode.cells[1]!.note).toBe("no rated model at the target");
+  expect(opencode.cells[1]!.chosen).toBe("Uses its provider's default");
+  // cursor (medium): upward fallback for simple, match for standard, and below
+  // complex (frontier) it also falls back to its provider's default.
   const cursor = grouping.follow[1]!;
   expect(cursor.cells[0]!.chosen).toBe("auto");
   expect(cursor.cells[0]!.note).toBe("Larger than needed, used when nothing smaller is free");
   expect(cursor.cells[1]!.note).toBe("Matches the target");
-  expect(cursor.cells[2]!.skipped).toBe(true);
+  expect(cursor.cells[2]!.chosen).toBe("Uses its provider's default");
+  expect(cursor.cells[2]!.skipped).toBe(false);
   // eligible: everyone can take simple, unrated and fixed can take anything
   expect(grouping.cols.map(col => col.eligible)).toEqual([4, 3, 2]);
   expect(grouping.cols.map(col => col.target)).toEqual(["small", "medium", "frontier"]);
@@ -137,6 +141,20 @@ test("groupPreview uses an executor's configured default id as the fallback mode
   const row = grouping.follow[0]!;
   expect(row.cells[1]!.skipped).toBe(false);
   expect(row.cells[1]!.chosen).toBe("fallback");
+});
+
+test("a follow runner with no default and no rated model at/above the target runs its provider's default, not 'Not used' (F4)", () => {
+  // Plain delegation (src/tasks/runner.ts) still runs the executor's
+  // provider-configured model when selectModel finds nothing at/above the target
+  // and no configured default, so the preview says "Uses its provider's
+  // default" rather than "Not used".
+  const records = [model("opencode", { binding: { kind: "exact", id: "provider/small" }, tier: "small" })];
+  const pairing = groupPreview(records, balanced, {});
+  const row = pairing.follow[0]!;
+  expect(row.cells.map(c => c.skipped)).toEqual([false, false, false]);
+  expect(row.cells[1]!.chosen).toBe("Uses its provider's default");
+  expect(row.cells[2]!.chosen).toBe("Uses its provider's default");
+  expect(row.cells[2]!.note).toBe("no rated model at the target");
 });
 
 test("unrated group previews its single model for every difficulty", () => {
