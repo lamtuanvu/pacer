@@ -1,22 +1,139 @@
 import { expect, test } from "bun:test";
-import { existsSync, lstatSync, lutimesSync, readdirSync, readFileSync, realpathSync, rmdirSync, statSync, writeFileSync } from "node:fs";
-import { createConnection } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { callOp } from "../src/api/ops";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { installFixture } from "../conformance/install";
 import { runStdio } from "../src/api/stdio";
 import { pluginNativeRequest } from "../src/serve/plugin-native";
-import { useOwnerKey } from "./fixtures/owner-auth";
 import { fakeCtx } from "./helpers";
-import { alive, front, makeHome, normalize, ownerOn, recordingMain, semantic, serve, starts, stdio, tsOwner, type Home, type Reply } from "./native-plugin-door";
 
 // The stdio front door answers the twelve plugin operations natively (ADR 0027).
+const front = process.env.PACER_TEST_FRONT_DOOR;
 const context = { route: "overview", theme: "light" };
 const OPS = [
   "plugin.list", "plugin.doctor", "plugin.ui.list", "plugin.settings.get",
   "plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.render",
   "plugin.ui.action", "plugin.ui.visibility", "plugin.settings.set", "plugin.install",
 ];
+const tsOwner = { nativeHost: "0" };
+const ownerOn = { nativeHost: "1" };
+
+type Home = { home: string; state: string; plugin: string; done(): void };
+
+// Owner sockets must fit SUN_LEN (~104), so every home lives directly under /tmp.
+function makeHome(): Home {
+  const home = realpathSync(mkdtempSync("/tmp/pnh-"));
+  const state = join(home, ".pacer");
+  mkdirSync(state, { mode: 0o700 });
+  writeFileSync(join(state, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n# preserve this comment\n", { mode: 0o600 });
+  symlinkSync(join(import.meta.dir, "../node_modules"), join(home, "node_modules"), "dir");
+  const plugin = installFixture("ui", join(state, "plugins"));
+  return { home, state, plugin, done: () => rmSync(home, { recursive: true, force: true }) };
+}
+
+function frontEnv(h: Home, forward: string, options: { nativeHost?: string }) {
+  return {
+    HOME: h.home, PACER_HOME: h.state, PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
+    PACER_CORE_ARGV: JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]),
+    PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
+    PACER_DEBUG_NATIVE: "1", PACER_FORWARD_OPS: forward,
+    ...(options.nativeHost !== undefined ? { PACER_NATIVE_PLUGIN_HOST: options.nativeHost } : {}),
+  };
+}
+
+type Reply = { text: string; line: string; json: any };
+
+/** One `pacer api --stdio` connection, already negotiated to protocol 3. */
+async function stdio(h: Home, forward = "", options: { nativeHost?: string } = tsOwner, hello = true) {
+  const child = Bun.spawn([front!, "api", "--stdio"], { env: frontEnv(h, forward, options), stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const logs = new Response(child.stderr).text();
+  const replies = new Map<string, string>(), waiters = new Map<string, (line: string) => void>();
+  const order: string[] = [];
+  const pump = (async () => {
+    const reader = child.stdout.getReader(), decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      buffer += decoder.decode(part.value, { stream: true });
+      for (let i = buffer.indexOf("\n"); i >= 0; i = buffer.indexOf("\n")) {
+        const line = buffer.slice(0, i); buffer = buffer.slice(i + 1);
+        const message = JSON.parse(line);
+        if (!Object.hasOwn(message, "id")) continue;
+        const key = JSON.stringify(message.id);
+        order.push(key);
+        const waiter = waiters.get(key);
+        if (waiter) { waiters.delete(key); waiter(line); } else replies.set(key, line);
+      }
+    }
+  })();
+  let next = 1;
+  const send = (line: string) => { child.stdin.write(`${line}\n`); child.stdin.flush(); };
+  const reply = (id: unknown, timeout = 30000): Promise<Reply> => {
+    const key = JSON.stringify(id);
+    const settle = (line: string): Reply => {
+      const prefix = `{"jsonrpc":"2.0","id":${key},`;
+      expect(line.startsWith(prefix), line).toBe(true);
+      return { line, text: line.slice(prefix.length, -1), json: JSON.parse(line) };
+    };
+    const ready = replies.get(key);
+    if (ready !== undefined) { replies.delete(key); return Promise.resolve(settle(ready)); }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(Error(`no reply to ${key}`)), timeout);
+      waiters.set(key, line => { clearTimeout(timer); resolve(settle(line)); });
+    });
+  };
+  const call = (method: string, params: unknown, id: unknown = next++) => {
+    send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+    return reply(id);
+  };
+  if (hello) expect((await call("hello", { protocol: 3 })).json.result.protocol).toBeDefined();
+  return { child, send, reply, call, order, async stop() {
+    child.stdin.end();
+    const exited = await Promise.race([child.exited, Bun.sleep(20000).then(() => "hung")]);
+    if (exited === "hung") { child.kill("SIGKILL"); await child.exited; }
+    await pump;
+    return await logs;
+  } };
+}
+
+/** A flag-controlled serve on an existing home. */
+async function serve(h: Home, forward = "", options: { nativeHost?: string } = tsOwner) {
+  const socket = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  const port = socket.port!; socket.stop(true);
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: frontEnv(h, forward, options), stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const logs = new Response(child.stderr).text();
+  const base = `http://127.0.0.1:${port}`;
+  let token = "";
+  for (let i = 0; i < 500; i++) {
+    try {
+      token = readFileSync(join(h.state, "token"), "utf8").trim();
+      if ((await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok) break;
+    } catch { /* Wait for this child only. */ }
+    if (child.exitCode !== null) throw Error(await logs);
+    await Bun.sleep(20);
+  }
+  const call = async (op: string, params: unknown): Promise<Reply> => {
+    const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(params), signal: AbortSignal.timeout(30000) });
+    const line = await response.text();
+    return { line, text: line.slice(1, -1), json: JSON.parse(line) };
+  };
+  return { call, async stop() {
+    if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
+    return await logs;
+  } };
+}
+
+const normalize = (h: Home, text: string) => text.replaceAll(h.home, "<HOME>")
+  .replace(/"renderedAt":\d+/g, '"renderedAt":0').replace(/"pid":\d+/g, '"pid":0').replace(/"uptimeS":[\d.]+/g, '"uptimeS":0');
+
+/** The code, message and hint both envelopes carry; JSON-RPC errors omit HTTP's error data. */
+function semantic(reply: Reply) {
+  const error = reply.json.error;
+  if (!error) return reply.json.result;
+  const http = typeof error.code === "string";
+  const hint = http ? error.hint : error.data?.hint;
+  return { code: http ? error.code : error.data?.code, message: error.message, ...(hint ? { hint } : {}) };
+}
 
 async function sequence(h: Home, call: (op: string, params: unknown) => Promise<Reply>) {
   const out: Reply[] = [];
@@ -215,8 +332,17 @@ test.skipIf(!front)("lone UTF-16 units survive the stdio wire, private IPC and s
   } finally { for (const h of homes) h.done(); }
 }, 120000);
 
+// A plugin child records whether it inherited the private key, and every start.
+const recordingMain = `#!/usr/bin/env bun
+import {appendFileSync,writeFileSync} from 'node:fs';
+appendFileSync('starts', process.pid + '\\n');
+writeFileSync('inherited-key', process.env.PACER_NATIVE_CONFIG_SYNC_KEY ?? 'absent');
+// @ts-ignore: installFixture copies the shared plugin.ts beside this entry point.
+await import('./plugin');
+`;
+const starts = (h: Home) => existsSync(join(h.plugin, "starts")) ? readFileSync(join(h.plugin, "starts"), "utf8").trim().split("\n").map(Number) : [];
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const save = (rev: number) => ({ plugin: "fx-ui", values: { required: true, items: ["a"] }, expect_rev: rev });
-const heldLocks = (h: Home) => existsSync(join(h.state, "orca")) ? readdirSync(join(h.state, "orca")).filter(name => name.endsWith(".lock")) : [];
 const connectionSockets = (h: Home) => existsSync(join(h.state, "run")) ? readdirSync(join(h.state, "run")).filter(name => /^s[0-9a-f]{12}\.sock$/.test(name)) : [];
 
 test("the private plugin channel needs the sync key, hello v3 and no work grant", async () => {
@@ -237,16 +363,15 @@ test("the private plugin channel needs the sync key, hello v3 and no work grant"
     wake?.(); await done;
     return out;
   };
-  // [environment, door key, lines before, key sent]: each row breaks exactly one seal, for any kind.
-  const crashed = { kind: "crashed", id: "fx-ui", reason: "exited on SIGKILL" };
-  for (const body of [request, crashed]) for (const [env, key, before, sent] of [
+  // [environment, door key, lines before, key sent]: each row breaks exactly one seal.
+  for (const [env, key, before, sent] of [
     [{}, undefined, [hello(3)], "k"],
     [{}, "k", [hello(3)], "wrong"],
     [{ PACER_WORK_GRANT: "g" }, "k", [hello(3)], "k"],
     [{}, "k", [], "k"],
     [{}, "k", [hello(2)], "k"],
   ] as const) {
-    const out = await session(env, key, [...before], [sealed(1, sent, body)]);
+    const out = await session(env, key, [...before], [sealed(1, sent)]);
     expect(out.find(o => o.id === 1)).toMatchObject({ error: { code: -32601, data: { code: "unknown_op" } } });
   }
   const out = await session({}, "k", [hello(3)], [
@@ -255,24 +380,10 @@ test("the private plugin channel needs the sync key, hello v3 and no work grant"
   ]);
   expect(out.find(o => o.id === 1).result.entries).toBeArray();
   // Without the owner socket a relay would let Core spawn the child itself.
-  const refusal = { code: "plugin_unavailable", message: "owner relay requires the native process owner" };
-  expect(out.find(o => o.id === 2).result.error).toMatchObject(refusal);
-  // The HTTP door relays its own calls flag-on: Core refuses a relay without the owner socket and
-  // otherwise seals the call to that socket (here nothing listens on it).
-  const h = makeHome();
-  try {
-    const off = fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH! } });
-    await callOp(off, "plugin.enable", { id: "fx-ui", grant: true });
-    const relay = { kind: "relay", id: "fx-ui", method: "diagnostic.ping", params: {} };
-    expect((await pluginNativeRequest(off, relay) as any).error).toMatchObject(refusal);
-    const socket = join(h.state, "run", "host.sock");
-    // Core checks its credential before dialing; hold one so the missing socket is what fails.
-    useOwnerKey();
-    const on = fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH!, PACER_HOST_SOCKET: socket } });
-    const unreachable = (await pluginNativeRequest(on, relay) as any).error;
-    expect(unreachable.code).toBe("plugin_unavailable");
-    expect(unreachable.message).toStartWith(`native process owner socket ${socket} is unreachable`);
-  } finally { h.done(); }
+  expect(out.find(o => o.id === 2).result.error).toMatchObject({ code: "plugin_unavailable", message: "owner relay requires an attached stdio connection" });
+  // The HTTP door never relays, even with the owner socket set.
+  const http = await pluginNativeRequest(fakeCtx({ env: { PACER_HOST_SOCKET: "/tmp/none.sock" } }), { kind: "relay", id: "fx-ui", method: "diagnostic.ping", params: {} });
+  expect((http as any).error).toMatchObject({ code: "plugin_unavailable" });
 });
 
 test.skipIf(!front)("a client cannot reach the private channel and plugin children never inherit the key", async () => {
@@ -286,14 +397,7 @@ test.skipIf(!front)("a client cannot reach the private channel and plugin childr
       const doctor = await s.call("plugin.doctor", { id: "fx-ui" });
       expect(doctor.json.result.reports[0].ok, doctor.line).toBe(true);
       expect(readFileSync(join(h.plugin, "inherited-key"), "utf8")).toBe("absent");
-      expect(readFileSync(join(h.plugin, "inherited-owner-key"), "utf8")).toBe("absent");
-      // An owning connection's credential never touches disk: run/ holds only its socket.
-      if (options === ownerOn) expect(readdirSync(join(h.state, "run")).filter(name => !name.endsWith(".sock"))).toEqual([]);
-    } finally {
-      // Nor does it reach the log.
-      expect(await s.stop()).not.toMatch(/[0-9a-f]{64}/);
-      h.done();
-    }
+    } finally { await s.stop(); h.done(); }
   }
 }, 90000);
 
@@ -336,9 +440,6 @@ test.skipIf(!front)("two serve-less stdio connections each own a lane (the accep
     expect(semantic(await b.call("plugin.settings.set", save(0)))).toMatchObject({ code: "conflict" });
     expect((await b.call("plugin.settings.set", save(1))).json.error).toBeUndefined();
     expect((await a.call("plugin.settings.get", { plugin: "fx-ui" })).json.result.rev).toBe(2);
-    // Every lock either owner took is released, and the store holds the last write.
-    expect(heldLocks(h)).toEqual([]);
-    expect(JSON.parse(readFileSync(join(h.state, "plugin-settings.json"), "utf8"))["fx-ui"]).toMatchObject({ rev: 2, values: save(1).values });
   } finally { await a.stop(); await b.stop(); expect(connectionSockets(h)).toHaveLength(0); h.done(); }
 }, 60000);
 
@@ -371,12 +472,7 @@ test.skipIf(!front)("a stdio connection attaches to the live serve owner and sha
   writeFileSync(join(h.plugin, "main.ts"), recordingMain);
   const service = await serve(h, "", ownerOn);
   const s = await stdio(h, "", ownerOn);
-  const hostSocket = join(h.state, "run", "host.sock");
-  let key = "<unread>";
   try {
-    key = readFileSync(join(h.state, "run", "host.key"), "utf8").trim();
-    expect(key).toMatch(/^[0-9a-f]{64}$/);
-    expect(statSync(join(h.state, "run", "host.key")).mode & 0o777).toBe(0o600);
     expect(connectionSockets(h)).toHaveLength(0);
     await s.call("plugin.enable", { id: "fx-ui", grant: true });
     const params = { plugin: "fx-ui", surface: "activity", id: "checklist", context };
@@ -386,13 +482,6 @@ test.skipIf(!front)("a stdio connection attaches to the live serve owner and sha
     // One child, started for the stdio connection, also serves the service.
     expect(starts(h)).toHaveLength(1);
     const [first] = starts(h);
-    expect(readFileSync(join(h.plugin, "inherited-owner-key"), "utf8")).toBe("absent");
-    // A same-uid peer without the credential cannot find, stop or call through serve's owner.
-    for (const method of ["_host.plugin.find", "_host.plugin.stop", "_host.plugin.call"]) {
-      const refused = await ask(hostSocket, { jsonrpc: "2.0", id: 1, method, params: { id: "fx-ui", method: "diagnostic.ping", params: {} } });
-      expect(refused.error, method).toEqual({ code: -32001, message: "unauthorized" });
-    }
-    expect(alive(first)).toBe(true);
     // Disable through stdio stops the shared lane; the service's next call starts a new one.
     expect((await s.call("plugin.disable", { id: "fx-ui" })).json.result).toBeDefined();
     for (let i = 0; i < 300 && alive(first); i++) await Bun.sleep(10);
@@ -403,64 +492,22 @@ test.skipIf(!front)("a stdio connection attaches to the live serve owner and sha
   } finally {
     const log = await s.stop();
     expect(log).toMatch(/^native plugin owner attach .*\/run\/host\.sock$/m);
-    expect(log).not.toContain(key);
-    expect(await service.stop()).not.toContain(key);
-    h.done();
+    await service.stop(); h.done();
   }
 }, 90000);
 
-const fxState = async (call: (op: string, params: unknown) => Promise<Reply>) =>
-  (await call("plugin.list", {})).json.result.plugins.find((p: any) => p.id === "fx-ui").state;
-
-test.skipIf(!front)("serve's Core reports a child it rendered through as ready", async () => {
+test.skipIf(!front)("a serve starts beside a stdio owner, and later connections attach to it", async () => {
   const h = makeHome();
-  const service = await serve(h, "", ownerOn);
-  try {
-    await service.call("plugin.enable", { id: "fx-ui", grant: true });
-    expect((await service.call("plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context })).json.error).toBeUndefined();
-    expect(await fxState(service.call)).toBe("ready");
-  } finally { await service.stop(); h.done(); }
-}, 60000);
-
-/**
- * The owner reuses a lane an attached connection's Core sealed, so serve's Core never sees that
- * child's hello: serve's door reports it ready when its own call finds Core listing it idle.
- */
-test.skipIf(!front)("serve's Core reports a child started for an attached connection as ready after its own render", async () => {
-  const h = makeHome();
-  const service = await serve(h, "", ownerOn);
-  const s = await stdio(h, "", ownerOn);
-  try {
-    await s.call("plugin.enable", { id: "fx-ui", grant: true });
-    expect((await s.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
-    expect((await service.call("plugin.ui.render", { plugin: "fx-ui", surface: "activity", id: "checklist", context })).json.error).toBeUndefined();
-    expect(await fxState(service.call)).toBe("ready");
-  } finally { await s.stop(); await service.stop(); h.done(); }
-}, 60000);
-
-test.skipIf(!front)("a serve starts beside a stdio owner, both keep working, and later connections attach", async () => {
-  const h = makeHome();
-  writeFileSync(join(h.plugin, "main.ts"), recordingMain);
   const owner = await stdio(h, "", ownerOn);
   let service: Awaited<ReturnType<typeof serve>> | undefined;
   try {
     expect(connectionSockets(h)).toHaveLength(1);
-    await owner.call("plugin.enable", { id: "fx-ui", grant: true });
-    expect((await owner.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
     service = await serve(h, "", ownerOn);
     expect(existsSync(join(h.state, "run", "host.sock"))).toBe(true);
     expect(connectionSockets(h)).toHaveLength(1);
-    // The owning connection decided before serve started: it keeps its own child and answers.
-    const params = { plugin: "fx-ui", surface: "activity", id: "checklist", context };
-    expect((await owner.call("plugin.ui.render", params)).json.error).toBeUndefined();
-    expect((await owner.call("plugin.settings.set", save(0))).json.error).toBeUndefined();
-    expect((await service.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
-    expect((await service.call("plugin.settings.get", { plugin: "fx-ui" })).json.result.rev).toBe(1);
-    expect(starts(h)).toHaveLength(2);
     const later = await stdio(h, "", ownerOn);
     const log = await later.stop();
     expect(log).toMatch(/^native plugin owner attach /m);
-    expect((await owner.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
   } finally {
     await owner.stop();
     if (service) expect(await service.stop()).toContain("native plugin host enabled");
@@ -468,187 +515,7 @@ test.skipIf(!front)("a serve starts beside a stdio owner, both keep working, and
   }
 }, 90000);
 
-const params = { plugin: "fx-ui", surface: "activity", id: "checklist", context };
-
-test.skipIf(!front)("flag-on stdio replies match flag-on HTTP, owning and attached", async () => {
-  const flow = async (call: (op: string, params: unknown) => Promise<Reply>) => [
-    await call("plugin.enable", { id: "fx-ui", grant: true }),
-    await call("plugin.list", {}),
-    await call("plugin.ui.render", params),
-    await call("plugin.doctor", { id: "fx-ui" }),
-    await call("plugin.settings.set", save(0)),
-    await call("plugin.settings.set", save(0)),
-    await call("plugin.settings.get", { plugin: "fx-ui" }),
-  ];
-  // An attached connection's Core learns the shared child's state on its first call (ADR 0027).
-  const reads = async (call: (op: string, params: unknown) => Promise<Reply>) => [
-    await call("plugin.doctor", { id: "fx-ui" }), await call("plugin.list", {}), await call("plugin.settings.get", { plugin: "fx-ui" }),
-  ];
-  // Serve's background usage refresh starts the bundled usage plugin; stdio has no such loop.
-  const bytes = (h: Home, reply: Reply) => reply.json.result?.plugins
-    ? normalize(h, JSON.stringify(reply.json.result.plugins.filter((p: any) => !p.bundled)))
-    : reply.json.result !== undefined ? normalize(h, reply.text) : semantic(reply);
-  const own = makeHome(), shared = makeHome();
-  try {
-    const s = await stdio(own, "", ownerOn);
-    let owning: Reply[] = [];
-    try { owning = await flow(s.call); } finally { await s.stop(); }
-    const service = await serve(shared, "", ownerOn);
-    let http: Reply[] = [], attached: Reply[] = [], again: Reply[] = [];
-    try {
-      http = await flow(service.call);
-      const a = await stdio(shared, "", ownerOn);
-      try { attached = await reads(a.call); } finally { expect(await a.stop()).toMatch(/^native plugin owner attach /m); }
-      again = await reads(service.call);
-    } finally { await service.stop(); }
-    expect(owning.map(r => bytes(own, r))).toEqual(http.map(r => bytes(shared, r)));
-    expect(attached.map(r => bytes(shared, r))).toEqual(again.map(r => bytes(shared, r)));
-    // Core's snapshot does not know an owner-supervised child's pid, on either door.
-    for (const doctor of [owning[3], http[3], attached[0]]) expect(doctor.json.result.reports[0].pid).toBeNull();
-    expect(semantic(owning[5])).toMatchObject({ code: "conflict" });
-  } finally { own.done(); shared.done(); }
-}, 120000);
-
-test.skipIf(!front)("a flag-off stdio connection ignores the owner socket a flag-on serve exported", async () => {
-  const h = makeHome();
-  writeFileSync(join(h.plugin, "main.ts"), recordingMain);
-  const service = await serve(h, "", ownerOn);
-  // What a shell started under a flag-on serve inherits when it uses the escape hatch.
-  const s = await stdio(h, "", { nativeHost: "0", hostSocket: join(h.state, "run", "host.sock") });
-  try {
-    await s.call("plugin.enable", { id: "fx-ui", grant: true });
-    expect((await s.call("plugin.ui.render", params)).json.result.document).toBeDefined();
-    expect((await s.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].pid).toBe(starts(h)[0]);
-    // The stdio core started its own TypeScript child; the service's owner started none.
-    expect(starts(h)).toHaveLength(1);
-  } finally {
-    expect(await s.stop()).not.toMatch(/native plugin owner/);
-    await service.stop(); h.done();
-  }
-}, 90000);
-
-test.skipIf(!front)("an owning connection cleans up on SIGTERM, and a killed one's socket is swept later", async () => {
-  const h = makeHome();
-  writeFileSync(join(h.plugin, "main.ts"), recordingMain);
-  try {
-    const a = await stdio(h, "", ownerOn);
-    await a.call("plugin.enable", { id: "fx-ui", grant: true });
-    expect((await a.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
-    const [pid] = starts(h);
-    expect(connectionSockets(h)).toHaveLength(1);
-    a.child.kill("SIGTERM");
-    expect(await a.child.exited).toBe(143);
-    await a.stop().catch(() => "");
-    expect(connectionSockets(h)).toHaveLength(0);
-    for (let i = 0; i < 300 && alive(pid); i++) await Bun.sleep(10);
-    expect(alive(pid)).toBe(false);
-
-    // SIGKILL leaves the socket behind. Once it is old enough to be nobody's bind
-    // in progress, the next owning connection removes it before binding its own.
-    const b = await stdio(h, "", ownerOn);
-    const [stale] = connectionSockets(h);
-    b.child.kill("SIGKILL"); await b.child.exited;
-    await b.stop().catch(() => "");
-    expect(connectionSockets(h)).toEqual([stale]);
-    const fresh = await stdio(h, "", ownerOn);
-    try { expect(connectionSockets(h)).toContain(stale); } finally { await fresh.stop(); }
-    lutimesSync(join(h.state, "run", stale), 1_000_000_000, 1_000_000_000);
-    const c = await stdio(h, "", ownerOn);
-    try {
-      expect(connectionSockets(h)).not.toContain(stale);
-      expect(connectionSockets(h)).toHaveLength(1);
-    } finally { await c.stop(); }
-    expect(connectionSockets(h)).toHaveLength(0);
-  } finally { h.done(); }
-}, 90000);
-
-/** The OS per-user private directory the door uses for deep homes. */
-function privateBase(): string | undefined {
-  if (process.platform !== "darwin") return process.env.XDG_RUNTIME_DIR;
-  return Bun.spawnSync(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"]).stdout.toString().trim().replace(/\/+$/, "") || undefined;
-}
-
-/** The door's own check: a real directory, owned by this uid, with no group or other access. */
-function usableBase(base: string | undefined): base is string {
-  if (!base) return false;
-  try {
-    const meta = lstatSync(base);
-    return meta.isDirectory() && meta.uid === process.getuid!() && (meta.mode & 0o077) === 0;
-  } catch { return false; }
-}
-
-/** `pacer-<64-bit FNV-1a of the canonical home>`, as the door names it. */
-function privateName(h: Home): string {
-  let hash = 0xcbf29ce484222325n;
-  for (const byte of Buffer.from(realpathSync(h.state))) hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn;
-  return `pacer-${hash.toString(16).padStart(16, "0")}`;
-}
-
-/** One line to a Unix socket, one line back. */
-function ask(socket: string, message: unknown): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const connection = createConnection(socket, () => connection.write(`${JSON.stringify(message)}\n`));
-    let text = "";
-    connection.on("data", data => {
-      text += data.toString("utf8");
-      if (text.includes("\n")) { connection.end(); resolve(JSON.parse(text.slice(0, text.indexOf("\n")))); }
-    });
-    connection.on("error", reject);
-  });
-}
-
-test.skipIf(!front)("a deep home's owning connection binds in the private per-user directory, or refuses without one", async () => {
-  const h = makeHome(true);
-  try {
-    expect(join(h.state, "run", "s000000000000.sock").length).toBeGreaterThan(103);
-    const base = privateBase();
-    if (usableBase(base)) await deepHomeBinds(h, join(base, privateName(h)));
-    else await deepHomeRefuses(h, base);
-  } finally { h.done(); }
-}, 60000);
-
-async function deepHomeRefuses(h: Home, base: string | undefined) {
-  const listing = (dir: string) => { try { return readdirSync(dir).sort(); } catch { return []; } };
-  const before = base ? listing(base) : [];
-  const s = await stdio(h, "", ownerOn, false);
-  const exited = await Promise.race([s.child.exited, Bun.sleep(10000).then(() => "hung")]);
-  if (exited === "hung") s.child.kill("SIGKILL");
-  const log = await s.stop();
-  expect(exited, log).toBe(1);
-  expect(log).toContain("the private per-user directory is unusable");
-  expect(log).toContain("Set PACER_NATIVE_PLUGIN_HOST=0 or use a shorter PACER_HOME");
-  // Never a shared /tmp name or $TMPDIR in place of the per-user directory.
-  for (const dir of ["/tmp", tmpdir(), ...(base ? [base] : [])]) expect(existsSync(join(dir, privateName(h)))).toBe(false);
-  if (base) expect(listing(base)).toEqual(before);
-  expect(connectionSockets(h)).toHaveLength(0);
-}
-
-async function deepHomeBinds(h: Home, dir: string) {
-  writeFileSync(join(h.plugin, "main.ts"), recordingMain);
-  const s = await stdio(h, "", ownerOn);
-  let socket = "";
-  try {
-    const sockets = readdirSync(dir).filter(name => /^s[0-9a-f]{12}\.sock$/.test(name));
-    expect(sockets).toHaveLength(1);
-    socket = join(dir, sockets[0]);
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    expect(statSync(socket).mode & 0o777).toBe(0o600);
-    await s.call("plugin.enable", { id: "fx-ui", grant: true });
-    expect((await s.call("plugin.ui.render", params)).json.error).toBeUndefined();
-    expect((await s.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
-    // The socket Core was given serves this connection's owner, and only callers holding its credential.
-    const found = await ask(socket, { jsonrpc: "2.0", id: 1, method: "_host.plugin.find", params: { id: "fx-ui" } });
-    expect(found.error).toEqual({ code: -32001, message: "unauthorized" });
-    expect(starts(h)).toHaveLength(1);
-  } finally {
-    const log = await s.stop();
-    expect(log).toContain(`native plugin owner own ${socket}`);
-    expect(existsSync(socket)).toBe(false);
-    expect(connectionSockets(h)).toHaveLength(0);
-    rmdirSync(dir);
-  }
-}
-
-// (iv) OD-7, a second serve on a home whose host.sock owner is live: test/native-plugin-crash.test.ts.
+// (iv) OD-7 lands in PR 5: a second serve on a home whose host.sock owner is live exits with code 3.
+test.todo("a second serve refuses to start while the home's owner socket is live (OD-7, PR 5)");
 // (vi) A live socket served by another uid is never attached: `probe_home_owner_as` crate tests
 // (crates/plugin-runtime/tests/owner_attach.rs), since an end-to-end check needs a second user.

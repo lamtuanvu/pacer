@@ -10,10 +10,7 @@
 //! with no live serve owner, ADR 0027), or the live serve owner a stdio
 //! connection attached to (private `relay`, plus `_host.plugin.stop`). With the
 //! host on, Core keeps the bookkeeping kinds prepare/spawn_spec/call_authority/
-//! ready/stop/changed/publish/log/crashed and never spawns a child itself. A
-//! local owner starts a child no sooner than Core's sealed `nextStartAt` and
-//! its own restart floor, and an in-flight call whose child died answers
-//! `plugin_unavailable` naming the plugin once the crash is on record.
+//! ready/stop/changed/publish/log and never spawns a child itself.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use crate::serve::core_child::CoreChild;
 use axum::{body::Body, http::Request};
@@ -31,10 +28,9 @@ use pacer_plugin_ops::{
     public::{Entry, PublicOperations, Runtime},
 };
 use pacer_plugin_runtime::{
-    CrashReport, SharedOwner, SpawnSpec, StartFailure, StopOutcome, call_resources_from_value,
-    crash_message, executor_context_from_value, host_snapshots_from_value,
-    observation_bootstrap_from_value, orca_context_from_value, ready_info, session_for_call,
-    session_from_hello, start_lane, stop_on_owner, worktree_context_from_value,
+    SharedOwner, SpawnSpec, StopOutcome, call_resources_from_value, executor_context_from_value,
+    host_snapshots_from_value, observation_bootstrap_from_value, orca_context_from_value,
+    ready_info, session_for_call, session_from_hello, stop_on_owner, worktree_context_from_value,
 };
 use serde_json::{Value, json};
 use std::{
@@ -92,13 +88,11 @@ pub enum ProcessRpc {
     #[default]
     Core,
     /// A ProcessOwner in this process: serve's, or a stdio connection's own.
-    /// Calls relay through Core, whose `PACER_HOST_SOCKET` is this owner's;
-    /// the door stops lanes and clears restart floors here.
     Local(SharedOwner),
     /// The live serve owner at this `host.sock`, reached by a stdio connection:
     /// Core relays calls through its `PACER_HOST_SOCKET` (private `relay`);
-    /// the door only stops lanes there, proving the owner's credential.
-    Attached(PathBuf, OwnerKey),
+    /// the door only stops lanes there.
+    Attached(PathBuf),
 }
 
 /// Ops and reads stay off the epoch lock so a long plugin RPC cannot stall
@@ -162,25 +156,6 @@ impl CoreIpc for HttpIpc {
             .map(|bytes| bytes.to_vec())
             .map_err(|error| Failure::Body(error.to_string()))
         })
-    }
-}
-
-/// Deliver the owner's crash reports to the owning door's Core as the private
-/// `crashed` kind, so Core records restarts, backoff and `failing` as the
-/// TypeScript registry does. A report Core cannot take (restarting) is dropped.
-pub(crate) async fn deliver_crashes<F, Fut>(
-    mut reports: tokio::sync::mpsc::UnboundedReceiver<CrashReport>,
-    link: F,
-) where
-    F: Fn() -> Fut,
-    Fut: Future<Output = Option<CoreLink>>,
-{
-    while let Some(report) = reports.recv().await {
-        if let Some((ipc, _)) = link().await {
-            let body = json!({"kind":"crashed", "id":report.id, "reason":report.reason});
-            let _ = pacer_plugin_ops::ipc::request(&*ipc, &body, &mut Vec::new()).await;
-        }
-        let _ = report.done.send(());
     }
 }
 
@@ -394,13 +369,21 @@ impl Owner {
         method: &str,
         params: Value,
     ) -> Result<Value, CoreError> {
-        let kind = match &self.rpc {
+        let owner = match &self.rpc {
             // Private `call` is retired once a ProcessOwner owns RPC.
-            ProcessRpc::Core => "call",
-            // Core's registry seals the call to the owner on its socket, with the
-            // method's own deadline, and answers the plugin's Core-run capability
-            // requests (`secrets.resolve`, `identity.sign`, …) over its own connection.
-            ProcessRpc::Local(_) | ProcessRpc::Attached(..) => "relay",
+            ProcessRpc::Core => {
+                return self
+                    .request(json!({"kind":"call", "id":id, "method":method, "params":params}))
+                    .await;
+            }
+            // Core's registry seals the call to the serve owner and answers the
+            // plugin's capability requests over its own socket connection.
+            ProcessRpc::Attached(_) => {
+                return self
+                    .request(json!({"kind":"relay", "id":id, "method":method, "params":params}))
+                    .await;
+            }
+            ProcessRpc::Local(owner) => owner.clone(),
         };
         let spec_body = self.request(json!({"kind":"spawn_spec", "id":id})).await?;
         let argv = spec_body["argv"]
@@ -621,11 +604,11 @@ impl Owner {
                     })?;
                 }
             }
-            ProcessRpc::Attached(socket, key) => match stop_on_owner(socket, key, id).await {
+            ProcessRpc::Attached(socket) => match stop_on_owner(socket, id).await {
                 Ok(StopOutcome::Stopped | StopOutcome::NotRunning | StopOutcome::OwnerGone) => {}
                 Err(error) => {
                     return Err(CoreError::new(Code::PluginUnavailable, error.to_string())
-                        .hint(error.hint()));
+                        .hint("Restart the pacer service."));
                 }
             },
         }

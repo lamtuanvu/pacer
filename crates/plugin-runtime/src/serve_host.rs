@@ -8,24 +8,12 @@
 //! [`ProcessOwner`], binds the reverse bridge with live call/find/spawn/stop,
 //! and exports [`crate::HOST_SOCKET_ENV`] for the Core child. A stdio
 //! connection with no live serve owner starts the same session on its own
-//! connection socket ([`NativeHostSession::start_connection`]).
-//!
-//! Serve's session also writes `run/host.sock.pid` (0600) beside the socket so
-//! a refused second serve and `pacer doctor` can name the owner. Both
-//! shutdowns refuse new children, terminate every child together (SIGTERM,
-//! then SIGKILL after [`crate::TERMINATE_GRACE`]) and only then remove the
-//! sidecar and unlink the socket, so the lease outlives the children it
-//! supervised. Shutdown reaches the children through the owner's lane roster,
-//! not the owner lock, so a call in flight never delays it; that call fails
-//! once its child exits. Crashes go to [`NativeHostSession::crash_reports`].
+//! `run/s<12-hex>.sock` ([`NativeHostSession::start_connection`]).
 
 use crate::{
     BridgeError, BridgeHandle, HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME,
     OwnerError, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner, connection_socket_name,
-    crash::{CrashBook, CrashReport},
-    dark_bridge_disabled, dark_bridge_enabled,
-    owner::LaneRoster,
-    serve_starts_reverse_bridge_by_default, terminate_lanes,
+    dark_bridge_disabled, dark_bridge_enabled, serve_starts_reverse_bridge_by_default,
 };
 use std::{
     fs,
@@ -127,46 +115,30 @@ impl NativeHostSession {
     /// A live socket fails with [`BridgeError::LiveSocket`]. Does not mutate
     /// process env.
     pub fn start(pacer_home: &Path) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
-        let (mut session, env) = Self::start_with(|| {
-            ReverseBridge::bind_at(pacer_home, HOST_SOCKET_NAME, PeerAuth::same_uid())
-        })?;
-        let pid_file = session.socket.with_file_name(HOST_SOCKET_PID_NAME);
-        // Diagnostics only: the socket, not this file, is the lease.
-        if write_pid_file(&pid_file, std::process::id()).is_ok() {
-            session.pid_file = Some(pid_file);
-        }
-        Ok((session, env))
+        Self::start_at(pacer_home, HOST_SOCKET_NAME)
     }
 
-    /// The same owner for one stdio connection, on its own connection socket
+    /// The same owner for one stdio connection, on `run/<connection socket>`
     /// rather than `host.sock`: the connection never claims the home's lease
-    /// (ADR 0027). The socket is `run/s<12-hex>.sock`, or the private per-user
-    /// directory when that path is too long ([`ReverseBridge::bind_connection`]).
-    /// End it with [`Self::shutdown_connection`].
+    /// (ADR 0027). End it with [`Self::shutdown_connection`].
     pub fn start_connection(
         pacer_home: &Path,
         tag: [u8; 6],
     ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
-        let name = connection_socket_name(tag);
-        let key = OwnerKey::generate().map_err(BridgeError::from)?;
-        Self::start_with(pacer_home, key.clone(), || {
-            ReverseBridge::bind_connection(pacer_home, &name, PeerAuth::same_uid(key))
-        })
+        Self::start_at(pacer_home, &connection_socket_name(tag))
     }
 
-    /// Children log stderr to `$PACER_HOME/logs/plugins/<id>.log`, as the
-    /// TypeScript host does.
-    fn start_with(
+    fn start_at(
         pacer_home: &Path,
-        key: OwnerKey,
-        bind: impl FnOnce() -> Result<ReverseBridge, BridgeError>,
+        name: &str,
     ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
-        let mut owner = ProcessOwner::native_for_serve();
+        let owner = ProcessOwner::native_for_serve();
         owner.claim_native_supervision()?;
         let crashes = owner.crash_book();
         let roster = owner.roster();
         let owner = Arc::new(Mutex::new(owner));
-        let bridge = bind()?.with_live_owner(Arc::clone(&owner));
+        let bridge = ReverseBridge::bind_at(pacer_home, name, PeerAuth::same_uid())?
+            .with_live_owner(Arc::clone(&owner));
         let socket = bridge.path().to_path_buf();
         let core_env = vec![(HOST_SOCKET_ENV.to_string(), socket.display().to_string())];
         let bridge = bridge.spawn();
@@ -214,9 +186,14 @@ impl NativeHostSession {
         self.bridge.shutdown().await;
     }
 
-    /// End a stdio connection's ownership the same way: no child outlives it.
+    /// End a stdio connection's ownership: unlink its socket first so no new
+    /// caller arrives, then terminate every child it still tracks.
     pub async fn shutdown_connection(self) {
-        self.shutdown().await;
+        self.bridge.shutdown().await;
+        let mut owner = self.owner.lock().await;
+        for id in owner.tracked_ids() {
+            let _ = owner.terminate(&id).await;
+        }
     }
 }
 

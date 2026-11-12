@@ -88,14 +88,6 @@ pub enum BridgeError {
     LiveSocket(PathBuf),
     #[error("reverse-bridge socket path exceeds {SOCKET_PATH_MAX} bytes: {0}")]
     PathTooLong(PathBuf),
-    #[error(
-        "reverse-bridge socket path exceeds {SOCKET_PATH_MAX} bytes: {path}, and the private \
-         per-user directory is unusable: {reason}. Set PACER_NATIVE_PLUGIN_HOST=0 or use a \
-         shorter PACER_HOME"
-    )]
-    NoPrivateDir { path: PathBuf, reason: String },
-    #[error("reverse-bridge socket directory is not private: {0}")]
-    UntrustedDir(String),
     #[error("peer credentials unavailable")]
     PeerCredUnavailable,
     #[error("untrusted reverse-bridge caller")]
@@ -175,28 +167,7 @@ impl ReverseBridge {
         if path.as_os_str().len() > SOCKET_PATH_MAX {
             return Err(BridgeError::PathTooLong(path));
         }
-        let run = prepare_run_dir(pacer_home)?;
-        Self::bind_in(&run, name, auth)
-    }
-
-    /// Bind a stdio connection's socket `name`: in `run/` when the path fits,
-    /// otherwise in the private per-user directory of `connection_dir`.
-    /// Stale connection sockets in that directory are swept first.
-    pub fn bind_connection(
-        pacer_home: &Path,
-        name: &str,
-        auth: PeerAuth,
-    ) -> Result<Self, BridgeError> {
-        let uid = current_uid();
-        let dir = connection_socket_dir(pacer_home, name, uid)?;
-        sweep_stale_sockets(&dir, uid);
-        Self::bind_in(&dir, name, auth)
-    }
-
-    fn bind_in(dir: &Path, name: &str, auth: PeerAuth) -> Result<Self, BridgeError> {
-        let uid = current_uid();
-        let before = check_private_dir(dir, uid).map_err(BridgeError::UntrustedDir)?;
-        let path = dir.join(name);
+        prepare_run_dir(pacer_home)?;
         remove_stale_socket(&path)?;
         // Another process bound the path since the probe: it owns it now.
         let listener = StdUnixListener::bind(&path).map_err(|error| {

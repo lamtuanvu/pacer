@@ -19,27 +19,16 @@ const operation = z.enum([
  * Private `/_internal/plugins` kinds.
  *
  * Flag-on (`PACER_HOST_SOCKET` set): prepare, spawn_spec, call_authority, ready,
- * stop, changed, publish, log, crashed. ProcessOwner owns plugin RPC, so `call`
- * is refused (P4d-5), and reports each child exit it did not ask for as
- * `crashed`, which the registry records as its own `onExit` would. Flag-off:
- * the same surface plus `call` for diagnostic/UI plugin methods; `crashed` is
- * refused.
+ * stop, changed, publish, log. ProcessOwner owns plugin RPC, so `call` is
+ * refused (P4d-5). Flag-off: the same surface plus `call` for diagnostic/UI
+ * plugin methods.
  *
- * `observation_events`, `observation_read` and `observation_retired` feed an
- * owner lane's observation generation (flag-on only): the events after its
- * cursor, a task read, and a retirement the registry records as a local
- * subscription's would. Each re-checks that the plugin is enabled, granted and
- * keeps the fingerprint the generation was sealed with.
- *
- * `relay` is a door's `call` flag-on (ADR 0027): the registry seals the call to
- * the owner over `PACER_HOST_SOCKET`, with the method's flag-off deadline, and
- * answers the plugin's Core-run capability requests itself. Serve's door and a
- * stdio connection's door, attached or owning, send it; Core refuses it without
- * an owner socket.
+ * `relay` is the stdio door's `call` while it is attached to the serve owner
+ * (ADR 0027): the registry seals the call to that owner over
+ * `PACER_HOST_SOCKET` and answers the plugin's capability requests itself.
+ * Only the sync-keyed stdio channel may send it.
  */
 const pluginMethod = z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]);
-/** The exit reasons the native owner reports, as the registry's own `onExit` words them. */
-const CRASH_REASON = /^exited(?: with code -?\d{1,10}| on SIG[A-Z0-9]{1,12}| on signal \d{1,3})?$/;
 const callResources = z.object({
   reads: z.array(z.object({ path: z.string(), kind: z.enum(["file", "codex-logs"]) }).strict()).default([]),
   commands: z.array(z.object({
@@ -86,9 +75,9 @@ const request = z.discriminatedUnion("kind", [
 
 /**
  * Called only after internal-generation authentication (HTTP) or the stdio sync
- * key, never on the public API. `stdio` is set only by the stdio channel.
+ * key, never on the public API. `relay` is set only by the stdio channel.
  */
-export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: boolean } = {}) {
+export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: boolean } = {}) {
   try {
     const parsed = request.safeParse(raw);
     if (!parsed.success) throw new CoreError("invalid_input", "invalid private plugin request");
@@ -122,9 +111,9 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: b
             "private call is retired when the native process owner is active",
           );
         }
-        if (p.kind === "relay" && !nativeOwnsChildren) {
+        if (p.kind === "relay" && (!o.relay || !nativeOwnsChildren)) {
           // Without the owner socket the registry would spawn the child itself.
-          throw new CoreError("plugin_unavailable", "owner relay requires the native process owner");
+          throw new CoreError("plugin_unavailable", "owner relay requires an attached stdio connection");
         }
         // Doctor ignores successful ping payloads. Do not send arbitrary plugin
         // output through the native read bridge or execute a diagnostic twice.
