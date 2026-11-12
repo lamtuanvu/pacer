@@ -29,6 +29,8 @@ export interface MatrixRow {
   suggestedTier?: MatrixTier;
   suggestionReason?: string;
   pending?: boolean;
+  /** The originally declared model, kept so a save can re-send its metadata (strengths, tools, context). */
+  declared?: ModelDeclaration;
 }
 
 export interface MatrixDraft {
@@ -65,6 +67,7 @@ export function mergeRows(listing: MatrixListingModel[] | null, declared: ModelD
       tier: (decl?.tier as MatrixTier) ?? "unknown",
       isDefault: defaultModel === id,
       takes: [],
+      ...(decl ? { declared: decl } : {}),
     };
   });
 }
@@ -83,16 +86,24 @@ export function createDraft(runner: string, revision: string, declaredDefault: s
   return { runner, revision, default: declaredDefault, rows, baseRows: rows.map(row => ({ ...row })), addedIds: [] };
 }
 
-/** Suggest on/off and size from listing facts. tools must be true to suggest on. */
+/** Suggest on/off and size from listing facts. tools must be true to suggest on. Rows
+ * without listing facts (unknown listing, or a price-less connection) get no suggestion
+ * and keep their current state: never propose turning off a model without evidence. */
 export function suggestRow(row: MatrixRow, listing: MatrixListingModel | undefined): MatrixRow {
-  const suggestedTier = listing ? suggestTier(listing as AvailableModel) : null;
-  const suggestedOn = !!listing && listing.tools === true && suggestedTier !== null;
+  const hasFacts = !!listing && listing.costOut != null;
+  if (!hasFacts) {
+    return { ...row, suggestedOn: undefined, suggestedTier: undefined, suggestionReason: undefined, pending: false };
+  }
+  const suggestedTier = suggestTier(listing as AvailableModel);
+  const suggestedOn = listing!.tools === true && suggestedTier !== null;
   const pending = suggestedOn !== row.on || (suggestedTier !== null && suggestedTier !== row.tier);
   return {
     ...row,
     suggestedOn,
     suggestedTier: suggestedTier ?? undefined,
-    suggestionReason: suggestedOn ? "Suggested from listing facts" : row.suggestionReason,
+    suggestionReason: suggestedOn
+      ? "Suggested from listing facts"
+      : (row.on && pending ? "Suggested to leave off from listing facts" : row.suggestionReason),
     pending,
   };
 }
@@ -158,23 +169,35 @@ export function isDirty(rows: MatrixRow[], baseRows: MatrixRow[]): boolean {
   return JSON.stringify(rows.map(rowSignature)) !== JSON.stringify(baseRows.map(rowSignature));
 }
 
-/** Build save plan with only changed runners. */
-export function buildSavePlan(runners: { runner: string; revision: string; baseRows: MatrixRow[]; rows: MatrixRow[]; default: string | null }[], targets: TierTargets, baseRevision: string): MatrixSavePlan {
+export interface MatrixSavePlanRunner {
+  runner: string;
+  revision: string;
+  baseRows: MatrixRow[];
+  rows: MatrixRow[];
+  default: string | null;
+  /** The default model actually loaded from runner.models.get (may not be a row). */
+  baseDefault: string | null;
+}
+
+/** Build save plan with only changed runners, comparing rows and default against what was LOADED. */
+export function buildSavePlan(runners: MatrixSavePlanRunner[], targets: TierTargets, baseRevision: string): MatrixSavePlan {
   const changedRunners: string[] = [];
   const out: MatrixSavePlan["runners"] = [];
   for (const runner of runners) {
-    const baseDefault = runner.baseRows.find(row => row.isDefault)?.id ?? null;
+    const baseDefault = runner.baseDefault ?? runner.baseRows.find(row => row.isDefault)?.id ?? null;
     const defaultChanged = runner.default !== baseDefault;
-    const changed = isDirty(runner.rows, runner.baseRows) || defaultChanged;
-    if (!changed) continue;
+    const rowsChanged = isDirty(runner.rows, runner.baseRows);
+    if (!rowsChanged && !defaultChanged) continue;
     changedRunners.push(runner.runner);
     const enabledRows = runner.rows.filter(row => row.on);
-    const baseDefaultFallback = runner.baseRows.find(row => row.isDefault)?.id ?? runner.default ?? "";
+    const baseDefaultFallback = baseDefault ?? runner.default ?? "";
     let models: ModelDeclaration[];
     if (enabledRows.length === 0) {
       models = [];
     } else {
-      models = enabledRows.map(row => ({ id: row.id, tier: row.tier }));
+      models = enabledRows.map(row => row.declared
+        ? { ...row.declared, id: row.id, tier: row.tier }
+        : { id: row.id, tier: row.tier });
     }
     // default rules: all off => models [] and default stays current default
     const finalDefault = enabledRows.length === 0

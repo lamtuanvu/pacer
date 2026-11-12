@@ -129,7 +129,7 @@ function makeApi(opts: {
   };
 }
 
-async function withMatrix(run: (container: FakeElement, api: MatrixApi) => Promise<void>, opts: {
+async function withMatrix(run: (container: FakeElement, api: MatrixApi, rerender: (nextState: unknown) => Promise<void>) => Promise<void>, opts: {
   config: ReturnType<typeof configView>;
   inventory: ReturnType<typeof inventory>;
   models?: Record<string, RunnerModels>;
@@ -148,14 +148,17 @@ async function withMatrix(run: (container: FakeElement, api: MatrixApi) => Promi
   globalThis.requestAnimationFrame = (() => 0) as never;
   const container = fakeElement("div");
   const api = makeApi(opts);
+  const holder = { state: { ...initialState(), connected: true } };
+  const view = () => <TaskContext.Provider value={{ state: holder.state, api: api.api }}>
+    <ModelMatrix initialConfig={opts.config as never} initialInventory={opts.inventory} />
+  </TaskContext.Provider>;
+  const rerender = async (nextState: unknown) => {
+    holder.state = nextState as never;
+    await act(async () => { preactRender(view(), container as never); });
+  };
   try {
     await act(async () => {
-      preactRender(
-        <TaskContext.Provider value={{ state: { ...initialState(), connected: true }, api: api.api }}>
-          <ModelMatrix initialConfig={opts.config as never} initialInventory={opts.inventory} />
-        </TaskContext.Provider>,
-        container as never,
-      );
+      preactRender(view(), container as never);
     });
     // Wait for the async draft load (runner.models.get per executor) before the
     // test interacts; otherwise a clicked handler sees an empty draft set.
@@ -164,7 +167,7 @@ async function withMatrix(run: (container: FakeElement, api: MatrixApi) => Promi
       await until(() => api.calls.filter(c => c.op === "runner.models.get").length >= runnerCount);
       await new Promise(resolve => setTimeout(resolve, 5));
     }
-    await run(container, api);
+    await run(container, api, rerender);
   } finally {
     await act(async () => { preactRender(null, container as never); });
     globalThis.document = previous.document; globalThis.CSSStyleSheet = previous.CSSStyleSheet;
@@ -300,4 +303,28 @@ test("save warnings are shown in plain words and the routine ones are hidden", a
     available: { go: servedGo },
     setMany: { warnings: ["runners.go: model \"x\" is unrated (tier unknown)", "x could not be checked: offline"] },
   });
+});
+
+test("a config event while the page is dirty keeps the draft and asks to Discard", async () => {
+  const options = {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+  };
+  await withMatrix(async (container, _api, rerender) => {
+    // Make the page dirty by turning the only model off.
+    const sw = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(sw).toBeTruthy();
+    await act(async () => { fire(sw!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(textOf(container)).toContain("1 model changed");
+    // A config change elsewhere (new tier targets) is then observed while dirty.
+    options.config = { ...options.config, config: { ...options.config.config, tierTargets: { simple: "medium", standard: "medium", complex: "frontier" } } };
+    await rerender({ ...initialState(), connected: true, invalidations: { config: 1 } });
+    // The draft is kept and the conflict is surfaced instead of silently discarded.
+    await until(() => textOf(container).includes("Model settings changed elsewhere. Discard to load them."));
+    expect(textOf(container)).toContain("Model settings changed elsewhere. Discard to load them.");
+    expect(textOf(container)).toContain("1 model changed");
+    expect(textOf(container)).toContain("Save matrix");
+  }, options);
 });

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mergeRows, takesFor, toggleModel, buildSavePlan, isDirty, formatPrice, formatContext, formatTools, defaultForRows } from "../app/src/model/model-matrix";
+import { mergeRows, takesFor, toggleModel, buildSavePlan, isDirty, formatPrice, formatContext, formatTools, defaultForRows, suggestRow, acceptAllSuggestions, setTier } from "../app/src/model/model-matrix";
 
 test("mergeRows unions listing and declared models", () => {
   const rows = mergeRows([{ id: "a", context: 10, tools: true, costOut: 1 }], [{ id: "a", tier: "small" }, { id: "b", tier: "medium" }]);
@@ -26,12 +26,57 @@ test("toggleModel moves default when turned off", () => {
 
 test("buildSavePlan only includes changed runners", () => {
   const rows = [{ id: "a", on: true, tier: "small", isDefault: true, takes: [] }] as any;
-  const plan = buildSavePlan([{ runner: "r", revision: "v1", baseRows: rows, rows: rows, default: "a" }], { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
+  const plan = buildSavePlan([{ runner: "r", revision: "v1", baseRows: rows, rows: rows, default: "a", baseDefault: "a" }], { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
   expect(plan.changed).toBe(false);
   const changedRows = [{ ...rows[0], tier: "medium" }];
-  const plan2 = buildSavePlan([{ runner: "r", revision: "v1", baseRows: rows, rows: changedRows, default: "a" }], { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
+  const plan2 = buildSavePlan([{ runner: "r", revision: "v1", baseRows: rows, rows: changedRows, default: "a", baseDefault: "a" }], { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
   expect(plan2.changed).toBe(true);
   expect(plan2.changedRunners).toEqual(["r"]);
+});
+
+test("buildSavePlan compares against the loaded default, not row flags (stale default is untouched)", () => {
+  // The loaded default "gpt-5" is not a row (stale default); nothing changed, so the runner is not saved.
+  const baseRows = [{ id: "a", on: true, tier: "small", isDefault: false, takes: [] }] as any;
+  const plan = buildSavePlan(
+    [{ runner: "x", revision: "v1", baseRows, rows: baseRows, default: "gpt-5", baseDefault: "gpt-5" }],
+    { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
+  expect(plan.changed).toBe(false);
+  // If the draft default differs from the loaded one, the runner is sent.
+  const plan2 = buildSavePlan(
+    [{ runner: "x", revision: "v1", baseRows, rows: baseRows, default: "other", baseDefault: "gpt-5" }],
+    { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
+  expect(plan2.changed).toBe(true);
+  expect(plan2.changedRunners).toEqual(["x"]);
+});
+
+test("buildSavePlan leaves an untouched planner and unrelated runners out", () => {
+  const plannerRows = [{ id: "default-model", on: true, tier: "small", isDefault: true, takes: [] }] as any;
+  const otherRows = [{ id: "m", on: true, tier: "medium", isDefault: true, takes: [] }] as any;
+  const editing = [{ ...otherRows[0], tier: "frontier" }];
+  const plan = buildSavePlan([
+    { runner: "claude-code", revision: "v1", baseRows: plannerRows, rows: plannerRows, default: "default-model", baseDefault: "default-model" },
+    { runner: "other", revision: "v1", baseRows: otherRows, rows: otherRows, default: "m", baseDefault: "m" },
+    { runner: "edited", revision: "v1", baseRows: otherRows, rows: editing, default: "m", baseDefault: "m" },
+  ], { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
+  expect(plan.changedRunners).toEqual(["edited"]);
+});
+
+test("saving a declared model keeps its strengths, tools and context", () => {
+  const declared = { id: "a", tier: "small", strengths: ["docs"], tools: true, context: 200000 };
+  const baseRows = [{ id: "a", on: true, tier: "small", isDefault: true, takes: [], declared }] as any;
+  const rows = [{ ...baseRows[0], tier: "medium" }];
+  const plan = buildSavePlan(
+    [{ runner: "r", revision: "v1", baseRows, rows, default: "a", baseDefault: "a" }],
+    { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
+  expect(plan.runners).toEqual([
+    { id: "r", default: "a", models: [{ id: "a", tier: "medium", strengths: ["docs"], tools: true, context: 200000 }] },
+  ]);
+  // A model added on screen (no declared metadata) is written as id + tier only.
+  const addedRow = { id: "new-model", on: true, tier: "unknown", isDefault: false, takes: [] } as any;
+  const plan2 = buildSavePlan(
+    [{ runner: "r", revision: "v1", baseRows: [addedRow], rows: [addedRow], default: "new-model", baseDefault: null }],
+    { simple: "small", standard: "medium", complex: "frontier" } as any, "v1");
+  expect(plan2.runners).toEqual([{ id: "r", default: "new-model", models: [{ id: "new-model", tier: "unknown" }] }]);
 });
 
 test("isDirty ignores suggestion fields", () => {
@@ -80,4 +125,37 @@ test("formatTools formats support", () => {
   expect(formatTools(false)).toBe("No");
   expect(formatTools(null)).toBe("—");
   expect(formatTools(undefined)).toBe("—");
+});
+
+test("suggest does not turn off enabled models that have no listing facts", () => {
+  // Unknown listing (source: none): no entry at all.
+  const onUnknown = { id: "a", on: true, tier: "small", isDefault: true, takes: [], pending: false } as any;
+  const suggested = suggestRow(onUnknown, undefined);
+  expect(suggested.suggestedOn).toBeUndefined();
+  expect(suggested.pending).toBe(false);
+  expect(acceptAllSuggestions([onUnknown])[0]!.on).toBe(true);
+  // Connection-only listing: price (costOut) absent, no facts to act on.
+  const onConnection = { id: "a", on: true, tier: "small", isDefault: true, takes: [], pending: false } as any;
+  const connRow = suggestRow(onConnection, { id: "a", tools: true });
+  expect(connRow.pending).toBe(false);
+  expect(acceptAllSuggestions([onConnection])[0]!.on).toBe(true);
+});
+
+test("suggest proposes on only from listing facts and still allows turning off a rated model", () => {
+  const off = { id: "a", on: false, tier: "small", isDefault: false, takes: [], pending: false } as any;
+  const suggested = suggestRow(off, { id: "a", tools: true, costOut: 0.5 });
+  expect(suggested.suggestedOn).toBe(true);
+  expect(suggested.pending).toBe(true);
+  expect(acceptAllSuggestions([suggested])[0]!.on).toBe(true);
+  // A model with a price but no tool support is proposed off, for executors that both allow tools.
+  const onNoTools = { id: "b", on: true, tier: "medium", isDefault: true, takes: [], pending: false } as any;
+  const offSuggestion = suggestRow(onNoTools, { id: "b", tools: false, costOut: 5 });
+  expect(offSuggestion.suggestedOn).toBe(false);
+  expect(offSuggestion.pending).toBe(true);
+});
+
+test("setTier can return a model to unrated", () => {
+  const rows = [{ id: "a", on: true, tier: "medium", isDefault: true, takes: [], pending: false } as any];
+  const next = setTier(rows, "a", "unknown");
+  expect(next[0]!.tier).toBe("unknown");
 });

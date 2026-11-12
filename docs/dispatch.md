@@ -99,6 +99,24 @@ why each attempt chose its model across retries. Selected identity is not eviden
 of the actual model used; actual identity remains unknown without executor evidence.
 Managed work also retains the tier choice in its decision history.
 
+## Model matrix (Settings → Dispatcher)
+
+The **Model matrix** page (`#/settings/models`) shows every model each executor
+can run, as the union of the provider's model listing and the executor's
+declared `runners.<id>.models`. For each executor you can turn a model on or
+off, set its size (Small, Medium, Frontier, or return it to Unrated), and add a
+model by ID when the listing is unknown. The planner executor is read-only
+here, matching `runner.models.set`. **Suggest** proposes turning models on and
+a size from each provider's price and tool support; suggestions only apply to
+models with listing facts, and **Accept all** never turns off an enabled model
+without such facts. Coverage cards show how many rated models can take each
+difficulty. **Save matrix** writes only the executors whose models or default
+actually changed, in one revision-checked **`runner.models.set_many`** edit, and
+preserves each declared model's strengths, tools and context. If the settings
+change elsewhere while the page is dirty, it keeps your edits and asks you to
+Discard to load them rather than silently overwriting them. Coverage follows
+`dispatch.tierTargets` and updates when the tier choices change.
+
 ## Configure the choice ladder
 
 In the app, open **Settings → Dispatcher** to see the default session planner and account, the active ladder, allowed model choices, and a read-only task preview. **Saved profiles** switches the complete global planner, pacing, eligibility and dispatch policy. **Executor eligibility** sets an ordered executor list for each task kind; a **project override** supplies the list for one repository and stays in place when global profiles change. The decision engine ranks eligible account and model choices from that list. **Edit decision ladder** saves and activates a new named profile; the built-in ladder favors a capable model with spare capacity, then tries a usable fallback. Older Settings → Routing and Settings → Strategies links open Dispatcher. Any local executor holding a valid work grant can ask Pacer to delegate child work; the configured planner is the default for new sessions.

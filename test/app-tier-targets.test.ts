@@ -108,6 +108,34 @@ test("groupPreview follow cells use selectModel exactly as the dispatcher does",
   expect(row.cells[2]!.note).toBe("Matches the target");
 });
 
+test("a follow executor falls back to its default below the target, like plain delegation", () => {
+  // An executor with a rated model and an executor-default record runs its default
+  // when no rated model reaches a difficulty, instead of reporting "Not used".
+  const records = [
+    model("opencode", { binding: { kind: "exact", id: "small-model" }, tier: "small" }),
+    model("opencode", { binding: { kind: "executor-default" }, tier: "unknown" }),
+  ];
+  const grouping = groupPreview(records, balanced);
+  const row = grouping.follow[0]!;
+  expect(row.cells[0]!.chosen).toBe("small-model");
+  // Standard and complex are above the small model; the default fallback shows.
+  expect(row.cells[1]!.skipped).toBe(false);
+  expect(row.cells[1]!.chosen).toBe("default model");
+  expect(row.cells[2]!.skipped).toBe(false);
+  expect(row.cells[2]!.chosen).toBe("default model");
+});
+
+test("groupPreview uses an executor's configured default id as the fallback model", () => {
+  const records = [
+    model("opencode", { binding: { kind: "exact", id: "provider/small" }, tier: "small" }),
+    model("opencode", { binding: { kind: "exact", id: "provider/fallback" }, tier: "unknown" }),
+  ];
+  const grouping = groupPreview(records, balanced, { opencode: "provider/fallback" });
+  const row = grouping.follow[0]!;
+  expect(row.cells[1]!.skipped).toBe(false);
+  expect(row.cells[1]!.chosen).toBe("fallback");
+});
+
 test("unrated group previews its single model for every difficulty", () => {
   const records = [model("codex", { binding: { kind: "exact", id: "gpt-5" }, tier: "unknown" })];
   const grouping = groupPreview(records, balanced);

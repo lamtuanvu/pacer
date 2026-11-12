@@ -81,9 +81,12 @@ export interface PreviewGrouping {
   cols: PreviewCol[];
 }
 
-function followCell(list: Records, difficulty: Difficulty, targets: TierTargets): FollowCell {
+function followCell(list: Records, difficulty: Difficulty, targets: TierTargets, defaultModel: string | undefined): FollowCell {
   const target = targets[difficulty];
-  const chosen = selectModel(list, { difficulty, targets });
+  // Mirror plain delegation (src/tasks/runner.ts): pass fixedExecutor and the
+  // runner's default so a below-target executor falls back to its default
+  // rather than reporting "Not used".
+  const chosen = selectModel(list, { difficulty, targets, fixedExecutor: true, defaultModel });
   const record = chosen.record;
   if (record && record.binding.kind === "exact") {
     const tier = record.tier;
@@ -94,10 +97,13 @@ function followCell(list: Records, difficulty: Difficulty, targets: TierTargets)
       : "Smaller than the target";
     return { difficulty, target, chosen: displayModel(record.binding.id), note, skipped: false };
   }
+  if (record && record.binding.kind === "executor-default") {
+    return { difficulty, target, chosen: "default model", note: "Runs its default model below the target", skipped: false };
+  }
   return { difficulty, target, chosen: null, note: "Model is smaller than the target", skipped: true };
 }
 
-export function groupPreview(records: readonly ModelRecord[], targets: TierTargets): PreviewGrouping {
+export function groupPreview(records: readonly ModelRecord[], targets: TierTargets, defaultModelById?: Readonly<Record<string, string>>): PreviewGrouping {
   const byRunner = new Map<string, ModelRecord[]>();
   for (const record of records) byRunner.set(record.runner, [...(byRunner.get(record.runner) ?? []), record]);
   const behavior = new Map<string, "follow" | "unrated" | "fixed">();
@@ -118,7 +124,7 @@ export function groupPreview(records: readonly ModelRecord[], targets: TierTarge
         runner,
         model: displayModel(seed.binding.id),
         tier: seed.tier as RatedTier,
-        cells: DIFFICULTIES.map(difficulty => followCell(list, difficulty, targets)),
+        cells: DIFFICULTIES.map(difficulty => followCell(list, difficulty, targets, defaultModelById?.[runner])),
       });
     } else {
       const seed = list.find(isExact);

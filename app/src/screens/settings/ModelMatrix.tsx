@@ -74,11 +74,19 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   const pending = useRef(false);
   const targetsRef = useRef(targets);
   targetsRef.current = targets;
+  const runnerIdsRef = useRef(runnerIds);
+  runnerIdsRef.current = runnerIds;
+  const dirty = drafts.some((d, i) => isDirty(d.rows, baseDrafts[i]?.rows ?? d.rows) || d.default !== (baseDrafts[i]?.default ?? null));
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
 
   useEffect(() => {
     if (!inventory.data) return;
-    const ids = [...new Set(inventory.data.models.map(m => m.runner))];
-    setRunnerIds(ids);
+    const ids = [...new Set(inventory.data.models.map(m => m.runner))].sort();
+    const current = [...runnerIdsRef.current].sort();
+    // Only change when the set of runners genuinely changes, so a config event
+    // does not re-send the whole matrix while the page is dirty.
+    if (ids.length !== current.length || ids.some((v, i) => v !== current[i])) setRunnerIds(ids);
   }, [inventory.data]);
 
   const fetchAll = async (ids: string[]): Promise<LoadResult> => {
@@ -119,7 +127,16 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
 
   useEffect(() => {
     if (!runnerIds.length) return;
+    const wasDirty = dirtyRef.current;
     let active = true;
+    // Never silently discard unsaved edits: while the page is dirty a config or
+    // inventory event keeps the drafts and flags that the settings changed
+    // elsewhere, so the user can Discard to load them.
+    if (wasDirty) {
+      setConflict(true);
+      setNotice("Model settings changed elsewhere. Discard to load them.");
+      return;
+    }
     void fetchAll(runnerIds).then(loaded => { if (active) applyLoaded(loaded); });
     return () => { active = false; };
   }, [runnerIds, JSON.stringify(targets)]);
@@ -198,8 +215,6 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     setAddingByRunner(prev => ({ ...prev, [runner]: "" }));
   };
 
-  const dirty = drafts.some((d, i) => isDirty(d.rows, baseDrafts[i]?.rows ?? d.rows) || d.default !== (baseDrafts[i]?.default ?? null));
-
   const changedModelCount = drafts.reduce((total, d, i) => {
     const baseRows = baseDrafts[i]?.rows ?? [];
     const ids = new Set([...d.rows.map(r => r.id), ...baseRows.map(r => r.id)]);
@@ -252,6 +267,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
         baseRows: baseDrafts[i]?.rows ?? d.rows,
         rows: d.rows,
         default: d.default,
+        baseDefault: baseDrafts[i]?.default ?? null,
       })), targets, drafts[0]?.revision ?? "");
       if (!plan.changed) {
         setNotice("No changes.");
@@ -262,8 +278,10 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
         runners: plan.runners,
       });
       const newRevision = result.revision;
-      setDrafts(prev => prev.map(d => ({ ...d, revision: newRevision, baseRows: d.rows.map(r => ({ ...r })) })));
-      setBaseDrafts(prev => prev.map(d => ({ ...d, rows: d.rows.map(r => ({ ...r })), baseRows: d.baseRows.map(r => ({ ...r })) })));
+      // Update the base state now so the page is not dirty before the reload lands.
+      const saved = drafts.map(d => ({ ...d, revision: newRevision, rows: d.rows.map(r => ({ ...r })), baseRows: d.rows.map(r => ({ ...r })), addedIds: [] }));
+      setDrafts(saved);
+      setBaseDrafts(saved);
       inventory.reload();
       const warnings = (result.warnings ?? []).filter(w => !ROUTINE_WARNINGS.test(w));
       setNotice(warnings.length ? `Saved. ${warnings.join(" ")}` : "Saved.");
@@ -384,6 +402,11 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                                         onSelect={() => { if (!readOnly) handleTier(id, row.id, tier); }}
                                       >{tier.charAt(0).toUpperCase() + tier.slice(1)}</RadioChip>
                                     ))}
+                                    <RadioChip
+                                      checked={row.tier === "unknown"}
+                                      disabled={readOnly}
+                                      onSelect={() => { if (!readOnly) handleTier(id, row.id, "unknown"); }}
+                                    >Unrated</RadioChip>
                                   </RadioGroup>
                                   <div>
                                     <span className="u3-muted">{row.on ? (row.tier === "unknown" ? "Any, unrated" : row.takes.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(", ") || "—") : "Off"}</span>
