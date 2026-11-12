@@ -6,6 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- The ⌘K command palette finds tasks of any age: it queries `task.list` with a new `q` parameter (debounced) when the text looks like a task id or its short suffix, or when nothing local matches, and its rows open the task. `q` matches every space-separated word case-insensitively in the id, title or goal, in both the TypeScript and Rust implementations, and is a protocol 3 addition only.
+
 - Executor default and allowed model management with `pacer executor models`, declared `small|medium|frontier|unknown` tiers, model availability validation and the **Model offered** readiness check. Delegate briefs accept `difficulty` and `model`; task attempts record model selection and fallback reasons. Dispatcher settings preview difficulty-based model choices.
 
 - Opt-in load-aware executor selection: `pacing.balance: least-loaded` starts each task on the least-loaded executor (running tasks over its `max_tasks`) among those equally acceptable on budget, so parallel work spreads across executors instead of filling the first one before spilling over. Budget tiers (expiring, normal, near-limit, ahead, uncertain; cheap-before-metered under `cheapest-first`; `accounts: fill`) are never crossed, an explicitly requested executor still wins, and `pacer route` / `dispatch.explain` show each candidate's load. The default `off` keeps today's order. See [the design](docs/specs/2026-11-10-load-aware-executor-balance-design.md).

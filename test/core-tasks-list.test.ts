@@ -219,6 +219,88 @@ test("task.list filters by repo, states, executor and before exactly as before",
   }
 });
 
+test("task.list q finds tasks by full id, short suffix and title words, case-insensitively", () => {
+  const ctx = fakeCtx();
+  const keyed = mkTask(ctx, 0, { state: "done", repoKey: "local:A" });
+  updateTask(ctx, keyed.id, t => { t.brief.goal = "Add SSH keepalive to remote runs"; });
+  const titled = mkTask(ctx, 1, { state: "done", repoKey: "local:B" });
+  updateTask(ctx, titled.id, t => { t.title = "Payments webhook retry"; });
+  // The short suffix (last four hex) is the part users copy from a mention.
+  const suffix = keyed.id.slice(-4);
+  expect(listTasksWhere(ctx, { query: keyed.id }).map(t => t.id)).toEqual([keyed.id]);
+  expect(listTasksWhere(ctx, { query: suffix }).map(t => t.id)).toEqual([keyed.id]);
+  expect(listTasksWhere(ctx, { query: "SSH KEEP" }).map(t => t.id)).toEqual([keyed.id]);
+  expect(listTasksWhere(ctx, { query: "keepalive remote" }).map(t => t.id)).toEqual([keyed.id]);
+  // A goal word finds the other task; every word must appear, so a missing one matches nothing.
+  expect(listTasksWhere(ctx, { query: "webhook" }).map(t => t.id)).toEqual([titled.id]);
+  expect(listTasksWhere(ctx, { query: "webhook payments" }).map(t => t.id)).toEqual([titled.id]);
+  expect(listTasksWhere(ctx, { query: "webhook ssh" }).map(t => t.id)).toEqual([]);
+  expect(listTasksWhere(ctx, { query: "zzznope" }).map(t => t.id)).toEqual([]);
+  // core.tasks.list passes the query through with the other filters.
+  expect(taskList(ctx, { query: "webhook", states: ["done"] }).map(t => t.id)).toEqual([titled.id]);
+  expect(taskList(ctx, { query: "webhook", states: ["running"] }).map(t => t.id)).toEqual([]);
+});
+
+test("task.list q matches Unicode titles and goals case-insensitively in both directions", () => {
+  const ctx = fakeCtx();
+  const review = mkTask(ctx, 0, { state: "done", repoKey: "local:A" });
+  updateTask(ctx, review.id, t => { t.title = "Überprüfung der Gateways"; });
+  const sync = mkTask(ctx, 1, { state: "done", repoKey: "local:B" });
+  updateTask(ctx, sync.id, t => { t.brief.goal = "Đồng bộ cache"; });
+  const flair = mkTask(ctx, 2, { state: "done", repoKey: "local:A" });
+  updateTask(ctx, flair.id, t => { t.title = "Élan for the launch"; });
+  // SQLite's lower() cannot fold these, so the words are checked on the decoded
+  // records: lower-case, upper-case and the exact word find the same rows.
+  expect(listTasksWhere(ctx, { query: "überprüfung" }).map(t => t.id)).toEqual([review.id]);
+  expect(listTasksWhere(ctx, { query: "Über" }).map(t => t.id)).toEqual([review.id]);
+  expect(listTasksWhere(ctx, { query: "ÜBER" }).map(t => t.id)).toEqual([review.id]);
+  expect(listTasksWhere(ctx, { query: "đồng bộ" }).map(t => t.id)).toEqual([sync.id]);
+  expect(listTasksWhere(ctx, { query: "ĐỒNG" }).map(t => t.id)).toEqual([sync.id]);
+  expect(listTasksWhere(ctx, { query: "élan" }).map(t => t.id)).toEqual([flair.id]);
+  expect(listTasksWhere(ctx, { query: "ÉLAN" }).map(t => t.id)).toEqual([flair.id]);
+  // An id-shaped word rides along on the primary-key range while the Unicode
+  // word is still checked on the decoded records.
+  expect(listTasksWhere(ctx, { query: `gateways ${review.id}` }).map(t => t.id)).toEqual([review.id]);
+});
+
+test("unicode queries keep the limit and newest-first order while paging decoded records", () => {
+  const ctx = fakeCtx();
+  const first = mkTask(ctx, 0, { state: "done", repoKey: "local:A" });
+  updateTask(ctx, first.id, t => { t.brief.goal = "Đồng bộ cache"; });
+  const second = mkTask(ctx, 1, { state: "done", repoKey: "local:B" });
+  updateTask(ctx, second.id, t => { t.brief.goal = "Đồng bộ lại"; });
+  expect(listTasksWhere(ctx, { query: "đồng" }).map(t => t.id)).toEqual([second.id, first.id]);
+  expect(listTasksWhere(ctx, { query: "đồng", limit: 1 }).map(t => t.id)).toEqual([second.id]);
+  expect(listTasksWhere(ctx, { query: "Đ", limit: 0 })).toEqual([]);
+});
+
+test("an id-shaped query word is matched by the id prefix range, not a scan", () => {
+  const ctx = fakeCtx();
+  const a = mkTask(ctx, 0, { state: "done", repoKey: "local:A" });
+  const b = mkTask(ctx, 1, { state: "done", repoKey: "local:B" });
+  // A goal quoting the other task's id is not found by an id-shaped word: those
+  // words are id prefixes, and no id contains a second "t-".
+  updateTask(ctx, b.id, t => { t.brief.goal = `see ${a.id} for the plan`; });
+  const date = a.id.slice(0, 10);
+  expect(listTasksWhere(ctx, { query: a.id }).map(t => t.id)).toEqual([a.id]);
+  expect(listTasksWhere(ctx, { query: a.id.toUpperCase() }).map(t => t.id)).toEqual([a.id]);
+  expect(listTasksWhere(ctx, { query: date }).map(t => t.id)).toEqual([b.id, a.id]);
+  expect(listTasksWhere(ctx, { query: `${date}-1900` }).map(t => t.id)).toEqual([b.id, a.id]);
+  expect(listTasksWhere(ctx, { query: `${date}-190000` }).map(t => t.id)).toEqual([a.id]);
+  // An id-shaped word combined with a plain word keeps both requirements.
+  expect(listTasksWhere(ctx, { query: `task ${a.id}` }).map(t => t.id)).toEqual([a.id]);
+  // The range rides the primary key instead of scanning.
+  const db = taskDatabase(ctx), originalQuery = db.query.bind(db);
+  let sql = "";
+  db.query = (statement: string) => { if (statement.includes("id >= ? AND id < ?")) sql = statement; return originalQuery(statement); };
+  try {
+    expect(listTasksWhere(ctx, { query: a.id }).map(t => t.id)).toEqual([a.id]);
+    const plan = originalQuery<{ detail: string }, []>(`EXPLAIN QUERY PLAN ${sql}`).all();
+    expect(plan.map(row => row.detail).join(" ")).toContain("sqlite_autoindex_tasks_1");
+    expect(plan.map(row => row.detail).join(" ")).not.toContain("TEMP B-TREE");
+  } finally { db.query = originalQuery; }
+});
+
 test("apiTasks reads the repo registry once per call", () => {
   const ctx = fakeCtx();
   for (let i = 0; i < 8; i++) mkTask(ctx, i, { state: "done", repoKey: i % 2 ? "local:B" : "local:A", executor: "alice", briefRepo: i % 2 ? B : A });

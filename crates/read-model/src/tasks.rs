@@ -660,6 +660,7 @@ pub struct TaskListOptions<'a> {
     pub states: Option<&'a [&'a str]>,
     pub executor: Option<&'a str>,
     pub since: Option<f64>,
+    pub query: Option<&'a str>,
 }
 /// Newest-first selection matching TS `core.tasks.list`: filter before paging.
 pub fn select_task_list(
@@ -691,6 +692,7 @@ pub fn select_task_list(
         before: options.before,
         limit: Some(options.limit.unwrap_or(20)),
         all: options.all,
+        query: options.query,
         ..TaskFilter::default()
     })?)
 }
