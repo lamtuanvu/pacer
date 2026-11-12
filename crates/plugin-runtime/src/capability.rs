@@ -22,12 +22,10 @@ use pacer_plugin_capabilities::{
     NativeRun,
 };
 use pacer_plugin_host::{
-    AuthorityError, BrokerError, CallAuthority, CallResources, CredentialBindings, ObservationCall,
-    ObservationGeneration, OrcaAttemptResource, ParsedManifest, ProviderSnapshot, ReadContext,
-    TaskProjection, parse_manifest,
+    AuthorityError, BrokerError, CallAuthority, CallResources, CredentialBindings, ORCA_PROVIDER,
+    ObservationCall, ObservationGeneration, OrcaAttemptResource, ParsedManifest, ProviderSnapshot,
+    ReadContext, TaskProjection, parse_manifest,
 };
-
-const ORCA_PROVIDER: &str = "pacer-exec-orca";
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},

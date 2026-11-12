@@ -46,8 +46,8 @@ pub use observations::{
 };
 pub use pairing::{PairingCandidate, PairingRegistry, handover_pairing, pair};
 pub use policy::{
-    PolicyCaller, PolicyCancellation, PolicyEntry, PolicyOptions, PolicySnapshot, evaluate_policy,
-    evaluate_policy_with,
+    PolicyCaller, PolicyCancellation, PolicyEntry, PolicyOptions, PolicyReceipt, PolicySnapshot,
+    evaluate_policy, evaluate_policy_with,
 };
 pub use process::{MAX_LINE_BYTES, ProcessError, ProcessFrame, SpawnSpec, frame, parse_frame};
 pub use registry::{HostMode, PluginState, Registry, RegistryError};
