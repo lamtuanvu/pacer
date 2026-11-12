@@ -574,13 +574,14 @@ test("signed radix string quoting matches Bun", () => {
   }
 });
 
-// runner.set with a string `model` can only be validated against the provider
-// listing in TypeScript, so the native front door must forward it. This drives
-// the same requests through the real front door (no forced forwarding) and
-// through PACER_FORWARD_OPS and asserts the results match: native front door
-// == forced forwarding. Build with `cargo build -p pacer --features test-ops`
-// and run with PACER_TEST_NATIVE_FRONT_DOOR=<abs path>/target/debug/pacer.
-test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("runner.set with a string model forwards from the native front door", async () => {
+// runner.set with a string `model` on a connection account is checked against
+// the declared models natively. This drives the same requests through the real
+// front door (no forced forwarding) and through PACER_FORWARD_OPS and asserts
+// the results match: native front door == forced forwarding. Build with
+// `cargo build -p pacer --features test-ops` and run with
+// PACER_TEST_NATIVE_FRONT_DOOR=<abs path>/target/debug/pacer.
+// test/native-runner-models-parity.test.ts covers the other listing sources.
+test.skipIf(!process.env.PACER_TEST_NATIVE_FRONT_DOOR)("runner.set with a string model matches forced forwarding from the native front door", async () => {
   const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR!;
   const core = JSON.stringify([process.execPath, join(root, "src/cli.ts")]);
   const strategy = `planner: claude-code

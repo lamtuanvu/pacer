@@ -566,7 +566,12 @@ replacement decoding during writes. The service receives `PACER_AGENT=alice`; sa
 headers must retain that author. Block-routing cases exercise CRLF preservation,
 trailing mapping-key spaces, middle-rule deletion errors and CRLF error excerpts.
 It also saves a
-`0.000001` planner reserve to check YAML number bytes. It compares each result and
+`0.000001` planner reserve to check YAML number bytes. `runner.set` model cases
+check connection-account models and a seeded fresh OpenCode listing cache
+natively, including refusals with closest-model hints; a seeded stale listing
+must forward, and the fixture home puts a stand-in `opencode` first on `PATH`
+and compares its call log. The guarded CLI pass skips the forwarding case so the
+sandbox service never runs a real `opencode`. It compares each result and
 persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
 delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private
 route refusal and public SSE replay of configuration and strategy-switch events.

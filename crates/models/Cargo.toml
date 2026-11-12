@@ -1,0 +1,19 @@
+[package]
+name = "pacer-models"
+version = "0.1.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pacer-config = { path = "../config" }
+pacer-js-json = { path = "../js-json" }
+serde_json.workspace = true
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

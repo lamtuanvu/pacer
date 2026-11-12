@@ -17,6 +17,7 @@ pacer-engine = { path = "../engine" }
 pacer-store = { path = "../store" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-repos = { path = "../repos" }
+pacer-models = { path = "../models" }
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
 ryu-js = "1"
 tokio.workspace = true

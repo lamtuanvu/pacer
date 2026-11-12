@@ -18,6 +18,7 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
     fsutil::write_private,
 };
+use pacer_models::{Validation, validate_runner_model};
 use serde_json::{Map, Value, json};
 
 #[cfg(test)]
@@ -482,22 +483,43 @@ fn add_params(params: &Value) -> Option<&Map<String, Value>> {
     fine.then_some(p)
 }
 
-/// `runner.set` with a string `model` must hit TypeScript, which alone can read
-/// the provider's model listing (`availableModels`) to validate the selection —
-/// and only when the params otherwise pass the native parameter validation, so
-/// invalid input keeps failing natively with the identical error.
-pub fn runner_set_stays_forwarded(params: &Value) -> bool {
-    params["model"].is_string() && crate::config_params::parse("runner.set", params.clone()).is_ok()
+/// The `runner.set` model check. A legacy strategy is migrated by TypeScript
+/// before the check, so its runners are listed there.
+pub(crate) fn model_check(ctx: &Ctx, strategy: &Value, id: &str, model: &str) -> Validation {
+    if strategy["legacy"] == true {
+        return Validation::NeedsCore;
+    }
+    validate_runner_model(&ctx.pacer_home, ctx.now, strategy, id, model)
+}
+
+/// `runner.set` with a string `model` in otherwise valid params forwards only
+/// where TypeScript alone lists the runner's models: an OpenCode provider
+/// without a fresh listing cache (`opencode models`), a cache shape only
+/// TypeScript reproduces, a legacy strategy, or a strategy that does not load.
+pub fn runner_set_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
+    if !params["model"].is_string() {
+        return false;
+    }
+    let Ok(p) = crate::config_params::parse("runner.set", params.clone()) else {
+        return false;
+    };
+    let Some(model) = p["model"].as_str() else {
+        return false;
+    };
+    load_strategy(&ctx.pacer_home).map_or(true, |strategy| {
+        let id = p["id"].as_str().unwrap_or("");
+        model_check(ctx, &strategy, id, model) == Validation::NeedsCore
+    })
 }
 
 /// `runner.add` with an interactive terminal, a check job or params outside
 /// the non-interactive schema stays with TypeScript, as does an unreadable or
 /// syntactically invalid strategy file: TypeScript reports it in its own
-/// parser's words. `runner.set` stays with TypeScript when it carries a
-/// string `model`, so the model can be checked against the provider listing.
+/// parser's words. `runner.set` stays with TypeScript when only TypeScript
+/// can list the runner's models to check a string `model`.
 pub fn runner_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     (op == "runner.add" && (add_params(params).is_none() || !strategy_parses(ctx)))
-        || (op == "runner.set" && runner_set_stays_forwarded(params))
+        || (op == "runner.set" && runner_set_stays_forwarded(ctx, params))
 }
 
 fn strategy_parses(ctx: &Ctx) -> bool {

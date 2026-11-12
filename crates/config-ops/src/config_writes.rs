@@ -11,6 +11,7 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
     lock::{LockOptions, with_lock},
 };
+use pacer_models::Validation;
 use serde_json::{Value, json};
 
 /// Planner install and backend readiness stay on the TypeScript `config.set` path.
@@ -163,6 +164,40 @@ pub fn legacy_dir_for_platform(ctx: &Ctx, macos: bool) -> std::path::PathBuf {
     base.join("plugins-data/lamtuanvu.pacer")
 }
 
+/// `runnersConfig.set`: a string model is checked after the runner and rank
+/// refusals and before the edit; its warning follows the routing warnings.
+#[allow(clippy::result_large_err)]
+fn set_runner(ctx: &Ctx, id: &str, p: &Value) -> Result<Value, CoreError> {
+    let home = &ctx.pacer_home;
+    let mut unverified = None;
+    if let Some(model) = p["model"].as_str() {
+        let strategy =
+            load_strategy(home).map_err(|e| CoreError::new(Code::Internal, e.to_string()))?;
+        match crate::runner_ops::model_check(ctx, &strategy, id, model) {
+            Validation::NotReached => {}
+            Validation::Accepted(warning) => unverified = warning,
+            Validation::Refused { message, hint } => {
+                let refused = CoreError::new(Code::InvalidInput, message);
+                return Err(match hint {
+                    Some(hint) => refused.hint(hint),
+                    None => refused,
+                });
+            }
+            Validation::NeedsCore => {
+                return Err(CoreError::new(
+                    Code::Unavailable,
+                    "runner.set model check requires the forwarded operation",
+                ));
+            }
+        }
+    }
+    let mut result = config_writes::set_runner(home, id, p).map_err(|e| error("runner.set", e))?;
+    if let (Some(warning), Some(warnings)) = (unverified, result["warnings"].as_array_mut()) {
+        warnings.push(Value::String(warning));
+    }
+    Ok(result)
+}
+
 fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
     Box::pin(async move {
         let p = super::config_params::parse(op, params)?;
@@ -253,7 +288,7 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
                     result => result,
                 }
             }
-            "runner.set" => config_writes::set_runner(home, id, &p),
+            "runner.set" => return set_runner(ctx, id, &p),
             "runner.reorder" => config_writes::reorder_runners(
                 home,
                 &p["ids"]

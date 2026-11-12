@@ -171,7 +171,7 @@ pub fn default_account<'a>(strategy: &'a Value, agent: &str) -> Option<&'a str> 
     matches.next().is_none().then_some(one)
 }
 
-pub(crate) fn planner(strategy: &Value, runner: &Value) -> bool {
+pub fn planner(strategy: &Value, runner: &Value) -> bool {
     runner["host"].is_null()
         && runner["agent"] == strategy["planner"]["agent"]
         && runner["account"] == strategy["planner"]["account"]
