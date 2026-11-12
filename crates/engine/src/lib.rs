@@ -545,6 +545,17 @@ fn excluded_entry(id: &str, account: Value, reason: Value, eligibility: Value) -
 }
 
 /// Rank statuses using the current TS routing and account ordering rules.
+/// An excluded executor in TypeScript `rankExecutors` key order: id, account (when configured), reason, eligibility.
+fn excluded_entry(id: &str, account: Value, reason: Value, eligibility: Value) -> Value {
+    let mut value = json!({"id": id});
+    if !account.is_null() {
+        value["account"] = account;
+    }
+    value["reason"] = reason;
+    value["eligibility"] = eligibility;
+    value
+}
+
 pub fn rank_executors(input: &Value) -> Value {
     let strategy = &input["strategy"];
     let mut normalized = serde_json::Map::new();
