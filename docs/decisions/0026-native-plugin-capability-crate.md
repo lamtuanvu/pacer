@@ -24,13 +24,13 @@ It is an unpublished layer-5 domain crate with a planned budget of 7,500 hand-wr
 It measured 6,331 at the split. It depends on `pacer-plugin-host` (layer 4), `pacer-store`
 and `pacer-foundation`, and takes `reqwest` with the native HTTP effect. `pacer-plugin-host`
 no longer allows `reqwest`. `pacer-plugin-runtime` moves from layer 5 to layer 6 because it
-depends on the new crate. It measured 3,682 lines, with a planned budget of 4,500.
+depends on the new crate. It measured 3,681 lines, with a planned budget of 4,500.
 `pacer-server` (layer 9) is still the runtime's only consumer, so no other layer changes.
 
 `pacer-plugin-host` keeps the plugin registry, frame codec, call authority, credentials,
 host leases, manifests, policy, observations and pairing. It measured 5,378 lines after
-the split, with a planned budget of 6,000. It also keeps the following, which a pure move could not take because modules
-that stay in the host depend on them:
+the split, with a planned budget of 6,000. It also keeps the following, which a pure
+move could not take because modules that stay in the host depend on them:
 
 - `BrokerError`, now in the host's `error.rs`. Credentials, hardening, observations,
   policy, pairing, spawn specifications and work leases return it. Its conversion from
@@ -69,7 +69,7 @@ crate. This keeps the capability crate below 8,000 lines, as CRATE-1 asks: state
 name the split.
 
 This differs from the #629 branch's split into `plugin-capabilities`, `plugin-execution`,
-`plugin-wire` and `bun-glob`. That branch was a 32,000-line shadow rewrite that diverged from main's
-single `crates/plugin-host` layout, and its ADR number is taken. This decision moves main's
-modules as they are, under the name ADR 0020 anticipated, and leaves execution and wire
-splits to the work that needs them.
+`plugin-wire` and `bun-glob`. That branch was a 32,000-line shadow rewrite that diverged
+from main's single `crates/plugin-host` layout, and its ADR number is taken. This decision
+moves main's modules as they are, under the name ADR 0020 anticipated, and leaves execution
+and wire splits to the work that needs them.
