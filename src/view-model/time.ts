@@ -22,18 +22,33 @@ export function durationWords(seconds: number): string {
   if (!hours) return `${minutes} min`;
   return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
 }
+/** Local calendar-day number (Unix days) for a timestamp, independent of DST and timezone. */
+function localDay(t: number, timeZone?: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date(t * 1000));
+  const part = (name: string) => Number(parts.find(p => p.type === name)!.value);
+  return Date.UTC(part("year"), part("month") - 1, part("day")) / 86400000;
+}
+function timeOfDay(t: number, timeZone?: string): string {
+  return new Date(t * 1000).toLocaleTimeString("en-GB", { timeZone, hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
+}
+function weekdayOf(t: number, timeZone?: string): string {
+  return new Date(t * 1000).toLocaleDateString("en-GB", { timeZone, weekday: "short" });
+}
+function dateOf(t: number, now: number, timeZone?: string): string {
+  const date = new Date(t * 1000);
+  const sameYear = date.toLocaleDateString("en-GB", { timeZone, year: "numeric" }) === new Date(now * 1000).toLocaleDateString("en-GB", { timeZone, year: "numeric" });
+  return date.toLocaleDateString("en-GB", { timeZone, day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" as const }) });
+}
+export interface ClockParts { days: number; time: string; weekday: string; date: string }
+/** Bounded calendar-aware local pieces for a timestamp, reused by clock() and the exit strip's relative form. */
+export function clockParts(at: number, now: number, timeZone?: string): ClockParts {
+  return { days: localDay(now, timeZone) - localDay(at, timeZone), time: timeOfDay(at, timeZone), weekday: weekdayOf(at, timeZone), date: dateOf(at, now, timeZone) };
+}
 /** Calendar-aware local time shared by all surfaces. Timestamps are Unix seconds. */
 export function clock(at: number, now: number, timeZone?: string): string {
-  const date = new Date(at * 1000), opts = { timeZone, hourCycle: "h23" as const };
-  const time = date.toLocaleTimeString("en-GB", { ...opts, hour: "2-digit", minute: "2-digit" });
-  const day = (t: number) => {
-    const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date(t * 1000));
-    const part = (name: string) => Number(parts.find(p => p.type === name)!.value);
-    return Date.UTC(part("year"), part("month") - 1, part("day")) / 86400000;
-  };
-  const days = day(now) - day(at);
+  const { days, time, weekday, date } = clockParts(at, now, timeZone);
   if (days === 0) return time;
   if (days === 1) return `Yesterday ${time}`;
-  if (days > 1 && days < 7) return `${date.toLocaleDateString("en-GB", { ...opts, weekday: "short" })} ${time}`;
-  return `${date.toLocaleDateString("en-GB", { ...opts, day: "numeric", month: "short", ...(date.toLocaleDateString("en-GB", { timeZone, year: "numeric" }) !== new Date(now * 1000).toLocaleDateString("en-GB", { timeZone, year: "numeric" }) ? {year: "numeric" as const} : {}) })} ${time}`;
+  if (days > 1 && days < 7) return `${weekday} ${time}`;
+  return `${date} ${time}`;
 }
