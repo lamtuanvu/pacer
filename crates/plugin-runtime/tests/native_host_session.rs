@@ -1745,3 +1745,35 @@ async fn sealed_call_refuses_result_chunk_when_chunked_results_not_negotiated() 
         .unwrap();
     session.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn owned_children_append_stderr_to_the_home_plugin_log() {
+    let script = r#"await Bun.write(Bun.stderr,"fixture says hi\n");const r=Bun.stdin.stream().getReader();for(;;){const {done}=await r.read();if(done)break;}"#;
+    for connection in [false, true] {
+        let home = temp_home();
+        let (session, _) = if connection {
+            NativeHostSession::start_connection(home.path(), [7; 6]).unwrap()
+        } else {
+            NativeHostSession::start(home.path()).unwrap()
+        };
+        session
+            .owner()
+            .lock()
+            .await
+            .spawn("fx-log", &peer(script))
+            .unwrap();
+        let log = home.path().join("logs").join("plugins").join("fx-log.log");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !fs::read_to_string(&log).is_ok_and(|text| text.contains("hi")) {
+            assert!(
+                Instant::now() < deadline,
+                "no plugin log line (connection {connection})"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let text = fs::read_to_string(&log).unwrap();
+        assert!(text.ends_with(" [stderr] fixture says hi\n"), "{text}");
+        assert_eq!(fs::metadata(&log).unwrap().mode() & 0o777, 0o600);
+        session.shutdown().await;
+    }
+}

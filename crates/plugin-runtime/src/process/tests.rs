@@ -408,3 +408,34 @@ async fn a_call_that_times_out_leaves_the_child_usable() {
         Err(ProcessError::Unavailable(_))
     ));
 }
+
+#[tokio::test]
+async fn stderr_reaches_the_plugin_log_and_its_reader_stops_with_the_child() {
+    let home = tempfile::tempdir().unwrap();
+    let log = crate::plugin_log::PluginLog::new(home.path(), "fx-err").unwrap();
+    // The descendant inherits stderr and holds the pipe open after the child exits.
+    let script = r#"await Bun.write(Bun.stderr,"one\r\ntwo\n\nlast");Bun.spawn(["sleep","5"],{stdio:["ignore","ignore","inherit"]}).unref();process.exit(0);"#;
+    let child = PluginProcess::spawn_logged(&peer(script), Some(log)).unwrap();
+    assert_eq!(child.tasks.len(), 4, "a logged child has a stderr reader");
+    let mut exit = child.exit_watch();
+    tokio::time::timeout(Duration::from_secs(5), exit.wait_for(Option::is_some))
+        .await
+        .unwrap()
+        .unwrap();
+    let reader = &child.tasks[3];
+    let until = Instant::now() + crate::plugin_log::DRAIN_AFTER_EXIT * 4;
+    while !reader.is_finished() && Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(reader.is_finished(), "the stderr reader outlived its child");
+    let text = std::fs::read_to_string(home.path().join("fx-err.log")).unwrap();
+    let lines: Vec<_> = text
+        .lines()
+        .map(|line| line.split_once(' ').unwrap().1)
+        .collect();
+    assert_eq!(
+        lines,
+        ["[stderr] one", "[stderr] two", "[stderr] ", "[stderr] last"]
+    );
+    assert_eq!(PluginProcess::spawn(&peer("")).unwrap().tasks.len(), 3);
+}

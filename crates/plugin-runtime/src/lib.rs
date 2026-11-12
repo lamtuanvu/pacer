@@ -31,6 +31,7 @@ mod host_bridge;
 mod orca_attach;
 mod owner;
 mod owner_attach;
+mod plugin_log;
 mod process;
 mod serve_host;
 mod worktree_attach;
