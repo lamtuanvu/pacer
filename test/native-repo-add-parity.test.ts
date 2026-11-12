@@ -6,6 +6,7 @@ import {join} from "node:path";
 import {callOp} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
 import {fakeCtx, realRun} from "./helpers";
+import {type Case, differential, front, rows} from "./native-repo-front-door";
 
 let binary: string;
 function driver() {
@@ -105,6 +106,23 @@ test("native repo.add matches TypeScript identity, registration files and errors
   ];
   for (const [steps, setup] of cases) await compare(steps, setup);
 }, 600_000);
+
+// Registering a linked worktree rewrites both registry files; the reply resolves the main
+// checkout through repo-paths.json, so seeded aliases of it pick the entry the reply names.
+for (const transport of ["stdio", "http"] as const) {
+  test.skipIf(!front)(`section 1a registries register a checkout over ${transport} like forced forwarding`, async () => {
+    const cases: Case[] = rows(transport).map(row => ({name: row.name, seed: row.seed, steps: [{op: "repo.add", params: {path: "$H/added-wt"}, native: row.add, feed: row.feed}]}));
+    const {out} = await differential(transport, cases, "repo.add");
+    const outcome = (name: string) => out[cases.findIndex(c => c.name === name)]!;
+    cases.forEach((c, i) => { if (c.steps[0]!.native) expect(out[i]!.reply, c.name).toContain('"key":"github.com/acme/'); });
+    expect(outcome("top-level array registry and numeric aliases").reply).toContain('"key":"github.com/acme/b"');
+    expect(outcome("__proto__ is an own key").reply).toContain('"key":"github.com/acme/b"');
+    expect(outcome("alias values convert like property keys").reply).toContain('"key":"github.com/acme/b"');
+    expect(outcome("a null alias falls back to the root").reply).toContain('"key":"github.com/acme/added"');
+    expect(outcome("infinite lastUsed").files[0]).toStartWith('600 {"<home>/r/a":{"key":"github.com/acme/a","path":"<home>/r/a","lastUsed":null}');
+    expect(outcome("integer index keys enumerate first").files[0]).toStartWith('600 {"2":');
+  }, 180_000);
+}
 
 test("native project.strategy resolves absolute checkout paths like TypeScript", async () => {
   const get = (repo: string): Step => ({op: "project.strategy.get", params: {repo}});
