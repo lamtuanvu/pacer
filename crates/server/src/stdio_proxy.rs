@@ -1125,8 +1125,18 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     // Only the HTTP front door may assert how a message caller authenticated.
     ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
     // The core child's env fixes who owns plugin processes for this connection.
-    let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work)?;
+    let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work).await?;
     let (link, frames) = PluginLink::new(&sync_id, &sync_key);
+    if let Some(reports) = ownership.crash_reports() {
+        let ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> = link.clone();
+        tokio::spawn(crate::native::plugins::deliver_crashes(
+            reports,
+            move || {
+                let ipc = ipc.clone();
+                async move { Some((ipc, String::new())) }
+            },
+        ));
+    }
     let mut plugins = Plugins {
         service: std::sync::Arc::clone(&ownership.service),
         link,

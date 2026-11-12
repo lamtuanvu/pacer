@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, FAKE_SSH_ALIAS, FAKE_SSH_DOWN_ALIAS, FAKE_SSH_FIXTURE, fakeHostHome, fakeSshLog, freePort, healthy, installFakeSsh, loadSession, readEvidence, record, removeSshControlDir, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, validateNativeFixtures, verifyFakeSsh, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, FAKE_SSH_ALIAS, FAKE_SSH_DOWN_ALIAS, FAKE_SSH_FIXTURE, fakeHostHome, fakeSshLog, freePort, healthy, installFakeSsh, loadSession, pacerArgv, readEvidence, record, removeSshControlDir, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, startService, stopService, up, validateNativeFixtures, validId, verifyFakeSsh, type Session } from "../scripts/live/core";
 import { controlDir, controlDirPath } from "../src/remote/ssh";
 import { exerciseNativeHostEffects, fakeSshCalls, hostCheckDispatch, jobEvents, normalizeJob } from "../scripts/live/native-host-effects";
 import { resolveRepoInput } from "../src/core/repos";
@@ -23,6 +23,7 @@ import { executorRefusal, refusal } from "../scripts/live/guard";
 import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
 import { exerciseNativePluginStdio, exerciseNativeStdio, PLUGIN_STDIO_STEPS, verifyForwardedHello, verifyNativeStdio, verifyOwnerSocket, verifyPluginStdio } from "../scripts/live/native-stdio";
+import { exerciseNativePluginOwner } from "../scripts/live/native-plugin-owner";
 import { BLOCKED_OPS, CONDITIONAL_OPS, ClientWebSocket, conditionallyAllowed, configSetAllowed, inexactOpPath, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
 
 function fixture(): Session {
@@ -67,6 +68,17 @@ describe("live guard (D3)", () => {
     await expect(main(["native-stdio", "--id", "missing", "--stop-service"])).rejects.toThrow("--stop-service is only valid");
     await expect(main(["status", "--native-plugin-host"])).rejects.toThrow("--native-plugin-host is only valid for up");
     await expect(up("plugin-host", undefined, tmpDir(), undefined, undefined, false, false, false, {}, false, true)).rejects.toThrow("requires --front-door rust");
+  });
+  test("fixed plugin owner mode requires a healthy native-host sandbox and takes no inputs", async () => {
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust" })).rejects.toThrow("--native-plugin-host sandbox");
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativePluginHost: true, nativeForwardOps: "*" })).rejects.toThrow("without forwarding");
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativePluginHost: true })).rejects.toThrow("healthy sandbox");
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativePluginHost: true, stopped: true })).rejects.toThrow("healthy sandbox");
+    await expect(main(["native-plugin-owner", "--id", "missing", "--stop-service"])).rejects.toThrow("--stop-service is only valid");
+    await expect(main(["native-plugin-owner", "--id", "missing", "--", "serve"])).rejects.toThrow("usage: live native-plugin-owner");
+    await expect(main(["native-plugin-owner"])).rejects.toThrow("usage: live native-plugin-owner");
+    await expect(startService({ ...fixture(), serviceGroup: undefined })).rejects.toThrow("must stop before");
+    await expect(stopService({ ...fixture(), serviceGroup: undefined })).rejects.toThrow("no verified service process group");
   });
   test("fixed plugin stdio evidence requires the pre-hello refusal, native traces and the ownership line", () => {
     const replies = new Map<number, any>(PLUGIN_STDIO_STEPS.map(([id]) => [id, { id, result: {} }]));

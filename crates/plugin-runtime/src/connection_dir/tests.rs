@@ -180,6 +180,38 @@ fn the_sweep_removes_only_old_refusing_same_user_connection_sockets() {
 }
 
 #[test]
+fn a_base_under_an_open_non_sticky_ancestor_is_refused() {
+    let root = short_dir();
+    let open = root.path().join("open");
+    let base = open.join("base");
+    fs::DirBuilder::new()
+        .mode(0o700)
+        .recursive(true)
+        .create(&base)
+        .unwrap();
+    fs::set_permissions(&open, fs::Permissions::from_mode(0o777)).unwrap();
+    let home = deep_home(root.path());
+    let message = refusal(private_socket_dir(&home, Ok(base.clone()), NAME, me()));
+    assert!(message.contains("without the sticky bit"), "{message}");
+    assert_eq!(fs::read_dir(&base).unwrap().count(), 0);
+    // A sticky shared directory (as /tmp) cannot have our entries renamed away.
+    fs::set_permissions(&open, fs::Permissions::from_mode(0o1777)).unwrap();
+    assert!(private_socket_dir(&home, Ok(base), NAME, me()).is_ok());
+}
+
+#[test]
+fn the_probe_tells_live_refused_and_missing_sockets_apart() {
+    let dir = short_dir();
+    let live = dir.path().join("live.sock");
+    let _listener = UnixListener::bind(&live).unwrap();
+    assert_eq!(probe_socket(&live), Probe::Live);
+    let stale = dir.path().join("stale.sock");
+    stale_socket(&stale);
+    assert_eq!(probe_socket(&stale), Probe::Refused);
+    assert_eq!(probe_socket(&dir.path().join("none.sock")), Probe::Missing);
+}
+
+#[test]
 fn only_connection_socket_names_are_swept() {
     assert!(is_connection_socket_name("s0123456789ab.sock"));
     for name in [

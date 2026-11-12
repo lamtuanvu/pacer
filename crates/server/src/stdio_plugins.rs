@@ -26,8 +26,8 @@ use pacer_plugin_ops::{
     settings::js_json,
 };
 use pacer_plugin_runtime::{
-    HOST_SOCKET_ENV, HomeOwner, NativeHostSession, native_plugin_host_enabled_from_env,
-    probe_home_owner,
+    CrashReport, HOST_SOCKET_ENV, HomeOwner, NativeHostSession,
+    native_plugin_host_enabled_from_env, probe_home_owner,
 };
 use serde_json::{Value, json};
 use std::{
@@ -179,7 +179,7 @@ pub(crate) struct Ownership {
 
 impl Ownership {
     /// Decide before the core child spawns; returns the core child's owner socket.
-    pub(crate) fn start(
+    pub(crate) async fn start(
         env: &HashMap<String, String>,
         pacer_home: &Path,
         scoped_work: bool,
@@ -218,8 +218,14 @@ impl Ownership {
                 if let HomeOwner::Untrusted(reason) = found {
                     eprintln!("pacer: not attaching to the plugin owner: {reason}");
                 }
-                let (session, _) = NativeHostSession::start_connection(pacer_home, rand::random())
-                    .map_err(|error| io::Error::other(format!("native plugin host: {error}")))?;
+                // A deep home asks `getconf` for the per-user directory: keep it off the runtime.
+                let home = pacer_home.to_path_buf();
+                let (session, _) = tokio::task::spawn_blocking(move || {
+                    NativeHostSession::start_connection(&home, rand::random())
+                })
+                .await
+                .map_err(io::Error::other)?
+                .map_err(|error| io::Error::other(format!("native plugin host: {error}")))?;
                 if debug {
                     eprintln!(
                         "native plugin owner own {}",
@@ -242,6 +248,12 @@ impl Ownership {
     /// True when this connection runs its own plugin children and socket.
     pub(crate) fn owns_children(&self) -> bool {
         self.session.is_some()
+    }
+
+    /// Crashes of the children this connection owns. An attached connection
+    /// gets none: the serve owner reports to serve's Core (ADR 0027).
+    pub(crate) fn crash_reports(&self) -> Option<mpsc::UnboundedReceiver<CrashReport>> {
+        self.session.as_ref().map(NativeHostSession::crash_reports)
     }
 
     /// Unlink this connection's socket and terminate the children it owns.

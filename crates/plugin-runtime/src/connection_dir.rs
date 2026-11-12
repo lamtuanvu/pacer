@@ -13,10 +13,7 @@ use crate::bridge_listener::BridgeError;
 use crate::host_bridge::{SOCKET_PATH_MAX, prepare_run_dir};
 use std::{
     fs, io,
-    os::unix::{
-        fs::{DirBuilderExt, FileTypeExt, MetadataExt},
-        net::UnixStream as StdUnixStream,
-    },
+    os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt},
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -49,6 +46,27 @@ pub(crate) fn check_private_dir(dir: &Path, uid: u32) -> Result<fs::Metadata, St
     }
 }
 
+/// Nobody but root and `uid` may rename `base` away: every directory above its
+/// canonical path is owned by one of them, and sticky when others can write.
+pub(crate) fn check_ancestors(base: &Path, uid: u32) -> Result<(), String> {
+    let canonical =
+        fs::canonicalize(base).map_err(|error| format!("{}: {error}", base.display()))?;
+    for dir in canonical.ancestors().skip(1) {
+        let meta =
+            fs::symlink_metadata(dir).map_err(|error| format!("{}: {error}", dir.display()))?;
+        if meta.uid() != 0 && meta.uid() != uid {
+            return Err(format!("{} belongs to another user", dir.display()));
+        }
+        if meta.mode() & 0o022 != 0 && meta.mode() & 0o1000 == 0 {
+            return Err(format!(
+                "{} is writable by other users without the sticky bit",
+                dir.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The directory a connection socket named `name` binds in, as `uid`.
 pub(crate) fn connection_socket_dir(
     pacer_home: &Path,
@@ -76,6 +94,7 @@ pub(crate) fn private_socket_dir(
     };
     let base = base.map_err(refuse)?;
     check_private_dir(&base, uid).map_err(refuse)?;
+    check_ancestors(&base, uid).map_err(refuse)?;
     let canonical = fs::canonicalize(pacer_home).unwrap_or_else(|_| pacer_home.to_path_buf());
     let dir = base.join(format!(
         "pacer-{:016x}",
@@ -144,6 +163,47 @@ fn is_connection_socket_name(name: &str) -> bool {
         })
 }
 
+/// What a non-blocking connect learned about a socket path.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Probe {
+    /// Accepted, or a listener with a full backlog (`EAGAIN`/`EINPROGRESS`).
+    Live,
+    /// Nobody listens. macOS also answers this for a full backlog; the sweep's
+    /// stale-age rule bounds that for connection sockets.
+    Refused,
+    Missing,
+    Other(nix::errno::Errno),
+}
+
+/// Connect without blocking, so a listener whose accept queue is full reads
+/// as live instead of hanging or looking stale.
+pub(crate) fn probe_socket(path: &Path) -> Probe {
+    use nix::{
+        errno::Errno,
+        fcntl::{FcntlArg, FdFlag, OFlag, fcntl},
+        sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket},
+    };
+    use std::os::fd::AsRawFd;
+    let attempt = || -> Result<(), Errno> {
+        let address = UnixAddr::new(path)?;
+        let fd = socket(
+            AddressFamily::Unix,
+            SockType::Stream,
+            SockFlag::empty(),
+            None,
+        )?;
+        fcntl(&fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
+        fcntl(&fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK))?;
+        connect(fd.as_raw_fd(), &address)
+    };
+    match attempt() {
+        Ok(()) | Err(Errno::EAGAIN | Errno::EINPROGRESS) => Probe::Live,
+        Err(Errno::ECONNREFUSED) => Probe::Refused,
+        Err(Errno::ENOENT) => Probe::Missing,
+        Err(errno) => Probe::Other(errno),
+    }
+}
+
 /// Unlink connection sockets in `dir` that a killed connection left behind:
 /// sockets (never symlinks) owned by `uid`, older than [`STALE_AFTER`], that
 /// refuse connections. Returns how many were removed.
@@ -173,11 +233,7 @@ pub(crate) fn sweep_stale_sockets(dir: &Path, uid: u32) -> usize {
         if !meta.file_type().is_socket() || meta.uid() != uid || !old {
             continue;
         }
-        let refused = matches!(
-            StdUnixStream::connect(&path),
-            Err(error) if error.kind() == io::ErrorKind::ConnectionRefused
-        );
-        if refused && fs::remove_file(&path).is_ok() {
+        if probe_socket(&path) == Probe::Refused && fs::remove_file(&path).is_ok() {
             removed += 1;
         }
     }
