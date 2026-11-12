@@ -184,10 +184,8 @@ async fn conformance_fixture_handshake_and_ping() {
 
 #[tokio::test]
 async fn identity_fixture_uses_rust_capability_broker() {
-    use pacer_plugin_host::{
-        BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-        parse_manifest,
-    };
+    use pacer_plugin_capabilities::{CapabilityBroker, CapabilityEffect};
+    use pacer_plugin_host::{BrokerError, CallAuthority, CallResources, parse_manifest};
     use std::sync::Arc;
     use tokio::sync::Mutex;
     struct Signed;
