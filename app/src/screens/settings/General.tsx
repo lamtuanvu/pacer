@@ -23,6 +23,7 @@ import { PairingView } from "./Pairing";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
+import { LazyModelMatrix } from "./LazyModelMatrix";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
@@ -151,6 +152,9 @@ export function SettingsGeneral({
       break;
     case "dispatcher":
       content = <LazyDispatcher query={query} />;
+      break;
+    case "models":
+      content = <LazyModelMatrix />;
       break;
     case "app":
     case "updates":

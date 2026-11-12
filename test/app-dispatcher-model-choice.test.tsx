@@ -64,8 +64,8 @@ test("an unsteered inventory explains why and points at the model matrix when th
   const html = render(config.tierTargets, { models: [unrated, fixed] });
   expect(html).toContain("Task difficulty does not change any model yet");
   expect(html).toContain("Rate models in the model matrix");
-  // The models section is not registered yet, so the link stays away (TODO-free feature check).
-  expect(html).not.toContain("Open model matrix");
+  // The models section is now registered, so the link points at it.
+  expect(html).toContain("Open model matrix");
 });
 
 test("a non-matching mapping shows the Custom preset", () => {
