@@ -202,28 +202,29 @@ pub fn compose_status(input: &Value) -> Value {
         .and_then(Value::as_str)
         .map(str::to_string)
         .unwrap_or_else(|| string(&strategy["planner"]["agent"]).to_string());
-    let mut status = json!({
-        "generatedAt": now,
-        "strategy": strategy.get("name").cloned().unwrap_or(json!("default")),
-        "planner": planner,
-        "mode": mode,
-        "disabled": truth(field(input, "disabled")),
-        "paused": input.get("paused").cloned().unwrap_or(Value::Null),
-        "modeHold": mode_hold,
-        "calendarPace": input.get("calendarPace").cloned().unwrap_or(json!(true)),
-        "accounts": input.get("accounts").cloned().unwrap_or(json!([])),
-        "providers": providers,
-        "executors": {
-            "ranked": ranking.get("ranked").cloned().unwrap_or(json!([])),
-            "excluded": ranking.get("excluded").cloned().unwrap_or(json!([])),
-        },
-    });
-    if let Some(warnings) = input.get("warnings") {
-        status["warnings"] = warnings.clone();
-    }
+    // TypeScript `computeStatus` key order; `policy` and `warnings` only when supplied.
+    let mut status = json!({});
     if let Some(policy) = input.get("policy") {
         status["policy"] = policy.clone();
     }
+    status["paused"] = input.get("paused").cloned().unwrap_or(Value::Null);
+    status["modeHold"] = mode_hold;
+    status["generatedAt"] = json!(now);
+    status["strategy"] = strategy.get("name").cloned().unwrap_or(json!("default"));
+    status["planner"] = json!(planner);
+    status["mode"] = json!(mode);
+    status["disabled"] = json!(truth(field(input, "disabled")));
+    status["calendarPace"] = input.get("calendarPace").cloned().unwrap_or(json!(true));
+    if let Some(warnings) = input.get("warnings") {
+        status["warnings"] = warnings.clone();
+    }
+    status["accounts"] = input.get("accounts").cloned().unwrap_or(json!([]));
+    status["providers"] = json!(providers);
+    status["executors"] = json!({
+        "ranked": ranking.get("ranked").cloned().unwrap_or(json!([])),
+        "excluded": ranking.get("excluded").cloned().unwrap_or(json!([])),
+        "uncertain": ranking.get("uncertain").cloned().unwrap_or(json!([])),
+    });
     if let Some(reason) = ranking.get("reason") {
         status["executors"]["reason"] = reason.clone();
     }
@@ -323,6 +324,54 @@ pub(crate) mod tests {
         assert_eq!(status["mode"], "strict");
         assert_eq!(status["generatedAt"], 100.0);
         assert!(!status["executors"]["ranked"].as_array().unwrap().is_empty());
+    }
+
+    fn keys(value: &Value) -> Vec<&str> {
+        value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect()
+    }
+
+    #[test]
+    fn compose_keeps_typescript_status_key_order() {
+        let mut down = provider("codex", "codex", "ON_PACE");
+        down["installed"] = json!(false);
+        let status = compose_status(&json!({
+            "now": 100.0,
+            "strategy": strategy(),
+            "policy": {"mode": "open", "plugins": 0},
+            "warnings": ["w"],
+            "providers": [down, provider("claude-code", "claude", "ON_PACE")],
+        }));
+        assert_eq!(
+            keys(&status),
+            [
+                "policy",
+                "paused",
+                "modeHold",
+                "generatedAt",
+                "strategy",
+                "planner",
+                "mode",
+                "disabled",
+                "calendarPace",
+                "warnings",
+                "accounts",
+                "providers",
+                "executors"
+            ]
+        );
+        assert_eq!(
+            keys(&status["executors"]),
+            ["ranked", "excluded", "uncertain"]
+        );
+        assert_eq!(
+            keys(&status["executors"]["excluded"][0]),
+            ["id", "account", "reason", "eligibility"]
+        );
     }
 
     #[test]
