@@ -718,7 +718,8 @@ impl TaskStore {
     }
     pub fn list_active_and_recent(&mut self, updated_since: f64) -> Result<Vec<Value>> {
         self.refresh()?;
-        let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running')) ORDER BY id DESC")?;
+        // `needs_input` (stored, and running with an open question) never ages out.
+        let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running','needs_input')) ORDER BY id DESC")?;
         let records = stmt
             .query_map([updated_since], |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;

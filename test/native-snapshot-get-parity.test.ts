@@ -114,13 +114,15 @@ test.skipIf(!front)("snapshot recent and old active selection matches forced for
   const ctx = fakeCtx({ now: Math.floor(Date.now() / 1000), which: () => null });
   const selected: string[] = [];
   for (const [age, state, archived] of [[60, "done", false], [172800, "queued", false],
-    [172800, "done", false], [60, "done", true]] as const) {
+    [172800, "done", false], [172800, "needs_input", false], [60, "done", true]] as const) {
     const at = { ...ctx, now: ctx.now - age };
     const task = createTask(at, { brief: { goal: "snapshot selection", repo: ctx.home },
       kind: null, requestedExecutor: null, timeoutS: 60 });
     if (archived) mkdirSync(join(ctx.pacerHome, "archive", new Date(at.now * 1000).toISOString().slice(0, 7), task.id), { recursive: true });
-    updateTask(at, task.id, row => { row.state = state; row.archived = archived; });
-    if (!archived && (age < 86400 || state === "queued")) selected.push(task.id);
+    updateTask(at, task.id, row => { row.state = state; row.archived = archived;
+      if (state === "needs_input") row.question = { text: "Which?", answer: undefined, at: at.now }; });
+    // Needs-you tasks must never age out, exactly like running/queued.
+    if (!archived && (age < 86400 || ["queued", "needs_input"].includes(state))) selected.push(task.id);
   }
   const native = await exchange(ctx.home, false);
   const forwarded = await exchange(ctx.home, true);

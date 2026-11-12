@@ -170,6 +170,29 @@ fn schema_write_read_filters_and_cas() {
 }
 
 #[test]
+fn list_active_and_recent_keeps_stale_needs_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    let mut old = task();
+    old["id"] = json!("t-20261101-000000-abcd");
+    old["state"] = json!("needs_input");
+    old["createdAt"] = json!(100.0);
+    old["question"] = json!({"text":"Which?","answer":Value::Null,"at":100.0});
+    store.insert(&old, 100.0).unwrap();
+    // A purely done task far outside the recency window must not be selected.
+    let mut settled = task();
+    settled["id"] = json!("t-20261101-000000-ef01");
+    settled["state"] = json!("done");
+    settled["createdAt"] = json!(50.0);
+    store.insert(&settled, 50.0).unwrap();
+    // Well after 24h: the needs_input task is still selected, the done one is not.
+    let rows = store.list_active_and_recent(1_000_000.0).unwrap();
+    let ids: Vec<_> = rows.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&"t-20261101-000000-abcd"), "{ids:?}");
+    assert!(!ids.contains(&"t-20261101-000000-ef01"), "{ids:?}");
+}
+
+#[test]
 fn update_without_change_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = TaskStore::open(dir.path()).unwrap();

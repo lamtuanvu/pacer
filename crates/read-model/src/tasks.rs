@@ -737,8 +737,9 @@ pub fn snapshot_tasks(
     rows.retain(|t| {
         // Missing map entry reads as 0. A session-holding task stays in the
         // window even if stale (>24h) or dismissed, mirroring `!!t.activeAgentSessions`.
+        // needs_input (stored, and running with an open question) never ages out.
         active.task(text(&t["id"])) > 0
-            || ["queued", "running"].contains(&text(&t["state"]))
+            || ["queued", "running", "needs_input"].contains(&text(&t["state"]))
             || (!truth(&t["dismissed"]) && num(&t["updatedAt"]) >= ctx.now - 86400.0)
     });
     rows.sort_by(|a, b| num(&b["updatedAt"]).total_cmp(&num(&a["updatedAt"])));

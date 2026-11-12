@@ -283,7 +283,7 @@ impl ReadModel {
                 ..Default::default()
             })?;
             for t in store.list(&TaskFilter {
-                states: Some(&["queued", "running"]),
+                states: Some(&["queued", "running", "needs_input"]),
                 ..Default::default()
             })? {
                 if let Some(old) = selected.iter_mut().find(|r| r["id"] == t["id"]) {
@@ -306,7 +306,8 @@ impl ReadModel {
         let records: Vec<_> = records
             .into_iter()
             .filter(|t| {
-                if ["queued", "running"].contains(&text(&t["state"])) {
+                // needs_input (stored, and running with an open question) always stays.
+                if ["queued", "running", "needs_input"].contains(&text(&t["state"])) {
                     return true;
                 }
                 let last = array(&t["attempts"])

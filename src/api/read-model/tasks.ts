@@ -62,7 +62,9 @@ export function apiTaskPage(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
  const rows=apiTasks(ctx,records.filter(t=>!t.archived));
- return rows.filter(t=>(!!t.activeAgentSessions||["queued","running"].includes(t.state))||(!t.dismissed && t.updatedAt>=ctx.now-86400)).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,200);
+ // `needs_input` (stored, and running with an open question via `visibleTaskState`)
+ // is an active state: tasks requiring the user never age out of the snapshot window.
+ return rows.filter(t=>(!!t.activeAgentSessions||["queued","running","needs_input"].includes(t.state))||(!t.dismissed && t.updatedAt>=ctx.now-86400)).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,200);
 }
 export type AttentionTask = Pick<TaskData, "state" | "review" | "resolved" | "dismissed" | "retriedBy" | "reviewRequest" | "acceptanceState">;
 export function taskAttentionReason(t: AttentionTask): "checks_failed" | "incomplete" | "review_requested" | null {

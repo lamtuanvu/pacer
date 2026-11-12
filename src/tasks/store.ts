@@ -641,9 +641,13 @@ export function readTasksByIds(ctx: Ctx, ids: Iterable<string>): TaskRecord[] {
   return list.length > 500 ? db.transaction(() => recordsByIds(db, list))() : recordsByIds(db, list);
 }
 
-/** Union of indexed active and recent selections for read-model consumers. */
+/** Union of indexed active and recent selections for read-model consumers. Tasks
+ *  that still require the user must never age out: `needs_input` (stored state,
+ *  and running tasks with an open unanswered question via the running branch of
+ *  `visibleStateSql`) stays in the active set at any age. The states query uses
+ *  `tasks_state`, so the extra state adds a bounded indexed seek even at 50k rows. */
 export function listActiveAndRecentTasks(ctx: Ctx, updatedSince = ctx.now - 86400): TaskRecord[] {
   const selected = new Map(listTasksWhere(ctx, { updatedSince }).map(t => [t.id, t]));
-  for (const task of listTasksWhere(ctx, { states: ["queued", "running"] })) selected.set(task.id, task);
+  for (const task of listTasksWhere(ctx, { states: ["queued", "running", "needs_input"] })) selected.set(task.id, task);
   return [...selected.values()].sort((a, b) => b.id.localeCompare(a.id));
 }

@@ -31,12 +31,13 @@ export async function liveSnapshot(
   if (cachedTasks?.version === version && ctx.now >= cachedTasks.at) records = cachedTasks.records;
   else {
     const selected = new Map(listTasksWhere(ctx, { updatedSince: ctx.now - 86400 }).map(t => [t.id, t]));
-    for (const t of listTasksWhere(ctx, { states: ["queued", "running"] })) selected.set(t.id, t);
+    for (const t of listTasksWhere(ctx, { states: ["queued", "running", "needs_input"] })) selected.set(t.id, t);
     records = [...selected.values()].sort((a, b) => b.id.localeCompare(a.id));
     taskCache.set(ctx.pacerHome, { version, at: ctx.now, records });
   }
-  // Age settled records out of the cached selection on every read.
-  const recent = (t: TaskRecord) => !TERMINAL_STATES.includes(t.state) || Math.max(t.createdAt, t.attemptStartedAt ?? 0, ...t.attempts.map(a => a.endedAt ?? 0)) >= ctx.now - 86400;
+  // Age settled records out of the cached selection on every read, except tasks that
+  // still require the user (needs_input) which stay regardless of their age.
+  const recent = (t: TaskRecord) => t.state === "needs_input" || !TERMINAL_STATES.includes(t.state) || Math.max(t.createdAt, t.attemptStartedAt ?? 0, ...t.attempts.map(a => a.endedAt ?? 0)) >= ctx.now - 86400;
   const tasks = snapshotTasks(ctx, records.filter(recent));
   snapshot.tasks = tasks.map(t=>({...snapshot.tasks.find(old=>old.id===t.id),...t}));
   let strategy;
