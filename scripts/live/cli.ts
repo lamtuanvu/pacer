@@ -12,9 +12,8 @@ import { executorRefusal } from "./guard";
 import { exerciseStrictGuard } from "./strict-guard";
 import { exerciseUpdater } from "./updater";
 import { exerciseRepair } from "./core-repair";
-import { exerciseNativePluginStdio, exerciseNativeStdio } from "./native-stdio";
+import { exerciseNativeStdio } from "./native-stdio";
 import { exerciseNativeHostEffects } from "./native-host-effects";
-import { exerciseNativePluginOwner } from "./native-plugin-owner";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
@@ -48,12 +47,6 @@ const usage = `usage: bun run live <command> [--id <id>]
   native-host-effects --id <id> --forward-id <id>
                                   exercise fixed host.check jobs against the sandbox fake ssh host, comparing
                                   a native test-ops sandbox with a --native-forward-ops host.check sandbox
-  native-plugin-stdio --id <id> [--stop-service]
-                                  exercise fixed stdio plugin operations with the native host off and on
-                                  (Rust front door; also on a sandbox stopped with down --keep);
-                                  --stop-service stops an attached sandbox service mid-session
-  native-plugin-owner --id <id>   crash, backoff, second-serve refusal and restart cycle of the
-                                  service's plugin owner (--native-plugin-host sandbox)
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
