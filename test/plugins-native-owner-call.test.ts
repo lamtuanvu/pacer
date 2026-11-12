@@ -125,7 +125,7 @@ test("flag-on call goes to the native owner over host.sock with sealed spawn, au
   const { ctx, registry, path, spawned, argv } = setup("fake");
   const note = join(ctx.home, "account", "note.txt");
   const owner = await fakeOwner(path, () => ({
-    result: { value: { ok: true, uptimeS: 3 }, hello: { protocol: "1.10.0", served: ["diagnostic", "planner"] }, logs: ["from owner"] },
+    result: { value: { ok: true, uptimeS: 3 }, hello: { protocol: "1.10.0", served: ["diagnostic", "planner"] }, logs: [{ level: "warn", message: "from owner" }, "older owner line"] },
   }));
   const value = await registry.call(ctx, "fx-native", "diagnostic.ping", {}, {
     accountHome: join(ctx.home, "account"),
@@ -153,7 +153,10 @@ test("flag-on call goes to the native owner over host.sock with sealed spawn, au
   // Owner hello marks readiness; points the manifest does not contribute are dropped.
   expect(registry.peek("fx-native")).toBe("ready");
   expect(registry.nativeSnapshot(ctx).find(entry => entry.id === "fx-native")?.served).toEqual(["diagnostic"]);
-  expect(readFileSync(join(ctx.pacerHome, "logs", "plugins", "fx-native.log"), "utf8")).toContain("from owner");
+  // Call-scoped capability.log lines keep their level, as the TypeScript host writes them.
+  const log = readFileSync(join(ctx.pacerHome, "logs", "plugins", "fx-native.log"), "utf8");
+  expect(log).toContain("[warn] from owner");
+  expect(log).toContain("[stderr] older owner line");
 });
 
 test("a plugin's own error relayed by the owner is the plugin's failure, while owner failures stay pacer's", async () => {
