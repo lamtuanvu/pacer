@@ -81,12 +81,25 @@ export interface PreviewGrouping {
   cols: PreviewCol[];
 }
 
+/** True when automatic dispatch can route this executor to `target`: it has an
+ * exact model rated at or above the target, or an unrated one. Mirrors the
+ * ladder's admission (src/dispatch/ladder.ts via tierBuckets), which keeps
+ * only candidates rated at/above the target or rated unknown. */
+function canDispatchHere(list: Records, target: RatedTier): boolean {
+  return list.some(r => r.tier === "unknown" || TIERS[r.tier] >= TIERS[target]);
+}
+
 function followCell(list: Records, difficulty: Difficulty, targets: TierTargets, defaultModel: string | undefined): FollowCell {
   const target = targets[difficulty];
-  // Mirror plain delegation (src/tasks/runner.ts): pass fixedExecutor and the
-  // runner's default so a below-target executor falls back to its default
-  // rather than reporting "Not used".
-  const chosen = selectModel(list, { difficulty, targets, fixedExecutor: true, defaultModel });
+  // Automatic dispatch only routes an executor here when it has a model rated at
+  // or above the target, or an unrated one; an executor whose rated models are
+  // all below the target is skipped. It is still runnable if the user picks it
+  // directly (plain delegation, src/tasks/runner.ts, fixedExecutor), so say
+  // that rather than "Not used" or "Uses its provider's default".
+  if (!canDispatchHere(list, target)) {
+    return { difficulty, target, chosen: "Skipped by automatic dispatch", note: "runs its default if picked directly", skipped: true };
+  }
+  const chosen = selectModel(list, { difficulty, targets });
   const record = chosen.record;
   if (record && record.binding.kind === "exact") {
     const tier = record.tier;
@@ -100,13 +113,8 @@ function followCell(list: Records, difficulty: Difficulty, targets: TierTargets,
   if (record && record.binding.kind === "executor-default") {
     return { difficulty, target, chosen: "default model", note: "Runs its default model below the target", skipped: false };
   }
-  // No exact model rated at/above the target and no configured default. Plain
-  // delegation still runs the executor's provider-configured model when it is
-  // chosen, so show that instead of "Not used"; "Not used" remains only for an
-  // executor that truly has nothing in the inventory it can run.
-  if (list.length > 0) {
-    return { difficulty, target, chosen: "Uses its provider's default", note: "No rated model at the target", skipped: false };
-  }
+  // No exact model rated at/above the target and no unrated model in the
+  // inventory it can run.
   return { difficulty, target, chosen: null, note: "Model is smaller than the target", skipped: true };
 }
 
@@ -143,14 +151,14 @@ export function groupPreview(records: readonly ModelRecord[], targets: TierTarge
     steered, total, follow, unrated, fixed,
     cols: DIFFICULTIES.map(difficulty => {
       const target = targets[difficulty];
+      // Count executors automatic dispatch can route to this difficulty (the
+      // ladder's admission: an exact model rated at/above the target, or an
+      // unrated one). An executor whose rated models are all below the target
+      // is not a candidate here, even though it runs its default if picked
+      // directly.
       let eligible = 0;
-      for (const [runner] of byRunner) {
-        const kind = behavior.get(runner)!;
-        // fixed and unrated executors take any difficulty; a follow executor
-        // always runs a rated model, its configured default, or its provider's
-        // default for the difficulty (see followCell), so it can take it too.
-        // Only an executor with nothing in the inventory it can run is excluded.
-        if (kind === "fixed" || kind === "unrated" || kind === "follow") eligible++;
+      for (const [, list] of byRunner) {
+        if (canDispatchHere(list, target)) eligible++;
       }
       return { difficulty, target, eligible };
     }),

@@ -79,25 +79,27 @@ test("groupPreview buckets executors by behavior and reports eligible counts per
   expect(grouping.unrated.map(row => row.runner)).toEqual(["codex"]);
   expect(grouping.unrated[0]!.model).toBe("gpt-5");
   expect(grouping.fixed.map(row => row.runner)).toEqual(["claude-code"]);
-  // opencode (small): matches simple; below standard and complex with no
-  // configured default it runs its provider's default rather than nothing.
+  // opencode (small): only simple matches; standard and complex are below it,
+  // and with no unrated model automatic dispatch skips it there.
   const opencode = grouping.follow[0]!;
-  expect(opencode.cells.map(c => c.skipped)).toEqual([false, false, false]);
+  expect(opencode.cells.map(c => c.skipped)).toEqual([false, true, true]);
   expect(opencode.cells[0]!.note).toBe("Matches the target");
-  expect(opencode.cells[1]!.note).toBe("No rated model at the target");
-  expect(opencode.cells[1]!.chosen).toBe("Uses its provider's default");
+  expect(opencode.cells[1]!.chosen).toBe("Skipped by automatic dispatch");
+  expect(opencode.cells[1]!.note).toBe("runs its default if picked directly");
   // cursor (medium): upward fallback for simple, match for standard, and below
-  // complex (frontier) it also falls back to its provider's default.
+  // complex (frontier) automatic dispatch skips it (no unrated model).
   const cursor = grouping.follow[1]!;
   expect(cursor.cells[0]!.chosen).toBe("auto");
   expect(cursor.cells[0]!.note).toBe("Larger than needed, used when nothing smaller is free");
   expect(cursor.cells[1]!.note).toBe("Matches the target");
-  expect(cursor.cells[2]!.chosen).toBe("Uses its provider's default");
-  expect(cursor.cells[2]!.skipped).toBe(false);
-  // eligible: everyone can take any difficulty — a follow runner always runs a
-  // rated model, its configured default, or its provider's default for the
-  // difficulty, and unrated/fixed executors take anything (G4).
-  expect(grouping.cols.map(col => col.eligible)).toEqual([4, 4, 4]);
+  expect(cursor.cells[2]!.chosen).toBe("Skipped by automatic dispatch");
+  expect(cursor.cells[2]!.note).toBe("runs its default if picked directly");
+  expect(cursor.cells[2]!.skipped).toBe(true);
+  // eligible: automatic dispatch can route simple to all four (each has a rated
+  // model at/above small or an unrated model); standard needs at least medium
+  // (codex and claude-code count as unrated-ish); complex needs frontier-sized
+  // or unrated, leaving opencode and cursor out (H2).
+  expect(grouping.cols.map(col => col.eligible)).toEqual([4, 3, 2]);
   expect(grouping.cols.map(col => col.target)).toEqual(["small", "medium", "frontier"]);
 });
 
@@ -114,10 +116,12 @@ test("groupPreview follow cells use selectModel exactly as the dispatcher does",
   expect(row.cells[2]!.note).toBe("Matches the target");
 });
 
-test("a follow executor falls back to its default below the target, like plain delegation", () => {
-  // A follow runner whose only model is below a target keeps using its default
-  // (the runner's configured model) instead of reporting "Not used", matching
-  // plain delegation (src/tasks/runner.ts) once the preview passes the default.
+test("a follow executor with only below-target models is skipped by automatic dispatch (H2)", () => {
+  // A follow runner whose only model is small, when the standard and complex
+  // targets are medium and frontier, is not an automatic-dispatch candidate
+  // for those: the cell says so and notes it runs its default if picked
+  // directly (matching plain delegation), rather than claiming it can take
+  // the difficulty.
   const records = [
     model("opencode", { binding: { kind: "exact", id: "opencode/fast" }, tier: "small" }),
   ];
@@ -125,13 +129,13 @@ test("a follow executor falls back to its default below the target, like plain d
   const row = grouping.follow[0]!;
   expect(row.cells[0]!.chosen).toBe("fast");
   expect(row.cells[0]!.skipped).toBe(false);
-  // Standard and complex target medium and frontier; the small default is still
-  // chosen below the target rather than skipped.
-  expect(row.cells[1]!.chosen).toBe("fast");
-  expect(row.cells[1]!.skipped).toBe(false);
-  expect(row.cells[1]!.note).toBe("Smaller than the target");
-  expect(row.cells[2]!.chosen).toBe("fast");
-  expect(row.cells[2]!.skipped).toBe(false);
+  // Standard and complex target medium and frontier; the small-only runner is
+  // skipped by automatic dispatch there and runs its default if picked directly.
+  expect(row.cells[1]!.chosen).toBe("Skipped by automatic dispatch");
+  expect(row.cells[1]!.note).toBe("runs its default if picked directly");
+  expect(row.cells[1]!.skipped).toBe(true);
+  expect(row.cells[2]!.chosen).toBe("Skipped by automatic dispatch");
+  expect(row.cells[2]!.skipped).toBe(true);
 });
 
 test("groupPreview uses an executor's configured default id as the fallback model", () => {
@@ -145,18 +149,18 @@ test("groupPreview uses an executor's configured default id as the fallback mode
   expect(row.cells[1]!.chosen).toBe("fallback");
 });
 
-test("a follow runner with no default and no rated model at/above the target runs its provider's default, not 'Not used' (F4)", () => {
-  // Plain delegation (src/tasks/runner.ts) still runs the executor's
-  // provider-configured model when selectModel finds nothing at/above the target
-  // and no configured default, so the preview says "Uses its provider's
-  // default" rather than "Not used".
+test("a follow runner with all models below the target is skipped, not 'Not used' (H2)", () => {
+  // Automatic dispatch does not route a runner whose rated models are all below
+  // the target, so the cell shows that a below-target difficulty skips it and
+  // it runs its default only if picked directly; no "Not used", no claim it
+  // can take the difficulty.
   const records = [model("opencode", { binding: { kind: "exact", id: "provider/small" }, tier: "small" })];
   const pairing = groupPreview(records, balanced, {});
   const row = pairing.follow[0]!;
-  expect(row.cells.map(c => c.skipped)).toEqual([false, false, false]);
-  expect(row.cells[1]!.chosen).toBe("Uses its provider's default");
-  expect(row.cells[2]!.chosen).toBe("Uses its provider's default");
-  expect(row.cells[2]!.note).toBe("No rated model at the target");
+  expect(row.cells.map(c => c.skipped)).toEqual([false, true, true]);
+  expect(row.cells[1]!.chosen).toBe("Skipped by automatic dispatch");
+  expect(row.cells[2]!.chosen).toBe("Skipped by automatic dispatch");
+  expect(row.cells[2]!.note).toBe("runs its default if picked directly");
 });
 
 test("unrated group previews its single model for every difficulty", () => {

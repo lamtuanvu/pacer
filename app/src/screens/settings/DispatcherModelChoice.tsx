@@ -89,9 +89,9 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
   }, [config.data]);
   // A runner's configured default is not part of the dispatch.models inventory,
   // so read it the same way the matrix does (runner.models.get) and pass it to
-  // the preview. This mirrors plain delegation (src/tasks/runner.ts), which
-  // falls back to the runner's default below the target instead of reporting
-  // "Not used".
+  // the preview. Below-target follow executors are shown as skipped by
+  // automatic dispatch and run their default only if picked directly (plain
+  // delegation), so the default is not chosen in the preview itself.
   useEffect(() => {
     let active = true;
     const runnerIds = [...new Set((inventory.data?.models ?? []).map(m => m.runner))].sort();
@@ -234,7 +234,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
                     {row.cells.map(cell => (
                       <div className="pc-model-preview__cell" key={cell.difficulty}>
                         {cell.skipped
-                          ? <span className="u3-muted">Not used<span className="pc-model-preview__note"> · {cell.note}</span></span>
+                          ? <span className="pc-model-preview__chosen">{cell.chosen}<span className="u3-muted pc-model-preview__note"> · {cell.note}</span></span>
                           : <span className="pc-model-preview__chosen">{cell.chosen}<span className="u3-muted pc-model-preview__note"> · {cell.note}</span></span>}
                       </div>
                     ))}

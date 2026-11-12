@@ -61,10 +61,11 @@ test("the answer card reports steered executors and the preview groups by behavi
   expect(html).toContain("gpt-5"); expect(html).toContain("for every difficulty");
   expect(html).toContain("can take it");
   // The rated executor shows its chosen model for the simple target and, below
-  // it with no configured default, that it falls back to its provider's default
-  // (mirroring plain delegation) instead of "Not used".
+  // it, is skipped by automatic dispatch (its small model is below standard
+  // and complex) with a note that it runs its default if picked directly.
   expect(html).toContain("small-model");
-  expect(html).toContain("Uses its provider's default");
+  expect(html).toContain("Skipped by automatic dispatch");
+  expect(html).toContain("runs its default if picked directly");
   expect(html).not.toContain("Not used");
 });
 
@@ -280,11 +281,10 @@ async function withChoice(run: (getHtml: () => string, calls: Array<{ op: string
   }
 }
 
-test("the preview falls back to a runner's configured default below the target, read from runner.models.get (F3)", async () => {
-  // A follow runner whose only model (provider/fast) is rated below the target
-  // still shows its configured default ("fast", "Smaller than the target")
-  // rather than "Not used", once the wiring passes the default from
-  // runner.models.get into the preview exactly as plain delegation does.
+test("the preview skips a below-target follow runner by automatic dispatch (F3)", async () => {
+  // A follow runner whose only model (provider/fast) is rated below the
+  // standard and complex targets is shown as skipped by automatic dispatch,
+  // with a note that it runs its default only when picked directly.
   const inventoryModels: ModelRecord[] = [
     { runner: "opencode", account: "go", executor: "opencode", binding: { kind: "exact", id: "provider/fast" }, actualModel: null, tier: "small", strengths: [], provenance: "declared" } as ModelRecord,
   ];
@@ -293,8 +293,11 @@ test("the preview falls back to a runner's configured default below the target, 
     expect(calls.filter(c => c.op === "runner.models.get").length).toBeGreaterThan(0);
     const html = getHtml();
     expect(html).toContain("Follow the tier");
+    // Simple matches (small target): the fast model is chosen there.
     expect(html).toContain("fast");
-    expect(html).toContain("Smaller than the target");
+    // Standard and complex below the target: skipped by automatic dispatch.
+    expect(html).toContain("Skipped by automatic dispatch");
+    expect(html).toContain("runs its default if picked directly");
     expect(html).not.toContain("Not used");
   }, {
     runnerModels: { opencode: { runner: "opencode", revision: "r1", default: "provider/fast", models: [{ id: "provider/fast", tier: "small" }] } },
@@ -302,13 +305,14 @@ test("the preview falls back to a runner's configured default below the target, 
   });
 });
 
-test("the preview shows a no-default follow runner running its provider's default, not 'Not used' (F4 wiring)", async () => {
+test("the preview marks a no-default below-target follow runner as skipped by automatic dispatch (F4 wiring)", async () => {
   const inventoryModels: ModelRecord[] = [
     { runner: "opencode", account: "go", executor: "opencode", binding: { kind: "exact", id: "provider/small" }, actualModel: null, tier: "small", strengths: [], provenance: "declared" } as ModelRecord,
   ];
   await withChoice(async (getHtml) => {
     const html = getHtml();
-    expect(html).toContain("Uses its provider's default");
+    expect(html).toContain("Skipped by automatic dispatch");
+    expect(html).toContain("runs its default if picked directly");
     expect(html).not.toContain("Not used");
   }, {
     runnerModels: { opencode: { runner: "opencode", revision: "r1", default: null, models: [] } },

@@ -710,3 +710,88 @@ test("every editing control is disabled while a save is in flight (G3)", async (
     setMany: { gate },
   });
 });
+
+test("the Add model form is a no-op while a save is in flight (H1 handleAdd guard)", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  // codex has an unknown listing and an empty Add model form. go's save is
+  // held by the gate, so the Add form (whose input and button are disabled)
+  // is exercised mid-save. The fake DOM ignores `disabled`, so submitting
+  // the form calls handleAdd, which must be a no-op while busy (probe A's
+  // "m2 appears then vanishes" path is closed by the guard).
+  await withMatrix(async (container, api) => {
+    // Make go dirty and start a save, held by the gate.
+    const goSwitch = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(goSwitch).toBeTruthy();
+    await act(async () => { fire(goSwitch!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    await clickText(container, "Save matrix");
+    await until(() => api.calls.some(c => c.op === "runner.models.set_many"));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
+    // Attempt to add a model to codex while the save is in flight.
+    const codexForm = allNodes(container, n => n.tagName === "form").find(f => textOf(f).includes("Add model"));
+    expect(codexForm).toBeTruthy();
+    const codexInput = findNode(codexForm!, n => n.tagName === "input");
+    await act(async () => { fire(codexInput!, "input", { currentTarget: { value: "m2" } }); await new Promise(r => setTimeout(r, 0)); });
+    await act(async () => { fire(codexForm!, "submit", { preventDefault() {} }); await new Promise(r => setTimeout(r, 0)); });
+    // The Add was a no-op during the save: no m2 row was added to codex.
+    expect(textOf(container)).not.toContain(">m2<");
+    release();
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(textOf(container)).toContain("Saved.");
+  }, {
+    config: configView(),
+    inventory: inventory([
+      record("go", "zhipu", "opencode", "zhipu/glm"),
+      record("codex", "work", "codex", "codex-default", { kind: "executor-default" }),
+    ]),
+    models: { go: declarationsGo, codex: declarationsCodex },
+    available: { go: servedGo, codex: { ...unknown, runner: "codex" } },
+    setMany: { gate },
+  });
+});
+
+test("turn a model off, save, then a refresh with identical server models shows no false notice (H3)", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  // go starts with one declared model (zhipu/glm). Turn it off and save; the
+  // returned server models therefore have NO models, and the saved baseline is
+  // rebuilt from that (the turned-off model drops out of the declared
+  // baseline). Hold the post-save reload and edit during it; when it lands
+  // with identical server models the page must NOT flag "changed elsewhere".
+  let reloadStarted = false;
+  const runnerModelsGet = (id: string, saved: number): Promise<RunnerModels> => {
+    if (saved === 0) return Promise.resolve({ ...declarationsGo, runner: id });
+    reloadStarted = true;
+    return gate.then(() => ({ runner: id, revision: "r-saved", default: "zhipu/glm", models: [] }));
+  };
+  await withMatrix(async (container, api) => {
+    const sw = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(sw).toBeTruthy();
+    await act(async () => { fire(sw!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(textOf(container)).toContain("1 model changed");
+    await clickText(container, "Save matrix");
+    await until(() => api.calls.filter(c => c.op === "runner.models.set_many").length === 1);
+    // Wait for the post-save reload to start fetching and hold it; then edit
+    // (turn the model back on) while it is in flight so the page is dirty.
+    await until(() => reloadStarted);
+    const sw2 = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(sw2).toBeTruthy();
+    await act(async () => { fire(sw2!, "change", { currentTarget: { checked: true } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(textOf(container)).toContain("1 on");
+    expect(textOf(container)).toContain("Save matrix");
+    // Let the reload land. It returns server models empty, which is exactly the
+    // saved baseline (the turned-off model was dropped): the edit must survive
+    // with no false "changed elsewhere" notice.
+    release();
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(textOf(container)).toContain("1 on");
+    expect(textOf(container)).toContain("Save matrix");
+    expect(textOf(container)).not.toContain("Model settings changed elsewhere. Discard to load them.");
+  }, {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+    runnerModelsGet,
+  });
+});

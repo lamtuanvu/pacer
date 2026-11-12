@@ -15,7 +15,7 @@ import {
   createDraft, suggestRows, acceptSuggestion, acceptAllSuggestions,
   dismissSuggestions, toggleModel, setTier, addModel, isDirty, buildSavePlan,
   rebaseSavedDrafts, takesFor, formatPrice, formatContext, formatTools,
-  type MatrixRow, type MatrixDraft, type MatrixTier,
+  type MatrixRow, type MatrixDraft, type MatrixTier, type MatrixListingModel,
 } from "../../model/model-matrix";
 import { plannerRunner } from "../../model/planner";
 
@@ -270,6 +270,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   };
 
   const handleAdd = (runner: string) => {
+    if (busy) return;
     const value = (addingByRunner[runner] ?? "").trim();
     if (!value) return;
     updateDraft(runner, d => {
@@ -352,17 +353,24 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
       });
       const newRevision = result.revision;
       const returned = new Map<string, RunnerModels>(result.runners.map(r => [r.runner, r]));
-      // Rebase the drafts on the returned server state only for the runners
-      // that were in the save plan and unchanged since the save started; a
-      // runner edited meanwhile keeps its draft and stays dirty.
-      const saved = rebaseSavedDrafts(
-        drafts, plan.changedRunners,
-        runner => draftVersions.current[runner] ?? 0,
-        runner => planStartVersions[runner] ?? 0,
-        returned, newRevision,
-      );
-      setDrafts(saved);
-      setBaseDrafts(saved.map(d => ({ ...d, rows: d.rows.map(r => ({ ...r })), baseRows: d.baseRows.map(r => ({ ...r })) })));
+      // The baseline each saved runner is rebuilt onto: a fresh createDraft
+      // from the returned server models (turned-off models drop out of the
+      // declared baseline), the same normalization a reload applies (H3).
+      const listingFor = (runner: string): MatrixListingModel[] | null => {
+        const available = availableById[runner];
+        if (!available?.models) return null;
+        return available.models.map((m: AvailableModel) => ({ id: m.id, context: m.context, tools: m.tools, costOut: m.costOut }));
+      };
+      const buildBaseline = (runner: string, saved: RunnerModels): MatrixDraft =>
+        createDraft(runner, saved.revision, saved.default, saved.models ?? [], listingFor(runner), targets);
+      // Fold the save result into the CURRENT drafts (functional reads), so an
+      // edit made while the save was in flight is preserved and stays dirty
+      // against the freshly rebuilt base (H1); bases settle onto the returned
+      // server state so a later refresh stays silent (H3).
+      const versionNow = (runner: string) => draftVersions.current[runner] ?? 0;
+      const versionThen = (runner: string) => planStartVersions[runner] ?? 0;
+      setDrafts(prev => rebaseSavedDrafts(prev, plan.changedRunners, versionNow, versionThen, returned, buildBaseline).drafts);
+      setBaseDrafts(prev => rebaseSavedDrafts(prev, plan.changedRunners, versionNow, versionThen, returned, buildBaseline).baseDrafts);
       setLoadedRevision(newRevision);
       resetVersions();
       inventory.reload();

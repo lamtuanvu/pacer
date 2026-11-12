@@ -209,45 +209,62 @@ export function buildSavePlan(runners: MatrixSavePlanRunner[], targets: TierTarg
 }
 
 /**
- * Fold a successful `runner.models.set_many` result into the drafts, but only
- * for runners that were part of this save plan AND whose draft has not been
- * edited since the save began (same generation version). A runner edited while
- * the save was in flight keeps its draft and stays dirty, so the rebase never
- * silently discards an edit made meanwhile.
+ * Fold a successful `runner.models.set_many` result into the drafts and their
+ * bases.
+ *
+ * Every runner that was part of the save plan is rebuilt onto the returned
+ * server state by `buildBaseline` (a fresh `createDraft`), so turned-off
+ * models drop out of the declared baseline and a later refresh with identical
+ * server models does not raise a false "changed elsewhere" (H3). A runner
+ * whose draft was edited while the save was in flight (its generation version
+ * moved) keeps the user's edit — its `drafts` row is left alone beyond
+ * adopting the returned revision — but its base is still rebuilt from the
+ * returned server state, so it stays dirty against the new base.
  *
  * `versionOf` reads a runner's current generation version and `startVersion`
- * the version it had when the save started; only a runner whose two versions
- * agree is reset to the returned server state (revision, default and the
- * rebuilt declaration metadata on its current rows).
+ * the version it had when the save started. Call this from a functional
+ * state update (or read the runner drafts from a fresh ref) so it folds over
+ * the *current* drafts, not the snapshot taken when Save was clicked (H1).
  */
+export interface SavedRebase {
+  drafts: MatrixDraft[];
+  baseDrafts: MatrixDraft[];
+}
+
 export function rebaseSavedDrafts(
   drafts: MatrixDraft[],
   changedRunners: readonly string[],
   versionOf: (runner: string) => number,
   startVersion: (runner: string) => number,
   returned: ReadonlyMap<string, RunnerModels>,
-  newRevision: string,
-): MatrixDraft[] {
+  buildBaseline: (runner: string, saved: RunnerModels) => MatrixDraft,
+): SavedRebase {
   const changed = new Set(changedRunners);
-  return drafts.map(draft => {
+  const draftsOut = drafts.map(draft => {
     if (!changed.has(draft.runner)) return draft;
     const saved = returned.get(draft.runner);
     if (!saved) return draft;
-    if (versionOf(draft.runner) !== startVersion(draft.runner)) return draft;
-    const declaredById = new Map((saved.models ?? []).map(m => [m.id, m]));
-    const rows = draft.rows.map(row => {
-      const declaration = declaredById.get(row.id);
-      return declaration ? { ...row, declared: declaration } : row;
-    });
-    return {
-      runner: draft.runner,
-      revision: newRevision,
-      default: saved.default ?? draft.default,
-      rows: rows.map(row => ({ ...row })),
-      baseRows: rows.map(row => ({ ...row })),
-      addedIds: [],
-    };
+    const baseline = buildBaseline(draft.runner, saved);
+    if (versionOf(draft.runner) !== startVersion(draft.runner)) {
+      // Edited while the save ran: keep the user's edit, adopt the returned
+      // revision so the next save runs against it; the base rebase below
+      // settles onto the returned server state so the runner stays dirty.
+      return { ...draft, revision: baseline.revision };
+    }
+    // Not edited: the save made the running state the new base, so the draft
+    // becomes clean against it.
+    return baseline;
   });
+  // Bases settle onto the returned server state for every saved runner, so a
+  // later refresh with identical server models stays silent (H3).
+  const baseDraftsOut = drafts.map((draft, i) => {
+    if (!changed.has(draft.runner)) return draftsOut[i]!;
+    const saved = returned.get(draft.runner);
+    if (!saved) return draftsOut[i]!;
+    const baseline = buildBaseline(draft.runner, saved);
+    return baseline;
+  });
+  return { drafts: draftsOut, baseDrafts: baseDraftsOut };
 }
 
 export function defaultForRows(rows: MatrixRow[], currentDefault: string | null): string | null {
