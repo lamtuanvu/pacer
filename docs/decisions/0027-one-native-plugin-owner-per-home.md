@@ -86,26 +86,38 @@ work grant is set. It carries the same request kinds as HTTP's `/_internal/plugi
   next connection attaches.
 - An attached connection whose serve exits gets `plugin_unavailable` with the hint "Restart the
   pacer service." until it reconnects.
-- Crash counts, restart counts and a child's lifecycle state stay in each Core's memory. An
-  attached connection's `plugin.list` can show a child the service runs as `idle` until that
-  connection's Core has called it, and its `plugin.doctor` can show different `restarts` than
-  serve's. PR 5 adds an owner-side restart floor.
+- Crash counts, restart counts and a child's lifecycle state stay in each Core's memory. The
+  owner reports each crash of a child it did not stop to the Core of the door that owns it, with
+  the private `crashed` request kind, and Core records it as the TypeScript owner records an
+  exit: `restarts`, `error`, the restart backoff (1 s, doubling to 30 s) and `failing` after
+  three crashes within a minute. Core seals the earliest next start in `spawn_spec`, and the
+  owner waits for it. An attached connection's Core is not told: its `plugin.list` can show a
+  child the service runs as `idle` until it has called it, and its `plugin.doctor` can show
+  different `restarts` than serve's. The owner therefore keeps its own restart floor per plugin
+  with the same ramp, so no door restarts a crash-looping child faster than that; enabling the
+  plugin through the owning door clears it.
+- Serve shutdown and an owning connection's end (EOF or SIGTERM) send each child SIGTERM and
+  SIGKILL 2 seconds later, and stop accepting new starts, before the socket is removed.
 - With the native host on, `plugin.doctor` reports `pid: null` for owner-supervised children on
   both front doors, because Core's snapshot does not know the owner's process IDs.
 - A deep home keeps native stdio ownership, but its connection sockets live outside the home,
   where `pacer doctor` does not look yet. A temporary-file cleaner that removes a long-lived
   connection's socket makes that connection's Core plugin calls fail until it reconnects.
 - A deep home cannot run a flag-on serve, because `host.sock` must stay in the home as the
-  owner lease. PR 5 or PR 7 decides how such homes run the service before the flag turns on
-  by default.
+  owner lease. PR 7 decides how such homes run the service before the flag turns on by
+  default.
 - Plain CLI commands start their own Core and, flag-on, still start TypeScript children beside
   a live serve owner. This is a known limit for this wave.
 - **OD-7.** The maintainer decided that a second serve on a home whose `run/host.sock` owner is
-  live refuses to start, instead of falling back to TypeScript ownership. `ReverseBridge`
-  already refuses to replace a live socket, so serve exits today with "live reverse-bridge
-  socket already present". PR 5 makes this a stable message with exit code 3 and adds a
-  doctor check. A hung owner that keeps its socket live keeps a new serve from starting until
-  it is stopped.
+  live refuses to start, instead of falling back to TypeScript ownership. A flag-on serve that
+  finds the socket live waits up to 5 seconds (`PACER_SERVE_OWNER_WAIT_MS`), checking every
+  250 ms, so a restart whose old serve is still stopping goes through. If the owner is still
+  live it exits with code 3 and "another pacer owns the plugin host socket at `<path>` (pid N):
+  stop the other pacer (pacer service stop) or wait for it to exit". The owner writes its pid
+  to `run/host.sock.pid` (0600) and removes it at shutdown. `pacer doctor` reports a live socket
+  with that pid and a stale one as replaced at the next start. A hung owner that keeps its
+  socket live keeps a new serve from starting until it is stopped; launchd keeps retrying the
+  service, so a restart converges once the old process exits.
 - `run/host.sock` and the plugin installation owner in [ADR 0021](0021-single-installation-owner.md)
   are different things: ADR 0021 decides which pacer installation runs the service; this
   record decides which process inside it owns plugin children.
