@@ -665,11 +665,15 @@ async fn dispatch_call(
                 }
                 Ok(None) => {}
             }
-            let mut guard = owner.lock().await;
-            match guard
-                .call_plugin(plugin_id, method, call_params, deadline)
-                .await
-            {
+            let tracked = owner.lock().await.lane_for_call(plugin_id);
+            let called = match tracked {
+                Ok((lane, session)) => {
+                    lane.call(session, method, call_params, deadline, None)
+                        .await
+                }
+                Err(error) => Err(error),
+            };
+            match called {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
                 Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
             }

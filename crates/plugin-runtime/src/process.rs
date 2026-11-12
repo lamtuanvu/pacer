@@ -433,6 +433,11 @@ impl PluginProcess {
         self.stopping.load(Ordering::SeqCst)
     }
 
+    /// SIGTERM without marking a stop, for a child whose transport is gone.
+    pub fn term(&self) {
+        let _ = self.stops.send(Stop::Term);
+    }
+
     /// SIGKILL without marking a stop, for a child whose transport is gone.
     pub fn kill(&self) {
         let _ = self.stops.send(Stop::Kill);

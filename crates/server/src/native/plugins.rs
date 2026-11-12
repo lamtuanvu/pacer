@@ -383,6 +383,8 @@ fn internal(e: impl std::fmt::Display) -> CoreError {
 
 /// A plugin method's deadline on a local owner, including any restart wait.
 const CALL_DEADLINE: Duration = Duration::from_secs(30);
+/// How long a child may take to answer `plugin.hello`, including its turn.
+const HELLO_DEADLINE: Duration = Duration::from_secs(5);
 
 impl Owner {
     async fn call_native(
@@ -492,52 +494,64 @@ impl Owner {
             }
             other => CoreError::new(Code::PluginTimeout, other.to_string()),
         })?;
-        let result = {
-            let mut guard = owner.lock().await;
-            let mut session = session_for_call(
-                &hello,
-                resources,
-                grants,
-                call_lifetime,
-                observation,
-                Some(&host_attach),
-                orca_context,
-                worktree_context,
-                executor_context,
-            )
+        let mut session = session_for_call(
+            &hello,
+            resources,
+            grants,
+            call_lifetime,
+            observation,
+            Some(&host_attach),
+            orca_context,
+            worktree_context,
+            executor_context,
+        )
+        .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        session
+            .bind_process_owner_hosts(owner.clone())
             .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-            session
-                .bind_process_owner_hosts(owner.clone())
-                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-            session
-                .bind_process_owner_orca(owner.clone())
-                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-            session
-                .bind_process_owner_worktree()
-                .await
-                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-            session
-                .bind_process_owner_executor()
-                .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        session
+            .bind_process_owner_orca(owner.clone())
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        session
+            .bind_process_owner_worktree()
+            .await
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        session
+            .bind_process_owner_executor()
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        // The owner lock only installs the session: the hello and the call run
+        // on the lane, so shutdown and other plugins never wait for this reply.
+        let session = {
+            let mut guard = owner.lock().await;
             guard
                 .install_capability_session(id, session)
                 .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
-            if !guard.is_ready(id) {
-                let hello_result = match guard
-                    .call_plugin(id, "plugin.hello", hello.clone(), Duration::from_secs(5))
-                    .await
-                {
-                    Ok(reply) => reply,
-                    Err(error) => {
-                        drop(guard);
-                        return Err(match crash_message(&lane, id, "plugin.hello").await {
-                            Some(message) => CoreError::new(Code::PluginUnavailable, message),
-                            None => CoreError::new(Code::PluginRefused, error.to_string()),
-                        });
-                    }
-                };
+            guard.capability_session(id)
+        };
+        if !lane.is_ready() {
+            let expires = tokio::time::Instant::now() + HELLO_DEADLINE;
+            let hello_result = match lane.exclusive(expires).await {
+                Ok(_turn) if !lane.is_ready() => {
+                    let left = expires.saturating_duration_since(tokio::time::Instant::now());
+                    lane.request_in_turn(session.clone(), "plugin.hello", hello.clone(), left, None)
+                        .await
+                        .map(Some)
+                }
+                Ok(_) => Ok(None),
+                Err(error) => Err(error),
+            };
+            let hello_result = match hello_result {
+                Ok(reply) => reply,
+                Err(error) => {
+                    return Err(match crash_message(&lane, id, "plugin.hello").await {
+                        Some(message) => CoreError::new(Code::PluginUnavailable, message),
+                        None => CoreError::new(Code::PluginRefused, error.to_string()),
+                    });
+                }
+            };
+            if let Some(hello_result) = hello_result {
                 // Bridge calls that require a negotiated feature read it from this summary.
-                guard.mark_ready_with(id, ready_info(&hello_result, &hello));
+                lane.mark_ready(Some(ready_info(&hello_result, &hello)));
                 let protocol = hello_result["protocol"].as_str().unwrap_or("").to_owned();
                 let mut served = vec!["diagnostic".to_owned()];
                 if let Some(points) = hello_result["contributes"].as_array() {
@@ -550,7 +564,6 @@ impl Owner {
                         }
                     }
                 }
-                drop(guard);
                 self.request(json!({
                     "kind":"ready",
                     "id":id,
@@ -558,27 +571,16 @@ impl Owner {
                     "served":served,
                 }))
                 .await?;
-                let mut guard = owner.lock().await;
-                let value = guard
-                    .call_plugin(id, method, params, CALL_DEADLINE)
-                    .await
-                    .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
-                // Drop call-scoped natives; keep hello-only between calls.
-                if let Ok(idle) = session_from_hello(&hello, Duration::from_secs(300)) {
-                    let _ = guard.install_capability_session(id, idle);
-                }
-                value
-            } else {
-                let value = guard
-                    .call_plugin(id, method, params, CALL_DEADLINE)
-                    .await
-                    .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
-                if let Ok(idle) = session_from_hello(&hello, Duration::from_secs(300)) {
-                    let _ = guard.install_capability_session(id, idle);
-                }
-                value
             }
-        };
+        }
+        let result = lane
+            .call(session, method, params, CALL_DEADLINE, None)
+            .await
+            .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
+        // Drop call-scoped natives; keep hello-only between calls.
+        if let Ok(idle) = session_from_hello(&hello, Duration::from_secs(300)) {
+            let _ = owner.lock().await.install_capability_session(id, idle);
+        }
         let result = match result {
             Err(error) => match crash_message(&lane, id, method).await {
                 Some(message) => Err(CoreError::new(Code::PluginUnavailable, message)),

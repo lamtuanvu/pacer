@@ -12,17 +12,20 @@
 //!
 //! Serve's session also writes `run/host.sock.pid` (0600) beside the socket so
 //! a refused second serve and `pacer doctor` can name the owner. Both
-//! shutdowns refuse new children, terminate every tracked child together
-//! (SIGTERM, then SIGKILL after [`crate::TERMINATE_GRACE`]) and only then
-//! remove the sidecar and unlink the socket, so the lease outlives the
-//! children it supervised. Crashes go to [`NativeHostSession::crash_reports`].
+//! shutdowns refuse new children, terminate every child together (SIGTERM,
+//! then SIGKILL after [`crate::TERMINATE_GRACE`]) and only then remove the
+//! sidecar and unlink the socket, so the lease outlives the children it
+//! supervised. Shutdown reaches the children through the owner's lane roster,
+//! not the owner lock, so a call in flight never delays it; that call fails
+//! once its child exits. Crashes go to [`NativeHostSession::crash_reports`].
 
 use crate::{
     BridgeError, BridgeHandle, HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME,
     OwnerError, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner, connection_socket_name,
     crash::{CrashBook, CrashReport},
-    dark_bridge_disabled, dark_bridge_enabled, serve_starts_reverse_bridge_by_default,
-    terminate_lanes,
+    dark_bridge_disabled, dark_bridge_enabled,
+    owner::LaneRoster,
+    serve_starts_reverse_bridge_by_default, terminate_lanes,
 };
 use std::{
     fs,
@@ -111,6 +114,7 @@ pub fn native_plugin_host_enabled_from_env(
 pub struct NativeHostSession {
     owner: SharedOwner,
     crashes: Arc<CrashBook>,
+    roster: Arc<LaneRoster>,
     bridge: BridgeHandle,
     socket: PathBuf,
     /// Serve's `run/host.sock.pid`; connection sessions write none.
@@ -153,6 +157,7 @@ impl NativeHostSession {
         let owner = ProcessOwner::native_for_serve();
         owner.claim_native_supervision()?;
         let crashes = owner.crash_book();
+        let roster = owner.roster();
         let owner = Arc::new(Mutex::new(owner));
         let bridge = bind()?.with_live_owner(Arc::clone(&owner));
         let socket = bridge.path().to_path_buf();
@@ -162,6 +167,7 @@ impl NativeHostSession {
             Self {
                 owner,
                 crashes,
+                roster,
                 bridge,
                 socket,
                 pid_file: None,
@@ -186,12 +192,12 @@ impl NativeHostSession {
         reports
     }
 
-    /// Serve shutdown: refuse new children, terminate the tracked ones, then
-    /// remove the pid sidecar and unlink `host.sock`.
+    /// Serve shutdown: refuse new children, terminate every child at once
+    /// (even one a caller holding the owner lock is waiting on), then remove
+    /// the pid sidecar and unlink `host.sock`.
     pub async fn shutdown(self) {
         self.crashes.set_sink(None);
-        let lanes = self.owner.lock().await.close();
-        terminate_lanes(lanes).await;
+        terminate_lanes(self.roster.close()).await;
         if let Some(pid_file) = &self.pid_file
             && fs::read_to_string(pid_file)
                 .is_ok_and(|text| text.trim() == std::process::id().to_string())

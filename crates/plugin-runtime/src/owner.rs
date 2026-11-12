@@ -10,6 +10,11 @@
 //! and [`ProcessOwner::ensure`] replaces it only after its crash monitor
 //! (`crate::crash`) has recorded and reported the crash, and only once the
 //! plugin's restart floor has passed.
+//!
+//! The owner lock covers lookup, start and replacement, never a plugin's
+//! reply: calls run on their lane ([`PluginLane::call`]). Every lane is also
+//! enrolled in a [`LaneRoster`] outside the lock, so teardown terminates the
+//! children at once even while a caller holds the owner.
 
 use crate::capability::PluginCapabilitySession;
 use crate::crash::{self, CrashBook, CrashReport};
@@ -17,7 +22,11 @@ use crate::orca_attach::SharedOrcaBridge;
 use crate::process::PluginProcess;
 use pacer_plugin_host::{PluginState, ProcessError, Registry, SpawnSpec};
 use serde_json::Value;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::{
     sync::{Mutex, RwLock, mpsc, watch},
@@ -43,6 +52,9 @@ pub enum OwnerError {
     /// The plugin's dead child is still being reported.
     #[error("plugin {0} is still stopping after a crash")]
     Retiring(String),
+    /// Three crashes within the window: no restart until the plugin is enabled again.
+    #[error("plugin {0} is failing: {limit} failures within a minute", limit = crash::CRASH_LIMIT)]
+    Failing(String),
     #[error("the plugin owner is shutting down")]
     Closing,
 }
@@ -88,6 +100,9 @@ impl Ownership {
         matches!(self, Self::Native { supervision: true })
     }
 }
+
+/// A plugin's capability broker session, shared by the calls that answer through it.
+pub type SharedSession = Arc<Mutex<PluginCapabilitySession>>;
 
 /// One tracked child. The owner lock covers lookup and replacement only; a call
 /// holds the child's `gate`, so calls to different plugins run in parallel.
@@ -160,13 +175,112 @@ impl PluginLane {
     }
 
     /// Wait for an exclusive turn until `expires`.
-    async fn exclusive(
+    pub async fn exclusive(
         &self,
         expires: Instant,
     ) -> Result<tokio::sync::RwLockWriteGuard<'_, ()>, OwnerError> {
         timeout_at(expires, self.gate.write())
             .await
             .map_err(|_| ProcessError::Timeout.into())
+    }
+
+    /// One request to this child in an exclusive turn. Its capability requests
+    /// are answered through `session`, or denied without one. Call it without
+    /// the owner lock, so teardown and other plugins never wait for this reply.
+    pub async fn call(
+        &self,
+        session: Option<SharedSession>,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        cancel: Option<&watch::Receiver<bool>>,
+    ) -> Result<Value, OwnerError> {
+        let expires = Instant::now() + deadline;
+        let _turn = self.exclusive(expires).await?;
+        let left = expires.saturating_duration_since(Instant::now());
+        self.request_in_turn(session, method, params, left, cancel)
+            .await
+    }
+
+    /// [`Self::call`] for a caller already holding this lane's [`Self::gate`].
+    pub async fn request_in_turn(
+        &self,
+        session: Option<SharedSession>,
+        method: &str,
+        params: Value,
+        deadline: Duration,
+        cancel: Option<&watch::Receiver<bool>>,
+    ) -> Result<Value, OwnerError> {
+        match session {
+            Some(session) => Ok(self
+                .process
+                .request_with_handler(method, params, deadline, cancel, move |cap, body, meta| {
+                    let session = session.clone();
+                    async move {
+                        let mut guard = session.lock().await;
+                        guard.answer(&cap, body, meta).await
+                    }
+                })
+                .await?),
+            None => Ok(self
+                .process
+                .request(method, params, deadline, cancel)
+                .await?),
+        }
+    }
+}
+
+/// Every lane an owner started, and whether teardown began. It sits outside
+/// the owner lock, so [`crate::NativeHostSession`] shutdown never waits for a
+/// caller holding the owner.
+#[derive(Default)]
+pub(crate) struct LaneRoster {
+    state: std::sync::Mutex<RosterState>,
+}
+
+#[derive(Default)]
+struct RosterState {
+    closing: bool,
+    lanes: Vec<Weak<PluginLane>>,
+}
+
+impl LaneRoster {
+    fn state(&self) -> std::sync::MutexGuard<'_, RosterState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub(crate) fn is_closing(&self) -> bool {
+        self.state().closing
+    }
+
+    /// Enrol the child `start` returns, unless teardown began. Both happen
+    /// under one lock, so [`Self::close`] never misses a child; a refused
+    /// child is dropped, which kills it.
+    fn admit(
+        &self,
+        start: impl FnOnce() -> Result<PluginProcess, OwnerError>,
+    ) -> Result<Arc<PluginLane>, OwnerError> {
+        let mut state = self.state();
+        if state.closing {
+            return Err(OwnerError::Closing);
+        }
+        let lane = Arc::new(PluginLane::new(start()?));
+        state.lanes.retain(|lane| lane.strong_count() > 0);
+        state.lanes.push(Arc::downgrade(&lane));
+        Ok(lane)
+    }
+
+    /// Refuse new lanes and hand back every one still held.
+    pub(crate) fn close(&self) -> Vec<Arc<PluginLane>> {
+        let mut state = self.state();
+        state.closing = true;
+        state
+            .lanes
+            .drain(..)
+            .filter_map(|lane| lane.upgrade())
+            .collect()
     }
 }
 
@@ -180,10 +294,10 @@ pub struct ProcessOwner {
     /// Optional mirror of [`Registry`] state ids without owning children.
     shadow: HashMap<String, PluginState>,
     /// Per-plugin capability broker sessions (P4d-6). Absent → deny caps.
-    sessions: HashMap<String, Arc<Mutex<PluginCapabilitySession>>>,
+    sessions: HashMap<String, SharedSession>,
     crashes: Arc<CrashBook>,
-    /// Set by [`Self::close`]: no child starts after teardown began.
-    closing: bool,
+    /// No child starts once teardown began ([`Self::close`]).
+    roster: Arc<LaneRoster>,
 }
 
 impl ProcessOwner {
@@ -195,7 +309,7 @@ impl ProcessOwner {
             shadow: HashMap::new(),
             sessions: HashMap::new(),
             crashes: Arc::default(),
-            closing: false,
+            roster: Arc::default(),
         }
     }
 
@@ -218,6 +332,15 @@ impl ProcessOwner {
         Arc::clone(&self.crashes)
     }
 
+    pub(crate) fn roster(&self) -> Arc<LaneRoster> {
+        Arc::clone(&self.roster)
+    }
+
+    /// True once teardown began: no child starts again.
+    pub fn is_closing(&self) -> bool {
+        self.roster.is_closing()
+    }
+
     /// Send each crash this owner sees to `sink` (the owning door's Core).
     pub fn set_crash_sink(&self, sink: mpsc::UnboundedSender<CrashReport>) {
         self.crashes.set_sink(Some(sink));
@@ -235,9 +358,11 @@ impl ProcessOwner {
 
     /// Refuse new children and hand back every lane for termination.
     pub fn close(&mut self) -> Vec<Arc<PluginLane>> {
-        self.closing = true;
+        // Take the lanes before dropping ours: a dropped lane is killed at once.
+        let lanes = self.roster.close();
         self.sessions.clear();
-        self.children.drain().map(|(_, lane)| lane).collect()
+        self.children.clear();
+        lanes
     }
 
     pub fn set_orca_bridge(&mut self, bridge: SharedOrcaBridge) {
@@ -315,7 +440,7 @@ impl ProcessOwner {
     }
 
     /// Shared handle to a plugin's capability session, if installed.
-    pub fn capability_session(&self, id: &str) -> Option<Arc<Mutex<PluginCapabilitySession>>> {
+    pub fn capability_session(&self, id: &str) -> Option<SharedSession> {
         self.sessions.get(id).cloned()
     }
 
@@ -326,21 +451,23 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
-        if self.closing {
-            return Err(OwnerError::Closing);
-        }
-        let child = PluginProcess::spawn(spec)?;
-        self.adopt(id, child);
+        let lane = self.roster.admit(|| Ok(PluginProcess::spawn(spec)?))?;
+        self.adopt(id, lane);
         Ok(())
     }
 
     /// Spawn when absent or dead; no-op while a live child is tracked. A dead
     /// lane is replaced once its crash is on record ([`OwnerError::Retiring`]
     /// until then), and no sooner than the restart floor
-    /// ([`OwnerError::Backoff`]). Refuses TypeScript ownership.
+    /// ([`OwnerError::Backoff`]); a plugin that crashed three times within the
+    /// window is not started until enabled again ([`OwnerError::Failing`]).
+    /// Refuses TypeScript ownership and teardown ([`OwnerError::Closing`]).
     pub fn ensure(&mut self, id: impl Into<String>, spec: &SpawnSpec) -> Result<bool, OwnerError> {
         let id = id.into();
         self.ensure_native_library()?;
+        if self.roster.is_closing() {
+            return Err(OwnerError::Closing);
+        }
         if let Some(lane) = self.children.get(&id) {
             if lane.process().is_alive() {
                 return Ok(false);
@@ -350,6 +477,9 @@ impl ProcessOwner {
             }
             self.children.remove(&id);
             self.sessions.remove(&id);
+        }
+        if self.crashes.is_failing(&id) {
+            return Err(OwnerError::Failing(id));
         }
         if let Some(at) = self.crashes.floor(&id)
             && at > std::time::Instant::now()
@@ -367,15 +497,12 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
-        if self.closing {
-            return Err(OwnerError::Closing);
-        }
-        self.adopt(id, child);
+        let lane = self.roster.admit(|| Ok(child))?;
+        self.adopt(id, lane);
         Ok(())
     }
 
-    fn adopt(&mut self, id: String, child: PluginProcess) {
-        let lane = Arc::new(PluginLane::new(child));
+    fn adopt(&mut self, id: String, lane: Arc<PluginLane>) {
         tokio::spawn(crash::monitor(
             self.crashes.clone(),
             id.clone(),
@@ -457,27 +584,21 @@ impl ProcessOwner {
         deadline: Duration,
         cancel: Option<&watch::Receiver<bool>>,
     ) -> Result<Value, OwnerError> {
+        let (lane, session) = self.lane_for_call(id)?;
+        lane.call(session, method, params, deadline, cancel).await
+    }
+
+    /// The tracked lane and its installed capability session, for a
+    /// [`PluginLane::call`] made after the owner lock is released.
+    pub fn lane_for_call(
+        &self,
+        id: &str,
+    ) -> Result<(Arc<PluginLane>, Option<SharedSession>), OwnerError> {
         self.ensure_native_library()?;
-        let session = self.sessions.get(id).cloned();
         let lane = self
             .lane(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
-        let expires = Instant::now() + deadline;
-        let _turn = lane.exclusive(expires).await?;
-        let left = expires.saturating_duration_since(Instant::now());
-        let child = lane.process();
-        match session {
-            Some(session) => Ok(child
-                .request_with_handler(method, params, left, cancel, move |cap, body, meta| {
-                    let session = session.clone();
-                    async move {
-                        let mut guard = session.lock().await;
-                        guard.answer(&cap, body, meta).await
-                    }
-                })
-                .await?),
-            None => Ok(child.request(method, params, left, cancel).await?),
-        }
+        Ok((lane, self.sessions.get(id).cloned()))
     }
 
     fn ensure_native_library(&self) -> Result<(), OwnerError> {
@@ -485,24 +606,6 @@ impl ProcessOwner {
             Ownership::TypeScript => Err(OwnerError::TypeScriptOwnsHost),
             Ownership::Native { .. } => Ok(()),
         }
-    }
-
-    /// Direct JSON-RPC to a provider child for `hostRunner.*` (bypasses capability broker).
-    pub(crate) async fn call_host_runner(
-        &mut self,
-        id: &str,
-        method: &str,
-        params: serde_json::Value,
-        deadline: Duration,
-    ) -> Result<serde_json::Value, OwnerError> {
-        self.ensure_native_library()?;
-        let lane = self
-            .lane(id)
-            .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
-        let expires = Instant::now() + deadline;
-        let _turn = lane.exclusive(expires).await?;
-        let left = expires.saturating_duration_since(Instant::now());
-        Ok(lane.process().request(method, params, left, None).await?)
     }
 }
 
