@@ -8,6 +8,7 @@ mod branches;
 mod git;
 mod identity;
 mod probe;
+mod read;
 mod remove;
 #[cfg(test)]
 mod tests;
@@ -24,8 +25,9 @@ use pacer_foundation::{
     fsutil::write_private,
     lock::{LockOptions, with_lock},
 };
-use pacer_js_json::{js_semantics::truthy, stringify};
-use serde_json::{Map, Value, json};
+use pacer_js_json::{js_semantics::truthy, quoted};
+use read::{Entry, Registry, newest_first};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
@@ -59,68 +61,21 @@ fn state_file(home: &Path, name: &str) -> PathBuf {
     home.join("state").join(name)
 }
 
-/// Integer-index keys, which JavaScript objects enumerate first.
-fn index_key(key: &str) -> bool {
-    key.parse::<u32>()
-        .is_ok_and(|n| n != u32::MAX && n.to_string() == key)
-}
-
-fn plain_entry(value: &Value) -> bool {
-    value.get("key").is_some_and(Value::is_string)
-        && value
-            .get("path")
-            .and_then(Value::as_str)
-            .is_some_and(|path| path.starts_with('/'))
-        && value.get("lastUsed").is_some_and(Value::is_number)
-}
-
-/// Registry files whose JavaScript reading this module does not reproduce: non-object JSON
-/// that `readJson` keeps, text serde rejects (lone surrogates, out-of-range numbers),
-/// entries without the written shape, relative paths and integer-index keys.
-pub fn registry_needs_core(home: &Path) -> bool {
-    type Valid = fn(&Value) -> bool;
-    let files: [(&str, Valid); 2] = [
-        ("repos.json", plain_entry),
-        ("repo-paths.json", |v| {
-            v.as_str().is_some_and(|p| p.starts_with('/'))
-        }),
-    ];
-    for (name, valid) in files {
-        let path = state_file(home, name);
-        match std::fs::metadata(&path) {
-            Ok(metadata) if !metadata.is_file() => return true,
-            Ok(_) => {}
-            Err(_) => continue,
-        }
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        match serde_json::from_slice::<Value>(&bytes) {
-            Ok(Value::Null | Value::Bool(_) | Value::Number(_)) => {}
-            Ok(Value::Object(map)) => {
-                if map
-                    .iter()
-                    .any(|(key, value)| index_key(key) || key == "__proto__" || !valid(value))
-                {
-                    return true;
-                }
-            }
-            _ => return true,
-        }
-    }
-    false
+/// Registries TypeScript reads in ways this crate does not reproduce: lone surrogates, nesting
+/// deeper than 128 levels, a FIFO or other special file, entries `listRepos` fails on with
+/// engine `TypeError` text (not an object, a non-string `key` or `path`, a `lastUsed` without a
+/// primitive value), relative entry paths and alias texts (maintainer decision Q4), sort keys
+/// whose NaN comparisons make the order engine-specific, aliases that throw on conversion to a
+/// property key or name an inherited `Object.prototype` property, and, for a caller that
+/// `writes` the registry, a directory at either path.
+pub fn registry_needs_core(home: &Path, writes: bool) -> bool {
+    Registry::read(home, writes).needs_core
 }
 
 /// Node `path.basename` without an extension argument.
 fn basename(path: &str) -> &str {
     let trimmed = path.trim_end_matches('/');
     trimmed.rsplit('/').next().unwrap_or("")
-}
-
-struct Entry {
-    key: String,
-    path: String,
-    last_used: f64,
 }
 
 pub(crate) fn labels_for(entries: &[(String, String)]) -> HashMap<String, String> {
@@ -154,87 +109,28 @@ pub(crate) fn labels_for(entries: &[(String, String)]) -> HashMap<String, String
     labels
 }
 
-fn read_object(path: &Path) -> Map<String, Value> {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .and_then(|value| match value {
-            Value::Object(map) => Some(map),
-            _ => None,
-        })
-        .unwrap_or_default()
-}
-
-fn registry(pacer_home: &Path) -> Vec<(String, Entry)> {
-    let Ok(text) = std::fs::read_to_string(state_file(pacer_home, "repos.json")) else {
-        return Vec::new();
-    };
-    let items: Vec<(String, Value)> = match serde_json::from_str::<Value>(&text) {
-        Ok(Value::Object(map)) => map.into_iter().collect(),
-        Ok(Value::Array(list)) => list
-            .into_iter()
-            .enumerate()
-            .map(|(i, v)| (i.to_string(), v))
-            .collect(),
-        _ => Vec::new(),
-    };
-    items
-        .into_iter()
-        .filter_map(|(name, value)| {
-            let key = value.get("key")?.as_str()?.to_owned();
-            let path = value.get("path")?.as_str()?.to_owned();
-            let last_used = value
-                .get("lastUsed")
-                .and_then(Value::as_f64)
-                .unwrap_or(f64::NAN);
-            Some((
-                name,
-                Entry {
-                    key,
-                    path,
-                    last_used,
-                },
-            ))
-        })
-        .collect()
-}
-
 /// `fallback(path).key`.
 fn local_key(path: &str) -> String {
     let digest = format!("{:x}", Sha256::digest(path.as_bytes()));
     format!("local:{}", &digest[..12])
 }
 
-/// `registered`: the entry of the registered root or linked-checkout alias holding the
-/// cached canonical path.
-fn registered(reg: &Map<String, Value>, aliases: &Map<String, Value>, path: &str) -> Option<Value> {
-    let real = cached_canonical(path);
-    let mut roots: Vec<&String> = reg.keys().chain(aliases.keys()).collect();
-    roots.sort_by_key(|root| std::cmp::Reverse(root.encode_utf16().count()));
-    roots
+fn pairs<'a>(entries: impl IntoIterator<Item = &'a Entry>) -> Vec<(String, String)> {
+    entries
         .into_iter()
-        .find(|root| real == **root || real.starts_with(&format!("{root}/")))
-        .and_then(|root| reg.get(aliases.get(root).and_then(Value::as_str).unwrap_or(root)))
-        .cloned()
+        .map(|e| (e.key.clone(), e.path.clone()))
+        .collect()
 }
 
 /// `repoFor(ctx, path)` in its wire key order: the registered entry with its label, else the
 /// `fallback` reference of the cached canonical path.
 pub fn repo_for(pacer_home: &Path, path: &str) -> Value {
-    let reg = read_object(&state_file(pacer_home, "repos.json"));
-    let aliases = read_object(&state_file(pacer_home, "repo-paths.json"));
-    if let Some(entry) = registered(&reg, &aliases, path) {
-        let pairs: Vec<(String, String)> = reg
-            .values()
-            .map(|e| {
-                let text = |field: &str| e[field].as_str().unwrap_or_default().to_owned();
-                (text("key"), text("path"))
-            })
-            .collect();
-        let key = entry["key"].as_str().unwrap_or_default();
-        return json!({"key": key, "path": entry["path"], "label": labels_for(&pairs).get(key)});
-    }
+    let registry = Registry::read(pacer_home, false);
     let real = cached_canonical(path);
+    if let Some(entry) = registry.registered(&real) {
+        let labels = labels_for(&pairs(&registry.entries()));
+        return json!({"key": entry.key, "path": entry.path, "label": labels.get(&entry.key)});
+    }
     json!({"key": local_key(&real), "label": basename(&real), "path": real})
 }
 
@@ -299,36 +195,27 @@ fn recent_keys(ctx: &Ctx) -> Result<HashSet<String>, CoreError> {
     Ok(keys)
 }
 
-fn list(pacer_home: &Path, keys: &HashSet<String>) -> (Vec<RepoRef>, Vec<String>) {
-    let reg = registry(pacer_home);
-    let stale: Vec<String> = reg
+fn list(registry: &Registry, keys: &HashSet<String>) -> (Vec<RepoRef>, Vec<String>) {
+    let entries = registry.entries();
+    let stale: Vec<String> = entries
         .iter()
-        .filter(|(_, e)| {
+        .filter(|e| {
             let probe = cached_path(&e.path);
             probe.exists == Some(false) && !probe.unreachable && !keys.contains(&e.key)
         })
-        .map(|(name, _)| name.clone())
+        .map(|e| e.name.clone())
         .collect();
-    for (_, entry) in &reg {
+    for entry in &entries {
         schedule_refresh(&entry.path);
     }
-    let mut entries: Vec<&Entry> = reg
+    let mut kept: Vec<&Entry> = entries
         .iter()
-        .filter(|(name, _)| !stale.contains(name))
-        .map(|(_, e)| e)
+        .filter(|e| !stale.contains(&e.name))
         .collect();
-    entries.sort_by(|a, b| {
-        (b.last_used - a.last_used)
-            .partial_cmp(&0.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let pairs: Vec<(String, String)> = entries
-        .iter()
-        .map(|e| (e.key.clone(), e.path.clone()))
-        .collect();
-    let labels = labels_for(&pairs);
+    newest_first(&mut kept);
+    let labels = labels_for(&pairs(kept.iter().copied()));
     let mut seen = HashSet::new();
-    let repos = entries
+    let repos = kept
         .into_iter()
         .filter(|e| seen.insert(e.key.clone()))
         .map(|e| RepoRef {
@@ -343,7 +230,7 @@ fn list(pacer_home: &Path, keys: &HashSet<String>) -> (Vec<RepoRef>, Vec<String>
 
 /// `listRepos(ctx, [])`: no task keys and nothing pruned or written.
 pub fn list_repos_read_only(pacer_home: &Path) -> Vec<RepoRef> {
-    list(pacer_home, &HashSet::new()).0
+    list(&Registry::read(pacer_home, false), &HashSet::new()).0
 }
 
 static LAST_PRUNED: LazyLock<Mutex<HashMap<PathBuf, f64>>> = LazyLock::new(Mutex::default);
@@ -366,12 +253,17 @@ fn prune(ctx: &Ctx, stale: &[String]) -> Result<(), CoreError> {
         return Ok(());
     }
     with_lock(ctx, "repos", LockOptions::default(), || {
-        if registry_needs_core(&ctx.pacer_home) {
+        let Registry {
+            mut reg,
+            needs_core,
+            ..
+        } = Registry::read(&ctx.pacer_home, false);
+        if needs_core || file.is_dir() {
             return Ok(());
         }
-        let mut map = read_object(&file);
-        map.retain(|path, _| !stale.contains(path));
-        write_private(&file, stringify(&Value::Object(map)).as_bytes()).map_err(internal)
+        reg.retain(|name, _| !stale.contains(name));
+        let text = quoted::stringify(&Value::Object(reg));
+        write_private(&file, text.as_bytes()).map_err(internal)
     })
     .map_err(internal)?
 }
@@ -380,7 +272,7 @@ fn prune(ctx: &Ctx, stale: &[String]) -> Result<(), CoreError> {
 /// active or recent tasks still use. A caller that is not read-only also prunes the rest.
 pub fn list_repos(ctx: &Ctx, read_only: bool) -> Result<Vec<RepoRef>, CoreError> {
     let keys = recent_keys(ctx)?;
-    let (repos, stale) = list(&ctx.pacer_home, &keys);
+    let (repos, stale) = list(&Registry::read(&ctx.pacer_home, false), &keys);
     if !read_only {
         prune(ctx, &stale)?;
     }

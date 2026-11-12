@@ -26,11 +26,15 @@ use std::path::Path;
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 const FILE: &str = "project-strategies.json";
 
-pub fn project_strategy_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
+pub fn project_strategy_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     if !op.starts_with("project.strategy.") {
         return false;
     }
-    repo_registry::registry_needs_core(&ctx.pacer_home)
+    // An absolute checkout path registers the repository.
+    let registers = params["repo"]
+        .as_str()
+        .is_some_and(|repo| Path::new(repo).is_absolute());
+    repo_registry::registry_needs_core(&ctx.pacer_home, registers)
         || strategy_load::native_load(&ctx.pacer_home).is_none()
         || policy_file_needs_core(&ctx.pacer_home)
 }

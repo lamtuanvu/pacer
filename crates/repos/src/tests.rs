@@ -81,10 +81,13 @@ fn missing_checkouts_are_stale_unless_a_recent_task_uses_them() {
         r#"{{"{gone}":{{"key":"github.com/a/gone","path":"{gone}","lastUsed":2.5}},"{kept}":{{"key":"github.com/a/kept","path":"{kept}","lastUsed":1}}}}"#
     ));
     probe::probe_for_tests(&gone);
-    let (repos, stale) = list(home.path(), &HashSet::new());
+    let (repos, stale) = list(&Registry::read(home.path(), false), &HashSet::new());
     assert_eq!(stale, std::slice::from_ref(&gone));
     assert_eq!(repos.len(), 1);
-    let (repos, stale) = list(home.path(), &HashSet::from(["github.com/a/gone".into()]));
+    let (repos, stale) = list(
+        &Registry::read(home.path(), false),
+        &HashSet::from(["github.com/a/gone".into()]),
+    );
     assert!(stale.is_empty());
     assert_eq!(repos[0].key, "github.com/a/gone");
 
@@ -105,23 +108,33 @@ fn missing_checkouts_are_stale_unless_a_recent_task_uses_them() {
 #[test]
 fn unusual_registries_need_the_core_reader() {
     let usual = home_with(r#"{"/r":{"key":"k","path":"/r","lastUsed":1.5}}"#);
-    assert!(!registry_needs_core(usual.path()));
+    assert!(!registry_needs_core(usual.path(), false));
     for text in [
-        r#"[]"#,
         r#""abc""#,
         r#"{"/r":{"key":"k","path":"r","lastUsed":1}}"#,
+        r#"{"/r":{"key":"k"}}"#,
+        r#"{"/r":null}"#,
+        r#"{"/r":{"key":"k","path":"/r","lastUsed":1},"/s":{"key":"k","path":"/s","lastUsed":2},"/t":{"key":"k","path":"/t"}}"#,
+    ] {
+        assert!(registry_needs_core(home_with(text).path(), false), "{text}");
+    }
+    for text in [
+        "null",
+        "5",
+        "true",
+        "[]",
+        "{",
         r#"{"/r":{"key":"k","path":"/r"}}"#,
         r#"{"1":{"key":"k","path":"/r","lastUsed":1}}"#,
         r#"{"/r":{"key":"k","path":"/r","lastUsed":1e400}}"#,
-        "{",
     ] {
-        assert!(registry_needs_core(home_with(text).path()), "{text}");
+        assert!(
+            !registry_needs_core(home_with(text).path(), false),
+            "{text}"
+        );
     }
-    for text in ["null", "5", "true"] {
-        assert!(!registry_needs_core(home_with(text).path()), "{text}");
-    }
-    fs::write(usual.path().join("state/repo-paths.json"), r#"{"/w":1}"#).unwrap();
-    assert!(registry_needs_core(usual.path()));
+    fs::write(usual.path().join("state/repo-paths.json"), r#"{"/w":"w"}"#).unwrap();
+    assert!(registry_needs_core(usual.path(), false));
 }
 
 #[test]
