@@ -148,7 +148,7 @@ for (const transport of ["stdio", "http"] as const) {
     const {out} = await differential(transport, cases, "repo.list");
     cases.forEach((c, i) => { if (c.steps[0]!.native) expect(out[i]!.reply, c.name).not.toContain('"error"'); });
     const keys = (name: string) => JSON.parse(out[cases.findIndex(c => c.name === name)]!.reply.replace(/^200 /, "")).result.map((repo: {key: string}) => repo.key);
-    expect(keys("integer index keys enumerate first")).toEqual(["github.com/acme/c", "github.com/acme/a", "github.com/acme/b", "github.com/acme/d"]);
+    expect(keys("integer index keys enumerate first")).toEqual(["github.com/acme/c", "github.com/acme/a", "github.com/acme/seven", "github.com/acme/b", "github.com/acme/e1", "github.com/acme/d"]);
     expect(keys("lastUsed converts with ToNumber")).toEqual(["github.com/acme/a", "github.com/acme/b", "github.com/acme/d", "github.com/acme/c"]);
     expect(keys("infinite lastUsed")).toEqual(["github.com/acme/a", "github.com/acme/c", "github.com/acme/b"]);
   }, 180_000);

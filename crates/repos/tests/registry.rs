@@ -84,8 +84,12 @@ fn sort_keys_convert_like_javascript_numbers() {
 
 #[test]
 fn integer_index_keys_enumerate_first_and_proto_is_an_own_key() {
-    let index = r#"{"/z":{"key":"github.com/a/z","path":"/usr","lastUsed":1},"10":{"key":"github.com/a/ten","path":"/bin","lastUsed":1},"2":{"key":"github.com/a/two","path":"/etc","lastUsed":1}}"#;
-    assert_eq!(keys(index), expect(&["two", "ten", "z"]));
+    // Only canonical decimal text is an index: "07", "1e1" and "-0" keep insertion order.
+    let index = r#"{"07":{"key":"github.com/a/seven","path":"/tmp","lastUsed":1},"/z":{"key":"github.com/a/z","path":"/usr","lastUsed":1},"10":{"key":"github.com/a/ten","path":"/bin","lastUsed":1},"1e1":{"key":"github.com/a/e1","path":"/var","lastUsed":1},"2":{"key":"github.com/a/two","path":"/etc","lastUsed":1},"-0":{"key":"github.com/a/m0","path":"/dev","lastUsed":1}}"#;
+    assert_eq!(
+        keys(index),
+        expect(&["two", "ten", "seven", "z", "e1", "m0"])
+    );
     let proto = r#"{"__proto__":{"key":"github.com/a/p","path":"/usr","lastUsed":3},"/q":{"key":"github.com/a/q","path":"/bin","lastUsed":1}}"#;
     assert_eq!(keys(proto), expect(&["p", "q"]));
 }
