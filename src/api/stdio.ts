@@ -216,6 +216,15 @@ export async function runStdio(
           result = await msgEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps?.spawnRunner);
           break;
         }
+        case "_internal.host.effects": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { hostEffectsBridge } = await import("./host-effects-bridge");
+          result = await hostEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps);
+          break;
+        }
         case "_internal.task-send": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
