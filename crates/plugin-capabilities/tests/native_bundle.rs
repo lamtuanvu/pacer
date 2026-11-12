@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{BundleSpec, NativeBundle};
+use pacer_plugin_capabilities::{BundleSpec, NativeBundle};
 use serde_json::json;
 use std::{
     collections::HashMap,

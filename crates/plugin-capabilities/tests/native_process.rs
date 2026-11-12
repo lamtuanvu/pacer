@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{BrokerError, CommandResource, NativeProcess};
+use pacer_plugin_capabilities::NativeProcess;
+use pacer_plugin_host::{BrokerError, CommandResource};
 use serde_json::json;
 use std::{
     collections::HashMap,

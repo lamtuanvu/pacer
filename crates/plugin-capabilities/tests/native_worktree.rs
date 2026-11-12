@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::NativeWorktree;
+use pacer_plugin_capabilities::NativeWorktree;
 use pacer_store::TaskStore;
 use serde_json::json;
 use std::{

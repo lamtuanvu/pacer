@@ -86,6 +86,8 @@ layer = 2
 layer = 3
 [crates.pacer-plugin-host]
 layer = 4
+[crates.pacer-plugin-capabilities]
+layer = 5
 heavy = ["reqwest"]
 [crates.pacer-sqlite-proof]
 layer = 2
@@ -113,7 +115,7 @@ heavy = ["typify", "syn"]
 [crates.pacer-engine]
 layer = 5
 [crates.pacer-plugin-runtime]
-layer = 5
+layer = 6
 [crates.pacer-read-model]
 layer = 7
 [crates.pacer-repos]

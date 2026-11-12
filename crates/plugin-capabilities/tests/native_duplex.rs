@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{DuplexSpec, NativeDuplex};
+use pacer_plugin_capabilities::{DuplexSpec, NativeDuplex};
 use serde_json::json;
 use std::{
     collections::HashMap,

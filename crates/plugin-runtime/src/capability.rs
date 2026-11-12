@@ -1,7 +1,7 @@
 //! Capability broker sessions for a native [`crate::ProcessOwner`].
 //!
-//! Reuses `pacer-plugin-host::{CapabilityBroker, NativeRead, NativeWrite,
-//! NativeProcess, NativeHttp}`. Unscoped methods (`capability.log`,
+//! Reuses `pacer-plugin-capabilities::{CapabilityBroker, NativeRead, NativeProcess,
+//! NativeHttp}` and `pacer-plugin-host::NativeWrite`. Unscoped methods (`capability.log`,
 //! `capability.config.get`) are answered locally from the sealed hello. Scoped
 //! native modules answer when Core issues call-scoped [`CallResources`] (P4d-7).
 //! P4d-8 wires observation bootstrap (`tasks.read` / `events.subscribe`) when
@@ -17,11 +17,14 @@ use crate::orca_attach::{
     orca_sidecar_call,
 };
 use crate::worktree_attach::{WorktreeAttachPlan, WorktreeCallContext, issue_worktree};
+use pacer_plugin_capabilities::{
+    CapabilityBroker, CapabilityEffect, HostProvider, NativeHosts, NativeHttp, NativeProcess,
+    NativeRun,
+};
 use pacer_plugin_host::{
-    AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-    CredentialBindings, HostProvider, NativeHosts, NativeHttp, NativeProcess, NativeRun,
-    ObservationCall, ObservationGeneration, OrcaAttemptResource, ParsedManifest, ProviderSnapshot,
-    ReadContext, TaskProjection, parse_manifest,
+    AuthorityError, BrokerError, CallAuthority, CallResources, CredentialBindings, ObservationCall,
+    ObservationGeneration, OrcaAttemptResource, ParsedManifest, ProviderSnapshot, ReadContext,
+    TaskProjection, parse_manifest,
 };
 
 const ORCA_PROVIDER: &str = "pacer-exec-orca";
