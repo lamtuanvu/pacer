@@ -83,6 +83,16 @@ fn production_queries_bound_work_despite_irrelevant_history() {
                 2,
             ),
             (
+                // The attention/snapshot active set (queued, running, needs_input)
+                // must stay one indexed seek even with a large need*_input set.
+                TaskFilter {
+                    states: Some(&["queued", "running", "needs_input"]),
+                    ..Default::default()
+                },
+                "tasks_state",
+                2,
+            ),
+            (
                 TaskFilter {
                     created_since: Some(100.0),
                     limit: Some(21),
