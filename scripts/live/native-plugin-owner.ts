@@ -1,11 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { installFixture } from "../../conformance/install";
 import { freePort, healthy, launch, pacerArgv, record, run, sandboxEnv, startService, stopService, type Session } from "./core";
 import { captureOwnedProcessGroup, stopOwnedProcessGroup } from "./process-group";
-import { alive, gone, httpOp, PLUGIN, pluginProcesses } from "./native-stdio";
+import { alive, gone, httpOp, PLUGIN, pluginProcesses, RENDER } from "./native-stdio";
 
 const WAIT_MS = 1500;
+const GRACE_MS = 2000;
 
 /** Config publications for the plugins area, read from one SSE subscription. */
 async function configStream(session: Session) {
@@ -81,8 +82,9 @@ async function waitingServe(session: Session) {
 
 /**
  * Fixed owner lifecycle on a healthy `--front-door rust --native-plugin-host` sandbox: crash and
- * backoff of the service's fixture child, a refused second serve, and a restart that waits for the
- * old service to exit while a waiting serve takes the home over. Accepts no operation or override.
+ * backoff of the service's fixture child, a refused second serve, a restart that waits for the
+ * old service to exit while a waiting serve takes the home over, and a service stop with a plugin
+ * call in flight. Accepts no operation or override.
  */
 export async function exerciseNativePluginOwner(session: Session): Promise<void> {
   if (session.frontDoor !== "rust" || !session.nativePluginHost || session.nativeForwardEcho || session.nativeForwardOps || session.realKeychain) {
@@ -182,6 +184,41 @@ export async function exerciseNativePluginOwner(session: Session): Promise<void>
     record(session, { kind: "note", behavior, surface: "service", verdict: "PASS",
       steps: "Start a serve with PACER_SERVE_OWNER_WAIT_MS=20000, stop the service and wait for its group to exit, stop the waiting serve, start the service again",
       text: `Service ${oldPid} and its plugin process ${before} exited; the waiting serve ${waiting.pid} then owned ${socket}, and on its stop removed the socket and sidecar. The restarted service ${session.pid} owns the socket and started plugin process ${child} on plugin.doctor.` });
+
+    behavior = "Service stop with a plugin call in flight";
+    const settings = join(home, "plugins", PLUGIN, "fixture.json");
+    const original = readFileSync(settings, "utf8");
+    let held: { service: number; child: number; childGone: number; serviceGone: number; reply: string };
+    writeFileSync(settings, JSON.stringify({ ...JSON.parse(original), renderDelayMs: 60000 }));
+    try {
+      await op(session, "plugin.disable", { id: PLUGIN });
+      await op(session, "plugin.enable", { id: PLUGIN, grant: true });
+      if ((await report(session)).ok !== true) throw Error("the slow-render plugin did not start");
+      const service = session.pid;
+      const child = await serviceChild(session);
+      const call = httpOp(session, "plugin.ui.render", RENDER).then(reply => JSON.stringify(reply), (error: Error) => error.message);
+      await Bun.sleep(1000);
+      // The service alone gets the signal: its plugin child shares its process group.
+      const stoppingAt = Date.now();
+      process.kill(service, "SIGTERM");
+      let childGone = 0, serviceGone = 0;
+      for (const deadline = stoppingAt + 10000; Date.now() < deadline && !(childGone && serviceGone); await Bun.sleep(25)) {
+        if (!childGone && !alive(child)) childGone = Date.now() - stoppingAt;
+        if (!serviceGone && !alive(service)) serviceGone = Date.now() - stoppingAt;
+      }
+      await stopService(session);
+      held = { service, child, childGone, serviceGone, reply: await call };
+    } finally { writeFileSync(settings, original); }
+    if (!held.childGone || !held.serviceGone || held.serviceGone > GRACE_MS + 1500) {
+      throw Error(`service ${held.service} stopped in ${held.serviceGone || "over 10000"} ms and plugin process ${held.child} in ${held.childGone || "over 10000"} ms with a render in flight`);
+    }
+    for (const name of ["host.sock", "host.sock.pid"]) if (existsSync(join(home, "run", name))) throw Error(`${name} outlived the stopped service`);
+    if (pluginProcesses(home).length) throw Error("a plugin process outlived the stopped service");
+    await startService(session);
+    if ((await report(session)).ok !== true) throw Error("the plugin did not start after the service came back");
+    record(session, { kind: "note", behavior, surface: "service", verdict: "PASS",
+      steps: "Hold plugin.ui.render (renderDelayMs 60000, past the 30 s call deadline), SIGTERM the service pid alone, wait for both to exit, start the service again",
+      text: `With the render in flight, plugin process ${held.child} exited ${held.childGone} ms and service ${held.service} ${held.serviceGone} ms after the service's SIGTERM (grace ${GRACE_MS} ms); host.sock, its sidecar and every plugin process were gone. The held call ended with: ${held.reply}. The restarted service ${session.pid} started the plugin again.` });
   } catch (error) {
     record(session, { kind: "note", behavior, surface: "HTTP API", verdict: "FAIL", text: (error as Error).message });
     throw error;

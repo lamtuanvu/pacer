@@ -87,7 +87,7 @@ export async function exerciseNativeStdio(session: Session): Promise<void> {
 }
 
 export const PLUGIN = "fx-ui";
-const RENDER = { plugin: PLUGIN, surface: "activity", id: "checklist", context: { route: "overview", theme: "light" } };
+export const RENDER = { plugin: PLUGIN, surface: "activity", id: "checklist", context: { route: "overview", theme: "light" } };
 /** The fixed plugin exchange: one request before hello, then the plugin lifecycle under protocol 3. */
 export const PLUGIN_STDIO_STEPS: ReadonlyArray<readonly [number, string, Record<string, unknown>]> = [
   [1, "plugin.list", {}],
