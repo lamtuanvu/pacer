@@ -15,12 +15,9 @@
 //!
 //! Without a live [`SharedOwner`], call/find/stop stay dark stubs.
 //! Flag-on serve attaches the owner so handlers reach tracked
-//! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A live owner answers
-//! only Core-sealed calls (`_host.plugin.call` carrying `spawn`, see
-//! `crate::bridge_call`): the owner starts, hellos and authorizes the child
-//! from Core's spec before calling it. The unsealed call and
-//! `_host.plugin.spawn` are refused, so no caller can start a lane from its
-//! own spec for a later sealed call to reuse.
+//! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A `_host.plugin.call`
+//! carrying `spawn` is a Core-sealed call (`crate::bridge_call`): the owner
+//! starts, hellos and authorizes the child before calling it.
 //!
 //! An existing socket path is probed with a non-blocking connect before bind:
 //! a refused connect marks it stale and it is removed, while an accepted or

@@ -2,8 +2,7 @@
 //!
 //! The owner learns of a dead child first. Each lane has a monitor that waits
 //! for the exit the process watcher publishes; when the transport closes while
-//! the child lives on, the monitor sends it SIGTERM, then SIGKILL after
-//! [`TERMINATE_GRACE`], as the TypeScript transport does. An
+//! the child lives on, the monitor SIGKILLs it after [`TERMINATE_GRACE`]. An
 //! exit that no `terminate` asked for is a crash: the monitor records a restart
 //! floor for the plugin id, reports `{id, reason}` to the owning door's sink
 //! (which sends Core the private `crashed` kind), and only then marks the lane
@@ -12,11 +11,9 @@
 //!
 //! Core keeps `restarts`, `error`, the backoff and `failing` (the TypeScript
 //! registry's `recordCrash`), and seals the earliest start in `spawn_spec`.
-//! The owner-side floor mirrors the same ramp per plugin id, and the same
-//! [`CRASH_LIMIT`]: after three crashes within the window the owner starts the
-//! plugin again only once an enable clears it. So a door whose Core never
-//! hears the crash (an attached stdio connection) cannot respawn a
-//! crash-looping child faster than the owning door, nor revive a failing one.
+//! The owner-side floor mirrors the same ramp per plugin id, so a door whose
+//! Core never hears the crash (an attached stdio connection) still cannot
+//! respawn a crash-looping child faster than that.
 
 use crate::{
     bridge_listener::SharedOwner,
@@ -34,8 +31,6 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 /// Crashes older than this no longer count toward the ramp (`CRASH_WINDOW_S`).
 pub const CRASH_WINDOW: Duration = Duration::from_secs(60);
-/// Crashes within the window that mark a plugin failing (`CRASH_LIMIT`).
-pub const CRASH_LIMIT: usize = 3;
 /// The ramp's ceiling (`MAX_BACKOFF_MS`).
 pub const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// How long a report may wait for the door to deliver it to Core.
@@ -61,23 +56,15 @@ pub struct CrashReport {
     pub done: oneshot::Sender<()>,
 }
 
-/// Recent crashes of one plugin id.
-#[derive(Default)]
-struct Crashes {
-    times: Vec<Instant>,
-    /// [`CRASH_LIMIT`] crashes fell within the window; held until [`CrashBook::clear`].
-    failing: bool,
-}
-
 /// Restart floors per plugin id and the door's report sink.
 #[derive(Default)]
 pub struct CrashBook {
-    crashes: Mutex<HashMap<String, Crashes>>,
+    crashes: Mutex<HashMap<String, Vec<Instant>>>,
     sink: Mutex<Option<mpsc::UnboundedSender<CrashReport>>>,
 }
 
 impl CrashBook {
-    fn crashes(&self) -> std::sync::MutexGuard<'_, HashMap<String, Crashes>> {
+    fn crashes(&self) -> std::sync::MutexGuard<'_, HashMap<String, Vec<Instant>>> {
         self.crashes
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -87,28 +74,20 @@ impl CrashBook {
     pub fn record(&self, id: &str) {
         let now = Instant::now();
         let mut crashes = self.crashes();
-        let entry = crashes.entry(id.to_owned()).or_default();
-        entry
-            .times
-            .retain(|at| now.duration_since(*at) < CRASH_WINDOW);
-        entry.times.push(now);
-        entry.failing |= entry.times.len() >= CRASH_LIMIT;
+        let times = crashes.entry(id.to_owned()).or_default();
+        times.retain(|at| now.duration_since(*at) < CRASH_WINDOW);
+        times.push(now);
     }
 
     /// The earliest instant this owner may start `id` again, if it crashed recently.
     pub fn floor(&self, id: &str) -> Option<Instant> {
         let crashes = self.crashes();
-        let times = &crashes.get(id)?.times;
+        let times = crashes.get(id)?;
         let last = *times.last()?;
         Some(last + backoff(times.len()))
     }
 
-    /// True once `id` crashed [`CRASH_LIMIT`] times within the window, until cleared.
-    pub fn is_failing(&self, id: &str) -> bool {
-        self.crashes().get(id).is_some_and(|entry| entry.failing)
-    }
-
-    /// Forget `id`'s crashes and failing mark, as enabling a plugin clears Core's backoff.
+    /// Forget `id`'s crashes, as enabling a plugin clears Core's backoff.
     pub fn clear(&self, id: &str) {
         self.crashes().remove(id);
     }
@@ -154,19 +133,14 @@ pub(crate) async fn monitor(book: Arc<CrashBook>, id: String, lane: Weak<PluginL
         _ = exit.wait_for(Option::is_some) => false,
         _ = closed.wait_for(|closed| *closed) => true,
     };
-    if closed_first {
-        match lane.upgrade() {
-            Some(lane) => lane.process().term(),
-            None => return,
-        }
-        if tokio::time::timeout(TERMINATE_GRACE, exit.wait_for(Option::is_some))
+    if closed_first
+        && tokio::time::timeout(TERMINATE_GRACE, exit.wait_for(Option::is_some))
             .await
             .is_err()
-        {
-            match lane.upgrade() {
-                Some(lane) => lane.process().kill(),
-                None => return,
-            }
+    {
+        match lane.upgrade() {
+            Some(lane) => lane.process().kill(),
+            None => return,
         }
     }
     let Some(reason) = exit
@@ -180,7 +154,6 @@ pub(crate) async fn monitor(book: Arc<CrashBook>, id: String, lane: Weak<PluginL
     let Some(lane) = lane.upgrade() else {
         return;
     };
-    lane.observation().retire();
     if !lane.process().is_stopping() {
         book.record(&id);
         book.report(&id, &reason).await;
@@ -274,7 +247,7 @@ async fn bounded<T>(
 /// would pass `until`, as the registry's `plugin call expired before startup`.
 /// A lane whose crash is still being reported fails the call
 /// ([`StartFailure::Crashed`]) instead of restarting a child Core may be about
-/// to mark `failing`; a failing plugin or a closing owner fails it at once.
+/// to mark `failing`.
 pub async fn start_lane(
     owner: &SharedOwner,
     id: &str,
@@ -287,9 +260,6 @@ pub async fn start_lane(
     loop {
         let wait = {
             let mut guard = bounded(until, cancel, owner.lock(), StartFailure::Deadline).await?;
-            if guard.is_closing() {
-                return Err(StartFailure::Owner(OwnerError::Closing));
-            }
             if let Some(lane) = guard.lane(id).filter(|lane| lane.process().is_alive()) {
                 return Ok(lane);
             }
@@ -354,18 +324,6 @@ mod tests {
         assert!(book.floor("other").is_none());
         book.clear("fx");
         assert!(book.floor("fx").is_none());
-    }
-
-    #[test]
-    fn the_third_crash_marks_failing_until_cleared() {
-        let book = CrashBook::default();
-        book.record("fx");
-        book.record("fx");
-        assert!(!book.is_failing("fx"));
-        book.record("fx");
-        assert!(book.is_failing("fx") && !book.is_failing("other"));
-        book.clear("fx");
-        assert!(!book.is_failing("fx"));
     }
 
     #[test]
