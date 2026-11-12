@@ -1,12 +1,14 @@
 #![allow(clippy::unwrap_used)]
 use pacer_plugin_host::{
-    AuthorityError, BrokerError, CapabilityEffect, HostProvider, NativeHosts, ProviderSnapshot,
+    AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
+    HostProvider, NativeHosts, ProviderSnapshot, parse_manifest,
 };
 use serde_json::{Value, json};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
+use std::time::{Duration, Instant};
 fn snapshot() -> ProviderSnapshot {
     ProviderSnapshot {
         alias: "box".into(),
@@ -436,4 +438,76 @@ async fn snapshot_change_before_run_retires_with_one_provider_close() {
     n.revoke().await.unwrap();
     assert_eq!(s.lock().unwrap().close_attempts, [h(1)]);
     assert_eq!(s.lock().unwrap().closed, [h(1)]);
+}
+// R1: a native failure retires the native session, so the broker lease must go with it,
+// as `host-lease.ts` deletes a retired lease before counting open-session capacity.
+enum Failure {
+    Run,
+    Fetch,
+    Close,
+}
+async fn broker_frees_capacity_after_native_failures(failure: Failure) {
+    let manifest = parse_manifest(json!({"id":"fx-host","version":"1.0.0","publisher":"fixture","host":">=1.10.0","capabilities":[{"name":"hosts","scopes":[]}]})).unwrap();
+    let script = match failure {
+        Failure::Fetch => "BUNDLE_OUT",
+        _ => "PROBE",
+    };
+    let op = json!({"alias":"box","hostFingerprint":"host-1","script":script,"args":[],
+        "timeoutMs":1000,"maxBytes":1024});
+    let resources: CallResources = serde_json::from_value(json!({"hosts":vec![op; 4]})).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let authority = CallAuthority::new(resources, ["hosts".into()], deadline);
+    let mut b = CapabilityBroker::new(manifest, authority, vec![]).with_hosts([snapshot()]);
+    let (mut n, s) = scripted(|s| {
+        s.run_fail = Some("run failed");
+        s.fetch_fail = Some("fetch failed");
+        s.close_fail = (1..=4).map(|i| (h(i), "close failed")).collect();
+    });
+    for _ in 0..4 {
+        let opened = b
+            .handle("capability.hosts.open", json!({"alias":"box"}), &mut n)
+            .await
+            .unwrap();
+        let session = opened["session"].as_str().unwrap();
+        let bounds = json!({"session":session,"timeoutMs":1000,"maxBytes":1024});
+        match failure {
+            Failure::Run => {
+                let mut params = bounds;
+                params["script"] = json!(script);
+                params["args"] = json!([]);
+                let run = b.handle("capability.hosts.run", params, &mut n).await;
+                assert!(is_effect(run, "run failed"));
+            }
+            Failure::Fetch => {
+                let fetch = b.handle("capability.hosts.fetch", bounds, &mut n).await;
+                assert!(is_effect(fetch, "fetch failed"));
+            }
+            Failure::Close => {}
+        }
+        let close = b
+            .handle("capability.hosts.close", json!({"session":session}), &mut n)
+            .await;
+        match failure {
+            Failure::Close => assert!(is_effect(close, "close failed")),
+            _ => assert!(close.is_err()),
+        }
+    }
+    b.handle("capability.hosts.open", json!({"alias":"box"}), &mut n)
+        .await
+        .unwrap();
+    let s = s.lock().unwrap();
+    assert_eq!(s.opens, 5);
+    assert_eq!(s.close_attempts, (1..=4).map(h).collect::<Vec<_>>());
+}
+#[tokio::test]
+async fn broker_frees_host_capacity_after_native_run_failures() {
+    broker_frees_capacity_after_native_failures(Failure::Run).await;
+}
+#[tokio::test]
+async fn broker_frees_host_capacity_after_native_fetch_failures() {
+    broker_frees_capacity_after_native_failures(Failure::Fetch).await;
+}
+#[tokio::test]
+async fn broker_frees_host_capacity_after_native_close_failures() {
+    broker_frees_capacity_after_native_failures(Failure::Close).await;
 }
