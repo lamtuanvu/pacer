@@ -58,10 +58,12 @@ const events = (dir: string) => {
   const path = join(dir, ".pacer", "link", "outbox.jsonl");
   if (!existsSync(path)) return [];
   // The TypeScript core publishes asynchronously, so compare the events without ids, clocks, interleaving
-  // or the core's own plugin lifecycle.
+  // or the core's own plugin lifecycle. Each twin home has its own machine identity on Linux.
   return readFileSync(path, "utf8").trim().split("\n").map(line => JSON.parse(line).envelope)
     .filter(event => event.type !== "entity" || event.data.kind !== "plugin")
-    .map(event => JSON.stringify(event).replace(/"(id|at)":"?\d+(\.\d+)?(-[0-9a-f]+)?"?/g, '"$1":"<now>"')).sort();
+    .map(event => JSON.stringify(event)
+      .replace(/"(id|at)":"?\d+(\.\d+)?(-[0-9a-f]+)?"?/g, '"$1":"<now>"')
+      .replace(/"machineId":"[a-z2-7]+"/g, '"machineId":"<machine>"')).sort();
 };
 
 async function stdio(c: Case, forward: boolean) {
