@@ -422,7 +422,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Test desktop crate
-        run: cargo test --locked --bin pacer --manifest-path desktop/src-tauri/Cargo.toml
+        # Tauri's build script requires the bundled CLI sidecars to exist; tests never run
+        # them, so stage two stub executables instead of building the full CLI.
+        run: |
+          stub="$RUNNER_TEMP/pacer-sidecar-stub"
+          mkdir -p "$stub"
+          printf '#!/bin/sh\nexit 0\n' > "$stub/pacer"
+          cp "$stub/pacer" "$stub/pacer-core"
+          chmod 0755 "$stub/pacer" "$stub/pacer-core"
+          desktop/scripts/stage-cli.sh "$stub/pacer" "$stub/pacer-core"
+          cargo test --locked --bin pacer --manifest-path desktop/src-tauri/Cargo.toml
       - name: Test Rust plugin SDK harness feature
         run: cargo test -p pacer-plugin --features testing --locked
       - name: Plugin conformance through the Rust front door
